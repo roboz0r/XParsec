@@ -5,6 +5,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="JsNativeSymbols.fs" />
+    <Compile Include="TsManifestTypes.fs" />
+    <Compile Include="TsManifestMembers.fs" />
     <Compile Include="TsManifestProvider.fs" />
     <Compile Include="JsAst.fs" />
     <Compile Include="JsPrint.fs" />

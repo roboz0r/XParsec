@@ -246,15 +246,6 @@ type ExternalSignature =
         MethodTyparBounds: FrozenType voption[]
     }
 
-    /// The bound for method typar `j`, or `ValueNone` — tolerant of the empty-array
-    /// default (every non-TS producer), so consumers need not distinguish "no bounds
-    /// carried" from "this typar unconstrained".
-    member s.MethodTyparBound(j: int) : FrozenType voption =
-        if j >= 0 && j < s.MethodTyparBounds.Length then
-            s.MethodTyparBounds.[j]
-        else
-            ValueNone
-
     /// The deferred sentinel a contract-layer member carries between extraction
     /// and the `ExtractCtx.toProvider` finalize pass (which fills `Parameters` /
     /// `Return` by translating the stashed signature CST once the registry is
@@ -875,13 +866,6 @@ module ExternalSymbols =
             Comparable = resolveAnchor "Vesper.comparable`1"
         }
 
-    /// Realise a member's `Signature` at `level`: `FTTypar(Declaring,i) →
-    /// declaringArgs.[i]`, `FTTypar(Method,j) → fresh TyVar at level` (one per
-    /// index, shared across `Parameters` and `Return`). Reconstructs
-    /// `BuildSignature`'s `TyFun(params, ret)` for a method / ctor, or the bare
-    /// value type for a property. The data-form replacement for
-    /// `member.BuildSignature args` followed by `Infer.instantiateMethodTypars`;
-    /// equal to it on the post-freeze subset.
     /// Realise a member's `Signature` with SOME method typars PRE-BOUND to a concrete
     /// type (`seed`, index → type) instead of a fresh var — the rest freshen normally
     /// (shared `cache`). The call-site literal-grounding rule (R4a step 3) seeds a method
@@ -910,6 +894,13 @@ module ExternalSymbols =
         else
             TyFun(instantiateWith decl methodVar s.Parameters, instantiateWith decl methodVar s.Return)
 
+    /// Realise a member's `Signature` at `level`: `FTTypar(Declaring,i) →
+    /// declaringArgs.[i]`, `FTTypar(Method,j) → fresh TyVar at level` (one per
+    /// index, shared across `Parameters` and `Return`). Reconstructs
+    /// `BuildSignature`'s `TyFun(params, ret)` for a method / ctor, or the bare
+    /// value type for a property. The data-form replacement for
+    /// `member.BuildSignature args` followed by `Infer.instantiateMethodTypars`;
+    /// equal to it on the post-freeze subset.
     let instantiateSignature (m: ExternalMember) (declaringArgs: SemType[]) (level: int) : SemType =
         instantiateSignatureWith [] m declaringArgs level
 

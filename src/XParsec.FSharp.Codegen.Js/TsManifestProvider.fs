@@ -5,6 +5,8 @@ open System.IO
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open Vesper.Ts.Manifest
+open XParsec.FSharp.Codegen.Js.TsManifestTranslate
+open XParsec.FSharp.Codegen.Js.TsManifestMembers
 
 /// Layer-2 provider backed by a TS-derived JSON manifest (`Vesper.Ts.Manifest`),
 /// the consumer end of the extractor→manifest→provider slice. It is the JS analog
@@ -13,355 +15,31 @@ open Vesper.Ts.Manifest
 /// and this maps its type-description grammar into the seam's `ExternalTypeShape`
 /// / `ExternalSymbol` / `FrozenType`. Mirrors `JsNativeSymbols` structurally.
 ///
+/// This module assembles and loads the provider (free-function/value symbols,
+/// overload grouping, the `IExternalSymbolProvider` maps); type translation lives
+/// in `TsManifestTranslate` (TsManifestTypes.fs) and member/type-shape building in
+/// `TsManifestMembers` (TsManifestMembers.fs).
+///
 /// MVP scope: non-generic `Interface` members (primitive-typed) + free
 /// `Function`s. `Class` is handled too; the remaining grammar (unions, dynamic,
 /// structural, generics, import shapes) is mapped conservatively or deferred —
 /// see the inline TODOs.
 module TsManifestProvider =
 
-    // ─── TypeRef → FrozenType (member signature templates) ─────────────────
-
-    /// `resolveClass` is the manifest's name→`TypeKey` table for names registered as
-    /// an `Interface`/`Class` (built in `providerOfManifest`, complete before any
-    /// per-export walk so forward references resolve). It is THE gate that turns a
-    /// nominal `Named` into `FTClass` — and only for a class/interface: a primitive,
-    /// an unresolved/cross-package name, and a `TypeAlias` name all miss the table and
-    /// stay `FTConst` (aliases stay transparent through `ExternalTypeShape.Abbrev`).
-    /// This is what makes a manifest interface resolve as `TyClass` at the front end so
-    /// `resolveFieldStep`'s external-`TyClass` arm admits `.member` access via the
-    /// provider. The key MUST equal what `toTypeShape`'s `build` mints
-    /// (`SymbolKey.TypeKey(Some moduleSpec, nsPath, name)`) so `SymbolKeyOps.qualifiedName`
-    /// of it equals the provider's map key (`qualify nsPath name`) — the exact string the
-    /// front end hands to `TryLookupMember`.
-    let rec private toFrozen (resolveClass: string -> SymbolKey option) (t: Schema.TypeRef) : FrozenType =
-        let nominal name (args: FrozenType[]) =
-            // THE LAW (`SymbolKeyOps.arityName`): a generic nominal type's compiled name is
-            // arity-suffixed (`Emitter`1`) and (name, arity) pairs are DISTINCT nominal types.
-            // A TS `Named` reference applies ALL its type args (TS has no partial application
-            // and no arity overloading), so the applied arg count IS the declared arity for an
-            // in-package resolution — suffix the manifest's bare spelling by it at lookup so it
-            // hits the resolver table (keyed by the same suffixed name). The `FTConst` fallback
-            // keeps the BARE name (a primitive/cross-package/alias name carries no arity suffix).
-            match resolveClass (SymbolKeyOps.arityName name args.Length) with
-            | Some key -> FTClass(key, EqArray.ofSeq args)
-            | None -> FTConst(name, EqArray.ofSeq args)
-
-        match t with
-        | Schema.TypeRef.Named(name, []) -> nominal name [||]
-        | Schema.TypeRef.Named(name, args) -> nominal name (List.map (toFrozen resolveClass) args |> Array.ofList)
-        | Schema.TypeRef.Typar i -> FTTypar(TyparAxis.Declaring, i)
-        | Schema.TypeRef.MethodTypar i -> FTTypar(TyparAxis.Method, i)
-        | Schema.TypeRef.Fun(args, ret) ->
-            List.foldBack (fun a acc -> FTFun(toFrozen resolveClass a, acc)) args (toFrozen resolveClass ret)
-        | Schema.TypeRef.Tuple items -> FTTuple(EqArray.ofSeq (List.map (toFrozen resolveClass) items))
-        // Route through the smart constructor — flatten/dedupe/collapse per TS's
-        // semantic union rules (a singleton `("a")` collapses to `FTLiteral "a"`).
-        | Schema.TypeRef.Union members -> FrozenType.MkUnion(List.map (toFrozen resolveClass) members)
-        // A TS literal TYPE → `FTLiteral` (structural, external-vocabulary only).
-        | Schema.TypeRef.Literal(Schema.LiteralValue.StringVal s) -> FTLiteral(LiteralConst.String s)
-        | Schema.TypeRef.Literal(Schema.LiteralValue.IntVal n) -> FTLiteral(LiteralConst.Int n)
-        // keyof / indexed-access / conditional → CARRIER `FrozenType` nodes, INERT (R4a
-        // step 2): rehydrated with their children, threaded through every walk, but NOT
-        // evaluated — the front end owns the ground fold (step 3). Design §"keyof … ride
-        // on top".
-        | Schema.TypeRef.KeyOf t -> FTKeyOf(toFrozen resolveClass t)
-        | Schema.TypeRef.IndexedAccess(objTy, index) ->
-            FTIndexedAccess(toFrozen resolveClass objTy, toFrozen resolveClass index)
-        | Schema.TypeRef.Conditional(check, extends, whenTrue, whenFalse) ->
-            FTConditional(
-                toFrozen resolveClass check,
-                toFrozen resolveClass extends,
-                toFrozen resolveClass whenTrue,
-                toFrozen resolveClass whenFalse
-            )
-        | Schema.TypeRef.Dynamic -> FTUnknown "any" // TODO: TyDynamic once it lands
-        | Schema.TypeRef.Structural(hash, _) -> FTUnknown("structural:" + hash) // TODO: content-hash record
-
-    let private unitFrozen: FrozenType = FTConst("unit", EqArray.empty)
-
-    /// .NET-tupled parameter encoding: 0 → unit, 1 → bare, N≥2 → tuple.
-    let private paramsFrozen (resolveClass: string -> SymbolKey option) (ps: Schema.Param list) : FrozenType =
-        match ps with
-        | [] -> unitFrozen
-        | [ p ] -> toFrozen resolveClass p.Type
-        | many -> FTTuple(EqArray.ofSeq (many |> List.map (fun p -> toFrozen resolveClass p.Type)))
-
     let private singleSignature (name: string) (sigs: Schema.Signature list) : Schema.Signature =
         // The bare free-function path is single-signature ONLY: `providerOfManifest`
         // routes overloaded (N>1) free functions into a synthetic per-module grouping
-        // type (Tier 2 item 9b) before this is reached, so the N>1 arm is now a
-        // defensive guard (it should be unreachable from `funcs`). Throwing — rather
-        // than silently picking the first — keeps that invariant load-bearing.
+        // type before this is reached, so the N>1 arm is now a defensive guard (it
+        // should be unreachable from `funcs`). Throwing — rather than silently picking
+        // the first — keeps that invariant load-bearing.
         match sigs with
         | [ s ] -> s
         | [] -> failwithf "symbol '%s' has no call signature" name
         | _ -> failwithf "symbol '%s' has %d overloads; overload sets not yet supported" name (List.length sigs)
 
-    /// The overload-identity string a single parameter contributes to a `MemberKey`'s
-    /// `argSig` (distinct from the `Signature.Parameters` the runtime pick reads). The
-    /// thin TS type vocabulary names primitives/nominals exactly; everything richer
-    /// collapses to `obj` — the deliberate forcing function: two ctor/method overloads
-    /// that collapse to the same argSig throw (see `expandCtor`), pointing at the
-    /// fixture whose erased distinction wants a sharper extracted type.
-    let private isLiteralRef (t: Schema.TypeRef) : bool =
-        match t with
-        | Schema.TypeRef.Literal _ -> true
-        | _ -> false
-
-    let rec private argSigOf (t: Schema.TypeRef) : string =
-        match t with
-        | Schema.TypeRef.Named(name, []) -> name
-        | Schema.TypeRef.Named(name, args) -> name + "<" + System.String.Join(",", List.map argSigOf args) + ">"
-        | Schema.TypeRef.Typar i -> "!" + string i
-        | Schema.TypeRef.MethodTypar i -> "!!" + string i
-        | Schema.TypeRef.Fun(args, ret) -> "(" + System.String.Join(",", List.map argSigOf args) + ")->" + argSigOf ret
-        | Schema.TypeRef.Tuple items -> "(" + System.String.Join("*", List.map argSigOf items) + ")"
-        // A literal keeps overload identity SHARP — a quoted-value spelling, NOT a
-        // collapse to `obj` — so two overloads differing only by literal value
-        // (mitt's `on(type: Key)` vs `on(type: '*')`) mint DISTINCT argSigs and the
-        // duplicate-overload guard does not misfire (design §"argSigOf … quoted
-        // value").
-        | Schema.TypeRef.Literal(Schema.LiteralValue.StringVal s) -> "\"" + s + "\""
-        | Schema.TypeRef.Literal(Schema.LiteralValue.IntVal n) -> string n
-        // A union of LITERALS is rendered sharply (each member) for the same
-        // overload-identity reason; a union with any non-literal member keeps the
-        // `obj` collapse (the existing forcing-function that throws on a genuinely
-        // erased distinction) — this stays additive for non-literal unions.
-        | Schema.TypeRef.Union members when members |> List.forall isLiteralRef ->
-            "(" + System.String.Join("|", List.map argSigOf members) + ")"
-        // keyof / indexed-access / conditional keep a STABLE, SHARP spelling (not an
-        // `obj` collapse) so overloads differing only by one of these mint distinct
-        // argSigs — same overload-identity reason as the literal arm above.
-        | Schema.TypeRef.KeyOf t -> "keyof(" + argSigOf t + ")"
-        | Schema.TypeRef.IndexedAccess(objTy, index) -> argSigOf objTy + "[" + argSigOf index + "]"
-        | Schema.TypeRef.Conditional(check, extends, whenTrue, whenFalse) ->
-            "("
-            + argSigOf check
-            + " extends "
-            + argSigOf extends
-            + " ? "
-            + argSigOf whenTrue
-            + " : "
-            + argSigOf whenFalse
-            + ")"
-        | Schema.TypeRef.Union _
-        | Schema.TypeRef.Dynamic
-        | Schema.TypeRef.Structural _ -> "obj"
-
-    let private paramArgSig (ps: Schema.Param list) : string list =
-        ps |> List.map (fun p -> argSigOf p.Type)
-
-    let private signatureOf
-        (resolveClass: string -> SymbolKey option)
-        (declArity: int)
-        (sg: Schema.Signature)
-        : ExternalSignature =
-        // Per-method-typar bound (`<Key extends keyof Events>`), carried FAITHFULLY as a
-        // `FrozenType` (`FTKeyOf(FTTypar(Declaring,0))`) so the front end can keyof-fold it
-        // at the call site (R4a step 3 item 2). The schema OMITS `TypeParamBounds` when
-        // every entry is `None`, so an unconstrained signature yields the empty array (the
-        // churn-free default every non-TS producer already uses) — never a `MethodArity`-
-        // long array of `ValueNone`, which would be observationally identical but noisier.
-        let bounds =
-            if sg.TypeParamBounds |> List.exists Option.isSome then
-                sg.TypeParamBounds
-                |> List.map (
-                    function
-                    | Some b -> ValueSome(toFrozen resolveClass b)
-                    | None -> ValueNone
-                )
-                |> Array.ofList
-            else
-                [||]
-
-        {
-            DeclaringArity = declArity
-            MethodArity = sg.TypeParams
-            Parameters = paramsFrozen resolveClass sg.Params
-            Return = toFrozen resolveClass sg.Returns
-            MethodTyparBounds = bounds
-        }
-
-    /// Intern each overload signature's parameter shape into its `argSig`, guarding
-    /// the set for collisions: two overloads that collapse to the same argSig (same
-    /// param count AND types) would mint the SAME `MemberKey`, so throw rather than let
-    /// them silently coincide — the forcing function that fires exactly when the
-    /// `obj`-collapse has erased a real distinction (it points at the fixture whose
-    /// thin extracted type wants sharpening). `label` names the member in the error.
-    let private overloadArgSigs (label: string) (mem: Schema.Member) : (string list * Schema.Signature) list =
-        let built = mem.Signatures |> List.map (fun sg -> paramArgSig sg.Params, sg)
-
-        built
-        |> List.countBy (fun (a, _) -> System.String.Join(",", a))
-        |> List.tryFind (fun (_, n) -> n > 1)
-        |> Option.iter (fun (k, _) ->
-            failwithf "%s has duplicate overload argSig (%s); sharpen the extracted parameter types" label k
-        )
-
-        built
-
-    /// Expand a `.ctor` member's N overload signatures into N `ExternalMember.ctor`s —
-    /// the canonical seam constructor (`Name = ".ctor"`, instance, non-property, keyed
-    /// `MemberKey(declKey, ".ctor", argSig, Method)`), the exact shape
-    /// `InferCtor.inferExternalCtorOn` → `TryLookupMembers(name, ".ctor")` →
-    /// `pickBestOverload` expects. Each ctor's `argSig` interns its parameter shape.
-    let private expandCtor
-        (resolveClass: string -> SymbolKey option)
-        (declKey: SymbolKey)
-        (origin: SymbolOrigin)
-        (declArity: int)
-        (mem: Schema.Member)
-        : ExternalMember list =
-        overloadArgSigs (sprintf "type '%A' .ctor" declKey) mem
-        |> List.map (fun (argSig, sg) ->
-            ExternalMember.ctor declKey (signatureOf resolveClass declArity sg) (EqArray.ofList argSig) origin []
-        )
-
-    /// Expand a named method's N overload signatures into N `ExternalMember`s — one per
-    /// call signature, each keyed `MemberKey(declKey, name, argSig, kind)` so that
-    /// `TryLookupMembers` returns the full candidate set and overload-keyed lookups see
-    /// distinct members (a single-signature method expands to a list of one). Mirrors
-    /// `expandCtor`, but builds the records directly (no `.ctor` name/kind to bake) and
-    /// carries the InterfaceMethod-vs-Method `kind` chosen by the caller.
-    let private expandMethod
-        (resolveClass: string -> SymbolKey option)
-        (declKey: SymbolKey)
-        (origin: SymbolOrigin)
-        (declArity: int)
-        (kind: MemberKind)
-        (mem: Schema.Member)
-        : ExternalMember list =
-        overloadArgSigs (sprintf "type '%A' method '%s'" declKey mem.Name) mem
-        |> List.map (fun (argSig, sg) ->
-            {
-                Name = mem.Name
-                IsStatic = mem.Static
-                Storage = MemberStorage.Method
-                Signature = signatureOf resolveClass declArity sg
-                MethodArity = sg.TypeParams
-                Origin = origin
-                Key = SymbolKey.MemberKey(declKey, mem.Name, EqArray.ofList argSig, kind)
-                OptionalDefaults = []
-            }
-        )
-
-    let private toExternalMembers
-        (resolveClass: string -> SymbolKey option)
-        (declKey: SymbolKey)
-        (origin: SymbolOrigin)
-        (declArity: int)
-        (isInterface: bool)
-        (mem: Schema.Member)
-        : ExternalMember list =
-        match mem.Kind with
-        | Schema.MemberKind.Method when mem.Name = ".ctor" -> expandCtor resolveClass declKey origin declArity mem
-        | Schema.MemberKind.Property ->
-            let ret =
-                match mem.Type with
-                | Some t -> toFrozen resolveClass t
-                | None -> unitFrozen
-
-            [
-                {
-                    Name = mem.Name
-                    IsStatic = mem.Static
-                    Storage = MemberStorage.Property
-                    Signature =
-                        {
-                            DeclaringArity = declArity
-                            MethodArity = 0
-                            Parameters = unitFrozen
-                            Return = ret
-                            MethodTyparBounds = [||]
-                        }
-                    MethodArity = 0
-                    Origin = origin
-                    Key = SymbolKey.MemberKey(declKey, mem.Name, EqArray.empty, MemberKind.Property)
-                    OptionalDefaults = []
-                }
-            ]
-        | Schema.MemberKind.Method ->
-            let kind =
-                if isInterface && not mem.Static then
-                    MemberKind.InterfaceMethod declKey
-                else
-                    MemberKind.Method
-
-            expandMethod resolveClass declKey origin declArity kind mem
-
-    /// Split a flat `heritage` list into implemented/extended INTERFACES (`FrozenInterfaces`)
-    /// and the single base CLASS (`FrozenBaseType`). The schema's `heritage` is a FLAT
-    /// `TypeRef list` that does NOT, by itself, record which entry is the base class vs an
-    /// interface (no schema field — and adding one is a deliberate contract bump we avoid).
-    /// So we DISAMBIGUATE by resolving each entry's name against the manifest's own type
-    /// table (`kindOf`): a name registered as an interface → interface slot, as a class →
-    /// base-type slot. An entry we cannot resolve locally (a cross-package base, or any
-    /// non-`Named` ref) DEFAULTS to the interface slot — a cross-package base CLASS is far
-    /// rarer than a cross-package interface, and mis-slotting only loses base-member lookup
-    /// for that rare case while never corrupting interface resolution. TS guarantees at most
-    /// one base class, so a single `FrozenBaseType` slot suffices (last class-resolved entry
-    /// wins if a malformed manifest somehow lists two).
-    let private classifyHeritage
-        (resolveClass: string -> SymbolKey option)
-        (kindOf: string -> bool option) // Some true = interface, Some false = class, None = unknown
-        (heritage: Schema.TypeRef list)
-        : (string * FrozenType[])[] * FrozenType voption =
-        let interfaces = ResizeArray<string * FrozenType[]>()
-        let mutable baseTy = ValueNone
-
-        for h in heritage do
-            // Heritage entries are always NOMINAL (a class/interface ref); a structural
-            // or union base is not expressible in TS, so a non-`Named` entry is a genuine
-            // anomaly — throw rather than silently drop a declared supertype.
-            let name, args =
-                match h with
-                | Schema.TypeRef.Named(name, args) -> name, args
-                | other -> failwithf "heritage entry is not a nominal type reference: %A" other
-
-            // Suffix the heritage entry's bare name by its applied arg count before the
-            // kind lookup (THE LAW): `typeKinds` is keyed by the arity-suffixed qualified
-            // name, so a GENERIC base/interface (`extends Foo<T>`) must classify under
-            // `` Foo`1 `` — `arityName` is a no-op at arity 0, so a non-generic base is
-            // byte-identical.
-            match kindOf (SymbolKeyOps.arityName name (List.length args)) with
-            | Some false ->
-                // Resolves to a CLASS in this package → the single base class slot (full
-                // `FrozenType`). TS guarantees at most one base class; a second would
-                // overwrite, which only a malformed manifest could produce.
-                baseTy <- ValueSome(toFrozen resolveClass h)
-            | _ ->
-                // An interface, or an unresolved (cross-package) name → the interface slot
-                // as a `(compiled-name, type-args)` pair, matching the metadata layer's
-                // `buildClassInterfaces` shape. Cross-package defaults here because a
-                // cross-package base CLASS is far rarer than a cross-package interface, and
-                // mis-slotting only loses base-member lookup for that rare case.
-                interfaces.Add(name, args |> List.map (toFrozen resolveClass) |> Array.ofList)
-
-        interfaces.ToArray(), baseTy
-
-    let private originFor (moduleSpec: string) (nsPath: string) : SymbolOrigin =
-        // The home label is the symbol's MODULE SPECIFIER (the import path), not the
-        // package name. For a flat single-file package the module spec and package
-        // coincide. `Namespace` carries the symbol's namespace PATH within the module
-        // (item 17): "" for a top-level export, `NS`/`NS.Inner` for a member nested in
-        // one (or more) `export namespace`s — the JS analog of a .NET `Type.Namespace`.
-        {
-            Assembly = Some moduleSpec
-            Namespace = nsPath
-            DeclaringType = None
-        }
-
-    /// The lookup key a symbol declared at namespace path `nsPath` is registered/found
-    /// under: its DOTTED QUALIFIED name (`NS.Foo`, `NS.Inner.Baz`), matching exactly
-    /// the name `Passes.NameResolution` forms from a `NS.Foo` use site and hands to
-    /// `TryLookupType`/`TryLookup` — the same full-dotted-name convention `MetadataSymbols`
-    /// keys a .NET namespaced type by. A top-level export (`nsPath = ""`) keeps its bare name.
-    let private qualify (nsPath: string) (name: string) : string =
-        if nsPath = "" then name else nsPath + "." + name
-
     /// The deterministic SIMPLE name of the synthetic grouping type that holds a
-    /// module's overloaded free functions as static members (Tier 2 item 9b). F# has
-    /// no free-function overloading, so a TS `export function format(x:string);
+    /// module's overloaded free functions as static members. F# has no free-function
+    /// overloading, so a TS `export function format(x:string);
     /// export function format(x:number);` cannot ride the name-keyed `funcs` map; the
     /// overloads are grouped as static members of ONE synthetic type and the call
     /// (`Util.format(x)`) erases at JS emit to the bare export (`format(x)`).
@@ -373,7 +51,7 @@ module TsManifestProvider =
     /// exported type is a same-module type whose name equals the capitalised module
     /// segment; the caller guards that collision by throwing (it would otherwise
     /// silently shadow a real type) rather than mangling the name (which would diverge
-    /// from the Phase-2 erase contract that keys off the bare member name, not the
+    /// from the erase contract that keys off the bare member name, not the
     /// grouping-type name).
     let private syntheticTypeName (moduleSpec: string) : string =
         let lastSeg =
@@ -386,116 +64,23 @@ module TsManifestProvider =
         else
             string (System.Char.ToUpperInvariant lastSeg.[0]) + lastSeg.Substring 1
 
-    let private toTypeShape
-        (resolveClass: string -> SymbolKey option)
-        (kindOf: string -> bool option)
-        (moduleSpec: string)
+    /// The `Origin`/`Key` module-spec stamp shared by free-function and variable
+    /// symbols: both resolve their `import … from '<moduleSpec>'` through
+    /// `JsImports.addRef`, which needs a `ValueKey(Some moduleSpec, …)` — without it
+    /// the symbol carries `asm = None` and emit fails on a `ValueKey(None, …)`.
+    let private stampValueSymbol
+        (ctx: TranslateCtx)
         (nsPath: string)
-        (ex: Schema.Export)
-        : (string * ExternalTypeShape) option =
-        let build name tp members heritage isInterface =
-            let origin = originFor moduleSpec nsPath
-            // THE LAW (`SymbolKeyOps.arityName`): a generic type's compiled name is
-            // arity-suffixed (`Emitter`1`), so the SIMPLE name minted into the `TypeKey`
-            // carries the ` `n ` suffix by the declared arity `tp` — matching what
-            // `TypeTranslate`/`Freeze` form when resolving an annotation (`arityName n arity`,
-            // suffixed-first). `arityName` appended to the simple name then `qualify`d equals
-            // `arityName` applied to the dotted name (it only appends ` `n ` when absent), so
-            // the map key below equals what the front end hands to `TryLookupMember`.
-            let simple = SymbolKeyOps.arityName name tp
-            // The `SymbolKey.TypeKey` carries the SIMPLE name + namespace path (the
-            // codegen-minting split), while the MAP key (`qualify`) is the dotted
-            // qualified name the front end looks up by — mirroring `MetadataSymbols`,
-            // where the key's `ns`/simple-name decompose `Type.FullName` but the lookup
-            // string is the full name.
-            let key = SymbolKey.TypeKey(Some moduleSpec, nsPath, simple)
-
-            let mems =
-                members
-                |> List.collect (toExternalMembers resolveClass key origin tp isInterface)
-                |> List.toArray
-
-            let frozenInterfaces, frozenBaseType = classifyHeritage resolveClass kindOf heritage
-
-            Some(
-                qualify nsPath simple,
-                ExternalTypeShape.Class
-                    {
-                        Arity = tp
-                        IsInterface = isInterface
-                        Members = mems
-                        FrozenInterfaces = frozenInterfaces
-                        FrozenBaseType = frozenBaseType
-                        // A real manifest Interface/Class is a native object: its instance
-                        // members live ON it as prototype/own methods, so JS emit must lower
-                        // them as `receiver.member(args)`, not receiver-first free-fn imports
-                        // (Vesper's own-runtime tree-shaking form). The synthetic erased
-                        // grouping type (`providerOfManifest`) keeps `AttachMembers = false`
-                        // — its members go through the `Erased` bare-export path anyway.
-                        Flags =
-                            { ExternalClassFlags.Default with
-                                AttachMembers = true
-                            }
-                        Origin = origin
-                        // JS is single-faced — no BCL platform spelling to reconcile.
-                        CapabilityFace = ValueNone
-                    }
-            )
-
-        match ex with
-        | Schema.Export.Interface(name, tp, members, heritage) -> build name tp members heritage true
-        | Schema.Export.Class(name, tp, members, heritage, _import) -> build name tp members heritage false
-        | Schema.Export.TypeAlias(name, tp, target) ->
-            // `type X = …` maps onto the seam's transparent abbreviation shape: a use
-            // site of `name` expands to the target's `FrozenType` (via
-            // `FrozenTypeBridge.instantiateDeclaring`), so alias-to-union / -primitive /
-            // -structural all resolve through the same `toFrozen` the members use. `tp`
-            // is the alias's declaring-axis arity (item 11): a generic alias `Pair<A,B>`
-            // expands `FTTypar(Declaring,0/1)` against the two use-site args.
-            // THE LAW: a generic alias (`Pair<A,B>`) is arity-suffixed too, so its use site
-            // (`arityName "Pair" 2` at lookup) hits this key; `arityName` is a no-op at arity
-            // 0, so a non-generic alias stays byte-identical.
-            Some(
-                qualify nsPath (SymbolKeyOps.arityName name tp),
-                ExternalTypeShape.Abbrev(tp, toFrozen resolveClass target)
-            )
-        | Schema.Export.Enum(name, members) ->
-            // A TS enum → `ExternalTypeShape.Enum`: the closed name→value case table
-            // the front end resolves `(x: E)` / `E.Ci` against (the enum's nominal
-            // identity) and JS imports the object map for. The wire `LiteralValue`
-            // (numeric / string) carries straight onto `ExternalEnumCaseValue`; the
-            // numeric / string / mixed variant falls out of the values, never baked.
-            // A `None` (computed / non-constant) member is DROPPED — it has no value
-            // to reference by, so it is unrepresentable as a case; dropping mirrors the
-            // authored JS emission, which omits an unresolved case from the object map.
-            let origin = originFor moduleSpec nsPath
-
-            let cases =
-                members
-                |> List.choose (fun (caseName, v) ->
-                    match v with
-                    | Some(Schema.LiteralValue.IntVal n) ->
-                        Some
-                            {
-                                Name = caseName
-                                Value = ExternalEnumCaseValue.IntVal n
-                            }
-                    | Some(Schema.LiteralValue.StringVal s) ->
-                        Some
-                            {
-                                Name = caseName
-                                Value = ExternalEnumCaseValue.StringVal s
-                            }
-                    | None -> None
-                )
-                |> List.toArray
-
-            Some(qualify nsPath name, ExternalTypeShape.Enum(cases, origin))
-        | _ -> None
+        (name: string)
+        (sym: ExternalSymbol)
+        : ExternalSymbol =
+        { sym with
+            Origin = originFor ctx nsPath
+            Key = SymbolKey.ValueKey(Some ctx.ModuleSpec, nsPath, name)
+        }
 
     let private toFunctionSymbol
-        (resolveClass: string -> SymbolKey option)
-        (moduleSpec: string)
+        (ctx: TranslateCtx)
         (nsPath: string)
         (ex: Schema.Export)
         : (string * ExternalSymbol) option =
@@ -515,16 +100,14 @@ module TsManifestProvider =
             let paramTypes =
                 match requiredParams with
                 | [] -> [ unitFrozen ]
-                | ps -> ps |> List.map (fun p -> toFrozen resolveClass p.Type)
+                | ps -> ps |> List.map (fun p -> toFrozen ctx p.Type)
 
             let frozenTy =
-                List.foldBack (fun a acc -> FTFun(a, acc)) paramTypes (toFrozen resolveClass sg.Returns)
-            // Registered/keyed under the dotted qualified name (item 17); the symbol's
-            // own `Name` carries it too so lowering emits the qualified binding. The
-            // `Origin`/`Key` are stamped with the MODULE SPECIFIER (the analog of
-            // `toTypeShape`'s `originFor`/`TypeKey`), so `JsImports.addRef` can resolve
-            // the `import … from '<moduleSpec>'` statement — without it the symbol carries
-            // `asm = None` and emit fails on a `ValueKey(None, …)`.
+                List.foldBack (fun a acc -> FTFun(a, acc)) paramTypes (toFrozen ctx sg.Returns)
+            // Registered/keyed under the dotted qualified name; the symbol's own `Name`
+            // carries it too so lowering emits the qualified binding. The `Origin`/`Key`
+            // module-spec stamp (`stampValueSymbol`) is the analog of `toTypeShape`'s
+            // `originFor`/`TypeKey`.
             //
             // A GENERIC free function (`identity<T>`) carries its own typars as
             // `FTTypar(Declaring,i)` (via `toFrozen`); `sg.TypeParams` is their count, so
@@ -533,10 +116,8 @@ module TsManifestProvider =
             let qn = qualify nsPath name
 
             let sym =
-                { ExternalSymbols.scheme qn frozenTy sg.TypeParams [] with
-                    Origin = originFor moduleSpec nsPath
-                    Key = SymbolKey.ValueKey(Some moduleSpec, nsPath, name)
-                }
+                ExternalSymbols.scheme qn frozenTy sg.TypeParams []
+                |> stampValueSymbol ctx nsPath name
 
             Some(qn, sym)
         | _ -> None
@@ -547,25 +128,31 @@ module TsManifestProvider =
     /// at this seam (JS lowering reads the imported binding by name regardless of
     /// mutability), so it is not consumed here.
     let private toValueSymbol
-        (resolveClass: string -> SymbolKey option)
-        (moduleSpec: string)
+        (ctx: TranslateCtx)
         (nsPath: string)
         (ex: Schema.Export)
         : (string * ExternalSymbol) option =
         match ex with
         | Schema.Export.Variable(name, ty, _isConst, _import) ->
             let qn = qualify nsPath name
-            // Same `Origin`/`Key` module-spec stamp as `toFunctionSymbol`: a value symbol
-            // resolves its `import … from '<moduleSpec>'` through `JsImports.addRef` and so
-            // needs a `ValueKey(Some moduleSpec, …)`, not `monoFrozen`'s `None` origin.
+            // `monoFrozen` alone would leave the `None` origin `stampValueSymbol` fixes.
             let sym =
-                { ExternalSymbols.monoFrozen qn (toFrozen resolveClass ty) with
-                    Origin = originFor moduleSpec nsPath
-                    Key = SymbolKey.ValueKey(Some moduleSpec, nsPath, name)
-                }
+                ExternalSymbols.monoFrozen qn (toFrozen ctx ty)
+                |> stampValueSymbol ctx nsPath name
 
             Some(qn, sym)
         | _ -> None
+
+    /// An overloaded (N>1 call signature) free-function export, bound for the
+    /// synthetic per-namespace grouping type — F# has no free-function overloading,
+    /// so it cannot ride the name-keyed `funcs` map (the last overload would win).
+    type private OverloadedFn =
+        {
+            NsPath: string
+            Name: string
+            Signatures: Schema.Signature list
+            Import: Schema.ImportShape
+        }
 
     /// Build a provider from an already-parsed manifest.
     let providerOfManifest (man: Schema.PackageManifest) : IExternalSymbolProvider =
@@ -574,134 +161,83 @@ module TsManifestProvider =
         // later tier supplies nested namespace paths here instead of `pkg` directly.
         let moduleSpec = pkg
 
-        // Flatten the export tree into (namespacePath, export) pairs (item 17): a
-        // top-level export pairs with `""`; a member nested in one (or more)
-        // `Export.Namespace`s pairs with its dotted path (`NS`, `NS.Inner`). The
-        // `Namespace` container itself produces no symbol — only its members do, each
-        // registered under its QUALIFIED name (`qualify`), so a nested symbol resolves
-        // through the SAME flat `types`/`funcs` maps as a top-level one. Recursion folds
-        // arbitrarily deep nesting.
-        let rec flatten (nsPath: string) (exports: Schema.Export list) : (string * Schema.Export) list =
-            exports
-            |> List.collect (fun ex ->
-                match ex with
-                | Schema.Export.Namespace(nsName, nested) -> flatten (qualify nsPath nsName) nested
-                | other -> [ nsPath, other ]
-            )
-
         let flatExports = flatten "" man.Exports
 
-        // Classify each type by KIND (interface vs class) so `classifyHeritage` can
-        // name-resolve a heritage entry to a slot (interface vs base class) without a
-        // schema field. Keyed by QUALIFIED name so a namespaced heritage reference
-        // resolves. `None` for a name not in this package = cross-package / unknown.
-        let typeKinds =
-            flatExports
-            |> List.choose (fun (nsPath, ex) ->
-                // Keyed by the arity-suffixed qualified name (THE LAW), matching the resolver
-                // (`typeKeys`) and the `toTypeShape` map key; `classifyHeritage` suffixes the
-                // heritage entry's bare name the same way at lookup.
-                match ex with
-                | Schema.Export.Interface(name, tp, _, _) ->
-                    Some(qualify nsPath (SymbolKeyOps.arityName name tp), true)
-                | Schema.Export.Class(name, tp, _, _, _) ->
-                    Some(qualify nsPath (SymbolKeyOps.arityName name tp), false)
-                | _ -> None
-            )
-            |> Map.ofList
+        // ONE pre-pass mints every declared `Interface`/`Class` identity (see
+        // `TsManifestTranslate.mint`/`buildCtx`) over ALL flat exports before any
+        // per-export walk, so a member signature that names a type declared LATER
+        // (mitt's `mitt` referencing `Emitter`) still resolves.
+        let ctx = buildCtx moduleSpec flatExports
 
-        let kindOf (name: string) : bool option = Map.tryFind name typeKinds
-
-        // The name→`TypeKey` resolver `toFrozen` gates on to mint `FTClass` (R1). Built in
-        // the SAME first pass as `typeKinds` — over ALL flat exports before any per-export
-        // `toTypeShape` — so a member signature that names a type declared LATER (e.g. mitt's
-        // `mitt` referencing `Emitter`) still resolves. Keyed by the QUALIFIED name (`qualify
-        // nsPath name`); the minted `TypeKey` uses the SAME `(moduleSpec, nsPath, name)` split
-        // `toTypeShape`'s `build` uses, so `SymbolKeyOps.qualifiedName` of it equals this map
-        // key — the exact string the front end's external-`TyClass` arm hands to
-        // `TryLookupMember`. Only `Interface`/`Class` names are registered (mirrors
-        // `typeKinds`): a primitive, a cross-package name, and a `TypeAlias` all miss and stay
-        // `FTConst` (the alias then expands transparently through its `Abbrev` shape).
-        let typeKeys =
-            flatExports
-            |> List.choose (fun (nsPath, ex) ->
-                // Keyed by — and minting — the arity-suffixed name (THE LAW), so
-                // `SymbolKeyOps.qualifiedName` of the minted key equals this map key and both
-                // equal what `toTypeShape`'s `build` registers. `toFrozen` suffixes the bare
-                // manifest reference name at lookup before probing this table.
-                match ex with
-                | Schema.Export.Interface(name, tp, _, _)
-                | Schema.Export.Class(name, tp, _, _, _) ->
-                    let simple = SymbolKeyOps.arityName name tp
-                    Some(qualify nsPath simple, SymbolKey.TypeKey(Some moduleSpec, nsPath, simple))
-                | _ -> None
-            )
-            |> Map.ofList
-
-        let resolveClass (name: string) : SymbolKey option = Map.tryFind name typeKeys
-
-        // Partition free functions by call-signature count (Tier 2 item 9b). A
-        // single-signature function stays a BARE free function (the name-keyed `funcs`
-        // map / `TryLookup`). An OVERLOADED one (N>1 signatures) cannot ride the
-        // name-keyed map — F# has no free-function overloading, so the last would win —
-        // so it is grouped into a synthetic per-module static-method type instead.
+        // Partition free functions by call-signature count. A single-signature
+        // function stays a BARE free function (the name-keyed `funcs` map /
+        // `TryLookup`). An OVERLOADED one (N>1 signatures) is grouped into a
+        // synthetic per-module static-method type instead.
         let overloadedFns =
             flatExports
             |> List.choose (fun (nsPath, ex) ->
                 match ex with
                 | Schema.Export.Function(name, sigs, import) when List.length sigs > 1 ->
-                    Some(nsPath, name, sigs, import)
+                    Some
+                        {
+                            NsPath = nsPath
+                            Name = name
+                            Signatures = sigs
+                            Import = import
+                        }
                 | _ -> None
             )
 
         let regularTypes =
-            flatExports
-            |> List.choose (fun (nsPath, ex) -> toTypeShape resolveClass kindOf moduleSpec nsPath ex)
+            flatExports |> List.choose (fun (nsPath, ex) -> toTypeShape ctx nsPath ex)
 
         // Synthesize one erased grouping type per (nsPath) GROUP of overloaded free
         // functions: its static members are the overloads, expanded with `expandMethod`
-        // (reusing 9a) so each carries its own argSig `MemberKey`, and the member name
-        // stays the REAL export name so the Phase-2 erase lowers `Util.format` to the
-        // bare `format`. Grouped by namespace path so namespaced overloads land in a
-        // sibling synthetic type under their qualified name.
+        // (the member-overload expansion) so each carries its own argSig `MemberKey`,
+        // and the member name stays the REAL export name so the erase lowers
+        // `Util.format` to the bare `format`. Grouped by namespace path so namespaced
+        // overloads land in a sibling synthetic type under their qualified name.
         let syntheticTypes =
             overloadedFns
-            |> List.groupBy (fun (nsPath, _, _, _) -> nsPath)
+            |> List.groupBy (fun fn -> fn.NsPath)
             |> List.map (fun (nsPath, fns) ->
-                // v1 gate (named-imports only): the erase path reuses the existing
+                // Named-imports-only gate: the erase path reuses the existing
                 // named-import `addRef` lowering; Default/Namespace/CommonJS import forms
                 // have no JS AST yet. Throw loudly on a non-Named overloaded free function
                 // so the deferred import-form work is gated to exactly that fixture.
-                for (_, name, _, import) in fns do
-                    match import with
+                for fn in fns do
+                    match fn.Import with
                     | Schema.ImportShape.Named -> ()
                     | other ->
                         failwithf
-                            "overloaded free function '%s' uses import shape %A; only Named imports are supported for the synthetic free-function-overload grouping type (Tier 2 item 9b v1)"
-                            name
+                            "overloaded free function '%s' uses import shape %A; only Named imports are supported for the synthetic free-function-overload grouping type"
+                            fn.Name
                             other
 
                 let simpleName = syntheticTypeName moduleSpec
-                let qn = qualify nsPath simpleName
-                let declKey = SymbolKey.TypeKey(Some moduleSpec, nsPath, simpleName)
-                let origin = originFor moduleSpec nsPath
+                // The synthetic type's identity goes through the same `mint` spelling
+                // (arity 0 — the grouping type is never generic) even though it never
+                // enters the ctx table: it resolves via `TryLookupType`/`TryLookupMembers`
+                // by qualified name, never through `ctx.Resolve`.
+                let qn, declKey = mint moduleSpec nsPath simpleName 0
+                let origin = originFor ctx nsPath
 
                 let members =
                     fns
-                    |> List.collect (fun (_, name, sigs, _) ->
-                        // Reuse the member-overload expansion (9a): wrap the free function's
+                    |> List.collect (fun fn ->
+                        // Reuse the member-overload expansion: wrap the free function's
                         // signatures as a synthetic STATIC method named after the real export.
                         let mem: Schema.Member =
                             {
-                                Name = name
+                                Name = fn.Name
                                 Kind = Schema.MemberKind.Method
                                 Type = None
-                                Signatures = sigs
+                                Signatures = fn.Signatures
                                 Static = true
                                 Optional = false
                             }
 
-                        expandMethod resolveClass declKey origin 0 MemberKind.Method mem
+                        expandMethod ctx declKey origin 0 MemberKind.Method mem
                     )
                     |> List.toArray
 
@@ -745,10 +281,9 @@ module TsManifestProvider =
              |> List.choose (fun (nsPath, ex) ->
                  match ex with
                  | Schema.Export.Function(_, sigs, _) when List.length sigs > 1 -> None
-                 | _ -> toFunctionSymbol resolveClass moduleSpec nsPath ex
+                 | _ -> toFunctionSymbol ctx nsPath ex
              ))
-            @ (flatExports
-               |> List.choose (fun (nsPath, ex) -> toValueSymbol resolveClass moduleSpec nsPath ex))
+            @ (flatExports |> List.choose (fun (nsPath, ex) -> toValueSymbol ctx nsPath ex))
             |> Map.ofList
 
         let membersOf (typeName: string) (memberName: string) : ExternalMember[] =
@@ -792,14 +327,6 @@ module TsManifestProvider =
     /// `toFunctionSymbol`/`toValueSymbol` (`ValueKey(Some moduleSpec, nsPath, name)`).
     let defaultValueKeys (man: Schema.PackageManifest) : Set<string * string * string> =
         let moduleSpec = man.Package
-
-        let rec flatten (nsPath: string) (exports: Schema.Export list) : (string * Schema.Export) list =
-            exports
-            |> List.collect (fun ex ->
-                match ex with
-                | Schema.Export.Namespace(nsName, nested) -> flatten (qualify nsPath nsName) nested
-                | other -> [ nsPath, other ]
-            )
 
         flatten "" man.Exports
         |> List.choose (fun (nsPath, ex) ->
