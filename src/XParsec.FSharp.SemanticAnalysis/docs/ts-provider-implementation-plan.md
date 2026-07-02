@@ -1,23 +1,27 @@
-# TS provider — remaining work (real Vesper code consuming a manifest, end-to-end)
+# TS provider — R4 remaining: the mitt full-fidelity gate
 
-**Status:** Phases 0–5 of the original sequence have LANDED (resilient extraction →
-faithful generics → `mitt` golden → free-function/default-export emit). What remains is
-the part that actually matters: **compile real Vesper code that USES a manifest-exported
-API — driving semantic analysis through `IExternalSymbolProvider` and lowering through
-Codegen.Js — and run it against the real package under Node.** Today only a *free
-function / default-export factory* round-trips; calling an external object's **instance
-members** (`emitter.on(...)`, `emitter.emit(...)`) from Vesper does not work yet.
+**Status (2026-07-02).** R1–R3 and R4a STEP 1 have LANDED (see the context table). What
+remains is R4a steps 2–4: make the extractor emit mitt's five residual constructs
+FAITHFULLY (step 2), give the front end their evaluation rules (step 3), and drive
+mitt's FULL public API from Vesper source with a zero-diagnostic golden (step 4 — the
+gate). R5 (breadth: `@types/node`, DOM) stays GATED on step 4 passing. No second JS
+package before the gate.
 
 **Companion:** [`codegen-js-symbol-provider-plan.md`](codegen-js-symbol-provider-plan.md)
-holds the *decisions* (the why). This doc is the *runnable sequence* for a fresh session.
-Ephemeral per the repo convention — delete once the remaining milestones land and fold
-durable facts into module headers / memory.
+holds the *decisions*. Two sections are load-bearing for this work and are RESOLVED —
+do not relitigate them:
+- §"Literal types stay structural, in the external vocabulary only" — `FTLiteral`+`FTOr`,
+  the NOMINALISM INVARIANT (Vesper inference never mints a literal type), directional
+  admission at the external-arg seam, `keyof`/`T[K]`/conditional as ground-evaluation
+  rules, erase-to-base emission.
+- The `EqSet` sub-decision — union members: insertion-ordered storage, set-semantic
+  equality, smart-constructor-owned flatten/dedupe/singleton-collapse.
 
 Build/test/format via the **xparsec-dev** skill (`./claude_tools.cmd -Action
 Build|Test|Format`), never raw `dotnet`. The ONE exception is the Fable rebuild of the
-extractor (`dotnet fable src/Vesper.Ts.Extractor -o src/Vesper.Ts.Extractor/dist`) — only
-needed if you change the extractor, which the remaining work does NOT. Line/anchor numbers
-below are from this writing — confirm by reading before editing.
+extractor (`dotnet fable src/Vesper.Ts.Extractor -o src/Vesper.Ts.Extractor/dist`) —
+step 2 IS the step that needs it. Anchors below are symbol names, not line numbers —
+confirm by reading before editing.
 
 ---
 
@@ -25,342 +29,169 @@ below are from this writing — confirm by reading before editing.
 
 | Area | State |
 |---|---|
-| Manifest schema + codec (`Vesper.Ts.Manifest.Schema`) | `diagnostics` channel; `TypeRef.MethodTypar`; Fable-safe; `SchemaVersion = 1` (no bump while prototyping) |
-| Resilient extractor (`Vesper.Ts.Extractor/Extractor.fs`) | per-type `failwith` → `Warning` + degrade; fatal plumbing still throws; spans relativized to the extraction root |
-| Faithful generics | method-axis typars (`MethodTypar i` → `FTTypar(TyparAxis.Method,i)`), TS function types → `TypeRef.Fun`, structural-degrade cascade killed + diagnostics deduped |
-| `mitt@3.0.1` fixture (`test/ts-fixtures/mitt/`) | vendored `.d.ts` + `package.json` + `dist/mitt.mjs` + golden; golden pins the honest **5-warning** residue (keyof / indexed-access / conditional), asserted by `mittDiagnosticsContract` |
-| Provider (`Codegen.Js/TsManifestProvider.fs`) | `providerOfManifest`; interfaces/classes/aliases/enums/free-functions/variables → seam shapes; free-function + value symbols now carry a real module-spec `Origin`/`Key` |
-| Free-function / default-export emit | `let factory = mitt` emits `import $_mitt from "./mitt.mjs"` and runs the real runtime under Node; default-import lowering (`JsImports.createWithDefaults` + `TsManifestProvider.defaultValueKeys`); `TastLower.etaExpand` preserves the External value node's `SymbolKey` |
-| null/undefined | already survive JS emit as bare `TyConst`; NOT registered as intrinsics (would self-trip `PlatformTypes`); distinct from `unit` |
+| R1 — external nominal → `FTClass` | `TsManifestProvider.toFrozen` mints `FTClass` for manifest-registered classes/interfaces via a qualified-name→`TypeKey` resolver; aliases/primitives stay `FTConst`/`Abbrev`. Front-end `.member` access resolves through `resolveFieldStep`'s external-`TyClass` arm. |
+| R2 — native member lowering | `ExternalClassFlags.AttachMembers` (Fable `[<AttachMembers>]` semantics) stamped by the provider; EmitJs `App`-spine head-case folds to `receiver.member(args)` (argSig-driven arity: 0 drops lone unit, ≥2 spreads literal tuple); method ESCAPE eta-wraps for `this`-binding; Property = plain data read. Vesper's own free-fn form = opportunistic tree-shaking optimisation, unchanged for non-manifest members. |
+| R3 — Vesper-driven e2e | `BusE2ETests`: factory + `on(name, lambda)` + `emit` + read-back under Node, lambda-as-callback included, zero src changes needed. |
+| Arity law compliance | Provider mints/keys every nominal by `SymbolKeyOps.arityName` (suffix-at-mint for declarations, suffix-at-lookup by applied arg count for `Named` refs). `let e : Emitter<int> = mitt()` TYPE-CHECKS (pinned in `MittE2ETests`). |
+| R4a STEP 1 — literal machinery | `EqSet<'T>` (`EqSet.fs`); `FTOr`/`TyOr` members are `EqSet` behind smart constructors (`FrozenType.MkUnion` / `SemType.MkUnion`, `TyOr`'s payload is private-ctor `UnionMembers` — canonical form TYPE-ENFORCED); `FTLiteral`/`TyLiteral` arms (`LiteralConst` String/Int) through every walk; `Schema.TypeRef.Literal` + codec (ADDITIVE, `SchemaVersion` still 1, extractor does NOT emit it yet); directional admission — constant set-membership in (`InferApp.tryAdmitLiteralConstArg`, consults the arg EXPRESSION — printf precedent), enum value-set ⊆ in (`Engine.enumAdmitsIntoLiteralUnion`, reads `EnumTypeInfo.CaseStringValues`), literal widens OUT to base (`subsumes` + `unifyAnnotation` literal-guarded arm); erase-to-base on both backends (`ClrEncoder.encodeType` FTLiteral arm; JS erases). Test matrix: `LiteralUnionTests.fs` (6 cases + Node e2e). |
+| Pinned directional miss | `let m = "auto" in x.setMode(m)` ERRORS — `m` generalises to `string`; the constant is visible only at the arg site. Deliberate (TS widens the same way without `as const`). |
+| Parser | Top-level bare statement before `let`/`use` no longer swallows the sibling decl (`pSepVirt`, goldens 394–396). |
+| mitt fixture | `test/ts-fixtures/mitt/` vendored; golden pins the 5-warning degrade residue via `mittDiagnosticsContract`; committed goldens are BYTE-IDENTICAL through step 1. |
 
-**The honesty gap to close.** `test/XParsec.FSharp.Codegen.Js.Tests/MittE2ETests.fs`
-proves only the *factory binding* path: its Vesper program is literally `let factory =
-mitt`, and a hand-written **JS harness** does `emitter.on(...)` / `emitter.emit(...)`.
-That is NOT the goal — the manifest exists so that *Vesper source* can call the external
-API and have it type-check + lower. The remaining milestones make that real, then rewrite
-`MittE2ETests` so the member calls live in the **Vesper** program, not the harness.
+## The remaining mitt walls (truth mirror of the `MittE2ETests.fs` header)
 
----
-
-## The three walls (root cause of the remaining work)
-
-A TS `Named("Emitter", …)` from the manifest currently becomes `FTConst → TyConst`
-(`TsManifestProvider.toFrozen`, `TsManifestProvider.fs:26-27`; `FrozenTypeBridge.instantiateWith`,
-`SemanticInfo.fs:866`). Three things break for instance-member use:
-
-1. **Front-end member access rejects a `TyConst`.** `resolveFieldStep`
-   (`Passes/Unification/InferRecordAccess.fs:237`) resolves `.member` only on
-   `TyClass`/`TyRecord`/`TyUnion`/`TyVar`; a `TyConst` falls to the catch-all
-   *"Cannot read member from non-record non-class type"* (`:403`). The type IS registered
-   (the `Emitter` interface → `ExternalTypeShape.Class { IsInterface = true; Members = [on;off;emit] }`),
-   so once the receiver is a `TyClass(key,…)` the existing `TryLookupMember(s)` path resolves
-   the member. The blocker is purely that `toFrozen` emits `FTConst`, not `FTClass`, for a
-   name the manifest knows is a class/interface.
-2. **Codegen lowers external instance/interface members as receiver-first free-fn imports.**
-   `EmitJs.fs` lowers an external member as `$on(emitter)` imported from the module — the
-   convention Vesper's OWN emitted runtimes use. A third-party object has genuine prototype
-   methods (`emitter.on(t,h)`) and no such export. Note `EmitJs.fs:595-599` ALREADY has the
-   right shape for *local* interfaces: `ctx.LocalInterfaces.Contains(...)` → `attachedAccess`
-   → `receiver.member(args)`. The work is routing *external manifest* interface/class members
-   through an equivalent native-object-method lowering.
-3. **The generic is never grounded.** `mitt<Events>()` and `on`/`emit` leave `Events`
-   unsolved (their signatures use a method typar + the degraded `keyof Events` / `Events[Key]`
-   structural stubs, which are opaque `FTUnknown`). A use site needs either an annotation or a
-   non-generic external type to exercise first.
+1. UNANNOTATED `mitt()` leaves `Events` ungrounded ("1 unresolved TyVar"). Annotated
+   form works. Whether the unannotated form should infer anything is a step-3/4 call —
+   an annotation-required policy is acceptable if documented and pinned.
+2. ~~annotation arity mismatch~~ — FIXED (arity law).
+3. `on`/`emit`'s `type` param is a method typar `Key extends keyof Events` — arrives as
+   a raw `TyTypar(Method,0)` marker a string literal can't unify with. Needs step 2
+   (faithful `keyof` constraint on the typar) + step 3 (grounding rule).
+4. `on`'s `handler` param degraded to opaque `__type` (`Handler<Events[Key]>` — the
+   indexed access inside a named generic). Step 2 (faithful arm) + step 3 (fold).
+5. `emit`'s payload is the `structural:Events[Key]` stub. Same.
 
 ---
 
-## Ordering at a glance
+## R4a STEP 2 — extractor fidelity (the ONLY extractor-touching step)
 
-```
-R1  external nominal → FTClass ........ front-end: toFrozen emits FTClass for manifest classes/interfaces
-R2  external object-method lowering ... Codegen.Js: external instance members → receiver.member(args)
-R3  real Vesper e2e (R1+R2 → R3) ...... a Vesper program CALLS the external API; rewrite MittE2ETests
-R4  ★ mitt FULL-FIDELITY GATE ......... ZERO-degradation extraction + full mitt API driven from Vesper source
-R5  coverage + breadth (GATED on R4) .. @types/node diagnostics golden; ambient-global (DOM) entry mode
-```
-
-R1 and R2 are independent and can land in either order, but R3 needs both. Start with a
-**non-generic external object** fixture (sidestep wall #3) to land R1+R2+R3 on easy mode,
-THEN return to mitt's generics.
-
-**R4 is a hard gate: no second JS package until mitt is complete.** mitt is the proving
-ground — it must extract with **zero diagnostics** (every keyof / indexed-access /
-conditional construct faithful, NOT degraded) AND have its full public API exercised by
-tests that compile real Vesper source. R5 (breadth / `@types/node` / DOM) does not begin
-until R4 passes. This reverses, *for mitt*, the earlier "stays degraded by design" deferral
-of keyof/indexed/conditional — that deferral was the v1 expedient; the standing decision now
-is that the foundation must be fully faithful on one real package before accumulating more.
-
-Land each phase green before the next.
-
----
-
-## R1 — external nominal types resolve as classes (front-end)
-
-**Goal.** A manifest `Interface`/`Class` name resolves to `TyClass(key, args)`, so
-`resolveFieldStep` admits `.member` access and the existing `TryLookupMember(s)` path
-(already wired for the manifest provider) returns the member.
+**Goal.** `Vesper.Ts.Extractor` emits mitt's five residual constructs as FAITHFUL
+schema arms instead of `structural-object-stubbed` degrades; the regenerated committed
+mitt golden's `Diagnostics` shrinks accordingly (target: `[]` — flip
+`mittDiagnosticsContract` to assert empty when reached).
 
 **Steps.**
-1. In `TsManifestProvider.toFrozen` (`TsManifestProvider.fs:24`), the `Named(name, args)`
-   arm must emit `FTClass(SymbolKey.TypeKey(Some moduleSpec, nsPath, name), args)` when
-   `name` resolves to a class/interface in THIS manifest, and keep `FTConst(name, args)`
-   for everything else (primitives, unresolved/cross-package names, type aliases — aliases
-   stay transparent via `ExternalTypeShape.Abbrev`). `FTRecord` is the records analog if/when
-   a manifest emits record-shaped nominals; interfaces+classes both use `FTClass` (the seam
-   stores both as `ExternalTypeShape.Class`).
-2. `toFrozen` is a top-level `let rec private` with NO access to the manifest's type table —
-   thread a resolver into it. The kind/key data already exists inside `providerOfManifest`
-   as `typeKinds` / `kindOf` (`TsManifestProvider.fs:462-472`). Build the resolver as a
-   `Map<string, SymbolKey>` keyed by QUALIFIED name (`qualify nsPath name`) in the SAME pass
-   that builds `typeKinds`, and have it return the key directly (`name -> SymbolKey option`)
-   — minting the key inside `toFrozen` from parts would duplicate the nsPath/simple-name
-   decomposition. Threading options: (a) a resolver param on `toFrozen` — note the
-   TRANSITIVE caller chain: `paramsFrozen`, `signatureOf`, `expandCtor`, `expandMethod`,
-   `toExternalMembers`, `classifyHeritage`, `toTypeShape`, `toFunctionSymbol`,
-   `toValueSymbol` ALL thread it; or (b) move `toFrozen` inside `providerOfManifest` —
-   which drags that same private-helper chain inside with it. The diffs are comparable
-   (neither is meaningfully "less churn"); prefer (a) — it keeps the helpers top-level and
-   testable. Churn note: `classifyHeritage` calls `toFrozen` on heritage entries (`:221`),
-   so base-class refs also become `FTClass` — desirable, but it will surface in any test
-   that pins provider-emitted `FrozenType` shapes.
-3. **Forward references.** `Emitter` is declared AFTER `mitt` in mitt's `.d.ts`, and a
-   member signature of one export can name another export. Build the name→key/kind table in
-   a FIRST pass over all flat exports (it already is — `typeKinds` is computed before the
-   per-export `toTypeShape`), so the resolver sees every type regardless of declaration
-   order. Confirm `toFrozen` consults the COMPLETE table, not a partially-built one.
-4. The `TypeKey` must match what `toTypeShape`'s `build` already mints
-   (`SymbolKey.TypeKey(Some moduleSpec, nsPath, name)`, `TsManifestProvider.fs:292`). The
-   operative identity equation: `SymbolKeyOps.qualifiedName mintedKey` must EQUAL the
-   provider's map key (`qualify nsPath name`) — that is the exact string the front end's
-   external `TyClass` arm hands to `TryLookupMember` (`InferRecordAccess.fs:276-278`). If
-   the two spellings diverge, the member lookup silently misses and falls to
-   "Unknown class type".
+1. Schema arms (additive, `SchemaVersion` stays 1, codec arms mirror the `"literal"`
+   precedent from step 1): `TypeRef.KeyOf of TypeRef`, `TypeRef.IndexedAccess of
+   objTy: TypeRef * index: TypeRef`, `TypeRef.Conditional of check: TypeRef * extends:
+   TypeRef * whenTrue: TypeRef * whenFalse: TypeRef`. `TypeRef.Literal` already exists.
+2. Extractor (`src/Vesper.Ts.Extractor/Extractor.fs`): route `ts.TypeOperator`
+   (keyof), `ts.IndexedAccessType`, `ts.ConditionalType`, and literal types to the new
+   arms INSTEAD of the structural-stub degrade path. A method-typar CONSTRAINT
+   (`Key extends keyof Events`) must survive onto the signature (find how typar bounds
+   are (not) carried today — the manifest may need a typar-constraint slot; if the
+   schema has none, that is an additive schema change this step owns). Fable rebuild
+   required (the one sanctioned `dotnet fable` command, header above).
+3. Provider (`TsManifestProvider.toFrozen`): map the new arms to CARRIER FrozenType
+   nodes — `FTKeyOf`, `FTIndexedAccess`, `FTConditional` (new arms in `SemanticInfo.fs`
+   with `TyKeyOf`/`TyIndexedAccess`/`TyConditional` SemType mirrors via
+   `instantiateWith`). Step 2 keeps them INERT (carried, not evaluated) — every
+   FrozenType/SemType walk handles them (they HAVE children, unlike `FTLiteral`);
+   `argSigOf` needs a stable spelling (e.g. `keyof(...)`) sharp enough for mitt's `on`
+   overload pair (`type: Key` vs `type: '*'` — the literal arm already renders `"*"`).
+4. Regenerate the mitt golden by the flow `test/Vesper.Ts.Extractor.Tests` uses
+   (discover it there — consumer tests still NEVER run the extractor). Diff the new
+   manifest by eye: the five diagnostics should be gone and the five constructs
+   faithfully spelled. Commit the regenerated golden + the diagnostics-contract flip
+   in the SAME change as the extractor edit.
+5. All consumer suites must stay green with the CARRIED (unevaluated) nodes — mitt's
+   factory/annotation tests exercise `Emitter<int>` whose member SIGNATURES now carry
+   the new nodes; carrying must not break resolution that never touches them.
+   `MethodAxisGenericTests` / `MittE2ETests` are the canaries.
 
-**Acceptance.**
-- A new front-end (`Codegen.Js.Tests` or `SemanticAnalysis.Tests`) case: a Vesper program
-  with a value annotated at a manifest interface type accesses an instance member
-  (`let e : Emitter = … in e.emit`) and TYPE-CHECKS — no "non-record non-class" diagnostic;
-  the member's signature resolves through the provider. Use a NON-generic fixture interface
-  first (e.g. a hand-authored manifest `interface Box { get(): int; set(x: int): unit }`) to
-  isolate R1 from wall #3.
-- All existing tests stay green — `FTConst`→`FTClass` only for names the manifest registers
-  as classes/interfaces; primitives/aliases unaffected (guard with the kind resolver).
-
-**Trap.** Do NOT emit `FTClass` for a primitive or an alias name — only for a registered
-class/interface. An alias (`type Handler<T> = …`) is an `Abbrev`, transparent; turning it
-into `FTClass` would break alias expansion. Gate strictly on `kindOf name = Some _`.
+**Trap.** Do not let the extractor evaluate anything (no keyof-expansion in TS-land):
+the manifest carries the CONSTRUCT, the front end owns evaluation (step 3) — same
+freeze/backend-knowledge separation as everywhere else.
 
 ---
 
-## R2 — external object-method lowering (Codegen.Js)
+## R4a STEP 3 — evaluation rules (front end)
 
-**Goal.** An instance-member call on an external manifest object lowers to a NATIVE
-`receiver.member(args)`, not a receiver-first free-fn import (`$on(receiver)`), so the
-emitted JS calls the real object's prototype method.
+**Goal.** The carried nodes evaluate exactly as the design section specifies, closing
+walls 3–5 for concrete call sites.
 
 **Steps.**
-1. Read the existing external-member lowering in `EmitJs.fs`: the external receiver-first
-   path is the `TExprG.ExternalMember` arm (`:630-676` — mangled `addMemberRef` import +
-   `$Member(receiver)` call). `attachedAccess` + the `ctx.LocalInterfaces` guards
-   (`:595-599`) emit the native `receiver.member(args)` shape this work needs; the LOCAL
-   `FieldGet`/`PropertyGet`/`MethodCall` arms (`:524-626`) are the contrast.
-2. **The args are NOT at the node.** `TExprG.ExternalMember` carries only the receiver;
-   call arguments arrive through enclosing curried `App`s (the arm's own comment,
-   `:628-629`). `attachedAccess` works for local interfaces because `TExprG.MethodCall`
-   CARRIES its args — the external node does not, so the native lowering must recover them
-   from the application spine. Two routes: (a) a head-case in the `App` arm's spine
-   collapse (`:444+` already calls `TastWalk.collectSpine` to flatten module-function
-   calls) that recognizes an external-manifest `ExternalMember` head and folds the whole
-   spine into `receiver.member(a, b, …)`; or (b) an upstream TAST change so external
-   manifest member calls carry their args on one node. Prefer (a): it is backend-local
-   (per the freeze/backend-knowledge separation) and follows the existing flat-call
-   precedent; (b) touches the shared TAST and the CLR backend for a JS-only need.
-3. **`this`-binding when the member ESCAPES.** A bare member extraction (`let f =
-   emitter.on` … later `f t h`) must NOT emit a detached `emitter.on` — JS loses `this`
-   on extraction. When the `ExternalMember` arm is reached WITHOUT an applying spine (the
-   member escapes as a value), eta-wrap it: `(...args) => receiver.member(...args)` (or
-   `.bind(receiver)`). mitt happens to be closure-based and would not catch this bug — do
-   not let that mask it; pin it with a fixture whose method reads `this`.
-4. Distinguish a **third-party manifest object** (native methods, `receiver.member(args)`)
-   from **Vesper's own emitted runtime** (receiver-first free-fn imports). The signal:
-   the member's `Origin`/`SymbolKey` home assembly is a TS-manifest module (the provider
-   stamps `ExternalMember.Origin = originFor moduleSpec nsPath`; an `InterfaceMethod`/`Method`
-   from a `TsManifestProvider` type shape). Decide where the signal lives — likely a flag on
-   the resolved `ExternalMember` (e.g. the existing `ExternalClassFlags`, or a new "native
-   object members" bit) set by `TsManifestProvider` and read in `EmitJs`, mirroring how the
-   `Erased` flag drives `isErasedGroupingType`. Keep the target-dialect knowledge in the
-   backend (Codegen.Js), per the freeze/backend-knowledge separation — the provider says
-   "these are native object methods," EmitJs decides the JS form.
-5. Static members and constructors: a manifest `Class` static method lowers to
-   `Cls.method(args)` (or the bare import for an erased grouping type — already handled);
-   `new` lowers to `new Cls(args)` against the default/named import. Scope R2 to INSTANCE
-   members first (what mitt needs); note static/ctor native lowering as a follow-up if the
-   first fixture doesn't need it.
+1. `keyof` fold: `TyKeyOf t` with `t` ground to a record/interface (project-local
+   record, manifest interface, or the type-arg the annotation supplied) evaluates to
+   `MkUnion [TyLiteral name; …]` of its member names. Unground: carried, and it must
+   not poison unification (treat like a deferred node; decide + pin the "still unground
+   at generalisation" diagnostic).
+2. Method-typar grounding at the call site: for `on<Key extends keyof Events>(type:
+   Key, …)` instantiated at a SYNTACTIC string constant, the existing
+   `tryAdmitLiteralConstArg` seam grows the ability to SOLVE the freshened `Key` var to
+   `TyLiteral "ping"` when the constraint's keyof-fold contains it (this stays within
+   the nominalism invariant — the literal enters via the EXTERNAL signature's typar,
+   never as the type of a Vesper expression). A non-constant key falls back to the
+   documented precision limit: `Events[Key]` = union of member value types.
+3. `T[K]` fold: `TyIndexedAccess(t, k)` with `t` ground and `k` a `TyLiteral` (or a
+   literal union) → the member's type (union of the members' types). This is what
+   types `handler` correctly per key.
+4. Conditional fold: ground check/extends → pick a branch; the `extends` test on a
+   ground union is `TyOr`/`subsumes` membership. mitt's no-payload `emit` overload
+   (`undefined extends Events[Key] ? Key : never`) is the pinned stress case.
+5. **R4b freshening will bite here**: the single-candidate `TryLookupMember` field-walk
+   does NOT freshen method typars (`ExternalSymbols.instantiateSignature` runs only on
+   the multi-candidate overload-commit path). Fixing it is IN SCOPE for step 3 — it is
+   an inference/overload-resolver change; make it deliberately, with isolation tests
+   first (systematic-tests rule), not as a drive-by.
 
-**Acceptance.**
-- Emitting a Vesper program that calls an external instance member produces
-  `receiver.member(args)` in the JS (assert on the emitted source), and running it against a
-  hand-authored runtime whose object HAS that prototype method returns the right value under
-  Node (`runNodeFiles`). Use the non-generic `Box` fixture from R1.
-- The existing Vesper-runtime receiver-first lowering is UNCHANGED for non-manifest members
-  (no regression in the broader Codegen.Js suite).
+Isolation tests per rule BEFORE wiring (hand-built manifests, `LiteralUnionTests`
+pattern), then the mitt-shaped integration: `e.on("ping", fun p -> …)` types `p` from
+`Events.ping`.
 
 ---
 
-## R3 — the real Vesper e2e (rewrite `MittE2ETests`)
+## R4a STEP 4 — ★ the gate
 
-**Goal.** A Vesper program that creates a mitt emitter, registers a handler, AND emits an
-event — ALL in Vesper source — emits JS that runs against the real vendored `mitt.mjs` under
-Node and observes the handler firing. This replaces the harness-driven scenario; the member
-calls move INTO the Vesper program.
+Both halves, then R5 may start:
+1. mitt golden `Diagnostics = []`, `mittDiagnosticsContract` asserts empty (done in
+   step 2 if extraction got there; re-verify).
+2. mitt's COMPLETE public surface — `mitt()` factory, `on`, `off`, `emit` (with and
+   without payload), `all` — driven from Vesper source over a ≥2-key `Events` with
+   DIFFERENT payload types, emitted via Codegen.Js, run against the real vendored
+   `mitt.mjs` under Node, behaviour asserted. Rewrite `MittE2ETests` so the harness is
+   import+assert only; delete the walls list from its header as each closes.
 
-**Steps.**
-1. R3 is the FIRST e2e and is allowed to be provisional — its job is to prove the R1+R2
-   consumption machinery end-to-end, NOT to reach mitt fidelity (that is R4's gate). Land it on
-   the easiest path:
-   - Prefer a **non-generic** hand-authored emitter-style fixture (e.g. `Bus { on(name, handler);
-     emit(name, payload) }` with plain types) so R1+R2 are exercised by a Vesper program that
-     genuinely calls instance members, with zero generics in the way.
-   - If you point R3 at mitt directly, you may temporarily annotate the emitter at a concrete
-     `Events` and tolerate that `keyof`/`Events[Key]` are still degraded `FTUnknown` — but this
-     is a STEPPING STONE only. R4 forbids that degradation; do not treat a degraded-mitt R3 as
-     done. Note precisely what mitt's generic surface can't yet express and carry it into R4.
-2. Rewrite `test/XParsec.FSharp.Codegen.Js.Tests/MittE2ETests.fs`: the Vesper `program` string
-   contains the `on`/`emit` calls; the JS "harness" shrinks to just `import` + invoking the
-   emitted entry + asserting the observed value (or the program prints the sentinel itself).
-   Keep the hard rules: read ONLY committed files (`mitt.manifest.json` + `dist/mitt.mjs` +
-   the `.fs` program); NEVER run the extractor; NO `ProjectReference` to `Extractor.Tests`.
-   Seed `JsImports.createWithDefaults` with `TsManifestProvider.defaultValueKeys manifest`.
-3. Update the test's header comment to state truthfully what is now Vesper-driven vs. any
-   residual harness glue.
-
-**Acceptance.** Node exits 0 and the handler-observed value is asserted, with the `on`/`emit`
-calls originating in the Vesper program (grep the emitted JS to confirm the member calls came
-from compiled Vesper, not hand-written harness lines).
+Also in step 4 (R4b leftovers that gate "complete"):
+- **Trailing-optional policy**: `mitt(all?)` is collapsed to `unit -> Emitter`; if the
+  full API needs the 1-arg form, model two arities (overload) — revisit deliberately.
+- **Default-import production wiring**: `JsImports.createWithDefaults` +
+  `TsManifestProvider.defaultValueKeys` are test-proven; the production emit pipeline
+  still builds `JsImports.create` (empty default set). Wire the real compile path.
+- `emitter.all` is a `Map` — expect a BCL-vs-JS `Map` reconciliation question; if it
+  explodes in scope, pin the gap honestly and descope `all` READS only with user
+  sign-off (it changes the bar).
 
 ---
 
-## R4 — ★ mitt full-fidelity gate (REQUIRED before any other package)
+## R5 — coverage + breadth (GATED on step 4)
 
-**The bar (both halves must hold):**
-1. **Zero-degradation extraction.** mitt's golden `Diagnostics` must be `[]` — every one of
-   the five residual constructs (`keyof Events`, `keyof T`, `T[keyof T]`, `Events[Key]`, and
-   the conditional `undefined extends Events[Key] ? Key : never`) is represented FAITHFULLY,
-   not as a `structural-object-stubbed` degrade. Flip `mittDiagnosticsContract` to assert
-   `man.Diagnostics |> List.isEmpty`.
-2. **Full API driven from Vesper source.** mitt's complete public surface — `mitt()` (factory),
-   `emitter.on`, `emitter.off`, `emitter.emit`, and `emitter.all` — is exercised by tests whose
-   **Vesper program** (not a JS harness) makes the calls, emits via Codegen.Js, and runs against
-   the real vendored `mitt.mjs` under Node with asserted behaviour. Multiple event types
-   (`Events` with ≥2 keys of different payloads) to prove the key/value typing is real.
-
-This GATE is the reason no second JS package starts yet: prove the whole stack
-(extract → manifest → provider → infer → emit → run) is faithful on one real package before
-breadth multiplies the unknowns.
-
-### R4a — faithful keyof / indexed-access / conditional (the hard structural work)
-This is the genuinely-hard TS-type-system modeling the companion design doc deferred. It is
-large — scope it honestly. Each needs a faithful representation across the stack, NOT a stub:
-
-- **String-literal singleton types are a PREREQUISITE, not a detail — DESIGN RESOLVED**
-  (companion doc §"Literal types stay structural, in the external vocabulary only").
-  Summary of the decided model: `FTLiteral` composes with the existing `FTOr`
-  (structural, no anonymous nominal synthesis); Vesper inference NEVER mints a literal
-  type (`"ping"` stays `string` — literals arise only by instantiating external
-  signatures); admission is DIRECTIONAL at the external-arg seam where `TyOr` already
-  rides obj's `subsumes` layer (constant-argument set membership + the landed
-  string-enum companion via value-set ⊆); outward, literals widen to their base
-  primitive; `T[K]` folds via call-site constant propagation (printf-format precedent),
-  degrading to the union of member value types for a non-literal key. Land `FTLiteral`
-  + the admission rule BEFORE the keyof work builds on it.
-- **`keyof T`** — a type operator over a type parameter (or a concrete type). Add a faithful
-  schema arm (e.g. `TypeRef.KeyOf of TypeRef`) + a `FrozenType`/`SemType` node, and front-end
-  resolution: when the operand is GROUNDED to a concrete record/interface, `keyof` evaluates to
-  the union of its member names (string-literal union); ungrounded, it stays a `keyof` type node
-  the unifier can carry. The extractor must STOP routing it to the structural-stub arm.
-- **`T[K]` indexed-access** — the value type at key `K` of `T`. Faithful schema arm
-  (`TypeRef.IndexedAccess of obj: TypeRef * index: TypeRef`) + node; resolution looks up the
-  member type when `T` is grounded and `K` is a known key (the dependent `Events[Key]` is the
-  stress case — the payload type DEPENDS on the key value, which Vesper's type system cannot do
-  dependently; decide the faithful-but-expressible answer, e.g. resolve to the union of value
-  types, and document the precision limit).
-- **conditional `A extends B ? X : Y`** — faithful schema arm + node; evaluate when both sides
-  are grounded (the no-payload `emit` overload is the stress case). The DEEPEST item — if full
-  conditional evaluation proves out of reach, settle on a faithful representation + a documented,
-  test-pinned evaluation rule for exactly the shapes mitt uses, rather than a silent degrade.
-
-Update the design doc's mapping table + the `Schema.fs` grammar comments as these land. Watch
-the SCC/cycle note (`interface Node { children: Node[] }`) only if a faithful form recurses;
-mitt's residue does not contain a plain anonymous object literal, so structural-record
-content-hashing is NOT required for this gate (it stays in R5).
-
-### R4b — supporting inference / emit gaps (will bite during R4a/R3)
-- **Single-overload method-typar freshening.** An external generic member's method typar
-  (`FTTypar(TyparAxis.Method,i)`) is freshened per call ONLY on the multi-candidate
-  overload-commit path (`ExternalSymbols.instantiateSignature` via `commitExternalOverload`);
-  the single-candidate `TryLookupMember` field-walk does NOT, leaving the marker unbound
-  (`TyConst int` vs `TyTypar(Method,0)`). mitt's `on`/`emit` are multi-overload so they dodge
-  it — but exercising the FULL API faithfully may surface a single-overload member; fix by
-  making the single-candidate external path call `instantiateSignature` too. **This is an
-  inference/overload-resolver change** — do it deliberately; touching the unifier as part of
-  provider/codegen work is the exact thing the codegen-owns-assignability guardrail warns
-  against. (Memory `reference_single_overload_method_typar_no_freshen`.)
-- **Default-import production wiring.** `JsImports.createWithDefaults` + `defaultValueKeys` are
-  proven in the test but the production emit pipeline still builds `JsImports` via `create`
-  (empty default set). Wire whatever assembles `EmitJs.WalkCtx.Imports` in the real compile to
-  seed the default set from the active TS-manifest provider(s).
-- **Trailing-optional v1 policy.** `toFunctionSymbol` DROPS a trailing optional parameter
-  (`mitt(all?)` → `unit -> Emitter`). Revisit for mitt's full API if a callable optional matters
-  (the faithful model is two arities / an overload).
-
-**Acceptance (the gate).** mitt golden `Diagnostics = []`; `mittDiagnosticsContract` asserts
-empty. A Vesper-source test calls factory + `on`/`off`/`emit`/`all` over a ≥2-key `Events`,
-emits, and runs against real `mitt.mjs` under Node with asserted results. All suites green.
-Any construct that genuinely cannot be made faithful is escalated (it changes the bar), not
-silently re-degraded.
+Unchanged: `@types/node` diagnostics coverage golden as a burndown; DOM needs the
+ambient-global extraction mode; structural-record content-hashing with SCC cycles.
+Delete this doc at R5 start; fold durable facts into module headers +
+`project_*`/`reference_*` memory.
 
 ---
 
-## R5 — coverage + breadth (GATED on R4 passing)
+## Orientation — files and symbols
 
-Do NOT start until R4's gate holds. Then:
-- Point the resilient extractor at `@types/node` (module-shaped) and commit its diagnostics
-  report as a **coverage golden** — ranked by code frequency it is a burndown chart; the top
-  codes are the roadmap (structural-record content-hashing with SCC cycles, and whatever keyof/
-  indexed/conditional shapes beyond mitt's are still unfaithful).
-- The DOM is the eventual destination but needs a second **ambient-global extraction entry
-  mode** (`declare global`, no module exports) the module-based `extractPackage` lacks, on top
-  of every deferred feature firing at once. Capstone, not an early bite.
-- Delete this doc; fold durable facts into module headers + `project_*` / `reference_*` memory.
-
----
-
-## Orientation — the files you will touch
-
-- **Provider (the R1/R2 center):** `src/XParsec.FSharp.Codegen.Js/TsManifestProvider.fs`
-  — `toFrozen` (`:24`), `providerOfManifest` (`:435`), `typeKinds`/`kindOf` (`:462-472`),
-  `toTypeShape`/`build` (`:279+`), `defaultValueKeys` (`:624`).
-- **Front-end member access:** `resolveFieldStep`
-  (`Passes/Unification/InferRecordAccess.fs:237`; TyConst catch-all `:403`; external
-  `TyClass` provider lookup `:271-294`); `SemanticInfo.fs` `FrozenType` (`:377` `FTConst`,
-  `:384` `FTClass`) + `FrozenTypeBridge.instantiateWith` (`:862`, `FTConst→TyConst` /
-  `FTClass→TyClass`); `ExternalSymbols.fs` (`:857+` signature instantiation,
-  `instantiateSignature` for freshening).
-- **Codegen.Js emit:** `src/XParsec.FSharp.Codegen.Js/EmitJs.fs` — external
-  `TExprG.ExternalMember` arm (`:630-676`), `App` spine collapse (`:444+`,
-  `TastWalk.collectSpine`), `attachedAccess` + `ctx.LocalInterfaces` (`:595-599`, the
-  native-method shape to reuse); `JsImports`/`JsRuntime.fs` (default-import set),
-  `JsAst.fs`/`JsPrint.fs` (the `Import` statement with `defaultBinding`).
-- **Tests:** `test/XParsec.FSharp.Codegen.Js.Tests/` — `MethodAxisGenericTests.fs` /
-  `NullUndefinedTests.fs` (provider-stack + `runNodeFiles` harness pattern), `MemberOverloadTests.fs`
-  (`calcProvider` stacking), and `MittE2ETests.fs` (the file R3 rewrites). The vendored fixture
-  is `test/ts-fixtures/mitt/`.
+- **Schema/codec:** `src/Vesper.Ts.Manifest.Schema/{Schema,Codec}.fs` — `TypeRef`
+  (`Literal` arm exists; step 2 adds `KeyOf`/`IndexedAccess`/`Conditional`),
+  `EnumValue` (the literal-tagging precedent), codec `"literal"` arm.
+- **Extractor (step 2 only):** `src/Vesper.Ts.Extractor/Extractor.fs`; rebuild via the
+  one sanctioned Fable command; golden-regen flow lives in
+  `test/Vesper.Ts.Extractor.Tests`.
+- **Provider:** `src/XParsec.FSharp.Codegen.Js/TsManifestProvider.fs` — `toFrozen`
+  (resolver + arityName suffix-at-lookup), `argSigOf` (literal renders quoted),
+  `providerOfManifest` (`typeKeys`/`typeKinds`).
+- **Types + walks:** `src/XParsec.FSharp.SemanticAnalysis/SemanticInfo.fs` —
+  `LiteralConst`, `FTLiteral`/`TyLiteral`, `FTOr`/`TyOr` + `MkUnion`/`UnionMembers`,
+  `FrozenTypeBridge.instantiateWith`; `EqSet.fs`.
+- **Unification seam:** `Passes/Unification/Engine.fs` — `subsumes` (literal widening,
+  `enumAdmitsIntoLiteralUnion`, TyOr arms), union unify (`TyOr m1 = m2` set equality),
+  `unifyAnnotation` literal-guarded arm; `Passes/Unification/InferApp.fs` —
+  `tryAdmitLiteralConstArg` (the constant-consultation seam step 3 extends);
+  `ExternalSymbols.instantiateSignature` (the step-3 freshening fix site).
+- **Emission:** `Codegen.Clr/ClrEncoder.fs` (`FTLiteral` erase-to-base arm — new carrier
+  nodes need arms too), `Codegen.Js/EmitJs.fs` (`validatePlatformTypes`).
+- **Tests as patterns:** `test/XParsec.FSharp.Codegen.Js.Tests/LiteralUnionTests.fs`
+  (admission matrix + Node e2e), `ExternalNominalClassTests.fs` (hand-built manifests),
+  `BusE2ETests.fs`/`MittE2ETests.fs` (e2e + the walls-truth header),
+  `test/XParsec.FSharp.SemanticAnalysis.Tests/EqSetTests.fs`.
 
 ## Relevant memories
-`reference_js_external_instance_member_walls` (the three walls),
-`reference_single_overload_method_typar_no_freshen` (R4 freshening gap),
-`reference_null_undefined_already_survive_js` (null/undefined + the now-fixed free-fn asm=None),
-`feedback_codegen_js_owns_assignability` / `feedback_freeze_no_backend_knowledge` (where target
-knowledge may and may not live), `project_js_*` (the JS backend landscape).
+`reference_js_external_instance_member_walls` (walls status),
+`reference_single_overload_method_typar_no_freshen` (the step-3 freshening fix),
+`feedback_freeze_no_backend_knowledge` (extractor carries, front end evaluates),
+`feedback_systematic_tests_over_whackamole` (isolation tests before wiring),
+`reference_eqarray_percentA_cache_key` (never key caches on `%A` of these types).
