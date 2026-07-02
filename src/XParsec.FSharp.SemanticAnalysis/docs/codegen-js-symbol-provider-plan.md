@@ -108,7 +108,8 @@ builder closures. Not a per-lookup RPC into a live Node checker, because:
 | mapped (`Partial<T>`, `ReturnType<F>`) | query the *evaluated* type | concrete `SemType` snapshot; generic form lost |
 | overloaded functions | overload set | `TryLookupMembers` (already exists) |
 | `(a, b?, ...rest)` | curry per existing convention; optional/rest → policy | `TyFun` chain |
-| module specifier / `namespace` / `declare global` | re-role `SymbolOrigin` | asm→specifier, ns→namespace, declType→class |
+| module specifier / `namespace` / `declare global` | re-role `SymbolOrigin` (resolved — see the cross-package/ref-pack section) | asm→specifier, ns→namespace, declType→class |
+| cross-package named ref (`Map`, `Buffer`) | identity+kind BAKED at extraction (refs table); shape resolves via provider stack (resolved — see below) | `FTClass(TypeKey(home,…))`, members via `TryLookupMember` |
 
 ### Literal types stay structural, in the external vocabulary only (resolved — R4a)
 
@@ -302,6 +303,76 @@ canonical numbering before hashing (see `brainstorm-tarjan-scc.md` if it covers
 cycle canonicalisation); **equality not subtyping** — a content hash is
 exact-shape, so inflow (Vesper values into TS APIs) must match shape exactly or
 coerce; keep the declared name in a side table for diagnostics.
+
+## Cross-package nominals, globals, and the JS ref pack (RESOLVED 2026-07-02)
+
+**The problem.** A foreign named type in a manifest (`mitt`'s `all: Map<…>`) carries
+no home and no kind: `TsManifestProvider.toFrozen` consults only the manifest's OWN
+registry, so anything cross-package degrades to an opaque `FTConst` — it survives as a
+carried nominal (R4a's reads-only `all`) but its members can never resolve. R5's real
+packages make this a hard requirement: `@types/node` and DOM surfaces are *built from*
+cross-package and global references.
+
+### Identity + kind are BAKED at extraction (decided)
+
+The extractor records, for every foreign named reference, its **home** and its
+**kind** — tsc already knows both: a symbol's `declarations[0].getSourceFile()` names
+the declaring file, `program.isSourceFileDefaultLibrary` /
+`isSourceFileFromExternalLibrary` (vendored binding `TypeScript.fs:4308`) classify it
+(default lib vs `node_modules` package vs local), the package specifier/version comes
+from `packageId`/nearest `package.json` (machinery the package entry mode already
+has), and `SymbolFlags` give the kind (interface/class/alias/enum). Schema shape: a
+manifest-level **refs table** — the ECMA-335 `TypeRef`/`AssemblyRef` analog — mapping
+each foreign name to `{ home specifier; kind; arity }` (additive; exports stay the
+"TypeDef" side). Reserved home specifiers for the default lib mirror TS's own lib
+grouping (`es2015`, `dom`, …).
+
+What is baked is **identity, not shape**: the referencing manifest never inlines the
+foreign type's members (that is the staleness trap). `toFrozen` mints
+`FTClass(TypeKey(home, …))` directly from the baked ref entry — no composite-resolver
+two-phase load needed — and member access resolves through the ordinary provider
+STACK at inference time (`TryLookupMember` with the home-qualified key), exactly as a
+CLR TypeRef resolves against a loaded referenced assembly. A ref whose home manifest
+is absent from the compilation fails at member access with a "package not referenced"
+diagnostic, the moral equivalent of a missing assembly reference.
+
+### The JS ref pack: extractor-generated, vendored, NEVER hand-authored (decided)
+
+The standard library ships as committed, extractor-generated manifests over TS's own
+`lib.es*.d.ts` — the analog of the CLR's per-compilation BCL ref set — bundled with
+the compiler (or a `Vesper.Js` std-lib package; distribution point open). **No
+hand-authored stubs**, even where that forces extractor complexity up front (the
+ambient-global `declare global` entry mode, declaration MERGING across lib files, the
+interface+constructor-var global pair): hand-authored surface drifts from real TS and
+has no fidelity oracle. `JsNativeSymbols` shrinks to the intrinsic-repr seam
+(`exn→Error`) as the pack absorbs the rest — its header always said it was the seam a
+tsc-derived format plugs into.
+
+**First target: full `lib.es2015`, run as a diagnostics burndown** (the failure
+contract's coverage-golden machinery, below) — the committed diagnostics report ranks
+the extractor gaps by frequency so the high-value wins surface empirically instead of
+by curation.
+
+### Vesper surface: the `Js` namespace, mirroring TS's lib structure (decided)
+
+Ref-pack types mount under `Js` — `Js.Map<string, int>`, `Js.Promise<'T>` (the
+`ns→namespace` re-role in the mapping table). Non-optional, not just tractability:
+Vesper's own core claims `Map`/`Set`, so unqualified globals would collide.
+Packaging/namespacing mirrors TS's own lib structure: the ES language core flattens
+into `Js` (the version-suffixed `lib.es5`/`lib.es2015.*` files are TS's
+compile-target mechanism, not semantic namespaces), host environments split
+(`Js.Dom`, later). `Js.*` is JS-target-only by design — the `Vesper.Exceptions`
+JS-only-contract precedent; nothing pretends `Js.Map` is `Dictionary`. (A future
+portability layer — a `Vesper.Platform.Map` forwarding to `SCG.Dictionary`/`Js.Map`
+per target — is RECORDED as a possibility, explicitly out of scope.)
+
+### Emission: globals import nothing
+
+A ref-pack type is ambient in every JS runtime. Fable's precedent is the
+`[<Global>]` attribute (bypasses import emission); ours is the same fact as data: a
+`Global` marking on the external class shape/origin (sibling of `AttachMembers`,
+which is likewise Fable-named) that `JsImports` consults to emit NO import. Without
+it the pack would emit `import { Map } from "es2015"` — wrong the moment it runs.
 
 ## Failure contract: resilient extraction with diagnostics (DECIDED)
 
