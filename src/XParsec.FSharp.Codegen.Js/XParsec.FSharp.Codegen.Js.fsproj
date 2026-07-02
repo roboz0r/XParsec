@@ -13,6 +13,7 @@
     <Compile Include="JsRuntime.fs" />
     <Compile Include="JsEmitHelpers.fs" />
     <Compile Include="JsFlatFns.fs" />
+    <Compile Include="JsExternalMembers.fs" />
     <Compile Include="EmitJsTypes.fs" />
     <Compile Include="EmitJs.fs" />
     <Compile Include="Codegen.fs" />

@@ -15,10 +15,6 @@ type JsRuntimeModule =
         Source: string
     }
 
-/// Per-compilation accumulator for the runtime-module imports a program needs.
-/// `addRef` / `addMemberRef` are called by the expression walker; each home assembly's
-/// module is recorded once, on first reference. `importStatements` yields the leading
-/// `import` block; `modules` yields the modules to materialise beside the output.
 /// The accumulating import specifiers for one home assembly: the runtime module, the
 /// sorted set of NAMED specifiers (`name as $alias`), and the at-most-one DEFAULT binding
 /// (`$alias` for an `import $alias from '<spec>'`). A TS default export cannot be imported
@@ -30,6 +26,10 @@ type private ImportEntry =
         mutable Default: string option
     }
 
+/// Per-compilation accumulator for the runtime-module imports a program needs.
+/// `addRef` / `addMemberRef` are called by the expression walker; each home assembly's
+/// module is recorded once, on first reference. `importStatements` yields the leading
+/// `import` block; `modules` yields the modules to materialise beside the output.
 type JsImports =
     private
         {
@@ -91,7 +91,17 @@ module JsImports =
             let alias = "$" + (ns + "." + name).Replace('.', '_')
 
             if imports.DefaultKeys.Contains((asm, ns, name)) then
-                entry.Default <- Some alias
+                // At-most-one default binding per module, ENFORCED: a second, different
+                // alias would silently clobber the first in the emitted `import` line.
+                // Re-recording the same alias is the normal repeat-reference no-op.
+                match entry.Default with
+                | Some prev when prev <> alias ->
+                    failwithf
+                        "JS codegen: module '%s' already binds its default export as '%s'; cannot re-bind it as '%s'"
+                        asm
+                        prev
+                        alias
+                | _ -> entry.Default <- Some alias
             else
                 entry.Named.Add(sprintf "%s as %s" name alias) |> ignore
 

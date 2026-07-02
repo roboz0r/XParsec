@@ -191,42 +191,10 @@ module EmitJs =
 
     // ---- Members -------------------------------------------------------------
 
-    /// Name-mangling and key→name resolution for member calls, shared between
-    /// `emitMemberFn` and the call-site lowerings in the walker.
+    /// Key→name resolution for LOCAL member calls, shared between `emitMemberFn` and
+    /// the call-site lowerings in the walker. (The mangling scheme itself and every
+    /// external-world helper live in `JsExternalMembers`.)
     module private Members =
-
-        /// Instance method → `<Type>__<member>`; instance property getter →
-        /// `<Type>__get_<Prop>`; static member → `<Type>_<member>`.
-        let mangledName (typeName: string) (isStatic: bool) (isProperty: bool) (memberName: string) : string =
-            if isStatic then typeName + "_" + memberName
-            elif isProperty then typeName + "__get_" + memberName
-            else typeName + "__" + memberName
-
-        /// The declaring type's `SymbolKey` from a member-call node's `key`.
-        let declKey (key: SymbolKey) : SymbolKey =
-            match key with
-            | SymbolKey.MemberKey(decl, _, _, _) -> decl
-            | _ -> key
-
-        /// The home assembly of an external type, for selecting its runtime-js module.
-        /// Falls back to the provider's type-shape `origin` when the key has no assembly.
-        let assemblyOf (ctx: WalkCtx) (key: SymbolKey) (what: string) : string =
-            match SymbolKeyOps.keyAsm key with
-            | Some a -> a
-            | None ->
-                let origin =
-                    match ctx.Provider with
-                    | ValueSome provider ->
-                        match ExternalSymbols.tryLookupType provider key with
-                        | ValueSome(ExternalTypeShape.Union(_, _, _, o))
-                        | ValueSome(ExternalTypeShape.Record(_, _, o)) -> o.Assembly
-                        | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Assembly
-                        | _ -> None
-                    | ValueNone -> None
-
-                match origin with
-                | Some a -> a
-                | None -> failwithf "EmitJs (Step 7): %s has no resolvable home assembly (key %A)" what key
 
         /// The emitted type name for mangling: local union/record `Name`, else the key's simple name.
         let typeName (ctx: WalkCtx) (key: SymbolKey) : string =
@@ -239,8 +207,12 @@ module EmitJs =
 
         /// The callable identifier of a local member's emitted function.
         let localFn (ctx: WalkCtx) (key: SymbolKey) (isStatic: bool) (isProperty: bool) (loc: JsLoc voption) : JsExpr =
-            let dk = declKey key
-            JsExpr.Identifier(mangledName (typeName ctx dk) isStatic isProperty (SymbolKeyOps.simpleName key), loc)
+            let dk = JsExternalMembers.declKey key
+
+            JsExpr.Identifier(
+                JsExternalMembers.mangledName (typeName ctx dk) isStatic isProperty (SymbolKeyOps.simpleName key),
+                loc
+            )
 
     /// `throw new Error("…")` — the fallthrough for a non-exhaustive match.
     let private matchFailure: JsStatement =
@@ -268,75 +240,13 @@ module EmitJs =
         else
             JsStatement.Const(name, init)
 
-    /// Walk a type's `inherit` chain up to the `exn` intrinsic root and resolve its
-    /// `(# "Error" #)` repr to the native runtime class name (`Error` on JS). Returns
-    /// `ValueNone` when the type is not an `exn` subtype or the repr names no provider class.
-    let private exnReprOf (ctx: WalkCtx) (ty: FrozenType) : string voption =
-        match ctx.Provider with
-        | ValueNone -> ValueNone
-        | ValueSome provider ->
-            let shapeOf (ft: FrozenType) : ExternalTypeShape voption =
-                match ft with
-                | FTClass(key, _)
-                | FTUnion(key, _)
-                | FTRecord(key, _) -> ExternalSymbols.tryLookupType provider key
-                | FTConst(name, _) -> ExternalSymbols.tryRuntimeType provider name
-                | _ -> ValueNone
-
-            // Depth cap backstops a malformed cyclic `inherit`; each hop is a strict
-            // ancestor so the chain is finite in practice.
-            let rec climb (depth: int) (ft: FrozenType) : string voption =
-                if depth > 16 then
-                    ValueNone
-                else
-                    match shapeOf ft with
-                    | ValueSome(ExternalTypeShape.Intrinsic(platform = Some platform)) ->
-                        // Read the PLATFORM repr, not `canon` — `canon` is the unifier's
-                        // identity key (`"System.Exception"`) and has no JS class analogue.
-                        match ExternalSymbols.tryRuntimeType provider platform with
-                        | ValueSome(ExternalTypeShape.Class _) -> ValueSome platform
-                        | _ -> ValueNone
-                    | ValueSome(ExternalTypeShape.Class shape) ->
-                        match shape.FrozenBaseType with
-                        | ValueSome b -> climb (depth + 1) b
-                        | ValueNone -> ValueNone
-                    | _ -> ValueNone
-
-            climb 0 ty
-
-    /// `true` when `declKey` names a SYNTHETIC erased grouping type (Tier 2 item 9b):
-    /// the TS provider groups a module's overloaded free functions as static members of
-    /// one F#-visible type purely so the front end can resolve the overload set. The
-    /// type does not exist at runtime — a call to one of its members must ERASE to the
-    /// bare module export (`Util.format(x)` → `format(x)`), never the mangled
-    /// `Util_format` an ordinary external static member would import. `false` for every
-    /// real (metadata/contract) class, so the normal static-member path is untouched.
-    let private isErasedGroupingType (ctx: WalkCtx) (declKey: SymbolKey) : bool =
-        match ctx.Provider with
-        | ValueNone -> false
-        | ValueSome provider ->
-            match ExternalSymbols.tryLookupType provider declKey with
-            | ValueSome(ExternalTypeShape.Class shape) -> shape.Flags.Erased
-            | _ -> false
-
-    /// Does this external type carry its instance members as NATIVE object methods
-    /// (`receiver.member(args)`) rather than the receiver-first free-fn imports Vesper's
-    /// own runtimes emit? The provider stamps `AttachMembers` on a real manifest
-    /// Interface/Class; resolved through the declaring type's shape exactly as
-    /// `isErasedGroupingType` does.
-    let private isAttachMembersType (ctx: WalkCtx) (declKey: SymbolKey) : bool =
-        match ctx.Provider with
-        | ValueNone -> false
-        | ValueSome provider ->
-            match ExternalSymbols.tryLookupType provider declKey with
-            | ValueSome(ExternalTypeShape.Class shape) -> shape.Flags.AttachMembers
-            | _ -> false
-
     // The Fable-style FLAT module-function helpers — flat-call collapse, the curried
     // adapter, external-`ValRepr` resolution — live in `JsFlatFns`, decoupled from this
     // walker via a `build` callback (mirroring the CLR `EmitCall.flattenGroupPushes`
-    // `recur` parameter). Only the trampoline-coupled `emitFlatModuleFn` /
-    // `trampolineOrExpr` stay in this recursion group.
+    // `recur` parameter). The EXTERNAL-member lowerings — provider flags, the `exn`
+    // repr climb, the attached / erased / mangled call shapes — live in
+    // `JsExternalMembers` on the same seam. Only the trampoline-coupled
+    // `emitFlatModuleFn` / `trampolineOrExpr` stay in this recursion group.
 
     // ---- The walker ----------------------------------------------------------
 
@@ -457,37 +367,13 @@ module EmitJs =
         | TExprG.App(fn, arg, _, _) ->
             let head, spine = TastWalk.collectSpine [] e
 
-            let fallback () =
-                JsExpr.Call(buildExpr ctx fn, [ buildExpr ctx arg ], loc)
-
-            // A NATIVE attached-member call. An `ExternalMember` head whose declaring
-            // type carries `AttachMembers` (a real manifest object — its instance
-            // members are genuine prototype/own methods) folds its whole application
-            // spine into ONE `receiver.member(args)`; it is NOT a receiver-first free-fn
-            // import (the form Vesper's OWN runtimes emit as a tree-shaking optimisation).
-            // The member is tupled (.NET convention): it consumes the FIRST spine
-            // element as its argument list — the key's `argSig` length drives the
-            // flatten (0 → drop the lone `unit`, 1 → the value, ≥2 → spread the literal
-            // tuple), mirroring the CLR `ExternalMember` arg push — and any residual
-            // over-application folds on as unary calls.
-            match head with
-            | TExprG.ExternalMember(ValueSome recv, key, memberName, MemberStorage.Method, _, _) when
-                isAttachMembersType ctx (Members.declKey key)
-                ->
-                match spine with
-                | (argExpr, _, _) :: rest ->
-                    let call =
-                        JsExpr.Call(
-                            JsExpr.Member(buildExpr ctx recv, JsExpr.Identifier(memberName, ValueNone), false, loc),
-                            attachedMemberArgs ctx (memberArgCount key memberName) argExpr,
-                            loc
-                        )
-
-                    rest
-                    |> List.fold (fun acc (a, _, _) -> JsExpr.Call(acc, [ buildExpr ctx a ], ValueNone)) call
-                | [] -> fallback () // unreachable: the `App` arm guarantees ≥ 1 spine element
-            | _ ->
-
+            // Flat dispatch: a native attached-member call (`JsExternalMembers.
+            // tryAttachedCall`) folds the whole spine into ONE `receiver.member(args)`;
+            // else a saturated module-function call collapses to a flat call; anything
+            // else keeps the curried unary fallback.
+            match JsExternalMembers.tryAttachedCall ctx.Provider (buildExpr ctx) head spine loc with
+            | ValueSome call -> call
+            | ValueNone ->
                 // Resolve a spine head that names a module function to its flat callee +
                 // SOURCE groups — a local `CompiledFns` entry or an external `ValRepr`. The
                 // groups are non-empty by construction (both `gather` and the external
@@ -513,7 +399,7 @@ module EmitJs =
                 match flatHead with
                 | ValueSome(callee, groups) when List.length spine >= List.length groups ->
                     JsFlatFns.emitFlatCall (buildExpr ctx) callee groups spine loc
-                | _ -> fallback ()
+                | _ -> JsExpr.Call(buildExpr ctx fn, [ buildExpr ctx arg ], loc)
 
         // A record literal `{ X = e1; Y = e2 }` → `new R(args…)`, the args
         // reordered from source order to the class's *declaration*-order
@@ -614,7 +500,7 @@ module EmitJs =
             | ValueSome name ->
                 JsExpr.New(JsExpr.Identifier(name, ValueNone), [ for a in args -> buildExpr ctx a ], loc)
             | ValueNone ->
-                match exnReprOf ctx ty with
+                match JsExternalMembers.exnReprOf ctx.Provider ty with
                 | ValueSome repr ->
                     let errArgs =
                         match EqArray.toList args with
@@ -635,10 +521,12 @@ module EmitJs =
         // `CallVia` — see `WalkCtx.LocalInterfaces`). An interface-impl PROPERTY emits as a
         // zero-arg attached method, so its read is the same member access called with no
         // args.
-        | TExprG.PropertyGet(receiver, key, _, _, _) when ctx.LocalInterfaces.Contains(Members.declKey key) ->
+        | TExprG.PropertyGet(receiver, key, _, _, _) when ctx.LocalInterfaces.Contains(JsExternalMembers.declKey key) ->
             JsExpr.Call(attachedAccess ctx loc receiver key, [], loc)
 
-        | TExprG.MethodCall(receiver, key, _, args, _, _) when ctx.LocalInterfaces.Contains(Members.declKey key) ->
+        | TExprG.MethodCall(receiver, key, _, args, _, _) when
+            ctx.LocalInterfaces.Contains(JsExternalMembers.declKey key)
+            ->
             JsExpr.Call(attachedAccess ctx loc receiver key, [ for a in args -> buildExpr ctx a ], loc)
 
         // Member access on a local record/union: each member is a free receiver-first function.
@@ -668,108 +556,61 @@ module EmitJs =
 
         | TExprG.StaticMethodCall(key, args, _, _) -> applyArgs ctx (Members.localFn ctx key true false loc) args
 
-        // A member on an external type — imported from its runtime-js module and applied
-        // receiver-first; instance method arguments arrive through the enclosing `App`.
+        // A member on an external type. The declaring type's provider flags × the
+        // receiver's presence pick the lowering — the whole dispatch in one table:
+        //   * an ERASED grouping type erases to the bare module export
+        //     (`erasedGroupingRef`); it holds only STATIC members, so a receiver is
+        //     an invariant break;
+        //   * an ATTACH-MEMBERS instance member reached WITHOUT an applying spine —
+        //     the CALL form is folded in the `App` head-case — is a native value
+        //     read: a data-property READ for a property, an eta-wrapped method
+        //     value for a method. (R2 scope is INSTANCE members: a static member /
+        //     ctor — `receiver = ValueNone` — falls through until its native
+        //     lowering lands.)
+        //   * everything else — including statics/ctors on an AttachMembers type —
+        //     takes the mangled-import path, which is only satisfiable by a
+        //     Vesper-provided runtime module (`JsImports.entryFor` fails loudly
+        //     when the package has none — a real npm package cannot export a
+        //     mangled name).
         | TExprG.ExternalMember(receiver, key, memberName, storage, _, _) ->
-            let declKey = Members.declKey key
+            let declKey = JsExternalMembers.declKey key
             // JS has no field/property distinction at access — both are a value member
             // (the `get_`-style mangled import); only a `Method` is an arrow. (A `Field`
             // here would gain only `readonly` fidelity, not yet modelled.)
             let isProperty = storage.IsValueMember
 
-            if isErasedGroupingType ctx declKey then
-                // ERASE (Tier 2 item 9b): the declaring type is a synthetic grouping of
-                // overloaded free functions with no runtime existence. Resolve the callee
-                // the FREE-FUNCTION way — `addRef` of the BARE member name (the real
-                // module export) from the type's home module — so `Util.format(x)` emits
-                // `import { format … }` + `format(x)`, NOT the mangled `Util_format` an
-                // ordinary external static member would import (no such export exists).
-                // A grouping type holds only STATIC members, so a receiver is an invariant break.
-                match receiver with
-                | ValueSome _ ->
-                    failwithf
-                        "EmitJs (Step 9b): erased grouping type member '%s' has an instance receiver, but a synthetic free-function-overload type carries only static members"
-                        memberName
-                | ValueNone ->
-                    // The free-function `External` path carries a `ValueKey(Some home, ns, name)`;
-                    // mirror it from the grouping type's key so `addRef` imports the same bare
-                    // export (`name`) from the same home module the bare free function would.
-                    let valueKey =
-                        match declKey with
-                        | SymbolKey.TypeKey(home, ns, _) -> SymbolKey.ValueKey(home, ns, memberName)
-                        | _ ->
-                            failwithf
-                                "EmitJs (Step 9b): erased grouping member '%s' has a non-type declaring key %A"
-                                memberName
-                                declKey
-
-                    JsExpr.Identifier(JsImports.addRef ctx.Imports memberName (ValueSome valueKey), loc)
-            elif isAttachMembersType ctx declKey && ValueOption.isSome receiver then
-                // A NATIVE attached instance member reached WITHOUT an applying spine —
-                // the CALL form is folded in the `App` head-case; this is a value read.
-                // (R2 scope is INSTANCE members: a static member / ctor — `receiver =
-                // ValueNone` — hits the loud wall below until its native lowering lands.)
-                let r = receiver.Value
-
-                if isProperty then
-                    // A manifest Property is a JS DATA property — native access is a plain
-                    // member READ `recv.prop`, NOT a zero-arg call. (Contrast the LOCAL
-                    // interface-impl property path, which emits `Call(attachedAccess, [])`
-                    // because Vesper compiles interface properties as zero-arg methods; a
-                    // TS property is genuinely a data slot, not a method.)
-                    JsExpr.Member(buildExpr ctx r, JsExpr.Identifier(memberName, ValueNone), false, loc)
-                else
-                    // A METHOD extracted as a VALUE (`let f = box.get`): eta-wrap so `this`
-                    // binds at the eventual call — a detached `recv.member` loses `this` in
-                    // JS. The receiver is spilled to a temp unless it is a trivial `Var`, so
-                    // it evaluates exactly once. An external method is tupled, so the escaped
-                    // value is a single-arrow `arg -> ret`: one wrapper param, forwarded per
-                    // the member's `argSig` arity.
-                    let recvJs, prelude =
-                        match r with
-                        | TExprG.Var _ -> buildExpr ctx r, []
-                        | _ ->
-                            let tmp = "_recv" + string (TastWalk.exprTok r).StartIndex
-                            JsExpr.Identifier(tmp, ValueNone), [ tmp, buildExpr ctx r ]
-
-                    let argName = "_a" + string (TastWalk.exprTok e).StartIndex
-                    let argVar = JsExpr.Identifier(argName, ValueNone)
-
-                    let call =
-                        JsExpr.Call(
-                            JsExpr.Member(recvJs, JsExpr.Identifier(memberName, ValueNone), false, ValueNone),
-                            JsFlatFns.attachedForwardArgs argVar (memberArgCount key memberName),
-                            loc
-                        )
-
-                    let arrow = JsExpr.Arrow([ argName ], JsFnBody.Expr call, loc)
-
-                    match prelude with
-                    | [] -> arrow
-                    | binds ->
-                        JsExpr.Call(
-                            JsExpr.Arrow([ for (n, _) in binds -> n ], JsFnBody.Expr arrow, ValueNone),
-                            [ for (_, ex) in binds -> ex ],
-                            loc
-                        )
-            else
-                // Statics/ctors on an AttachMembers type also land here: their native
-                // `Cls.method(args)` / `new Cls(args)` lowering is pending, so they take
-                // the mangled-import path, which is only satisfiable by a Vesper-provided
-                // runtime module (`JsImports.entryFor` fails loudly when the package has
-                // none — a real npm package cannot export a mangled name).
-
-                let isStatic = (receiver = ValueNone)
-
-                let exportName =
-                    Members.mangledName (SymbolKeyOps.simpleName declKey) isStatic isProperty memberName
-
-                let asm = Members.assemblyOf ctx declKey (sprintf "external member '%s'" memberName)
-                let local = JsImports.addMemberRef ctx.Imports asm exportName
-
-                match receiver with
-                | ValueSome r -> JsExpr.Call(JsExpr.Identifier(local, ValueNone), [ buildExpr ctx r ], loc)
-                | ValueNone -> JsExpr.Identifier(local, loc)
+            match JsExternalMembers.classFlagsOf ctx.Provider declKey, receiver with
+            | ValueSome { Erased = true }, ValueSome _ ->
+                failwithf
+                    "EmitJs (Step 9b): erased grouping type member '%s' has an instance receiver, but a synthetic free-function-overload type carries only static members"
+                    memberName
+            | ValueSome { Erased = true }, ValueNone ->
+                JsExternalMembers.erasedGroupingRef ctx.Imports declKey memberName loc
+            | ValueSome { AttachMembers = true }, ValueSome r when isProperty ->
+                // A manifest Property is a JS DATA property — native access is a plain
+                // member READ `recv.prop`, NOT a zero-arg call. (Contrast the LOCAL
+                // interface-impl property path, which emits `Call(attachedAccess, [])`
+                // because Vesper compiles interface properties as zero-arg methods; a
+                // TS property is genuinely a data slot, not a method.)
+                JsExternalMembers.attachedMember (buildExpr ctx r) memberName loc
+            | ValueSome { AttachMembers = true }, ValueSome r ->
+                JsExternalMembers.etaWrapAttachedMethod
+                    (buildExpr ctx)
+                    r
+                    key
+                    memberName
+                    (TastWalk.exprTok e).StartIndex
+                    loc
+            | _ ->
+                JsExternalMembers.mangledMemberAccess
+                    ctx.Provider
+                    ctx.Imports
+                    (buildExpr ctx)
+                    declKey
+                    receiver
+                    memberName
+                    isProperty
+                    loc
 
         // `match scrut with …` → an IIFE binding the scrutinee once, then testing each
         // arm in order and `return`ing the first whose pattern (+ guard) matches; an
@@ -1388,7 +1229,7 @@ module EmitJs =
     /// Static members drop the receiver; a static property emits as a plain value binding.
     and emitMemberFn (ctx: WalkCtx) (typeName: string) (m: Frozen.TTypeMember) : JsStatement =
         let isProperty = (m.Kind = TMemberKind.Property)
-        let name = Members.mangledName typeName m.IsStatic isProperty m.Name
+        let name = JsExternalMembers.mangledName typeName m.IsStatic isProperty m.Name
 
         let receiverNames =
             if m.IsStatic then
@@ -1449,33 +1290,6 @@ module EmitJs =
     /// receiver's class. Shared by the `PropertyGet`/`MethodCall` `CallVia.Interface` arms.
     and attachedAccess (ctx: WalkCtx) (loc: JsLoc voption) (receiver: Frozen.TExpr) (key: SymbolKey) : JsExpr =
         JsExpr.Member(buildExpr ctx receiver, JsExpr.Identifier(SymbolKeyOps.simpleName key, ValueNone), false, loc)
-
-    /// The parameter count of an external attached member, from its key's `argSig`.
-    /// AUTHORITATIVE over the argument expression's surface shape — a genuine single
-    /// `(int * int)` parameter is `argCount = 1`, not a flattened 2-param call (the same
-    /// reason the CLR `ExternalMember` arm reads `argSig`, not `memberTy`).
-    and private memberArgCount (key: SymbolKey) (memberName: string) : int =
-        match key with
-        | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length
-        | other -> failwithf "EmitJs: attached member '%s' key is not a MemberKey: %A" memberName other
-
-    /// Flatten a native attached-member call's tupled argument (one `App` per .NET
-    /// convention) into its JS positional arguments: dropped for a 0-param (`unit`)
-    /// member (`recv.get()`, not `recv.get(undefined)`), the lone value for 1, or the
-    /// literal tuple's elements for ≥2. Mirrors the CLR `ExternalMember` arg push.
-    and private attachedMemberArgs (ctx: WalkCtx) (argCount: int) (argExpr: Frozen.TExpr) : JsExpr list =
-        if argCount = 0 then
-            []
-        elif argCount = 1 then
-            [ buildExpr ctx argExpr ]
-        else
-            match argExpr with
-            | TExprG.Tuple(elems, _, _) when elems.Length = argCount -> [ for el in elems -> buildExpr ctx el ]
-            | _ ->
-                failwithf
-                    "EmitJs: external attached member expects %d tupled arguments but the argument is not a literal %d-tuple"
-                    argCount
-                    argCount
 
     /// Emit an enumerable-capability `GetEnumerator` impl as a native
     /// `*[Symbol.iterator]()` GENERATOR — the JS realisation of "implement `seq<'T>`
