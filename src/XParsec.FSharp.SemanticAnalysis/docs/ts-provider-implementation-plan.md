@@ -48,9 +48,10 @@ A TS `Named("Emitter", …)` from the manifest currently becomes `FTConst → Ty
 (`TsManifestProvider.toFrozen`, `TsManifestProvider.fs:26-27`; `FrozenTypeBridge.instantiateWith`,
 `SemanticInfo.fs:866`). Three things break for instance-member use:
 
-1. **Front-end member access rejects a `TyConst`.** `Unification.resolveFieldStep` resolves
-   `.member` only on `TyClass`/`TyRecord`/`TyUnion`/`TyVar`; a `TyConst` falls to the
-   catch-all *"Cannot read member from non-record non-class type"*. The type IS registered
+1. **Front-end member access rejects a `TyConst`.** `resolveFieldStep`
+   (`Passes/Unification/InferRecordAccess.fs:237`) resolves `.member` only on
+   `TyClass`/`TyRecord`/`TyUnion`/`TyVar`; a `TyConst` falls to the catch-all
+   *"Cannot read member from non-record non-class type"* (`:403`). The type IS registered
    (the `Emitter` interface → `ExternalTypeShape.Class { IsInterface = true; Members = [on;off;emit] }`),
    so once the receiver is a `TyClass(key,…)` the existing `TryLookupMember(s)` path resolves
    the member. The blocker is purely that `toFrozen` emits `FTConst`, not `FTClass`, for a
@@ -111,20 +112,31 @@ Land each phase green before the next.
    stores both as `ExternalTypeShape.Class`).
 2. `toFrozen` is a top-level `let rec private` with NO access to the manifest's type table —
    thread a resolver into it. The kind/key data already exists inside `providerOfManifest`
-   as `typeKinds` / `kindOf` (`TsManifestProvider.fs:~425`). Options: (a) make `toFrozen`
-   take a `name -> SymbolKey option` resolver param (touches every call site — `signatureOf`,
-   `paramsFrozen`, `classifyHeritage`, `toFunctionSymbol`, `toValueSymbol`, `toTypeShape`),
-   or (b) move `toFrozen` inside `providerOfManifest` so it closes over `kindOf`/`moduleSpec`.
-   Prefer whichever keeps the diff smallest; (a) is more testable, (b) is less churn.
+   as `typeKinds` / `kindOf` (`TsManifestProvider.fs:462-472`). Build the resolver as a
+   `Map<string, SymbolKey>` keyed by QUALIFIED name (`qualify nsPath name`) in the SAME pass
+   that builds `typeKinds`, and have it return the key directly (`name -> SymbolKey option`)
+   — minting the key inside `toFrozen` from parts would duplicate the nsPath/simple-name
+   decomposition. Threading options: (a) a resolver param on `toFrozen` — note the
+   TRANSITIVE caller chain: `paramsFrozen`, `signatureOf`, `expandCtor`, `expandMethod`,
+   `toExternalMembers`, `classifyHeritage`, `toTypeShape`, `toFunctionSymbol`,
+   `toValueSymbol` ALL thread it; or (b) move `toFrozen` inside `providerOfManifest` —
+   which drags that same private-helper chain inside with it. The diffs are comparable
+   (neither is meaningfully "less churn"); prefer (a) — it keeps the helpers top-level and
+   testable. Churn note: `classifyHeritage` calls `toFrozen` on heritage entries (`:221`),
+   so base-class refs also become `FTClass` — desirable, but it will surface in any test
+   that pins provider-emitted `FrozenType` shapes.
 3. **Forward references.** `Emitter` is declared AFTER `mitt` in mitt's `.d.ts`, and a
    member signature of one export can name another export. Build the name→key/kind table in
    a FIRST pass over all flat exports (it already is — `typeKinds` is computed before the
    per-export `toTypeShape`), so the resolver sees every type regardless of declaration
    order. Confirm `toFrozen` consults the COMPLETE table, not a partially-built one.
 4. The `TypeKey` must match what `toTypeShape`'s `build` already mints
-   (`SymbolKey.TypeKey(Some moduleSpec, nsPath, name)`, `TsManifestProvider.fs:290`) and what
-   the map key (`qualify nsPath name`) resolves to, so a member-access lookup and the
-   registered type shape agree on identity.
+   (`SymbolKey.TypeKey(Some moduleSpec, nsPath, name)`, `TsManifestProvider.fs:292`). The
+   operative identity equation: `SymbolKeyOps.qualifiedName mintedKey` must EQUAL the
+   provider's map key (`qualify nsPath name`) — that is the exact string the front end's
+   external `TyClass` arm hands to `TryLookupMember` (`InferRecordAccess.fs:276-278`). If
+   the two spellings diverge, the member lookup silently misses and falls to
+   "Unknown class type".
 
 **Acceptance.**
 - A new front-end (`Codegen.Js.Tests` or `SemanticAnalysis.Tests`) case: a Vesper program
@@ -149,20 +161,39 @@ into `FTClass` would break alias expansion. Gate strictly on `kindOf name = Some
 emitted JS calls the real object's prototype method.
 
 **Steps.**
-1. Read the existing external-member lowering in `EmitJs.fs` (the `MethodCall` /
-   `PropertyGet` arms ~`524-600`, the receiver-first-import path, and the `attachedAccess`
-   helper used for `ctx.LocalInterfaces` at `:595-599`). `attachedAccess` already emits
-   `receiver.member(args)` — that is the shape an external manifest method needs.
-2. Distinguish a **third-party manifest object** (native methods, `receiver.member(args)`)
+1. Read the existing external-member lowering in `EmitJs.fs`: the external receiver-first
+   path is the `TExprG.ExternalMember` arm (`:630-676` — mangled `addMemberRef` import +
+   `$Member(receiver)` call). `attachedAccess` + the `ctx.LocalInterfaces` guards
+   (`:595-599`) emit the native `receiver.member(args)` shape this work needs; the LOCAL
+   `FieldGet`/`PropertyGet`/`MethodCall` arms (`:524-626`) are the contrast.
+2. **The args are NOT at the node.** `TExprG.ExternalMember` carries only the receiver;
+   call arguments arrive through enclosing curried `App`s (the arm's own comment,
+   `:628-629`). `attachedAccess` works for local interfaces because `TExprG.MethodCall`
+   CARRIES its args — the external node does not, so the native lowering must recover them
+   from the application spine. Two routes: (a) a head-case in the `App` arm's spine
+   collapse (`:444+` already calls `TastWalk.collectSpine` to flatten module-function
+   calls) that recognizes an external-manifest `ExternalMember` head and folds the whole
+   spine into `receiver.member(a, b, …)`; or (b) an upstream TAST change so external
+   manifest member calls carry their args on one node. Prefer (a): it is backend-local
+   (per the freeze/backend-knowledge separation) and follows the existing flat-call
+   precedent; (b) touches the shared TAST and the CLR backend for a JS-only need.
+3. **`this`-binding when the member ESCAPES.** A bare member extraction (`let f =
+   emitter.on` … later `f t h`) must NOT emit a detached `emitter.on` — JS loses `this`
+   on extraction. When the `ExternalMember` arm is reached WITHOUT an applying spine (the
+   member escapes as a value), eta-wrap it: `(...args) => receiver.member(...args)` (or
+   `.bind(receiver)`). mitt happens to be closure-based and would not catch this bug — do
+   not let that mask it; pin it with a fixture whose method reads `this`.
+4. Distinguish a **third-party manifest object** (native methods, `receiver.member(args)`)
    from **Vesper's own emitted runtime** (receiver-first free-fn imports). The signal:
    the member's `Origin`/`SymbolKey` home assembly is a TS-manifest module (the provider
    stamps `ExternalMember.Origin = originFor moduleSpec nsPath`; an `InterfaceMethod`/`Method`
    from a `TsManifestProvider` type shape). Decide where the signal lives — likely a flag on
    the resolved `ExternalMember` (e.g. the existing `ExternalClassFlags`, or a new "native
-   object members" bit) set by `TsManifestProvider` and read in `EmitJs`. Keep the
-   target-dialect knowledge in the backend (Codegen.Js), per the freeze/backend-knowledge
-   separation — the provider says "these are native object methods," EmitJs decides the JS form.
-3. Static members and constructors: a manifest `Class` static method lowers to
+   object members" bit) set by `TsManifestProvider` and read in `EmitJs`, mirroring how the
+   `Erased` flag drives `isErasedGroupingType`. Keep the target-dialect knowledge in the
+   backend (Codegen.Js), per the freeze/backend-knowledge separation — the provider says
+   "these are native object methods," EmitJs decides the JS form.
+5. Static members and constructors: a manifest `Class` static method lowers to
    `Cls.method(args)` (or the bare import for an erased grouping type — already handled);
    `new` lowers to `new Cls(args)` against the default/named import. Scope R2 to INSTANCE
    members first (what mitt needs); note static/ctor native lowering as a follow-up if the
@@ -233,6 +264,15 @@ breadth multiplies the unknowns.
 This is the genuinely-hard TS-type-system modeling the companion design doc deferred. It is
 large — scope it honestly. Each needs a faithful representation across the stack, NOT a stub:
 
+- **String-literal singleton types are a PREREQUISITE, not a detail.** "keyof evaluates to
+  the union of member names" presupposes a LITERAL type (`"ping"`) exists across the schema,
+  `FrozenType`, `SemType`, and inference — none of which is true today (`TypeRef` has no
+  literal arm; `FTOr` unions carry only ordinary types). The same feature is what lets
+  `emit("ping", 7)` select the right payload: the string-literal EXPRESSION must type-check
+  against a literal union. Scope it as its own front-end type-system extension (schema arm +
+  frozen/sem nodes + unifier admission + literal-expression typing) BEFORE the keyof work
+  builds on it — and per the redesign-doc-first rule, sketch it in the companion design doc
+  first.
 - **`keyof T`** — a type operator over a type parameter (or a concrete type). Add a faithful
   schema arm (e.g. `TypeRef.KeyOf of TypeRef`) + a `FrozenType`/`SemType` node, and front-end
   resolution: when the operand is GROUNDED to a concrete record/interface, `keyof` evaluates to
@@ -298,16 +338,19 @@ Do NOT start until R4's gate holds. Then:
 ## Orientation — the files you will touch
 
 - **Provider (the R1/R2 center):** `src/XParsec.FSharp.Codegen.Js/TsManifestProvider.fs`
-  — `toFrozen` (`:24`), `providerOfManifest`/`typeKinds`/`kindOf` (`:398+`), `toTypeShape`/`build`
-  (`:277+`), `defaultValueKeys` (`:616`).
-- **Front-end member access:** `Unification.resolveFieldStep` (member dot-access; the TyConst
-  rejection); `SemanticInfo.fs` `FrozenType` (`:377` `FTConst`, `:384` `FTClass`) +
-  `FrozenTypeBridge.instantiateWith` (`:862`, `FTConst→TyConst` / `FTClass→TyClass`);
-  `ExternalSymbols.fs` (`:857+` signature instantiation, `instantiateSignature` for freshening).
-- **Codegen.Js emit:** `src/XParsec.FSharp.Codegen.Js/EmitJs.fs` — external member arms
-  (`:524-600`), `attachedAccess` + `ctx.LocalInterfaces` (`:595-599`, the native-method shape to
-  reuse); `JsImports`/`JsRuntime.fs` (default-import set), `JsAst.fs`/`JsPrint.fs` (the `Import`
-  statement with `defaultBinding`).
+  — `toFrozen` (`:24`), `providerOfManifest` (`:435`), `typeKinds`/`kindOf` (`:462-472`),
+  `toTypeShape`/`build` (`:279+`), `defaultValueKeys` (`:624`).
+- **Front-end member access:** `resolveFieldStep`
+  (`Passes/Unification/InferRecordAccess.fs:237`; TyConst catch-all `:403`; external
+  `TyClass` provider lookup `:271-294`); `SemanticInfo.fs` `FrozenType` (`:377` `FTConst`,
+  `:384` `FTClass`) + `FrozenTypeBridge.instantiateWith` (`:862`, `FTConst→TyConst` /
+  `FTClass→TyClass`); `ExternalSymbols.fs` (`:857+` signature instantiation,
+  `instantiateSignature` for freshening).
+- **Codegen.Js emit:** `src/XParsec.FSharp.Codegen.Js/EmitJs.fs` — external
+  `TExprG.ExternalMember` arm (`:630-676`), `App` spine collapse (`:444+`,
+  `TastWalk.collectSpine`), `attachedAccess` + `ctx.LocalInterfaces` (`:595-599`, the
+  native-method shape to reuse); `JsImports`/`JsRuntime.fs` (default-import set),
+  `JsAst.fs`/`JsPrint.fs` (the `Import` statement with `defaultBinding`).
 - **Tests:** `test/XParsec.FSharp.Codegen.Js.Tests/` — `MethodAxisGenericTests.fs` /
   `NullUndefinedTests.fs` (provider-stack + `runNodeFiles` harness pattern), `MemberOverloadTests.fs`
   (`calcProvider` stacking), and `MittE2ETests.fs` (the file R3 rewrites). The vendored fixture
