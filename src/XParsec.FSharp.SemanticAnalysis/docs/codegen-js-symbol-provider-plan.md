@@ -103,11 +103,71 @@ builder closures. Not a per-lookup RPC into a live Node checker, because:
 | general `number \| string` | **native union** | `TyOr [members]` |
 | `T \| null \| undefined` | **native union**, not `option`; `null`/`undefined` distinct intrinsics, **not** `unit` (resolved — see below) | `TyOr [T; null; undefined]` |
 | intersection `A & B` | **v1 erase; flatten later** (resolved — see below) | `obj` → later `TyRecord(hash,…)` |
-| literal `"GET" \| "POST"` | erase to base (v1); nominal enum once literal precision lands | `string`/`number` |
-| conditional/mapped (`Partial<T>`, `ReturnType<F>`) | query the *evaluated* type | concrete `SemType` snapshot; generic form lost |
+| literal `"GET" \| "POST"` | **faithful structural literal union**, external vocabulary only (resolved — see below); Vesper-source companion = string enums (landed) | `FTOr [FTLiteral …]` → `TyOr [TyLiteral …]` |
+| conditional `A extends B ? X : Y` | **faithful node, ground-evaluated** (R4a; resolved — see below) | `FTConditional`, evaluated when both sides ground |
+| mapped (`Partial<T>`, `ReturnType<F>`) | query the *evaluated* type | concrete `SemType` snapshot; generic form lost |
 | overloaded functions | overload set | `TryLookupMembers` (already exists) |
 | `(a, b?, ...rest)` | curry per existing convention; optional/rest → policy | `TyFun` chain |
 | module specifier / `namespace` / `declare global` | re-role `SymbolOrigin` | asm→specifier, ns→namespace, declType→class |
+
+### Literal types stay structural, in the external vocabulary only (resolved — R4a)
+
+**Decision (2026-07-01).** A TS string/number literal type maps to a new `FTLiteral`
+(constant) arm composing with the EXISTING `FTOr` — `("ping" | "pong")` becomes
+`FTOr [FTLiteral "ping"; FTLiteral "pong"]`, structurally, with **no anonymous nominal
+name and no registry entry**. `TypeRef.Union → FTOr` already set the precedent that the
+external vocabulary tolerates structural unions; literals ride the same seam.
+Reconciliation is free: two occurrences of the same union are equal by `EqArray`
+structural equality (order-normalised at construction). Do NOT key any cache on `%A` of
+these (the EqArray `%A`-collision trap).
+
+**The nominalism invariant (what keeps F# F#).** Vesper's own inference NEVER mints a
+literal type: `"ping"` types as `string`, always; no Vesper binding generalises over a
+literal; `TyLiteral` arises **only** by instantiating an external signature. The literal
+matters solely *directionally, at the external-arg seam* — the same layer where `TyOr`
+already rides obj's directional `subsumes` — so the unifier learns no subtyping:
+
+- a syntactic string/number CONSTANT argument checks against a literal union by set
+  membership (`"ping"` admits into `TyOr [TyLiteral "ping"; TyLiteral "pong"]`);
+- a Vesper string ENUM (landed: `type PingPong = | Ping = "ping" | Pong = "pong"`,
+  JS repr already the bare string) admits when its case-VALUE set ⊆ the union — the
+  nominal companion for code that wants to name/abstract the type;
+- plain `string` does NOT flow in (directional, exactly like `T <: T|null` holding and
+  its converse not);
+- outward, a literal (union) WIDENS to its base primitive (`string`/`number`), so
+  reading a literal-typed value back into Vesper needs nothing new.
+
+**Why not the alternatives.** (a) *Synthesised anonymous nominal enums* (Glutinum's
+`StringEnum` move) were rejected: case-name derivation from values (mangling,
+collisions), content-hash naming for cross-signature/cross-package identity anyway, and
+call-site ergonomics (`emit(Anon3f2a.Ping, 7)`) that end up needing the literal-admission
+rule regardless — at which point the nominal wrapper adds only ceremony. This is a
+deliberate deviation from Glutinum's three-way union split. (b) *General refinement
+types* (singletons as refinements of `string` with real subtyping/flow-sensitivity) are
+research-grade and would re-litigate the repo's architecture of quarantining directional
+assignability at specific seams; the decided model IS the refinement idea restricted to
+the one seam where it pays. TS's type system is undecidable in general — fidelity means
+consuming what real packages export (via the real `tsc` in the extractor), not
+re-implementing TS.
+
+**`keyof` / indexed access / conditional ride on top** (the mitt R4a constructs, each a
+faithful schema arm + `FrozenType` node, ground-EVALUATED rather than degraded):
+
+- `keyof T`, `T` ground to a record/interface → `FTOr` of `FTLiteral` member names;
+  unground, the node is carried.
+- `T[K]` → when `T` is ground and `K` is a KNOWN literal, fold to that member's type.
+  The key becomes known through **call-site constant propagation**: a literal argument
+  instantiating the method typar grounds `K` — the printf machinery is the in-repo
+  precedent (a literal format string already drives external-call typing). A NON-literal
+  key (flows through a variable) degrades, documented: payload = union of member value
+  types (or use the enum companion, which grounds `K` to its case set).
+- `A extends B ? X : Y` → evaluate when ground; mitt's
+  `undefined extends Events[Key] ? Key : never` folds once `Events[Key]` does (the
+  `extends` test on a ground union is `TyOr` membership).
+
+**Emission.** `FTLiteral` erases to its base primitive on BOTH backends (the runtime
+value already IS the literal); `EmitJs.validatePlatformTypes` must admit it. No new
+runtime representation anywhere.
 
 ### `T | null | undefined` → `TyOr`, **not** `option` (resolved)
 

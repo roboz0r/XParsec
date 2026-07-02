@@ -264,15 +264,17 @@ breadth multiplies the unknowns.
 This is the genuinely-hard TS-type-system modeling the companion design doc deferred. It is
 large — scope it honestly. Each needs a faithful representation across the stack, NOT a stub:
 
-- **String-literal singleton types are a PREREQUISITE, not a detail.** "keyof evaluates to
-  the union of member names" presupposes a LITERAL type (`"ping"`) exists across the schema,
-  `FrozenType`, `SemType`, and inference — none of which is true today (`TypeRef` has no
-  literal arm; `FTOr` unions carry only ordinary types). The same feature is what lets
-  `emit("ping", 7)` select the right payload: the string-literal EXPRESSION must type-check
-  against a literal union. Scope it as its own front-end type-system extension (schema arm +
-  frozen/sem nodes + unifier admission + literal-expression typing) BEFORE the keyof work
-  builds on it — and per the redesign-doc-first rule, sketch it in the companion design doc
-  first.
+- **String-literal singleton types are a PREREQUISITE, not a detail — DESIGN RESOLVED**
+  (companion doc §"Literal types stay structural, in the external vocabulary only").
+  Summary of the decided model: `FTLiteral` composes with the existing `FTOr`
+  (structural, no anonymous nominal synthesis); Vesper inference NEVER mints a literal
+  type (`"ping"` stays `string` — literals arise only by instantiating external
+  signatures); admission is DIRECTIONAL at the external-arg seam where `TyOr` already
+  rides obj's `subsumes` layer (constant-argument set membership + the landed
+  string-enum companion via value-set ⊆); outward, literals widen to their base
+  primitive; `T[K]` folds via call-site constant propagation (printf-format precedent),
+  degrading to the union of member value types for a non-literal key. Land `FTLiteral`
+  + the admission rule BEFORE the keyof work builds on it.
 - **`keyof T`** — a type operator over a type parameter (or a concrete type). Add a faithful
   schema arm (e.g. `TypeRef.KeyOf of TypeRef`) + a `FrozenType`/`SemType` node, and front-end
   resolution: when the operand is GROUNDED to a concrete record/interface, `keyof` evaluates to
