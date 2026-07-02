@@ -227,6 +227,17 @@ let private asGenericInstantiation (checker: Ts.TypeChecker) (t: Ts.Type) : (str
         let tr = unbox<Ts.TypeReference> t
 
         match (unbox<Ts.Type> tr.target).getSymbol () with
+        // An ANONYMOUS type literal instantiated with type arguments (a generic type
+        // ALIAS whose body is an anonymous object/function type — `Handler<T> = (event:
+        // T) => void` referenced as `Handler<Events[Key]>`) surfaces as a
+        // `TypeReference` whose target symbol is the reserved `__type`
+        // (`Ts.InternalSymbolName.Type`). That is NOT a named nominal generic — treating
+        // it as `Named("__type", …)` drops the faithful function shape — so reject it
+        // here and let `mapType`'s fallthrough classify the (instantiated) type by
+        // structure (`isFunctionType` → `Fun`, else the structural stub). The call
+        // signature's parameter/return types are already substituted, so the faithful
+        // `Fun` carries the resolved `Events[Key]` indexed access.
+        | Some sym when sym.getName () = "__type" -> None
         | Some sym -> Some(sym.getName (), checker.getTypeArguments tr |> List.ofSeq)
         | None -> None
     else
@@ -238,8 +249,18 @@ let private asGenericInstantiation (checker: Ts.TypeChecker) (t: Ts.Type) : (str
 /// Anything richer (a `{x:number}` STRUCTURAL object — item 14, DEFERRED; a function
 /// type; a residual generic blob) is NOT nominal and the fallthrough throws on it
 /// rather than degrading to a printed blob — the cross-cutting forcing function.
+///
+/// `__type` (`Ts.InternalSymbolName.Type`) is the reserved name the checker prints for
+/// an ANONYMOUS type literal — an object/function type with no declared name. It is a
+/// valid-word-char string, so the raw predicate below would MISCLASSIFY it as nominal
+/// (collapsing an alias application like `Handler<Events[Key]>`, which the checker
+/// resolves to an anonymous `(event: Events[Key]) => void`, to `Named("__type")` and
+/// dropping the faithful function shape). Excluding it routes the anonymous type to the
+/// `mapType` fallthrough where `isFunctionType` maps it to `Fun` (or the structural stub
+/// for a non-function anonymous type), never to a bogus nominal.
 let private looksNominal (printed: string) : bool =
     printed.Length > 0
+    && printed <> "__type"
     && (System.Char.IsLetter printed.[0] || printed.[0] = '_' || printed.[0] = '$')
     && printed
        |> Seq.forall (fun c -> System.Char.IsLetterOrDigit c || c = '_' || c = '$' || c = '.')

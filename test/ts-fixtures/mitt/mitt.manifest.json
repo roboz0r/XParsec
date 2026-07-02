@@ -42,13 +42,74 @@
                         ]
                       },
                       {
-                        "k": "named",
-                        "name": "Array",
-                        "args": [
+                        "k": "union",
+                        "members": [
                           {
                             "k": "named",
-                            "name": "__type",
-                            "args": []
+                            "name": "Array",
+                            "args": [
+                              {
+                                "k": "fun",
+                                "args": [
+                                  {
+                                    "k": "indexedAccess",
+                                    "obj": {
+                                      "k": "typar",
+                                      "i": 0
+                                    },
+                                    "index": {
+                                      "k": "keyof",
+                                      "ty": {
+                                        "k": "typar",
+                                        "i": 0
+                                      }
+                                    }
+                                  }
+                                ],
+                                "ret": {
+                                  "k": "named",
+                                  "name": "unit",
+                                  "args": []
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "k": "named",
+                            "name": "Array",
+                            "args": [
+                              {
+                                "k": "fun",
+                                "args": [
+                                  {
+                                    "k": "keyof",
+                                    "ty": {
+                                      "k": "typar",
+                                      "i": 0
+                                    }
+                                  },
+                                  {
+                                    "k": "indexedAccess",
+                                    "obj": {
+                                      "k": "typar",
+                                      "i": 0
+                                    },
+                                    "index": {
+                                      "k": "keyof",
+                                      "ty": {
+                                        "k": "typar",
+                                        "i": 0
+                                      }
+                                    }
+                                  }
+                                ],
+                                "ret": {
+                                  "k": "named",
+                                  "name": "unit",
+                                  "args": []
+                                }
+                              }
+                            ]
                           }
                         ]
                       }
@@ -158,9 +219,18 @@
         "name": "Array",
         "args": [
           {
-            "k": "named",
-            "name": "__type",
-            "args": []
+            "k": "fun",
+            "args": [
+              {
+                "k": "typar",
+                "i": 0
+              }
+            ],
+            "ret": {
+              "k": "named",
+              "name": "unit",
+              "args": []
+            }
           }
         ]
       }
@@ -174,9 +244,35 @@
         "name": "Array",
         "args": [
           {
-            "k": "named",
-            "name": "__type",
-            "args": []
+            "k": "fun",
+            "args": [
+              {
+                "k": "keyof",
+                "ty": {
+                  "k": "typar",
+                  "i": 0
+                }
+              },
+              {
+                "k": "indexedAccess",
+                "obj": {
+                  "k": "typar",
+                  "i": 0
+                },
+                "index": {
+                  "k": "keyof",
+                  "ty": {
+                    "k": "typar",
+                    "i": 0
+                  }
+                }
+              }
+            ],
+            "ret": {
+              "k": "named",
+              "name": "unit",
+              "args": []
+            }
           }
         ]
       }
@@ -207,13 +303,74 @@
             ]
           },
           {
-            "k": "named",
-            "name": "Array",
-            "args": [
+            "k": "union",
+            "members": [
               {
                 "k": "named",
-                "name": "__type",
-                "args": []
+                "name": "Array",
+                "args": [
+                  {
+                    "k": "fun",
+                    "args": [
+                      {
+                        "k": "indexedAccess",
+                        "obj": {
+                          "k": "typar",
+                          "i": 0
+                        },
+                        "index": {
+                          "k": "keyof",
+                          "ty": {
+                            "k": "typar",
+                            "i": 0
+                          }
+                        }
+                      }
+                    ],
+                    "ret": {
+                      "k": "named",
+                      "name": "unit",
+                      "args": []
+                    }
+                  }
+                ]
+              },
+              {
+                "k": "named",
+                "name": "Array",
+                "args": [
+                  {
+                    "k": "fun",
+                    "args": [
+                      {
+                        "k": "keyof",
+                        "ty": {
+                          "k": "typar",
+                          "i": 0
+                        }
+                      },
+                      {
+                        "k": "indexedAccess",
+                        "obj": {
+                          "k": "typar",
+                          "i": 0
+                        },
+                        "index": {
+                          "k": "keyof",
+                          "ty": {
+                            "k": "typar",
+                            "i": 0
+                          }
+                        }
+                      }
+                    ],
+                    "ret": {
+                      "k": "named",
+                      "name": "unit",
+                      "args": []
+                    }
+                  }
+                ]
               }
             ]
           }
@@ -250,13 +407,74 @@
                 ]
               },
               {
-                "k": "named",
-                "name": "Array",
-                "args": [
+                "k": "union",
+                "members": [
                   {
                     "k": "named",
-                    "name": "__type",
-                    "args": []
+                    "name": "Array",
+                    "args": [
+                      {
+                        "k": "fun",
+                        "args": [
+                          {
+                            "k": "indexedAccess",
+                            "obj": {
+                              "k": "typar",
+                              "i": 0
+                            },
+                            "index": {
+                              "k": "keyof",
+                              "ty": {
+                                "k": "typar",
+                                "i": 0
+                              }
+                            }
+                          }
+                        ],
+                        "ret": {
+                          "k": "named",
+                          "name": "unit",
+                          "args": []
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "k": "named",
+                    "name": "Array",
+                    "args": [
+                      {
+                        "k": "fun",
+                        "args": [
+                          {
+                            "k": "keyof",
+                            "ty": {
+                              "k": "typar",
+                              "i": 0
+                            }
+                          },
+                          {
+                            "k": "indexedAccess",
+                            "obj": {
+                              "k": "typar",
+                              "i": 0
+                            },
+                            "index": {
+                              "k": "keyof",
+                              "ty": {
+                                "k": "typar",
+                                "i": 0
+                              }
+                            }
+                          }
+                        ],
+                        "ret": {
+                          "k": "named",
+                          "name": "unit",
+                          "args": []
+                        }
+                      }
+                    ]
                   }
                 ]
               }
@@ -286,9 +504,25 @@
                 {
                   "name": "handler",
                   "type": {
-                    "k": "named",
-                    "name": "__type",
-                    "args": []
+                    "k": "fun",
+                    "args": [
+                      {
+                        "k": "indexedAccess",
+                        "obj": {
+                          "k": "typar",
+                          "i": 0
+                        },
+                        "index": {
+                          "k": "methodTypar",
+                          "i": 0
+                        }
+                      }
+                    ],
+                    "ret": {
+                      "k": "named",
+                      "name": "unit",
+                      "args": []
+                    }
                   },
                   "optional": false,
                   "rest": false
@@ -325,9 +559,35 @@
                 {
                   "name": "handler",
                   "type": {
-                    "k": "named",
-                    "name": "__type",
-                    "args": []
+                    "k": "fun",
+                    "args": [
+                      {
+                        "k": "keyof",
+                        "ty": {
+                          "k": "typar",
+                          "i": 0
+                        }
+                      },
+                      {
+                        "k": "indexedAccess",
+                        "obj": {
+                          "k": "typar",
+                          "i": 0
+                        },
+                        "index": {
+                          "k": "keyof",
+                          "ty": {
+                            "k": "typar",
+                            "i": 0
+                          }
+                        }
+                      }
+                    ],
+                    "ret": {
+                      "k": "named",
+                      "name": "unit",
+                      "args": []
+                    }
                   },
                   "optional": false,
                   "rest": false
@@ -371,9 +631,25 @@
                         "args": []
                       },
                       {
-                        "k": "named",
-                        "name": "__type",
-                        "args": []
+                        "k": "fun",
+                        "args": [
+                          {
+                            "k": "indexedAccess",
+                            "obj": {
+                              "k": "typar",
+                              "i": 0
+                            },
+                            "index": {
+                              "k": "methodTypar",
+                              "i": 0
+                            }
+                          }
+                        ],
+                        "ret": {
+                          "k": "named",
+                          "name": "unit",
+                          "args": []
+                        }
                       }
                     ]
                   },
@@ -412,9 +688,35 @@
                 {
                   "name": "handler",
                   "type": {
-                    "k": "named",
-                    "name": "__type",
-                    "args": []
+                    "k": "fun",
+                    "args": [
+                      {
+                        "k": "keyof",
+                        "ty": {
+                          "k": "typar",
+                          "i": 0
+                        }
+                      },
+                      {
+                        "k": "indexedAccess",
+                        "obj": {
+                          "k": "typar",
+                          "i": 0
+                        },
+                        "index": {
+                          "k": "keyof",
+                          "ty": {
+                            "k": "typar",
+                            "i": 0
+                          }
+                        }
+                      }
+                    ],
+                    "ret": {
+                      "k": "named",
+                      "name": "unit",
+                      "args": []
+                    }
                   },
                   "optional": false,
                   "rest": false

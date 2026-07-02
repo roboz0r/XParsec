@@ -111,6 +111,84 @@ module internal UnificationInferExternalCall =
             elif refined.Length = 1 then refined.[0]
             else TyTuple(EqArray.ofSeq refined)
 
+    /// Method typars of `chosen` referenced in `t` (any structural depth) — the axis a
+    /// carried node's grounding must seed.
+    let rec private referencedMethodTypars (t: SemType) : Set<int> =
+        match resolveStep t with
+        | TyTypar(TyparAxis.Method, j) -> Set.singleton j
+        | TyFun(a, b) -> Set.union (referencedMethodTypars a) (referencedMethodTypars b)
+        | TyTuple xs
+        | TyConst(_, xs)
+        | TyRecord(_, xs)
+        | TyUnion(_, xs)
+        | TyClass(_, xs) ->
+            xs
+            |> EqArray.fold (fun acc x -> Set.union acc (referencedMethodTypars x)) Set.empty
+        | TyOr ms ->
+            ms.Members
+            |> EqSet.fold (fun acc x -> Set.union acc (referencedMethodTypars x)) Set.empty
+        | TyKeyOf x -> referencedMethodTypars x
+        | TyIndexedAccess(o, i) -> Set.union (referencedMethodTypars o) (referencedMethodTypars i)
+        | TyConditional(c, e, wt, wf) ->
+            Set.unionMany
+                [
+                    referencedMethodTypars c
+                    referencedMethodTypars e
+                    referencedMethodTypars wt
+                    referencedMethodTypars wf
+                ]
+        | _ -> Set.empty
+
+    /// Pre-bind a method typar to a `TyLiteral` when a syntactic string constant grounds it
+    /// but the typar appears ONLY inside a non-bare parameter position (mitt's no-payload
+    /// `emit(type: undefined extends Events[Key] ? Key : never)` — `Key` is never a bare
+    /// param, so plain unification cannot solve it from the constant; seeding it lets the
+    /// conditional fold). A typar at a BARE position is left unseeded (unification solves it
+    /// there, keeping the keyed `emit`/`on`/`off` path byte-identical). R4a step 3, the
+    /// conditional-overload extension of `admitLiteralMethodTypars`.
+    let private methodTyparConstantSeed
+        (ctx: PassContext)
+        (chosen: ExternalMember)
+        (declArgs: SemType[])
+        (argExpr: Expr<SyntaxToken>)
+        : (int * SemType) list =
+        let elemExprs =
+            match argExpr with
+            | Expr.Tuple(exprs = xs) -> xs |> Seq.toArray
+            | single -> [| single |]
+
+        let paramTys = memberParamTypes declArgs chosen |> List.toArray
+
+        if elemExprs.Length <> paramTys.Length then
+            []
+        else
+            let bareTypars =
+                paramTys
+                |> Array.choose (
+                    function
+                    | TyTypar(TyparAxis.Method, j) -> Some j
+                    | _ -> None
+                )
+                |> Set.ofArray
+
+            let bounds = ExternalSymbols.instantiateSignatureBounds chosen declArgs
+            let seed = System.Collections.Generic.Dictionary<int, SemType>()
+
+            for i in 0 .. elemExprs.Length - 1 do
+                match constStringArg ctx elemExprs.[i] with
+                | ValueSome s ->
+                    for j in referencedMethodTypars paramTys.[i] do
+                        if not (Set.contains j bareTypars) && not (seed.ContainsKey j) then
+                            match bounds |> Array.tryItem j with
+                            | Some(ValueSome bound) ->
+                                match boundLiteralStrings ctx bound with
+                                | ValueSome set when Set.contains s set -> seed.[j] <- TyLiteral(LiteralConst.String s)
+                                | _ -> ()
+                            | _ -> ()
+                | ValueNone -> ()
+
+            [ for kv in seed -> kv.Key, kv.Value ]
+
     /// Commit a call-site-resolved external overload (static or instance): record
     /// the chosen `SymbolKey` to `ExternalAccess` keyed on the member node where
     /// Freeze reads it, freshen the member's method-owned typars (`Take<TSource>`)
@@ -118,19 +196,26 @@ module internal UnificationInferExternalCall =
     /// solution (a non-generic overload is unchanged), unify the signature against
     /// `argTy -> result`, and return the result type. Shared by the static and
     /// instance probes so the two cannot drift; `chosen.IsStatic` is authoritative
-    /// for both (the instance probe pre-filters to non-static candidates).
+    /// for both (the instance probe pre-filters to non-static candidates). `argExpr`
+    /// supplies the syntactic constants that seed a conditional-only method typar
+    /// (`methodTyparConstantSeed`).
     let rec commitExternalOverload
         (ctx: PassContext)
         (key: NodeKey)
         (fn: Expr<SyntaxToken>)
         (chosen: ExternalMember)
         (declArgs: SemType[])
+        (argExpr: Expr<SyntaxToken>)
         (argTy: SemType)
         : SemType =
         let fnKey = CstKeys.ofExpr fn
 
         let memberSig =
-            ExternalSymbols.instantiateSignature chosen declArgs ctx.CurrentLevel
+            ExternalSymbols.instantiateSignatureWith
+                (methodTyparConstantSeed ctx chosen declArgs argExpr)
+                chosen
+                declArgs
+                ctx.CurrentLevel
 
         ctx.Resolution.ExternalAccess.Set(
             fnKey,
@@ -182,7 +267,7 @@ module internal UnificationInferExternalCall =
                 let argTy = infer ctx argExpr
 
                 match pickBestOverload typeArgs candidates (argElemsOf argTy) with
-                | ValueSome chosen -> ValueSome(commitExternalOverload ctx key fn chosen typeArgs argTy)
+                | ValueSome chosen -> ValueSome(commitExternalOverload ctx key fn chosen typeArgs argExpr argTy)
                 | ValueNone ->
                     ValueSome(
                         errorTy
@@ -253,7 +338,7 @@ module internal UnificationInferExternalCall =
                         admitLiteralMethodTypars ctx candidates declArgs argExpr (infer ctx argExpr)
 
                     match pickBestOverload declArgs candidates (argElemsOf argTy) with
-                    | ValueSome chosen -> ValueSome(commitExternalOverload ctx key fn chosen declArgs argTy)
+                    | ValueSome chosen -> ValueSome(commitExternalOverload ctx key fn chosen declArgs argExpr argTy)
                     // No unique best on the argument types: decline rather than
                     // error, so the existing single-pick path keeps the prior
                     // behaviour (this probe only ever *improves* a confident pick).

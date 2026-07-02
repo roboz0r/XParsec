@@ -10,6 +10,17 @@ open UnificationTranslate
 
 module UnificationInferOverload =
 
+    /// A union whose every member is a structural literal — kept by-VALUE in overload
+    /// filtering (its `argSigOf` spelling is sharp), unlike a union with a function /
+    /// carried-node member, which is applicability-opaque.
+    let isPureLiteralUnion (ms: UnionMembers) : bool =
+        ms.Members
+        |> EqSet.forall (fun m ->
+            match zonk m with
+            | TyLiteral _ -> true
+            | _ -> false
+        )
+
     let rec semTypeEq (a: SemType) (b: SemType) : bool =
         match zonk a, zonk b with
         // A generic method's own typar (`Take<TSource>` ⇒ `TyTypar(Method, _)`,
@@ -29,6 +40,14 @@ module UnificationInferOverload =
         // so this never perturbs a BCL overload set (none carry these nodes).
         | (TyKeyOf _ | TyIndexedAccess _ | TyConditional _), _
         | _, (TyKeyOf _ | TyIndexedAccess _ | TyConditional _) -> true
+        // A non-literal UNION parameter (off's optional `Handler<Events[Key]> | undefined`)
+        // is applicability-OPAQUE during filtering, same as the carried-node / open-typar
+        // wildcards above: its members can carry a not-yet-ground `T[K]` and the real
+        // admission (member subsumption + carried-node fold) happens at the
+        // `unifyAppliedSig` commit seam. A PURE literal union stays by-VALUE below so
+        // literal-union overload specificity (the sharp `argSigOf` spelling) is preserved.
+        | TyOr ms, _ when not (isPureLiteralUnion ms) -> true
+        | _, TyOr ms when not (isPureLiteralUnion ms) -> true
         // Two structural literals are equal by VALUE (so `on("*", …)` prefers the
         // literal-`'*'` overload over a same-position typar); a literal vs a non-literal
         // falls through to `false` (a plain `string` is not a specific literal).

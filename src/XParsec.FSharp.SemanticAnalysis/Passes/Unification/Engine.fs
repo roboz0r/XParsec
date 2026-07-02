@@ -981,6 +981,21 @@ module UnificationEngine =
                 | _ -> evalTypeLevel ctx whenTrue
             else
                 TyConditional(check, extends, evalTypeLevel ctx whenTrue, evalTypeLevel ctx whenFalse)
+        // COMPOUND types recurse so a carried node NESTED inside them folds too — a
+        // `keyof`/`T[K]` under a `TyFun`, `TyOr`, tuple, or nominal argument. A bare
+        // `TyFun` parameter (mitt's `on` handler `(Events[Key]) -> unit`) already folds at
+        // its leaf via `unify`'s structural descent, but a param that WRAPS the arrow (off's
+        // optional `Handler<Events[Key]> | undefined` → `TyOr`) is admitted by `subsumes`,
+        // which compares members whole — so its nested access must be folded HERE for the
+        // member to match. Rebuild `TyOr` through its smart constructor (a folded member can
+        // collapse/reorder the set); positional args ride `EqArray.map`.
+        | TyFun(a, b) -> TyFun(evalTypeLevel ctx a, evalTypeLevel ctx b)
+        | TyTuple xs -> TyTuple(EqArray.map (evalTypeLevel ctx) xs)
+        | TyOr members -> members.Map(evalTypeLevel ctx)
+        | TyConst(n, args) -> TyConst(n, EqArray.map (evalTypeLevel ctx) args)
+        | TyRecord(n, args) -> TyRecord(n, EqArray.map (evalTypeLevel ctx) args)
+        | TyUnion(n, args) -> TyUnion(n, EqArray.map (evalTypeLevel ctx) args)
+        | TyClass(n, args) -> TyClass(n, EqArray.map (evalTypeLevel ctx) args)
         | other -> other
 
     /// A carried type-level node folded to a CONCRETE (non-carrier) type, or `ValueNone`
@@ -1273,6 +1288,13 @@ module UnificationEngine =
         // nominal, never structurally its underlying type, so `let n: int = E.C1`
         // is a genuine type error.
         | TyEnum k1, TyEnum k2 when k1 = k2 -> ()
+        // Two structural literals unify iff their value matches — external-vocabulary
+        // only (nominalism invariant: Vesper never mints a literal). Both sides arise
+        // from the SAME external seam: a refined literal argument (R4a step 3 item 2)
+        // meets a conditional param folded to a literal (mitt's no-payload `emit`, whose
+        // `... ? Key : never` folds to the addressed `Key` literal). A value MISMATCH
+        // falls through to the catch-all below (a genuine wrong-key error).
+        | TyLiteral v1, TyLiteral v2 when v1 = v2 -> ()
         | TyFun(a1, r1), TyFun(a2, r2) ->
             unify ctx key a1 a2
             unify ctx key r1 r2
@@ -1381,8 +1403,18 @@ module UnificationEngine =
         | a, b ->
             // `b` is already `resolveStep`-ed by the match; `absorbsAsObj` (the one
             // obj-policy home) re-steps idempotently.
-            if not (absorbsAsObj b) then
-                unify ctx key a b
+            if absorbsAsObj b then
+                ()
+            else
+                match b with
+                // A union-typed parameter admits any argument that subsumes into a member,
+                // with the same no-pin discipline as `obj` (the commit-path analogue of
+                // `tryCoerceUpcast`'s `TyOr` arm, which this group cannot forward-reference).
+                // Deep-fold first so a carried node nested in a member grounds (off's
+                // optional `Handler<Events[Key]> | undefined` → `(int) -> unit`). A genuine
+                // non-member argument still falls through to `unify` and errors.
+                | TyOr _ when subsumes ctx a (evalTypeLevel ctx b) <> SubsumeOutcome.Unrelated -> ()
+                | _ -> unify ctx key a b
 
     /// Unify an *applied callable* shape against a resolved member signature,
     /// coercing each argument position rather than unifying it. `actual` is the
@@ -2051,7 +2083,14 @@ module UnificationEngine =
             // so a generic value threaded through a union-typed parameter is not wrongly
             // grounded — the `acceptsByAssignability` generalisation of `absorbsAsObj`.
             match resolveStep tgt with
-            | TyOr _ -> subsumes ctx src tgt <> SubsumeOutcome.Unrelated
+            // Deep-fold a union target (`evalTypeLevel`) so a carried node NESTED in a
+            // member folds before the whole-member `subsumes` comparison — off's optional
+            // `Handler<Events[Key]> | undefined` member `(Events[Key]) -> unit` grounds to
+            // `(int) -> unit` and then matches the handler argument (the bare-arrow case
+            // already folds via `unify`'s leaf descent; the union wrapper needs this). Only
+            // a union target pays the fold — the common nominal-coercion arm below is
+            // untouched.
+            | TyOr _ -> subsumes ctx src (evalTypeLevel ctx tgt) <> SubsumeOutcome.Unrelated
             | _ ->
 
                 match subtypeNominalOf ctx tgt with

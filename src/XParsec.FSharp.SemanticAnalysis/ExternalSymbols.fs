@@ -882,8 +882,25 @@ module ExternalSymbols =
     /// value type for a property. The data-form replacement for
     /// `member.BuildSignature args` followed by `Infer.instantiateMethodTypars`;
     /// equal to it on the post-freeze subset.
-    let instantiateSignature (m: ExternalMember) (declaringArgs: SemType[]) (level: int) : SemType =
+    /// Realise a member's `Signature` with SOME method typars PRE-BOUND to a concrete
+    /// type (`seed`, index → type) instead of a fresh var — the rest freshen normally
+    /// (shared `cache`). The call-site literal-grounding rule (R4a step 3) seeds a method
+    /// typar solved from a syntactic constant that appears ONLY inside a non-bare param
+    /// position (mitt's no-payload `emit(type: undefined extends Events[Key] ? Key :
+    /// never)` — `Key` is never a bare parameter, so plain unification cannot solve it, but
+    /// the constant `"tick"` grounds it here, letting the conditional fold). A bare-position
+    /// typar is left unseeded (unification already solves it).
+    let instantiateSignatureWith
+        (seed: (int * SemType) list)
+        (m: ExternalMember)
+        (declaringArgs: SemType[])
+        (level: int)
+        : SemType =
         let cache = System.Collections.Generic.Dictionary<int, SemType>()
+
+        for (j, ty) in seed do
+            cache.[j] <- ty
+
         let methodVar = methodFreshener cache level
         let decl i = declaringArgs.[i]
         let s = m.Signature
@@ -892,6 +909,9 @@ module ExternalSymbols =
             instantiateWith decl methodVar s.Return
         else
             TyFun(instantiateWith decl methodVar s.Parameters, instantiateWith decl methodVar s.Return)
+
+    let instantiateSignature (m: ExternalMember) (declaringArgs: SemType[]) (level: int) : SemType =
+        instantiateSignatureWith [] m declaringArgs level
 
     /// The *open* realisation of a member's `Signature`: declaring typars
     /// substituted from `declaringArgs`, but the member's own method typars left

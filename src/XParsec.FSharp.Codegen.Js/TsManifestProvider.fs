@@ -810,6 +810,21 @@ module TsManifestProvider =
         )
         |> Set.ofList
 
+    /// The union of `defaultValueKeys` across a set of TS manifest FILES — the
+    /// production companion to `buildContractFor` (same `tsManifestPaths`): a JS compile
+    /// driver that builds a provider from these manifests threads the result into
+    /// `Codegen.compileWithDefaults` so a `Default`-exported symbol (mitt's factory)
+    /// lowers to a default import. A malformed manifest throws (same discipline as
+    /// `buildContractFor`), never silently drops its defaults.
+    let defaultValueKeysFromPaths (tsManifestPaths: string list) : Set<string * string * string> =
+        tsManifestPaths
+        |> List.map (fun p ->
+            match File.ReadAllText p |> Codec.deserialize with
+            | Ok man -> defaultValueKeys man
+            | Error e -> failwithf "Failed to read TS manifest '%s': %s" p e
+        )
+        |> Set.unionMany
+
     /// Parse a manifest JSON file and build its provider.
     let tryLoadFile (path: string) : Result<IExternalSymbolProvider, string> =
         try
