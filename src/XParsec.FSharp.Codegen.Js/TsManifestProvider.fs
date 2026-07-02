@@ -64,19 +64,29 @@ module TsManifestProvider =
         else
             string (System.Char.ToUpperInvariant lastSeg.[0]) + lastSeg.Substring 1
 
-    /// The `Origin`/`Key` module-spec stamp shared by free-function and variable
-    /// symbols: both resolve their `import … from '<moduleSpec>'` through
+    /// The `Origin`/`Key`/`ImportForm` module-spec stamp shared by free-function and
+    /// variable symbols: both resolve their `import … from '<moduleSpec>'` through
     /// `JsImports.addRef`, which needs a `ValueKey(Some moduleSpec, …)` — without it
     /// the symbol carries `asm = None` and emit fails on a `ValueKey(None, …)`.
+    /// `import` is the manifest's per-export shape: a TS `export default` stamps
+    /// `ImportForm.Default` so the JS backend lowers the use site to a DEFAULT import
+    /// (`import x from '<spec>'` — a default export cannot be imported by name);
+    /// everything else collapses to `Named` (Namespace/CommonJS forms have no
+    /// fixture yet — see `ImportForm`).
     let private stampValueSymbol
         (ctx: TranslateCtx)
         (nsPath: string)
         (name: string)
+        (import: Schema.ImportShape)
         (sym: ExternalSymbol)
         : ExternalSymbol =
         { sym with
             Origin = originFor ctx nsPath
             Key = SymbolKey.ValueKey(Some ctx.ModuleSpec, nsPath, name)
+            ImportForm =
+                match import with
+                | Schema.ImportShape.Default -> ImportForm.Default
+                | _ -> ImportForm.Named
         }
 
     let private toFunctionSymbol
@@ -85,7 +95,7 @@ module TsManifestProvider =
         (ex: Schema.Export)
         : (string * ExternalSymbol) option =
         match ex with
-        | Schema.Export.Function(name, signatures, _import) ->
+        | Schema.Export.Function(name, signatures, import) ->
             let sg = singleSignature name signatures
 
             // A TRAILING optional parameter (`mitt(all?)`) is dropped from the curried
@@ -117,7 +127,7 @@ module TsManifestProvider =
 
             let sym =
                 ExternalSymbols.scheme qn frozenTy sg.TypeParams []
-                |> stampValueSymbol ctx nsPath name
+                |> stampValueSymbol ctx nsPath name import
 
             Some(qn, sym)
         | _ -> None
@@ -133,12 +143,12 @@ module TsManifestProvider =
         (ex: Schema.Export)
         : (string * ExternalSymbol) option =
         match ex with
-        | Schema.Export.Variable(name, ty, _isConst, _import) ->
+        | Schema.Export.Variable(name, ty, _isConst, import) ->
             let qn = qualify nsPath name
             // `monoFrozen` alone would leave the `None` origin `stampValueSymbol` fixes.
             let sym =
                 ExternalSymbols.monoFrozen qn (toFrozen ctx ty)
-                |> stampValueSymbol ctx nsPath name
+                |> stampValueSymbol ctx nsPath name import
 
             Some(qn, sym)
         | _ -> None
@@ -315,42 +325,6 @@ module TsManifestProvider =
             member _.IntrinsicReverseCanon = Map.empty
             member _.IntrinsicForwardRepr = Map.empty
         }
-
-    /// The `(asm, ns, name)` identity of every top-level/namespaced FUNCTION or VARIABLE
-    /// export whose `ImportShape` is `Default` — the exact `ValueKey` decomposition
-    /// `JsImports.addRef` sees on a use site, so a backend can seed `JsImports` with the
-    /// set that must lower to `import <alias> from '<spec>'` (default) rather than the
-    /// `import { name as … }` (named) form. Import shape cannot ride the `SymbolKey`
-    /// itself (no field, and `SymbolKey` has no `comparison` for a `Set`) nor the node
-    /// (which carries only the key), so this side set is the channel; it is derived from
-    /// the SAME manifest the provider is built from, keyed identically to
-    /// `toFunctionSymbol`/`toValueSymbol` (`ValueKey(Some moduleSpec, nsPath, name)`).
-    let defaultValueKeys (man: Schema.PackageManifest) : Set<string * string * string> =
-        let moduleSpec = man.Package
-
-        flatten "" man.Exports
-        |> List.choose (fun (nsPath, ex) ->
-            match ex with
-            | Schema.Export.Function(name, _, Schema.ImportShape.Default)
-            | Schema.Export.Variable(name, _, _, Schema.ImportShape.Default) -> Some(moduleSpec, nsPath, name)
-            | _ -> None
-        )
-        |> Set.ofList
-
-    /// The union of `defaultValueKeys` across a set of TS manifest FILES — the
-    /// production companion to `buildContractFor` (same `tsManifestPaths`): a JS compile
-    /// driver that builds a provider from these manifests threads the result into
-    /// `Codegen.compileWithDefaults` so a `Default`-exported symbol (mitt's factory)
-    /// lowers to a default import. A malformed manifest throws (same discipline as
-    /// `buildContractFor`), never silently drops its defaults.
-    let defaultValueKeysFromPaths (tsManifestPaths: string list) : Set<string * string * string> =
-        tsManifestPaths
-        |> List.map (fun p ->
-            match File.ReadAllText p |> Codec.deserialize with
-            | Ok man -> defaultValueKeys man
-            | Error e -> failwithf "Failed to read TS manifest '%s': %s" p e
-        )
-        |> Set.unionMany
 
     /// Parse a manifest JSON file and build its provider.
     let tryLoadFile (path: string) : Result<IExternalSymbolProvider, string> =

@@ -155,8 +155,6 @@ let private mittProvider: IExternalSymbolProvider =
             jsProvider.Value
         ]
 
-let private mittDefaultKeys = TsManifestProvider.defaultValueKeys manifest
-
 // The full-surface Vesper program. Effectful unit member calls are bound (`let u = …`)
 // per the front-end sequencing convention.
 let private program =
@@ -231,7 +229,9 @@ let private emitWithMitt (input: string) : string =
             Enums = System.Collections.Generic.Dictionary()
             Provider = ValueSome mittProvider
             ExternalUnions = System.Collections.Generic.Dictionary()
-            Imports = JsImports.createWithDefaults runtime mittDefaultKeys
+            // No default-import wiring: the DEFAULT-import lowering below flows purely
+            // from the provider-stamped `ExternalSymbol.ImportForm` on mitt's factory.
+            Imports = JsImports.create runtime
             ExportTopLevel = true
             CompiledFns = System.Collections.Generic.Dictionary()
             LocalInterfaces = System.Collections.Generic.HashSet()

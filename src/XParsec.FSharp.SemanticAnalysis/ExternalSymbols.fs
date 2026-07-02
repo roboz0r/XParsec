@@ -52,6 +52,19 @@ type ExternalConstraint =
     /// `checkConstraint`/`subsumes`.
     | Coercion of typarIndex: int * target: FrozenType
 
+/// How a symbol's home module EXPORTS it — the fact that decides the JS import
+/// statement shape at a use site. `Named` (`import { x from … }`) for everything
+/// except a TS `export default` (`Default` — `import x from …`; a default export
+/// cannot be imported by name). A semantic classification of the external
+/// package, so it rides the provider seam (like `ExternalClassFlags.AttachMembers`);
+/// only the JS backend consumes it (`JsImports.addRef`). Two arms only: these are
+/// the only forms produced today — the manifest's `Schema.ImportShape.Namespace` /
+/// `CommonJsExport` collapse to `Named` at the provider until a fixture needs them.
+[<RequireQualifiedAccess>]
+type ImportForm =
+    | Named
+    | Default
+
 type ExternalSymbol =
     {
         Name: string
@@ -91,6 +104,12 @@ type ExternalSymbol =
         /// operators, the `monoFrozen`/`scheme` builders, metadata-layer symbols) — those
         /// keep the curried-`Scheme` reconstruction at the codegen boundary.
         ValRepr: Frozen.ValRepr voption
+        /// How the symbol's home module exports it (see `ImportForm`). Stamped
+        /// `Default` by the TS-manifest provider for a TS `export default`
+        /// (mitt's factory); `Named` for every other producer — the
+        /// `monoFrozen`/`scheme` builders default it, so non-TS layers
+        /// (VesperLib, MetadataSymbols, JsNativeSymbols) never touch it.
+        ImportForm: ImportForm
     }
 
 /// Per-field shape inside an `ExternalTypeShape.Record`. The field type is the
@@ -970,6 +989,77 @@ module ExternalSymbols =
         shape.FrozenBaseType
         |> ValueOption.map (fun ft -> instantiateDeclaring ft declaringArgs)
 
+    // --- The overload-identity `argSig` spelling grammar (ONE renderer) ----
+    //
+    // A `SymbolKey.MemberKey.argSig` entry only DISAMBIGUATES same-name overloads
+    // (the same role `MetadataSymbols.openTyparSig` fills on the metadata layer), so
+    // an exotic shape rendered by name is harmless — but the spelling must be the
+    // SAME wherever a `FrozenType`-shaped member is keyed, or the front end's
+    // resolved key misses codegen's re-derived one. Both `FrozenType`-consuming
+    // producers (the `.fsi` contract extractor `VesperLib` and the TS-manifest
+    // provider) render through here; total over `FrozenType`.
+
+    /// A single parameter type's `argSig` spelling. Never reparsed — identity only.
+    let rec argTypeName (t: FrozenType) : string =
+        match t with
+        | FTConst(n, args) ->
+            if args.IsEmpty then
+                n
+            else
+                n
+                + "<"
+                + (args |> EqArray.toList |> List.map argTypeName |> String.concat ",")
+                + ">"
+        | FTClass(key, _)
+        | FTRecord(key, _)
+        | FTUnion(key, _)
+        | FTEnum key -> SymbolKeyOps.qualifiedName key
+        | FTTuple items ->
+            "("
+            + (items |> EqArray.toList |> List.map argTypeName |> String.concat "*")
+            + ")"
+        | FTFun(a, b) -> argTypeName a + "->" + argTypeName b
+        | FTOr members ->
+            "("
+            + (members |> EqSet.toList |> List.map argTypeName |> String.concat "|")
+            + ")"
+        // A literal renders as its QUOTED constant (`LiteralConst.Render`), keeping
+        // overload identity sharp: two overloads differing only by literal value
+        // (mitt's `on(type: Key)` vs `on(type: '*')`) must mint DISTINCT `argSig`s,
+        // so this must NOT collapse to the base primitive (design §"argSigOf …
+        // quoted-value spelling").
+        | FTLiteral l -> l.Render
+        // The type-level computations render sharply so an overload differing only
+        // by one mints a distinct `argSig`.
+        | FTKeyOf t -> "keyof(" + argTypeName t + ")"
+        | FTIndexedAccess(objTy, index) -> argTypeName objTy + "[" + argTypeName index + "]"
+        | FTConditional(check, extends, whenTrue, whenFalse) ->
+            "("
+            + argTypeName check
+            + " extends "
+            + argTypeName extends
+            + " ? "
+            + argTypeName whenTrue
+            + " : "
+            + argTypeName whenFalse
+            + ")"
+        | FTTypar(axis, i) ->
+            (match axis with
+             | TyparAxis.Declaring -> "!"
+             | _ -> "!!")
+            + string i
+        | FTUnknown n -> n
+
+    /// The per-parameter `argSig` of a frozen method signature, flattening the
+    /// `.NET`-tupled parameter form: a `unit` parameter is zero arguments, a tuple
+    /// is one entry per element, anything else is a single argument. Mirrors the
+    /// `argCount` decode in codegen's `ExternalMember` arm.
+    let argSigOfParameters (parameters: FrozenType) : EqArray<string> =
+        match parameters with
+        | FTConst("unit", args) when args.IsEmpty -> EqArray.empty
+        | FTTuple items -> items |> EqArray.toList |> List.map argTypeName |> EqArray.ofList
+        | single -> EqArray.singleton (argTypeName single)
+
     // --- Contract-extraction finalize fallback ----
     //
     // The `VesperLib` finalize pass translates each stashed body / member CST to a
@@ -1074,6 +1164,7 @@ module ExternalSymbols =
             Origin = SymbolOrigin.Empty
             Key = SymbolKeyOps.valueKeyOf None name
             ValRepr = ValueNone
+            ImportForm = ImportForm.Named
         }
 
     /// A value/free-function symbol from a `FrozenType` scheme over `arity` declaring
@@ -1093,6 +1184,7 @@ module ExternalSymbols =
             Origin = SymbolOrigin.Empty
             Key = SymbolKeyOps.valueKeyOf None name
             ValRepr = ValueNone
+            ImportForm = ImportForm.Named
         }
 
     /// For tests that want to isolate behavior from external-symbol noise.

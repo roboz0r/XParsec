@@ -81,10 +81,12 @@ module Codegen =
     /// is produced. `provider` resolves external union/record shapes; pass
     /// `ExternalSymbols.nullProvider` for a program that touches none. `manifestPaths`
     /// is the package set whose `runtime-js` assets back the program's runtime imports.
-    let compileWithDefaults
+    /// A `Default`-shaped TS export (mitt's factory) lowers to a default import with no
+    /// extra wiring here: the fact rides the resolved symbol (`ExternalSymbol.ImportForm`,
+    /// stamped by the TS-manifest provider) and is read at the `JsImports.addRef` site.
+    let compileWith
         (provider: IExternalSymbolProvider)
         (manifestPaths: string list)
-        (defaultValueKeys: Set<string * string * string>)
         (project: JsProjectInfo)
         (tast: Frozen.TastFile)
         : JsArtifact =
@@ -115,11 +117,7 @@ module Codegen =
                 Enums = System.Collections.Generic.Dictionary()
                 Provider = ValueSome provider
                 ExternalUnions = System.Collections.Generic.Dictionary()
-                // Default-import wiring: a `Default`-shaped TS export (mitt's factory) must
-                // lower to `import <alias> from '<spec>'`, not `import { name as … }`. The
-                // key set is derived from the SAME manifests the provider was built from
-                // (`TsManifestProvider.defaultValueKeys*`), threaded by the caller.
-                Imports = JsImports.createWithDefaults runtimeAssets defaultValueKeys
+                Imports = JsImports.create runtimeAssets
                 ExportTopLevel =
                     match project.Kind with
                     | Library -> true
@@ -167,18 +165,6 @@ module Codegen =
                 | _ -> None
             RuntimeModules = runtimeModules
         }
-
-    /// `compileWithDefaults` with an EMPTY default-import set — for a provider whose
-    /// exports carry no `Default` import shape (every non-TS provider, and a TS package
-    /// with only named exports). A caller consuming a default-exporting TS package uses
-    /// `compileWithDefaults` with `TsManifestProvider.defaultValueKeys*`.
-    let compileWith
-        (provider: IExternalSymbolProvider)
-        (manifestPaths: string list)
-        (project: JsProjectInfo)
-        (tast: Frozen.TastFile)
-        : JsArtifact =
-        compileWithDefaults provider manifestPaths Set.empty project tast
 
     /// `compileWith` with the null provider and empty manifest set — for a program
     /// that references no external union/record and imports no package runtime.

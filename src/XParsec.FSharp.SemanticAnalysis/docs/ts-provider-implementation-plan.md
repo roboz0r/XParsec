@@ -37,7 +37,7 @@ below are symbol names, not line numbers — confirm by reading before editing.
 | R1–R3 | Manifest nominal → `FTClass` via qualified-name→`TypeKey` resolver; `AttachMembers` native `receiver.member(args)` lowering (escape eta-wraps); Bus e2e green. |
 | R4a | Faithful `TypeRef.KeyOf/IndexedAccess/Conditional/Literal` + `Signature.TypeParamBounds`; inert `FTKeyOf/FTIndexedAccess/FTConditional` carriers through every walk; `Engine.evalTypeLevel` ground folds; `InferExternalCall.admitLiteralMethodTypars` call-site literal grounding; single-candidate field-walk freshens method typars. mitt golden `Diagnostics = []`. |
 | mitt gate | `MittE2ETests` drives factory/`on`/`off`/`emit`±payload/`all`-read against real vendored `mitt.mjs` under Node. `UnannotatedMittTests` pins the annotation-required policy + the undefined-vs-unit GAP. |
-| Default imports | Production path wired: `Codegen.compileWithDefaults` + `TsManifestProvider.defaultValueKeysFromPaths`. |
+| Default imports | The bit rides the resolved symbol: `ExternalSymbol.ImportForm` (stamped by the TS provider from the manifest's `ImportShape`), read at `JsImports.addRef` — no side channel. |
 | Test patterns | Hand-built-manifest isolation suites: `ExternalNominalClassTests`, `MethodAxisGenericTests`, `MethodAxisSingleCandidateTests`, `TypeLevelFoldTests`, `LiteralUnionTests`. |
 
 ## Current truth — the gaps R5 phase 1 closes (and the ones it doesn't)
@@ -252,8 +252,8 @@ module headers + `project_js_ref_pack` / `reference_*` memories.
   declaration node); `__type` is TS's reserved anonymous-type name.
 - **Provider:** `src/XParsec.FSharp.Codegen.Js/TsManifestProvider.fs` — `toFrozen`
   (resolver, arity suffix-at-lookup), `providerOfManifest` (`typeKeys`/`typeKinds`),
-  `argSigOf`, `signatureOf` (`MethodTyparBounds` threading),
-  `defaultValueKeys[FromPaths]`.
+  `signatureOf` (`MethodTyparBounds` threading), `stampValueSymbol` (`ImportForm`);
+  argSigs render via the shared `ExternalSymbols.argTypeName`.
 - **Stack/inference:** `ExternalSymbols.fs` (`stack`/`composite` first-hit-wins,
   `ExternalSignature`, `instantiateSignature[Bounds|With]`);
   `Passes/Unification/InferRecordAccess.fs` (`resolveFieldStep` external arms — where
@@ -261,8 +261,8 @@ module headers + `project_js_ref_pack` / `reference_*` memories.
   `subsumes`); `Passes/Unification/InferExternalCall.fs` (overload commit,
   `admitLiteralMethodTypars`).
 - **Emission:** `Codegen.Js/EmitJs.fs` (`WalkCtx`, external-new arm,
-  `validatePlatformTypes`), `JsImports.fs` (`create`/`createWithDefaults` — step 4
-  adds the `Global` consult), `Codegen.fs` (`compileWith[Defaults]`),
+  `validatePlatformTypes`), `JsRuntime.fs` (`JsImports.create`/`addRef` — step 4
+  adds the `Global` consult), `Codegen.fs` (`compileWith`),
   `JsNativeSymbols.fs` (shrinks toward the intrinsic-repr seam; `Error` stays).
 - **Tests as patterns:** `test/Vesper.Ts.Extractor.Tests` (goldens, `UPDATE_SNAPSHOTS`
   regen, `testProviderResolves`, `mittDiagnosticsContract`);

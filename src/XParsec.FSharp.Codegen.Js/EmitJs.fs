@@ -290,6 +290,21 @@ module EmitJs =
                     caseName
                     enumKey
 
+    /// The import FORM of an external value's home-module export, read off the
+    /// resolved `ExternalSymbol.ImportForm` (the provider seam that also carries
+    /// `AttachMembers`): `Default` only for a TS `export default` (mitt's factory),
+    /// which `JsImports.addRef` must lower to `import x from '<spec>'`. Key-based
+    /// lookup exactly as `JsFlatFns.externalGroups` — codegen reads what the front
+    /// end already resolved. A miss (no key / a symbol the provider doesn't model)
+    /// is `Named`: every Vesper-emitted runtime export is named.
+    let private importFormOf (provider: IExternalSymbolProvider voption) (key: SymbolKey voption) : ImportForm =
+        match provider, key with
+        | ValueSome provider, ValueSome key ->
+            match provider.TryLookup(SymbolKeyOps.qualifiedName key) with
+            | ValueSome sym -> sym.ImportForm
+            | ValueNone -> ImportForm.Named
+        | _ -> ImportForm.Named
+
     let rec buildExpr (ctx: WalkCtx) (e: Frozen.TExpr) : JsExpr =
         let loc = locOf ctx (TastWalk.exprTok e)
 
@@ -311,7 +326,8 @@ module EmitJs =
         // A value-use of a multi-arg / tupled external function gets the same curried
         // adapter (its producer emits flat); a saturated call flattens at the `App` arm.
         | TExprG.External(compiledName, key, _, _) ->
-            let alias = JsExpr.Identifier(JsImports.addRef ctx.Imports compiledName key, loc)
+            let alias =
+                JsExpr.Identifier(JsImports.addRef ctx.Imports compiledName key (importFormOf ctx.Provider key), loc)
 
             match JsFlatFns.externalGroups ctx.Provider key with
             | ValueSome groups when JsFlatFns.needsAdapter groups ->
@@ -392,7 +408,8 @@ module EmitJs =
                     | TExprG.External(compiledName, key, _, _) ->
                         JsFlatFns.externalGroups ctx.Provider key
                         |> ValueOption.map (fun groups ->
-                            identAt (JsImports.addRef ctx.Imports compiledName key), groups
+                            identAt (JsImports.addRef ctx.Imports compiledName key (importFormOf ctx.Provider key)),
+                            groups
                         )
                     | _ -> ValueNone
 
@@ -1012,7 +1029,11 @@ module EmitJs =
         | HoleSpecSource.RawFormat _ -> buildExpr ctx operand
         | HoleSpecSource.Classified(HoleForm.PercentA(width, size)) ->
             let fmtRef =
-                JsExpr.Identifier(JsImports.addRef ctx.Imports "structuralFormat" structuralFormatKey, ValueNone)
+                // A Vesper-emitted runtime export — always a NAMED import.
+                JsExpr.Identifier(
+                    JsImports.addRef ctx.Imports "structuralFormat" structuralFormatKey ImportForm.Named,
+                    ValueNone
+                )
 
             let value = buildExpr ctx operand
             call fmtRef [ value; num (percentAWidth width); num (percentASize size) ]

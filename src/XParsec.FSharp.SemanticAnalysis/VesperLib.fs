@@ -330,74 +330,15 @@ module VesperLib =
                     }
             | _ -> ()
 
-    /// A best-effort, never-reparsed rendering of a parameter's `FrozenType` for a
-    /// `SymbolKey.MemberKey.argSig` entry — the same role `MetadataSymbols.openTyparSig`
-    /// fills for the metadata layer (it only disambiguates overloads, so an exotic
-    /// shape rendered by name is harmless). The contract layer left `argSig` empty,
-    /// which made `argSig.Length` (the codegen `ExternalMember` arg count + the
-    /// front-end optional-fill `fullCount`) read 0 for every parameter'd member — so
-    /// a `sink.Text(s)` call pushed no argument and underflowed the stack. Rebuilt
-    /// from the frozen signature in `finalizeDeferred` once the parameter type is
-    /// known.
-    let rec private argTypeName (t: FrozenType) : string =
-        match t with
-        | FTConst(n, args) ->
-            if args.IsEmpty then
-                n
-            else
-                n
-                + "<"
-                + (args |> EqArray.toList |> List.map argTypeName |> String.concat ",")
-                + ">"
-        | FTClass(key, _)
-        | FTRecord(key, _)
-        | FTUnion(key, _)
-        | FTEnum key -> SymbolKeyOps.qualifiedName key
-        | FTTuple items ->
-            "("
-            + (items |> EqArray.toList |> List.map argTypeName |> String.concat "*")
-            + ")"
-        | FTFun(a, b) -> argTypeName a + "->" + argTypeName b
-        | FTOr members ->
-            "("
-            + (members |> EqSet.toList |> List.map argTypeName |> String.concat "|")
-            + ")"
-        // A literal renders as its QUOTED constant, keeping overload identity sharp:
-        // two overloads differing only by literal value (mitt's `on(type: Key)` vs
-        // `on(type: '*')`) must mint DISTINCT `argSig`s, so this must NOT collapse to
-        // the base primitive (design §"argSigOf … quoted-value spelling").
-        | FTLiteral(LiteralConst.String s) -> "\"" + s + "\""
-        | FTLiteral(LiteralConst.Int n) -> string n
-        // The type-level computations render sharply (mirrors the TS provider's
-        // `argSigOf`) so an overload differing only by one mints a distinct `argSig`.
-        | FTKeyOf t -> "keyof(" + argTypeName t + ")"
-        | FTIndexedAccess(objTy, index) -> argTypeName objTy + "[" + argTypeName index + "]"
-        | FTConditional(check, extends, whenTrue, whenFalse) ->
-            "("
-            + argTypeName check
-            + " extends "
-            + argTypeName extends
-            + " ? "
-            + argTypeName whenTrue
-            + " : "
-            + argTypeName whenFalse
-            + ")"
-        | FTTypar(axis, i) ->
-            (match axis with
-             | TyparAxis.Declaring -> "!"
-             | _ -> "!!")
-            + string i
-        | FTUnknown n -> n
-
-    /// The per-parameter `argSig` of a frozen method signature, flattening the
-    /// `.NET`-tupled parameter form: a `unit` parameter is zero arguments, a tuple
-    /// is one entry per element, anything else is a single argument. Mirrors the
-    /// `argCount` decode in codegen's `ExternalMember` arm.
-    let private argSigOfParameters (parameters: FrozenType) : EqArray<string> =
-        match parameters with
-        | FTConst("unit", args) when args.IsEmpty -> EqArray.empty
-        | FTTuple items -> items |> EqArray.toList |> List.map argTypeName |> EqArray.ofList
-        | single -> EqArray.singleton (argTypeName single)
+    // A member's `argSig` is rendered by the SHARED spelling grammar
+    // (`ExternalSymbols.argSigOfParameters`) — one renderer for every
+    // `FrozenType`-shaped producer, so this contract layer and the TS-manifest
+    // provider cannot drift on overload identity. The contract layer once left
+    // `argSig` empty, which made `argSig.Length` (the codegen `ExternalMember`
+    // arg count + the front-end optional-fill `fullCount`) read 0 for every
+    // parameter'd member — so a `sink.Text(s)` call pushed no argument and
+    // underflowed the stack; it is rebuilt from the frozen signature in
+    // `finalizeDeferred` once the parameter type is known.
 
     /// Fold a method/ctor's frozen parameter types into the single `.NET`-tupled
     /// `Parameters` form an `ExternalSignature` carries: none ⇒ `unit`, one ⇒ itself,
@@ -504,7 +445,12 @@ module VesperLib =
                                 let key' =
                                     match m.Key with
                                     | SymbolKey.MemberKey(decl, name, _, kind) ->
-                                        SymbolKey.MemberKey(decl, name, argSigOfParameters sign.Parameters, kind)
+                                        SymbolKey.MemberKey(
+                                            decl,
+                                            name,
+                                            ExternalSymbols.argSigOfParameters sign.Parameters,
+                                            kind
+                                        )
                                     | other -> other
 
                                 { m with
@@ -574,7 +520,7 @@ module VesperLib =
                                     Return = ret
                                     MethodTyparBounds = [||]
                                 }
-                                (argSigOfParameters parameters)
+                                (ExternalSymbols.argSigOfParameters parameters)
                                 SymbolOrigin.Empty
                                 []
                     ]

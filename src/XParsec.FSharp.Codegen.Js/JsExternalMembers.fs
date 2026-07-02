@@ -266,7 +266,10 @@ module JsExternalMembers =
                     memberName
                     declKey
 
-        JsExpr.Identifier(JsImports.addRef imports memberName (ValueSome valueKey), loc)
+        // `ImportForm.Named` by construction: `TsManifestProvider.providerOfManifest`
+        // gates the synthetic grouping type to Named-imported overloads (it throws on
+        // any other import shape), so an erased member is always a named export.
+        JsExpr.Identifier(JsImports.addRef imports memberName (ValueSome valueKey) ImportForm.Named, loc)
 
     /// The mangled receiver-first import: `<Type>__<member>` / `<Type>_<member>`
     /// aliased from the declaring type's runtime-js module, applied to the receiver

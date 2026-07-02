@@ -237,14 +237,22 @@ module JsPrint =
         | JsStatement.Const(name, init) -> text "const " ++ text name ++ text " = " ++ expr init ++ text ";"
         | JsStatement.Let(name, init) -> text "let " ++ text name ++ text " = " ++ expr init ++ text ";"
         | JsStatement.Export(name, init) -> text "export const " ++ text name ++ text " = " ++ expr init ++ text ";"
-        | JsStatement.Import(defaultBinding, specifiers, source) ->
+        | JsStatement.Import(defaultBinding, named, source) ->
             // `import D from`, `import { a, b } from`, or `import D, { a, b } from` — a TS
             // default export binds positionally (no braces), named bindings ride the braces.
+            // Every named binding is aliased (`$`-prefixed aliases are collision-free with
+            // export names), so the `name as alias` spelling renders unconditionally.
             let namedClause =
-                if List.isEmpty specifiers then
+                if List.isEmpty named then
                     None
                 else
-                    Some(sprintf "{ %s }" (String.concat ", " specifiers))
+                    Some(
+                        sprintf
+                            "{ %s }"
+                            (named
+                             |> List.map (fun (name, alias) -> name + " as " + alias)
+                             |> String.concat ", ")
+                    )
 
             let clause = [ defaultBinding; namedClause ] |> List.choose id |> String.concat ", "
             text (sprintf "import %s from %s;" clause (JsEscape.quoted source))

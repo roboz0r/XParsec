@@ -182,61 +182,6 @@ module internal TsManifestTranslate =
         | [ p ] -> toFrozen ctx p.Type
         | many -> FTTuple(EqArray.ofSeq (many |> List.map (fun p -> toFrozen ctx p.Type)))
 
-    // A literal TYPE reference — gates the argSig arms that render literal spellings
-    // sharply instead of collapsing to `obj`.
-    let private isLiteralRef (t: Schema.TypeRef) : bool =
-        match t with
-        | Schema.TypeRef.Literal _ -> true
-        | _ -> false
-
-    /// The overload-identity string a single parameter contributes to a `MemberKey`'s
-    /// `argSig` (distinct from the `Signature.Parameters` the runtime pick reads). The
-    /// thin TS type vocabulary names primitives/nominals exactly; everything richer
-    /// collapses to `obj` — the deliberate forcing function: two ctor/method overloads
-    /// that collapse to the same argSig throw (see `expandCtor`), pointing at the
-    /// fixture whose erased distinction wants a sharper extracted type.
-    let rec argSigOf (t: Schema.TypeRef) : string =
-        match t with
-        | Schema.TypeRef.Named(name, []) -> name
-        | Schema.TypeRef.Named(name, args) -> name + "<" + System.String.Join(",", List.map argSigOf args) + ">"
-        | Schema.TypeRef.Typar i -> "!" + string i
-        | Schema.TypeRef.MethodTypar i -> "!!" + string i
-        | Schema.TypeRef.Fun(args, ret) -> "(" + System.String.Join(",", List.map argSigOf args) + ")->" + argSigOf ret
-        | Schema.TypeRef.Tuple items -> "(" + System.String.Join("*", List.map argSigOf items) + ")"
-        // A literal keeps overload identity SHARP — a quoted-value spelling, NOT a
-        // collapse to `obj` — so two overloads differing only by literal value
-        // (mitt's `on(type: Key)` vs `on(type: '*')`) mint DISTINCT argSigs and the
-        // duplicate-overload guard does not misfire.
-        | Schema.TypeRef.Literal(Schema.LiteralValue.StringVal s) -> "\"" + s + "\""
-        | Schema.TypeRef.Literal(Schema.LiteralValue.IntVal n) -> string n
-        // A union of LITERALS is rendered sharply (each member) for the same
-        // overload-identity reason; a union with any non-literal member keeps the
-        // `obj` collapse (the existing forcing-function that throws on a genuinely
-        // erased distinction) — this stays additive for non-literal unions.
-        | Schema.TypeRef.Union members when members |> List.forall isLiteralRef ->
-            "(" + System.String.Join("|", List.map argSigOf members) + ")"
-        // keyof / indexed-access / conditional keep a STABLE, SHARP spelling (not an
-        // `obj` collapse) so overloads differing only by one of these mint distinct
-        // argSigs — same overload-identity reason as the literal arm above.
-        | Schema.TypeRef.KeyOf t -> "keyof(" + argSigOf t + ")"
-        | Schema.TypeRef.IndexedAccess(objTy, index) -> argSigOf objTy + "[" + argSigOf index + "]"
-        | Schema.TypeRef.Conditional(check, extends, whenTrue, whenFalse) ->
-            "("
-            + argSigOf check
-            + " extends "
-            + argSigOf extends
-            + " ? "
-            + argSigOf whenTrue
-            + " : "
-            + argSigOf whenFalse
-            + ")"
-        | Schema.TypeRef.Union _
-        | Schema.TypeRef.Dynamic
-        | Schema.TypeRef.Structural _ -> "obj"
-
-    let private paramArgSig (ps: Schema.Param list) : string list =
-        ps |> List.map (fun p -> argSigOf p.Type)
-
     let signatureOf (ctx: TranslateCtx) (declArity: int) (sg: Schema.Signature) : ExternalSignature =
         // Per-method-typar bound (`<Key extends keyof Events>`), carried FAITHFULLY as a
         // `FrozenType` (`FTKeyOf(FTTypar(Declaring,0))`) so the front end can keyof-fold
@@ -268,11 +213,25 @@ module internal TsManifestTranslate =
     /// Intern each overload signature's parameter shape into its `argSig`, guarding
     /// the set for collisions: two overloads that collapse to the same argSig (same
     /// param count AND types) would mint the SAME `MemberKey`, so throw rather than let
-    /// them silently coincide — the forcing function that fires exactly when the
-    /// `obj`-collapse has erased a real distinction (it points at the fixture whose
+    /// them silently coincide — the forcing function that fires exactly when a
+    /// collapsed spelling has erased a real distinction (it points at the fixture whose
     /// thin extracted type wants sharpening). `label` names the member in the error.
-    let overloadArgSigs (label: string) (mem: Schema.Member) : (string list * Schema.Signature) list =
-        let built = mem.Signatures |> List.map (fun sg -> paramArgSig sg.Params, sg)
+    /// Each parameter renders through the SHARED `FrozenType` spelling grammar
+    /// (`ExternalSymbols.argTypeName`, over the same `toFrozen` translation the
+    /// `Signature.Parameters` template carries) — one renderer with the `.fsi`
+    /// contract layer, so the two producers cannot drift on overload identity.
+    let overloadArgSigs
+        (ctx: TranslateCtx)
+        (label: string)
+        (mem: Schema.Member)
+        : (string list * Schema.Signature) list =
+        let built =
+            mem.Signatures
+            |> List.map (fun sg ->
+                sg.Params
+                |> List.map (fun p -> ExternalSymbols.argTypeName (toFrozen ctx p.Type)),
+                sg
+            )
 
         built
         |> List.countBy (fun (a, _) -> System.String.Join(",", a))

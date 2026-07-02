@@ -16,13 +16,17 @@ type JsRuntimeModule =
     }
 
 /// The accumulating import specifiers for one home assembly: the runtime module, the
-/// sorted set of NAMED specifiers (`name as $alias`), and the at-most-one DEFAULT binding
-/// (`$alias` for an `import $alias from '<spec>'`). A TS default export cannot be imported
-/// by name, so it rides its own slot; the printer combines them into `import D, { a, b }`.
+/// set of NAMED `(exportName, alias)` bindings, and the at-most-one DEFAULT binding
+/// (`$alias` for an `import $alias from '<spec>'`). A TS default export cannot be
+/// imported by name, so it rides its own slot; the printer combines them into
+/// `import D, { a, b }`.
 type private ImportEntry =
     {
         Module: JsRuntimeModule
-        Named: System.Collections.Generic.SortedSet<string>
+        /// `(exportName, alias)` pairs — structure, not pre-rendered `name as alias`
+        /// strings; `JsPrint` owns the `as` spelling. A `HashSet` because re-recording
+        /// a repeat reference must be a no-op; `importStatements` sorts on read.
+        Named: System.Collections.Generic.HashSet<string * string>
         mutable Default: string option
     }
 
@@ -35,30 +39,17 @@ type JsImports =
         {
             /// Package/assembly name → its runtime module. A subset is actually referenced.
             Runtime: Map<string, JsRuntimeModule>
-            /// The `(asm, ns, name)` identities whose `ImportShape` is `Default` (from
-            /// `TsManifestProvider.defaultValueKeys`): `addRef` lowers these to a default
-            /// import. Import shape cannot ride the node/`SymbolKey`, so the backend seeds
-            /// it here. Empty ⇒ every value is a named import (the prior behaviour).
-            DefaultKeys: Set<string * string * string>
             /// Home assembly → its accumulating import entry.
             Entries: System.Collections.Generic.Dictionary<string, ImportEntry>
         }
 
 module JsImports =
 
-    /// Build with a set of default-exported `ValueKey`s (the channel import shape rides,
-    /// since it cannot ride the node). `create` is the empty-set special case.
-    let createWithDefaults
-        (runtime: Map<string, JsRuntimeModule>)
-        (defaultKeys: Set<string * string * string>)
-        : JsImports =
+    let create (runtime: Map<string, JsRuntimeModule>) : JsImports =
         {
             Runtime = runtime
-            DefaultKeys = defaultKeys
             Entries = System.Collections.Generic.Dictionary()
         }
-
-    let create (runtime: Map<string, JsRuntimeModule>) : JsImports = createWithDefaults runtime Set.empty
 
     /// The entry for `assembly`, recording it on first lookup. Fails loudly when the
     /// assembly has no runtime module in scope.
@@ -71,7 +62,7 @@ module JsImports =
                 let entry =
                     {
                         Module = rt
-                        Named = System.Collections.Generic.SortedSet<string>(System.StringComparer.Ordinal)
+                        Named = System.Collections.Generic.HashSet<string * string>()
                         Default = None
                     }
 
@@ -81,16 +72,19 @@ module JsImports =
 
     /// Resolve an `External` value node to its local import identifier, recording the
     /// import. The export is aliased to `$<ns>_<name>` (`$` is illegal in F#, so
-    /// collision-free). A `DefaultKeys` hit lowers to a DEFAULT import (the alias binds
-    /// the module's default export, no named specifier); otherwise a named specifier.
-    /// Fails loudly for a package with no authored runtime module.
-    let addRef (imports: JsImports) (compiledName: string) (key: SymbolKey voption) : string =
+    /// collision-free). `form` is the resolved symbol's `ExternalSymbol.ImportForm`
+    /// (read off the provider seam by the caller): `Default` lowers to a DEFAULT
+    /// import (the alias binds the module's default export, no named specifier);
+    /// `Named` to a named specifier. Fails loudly for a package with no authored
+    /// runtime module.
+    let addRef (imports: JsImports) (compiledName: string) (key: SymbolKey voption) (form: ImportForm) : string =
         match key with
         | ValueSome(SymbolKey.ValueKey(Some asm, ns, name)) ->
             let entry = entryFor imports asm (sprintf "external value '%s'" compiledName)
             let alias = "$" + (ns + "." + name).Replace('.', '_')
 
-            if imports.DefaultKeys.Contains((asm, ns, name)) then
+            match form with
+            | ImportForm.Default ->
                 // At-most-one default binding per module, ENFORCED: a second, different
                 // alias would silently clobber the first in the emitted `import` line.
                 // Re-recording the same alias is the normal repeat-reference no-op.
@@ -102,8 +96,7 @@ module JsImports =
                         prev
                         alias
                 | _ -> entry.Default <- Some alias
-            else
-                entry.Named.Add(sprintf "%s as %s" name alias) |> ignore
+            | ImportForm.Named -> entry.Named.Add((name, alias)) |> ignore
 
             alias
         | _ -> failwithf "JS codegen (Step 5b): unsupported external value '%s' (key %A)" compiledName key
@@ -116,7 +109,7 @@ module JsImports =
     let addTypeRef (imports: JsImports) (asm: string) (className: string) : string =
         let entry = entryFor imports asm (sprintf "external type '%s'" className)
         let alias = "$" + asm.Replace('.', '_') + "_" + className
-        entry.Named.Add(sprintf "%s as %s" className alias) |> ignore
+        entry.Named.Add((className, alias)) |> ignore
         alias
 
     /// Resolve an external member reference to its local import identifier, aliasing
@@ -124,16 +117,19 @@ module JsImports =
     let addMemberRef (imports: JsImports) (asm: string) (exportName: string) : string =
         let entry = entryFor imports asm (sprintf "external member '%s'" exportName)
         let alias = "$" + exportName
-        entry.Named.Add(sprintf "%s as %s" exportName alias) |> ignore
+        entry.Named.Add((exportName, alias)) |> ignore
         alias
 
     /// The leading `import … from "./<file>"` block — one statement per home assembly,
-    /// specifiers and assemblies sorted (deterministic).
+    /// specifiers and assemblies sorted (deterministic). `List.sort` on the
+    /// `(exportName, alias)` pairs is ordinal (F# structural string comparison),
+    /// matching the emitted-text order the former pre-rendered `name as alias`
+    /// `SortedSet` produced.
     let importStatements (imports: JsImports) : JsStatement list =
         [
             for kv in imports.Entries |> Seq.sortBy (fun kv -> kv.Key) do
                 let entry = kv.Value
-                JsStatement.Import(entry.Default, List.ofSeq entry.Named, "./" + entry.Module.FileName)
+                JsStatement.Import(entry.Default, entry.Named |> List.ofSeq |> List.sort, "./" + entry.Module.FileName)
         ]
 
     /// The runtime modules referenced during the walk, sorted by assembly. Each emitted
