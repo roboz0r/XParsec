@@ -1540,12 +1540,35 @@ module Expr =
                     let! indent = currentIndent
                     let! state = getUserState
 
+                    // pars.fsy `moduleDefns`: a `let`/`use` binding head (`defnBindings`) at the
+                    // top-level module column is a NEW module declaration, separated from a
+                    // preceding do-expression by OBLOCKSEP — never an OSEMI sequential
+                    // continuation. Sequencing it in would parse the binding as the trailing
+                    // statement of the do-expression's `seqExpr`, whose let/use body is then
+                    // absent (EOF or the next sibling decl) → `Expr.Missing`. The top-level
+                    // module/namespace body is the outermost, single-entry SeqBlock; end the
+                    // sequence here so the module-elems loop consumes the binding as its own
+                    // element. Nested `module X =` bodies are immune already: their `Module`
+                    // context sits at indent+1, so `atContextIndent` never holds for siblings.
+                    let isTopLevelBinding =
+                        match state.Context with
+                        | [ { Context = OffsideContext.SeqBlock } ] ->
+                            match t.Token with
+                            | Token.KWLet
+                            | Token.KWUse
+                            | Token.KWLetBang
+                            | Token.KWUseBang -> true
+                            | _ -> false
+                        | _ -> false
+
                     let atContextIndent =
                         match state.Context with
                         | { Indent = ctxIndent } :: _ -> indent = ctxIndent
                         | [] -> indent = 0
 
-                    if atContextIndent then
+                    if isTopLevelBinding then
+                        return! failSep
+                    elif atContextIndent then
                         return virtualToken (PositionedToken.Create(Token.VirtualSep, t.StartIndex))
                     else
                         return! failSep

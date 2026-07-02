@@ -1,0 +1,38 @@
+AnonymousModule:
+FunctionOrValue:
+  let                 'let'             KWLet               tok=   0  pos=   0
+    Pat.NamedSimple   'b'               Identifier          tok=   2  pos=   4
+    =                 '='               OpEquality          tok=   4  pos=   6
+      HighPrecedenceApp:
+        Func:
+          Ident       'makeBox'         Identifier          tok=   6  pos=   8
+        (             '('               KWLParen            tok=   7  pos=  15
+        Arg:
+          ParenBlock  '('               KWLParen            tok=   7  pos=  15
+                      ')'               KWRParen            tok=   8  pos=  16
+                      ')'               KWRParen            tok=   8  pos=  16
+HighPrecedenceApp:
+  Func:
+    LongIdentOrOp:
+      LongIdent:
+                      'b'               Identifier          tok=  10  pos=  18
+                      'set'             Identifier          tok=  12  pos=  20
+  (                   '('               KWLParen            tok=  13  pos=  23
+  Arg:
+    Const             '5'               NumInt32            tok=  14  pos=  24
+                      ')'               KWRParen            tok=  15  pos=  25
+FunctionOrValue:
+  let                 'let'             KWLet               tok=  17  pos=  27
+    Pat.NamedSimple   'result'          Identifier          tok=  19  pos=  31
+    =                 '='               OpEquality          tok=  21  pos=  38
+      HighPrecedenceApp:
+        Func:
+          LongIdentOrOp:
+            LongIdent:
+                      'b'               Identifier          tok=  23  pos=  40
+                      'get'             Identifier          tok=  25  pos=  42
+        (             '('               KWLParen            tok=  26  pos=  45
+        Arg:
+          ParenBlock  '('               KWLParen            tok=  26  pos=  45
+                      ')'               KWRParen            tok=  27  pos=  46
+                      ')'               KWRParen            tok=  27  pos=  46
