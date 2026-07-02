@@ -21,26 +21,44 @@ module TsManifestProvider =
 
     // ─── TypeRef → FrozenType (member signature templates) ─────────────────
 
-    let rec private toFrozen (t: Schema.TypeRef) : FrozenType =
+    /// `resolveClass` is the manifest's name→`TypeKey` table for names registered as
+    /// an `Interface`/`Class` (built in `providerOfManifest`, complete before any
+    /// per-export walk so forward references resolve). It is THE gate that turns a
+    /// nominal `Named` into `FTClass` — and only for a class/interface: a primitive,
+    /// an unresolved/cross-package name, and a `TypeAlias` name all miss the table and
+    /// stay `FTConst` (aliases stay transparent through `ExternalTypeShape.Abbrev`).
+    /// This is what makes a manifest interface resolve as `TyClass` at the front end so
+    /// `resolveFieldStep`'s external-`TyClass` arm admits `.member` access via the
+    /// provider. The key MUST equal what `toTypeShape`'s `build` mints
+    /// (`SymbolKey.TypeKey(Some moduleSpec, nsPath, name)`) so `SymbolKeyOps.qualifiedName`
+    /// of it equals the provider's map key (`qualify nsPath name`) — the exact string the
+    /// front end hands to `TryLookupMember`.
+    let rec private toFrozen (resolveClass: string -> SymbolKey option) (t: Schema.TypeRef) : FrozenType =
+        let nominal name (args: FrozenType[]) =
+            match resolveClass name with
+            | Some key -> FTClass(key, EqArray.ofSeq args)
+            | None -> FTConst(name, EqArray.ofSeq args)
+
         match t with
-        | Schema.TypeRef.Named(name, []) -> FTConst(name, EqArray.empty)
-        | Schema.TypeRef.Named(name, args) -> FTConst(name, EqArray.ofSeq (List.map toFrozen args))
+        | Schema.TypeRef.Named(name, []) -> nominal name [||]
+        | Schema.TypeRef.Named(name, args) -> nominal name (List.map (toFrozen resolveClass) args |> Array.ofList)
         | Schema.TypeRef.Typar i -> FTTypar(TyparAxis.Declaring, i)
         | Schema.TypeRef.MethodTypar i -> FTTypar(TyparAxis.Method, i)
-        | Schema.TypeRef.Fun(args, ret) -> List.foldBack (fun a acc -> FTFun(toFrozen a, acc)) args (toFrozen ret)
-        | Schema.TypeRef.Tuple items -> FTTuple(EqArray.ofSeq (List.map toFrozen items))
-        | Schema.TypeRef.Union members -> FTOr(EqArray.ofSeq (List.map toFrozen members))
+        | Schema.TypeRef.Fun(args, ret) ->
+            List.foldBack (fun a acc -> FTFun(toFrozen resolveClass a, acc)) args (toFrozen resolveClass ret)
+        | Schema.TypeRef.Tuple items -> FTTuple(EqArray.ofSeq (List.map (toFrozen resolveClass) items))
+        | Schema.TypeRef.Union members -> FTOr(EqArray.ofSeq (List.map (toFrozen resolveClass) members))
         | Schema.TypeRef.Dynamic -> FTUnknown "any" // TODO: TyDynamic once it lands
         | Schema.TypeRef.Structural(hash, _) -> FTUnknown("structural:" + hash) // TODO: content-hash record
 
     let private unitFrozen: FrozenType = FTConst("unit", EqArray.empty)
 
     /// .NET-tupled parameter encoding: 0 → unit, 1 → bare, N≥2 → tuple.
-    let private paramsFrozen (ps: Schema.Param list) : FrozenType =
+    let private paramsFrozen (resolveClass: string -> SymbolKey option) (ps: Schema.Param list) : FrozenType =
         match ps with
         | [] -> unitFrozen
-        | [ p ] -> toFrozen p.Type
-        | many -> FTTuple(EqArray.ofSeq (many |> List.map (fun p -> toFrozen p.Type)))
+        | [ p ] -> toFrozen resolveClass p.Type
+        | many -> FTTuple(EqArray.ofSeq (many |> List.map (fun p -> toFrozen resolveClass p.Type)))
 
     let private singleSignature (name: string) (sigs: Schema.Signature list) : Schema.Signature =
         // The bare free-function path is single-signature ONLY: `providerOfManifest`
@@ -74,12 +92,16 @@ module TsManifestProvider =
     let private paramArgSig (ps: Schema.Param list) : string list =
         ps |> List.map (fun p -> argSigOf p.Type)
 
-    let private signatureOf (declArity: int) (sg: Schema.Signature) : ExternalSignature =
+    let private signatureOf
+        (resolveClass: string -> SymbolKey option)
+        (declArity: int)
+        (sg: Schema.Signature)
+        : ExternalSignature =
         {
             DeclaringArity = declArity
             MethodArity = sg.TypeParams
-            Parameters = paramsFrozen sg.Params
-            Return = toFrozen sg.Returns
+            Parameters = paramsFrozen resolveClass sg.Params
+            Return = toFrozen resolveClass sg.Returns
         }
 
     /// Intern each overload signature's parameter shape into its `argSig`, guarding
@@ -106,6 +128,7 @@ module TsManifestProvider =
     /// `InferCtor.inferExternalCtorOn` → `TryLookupMembers(name, ".ctor")` →
     /// `pickBestOverload` expects. Each ctor's `argSig` interns its parameter shape.
     let private expandCtor
+        (resolveClass: string -> SymbolKey option)
         (declKey: SymbolKey)
         (origin: SymbolOrigin)
         (declArity: int)
@@ -113,7 +136,7 @@ module TsManifestProvider =
         : ExternalMember list =
         overloadArgSigs (sprintf "type '%A' .ctor" declKey) mem
         |> List.map (fun (argSig, sg) ->
-            ExternalMember.ctor declKey (signatureOf declArity sg) (EqArray.ofList argSig) origin []
+            ExternalMember.ctor declKey (signatureOf resolveClass declArity sg) (EqArray.ofList argSig) origin []
         )
 
     /// Expand a named method's N overload signatures into N `ExternalMember`s — one per
@@ -123,6 +146,7 @@ module TsManifestProvider =
     /// `expandCtor`, but builds the records directly (no `.ctor` name/kind to bake) and
     /// carries the InterfaceMethod-vs-Method `kind` chosen by the caller.
     let private expandMethod
+        (resolveClass: string -> SymbolKey option)
         (declKey: SymbolKey)
         (origin: SymbolOrigin)
         (declArity: int)
@@ -135,7 +159,7 @@ module TsManifestProvider =
                 Name = mem.Name
                 IsStatic = mem.Static
                 Storage = MemberStorage.Method
-                Signature = signatureOf declArity sg
+                Signature = signatureOf resolveClass declArity sg
                 MethodArity = sg.TypeParams
                 Origin = origin
                 Key = SymbolKey.MemberKey(declKey, mem.Name, EqArray.ofList argSig, kind)
@@ -144,6 +168,7 @@ module TsManifestProvider =
         )
 
     let private toExternalMembers
+        (resolveClass: string -> SymbolKey option)
         (declKey: SymbolKey)
         (origin: SymbolOrigin)
         (declArity: int)
@@ -151,11 +176,11 @@ module TsManifestProvider =
         (mem: Schema.Member)
         : ExternalMember list =
         match mem.Kind with
-        | Schema.MemberKind.Method when mem.Name = ".ctor" -> expandCtor declKey origin declArity mem
+        | Schema.MemberKind.Method when mem.Name = ".ctor" -> expandCtor resolveClass declKey origin declArity mem
         | Schema.MemberKind.Property ->
             let ret =
                 match mem.Type with
-                | Some t -> toFrozen t
+                | Some t -> toFrozen resolveClass t
                 | None -> unitFrozen
 
             [
@@ -183,7 +208,7 @@ module TsManifestProvider =
                 else
                     MemberKind.Method
 
-            expandMethod declKey origin declArity kind mem
+            expandMethod resolveClass declKey origin declArity kind mem
 
     /// Split a flat `heritage` list into implemented/extended INTERFACES (`FrozenInterfaces`)
     /// and the single base CLASS (`FrozenBaseType`). The schema's `heritage` is a FLAT
@@ -198,6 +223,7 @@ module TsManifestProvider =
     /// one base class, so a single `FrozenBaseType` slot suffices (last class-resolved entry
     /// wins if a malformed manifest somehow lists two).
     let private classifyHeritage
+        (resolveClass: string -> SymbolKey option)
         (kindOf: string -> bool option) // Some true = interface, Some false = class, None = unknown
         (heritage: Schema.TypeRef list)
         : (string * FrozenType[])[] * FrozenType voption =
@@ -218,14 +244,14 @@ module TsManifestProvider =
                 // Resolves to a CLASS in this package → the single base class slot (full
                 // `FrozenType`). TS guarantees at most one base class; a second would
                 // overwrite, which only a malformed manifest could produce.
-                baseTy <- ValueSome(toFrozen h)
+                baseTy <- ValueSome(toFrozen resolveClass h)
             | _ ->
                 // An interface, or an unresolved (cross-package) name → the interface slot
                 // as a `(compiled-name, type-args)` pair, matching the metadata layer's
                 // `buildClassInterfaces` shape. Cross-package defaults here because a
                 // cross-package base CLASS is far rarer than a cross-package interface, and
                 // mis-slotting only loses base-member lookup for that rare case.
-                interfaces.Add(name, args |> List.map toFrozen |> Array.ofList)
+                interfaces.Add(name, args |> List.map (toFrozen resolveClass) |> Array.ofList)
 
         interfaces.ToArray(), baseTy
 
@@ -277,6 +303,7 @@ module TsManifestProvider =
             string (System.Char.ToUpperInvariant lastSeg.[0]) + lastSeg.Substring 1
 
     let private toTypeShape
+        (resolveClass: string -> SymbolKey option)
         (kindOf: string -> bool option)
         (moduleSpec: string)
         (nsPath: string)
@@ -293,10 +320,10 @@ module TsManifestProvider =
 
             let mems =
                 members
-                |> List.collect (toExternalMembers key origin tp isInterface)
+                |> List.collect (toExternalMembers resolveClass key origin tp isInterface)
                 |> List.toArray
 
-            let frozenInterfaces, frozenBaseType = classifyHeritage kindOf heritage
+            let frozenInterfaces, frozenBaseType = classifyHeritage resolveClass kindOf heritage
 
             Some(
                 qualify nsPath name,
@@ -324,7 +351,7 @@ module TsManifestProvider =
             // -structural all resolve through the same `toFrozen` the members use. `tp`
             // is the alias's declaring-axis arity (item 11): a generic alias `Pair<A,B>`
             // expands `FTTypar(Declaring,0/1)` against the two use-site args.
-            Some(qualify nsPath name, ExternalTypeShape.Abbrev(tp, toFrozen target))
+            Some(qualify nsPath name, ExternalTypeShape.Abbrev(tp, toFrozen resolveClass target))
         | Schema.Export.Enum(name, members) ->
             // A TS enum → `ExternalTypeShape.Enum`: the closed name→value case table
             // the front end resolves `(x: E)` / `E.Ci` against (the enum's nominal
@@ -360,6 +387,7 @@ module TsManifestProvider =
         | _ -> None
 
     let private toFunctionSymbol
+        (resolveClass: string -> SymbolKey option)
         (moduleSpec: string)
         (nsPath: string)
         (ex: Schema.Export)
@@ -380,10 +408,10 @@ module TsManifestProvider =
             let paramTypes =
                 match requiredParams with
                 | [] -> [ unitFrozen ]
-                | ps -> ps |> List.map (fun p -> toFrozen p.Type)
+                | ps -> ps |> List.map (fun p -> toFrozen resolveClass p.Type)
 
             let frozenTy =
-                List.foldBack (fun a acc -> FTFun(a, acc)) paramTypes (toFrozen sg.Returns)
+                List.foldBack (fun a acc -> FTFun(a, acc)) paramTypes (toFrozen resolveClass sg.Returns)
             // Registered/keyed under the dotted qualified name (item 17); the symbol's
             // own `Name` carries it too so lowering emits the qualified binding. The
             // `Origin`/`Key` are stamped with the MODULE SPECIFIER (the analog of
@@ -412,6 +440,7 @@ module TsManifestProvider =
     /// at this seam (JS lowering reads the imported binding by name regardless of
     /// mutability), so it is not consumed here.
     let private toValueSymbol
+        (resolveClass: string -> SymbolKey option)
         (moduleSpec: string)
         (nsPath: string)
         (ex: Schema.Export)
@@ -423,7 +452,7 @@ module TsManifestProvider =
             // resolves its `import … from '<moduleSpec>'` through `JsImports.addRef` and so
             // needs a `ValueKey(Some moduleSpec, …)`, not `monoFrozen`'s `None` origin.
             let sym =
-                { ExternalSymbols.monoFrozen qn (toFrozen ty) with
+                { ExternalSymbols.monoFrozen qn (toFrozen resolveClass ty) with
                     Origin = originFor moduleSpec nsPath
                     Key = SymbolKey.ValueKey(Some moduleSpec, nsPath, name)
                 }
@@ -471,6 +500,29 @@ module TsManifestProvider =
 
         let kindOf (name: string) : bool option = Map.tryFind name typeKinds
 
+        // The name→`TypeKey` resolver `toFrozen` gates on to mint `FTClass` (R1). Built in
+        // the SAME first pass as `typeKinds` — over ALL flat exports before any per-export
+        // `toTypeShape` — so a member signature that names a type declared LATER (e.g. mitt's
+        // `mitt` referencing `Emitter`) still resolves. Keyed by the QUALIFIED name (`qualify
+        // nsPath name`); the minted `TypeKey` uses the SAME `(moduleSpec, nsPath, name)` split
+        // `toTypeShape`'s `build` uses, so `SymbolKeyOps.qualifiedName` of it equals this map
+        // key — the exact string the front end's external-`TyClass` arm hands to
+        // `TryLookupMember`. Only `Interface`/`Class` names are registered (mirrors
+        // `typeKinds`): a primitive, a cross-package name, and a `TypeAlias` all miss and stay
+        // `FTConst` (the alias then expands transparently through its `Abbrev` shape).
+        let typeKeys =
+            flatExports
+            |> List.choose (fun (nsPath, ex) ->
+                match ex with
+                | Schema.Export.Interface(name, _, _, _)
+                | Schema.Export.Class(name, _, _, _, _) ->
+                    Some(qualify nsPath name, SymbolKey.TypeKey(Some moduleSpec, nsPath, name))
+                | _ -> None
+            )
+            |> Map.ofList
+
+        let resolveClass (name: string) : SymbolKey option = Map.tryFind name typeKeys
+
         // Partition free functions by call-signature count (Tier 2 item 9b). A
         // single-signature function stays a BARE free function (the name-keyed `funcs`
         // map / `TryLookup`). An OVERLOADED one (N>1 signatures) cannot ride the
@@ -487,7 +539,7 @@ module TsManifestProvider =
 
         let regularTypes =
             flatExports
-            |> List.choose (fun (nsPath, ex) -> toTypeShape kindOf moduleSpec nsPath ex)
+            |> List.choose (fun (nsPath, ex) -> toTypeShape resolveClass kindOf moduleSpec nsPath ex)
 
         // Synthesize one erased grouping type per (nsPath) GROUP of overloaded free
         // functions: its static members are the overloads, expanded with `expandMethod`
@@ -532,7 +584,7 @@ module TsManifestProvider =
                                 Optional = false
                             }
 
-                        expandMethod declKey origin 0 MemberKind.Method mem
+                        expandMethod resolveClass declKey origin 0 MemberKind.Method mem
                     )
                     |> List.toArray
 
@@ -576,10 +628,10 @@ module TsManifestProvider =
              |> List.choose (fun (nsPath, ex) ->
                  match ex with
                  | Schema.Export.Function(_, sigs, _) when List.length sigs > 1 -> None
-                 | _ -> toFunctionSymbol moduleSpec nsPath ex
+                 | _ -> toFunctionSymbol resolveClass moduleSpec nsPath ex
              ))
             @ (flatExports
-               |> List.choose (fun (nsPath, ex) -> toValueSymbol moduleSpec nsPath ex))
+               |> List.choose (fun (nsPath, ex) -> toValueSymbol resolveClass moduleSpec nsPath ex))
             |> Map.ofList
 
         let membersOf (typeName: string) (memberName: string) : ExternalMember[] =
