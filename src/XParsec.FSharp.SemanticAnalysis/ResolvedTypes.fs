@@ -46,6 +46,16 @@ module ResolvedTypes =
             | TyOr members ->
                 for a in members.Members do
                     go a
+            // The type-level computations can hold a still-free var in any child.
+            | TyKeyOf t -> go t
+            | TyIndexedAccess(objTy, index) ->
+                go objTy
+                go index
+            | TyConditional(check, extends, whenTrue, whenFalse) ->
+                go check
+                go extends
+                go whenTrue
+                go whenFalse
             | TyUnknown _ -> ()
             // Post-freeze leaf; this check runs pre-freeze and never sees it.
             | TyTypar _ -> ()

@@ -45,6 +45,14 @@ module Validation =
         | TyUnion(_, args) -> args |> EqArray.exists (hasFreeTyVar quantified)
         | TyClass(_, args) -> args |> EqArray.exists (hasFreeTyVar quantified)
         | TyOr members -> members.Members |> EqSet.exists (hasFreeTyVar quantified)
+        // A type-level computation holds a free var iff any child does.
+        | TyKeyOf t -> hasFreeTyVar quantified t
+        | TyIndexedAccess(objTy, index) -> hasFreeTyVar quantified objTy || hasFreeTyVar quantified index
+        | TyConditional(check, extends, whenTrue, whenFalse) ->
+            hasFreeTyVar quantified check
+            || hasFreeTyVar quantified extends
+            || hasFreeTyVar quantified whenTrue
+            || hasFreeTyVar quantified whenFalse
         | TyUnknown _ -> false
         // Post-freeze leaf; this check runs pre-freeze and never sees it.
         | TyTypar _ -> false

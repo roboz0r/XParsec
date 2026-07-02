@@ -69,6 +69,16 @@ let rec private tyName (t: SemType) : string =
     | TyOr members -> [ for m in members.Members -> tyName m ] |> String.concat " | "
     | TyLiteral(LiteralConst.String s) -> "\"" + s + "\""
     | TyLiteral(LiteralConst.Int n) -> string n
+    | TyKeyOf t -> "keyof " + tyName t
+    | TyIndexedAccess(objTy, index) -> tyName objTy + "[" + tyName index + "]"
+    | TyConditional(check, extends, whenTrue, whenFalse) ->
+        tyName check
+        + " extends "
+        + tyName extends
+        + " ? "
+        + tyName whenTrue
+        + " : "
+        + tyName whenFalse
     | TyUnknown n -> "?" + n
     | TyTypar(TyparAxis.Declaring, i) -> "!" + string i
     | TyTypar(TyparAxis.Method, i) -> "!!" + string i
@@ -663,6 +673,16 @@ type private Renderer() =
                 | TyOr members -> [ for m in members.Members -> tyStr m ] |> String.concat " | "
                 | TyLiteral(LiteralConst.String s) -> "\"" + s + "\""
                 | TyLiteral(LiteralConst.Int n) -> string n
+                | TyKeyOf t -> "keyof " + tyStr t
+                | TyIndexedAccess(objTy, index) -> tyStr objTy + "[" + tyStr index + "]"
+                | TyConditional(check, extends, whenTrue, whenFalse) ->
+                    tyStr check
+                    + " extends "
+                    + tyStr extends
+                    + " ? "
+                    + tyStr whenTrue
+                    + " : "
+                    + tyStr whenFalse
                 | TyUnknown n -> "?" + n
                 | TyTypar(TyparAxis.Declaring, i) -> "!" + string i
                 | TyTypar(TyparAxis.Method, i) -> "!!" + string i

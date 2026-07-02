@@ -308,6 +308,16 @@ type internal ClrEncoder(env: ClrEnv) =
         // than hit the catch-all. External-vocabulary only (a TS/JS concern), so a
         // literal rarely reaches the CLR encoder, but erasing keeps it honest.
         | FTLiteral v -> encodeType te (FTConst(v.BaseName, EqArray.empty))
+        // A carried type-level computation (keyof / indexed-access / conditional) is a
+        // JS-seam construct that must be GROUND-EVALUATED by the front end (step 3)
+        // before codegen — it has no CLR runtime repr in its unevaluated form. Like the
+        // external-enum arm above, reaching the CLR encoder with one is unsupported.
+        | FTKeyOf _
+        | FTIndexedAccess _
+        | FTConditional _ ->
+            failwithf
+                "ClrProvider: cannot encode unevaluated type-level computation %A — keyof/indexed-access/conditional are a JS-target concern and must be ground-evaluated before CLR emit"
+                t
         // The residual case — a stray `TyVar` can no longer reach here (it fails one
         // hop out in `toFrozen`) — is unencodable.
         | other -> failwithf "ClrProvider: cannot encode FrozenType: %A" other
@@ -404,6 +414,27 @@ type internal ClrEncoder(env: ClrEnv) =
                 | FTOr ys when xs.Length = ys.Length ->
                     for i in 0 .. xs.Length - 1 do
                         go xs.[i] ys.[i]
+                | _ -> ()
+            // The carried type-level computations pair the open template against the
+            // instantiated node by matching head + recursing children — the method vars
+            // recovered live inside them, exactly like `FTOr`'s members.
+            | FTKeyOf x1 ->
+                match a with
+                | FTKeyOf x2 -> go x1 x2
+                | _ -> ()
+            | FTIndexedAccess(o1, i1) ->
+                match a with
+                | FTIndexedAccess(o2, i2) ->
+                    go o1 o2
+                    go i1 i2
+                | _ -> ()
+            | FTConditional(c1, e1, wt1, wf1) ->
+                match a with
+                | FTConditional(c2, e2, wt2, wf2) ->
+                    go c1 c2
+                    go e1 e2
+                    go wt1 wt2
+                    go wf1 wf2
                 | _ -> ()
             // A niladic nominal / a ground literal carries no open typar — a leaf no-op.
             | FTEnum _

@@ -65,6 +65,16 @@ module Inline =
         // Through `mkUnion`: substituting a typar member can collapse / reorder the
         // set, so re-canonicalise rather than `EqArray.map` (see `Engine.zonk`).
         | TyOr members -> members.Map(substType subst)
+        // The type-level computations carry typars in their children.
+        | TyKeyOf t -> TyKeyOf(substType subst t)
+        | TyIndexedAccess(objTy, index) -> TyIndexedAccess(substType subst objTy, substType subst index)
+        | TyConditional(check, extends, whenTrue, whenFalse) ->
+            TyConditional(
+                substType subst check,
+                substType subst extends,
+                substType subst whenTrue,
+                substType subst whenFalse
+            )
         // A nominal enum / a structural literal carries no typar to substitute.
         | TyEnum _
         | TyLiteral _ -> t

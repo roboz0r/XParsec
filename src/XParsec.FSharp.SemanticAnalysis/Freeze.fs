@@ -64,6 +64,11 @@ module Freeze =
             // Rebuild through the smart constructor (freezing can collapse members).
             | TyOr members -> FrozenType.MkUnion(seq { for m in members.Members -> go m })
             | TyLiteral v -> FTLiteral v
+            // The type-level computations freeze their children (carried, not evaluated).
+            | TyKeyOf t -> FTKeyOf(go t)
+            | TyIndexedAccess(objTy, index) -> FTIndexedAccess(go objTy, go index)
+            | TyConditional(check, extends, whenTrue, whenFalse) ->
+                FTConditional(go check, go extends, go whenTrue, go whenFalse)
             | TyTypar(axis, i) -> FTTypar(axis, i)
             | TyUnknown n -> FTUnknown n
             // The un-ground-operator residue (see the doc comment); placeholder name

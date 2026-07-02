@@ -57,6 +57,21 @@ type TypeRef =
     /// types stay structural … the nominalism invariant"). A literal composes with
     /// `Union` — `("ping" | "pong")` is `Union [Literal "ping"; Literal "pong"]`.
     | Literal of value: EnumValue
+    /// `keyof T` (a TS index-query type) → `FTKeyOf`. Carried FAITHFULLY, never
+    /// evaluated in TS-land (design §"keyof … ride on top … ground-EVALUATED rather
+    /// than degraded"): the front end folds it to the member-name literal union when
+    /// `T` is ground. Its child references the queried type (`keyof Events` →
+    /// `KeyOf (Typar 0)`).
+    | KeyOf of TypeRef
+    /// `T[K]` (an indexed-access type) → `FTIndexedAccess`. Carried faithfully: the
+    /// front end folds it to the member's type when `objTy` is ground and `index` is
+    /// a known literal (`Events[Key]` → `IndexedAccess(Typar 0, MethodTypar 0)`).
+    | IndexedAccess of objTy: TypeRef * index: TypeRef
+    /// `check extends extends_ ? whenTrue : whenFalse` (a conditional type) →
+    /// `FTConditional`. Carried faithfully: the front end picks a branch when
+    /// `check`/`extends_` are ground (mitt's `undefined extends Events[Key] ? Key :
+    /// never`).
+    | Conditional of check: TypeRef * extends: TypeRef * whenTrue: TypeRef * whenFalse: TypeRef
     /// `any` → `TyDynamic` (deferred front-end type).
     | Dynamic
     /// Structural object type, content-hashed (deferred milestone).
@@ -79,6 +94,14 @@ type Signature =
     {
         /// Count of the member's OWN generic type parameters (method axis).
         TypeParams: int
+        /// Per-method-typar upper bound, aligned to the method axis: index `i` is the
+        /// `i`-th own type parameter's constraint (`<Key extends keyof Events>` → the
+        /// `keyof Events` `TypeRef`), `None` when unconstrained. Length is `TypeParams`.
+        /// CARRIED, not evaluated — the front end reads it at grounding (design §"keyof
+        /// … ground-EVALUATED"): step 3 solves a freshened method typar against its
+        /// bound's keyof-fold. The codec OMITS the field when every entry is `None`, so
+        /// a constraint-free signature stays byte-identical to a pre-slot golden.
+        TypeParamBounds: TypeRef option list
         Params: Param list
         Returns: TypeRef
     }

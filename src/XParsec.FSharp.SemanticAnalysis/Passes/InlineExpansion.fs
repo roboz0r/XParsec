@@ -152,6 +152,14 @@ module InlineExpansion =
         | TyUnion(_, xs)
         | TyClass(_, xs) -> EqArray.forall isGroundType xs
         | TyOr members -> EqSet.forall isGroundType members.Members
+        // A type-level computation is ground iff every child is.
+        | TyKeyOf t -> isGroundType t
+        | TyIndexedAccess(objTy, index) -> isGroundType objTy && isGroundType index
+        | TyConditional(check, extends, whenTrue, whenFalse) ->
+            isGroundType check
+            && isGroundType extends
+            && isGroundType whenTrue
+            && isGroundType whenFalse
         | TyUnknown _ -> false
         | TyTypar _ -> false
         // A nominal enum is niladic; a structural literal is a ground constant —

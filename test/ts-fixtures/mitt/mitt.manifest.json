@@ -28,14 +28,16 @@
                         "k": "union",
                         "members": [
                           {
-                            "k": "named",
-                            "name": "string",
-                            "args": []
+                            "k": "literal",
+                            "kind": "string",
+                            "value": "*"
                           },
                           {
-                            "k": "structural",
-                            "hash": "keyof Events",
-                            "fields": []
+                            "k": "keyof",
+                            "ty": {
+                              "k": "typar",
+                              "i": 0
+                            }
                           }
                         ]
                       },
@@ -119,14 +121,25 @@
         "k": "fun",
         "args": [
           {
-            "k": "structural",
-            "hash": "keyof T",
-            "fields": []
+            "k": "keyof",
+            "ty": {
+              "k": "typar",
+              "i": 0
+            }
           },
           {
-            "k": "structural",
-            "hash": "T[keyof T]",
-            "fields": []
+            "k": "indexedAccess",
+            "obj": {
+              "k": "typar",
+              "i": 0
+            },
+            "index": {
+              "k": "keyof",
+              "ty": {
+                "k": "typar",
+                "i": 0
+              }
+            }
           }
         ],
         "ret": {
@@ -180,14 +193,16 @@
             "k": "union",
             "members": [
               {
-                "k": "structural",
-                "hash": "keyof Events",
-                "fields": []
+                "k": "keyof",
+                "ty": {
+                  "k": "typar",
+                  "i": 0
+                }
               },
               {
-                "k": "named",
-                "name": "string",
-                "args": []
+                "k": "literal",
+                "kind": "string",
+                "value": "*"
               }
             ]
           },
@@ -221,14 +236,16 @@
                 "k": "union",
                 "members": [
                   {
-                    "k": "named",
-                    "name": "string",
-                    "args": []
+                    "k": "literal",
+                    "kind": "string",
+                    "value": "*"
                   },
                   {
-                    "k": "structural",
-                    "hash": "keyof Events",
-                    "fields": []
+                    "k": "keyof",
+                    "ty": {
+                      "k": "typar",
+                      "i": 0
+                    }
                   }
                 ]
               },
@@ -281,7 +298,16 @@
                 "k": "named",
                 "name": "unit",
                 "args": []
-              }
+              },
+              "typeParamBounds": [
+                {
+                  "k": "keyof",
+                  "ty": {
+                    "k": "typar",
+                    "i": 0
+                  }
+                }
+              ]
             },
             {
               "typeParams": 0,
@@ -289,9 +315,9 @@
                 {
                   "name": "type",
                   "type": {
-                    "k": "named",
-                    "name": "string",
-                    "args": []
+                    "k": "literal",
+                    "kind": "string",
+                    "value": "*"
                   },
                   "optional": false,
                   "rest": false
@@ -359,7 +385,16 @@
                 "k": "named",
                 "name": "unit",
                 "args": []
-              }
+              },
+              "typeParamBounds": [
+                {
+                  "k": "keyof",
+                  "ty": {
+                    "k": "typar",
+                    "i": 0
+                  }
+                }
+              ]
             },
             {
               "typeParams": 0,
@@ -367,9 +402,9 @@
                 {
                   "name": "type",
                   "type": {
-                    "k": "named",
-                    "name": "string",
-                    "args": []
+                    "k": "literal",
+                    "kind": "string",
+                    "value": "*"
                   },
                   "optional": false,
                   "rest": false
@@ -415,9 +450,15 @@
                 {
                   "name": "event",
                   "type": {
-                    "k": "structural",
-                    "hash": "Events[Key]",
-                    "fields": []
+                    "k": "indexedAccess",
+                    "obj": {
+                      "k": "typar",
+                      "i": 0
+                    },
+                    "index": {
+                      "k": "methodTypar",
+                      "i": 0
+                    }
                   },
                   "optional": false,
                   "rest": false
@@ -427,7 +468,16 @@
                 "k": "named",
                 "name": "unit",
                 "args": []
-              }
+              },
+              "typeParamBounds": [
+                {
+                  "k": "keyof",
+                  "ty": {
+                    "k": "typar",
+                    "i": 0
+                  }
+                }
+              ]
             },
             {
               "typeParams": 1,
@@ -435,9 +485,32 @@
                 {
                   "name": "type",
                   "type": {
-                    "k": "structural",
-                    "hash": "undefined extends Events[Key] ? Key : never",
-                    "fields": []
+                    "k": "conditional",
+                    "check": {
+                      "k": "named",
+                      "name": "undefined",
+                      "args": []
+                    },
+                    "extends": {
+                      "k": "indexedAccess",
+                      "obj": {
+                        "k": "typar",
+                        "i": 0
+                      },
+                      "index": {
+                        "k": "methodTypar",
+                        "i": 0
+                      }
+                    },
+                    "whenTrue": {
+                      "k": "methodTypar",
+                      "i": 0
+                    },
+                    "whenFalse": {
+                      "k": "named",
+                      "name": "never",
+                      "args": []
+                    }
                   },
                   "optional": false,
                   "rest": false
@@ -447,7 +520,16 @@
                 "k": "named",
                 "name": "unit",
                 "args": []
-              }
+              },
+              "typeParamBounds": [
+                {
+                  "k": "keyof",
+                  "ty": {
+                    "k": "typar",
+                    "i": 0
+                  }
+                }
+              ]
             }
           ],
           "static": false,
@@ -457,41 +539,5 @@
       "heritage": []
     }
   ],
-  "diagnostics": [
-    {
-      "severity": "warning",
-      "code": "structural-object-stubbed",
-      "symbol": "keyof Events",
-      "span": null,
-      "message": "anonymous/structural type 'keyof Events' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
-    },
-    {
-      "severity": "warning",
-      "code": "structural-object-stubbed",
-      "symbol": "keyof T",
-      "span": null,
-      "message": "anonymous/structural type 'keyof T' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
-    },
-    {
-      "severity": "warning",
-      "code": "structural-object-stubbed",
-      "symbol": "T[keyof T]",
-      "span": null,
-      "message": "anonymous/structural type 'T[keyof T]' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
-    },
-    {
-      "severity": "warning",
-      "code": "structural-object-stubbed",
-      "symbol": "Events[Key]",
-      "span": null,
-      "message": "anonymous/structural type 'Events[Key]' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
-    },
-    {
-      "severity": "warning",
-      "code": "structural-object-stubbed",
-      "symbol": "undefined extends Events[Key] ? Key : never",
-      "span": null,
-      "message": "anonymous/structural type 'undefined extends Events[Key] ? Key : never' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
-    }
-  ]
+  "diagnostics": []
 }

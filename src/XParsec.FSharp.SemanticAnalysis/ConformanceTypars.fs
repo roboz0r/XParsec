@@ -82,6 +82,11 @@ module ConformanceTypars =
         | FTUnion(k, args) -> FTUnion(k, EqArray.map normAxis args)
         | FTClass(k, args) -> FTClass(k, EqArray.map normAxis args)
         | FTOr members -> FrozenType.MkUnion(seq { for m in members -> normAxis m })
+        // The type-level computations normalize their children's axes.
+        | FTKeyOf t -> FTKeyOf(normAxis t)
+        | FTIndexedAccess(objTy, index) -> FTIndexedAccess(normAxis objTy, normAxis index)
+        | FTConditional(check, extends, whenTrue, whenFalse) ->
+            FTConditional(normAxis check, normAxis extends, normAxis whenTrue, normAxis whenFalse)
         // A niladic nominal / a ground literal carries no typar axis to normalize.
         | FTEnum _
         | FTLiteral _

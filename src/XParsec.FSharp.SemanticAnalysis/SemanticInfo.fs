@@ -421,6 +421,17 @@ type FrozenType =
     /// typars. Composes with `FTOr` (`FTOr [FTLiteral "ping"; FTLiteral "pong"]`) and
     /// ERASES to its base primitive on both backends.
     | FTLiteral of value: LiteralConst
+    /// The three TS type-level COMPUTATIONS the front end ground-EVALUATES (design
+    /// §"keyof … ride on top"), carried FAITHFULLY from the manifest as inert nodes
+    /// until a call site grounds their children: `keyof T`, `T[K]`, and
+    /// `check extends extends_ ? whenTrue : whenFalse`. They have CHILDREN (unlike the
+    /// ground `FTLiteral`), so every structural walk must thread them — a fresh method
+    /// `TyVar` can live inside `objTy`/`index`/… after instantiation. External-
+    /// vocabulary only; Vesper inference never mints one. Erase to `obj` on the CLR
+    /// (they only arise on the JS seam and must be evaluated before codegen).
+    | FTKeyOf of ty: FrozenType
+    | FTIndexedAccess of objTy: FrozenType * index: FrozenType
+    | FTConditional of check: FrozenType * extends: FrozenType * whenTrue: FrozenType * whenFalse: FrozenType
     /// An open type parameter of the enclosing generic definition: `axis`
     /// selects the declaring-type vs method axis; `index` is its position in
     /// that axis's typar list — the order `freeze` quantifies in, which is the
@@ -526,6 +537,15 @@ type SemType =
     /// external-arg seam (the `subsumes` layer). Ground, no children, no typars;
     /// widens OUTWARD to its base primitive.
     | TyLiteral of value: LiteralConst
+    /// The `SemType` mirror of `FrozenType.FTKeyOf`/`FTIndexedAccess`/`FTConditional`:
+    /// the three TS type-level COMPUTATIONS (`keyof T`, `T[K]`, conditional) carried
+    /// as inert nodes with children until the front end ground-EVALUATES them (design
+    /// §"keyof … ride on top"). External-vocabulary only; inference never mints one.
+    /// Every structural traversal MUST recurse their children — a fresh method `TyVar`
+    /// can live inside after an external signature is instantiated.
+    | TyKeyOf of ty: SemType
+    | TyIndexedAccess of objTy: SemType * index: SemType
+    | TyConditional of check: SemType * extends: SemType * whenTrue: SemType * whenFalse: SemType
     /// A nominal reference that resolved to no in-scope type shape during extraction.
     /// It never unifies with anything; Unification reports it at the use site and
     /// recovers, so one broken contract head doesn't cascade. Distinct from
@@ -830,6 +850,12 @@ module FrozenTypeBridge =
         // set (two distinct `SemType` members freezing equal), so never a raw map.
         | TyOr members -> FrozenType.MkUnion(seq { for m in members.Members -> toFrozen m })
         | TyLiteral v -> FTLiteral v
+        // The type-level computations carry across as inert nodes; their children
+        // freeze structurally (a still-open method var would fail on the TyVar arm).
+        | TyKeyOf t -> FTKeyOf(toFrozen t)
+        | TyIndexedAccess(objTy, index) -> FTIndexedAccess(toFrozen objTy, toFrozen index)
+        | TyConditional(check, extends, whenTrue, whenFalse) ->
+            FTConditional(toFrozen check, toFrozen extends, toFrozen whenTrue, toFrozen whenFalse)
         | TyTypar(axis, index) -> FTTypar(axis, index)
         | TyUnknown name -> FTUnknown name
         | TyVar _ -> failwithf "FrozenType.toFrozen: cannot freeze SemType: %A" ty
@@ -860,6 +886,12 @@ module FrozenTypeBridge =
         | FTOr members -> SemType.MkUnion(seq { for m in members -> go m })
         // A literal is a ground leaf — no typars to resolve, maps straight across.
         | FTLiteral v -> TyLiteral v
+        // The type-level computations realise their children (which may carry the
+        // declaring/method placeholders) but are NOT evaluated here — carried inert.
+        | FTKeyOf t -> TyKeyOf(go t)
+        | FTIndexedAccess(objTy, index) -> TyIndexedAccess(go objTy, go index)
+        | FTConditional(check, extends, whenTrue, whenFalse) ->
+            TyConditional(go check, go extends, go whenTrue, go whenFalse)
         | FTTypar(TyparAxis.Declaring, i) -> declaring i
         | FTTypar(TyparAxis.Method, j) -> methodVar j
         | FTUnknown name -> TyUnknown name
@@ -957,6 +989,14 @@ module FrozenTypeBridge =
         | FTOr members -> members |> EqSet.fold (fun m t -> max m (maxDeclaringIndex t)) -1
         | FTFun(arg, result) -> max (maxDeclaringIndex arg) (maxDeclaringIndex result)
         | FTTuple items -> maxOf items
+        // The type-level computations reference declaring typars through their children
+        // (`Events[Key]` → `FTIndexedAccess(FTTypar(Declaring,0), FTTypar(Method,0))`).
+        | FTKeyOf t -> maxDeclaringIndex t
+        | FTIndexedAccess(objTy, index) -> max (maxDeclaringIndex objTy) (maxDeclaringIndex index)
+        | FTConditional(check, extends, whenTrue, whenFalse) ->
+            max
+                (max (maxDeclaringIndex check) (maxDeclaringIndex extends))
+                (max (maxDeclaringIndex whenTrue) (maxDeclaringIndex whenFalse))
         | FTTypar(TyparAxis.Declaring, i) -> i
         | FTTypar(TyparAxis.Method, j) ->
             failwithf "FrozenTypeBridge.maxDeclaringIndex: unexpected method typar %d in a type-shape template" j
@@ -987,6 +1027,12 @@ module FrozenTypeBridge =
         // Route through the smart constructor — reaxis can't collapse members, but
         // the invariant is that every FTOr rebuild goes through `MkUnion`.
         | FTOr members -> FrozenType.MkUnion(seq { for m in members -> go m })
+        // Reaxis threads the computations' children so a member-introduced typar buried
+        // in a `keyof`/indexed/conditional child flips to the method axis too.
+        | FTKeyOf t -> FTKeyOf(go t)
+        | FTIndexedAccess(objTy, index) -> FTIndexedAccess(go objTy, go index)
+        | FTConditional(check, extends, whenTrue, whenFalse) ->
+            FTConditional(go check, go extends, go whenTrue, go whenFalse)
         | FTTypar(TyparAxis.Declaring, i) when i >= declaringArity -> FTTypar(TyparAxis.Method, i - declaringArity)
         | FTTypar _
         // A niladic nominal carries no typar axis to reaxis; a literal is a ground leaf.
@@ -1012,6 +1058,15 @@ module FrozenTypeBridge =
         | FTOr members -> members |> EqSet.forall ftIsGround
         | FTFun(a, b) -> ftIsGround a && ftIsGround b
         | FTTuple items -> items |> EqArray.forall ftIsGround
+        // A type-level computation is ground iff every child is — an open typar in any
+        // child (e.g. an ungrounded `keyof T`) keeps the whole node non-ground.
+        | FTKeyOf t -> ftIsGround t
+        | FTIndexedAccess(objTy, index) -> ftIsGround objTy && ftIsGround index
+        | FTConditional(check, extends, whenTrue, whenFalse) ->
+            ftIsGround check
+            && ftIsGround extends
+            && ftIsGround whenTrue
+            && ftIsGround whenFalse
 
     /// The `FrozenType → FrozenType` use-site substitution codegen applies to a
     /// type-shape template directly: codegen reads the template and does its own
@@ -1040,6 +1095,10 @@ module FrozenTypeBridge =
         | FTEnum _
         | FTLiteral _ -> template
         | FTOr members -> FrozenType.MkUnion(seq { for m in members -> go m })
+        | FTKeyOf t -> FTKeyOf(go t)
+        | FTIndexedAccess(objTy, index) -> FTIndexedAccess(go objTy, go index)
+        | FTConditional(check, extends, whenTrue, whenFalse) ->
+            FTConditional(go check, go extends, go whenTrue, go whenFalse)
         | FTTypar(TyparAxis.Declaring, i) ->
             if i < declaringArgs.Length then
                 declaringArgs.[i]

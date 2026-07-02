@@ -187,6 +187,12 @@ module Regions =
         // An anonymous union erases to a boxed reference (`obj`+`isinst`), so a
         // value flowing into one allocates — track it like the other composites.
         | TyOr _ -> true
+        // A carried type-level computation erases like a union / `obj` (a boxed
+        // reference) once evaluated, so track a value flowing into one as allocating —
+        // external-vocabulary only, so this is defensive (it should be evaluated first).
+        | TyKeyOf _
+        | TyIndexedAccess _
+        | TyConditional _ -> true
         | TyVar _ -> false
         // Unresolved contract head: errors before it can reach a region
         // walk; treat as non-allocating so this pass stays conservative.

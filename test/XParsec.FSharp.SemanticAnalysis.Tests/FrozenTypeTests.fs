@@ -59,6 +59,18 @@ let private sampleFrozenTypes: FrozenType list =
             FTLiteral(LiteralConst.Int 42L)
             // A literal union — the canonical `"ping" | "pong"` shape.
             FrozenType.MkUnion [ FTLiteral(LiteralConst.String "ping"); FTLiteral(LiteralConst.String "pong") ]
+            // The carried type-level computations, in their mitt shapes: `keyof Events`,
+            // `Events[Key]`, and `undefined extends Events[Key] ? Key : never`. The
+            // bridge must round-trip them structurally (children carry declaring/method
+            // typars), so include them in the oracle.
+            FTKeyOf(FTTypar(TyparAxis.Declaring, 0))
+            FTIndexedAccess(FTTypar(TyparAxis.Declaring, 0), FTTypar(TyparAxis.Method, 0))
+            FTConditional(
+                FTConst("undefined", EqArray.empty),
+                FTIndexedAccess(FTTypar(TyparAxis.Declaring, 0), FTTypar(TyparAxis.Method, 0)),
+                FTTypar(TyparAxis.Method, 0),
+                FTConst("never", EqArray.empty)
+            )
         ]
 
     let branch2 =
@@ -104,7 +116,7 @@ let tests =
 
             test "every post-freeze SemType case is covered by the sample" {
                 // Guards against the sample silently dropping a constructor: assert
-                // the ten expected case tags all appear among `ofFrozen` images.
+                // every expected case tag appears among the `ofFrozen` images.
                 let tag (ty: SemType) =
                     match ty with
                     | TyConst _ -> "TyConst"
@@ -118,6 +130,9 @@ let tests =
                     | TyUnknown _ -> "TyUnknown"
                     | TyEnum _ -> "TyEnum"
                     | TyLiteral _ -> "TyLiteral"
+                    | TyKeyOf _ -> "TyKeyOf"
+                    | TyIndexedAccess _ -> "TyIndexedAccess"
+                    | TyConditional _ -> "TyConditional"
                     | TyVar _ -> "TyVar"
 
                 let seen = sampleFrozenTypes |> List.map (ofFrozen >> tag) |> Set.ofList
@@ -135,6 +150,9 @@ let tests =
                         "TyUnknown"
                         "TyEnum"
                         "TyLiteral"
+                        "TyKeyOf"
+                        "TyIndexedAccess"
+                        "TyConditional"
                     ] do
                     Expect.isTrue (Set.contains expected seen) (sprintf "sample covers %s" expected)
             }

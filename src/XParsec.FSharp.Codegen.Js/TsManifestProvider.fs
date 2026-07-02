@@ -60,6 +60,20 @@ module TsManifestProvider =
         // A TS literal TYPE → `FTLiteral` (structural, external-vocabulary only).
         | Schema.TypeRef.Literal(Schema.EnumValue.StringVal s) -> FTLiteral(LiteralConst.String s)
         | Schema.TypeRef.Literal(Schema.EnumValue.IntVal n) -> FTLiteral(LiteralConst.Int n)
+        // keyof / indexed-access / conditional → CARRIER `FrozenType` nodes, INERT (R4a
+        // step 2): rehydrated with their children, threaded through every walk, but NOT
+        // evaluated — the front end owns the ground fold (step 3). Design §"keyof … ride
+        // on top".
+        | Schema.TypeRef.KeyOf t -> FTKeyOf(toFrozen resolveClass t)
+        | Schema.TypeRef.IndexedAccess(objTy, index) ->
+            FTIndexedAccess(toFrozen resolveClass objTy, toFrozen resolveClass index)
+        | Schema.TypeRef.Conditional(check, extends, whenTrue, whenFalse) ->
+            FTConditional(
+                toFrozen resolveClass check,
+                toFrozen resolveClass extends,
+                toFrozen resolveClass whenTrue,
+                toFrozen resolveClass whenFalse
+            )
         | Schema.TypeRef.Dynamic -> FTUnknown "any" // TODO: TyDynamic once it lands
         | Schema.TypeRef.Structural(hash, _) -> FTUnknown("structural:" + hash) // TODO: content-hash record
 
@@ -115,6 +129,21 @@ module TsManifestProvider =
         // erased distinction) — this stays additive for non-literal unions.
         | Schema.TypeRef.Union members when members |> List.forall isLiteralRef ->
             "(" + System.String.Join("|", List.map argSigOf members) + ")"
+        // keyof / indexed-access / conditional keep a STABLE, SHARP spelling (not an
+        // `obj` collapse) so overloads differing only by one of these mint distinct
+        // argSigs — same overload-identity reason as the literal arm above.
+        | Schema.TypeRef.KeyOf t -> "keyof(" + argSigOf t + ")"
+        | Schema.TypeRef.IndexedAccess(objTy, index) -> argSigOf objTy + "[" + argSigOf index + "]"
+        | Schema.TypeRef.Conditional(check, extends, whenTrue, whenFalse) ->
+            "("
+            + argSigOf check
+            + " extends "
+            + argSigOf extends
+            + " ? "
+            + argSigOf whenTrue
+            + " : "
+            + argSigOf whenFalse
+            + ")"
         | Schema.TypeRef.Union _
         | Schema.TypeRef.Dynamic
         | Schema.TypeRef.Structural _ -> "obj"

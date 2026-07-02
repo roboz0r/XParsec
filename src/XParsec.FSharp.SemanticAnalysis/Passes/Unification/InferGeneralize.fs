@@ -143,6 +143,14 @@ module internal UnificationInferGeneralize =
         | TyUnion(_, args) -> EqArray.exists hasPendingDotAccess args
         | TyClass(_, args) -> EqArray.exists hasPendingDotAccess args
         | TyOr members -> EqSet.exists hasPendingDotAccess members.Members
+        // A type-level computation carries pending dot access iff a child does.
+        | TyKeyOf t -> hasPendingDotAccess t
+        | TyIndexedAccess(objTy, index) -> hasPendingDotAccess objTy || hasPendingDotAccess index
+        | TyConditional(check, extends, whenTrue, whenFalse) ->
+            hasPendingDotAccess check
+            || hasPendingDotAccess extends
+            || hasPendingDotAccess whenTrue
+            || hasPendingDotAccess whenFalse
         | TyUnknown _ -> false
         // Post-freeze leaf; never seen during generalisation.
         | TyTypar _ -> false
@@ -205,6 +213,15 @@ module internal UnificationInferGeneralize =
                 | TyOr members ->
                     for m in members.Members do
                         go m
+                | TyKeyOf t -> go t
+                | TyIndexedAccess(objTy, index) ->
+                    go objTy
+                    go index
+                | TyConditional(check, extends, whenTrue, whenFalse) ->
+                    go check
+                    go extends
+                    go whenTrue
+                    go whenFalse
                 | TyUnknown _ -> ()
                 | TyTypar _ -> ()
                 // A nominal enum / a structural literal holds no defaultable TyVar.
@@ -336,6 +353,15 @@ module internal UnificationInferGeneralize =
                 | TyOr members ->
                     for x in members.Members do
                         walk x
+                | TyKeyOf t -> walk t
+                | TyIndexedAccess(objTy, index) ->
+                    walk objTy
+                    walk index
+                | TyConditional(check, extends, whenTrue, whenFalse) ->
+                    walk check
+                    walk extends
+                    walk whenTrue
+                    walk whenFalse
                 | TyUnknown _ -> ()
                 | TyTypar _ -> ()
                 // A nominal enum / a structural literal holds no list-literal

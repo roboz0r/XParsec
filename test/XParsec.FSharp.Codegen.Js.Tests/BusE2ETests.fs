@@ -30,6 +30,7 @@ let private handlerT = Schema.TypeRef.Fun([ intT ], unitT)
 let private sig0 (ret: Schema.TypeRef) : Schema.Signature =
     {
         TypeParams = 0
+        TypeParamBounds = []
         Params = []
         Returns = ret
     }
@@ -45,6 +46,7 @@ let private param' (name: string) (ty: Schema.TypeRef) : Schema.Param =
 let private sig1 (pname: string) (pty: Schema.TypeRef) (ret: Schema.TypeRef) : Schema.Signature =
     {
         TypeParams = 0
+        TypeParamBounds = []
         Params = [ param' pname pty ]
         Returns = ret
     }
@@ -58,6 +60,7 @@ let private sig2
     : Schema.Signature =
     {
         TypeParams = 0
+        TypeParamBounds = []
         Params = [ param' p1n p1t; param' p2n p2t ]
         Returns = ret
     }

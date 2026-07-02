@@ -41,6 +41,17 @@ module SemTypeWalk =
             | TyOr members ->
                 for m in members.Members do
                     walk m
+            // The type-level computations can hold a fresh method var in any child, so
+            // the shared var-collector skeleton MUST descend into them.
+            | TyKeyOf t -> walk t
+            | TyIndexedAccess(objTy, index) ->
+                walk objTy
+                walk index
+            | TyConditional(check, extends, whenTrue, whenFalse) ->
+                walk check
+                walk extends
+                walk whenTrue
+                walk whenFalse
             | TyUnknown _ -> ()
             | TyTypar _ -> ()
             // A nominal enum / a structural literal has no args and no typars — a

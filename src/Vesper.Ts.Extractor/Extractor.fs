@@ -162,6 +162,22 @@ let inline private jsRefEq (a: obj) (b: obj) : bool = jsNative
 [<Emit("$0.target !== undefined && $0.target !== null")>]
 let inline private hasTargetRef (t: Ts.Type) : bool = jsNative
 
+// `keyof T` (`IndexType`) has the runtime `isIndexType()` predicate, but `T[K]`
+// (`IndexedAccessType`) and a conditional type (`ConditionalType`) have NONE — and
+// their `TypeFlags.IndexedAccess`/`.Conditional` bit VALUES are exactly the kind that
+// drift between the vendored binding and the installed TypeScript (a raw-flag test
+// here silently degraded them to structural stubs). So detect them the same way
+// `hasTargetRef` does: by the PRESENCE of their distinguishing fields, read
+// dynamically — the field NAMES are stable across TS versions, the flag values are
+// not. `objectType`/`indexType` are unique to an indexed-access type; `root` (the
+// `ConditionalRoot` back-pointer) together with `checkType`/`extendsType` is unique to
+// a conditional type.
+[<Emit("$0.objectType !== undefined && $0.indexType !== undefined")>]
+let inline private isIndexedAccessType (t: Ts.Type) : bool = jsNative
+
+[<Emit("$0.root !== undefined && $0.checkType !== undefined && $0.extendsType !== undefined")>]
+let inline private isConditionalType (t: Ts.Type) : bool = jsNative
+
 let private typarSymbols (tps: Ts.Type seq) : Ts.Symbol list =
     tps
     |> Seq.map (fun tp ->
@@ -289,27 +305,70 @@ let rec mapType
                 Schema.TypeRef.Named("obj", [])
     else
 
-        // Literal types erase to their base, kept in ONE place (the future hook for
-        // nominal string-enum lowering, currently deferred) rather than split between
-        // a predicate prologue and the named-type match below. Erasure runs before the
-        // union recursion so `"GET" | "POST"` collapses to `string`, not a union of
-        // singletons. NB: prefer the runtime predicates / `typeToString`, never raw
-        // `TypeFlags` numerics — the vendored binding's flag values can drift from the
-        // installed TypeScript's. String/number literals MUST be caught here: their
-        // printed form is the literal text (`"GET"`, `42`), unmatchable below. Boolean
-        // literals have no predicate in the binding, but print as `true`/`false`.
-        let literalBase =
+        // FAITHFUL structural arms for the constructs the front end ground-EVALUATES
+        // (design §"Literal types stay structural" + "keyof … ride on top"): a
+        // string/number literal TYPE, `keyof T`, `T[K]`, and a conditional type each
+        // map to their OWN schema arm instead of degrading. The extractor NEVER
+        // evaluates them (the freeze / backend-knowledge separation) — it records the
+        // CONSTRUCT verbatim and the front end owns the fold. Caught here before the
+        // printed-name match: their printed forms (`"GET"`, `keyof Events`,
+        // `Events[Key]`, `… ? … : …`) are unmatchable there. Two deliberate DEGRADES
+        // stay (no faithful arm): a BOOLEAN literal (design §"string first; skip bool")
+        // and a non-integer numeric literal (no `int64` wire form) erase to their base.
+        // `keyof` rides the runtime `isIndexType()` predicate; indexed-access /
+        // conditional have no predicate (and their vendored `TypeFlags` values drift
+        // from the installed TypeScript's), so classify by FIELD PRESENCE — see
+        // `isIndexedAccessType`/`isConditionalType` above.
+        let special =
             if t.isStringLiteral () then
-                Some(Schema.TypeRef.Named("string", []))
+                Some(Schema.TypeRef.Literal(Schema.EnumValue.StringVal (unbox<Ts.StringLiteralType> t).value))
             elif t.isNumberLiteral () then
-                Some(Schema.TypeRef.Named("float", []))
+                let v = (unbox<Ts.NumberLiteralType> t).value
+
+                if System.Math.Floor v = v && not (System.Double.IsInfinity v) then
+                    Some(Schema.TypeRef.Literal(Schema.EnumValue.IntVal(int64 v)))
+                else
+                    Some(Schema.TypeRef.Named("float", []))
             elif printed = "true" || printed = "false" then
                 Some(Schema.TypeRef.Named("bool", []))
+            elif t.isIndexType () then
+                let inner = unbox<Ts.Type> (unbox<Ts.IndexType> t).``type``
+                Some(Schema.TypeRef.KeyOf(mapType checker diags env methodEnv inner))
+            elif isIndexedAccessType t then
+                let iat = unbox<Ts.IndexedAccessType> t
+
+                Some(
+                    Schema.TypeRef.IndexedAccess(
+                        mapType checker diags env methodEnv iat.objectType,
+                        mapType checker diags env methodEnv iat.indexType
+                    )
+                )
+            elif isConditionalType t then
+                let ct = unbox<Ts.ConditionalType> t
+
+                // Read each branch's AUTHORED type, never the evaluated pick: the
+                // `resolvedTrue/FalseType` are populated for a resolved conditional, but
+                // an UNINSTANTIATED one (mitt's — `Key` is still open) leaves them
+                // `None`, so fall back to the conditional NODE's own branch `TypeNode`s.
+                // Either source is the authored branch, not an evaluation of the test.
+                let branch (resolved: Ts.Type option) (node: Ts.TypeNode) =
+                    match resolved with
+                    | Some r -> r
+                    | None -> checker.getTypeFromTypeNode node
+
+                Some(
+                    Schema.TypeRef.Conditional(
+                        mapType checker diags env methodEnv ct.checkType,
+                        mapType checker diags env methodEnv ct.extendsType,
+                        mapType checker diags env methodEnv (branch ct.resolvedTrueType ct.root.node.trueType),
+                        mapType checker diags env methodEnv (branch ct.resolvedFalseType ct.root.node.falseType)
+                    )
+                )
             else
                 None
 
-        match literalBase with
-        | Some baseTy -> baseTy
+        match special with
+        | Some ty -> ty
         | None ->
             match printed with
             | "string" -> Schema.TypeRef.Named("string", [])
@@ -325,9 +384,10 @@ let rec mapType
             | "any" -> Schema.TypeRef.Dynamic
             | _ when t.isUnion () ->
                 // Anonymous union → TyOr. null/undefined ride in as their own members
-                // (resolved fork: NOT folded to unit). Erased literal members can
-                // collapse to one base (`"GET" | "POST"` → string), so dedup and
-                // unwrap a singleton.
+                // (resolved fork: NOT folded to unit). Members are deduped and a
+                // singleton unwrapped; literal members now stay FAITHFUL
+                // (`"GET" | "POST"` → `Union [Literal "GET"; Literal "POST"]`), so the
+                // dedup only collapses genuine structural duplicates.
                 let members =
                     (unbox<Ts.UnionType> t).types
                     |> Seq.map (mapType checker diags env methodEnv)
@@ -377,14 +437,15 @@ let rec mapType
                     if looksNominal printed then
                         Schema.TypeRef.Named(printed, [])
                     else
-                        // A STRUCTURAL/anonymous form (`{ x: number }`, item 14, DEFERRED) — or a
-                        // keyof / indexed-access / conditional type — that surfaced as non-nominal.
-                        // DEGRADE to the `Structural` stub the provider rehydrates (→ `FTUnknown`),
-                        // keyed on the printed form as a stable content hash.
+                        // A STRUCTURAL/anonymous form (`{ x: number }`, item 14, DEFERRED) that
+                        // surfaced as non-nominal — `keyof` / indexed-access / conditional now have
+                        // faithful arms above and no longer reach here. DEGRADE to the `Structural`
+                        // stub the provider rehydrates (→ `FTUnknown`), keyed on the printed form as
+                        // a stable content hash.
                         //
                         // Harvest fields ONLY for a genuine anonymous OBJECT type (`TypeFlags.Object`):
-                        // there, `getProperties` is the type's OWN declared members. For a
-                        // keyof/indexed/conditional type the "properties" are the APPARENT (inherited
+                        // there, `getProperties` is the type's OWN declared members. For any other
+                        // non-object structural form the "properties" would be the APPARENT (inherited
                         // prototype) members of a primitive/union base — harvesting them recurses into
                         // `string | symbol`'s `toString`/`valueOf`/… and explodes into a noise cascade
                         // — so emit an EMPTY field set for those. (Flag CONSTANT, not a raw numeric,
@@ -455,18 +516,48 @@ let private mapParam
 /// own typars ride `env` as the single declaring-axis index space, so they stay
 /// `Typar i` and the provider's `scheme` freshens them. `TypeParams` is the signature's
 /// own generic-parameter count (the method axis) regardless of either env.
+/// `emitBounds` harvests the METHOD-axis typar CONSTRAINTS (`<Key extends keyof
+/// Events>` → the `keyof Events` bound) onto `TypeParamBounds`, aligned to the
+/// signature's own type parameters. Only a genuine method axis carries them, so the
+/// caller sets it TRUE for a member method and FALSE for a free function / ctor,
+/// whose own typars are the DECLARING axis (whose bound — e.g. mitt's `Events extends
+/// Record<…>` — is not needed downstream and would only degrade to a structural stub).
+/// The bound is CARRIED, never evaluated here (design §"keyof … ground-EVALUATED").
 let private mapSignature
     (checker: Ts.TypeChecker)
     (diags: ResizeArray<Schema.Diagnostic>)
     (env: Ts.Symbol list)
     (methodEnv: Ts.Symbol list)
+    (emitBounds: bool)
     (sg: Ts.Signature)
     : Schema.Signature =
+    let typars =
+        sg.getTypeParameters () |> Option.map List.ofSeq |> Option.defaultValue []
+
     {
-        TypeParams =
-            sg.getTypeParameters ()
-            |> Option.map (fun a -> a.Count)
-            |> Option.defaultValue 0
+        TypeParams = List.length typars
+        TypeParamBounds =
+            typars
+            |> List.map (fun tp ->
+                if emitBounds then
+                    // Read the bound off the DECLARATION node (its authored constraint
+                    // `TypeNode`), NOT `getConstraint()` on the type — the latter RESOLVES
+                    // `keyof Events` to the constraint's evaluated key union (`string |
+                    // number | symbol`), which VIOLATES the no-evaluation trap AND loses the
+                    // `Events` the front end must fold against. `getTypeFromTypeNode` on the
+                    // authored node keeps the SYMBOLIC `keyof Events` (Events stays a typar).
+                    match (unbox<Ts.Type> tp).getSymbol () with
+                    | Some s ->
+                        match s.declarations with
+                        | Some ds when ds.Count > 0 ->
+                            match ts.getEffectiveConstraintOfTypeParameter (unbox ds.[0]) with
+                            | Some node -> Some(mapType checker diags env methodEnv (checker.getTypeFromTypeNode node))
+                            | None -> None
+                        | _ -> None
+                    | None -> None
+                else
+                    None
+            )
         Params =
             sg.getParameters ()
             |> Seq.map (mapParam checker diags env methodEnv)
@@ -581,7 +672,7 @@ let private mapMember
             Type = None
             Signatures =
                 callSigs
-                |> Seq.map (fun sg -> mapSignature checker diags env (sigTypars sg) sg)
+                |> Seq.map (fun sg -> mapSignature checker diags env (sigTypars sg) true sg)
                 |> List.ofSeq
             Static = isStatic
             Optional = false
@@ -627,8 +718,12 @@ let private ctorMemberOf
                 Signatures =
                     ctorSigs
                     |> Seq.map (fun sg ->
-                        { mapSignature checker diags env [] sg with
+                        // A constructor carries NO method axis (the class typars are the
+                        // declaring axis, counted in the type's `typeParams`), so force
+                        // both the method-typar COUNT and its bounds empty.
+                        { mapSignature checker diags env [] false sg with
                             TypeParams = 0
+                            TypeParamBounds = []
                         }
                     )
                     |> List.ofSeq
@@ -860,7 +955,7 @@ let rec private mapExport
         // unambiguous). `identity<T>(x: T): T` → `TypeParams = 1`, params/return `Typar 0`.
         let sigs =
             t.getCallSignatures ()
-            |> Seq.map (fun sg -> mapSignature checker diags (sigTypars sg) [] sg)
+            |> Seq.map (fun sg -> mapSignature checker diags (sigTypars sg) [] false sg)
             |> List.ofSeq
 
         Some(Schema.Export.Function(name, sigs, import))

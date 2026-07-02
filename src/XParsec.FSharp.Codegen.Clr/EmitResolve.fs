@@ -116,6 +116,11 @@ module EmitResolve =
         | FTOr _ -> "obj"
         // A literal erases to its base primitive — match on that head.
         | FTLiteral v -> v.BaseName
+        // A carried type-level computation erases like a union / `obj` for head
+        // identity (external-vocabulary only; it should be evaluated before codegen).
+        | FTKeyOf _
+        | FTIndexedAccess _
+        | FTConditional _ -> "obj"
         | FTTypar _ -> "!typar"
         | FTUnknown n -> n
 

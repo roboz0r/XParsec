@@ -366,6 +366,20 @@ module VesperLib =
         // the base primitive (design §"argSigOf … quoted-value spelling").
         | FTLiteral(LiteralConst.String s) -> "\"" + s + "\""
         | FTLiteral(LiteralConst.Int n) -> string n
+        // The type-level computations render sharply (mirrors the TS provider's
+        // `argSigOf`) so an overload differing only by one mints a distinct `argSig`.
+        | FTKeyOf t -> "keyof(" + argTypeName t + ")"
+        | FTIndexedAccess(objTy, index) -> argTypeName objTy + "[" + argTypeName index + "]"
+        | FTConditional(check, extends, whenTrue, whenFalse) ->
+            "("
+            + argTypeName check
+            + " extends "
+            + argTypeName extends
+            + " ? "
+            + argTypeName whenTrue
+            + " : "
+            + argTypeName whenFalse
+            + ")"
         | FTTypar(axis, i) ->
             (match axis with
              | TyparAxis.Declaring -> "!"

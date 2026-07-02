@@ -160,6 +160,26 @@ let rec encodeTypeRef (t: TypeRef) : JsonValue =
     | TypeRef.Literal(EnumValue.IntVal n) ->
         jObj [ "k", jStr "literal"; "kind", jStr "int"; "value", JsonValue.Number(float n) ]
     | TypeRef.Literal(EnumValue.StringVal s) -> jObj [ "k", jStr "literal"; "kind", jStr "string"; "value", jStr s ]
+    // keyof / indexed-access / conditional: FAITHFUL carrier arms (design §"keyof …
+    // ride on top"), each recording its child type(s) verbatim so the front end can
+    // ground-evaluate later. ADDITIVE — no `SchemaVersion` bump (prototyping policy).
+    | TypeRef.KeyOf t -> jObj [ "k", jStr "keyof"; "ty", encodeTypeRef t ]
+    | TypeRef.IndexedAccess(objTy, index) ->
+        jObj
+            [
+                "k", jStr "indexedAccess"
+                "obj", encodeTypeRef objTy
+                "index", encodeTypeRef index
+            ]
+    | TypeRef.Conditional(check, extends, whenTrue, whenFalse) ->
+        jObj
+            [
+                "k", jStr "conditional"
+                "check", encodeTypeRef check
+                "extends", encodeTypeRef extends
+                "whenTrue", encodeTypeRef whenTrue
+                "whenFalse", encodeTypeRef whenFalse
+            ]
     | TypeRef.Dynamic -> jObj [ "k", jStr "dynamic" ]
     | TypeRef.Structural(hash, fields) ->
         jObj
@@ -217,6 +237,19 @@ let rec decodeTypeRef (j: JsonValue) : Result<TypeRef, string> =
                 let! s = readField "value" asString m
                 return TypeRef.Literal(EnumValue.StringVal s)
             | other -> return! Error(sprintf "unknown literal kind '%s'" other)
+        | "keyof" ->
+            let! t = readField "ty" decodeTypeRef m
+            return TypeRef.KeyOf t
+        | "indexedAccess" ->
+            let! objTy = readField "obj" decodeTypeRef m
+            let! index = readField "index" decodeTypeRef m
+            return TypeRef.IndexedAccess(objTy, index)
+        | "conditional" ->
+            let! check = readField "check" decodeTypeRef m
+            let! extends = readField "extends" decodeTypeRef m
+            let! whenTrue = readField "whenTrue" decodeTypeRef m
+            let! whenFalse = readField "whenFalse" decodeTypeRef m
+            return TypeRef.Conditional(check, extends, whenTrue, whenFalse)
         | "dynamic" -> return TypeRef.Dynamic
         | "structural" ->
             let! h = readField "hash" asString m
@@ -390,12 +423,36 @@ let private decodeParam j =
     }
 
 let private encodeSignature (s: Signature) =
-    jObj
+    let baseFields =
         [
             "typeParams", jInt s.TypeParams
             "params", jArr (List.map encodeParam s.Params)
             "returns", encodeTypeRef s.Returns
         ]
+
+    // Emit the per-typar bounds ONLY when at least one constraint is present, so a
+    // constraint-free signature (the common case) stays BYTE-IDENTICAL to a pre-slot
+    // golden. When emitted the list is full-length (`null` per unconstrained slot) so
+    // it stays aligned to the method axis; the decoder rebuilds an all-`None` list of
+    // the right length when the field is absent.
+    let fields =
+        if s.TypeParamBounds |> List.exists Option.isSome then
+            baseFields
+            @ [
+                "typeParamBounds",
+                jArr (
+                    s.TypeParamBounds
+                    |> List.map (
+                        function
+                        | Some t -> encodeTypeRef t
+                        | None -> JsonValue.Null
+                    )
+                )
+            ]
+        else
+            baseFields
+
+    jObj fields
 
 let private decodeSignature j =
     result {
@@ -404,9 +461,21 @@ let private decodeSignature j =
         let! prms = listField "params" decodeParam m
         let! ret = readField "returns" decodeTypeRef m
 
+        let! bounds =
+            match tryField "typeParamBounds" m with
+            | None -> Ok(List.replicate tp None)
+            | Some v ->
+                asArray v
+                >>= traverse (
+                    function
+                    | JsonValue.Null -> Ok None
+                    | x -> decodeTypeRef x |> Result.map Some
+                )
+
         return
             {
                 TypeParams = tp
+                TypeParamBounds = bounds
                 Params = prms
                 Returns = ret
             }

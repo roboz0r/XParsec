@@ -73,6 +73,17 @@ module PlatformTypes =
             | TyOr members ->
                 for a in members.Members do
                     go a
+            // The type-level computations are checked through their children (a child
+            // could name an unrepresentable platform type).
+            | TyKeyOf t -> go t
+            | TyIndexedAccess(objTy, index) ->
+                go objTy
+                go index
+            | TyConditional(check, extends, whenTrue, whenFalse) ->
+                go check
+                go extends
+                go whenTrue
+                go whenFalse
             // A nominal enum / a structural literal has no type args and is not an
             // intrinsic name — it contributes nothing to the unrepresentable set (a
             // literal erases to its base primitive, which is always representable).

@@ -165,6 +165,11 @@ module Elaborate =
             | TyUnion(n, args) -> TyUnion(n, EqArray.map go args)
             | TyClass(n, args) -> TyClass(n, EqArray.map go args)
             | TyOr members -> members.Map go
+            // The type-level computations carry declaring typars in their children.
+            | TyKeyOf t -> TyKeyOf(go t)
+            | TyIndexedAccess(objTy, index) -> TyIndexedAccess(go objTy, go index)
+            | TyConditional(check, extends, whenTrue, whenFalse) ->
+                TyConditional(go check, go extends, go whenTrue, go whenFalse)
             | TyUnknown _ -> t
             // Already-frozen leaf (task #2 will make this remap produce it).
             | TyTypar _ -> t

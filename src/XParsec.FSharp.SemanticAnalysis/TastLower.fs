@@ -199,6 +199,15 @@ module TastLower =
                 | FTUnion(_, xs)
                 | FTClass(_, xs) -> EqArray.iter mention xs
                 | FTOr xs -> EqSet.iter mention xs
+                | FTKeyOf t -> mention t
+                | FTIndexedAccess(objTy, index) ->
+                    mention objTy
+                    mention index
+                | FTConditional(check, extends, whenTrue, whenFalse) ->
+                    mention check
+                    mention extends
+                    mention whenTrue
+                    mention whenFalse
                 | FTEnum _
                 | FTLiteral _
                 | FTUnknown _

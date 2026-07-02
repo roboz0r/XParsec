@@ -13,9 +13,19 @@
             {
               "name": "method",
               "type": {
-                "k": "named",
-                "name": "string",
-                "args": []
+                "k": "union",
+                "members": [
+                  {
+                    "k": "literal",
+                    "kind": "string",
+                    "value": "GET"
+                  },
+                  {
+                    "k": "literal",
+                    "kind": "string",
+                    "value": "POST"
+                  }
+                ]
               },
               "optional": false,
               "rest": false
@@ -39,9 +49,24 @@
           "name": "method",
           "kind": "property",
           "type": {
-            "k": "named",
-            "name": "string",
-            "args": []
+            "k": "union",
+            "members": [
+              {
+                "k": "literal",
+                "kind": "string",
+                "value": "GET"
+              },
+              {
+                "k": "literal",
+                "kind": "string",
+                "value": "POST"
+              },
+              {
+                "k": "literal",
+                "kind": "string",
+                "value": "PUT"
+              }
+            ]
           },
           "signatures": [],
           "static": false,
@@ -51,9 +76,24 @@
           "name": "retries",
           "kind": "property",
           "type": {
-            "k": "named",
-            "name": "float",
-            "args": []
+            "k": "union",
+            "members": [
+              {
+                "k": "literal",
+                "kind": "int",
+                "value": 0
+              },
+              {
+                "k": "literal",
+                "kind": "int",
+                "value": 1
+              },
+              {
+                "k": "literal",
+                "kind": "int",
+                "value": 2
+              }
+            ]
           },
           "signatures": [],
           "static": false,

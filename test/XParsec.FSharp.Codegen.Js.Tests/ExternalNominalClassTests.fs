@@ -25,6 +25,7 @@ let private unitT = named "unit"
 let private sig0 (ret: Schema.TypeRef) : Schema.Signature =
     {
         TypeParams = 0
+        TypeParamBounds = []
         Params = []
         Returns = ret
     }
@@ -32,6 +33,7 @@ let private sig0 (ret: Schema.TypeRef) : Schema.Signature =
 let private sig1 (pname: string) (pty: Schema.TypeRef) (ret: Schema.TypeRef) : Schema.Signature =
     {
         TypeParams = 0
+        TypeParamBounds = []
         Params =
             [
                 {

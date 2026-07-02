@@ -48,6 +48,12 @@ module UnificationEngine =
         // → `string`) or reorder it, and only `mkUnion` re-establishes the canonical
         // (sorted/deduped/collapsed) form the equality layer's `n1 = n2` relies on.
         | TyOr members -> members.Map zonk
+        // The type-level computations zonk their children — a fresh method var can
+        // live inside after instantiation, so it MUST be resolved here.
+        | TyKeyOf t -> TyKeyOf(zonk t)
+        | TyIndexedAccess(objTy, index) -> TyIndexedAccess(zonk objTy, zonk index)
+        | TyConditional(check, extends, whenTrue, whenFalse) ->
+            TyConditional(zonk check, zonk extends, zonk whenTrue, zonk whenFalse)
         | TyUnknown _ -> t
         // Post-freeze leaf; never produced during inference. Passthrough.
         | TyTypar _ -> t
@@ -151,6 +157,15 @@ module UnificationEngine =
         | TyUnion(_, args) -> EqArray.exists (occursAndAdjust target) args
         | TyClass(_, args) -> EqArray.exists (occursAndAdjust target) args
         | TyOr members -> EqSet.exists (occursAndAdjust target) members.Members
+        // The occurs check MUST descend the computations' children — a metavar buried
+        // in a `keyof`/indexed/conditional child still needs detection + level adjust.
+        | TyKeyOf t -> occursAndAdjust target t
+        | TyIndexedAccess(objTy, index) -> occursAndAdjust target objTy || occursAndAdjust target index
+        | TyConditional(check, extends, whenTrue, whenFalse) ->
+            occursAndAdjust target check
+            || occursAndAdjust target extends
+            || occursAndAdjust target whenTrue
+            || occursAndAdjust target whenFalse
         | TyUnknown _ -> false
         // A post-freeze typar leaf is not a TyVar and holds none — never occurs.
         | TyTypar _ -> false
@@ -210,6 +225,16 @@ module UnificationEngine =
         // Through `mkUnion`: substituting a typar member can collapse / reorder the
         // set, so re-canonicalise rather than `EqArray.map` (see `zonk`).
         | TyOr members -> members.Map(substituteWith subst)
+        // The type-level computations substitute their children.
+        | TyKeyOf t -> TyKeyOf(substituteWith subst t)
+        | TyIndexedAccess(objTy, index) -> TyIndexedAccess(substituteWith subst objTy, substituteWith subst index)
+        | TyConditional(check, extends, whenTrue, whenFalse) ->
+            TyConditional(
+                substituteWith subst check,
+                substituteWith subst extends,
+                substituteWith subst whenTrue,
+                substituteWith subst whenFalse
+            )
         | TyUnknown _ -> t
         // Post-freeze leaf; never produced during inference. Passthrough.
         | TyTypar _ -> t
@@ -1044,6 +1069,11 @@ module UnificationEngine =
         // a bare member map (see `zonk`). Reachable once external/provider
         // signatures carry a `TyOr` (the TS symbol-provider plan).
         | TyOr members -> members.Map normalizeObj
+        // The type-level computations normalise `System.Object` in their children too.
+        | TyKeyOf t -> TyKeyOf(normalizeObj t)
+        | TyIndexedAccess(objTy, index) -> TyIndexedAccess(normalizeObj objTy, normalizeObj index)
+        | TyConditional(check, extends, whenTrue, whenFalse) ->
+            TyConditional(normalizeObj check, normalizeObj extends, normalizeObj whenTrue, normalizeObj whenFalse)
         | other -> other
 
     let rec unify (ctx: PassContext) (key: NodeKey) (a: SemType) (b: SemType) =
@@ -1084,6 +1114,20 @@ module UnificationEngine =
         // belongs to the directional `subsumes` layer, never the symmetric core (this
         // arm never widens `int` into `int | string`).
         | TyOr m1, TyOr m2 when m1 = m2 -> ()
+        // The carried type-level computations unify STRUCTURALLY, as opaque
+        // constructors (like `TyTuple`/`TyFun`) — same head, children unify pairwise.
+        // This is NOT evaluation (no `keyof` expansion); it just lets two occurrences
+        // of the same carried node (e.g. the same member signature reused) agree.
+        // Mismatched heads fall through to the catch-all mismatch below.
+        | TyKeyOf t1, TyKeyOf t2 -> unify ctx key t1 t2
+        | TyIndexedAccess(o1, i1), TyIndexedAccess(o2, i2) ->
+            unify ctx key o1 o2
+            unify ctx key i1 i2
+        | TyConditional(c1, e1, wt1, wf1), TyConditional(c2, e2, wt2, wf2) ->
+            unify ctx key c1 c2
+            unify ctx key e1 e2
+            unify ctx key wt1 wt2
+            unify ctx key wf1 wf2
         | TyVar tv1, TyVar tv2 when System.Object.ReferenceEquals(tv1, tv2) -> ()
         | TyVar tv1, TyVar tv2 ->
             let r1 = UnionFind.find tv1
@@ -1361,6 +1405,13 @@ module UnificationEngine =
         // default shared with the sibling `TyUnknown` / `TyTypar` arms (never
         // a false `Violated`).
         | _, TyEnum _ -> Defer
+        // A carried type-level computation (keyof / indexed / conditional) can't have
+        // ANY constraint decided until it grounds (step 3), so Defer for every kind —
+        // the safe default shared with the TyUnknown / TyTypar / TyEnum arms (never a
+        // false `Violated`). Placed before the `Coercion` / primitive arms so it wins
+        // regardless of kind. External-vocabulary only; a Vesper program never puts one
+        // under a constraint.
+        | _, (TyKeyOf _ | TyIndexedAccess _ | TyConditional _) -> Defer
         // A structural literal erases to its base primitive — delegate the verdict to
         // it (external-vocabulary only, so this is defensive; Vesper never mints one).
         | k, TyLiteral v ->
@@ -1600,6 +1651,17 @@ module UnificationEngine =
                 // member carries the constraint forward.
                 for m in members.Members do
                     walk m
+            // A carried type-level computation defers its constraint (`checkConstraint`
+            // above), so push it onto every still-free child so it re-fires on grounding.
+            | TyKeyOf t -> walk t
+            | TyIndexedAccess(objTy, index) ->
+                walk objTy
+                walk index
+            | TyConditional(check, extends, whenTrue, whenFalse) ->
+                walk check
+                walk extends
+                walk whenTrue
+                walk whenFalse
             | TyUnknown _ -> ()
             // A post-freeze typar leaf carries no free args.
             | TyTypar _ -> ()

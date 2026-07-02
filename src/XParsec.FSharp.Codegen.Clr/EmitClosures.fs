@@ -222,6 +222,14 @@ module EmitClosures =
         | FTOr xs -> xs |> EqSet.forall ftNoUnknown
         | FTFun(a, b) -> ftNoUnknown a && ftNoUnknown b
         | FTTuple xs -> xs |> EqArray.forall ftNoUnknown
+        // A type-level computation is `FTUnknown`-free iff every child is.
+        | FTKeyOf t -> ftNoUnknown t
+        | FTIndexedAccess(objTy, index) -> ftNoUnknown objTy && ftNoUnknown index
+        | FTConditional(check, extends, whenTrue, whenFalse) ->
+            ftNoUnknown check
+            && ftNoUnknown extends
+            && ftNoUnknown whenTrue
+            && ftNoUnknown whenFalse
         // A niladic nominal enum / a ground literal carries no `FTUnknown`.
         | FTEnum _
         | FTLiteral _ -> true
@@ -660,6 +668,18 @@ module EmitClosures =
             | FTOr xs ->
                 for x in xs do
                     go x
+            // A carried type-level computation can hold a method var in any child, so
+            // the method-axis index sweep MUST descend into them (producer/consumer
+            // arity must stay in lockstep).
+            | FTKeyOf t -> go t
+            | FTIndexedAccess(objTy, index) ->
+                go objTy
+                go index
+            | FTConditional(check, extends, whenTrue, whenFalse) ->
+                go check
+                go extends
+                go whenTrue
+                go whenFalse
             // A `Declaring`-axis typar can't occur in a module-level static fn, and
             // an unresolved nominal head (`FTUnknown`) / a ground literal carries no
             // typars. None contributes a method-axis index.

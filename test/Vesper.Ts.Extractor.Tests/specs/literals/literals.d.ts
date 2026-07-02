@@ -1,6 +1,8 @@
-// Literal fixture: v1 policy erases literal unions to their base type
-// (string-literal union → string, number-literal union → float, boolean
-// literal → bool). Nominal-enum lowering is deferred (plan mapping table).
+// Literal fixture (R4a step 2): string/number literal TYPES are now FAITHFUL
+// `TypeRef.Literal` arms (`"GET"|"POST"` → a union of literals, `0|1|2` likewise),
+// carried structurally for the front end's directional admission. A BOOLEAN literal
+// has no literal arm (design §"string first; skip bool") so `true` still erases to
+// `bool`; a non-integer numeric literal (no int64 wire form) erases to `float`.
 
 export interface Request {
   method: "GET" | "POST" | "PUT";
