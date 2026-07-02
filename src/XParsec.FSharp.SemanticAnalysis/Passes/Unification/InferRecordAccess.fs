@@ -277,7 +277,15 @@ module internal UnificationInferRecordAccess =
 
                 match ctx.Provider.TryLookupMember(clsQual, memberName) with
                 | ValueSome m when not m.IsStatic ->
-                    let memberSig = ExternalSymbols.openSignature m (args.AsSpan().ToArray())
+                    // This is the COMMIT of a single-candidate member (no overload set to
+                    // pick from), so freshen the method typars per use site exactly as the
+                    // multi-candidate `commitExternalOverload` does — NOT the open,
+                    // marker-preserving `openSignature`. A generic instance method called at
+                    // two instantiations would otherwise share one inert `TyTypar(Method,_)`
+                    // that no per-call solution can touch (rigid-vs-concrete mismatch); a
+                    // non-generic member is byte-identical either way.
+                    let memberSig =
+                        ExternalSymbols.instantiateSignature m (args.AsSpan().ToArray()) ctx.CurrentLevel
 
                     ctx.Resolution.ExternalAccess.Set(
                         diagKey,
@@ -315,7 +323,11 @@ module internal UnificationInferRecordAccess =
 
                 match ctx.Provider.TryLookupMember(unionQual, memberName) with
                 | ValueSome m when not m.IsStatic ->
-                    let memberSig = ExternalSymbols.openSignature m (args.AsSpan().ToArray())
+                    // Single-candidate commit — freshen method typars per use site, as the
+                    // external-`TyClass` arm above (shared defect: `openSignature` leaves an
+                    // inert method-typar marker that cross-contaminates across call sites).
+                    let memberSig =
+                        ExternalSymbols.instantiateSignature m (args.AsSpan().ToArray()) ctx.CurrentLevel
 
                     ctx.Resolution.ExternalAccess.Set(
                         diagKey,

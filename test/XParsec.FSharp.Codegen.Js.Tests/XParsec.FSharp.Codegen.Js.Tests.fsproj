@@ -36,6 +36,7 @@
     <Compile Include="EnumTests.fs" />
     <Compile Include="NullUndefinedTests.fs" />
     <Compile Include="MethodAxisGenericTests.fs" />
+    <Compile Include="MethodAxisSingleCandidateTests.fs" />
     <Compile Include="ExternalNominalClassTests.fs" />
     <Compile Include="LiteralUnionTests.fs" />
     <Compile Include="ExternalAttachMembersTests.fs" />
