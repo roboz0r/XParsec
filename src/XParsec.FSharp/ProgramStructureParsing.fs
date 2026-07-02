@@ -155,6 +155,8 @@ module FSharpAst =
             let entry: Offside =
                 {
                     Context = OffsideContext.SeqBlock
+                    // The EOF anchor is LOAD-BEARING: `Offside.isDeclBlock` identifies
+                    // the file-level entry frame by it (no real token opened this block).
                     Indent = fileIndent
                     Token = PositionedToken.Create(Token.EOF, 0)
                 }
@@ -230,6 +232,8 @@ module FSharpAst =
             let entry: Offside =
                 {
                     Context = OffsideContext.SeqBlock
+                    // The EOF anchor is LOAD-BEARING: `Offside.isDeclBlock` identifies
+                    // the file-level entry frame by it (no real token opened this block).
                     Indent = fileIndent
                     Token = PositionedToken.Create(Token.EOF, 0)
                 }

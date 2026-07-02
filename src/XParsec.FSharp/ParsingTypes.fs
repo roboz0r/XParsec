@@ -97,6 +97,22 @@ type Offside =
     }
 
 [<RequireQualifiedAccess>]
+module Offside =
+    /// Is this frame a module-declaration BLOCK — a body whose column-aligned
+    /// elements are module declarations (pars.fsy `moduleDefns`), not a `seqExpr`?
+    /// Two producers exist: a nested `module X =` body pushes `Module`
+    /// (`ModuleDefn.parseBody`), and the FILE-level entry frame is the `SeqBlock`
+    /// pushed by `ProgramStructureParsing.parse`/`parseSignature`, identified by its
+    /// `Token.EOF` anchor — every other `SeqBlock` is anchored on the real token
+    /// that opened it, so an EOF anchor is unique to the file entry. Consumed by
+    /// `pSepVirt`'s binding-head OBLOCKSEP rule.
+    let isDeclBlock (frame: Offside) : bool =
+        match frame.Context with
+        | OffsideContext.Module -> true
+        | OffsideContext.SeqBlock -> frame.Token.Token = Token.EOF
+        | _ -> false
+
+[<RequireQualifiedAccess>]
 type DiagnosticSeverity =
     | Error
     | Warning

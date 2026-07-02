@@ -274,7 +274,11 @@ let private looksNominal (printed: string) : bool =
 /// form being non-nominal, so a NAMED interface that merely declares a call signature
 /// keeps its nominal identity rather than collapsing to an anonymous arrow.
 let private isFunctionType (t: Ts.Type) : bool =
-    (t.getCallSignatures ()).Count > 0
+    // EXACTLY one call signature: `TypeRef.Fun` can carry only one shape, so an
+    // OVERLOADED anonymous function type (`{ (): void; (x: string): void }`) must
+    // NOT enter the fast path (it would silently drop signatures 1..n) — it falls
+    // to the structural stub instead, which emits its degradation warning.
+    (t.getCallSignatures ()).Count = 1
     && (t.getConstructSignatures ()).Count = 0
     && (t.getProperties ()).Count = 0
 
@@ -432,12 +436,12 @@ let rec mapType
                 match asGenericInstantiation checker t with
                 | Some(name, args) -> Schema.TypeRef.Named(name, args |> List.map (mapType checker diags env methodEnv))
                 | None when isFunctionType t && not (looksNominal printed) ->
-                    // A pure FUNCTION type (`(event: T) => void`, `Handler<T>`): exactly one
-                    // call signature, NO construct signatures, and no own data properties.
-                    // Map it FAITHFULLY to `TypeRef.Fun(curried param types, return)` — the
+                    // A pure FUNCTION type (`(event: T) => void`, `Handler<T>`): map it
+                    // FAITHFULLY to `TypeRef.Fun(curried param types, return)` — the
                     // provider rehydrates `Fun → FTFun` — rather than degrading to a stub.
-                    // Gated by `isFunctionType` so a callable object carrying extra members,
-                    // a constructor type, or a nominal reference does NOT enter here.
+                    // `isFunctionType` guarantees exactly one call signature and excludes
+                    // callable objects with members, constructor types, and (via the
+                    // `looksNominal` gate) named interfaces declaring a call signature.
                     let callSig = (t.getCallSignatures ()).[0]
 
                     let paramTypes =

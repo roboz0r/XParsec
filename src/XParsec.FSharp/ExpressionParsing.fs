@@ -1540,36 +1540,37 @@ module Expr =
                     let! indent = currentIndent
                     let! state = getUserState
 
-                    // pars.fsy `moduleDefns`: a `let`/`use` binding head (`defnBindings`) at the
-                    // top-level module column is a NEW module declaration, separated from a
-                    // preceding do-expression by OBLOCKSEP — never an OSEMI sequential
-                    // continuation. Sequencing it in would parse the binding as the trailing
-                    // statement of the do-expression's `seqExpr`, whose let/use body is then
-                    // absent (EOF or the next sibling decl) → `Expr.Missing`. The top-level
-                    // module/namespace body is the outermost, single-entry SeqBlock; end the
-                    // sequence here so the module-elems loop consumes the binding as its own
-                    // element. Nested `module X =` bodies are immune already: their `Module`
-                    // context sits at indent+1, so `atContextIndent` never holds for siblings.
-                    let isTopLevelBinding =
-                        match state.Context with
-                        | [ { Context = OffsideContext.SeqBlock } ] ->
-                            match t.Token with
-                            | Token.KWLet
-                            | Token.KWUse
-                            | Token.KWLetBang
-                            | Token.KWUseBang -> true
-                            | _ -> false
-                        | _ -> false
-
                     let atContextIndent =
                         match state.Context with
                         | { Indent = ctxIndent } :: _ -> indent = ctxIndent
                         | [] -> indent = 0
 
-                    if isTopLevelBinding then
-                        return! failSep
-                    elif atContextIndent then
-                        return virtualToken (PositionedToken.Create(Token.VirtualSep, t.StartIndex))
+                    // pars.fsy `moduleDefns`: a `let`/`use` binding head (`defnBindings`) at a
+                    // module-BODY column is a NEW module declaration, separated from a
+                    // preceding do-expression by OBLOCKSEP — never an OSEMI sequential
+                    // continuation. Sequencing it in would parse the binding as the trailing
+                    // statement of the do-expression's `seqExpr`, whose let/use body is then
+                    // absent (EOF or the next sibling decl) → `Expr.Missing`. End the sequence
+                    // here so the module-elems loop consumes the binding as its own element.
+                    // `Offside.isDeclBlock` identifies a module body POSITIVELY (file-level
+                    // entry frame or a nested `module X =` body), so the rule covers a nested
+                    // body whose elements sit exactly at the `Module` frame's minimum column.
+                    // `let!`/`use!` are NOT included: they are not `moduleDefns` heads — leave
+                    // them to sequence and be rejected by the expression grammar.
+                    let isDeclHeadAtBodyColumn =
+                        match state.Context with
+                        | frame :: _ when Offside.isDeclBlock frame ->
+                            match t.Token with
+                            | Token.KWLet
+                            | Token.KWUse -> true
+                            | _ -> false
+                        | _ -> false
+
+                    if atContextIndent then
+                        if isDeclHeadAtBodyColumn then
+                            return! failSep
+                        else
+                            return virtualToken (PositionedToken.Create(Token.VirtualSep, t.StartIndex))
                     else
                         return! failSep
                 else

@@ -21,7 +21,30 @@ module UnificationInferOverload =
             | _ -> false
         )
 
-    let rec semTypeEq (a: SemType) (b: SemType) : bool =
+    /// Does `t` carry a not-yet-ground type-level computation anywhere inside it?
+    /// Only such a type is genuinely applicability-OPAQUE; a plain nominal /
+    /// primitive union must NOT act as a filtering wildcard (it would perturb BCL
+    /// overload sets — any union-typed argument would match every same-arity
+    /// parameter of every overloaded external method).
+    let rec hasCarriedNode (t: SemType) : bool =
+        match zonk t with
+        | TyKeyOf _
+        | TyIndexedAccess _
+        | TyConditional _ -> true
+        | TyFun(a, b) -> hasCarriedNode a || hasCarriedNode b
+        | TyTuple xs -> xs |> EqArray.exists hasCarriedNode
+        | TyConst(_, args)
+        | TyRecord(_, args)
+        | TyUnion(_, args)
+        | TyClass(_, args) -> args |> EqArray.exists hasCarriedNode
+        | TyOr ms -> ms.Members |> EqSet.exists hasCarriedNode
+        | _ -> false
+
+    /// NOT an equality: the structural-match relation overload FILTERING uses.
+    /// Wildcard arms (open method typars, carried type-level nodes, opaque unions)
+    /// deliberately return `true` for anything — "indistinguishable during
+    /// filtering", with the real admission at the `unifyAppliedSig` commit seam.
+    let rec applicabilityMatches (a: SemType) (b: SemType) : bool =
         match zonk a, zonk b with
         // A generic method's own typar (`Take<TSource>` ⇒ `TyTypar(Method, _)`,
         // kept as a wildcard in the open signature by `ExternalSymbols.openSignature`)
@@ -46,19 +69,25 @@ module UnificationInferOverload =
         // admission (member subsumption + carried-node fold) happens at the
         // `unifyAppliedSig` commit seam. A PURE literal union stays by-VALUE below so
         // literal-union overload specificity (the sharp `argSigOf` spelling) is preserved.
-        | TyOr ms, _ when not (isPureLiteralUnion ms) -> true
+        // A `TyOr` only ever arises from TS vocabulary, so a param-side wildcard cannot
+        // perturb a BCL overload set.
         | _, TyOr ms when not (isPureLiteralUnion ms) -> true
+        // The ARGUMENT side is a wildcard ONLY when the union genuinely carries a
+        // not-yet-ground node — the actual motivation. A plain nominal/primitive union
+        // argument (`string | MyClass` by annotation) must fall through to structural
+        // comparison, not match every same-arity parameter.
+        | TyOr ms, _ when EqSet.exists hasCarriedNode ms.Members -> true
         // Two structural literals are equal by VALUE (so `on("*", …)` prefers the
         // literal-`'*'` overload over a same-position typar); a literal vs a non-literal
         // falls through to `false` (a plain `string` is not a specific literal).
         | TyLiteral v1, TyLiteral v2 -> v1 = v2
-        | TyConst(n1, xs), TyConst(n2, ys) -> n1 = n2 && EqArray.forall2 semTypeEq xs ys
+        | TyConst(n1, xs), TyConst(n2, ys) -> n1 = n2 && EqArray.forall2 applicabilityMatches xs ys
         | TyVar x, TyVar y -> System.Object.ReferenceEquals(UnionFind.find x, UnionFind.find y)
-        | TyFun(a1, r1), TyFun(a2, r2) -> semTypeEq a1 a2 && semTypeEq r1 r2
-        | TyTuple xs, TyTuple ys -> EqArray.forall2 semTypeEq xs ys
+        | TyFun(a1, r1), TyFun(a2, r2) -> applicabilityMatches a1 a2 && applicabilityMatches r1 r2
+        | TyTuple xs, TyTuple ys -> EqArray.forall2 applicabilityMatches xs ys
         | TyRecord(n1, xs), TyRecord(n2, ys)
         | TyUnion(n1, xs), TyUnion(n2, ys)
-        | TyClass(n1, xs), TyClass(n2, ys) -> n1 = n2 && EqArray.forall2 semTypeEq xs ys
+        | TyClass(n1, xs), TyClass(n2, ys) -> n1 = n2 && EqArray.forall2 applicabilityMatches xs ys
         | _ -> false
 
     /// `object`/`obj` is the only supertype we model — no other reference
@@ -70,9 +99,10 @@ module UnificationInferOverload =
         | _ -> false
 
     and argAssignable (argTy: SemType) (paramTy: SemType) : bool =
-        semTypeEq argTy paramTy || isObjectTy paramTy
+        applicabilityMatches argTy paramTy || isObjectTy paramTy
 
-    and asSpecificOrEq (aTy: SemType) (bTy: SemType) : bool = semTypeEq aTy bTy || isObjectTy bTy
+    and asSpecificOrEq (aTy: SemType) (bTy: SemType) : bool =
+        applicabilityMatches aTy bTy || isObjectTy bTy
 
     /// `argSig` length distinguishes a flattened N-param method from a genuine
     /// single tuple param.
@@ -118,7 +148,7 @@ module UnificationInferOverload =
                 let pb = memberParamTypes typeArgs b
 
                 List.forall2 asSpecificOrEq pa pb
-                && List.exists2 (fun x y -> not (semTypeEq x y)) pa pb
+                && List.exists2 (fun x y -> not (applicabilityMatches x y)) pa pb
 
             let best =
                 many

@@ -26,9 +26,37 @@ open System.Runtime.CompilerServices
 type EqSet<'T> =
     val private items: ImmutableArray<'T>
 
-    /// PRIVATE-in-spirit: the raw array is assumed already deduped (the `EqSet`
-    /// module functions are the sanctioned producers and dedupe on the way in).
-    new(items: ImmutableArray<'T>) = { items = items }
+    /// Construction DEDUPES (first occurrence wins), so the set-semantic
+    /// `Equals`/`GetHashCode` below — which assume distinct members (the
+    /// cardinality shortcut, the unordered hash sum) — hold BY CONSTRUCTION for
+    /// every instance; there is no raw-array back door to keep in sync. Member
+    /// counts are tiny (union members), so the quadratic scan is irrelevant; an
+    /// already-distinct input keeps its original array (no copy).
+    new(items: ImmutableArray<'T>) =
+        let cmp = EqualityComparer<'T>.Default
+        let acc = ImmutableArray.CreateBuilder<'T>(items.Length)
+
+        for i in 0 .. items.Length - 1 do
+            let x = items.[i]
+            let mutable dup = false
+            let mutable j = 0
+
+            while not dup && j < acc.Count do
+                if cmp.Equals(acc.[j], x) then
+                    dup <- true
+
+                j <- j + 1
+
+            if not dup then
+                acc.Add x
+
+        {
+            items =
+                if acc.Count = items.Length then
+                    items
+                else
+                    acc.ToImmutable()
+        }
 
     /// The backing array, normalised so a `default(EqSet)` reads as empty.
     member this.Underlying: ImmutableArray<'T> =
@@ -106,16 +134,10 @@ module EqSet =
     [<GeneralizableValue>]
     let empty<'T> : EqSet<'T> = EqSet<'T>(ImmutableArray<'T>.Empty)
 
-    /// The one normaliser: dedupe an arbitrary sequence, keeping the FIRST
-    /// occurrence of each distinct member (so insertion order is preserved).
+    /// Dedupe happens in the constructor (first occurrence wins, insertion
+    /// order preserved), so this is a plain materialisation.
     let ofSeq (xs: 'T seq) : EqSet<'T> =
-        let acc = ResizeArray<'T>()
-
-        for x in xs do
-            if not (acc.Contains x) then
-                acc.Add x
-
-        EqSet<'T>(ImmutableArray.CreateRange acc)
+        EqSet<'T>(ImmutableArray.CreateRange xs)
 
     let ofList (xs: 'T list) : EqSet<'T> = ofSeq xs
 
@@ -123,20 +145,9 @@ module EqSet =
 
     let toList (xs: EqSet<'T>) : 'T list = List.ofSeq xs.Underlying
 
-    /// Map each member then RE-DEDUPE: a mapping can collapse two distinct members
-    /// onto one (`'a | string` with `'a := string`), so the result routes back
-    /// through `ofSeq` and stays a canonical set.
-    let map (mapping: 'T -> 'U) (xs: EqSet<'T>) : EqSet<'U> =
-        let src = xs.Underlying
-        let acc = ResizeArray<'U>(src.Length)
-
-        for i in 0 .. src.Length - 1 do
-            let y = mapping src.[i]
-
-            if not (acc.Contains y) then
-                acc.Add y
-
-        EqSet<'U>(ImmutableArray.CreateRange acc)
+    /// Map each member; the constructor RE-DEDUPES, since a mapping can collapse
+    /// two distinct members onto one (`'a | string` with `'a := string`).
+    let map (mapping: 'T -> 'U) (xs: EqSet<'T>) : EqSet<'U> = ofSeq (Seq.map mapping xs.Underlying)
 
     let iter (action: 'T -> unit) (xs: EqSet<'T>) : unit =
         let src = xs.Underlying

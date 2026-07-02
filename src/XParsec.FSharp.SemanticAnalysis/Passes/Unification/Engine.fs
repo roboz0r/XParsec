@@ -675,11 +675,14 @@ module UnificationEngine =
         let enumName = SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName enumKey)
 
         match TypeRegistry.tryEnum ctx.Types enumName with
-        | ValueSome info ->
+        // The registry is keyed by bare name but `enumKey` is the full identity axis
+        // (home assembly + namespace) — require them to agree, so a same-named enum
+        // from another namespace/package never admits against this one's value set.
+        | ValueSome info when info.Key = enumKey ->
             match info.CaseStringValues with
             | ValueSome vals when vals.Length > 0 -> vals |> Array.forall litValues.Contains
             | _ -> false
-        | ValueNone -> false
+        | _ -> false
 
     /// Subtyping query distinct from `unify`: does a value of type `src`
     /// coerce to the statically-known type `tgt`? A **pure read** of
@@ -1617,11 +1620,10 @@ module UnificationEngine =
         | _, (TyKeyOf _ | TyIndexedAccess _ | TyConditional _) -> Defer
         // A structural literal erases to its base primitive — delegate the verdict to
         // it (external-vocabulary only, so this is defensive; Vesper never mints one).
-        | k, TyLiteral v ->
-            match primitiveSupports k v.BaseName with
-            | ValueSome true -> Satisfied
-            | ValueSome false -> Violated
-            | ValueNone -> Defer
+        // Genuine delegation (not a copy of the `TyConst` arm) so EVERY kind — including
+        // `Coercion`, whose arm sits below and decides via `subsumes` — is judged
+        // exactly as the base primitive would be.
+        | _, TyLiteral v -> checkConstraint ctx c (TyConst(v.BaseName, EqArray.empty))
         | SemanticConstraintKind.Coercion target, _ ->
             // `'e :> exn`: now that `'e` has a nominal head, does it subsume to
             // the required supertype? `subsumes` walks user AND external (BCL)

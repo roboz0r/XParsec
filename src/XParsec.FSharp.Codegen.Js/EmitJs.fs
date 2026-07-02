@@ -707,10 +707,8 @@ module EmitJs =
             elif isAttachMembersType ctx declKey && ValueOption.isSome receiver then
                 // A NATIVE attached instance member reached WITHOUT an applying spine —
                 // the CALL form is folded in the `App` head-case; this is a value read.
-                // (R2 scope is INSTANCE members: a static member / ctor on an
-                // AttachMembers type — `receiver = ValueNone` — still takes the mangled
-                // path below. TODO(ts-provider R2 step 5): lower those to
-                // `Cls.method(args)` / `new Cls(args)`.)
+                // (R2 scope is INSTANCE members: a static member / ctor — `receiver =
+                // ValueNone` — hits the loud wall below until its native lowering lands.)
                 let r = receiver.Value
 
                 if isProperty then
@@ -755,6 +753,11 @@ module EmitJs =
                             loc
                         )
             else
+                // Statics/ctors on an AttachMembers type also land here: their native
+                // `Cls.method(args)` / `new Cls(args)` lowering is pending, so they take
+                // the mangled-import path, which is only satisfiable by a Vesper-provided
+                // runtime module (`JsImports.entryFor` fails loudly when the package has
+                // none — a real npm package cannot export a mangled name).
 
                 let isStatic = (receiver = ValueNone)
 
