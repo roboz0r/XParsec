@@ -1,10 +1,10 @@
 # T8 — `.fsi`/`.fs` faithfulness: outstanding work
 
-Status (2026-06-30): the `.fsi`↔`.fs` faithfulness SEAM is LANDED. What remains is one
-genuine sprint (a real per-compilation reference-assembly set, "Sprint A" below) plus
-two retirements blocked on unrelated upstream runtime work. EPHEMERAL like all
-`docs/*-plan.md` — delete once the three items below land (the CODE is the canonical
-record of everything already done; see [feedback_plan_docs_ephemeral]).
+Status (2026-07-01): the `.fsi`↔`.fs` faithfulness SEAM is LANDED, and Sprint A (a real
+per-compilation reference-assembly set) is DONE. What remains is two retirements blocked
+on unrelated upstream runtime work. EPHEMERAL like all `docs/*-plan.md` — delete once
+the items below land (the CODE is the canonical record of everything already done; see
+[feedback_plan_docs_ephemeral]).
 
 This file was rewritten down from the full design+history once Steps 1–6 landed. If you
 need the blow-by-blow of a finished step, read the code and `git log`, not this doc.
@@ -43,42 +43,30 @@ Key memories: [project_typar_ordering_unification], [project_contract_demotion],
 
 ## Outstanding work
 
-### Sprint A — a real per-compilation reference-assembly set (the next sprint)
+### Sprint A — a real per-compilation reference-assembly set (DONE 2026-07-01)
 
-**The problem.** The .NET metadata provider's leaf is still built from the *compiler
-host's* runtime assemblies — `bclMetaTail` calls `MetadataSymbols.runtimeAssemblyPaths ()`
-(the host TPA) — not from the *compilation's own* reference set. In a real .NET build the
-BCL surface a program sees is the **reference pack for its target TFM** plus its
-`<Reference>`/`<PackageReference>` assemblies, which is NOT the host's runtime. So today
-every compile "cheats" by reflecting over whatever assemblies happen to be loaded in the
-test host. This is correct enough for the self-host suite (host ≈ target) but is wrong in
-principle and blocks compiling against a pinned TFM / a non-host BCL.
+LANDED. A compilation's BCL surface now comes from its OWN reference set, not the
+compiler host's runtime. Anchors (read the code, not this doc):
+- `ClrSymbolProviders.bclMetaTailWith` / `buildContractWithRefs` /
+  `contractInlineBodiesWithRefs` — the path-taking leaf (per-instance memo; the path
+  set enters the contract-cache identity via a `bcl-refs:` tag).
+- `Codegen.Clr/RefPack.fs` — TFM → `Microsoft.NETCore.App.Ref` resolver, the
+  no-MSBuild convenience; explicit `dllPaths` remains the primary, MSBuild-shaped
+  mechanism.
+- `Codegen.Clr/ClrDriver.fs` — the library-level production driver (`ClrCompilation`
+  record carries `BclReferences` at DRIVER level; `ProjectInfo` stays backend-neutral).
+  No CLI yet — the pluggable `vesperc` CLI is a separate design effort.
+- `Codegen.compileWithBclReferences` + de-hosted `ClrEnv.coreRef`/`consoleRef` — the
+  bootstrap `System.Object`/`Console` `AssemblyRef`s bind the reference identity
+  (`System.Runtime`), not the host `System.Private.CoreLib`; identity only, never the
+  `materialiseApp` copy set (a ref assembly has no IL and must never ship).
+- Acceptance gate: `ClrDriverTests` compiles AND RUNS an app against the pinned net8.0
+  ref pack on a net10 test host, asserting ref-pack `AssemblyRef`s and no
+  `System.Private.CoreLib`.
 
-**Status.** The surrounding restructuring already LANDED (Step 1.5 a/b/c-partial/d):
-`MetadataSymbols` lives in `Codegen.Clr`; `Codegen.Common.SymbolProviders` is leaf-
-agnostic (`composeProviders` threads a `MetaTailFactory` into both the per-package
-`depComposite` and the final composite); the BCL-defaulting conveniences live in
-`Codegen.Clr.ClrSymbolProviders`; the leaf is seeded with the harvested `{platform →
-canon}` reverse map and `tryBuildType` canonicalizes through it (sealed-BCL-types only —
-the unsealed subtype roots `System.Object → obj` / `System.Exception → exn` reconcile at
-the unification bridge, NOT eagerly at the leaf, or ctor/`new`/subtype resolution breaks).
-
-**What's left — three pieces (a genuine design step, not a mechanical follow-on):**
-1. A path-taking `bclMetaTail` / convenience variant (build the leaf from an explicit
-   `dllPaths`, not `runtimeAssemblyPaths ()`).
-2. A way to SOURCE the target TFM's reference pack + referenced assemblies. Today
-   `ProjectInfo.References` (`Codegen.Clr/ProjectInfo.fs`) carries only `Vesper.*` +
-   optional FSharp.Core — NOT the BCL ref pack. This is the crux: decide where the ref-
-   pack path set comes from (MSBuild-resolved list passed in? a TFM → ref-pack resolver?).
-3. A real production CLR driver that calls `buildContract` with that set. None does yet —
-   the only consumers are tests, which is why the host-TPA shortcut has survived. The
-   host-TPA singleton should remain ONLY as a `Codegen.Clr.Tests` convenience
-   (`MetadataSymbols.provider` for `MetadataSymbolsTests`); the leaf-empty-reverse
-   (extraction-composite) optimization currently relies on it, so don't delete it
-   wholesale.
-
-Once this lands, every build's BCL surface comes from its own reference set; the
-"cheating with the test host's assemblies" note disappears.
+The host-TPA conveniences (`bclMetaTail`, `buildContract`, `MetadataSymbols.provider`)
+remain as `Codegen.Clr.Tests` conveniences; existing tests stay on them (a systematic
+test refactor is a later, separate effort).
 
 ### Sprint B — retire `BuiltinOps` (drift inventory Species 2)
 

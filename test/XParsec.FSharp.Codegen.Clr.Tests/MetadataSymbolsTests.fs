@@ -202,4 +202,76 @@ let tests =
                 // they fall through to lower-priority sources in the composite.
                 Expect.isTrue (provider.TryLookup "op_Addition" |> ValueOption.isNone) "no value surface"
             }
+
+            test "the path-taking leaf resolves identically to the host-TPA leaf" {
+                // Sourced from the SAME host TPA the singleton reflects, so the
+                // path-taking leaf must resolve a known BCL type identically.
+                let leaf =
+                    ClrSymbolProviders.bclMetaTailWith (MetadataSymbols.runtimeAssemblyPaths ()) reverseCanon
+                    |> List.exactlyOne
+
+                match leaf.TryLookupType eqComparer, provider.TryLookupType eqComparer with
+                | ValueSome(ExternalTypeShape.Class a), ValueSome(ExternalTypeShape.Class b) ->
+                    Expect.equal a.Arity b.Arity "same arity"
+                    Expect.equal a.IsInterface b.IsInterface "same interface-ness"
+                    Expect.equal a.Origin.Assembly b.Origin.Assembly "same origin assembly"
+                | other -> failtestf "expected both leaves to resolve %s as a Class, got %A" eqComparer other
+            }
+
+            test "buildContractWithRefs does not alias distinct ref sets under one manifest" {
+                // Enumerable lives in System.Linq (never CoreLib): the full TPA resolves
+                // it, the full TPA with System.Linq.dll removed does not (a core assembly
+                // stays present, so MLC still constructs). If the cache keyed on
+                // `cacheTag|target|manifests` ignored the path set, the second build would
+                // alias the first and both would agree — this proves it does not.
+                let full = MetadataSymbols.runtimeAssemblyPaths ()
+
+                let withoutLinq =
+                    full |> List.filter (fun p -> System.IO.Path.GetFileName p <> "System.Linq.dll")
+
+                Expect.isTrue (List.length withoutLinq < List.length full) "host TPA carries System.Linq.dll"
+
+                let fullProvider =
+                    ClrSymbolProviders.buildContractWithRefs full None [ TestHelpers.vesperCoreManifest ]
+
+                let limited =
+                    ClrSymbolProviders.buildContractWithRefs withoutLinq None [ TestHelpers.vesperCoreManifest ]
+
+                Expect.isTrue
+                    (fullProvider.TryLookupType "System.Linq.Enumerable" |> ValueOption.isSome)
+                    "full ref set resolves System.Linq.Enumerable"
+
+                Expect.isTrue
+                    (limited.TryLookupType "System.Linq.Enumerable" |> ValueOption.isNone)
+                    "ref set without System.Linq.dll does not resolve System.Linq.Enumerable"
+            }
+
+            test "RefPack.resolve net8.0 finds the installed ref pack" {
+                match RefPack.resolve "net8.0" with
+                | Ok paths ->
+                    Expect.isNonEmpty paths "ref pack has assemblies"
+
+                    Expect.isTrue
+                        (paths
+                         |> List.exists (fun p -> System.IO.Path.GetFileName p = "System.Runtime.dll"))
+                        "ref pack contains System.Runtime.dll"
+                | Error e -> failtestf "expected net8.0 ref pack to resolve: %s" e
+            }
+
+            test "a ref-pack-backed leaf binds the REF assembly identity" {
+                match RefPack.resolve "net8.0" with
+                | Error e -> failtestf "net8.0 ref pack did not resolve: %s" e
+                | Ok refPaths ->
+                    let leaf =
+                        ClrSymbolProviders.bclMetaTailWith refPaths reverseCanon |> List.exactlyOne
+
+                    match leaf.TryLookupType "System.Text.StringBuilder" with
+                    | ValueSome(ExternalTypeShape.Class info) ->
+                        // In the ref pack StringBuilder lives in System.Runtime (the ref
+                        // facade), not System.Private.CoreLib (the runtime impl). This also
+                        // proves MetadataLoadContext finds a core assembly when System.Object
+                        // lives in System.Runtime.dll rather than System.Private.CoreLib.
+                        Expect.equal info.Origin.Assembly (Some "System.Runtime") "REF identity, not the impl"
+                    | other -> failtestf "expected StringBuilder as a Class shape, got %A" other
+            }
         ]

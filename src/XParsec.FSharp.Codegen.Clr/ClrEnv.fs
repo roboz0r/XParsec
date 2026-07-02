@@ -72,8 +72,16 @@ type internal ClrEnv
                 )
             ))
 
+    // The bootstrap BCL identity every emitted assembly needs (its module/holder
+    // types extend `System.Object`; `ValueTuple` / `ValueType` / `Enum` /
+    // `Exception` / `HashCode` ride it too). Sourced from the referenced
+    // `System.Runtime` (a ref pack, threaded in as the driver's BCL surface) so the
+    // `AssemblyRef` is the reference identity, not the host `System.Private.CoreLib`;
+    // absent a reference (the host-TPA test conveniences), it falls back to the host
+    // corlib. The ref assembly type-forwards these to the impl at run time.
     let coreRef =
-        lazy (toEntity (ctx.AssemblyRef(typeof<System.Object>.Assembly.GetName())))
+        lazy
+            (toEntity (ctx.AssemblyRef(refOrHost "System.Runtime" (fun () -> typeof<System.Object>.Assembly.GetName()))))
 
     // `Vesper.Printf` is a referenced package like `Vesper.Core` / `Vesper.List`: its
     // identity comes from the `ProjectInfo.References` path the caller wires (the
@@ -88,7 +96,10 @@ type internal ClrEnv
             (toEntity (ctx.AssemblyRef(refRequired "Vesper.Printf" "a printf / %A format call needs Vesper.Formatter")))
 
     let consoleRef =
-        lazy (toEntity (ctx.AssemblyRef(typeof<System.Console>.Assembly.GetName())))
+        lazy
+            (toEntity (
+                ctx.AssemblyRef(refOrHost "System.Console" (fun () -> typeof<System.Console>.Assembly.GetName()))
+            ))
 
     let eUnit =
         lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Core", "Unit")))

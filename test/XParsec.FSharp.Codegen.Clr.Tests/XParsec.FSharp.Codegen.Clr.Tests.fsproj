@@ -13,6 +13,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="TestHelpers.fs" />
+    <Compile Include="ClrDriverTests.fs" />
     <Compile Include="PrintfHappyPathTests.fs" />
     <Compile Include="FSharpCoreDepsTests.fs" />
     <Compile Include="RunnableAppTests.fs" />

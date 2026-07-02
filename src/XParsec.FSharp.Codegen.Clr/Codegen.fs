@@ -27,11 +27,12 @@ module Codegen =
         )
 
     let private assemble
+        (bclReferences: string list)
         (symbols: IExternalSymbolProvider)
         (project: ProjectInfo)
         (tast: Frozen.TastFile)
         : ClrArtifact =
-        let asm = Assembler(symbols, project, tast)
+        let asm = Assembler(symbols, project, tast, bclReferences)
 
         // Bind: pre-fill the registries with layout-derived handles, so any
         // prepared body can reference any type / member / factory / static fn
@@ -78,7 +79,21 @@ module Codegen =
     /// end through the `IInlineBodyProvider` channel of
     /// the same `symbols` provider, so codegen takes no separate inline-body map.
     let compile (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tast: Frozen.TastFile) : ClrArtifact =
-        assemble symbols project tast
+        assemble [] symbols project tast
+
+    /// `compile` with the compilation's own BCL surface (a TFM ref pack +
+    /// `<Reference>`s) threaded into the emitted-`AssemblyRef` identity map, so the
+    /// bootstrap `System.Runtime` / `System.Console` refs bind the reference set
+    /// rather than the host's `System.Private.CoreLib`. `bclReferences` feeds
+    /// identity ONLY — it is never `ProjectInfo.References`, so `materialiseApp` does
+    /// not ship a (body-less) reference assembly. `compile` is this with `[]`.
+    let compileWithBclReferences
+        (bclReferences: string list)
+        (symbols: IExternalSymbolProvider)
+        (project: ProjectInfo)
+        (tast: Frozen.TastFile)
+        : ClrArtifact =
+        assemble bclReferences symbols project tast
 
     /// Assemble a hand-written `Main` body that drives the untyped `Il` surface
     /// directly — the testable seam for hand-written bodies, independent of any

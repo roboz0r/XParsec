@@ -17,16 +17,24 @@ open AssemblerScaffold
 /// `Finalise` walk the layout mechanically — no decisions, no row arithmetic.
 /// `GenericParam` rows are collected and emitted last, sorted by
 /// `CodedIndex.TypeOrMethodDef(owner)` then index, as SRM requires.
-type internal Assembler(symbols: IExternalSymbolProvider, project: ProjectInfo, tast: Frozen.TastFile) =
+type internal Assembler
+    (symbols: IExternalSymbolProvider, project: ProjectInfo, tast: Frozen.TastFile, bclReferences: string list) =
 
     let ctx = MetadataContext()
     do ctx.AddModuleAndAssembly(project.AssemblyName)
 
     // Referenced assemblies' identities read off their files and keyed by simple
     // name, so an emitted `AssemblyRef` matches the exact artifact, not whatever
-    // the host loaded.
+    // the host loaded. `bclReferences` (the compilation's own BCL surface — a TFM
+    // ref pack + `<Reference>`s, a driver-level input) feeds identity here so a
+    // bootstrap `System.Runtime`/`System.Console` `AssemblyRef` binds the ref set,
+    // NOT the host's `System.Private.CoreLib`. It is DELIBERATELY absent from
+    // `project.References` (which `materialiseApp` copies beside the output): a
+    // reference assembly has no IL and must never ship — the shared framework
+    // supplies the real one at run time. `project.References` wins a simple-name
+    // tie (it is folded last).
     let references =
-        project.References
+        bclReferences @ project.References
         |> List.map (fun path ->
             let an = AssemblyName.GetAssemblyName path
             an.Name, an
