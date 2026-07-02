@@ -214,25 +214,7 @@ module EmitClosures =
     let rec private ftNoUnknown (t: FrozenType) : bool =
         match t with
         | FTUnknown _ -> false
-        | FTTypar _ -> true
-        | FTConst(_, xs)
-        | FTRecord(_, xs)
-        | FTUnion(_, xs)
-        | FTClass(_, xs) -> xs |> EqArray.forall ftNoUnknown
-        | FTOr xs -> xs |> EqSet.forall ftNoUnknown
-        | FTFun(a, b) -> ftNoUnknown a && ftNoUnknown b
-        | FTTuple xs -> xs |> EqArray.forall ftNoUnknown
-        // A type-level computation is `FTUnknown`-free iff every child is.
-        | FTKeyOf t -> ftNoUnknown t
-        | FTIndexedAccess(objTy, index) -> ftNoUnknown objTy && ftNoUnknown index
-        | FTConditional(check, extends, whenTrue, whenFalse) ->
-            ftNoUnknown check
-            && ftNoUnknown extends
-            && ftNoUnknown whenTrue
-            && ftNoUnknown whenFalse
-        // A niladic nominal enum / a ground literal carries no `FTUnknown`.
-        | FTEnum _
-        | FTLiteral _ -> true
+        | t -> FrozenType.forallChildren ftNoUnknown t
 
     /// The source name of a *top-level* (holderless) binding for its Program-holder
     /// field/method. A *leading* standalone `ModuleElem.Let` had its name recorded by
@@ -650,43 +632,16 @@ module EmitClosures =
     let staticFnTypars (fn: StaticFn) : int =
         let mutable maxIx = -1
 
+        // The method-axis index sweep descends into EVERY child (carried type-level
+        // computations included — producer/consumer arity must stay in lockstep); a
+        // `Declaring`-axis typar can't occur in a module-level static fn and falls
+        // through the child walk as a leaf.
         let rec go (t: FrozenType) =
             match t with
             | FTTypar(TyparAxis.Method, i) ->
                 if i > maxIx then
                     maxIx <- i
-            | FTFun(a, b) ->
-                go a
-                go b
-            | FTConst(_, xs)
-            | FTTuple xs
-            | FTRecord(_, xs)
-            | FTUnion(_, xs)
-            | FTClass(_, xs) ->
-                for x in xs do
-                    go x
-            | FTOr xs ->
-                for x in xs do
-                    go x
-            // A carried type-level computation can hold a method var in any child, so
-            // the method-axis index sweep MUST descend into them (producer/consumer
-            // arity must stay in lockstep).
-            | FTKeyOf t -> go t
-            | FTIndexedAccess(objTy, index) ->
-                go objTy
-                go index
-            | FTConditional(check, extends, whenTrue, whenFalse) ->
-                go check
-                go extends
-                go whenTrue
-                go whenFalse
-            // A `Declaring`-axis typar can't occur in a module-level static fn, and
-            // an unresolved nominal head (`FTUnknown`) / a ground literal carries no
-            // typars. None contributes a method-axis index.
-            | FTUnknown _
-            | FTEnum _
-            | FTLiteral _
-            | FTTypar(TyparAxis.Declaring, _) -> ()
+            | t -> FrozenType.iterChildren go t
 
         for p in fn.Params do
             go p.Ty

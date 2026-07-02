@@ -75,22 +75,7 @@ module ConformanceTypars =
     let rec normAxis (t: FrozenType) : FrozenType =
         match t with
         | FTTypar(_, i) -> FTTypar(TyparAxis.Method, i)
-        | FTConst(n, args) -> FTConst(n, EqArray.map normAxis args)
-        | FTFun(a, r) -> FTFun(normAxis a, normAxis r)
-        | FTTuple items -> FTTuple(EqArray.map normAxis items)
-        | FTRecord(k, args) -> FTRecord(k, EqArray.map normAxis args)
-        | FTUnion(k, args) -> FTUnion(k, EqArray.map normAxis args)
-        | FTClass(k, args) -> FTClass(k, EqArray.map normAxis args)
-        | FTOr members -> FrozenType.MkUnion(seq { for m in members -> normAxis m })
-        // The type-level computations normalize their children's axes.
-        | FTKeyOf t -> FTKeyOf(normAxis t)
-        | FTIndexedAccess(objTy, index) -> FTIndexedAccess(normAxis objTy, normAxis index)
-        | FTConditional(check, extends, whenTrue, whenFalse) ->
-            FTConditional(normAxis check, normAxis extends, normAxis whenTrue, normAxis whenFalse)
-        // A niladic nominal / a ground literal carries no typar axis to normalize.
-        | FTEnum _
-        | FTLiteral _
-        | FTUnknown _ -> t
+        | t -> FrozenType.mapChildren normAxis t
 
     /// True iff the `.fsi`-declared and `.fs`-inferred schemes are α-equivalent WITH
     /// typar order. Because `FTTypar` is positional (its index IS the quantification

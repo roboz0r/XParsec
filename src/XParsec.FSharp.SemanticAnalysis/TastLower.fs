@@ -190,28 +190,7 @@ module TastLower =
             let rec mention (t: FrozenType) =
                 match t with
                 | FTTypar(TyparAxis.Method, i) -> boundMentioned.Add i |> ignore
-                | FTFun(a, b) ->
-                    mention a
-                    mention b
-                | FTConst(_, xs)
-                | FTTuple xs
-                | FTRecord(_, xs)
-                | FTUnion(_, xs)
-                | FTClass(_, xs) -> EqArray.iter mention xs
-                | FTOr xs -> EqSet.iter mention xs
-                | FTKeyOf t -> mention t
-                | FTIndexedAccess(objTy, index) ->
-                    mention objTy
-                    mention index
-                | FTConditional(check, extends, whenTrue, whenFalse) ->
-                    mention check
-                    mention extends
-                    mention whenTrue
-                    mention whenFalse
-                | FTEnum _
-                | FTLiteral _
-                | FTUnknown _
-                | FTTypar(TyparAxis.Declaring, _) -> ()
+                | t -> FrozenType.iterChildren mention t
 
             for c in constraints do
                 match c with

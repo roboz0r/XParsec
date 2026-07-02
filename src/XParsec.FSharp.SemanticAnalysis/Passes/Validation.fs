@@ -38,27 +38,8 @@ module Validation =
             match root.Link with
             | ValueSome target -> hasFreeTyVar quantified target
             | ValueNone -> not (quantified.Contains root)
-        | TyConst(_, args) -> args |> EqArray.exists (hasFreeTyVar quantified)
-        | TyFun(a, r) -> hasFreeTyVar quantified a || hasFreeTyVar quantified r
-        | TyTuple items -> items |> EqArray.exists (hasFreeTyVar quantified)
-        | TyRecord(_, args) -> args |> EqArray.exists (hasFreeTyVar quantified)
-        | TyUnion(_, args) -> args |> EqArray.exists (hasFreeTyVar quantified)
-        | TyClass(_, args) -> args |> EqArray.exists (hasFreeTyVar quantified)
-        | TyOr members -> members.Members |> EqSet.exists (hasFreeTyVar quantified)
-        // A type-level computation holds a free var iff any child does.
-        | TyKeyOf t -> hasFreeTyVar quantified t
-        | TyIndexedAccess(objTy, index) -> hasFreeTyVar quantified objTy || hasFreeTyVar quantified index
-        | TyConditional(check, extends, whenTrue, whenFalse) ->
-            hasFreeTyVar quantified check
-            || hasFreeTyVar quantified extends
-            || hasFreeTyVar quantified whenTrue
-            || hasFreeTyVar quantified whenFalse
-        | TyUnknown _ -> false
-        // Post-freeze leaf; this check runs pre-freeze and never sees it.
-        | TyTypar _ -> false
-        // A nominal enum / a structural literal holds no free TyVar — a leaf.
-        | TyEnum _
-        | TyLiteral _ -> false
+        // A compound holds a free var iff any child does; leaves hold none.
+        | t -> SemType.existsChild (hasFreeTyVar quantified) t
 
     /// `lhs <- rhs` with a single-name `lhs` whose `ResolvedBinding` says
     /// `IsMutable = false` is an error. Non-Ident LHSes (record field,

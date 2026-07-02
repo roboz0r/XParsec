@@ -10,54 +10,18 @@ open System.Collections.Generic
 /// `TypeVar` / `UnionFind`, all earlier compile units.
 module SemTypeWalk =
 
-    /// THE one SemType structural pre-order skeleton: invoke `onVar` at every
-    /// `TyVar` leaf with the RAW (un-`find`ed) typar — each caller's leaf decides
-    /// its own `UnionFind.find` / `Link` / dedup policy. A `TyVar` is a leaf: this
-    /// does NOT recurse past it (a link-following caller re-enters via `onVar`).
-    /// `TyTypar` / `TyUnknown` are no-ops; all composite forms recurse into their
-    /// args left-to-right.
+    /// THE one SemType typar-collector: invoke `onVar` at every `TyVar` leaf with
+    /// the RAW (un-`find`ed) typar — each caller's leaf decides its own
+    /// `UnionFind.find` / `Link` / dedup policy. A `TyVar` is a leaf: this does
+    /// NOT recurse past it (a link-following caller re-enters via `onVar`). All
+    /// composite forms recurse via the shared `SemType.iterChildren` skeleton,
+    /// left-to-right — the type-level computations included (a fresh method var
+    /// can live in any child).
     let iterSemTypeVars (onVar: TypeVar -> unit) (t: SemType) : unit =
         let rec walk (t: SemType) : unit =
             match t with
             | TyVar tv -> onVar tv
-            | TyConst(_, args) ->
-                for a in args do
-                    walk a
-            | TyFun(a, r) ->
-                walk a
-                walk r
-            | TyTuple xs ->
-                for x in xs do
-                    walk x
-            | TyRecord(_, args) ->
-                for a in args do
-                    walk a
-            | TyUnion(_, args) ->
-                for a in args do
-                    walk a
-            | TyClass(_, args) ->
-                for a in args do
-                    walk a
-            | TyOr members ->
-                for m in members.Members do
-                    walk m
-            // The type-level computations can hold a fresh method var in any child, so
-            // the shared var-collector skeleton MUST descend into them.
-            | TyKeyOf t -> walk t
-            | TyIndexedAccess(objTy, index) ->
-                walk objTy
-                walk index
-            | TyConditional(check, extends, whenTrue, whenFalse) ->
-                walk check
-                walk extends
-                walk whenTrue
-                walk whenFalse
-            | TyUnknown _ -> ()
-            | TyTypar _ -> ()
-            // A nominal enum / a structural literal has no args and no typars — a
-            // leaf, like `TyTypar`.
-            | TyEnum _
-            | TyLiteral _ -> ()
+            | t -> SemType.iterChildren walk t
 
         walk t
 

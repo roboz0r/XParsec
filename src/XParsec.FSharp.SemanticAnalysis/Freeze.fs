@@ -51,31 +51,11 @@ module Freeze =
     /// upstream by `ResolvedTypes` (a graceful per-decl diagnostic), which runs before
     /// the freeze.
     let private freezeTy (t: SemType) : FrozenType =
-        let rec go (ty: SemType) : FrozenType =
-            match ty with
-            | TyConst(n, args) -> FTConst(n, EqArray.map go args)
-            | TyFun(a, b) -> FTFun(go a, go b)
-            | TyTuple xs -> FTTuple(EqArray.map go xs)
-            | TyRecord(k, args) -> FTRecord(k, EqArray.map go args)
-            | TyUnion(k, args) -> FTUnion(k, EqArray.map go args)
-            | TyClass(k, args) -> FTClass(k, EqArray.map go args)
-            // Enum: a niladic nominal — pure key carry-over (no args to freeze).
-            | TyEnum k -> FTEnum k
-            // Rebuild through the smart constructor (freezing can collapse members).
-            | TyOr members -> FrozenType.MkUnion(seq { for m in members.Members -> go m })
-            | TyLiteral v -> FTLiteral v
-            // The type-level computations freeze their children (carried, not evaluated).
-            | TyKeyOf t -> FTKeyOf(go t)
-            | TyIndexedAccess(objTy, index) -> FTIndexedAccess(go objTy, go index)
-            | TyConditional(check, extends, whenTrue, whenFalse) ->
-                FTConditional(go check, go extends, go whenTrue, go whenFalse)
-            | TyTypar(axis, i) -> FTTypar(axis, i)
-            | TyUnknown n -> FTUnknown n
-            // The un-ground-operator residue (see the doc comment); placeholder name
-            // is fixed for determinism since the node is discarded post-freeze.
-            | TyVar _ -> FTUnknown "?ungrounded-operator"
-
-        go (Unification.zonk t)
+        // `toFrozenWith` is the one structural fold; only the `TyVar` POLICY differs
+        // here: the un-ground-operator residue (see the doc comment) maps to a fixed
+        // placeholder name for determinism, since the node is discarded post-freeze.
+        Unification.zonk t
+        |> FrozenTypeBridge.toFrozenWith (fun _ -> FTUnknown "?ungrounded-operator")
 
     let run (tast: TastFile) : Frozen.TastFile =
         let emittable =

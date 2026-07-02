@@ -822,6 +822,201 @@ module MeasureTerm =
         else
             m.Exponents |> List.map (fun (n, e) -> n, e * k) |> MeasureTerm.ofList
 
+/// One-level structural walks over `FrozenType`'s DIRECT children — THE answer to
+/// the "every new constructor fans out into N hand-written walker arms" tax: a
+/// generic walk keeps only its leaf-specific arms and delegates every
+/// child-carrying case here, so the next constructor addition touches this module
+/// instead of twenty walk sites. Walks with per-arm SEMANTICS (encoders,
+/// renderers, `freeze`) stay explicit exhaustive matches by design — these
+/// skeletons are only for walks where child recursion is definitionally correct
+/// for any child-carrying arm.
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+[<RequireQualifiedAccess>]
+module FrozenType =
+    /// Rebuild with `f` applied to each DIRECT child; a leaf returns unchanged.
+    /// `FTOr` rebuilds through `MkUnion` — a mapped member set can collapse or
+    /// splice — so every mapping walk inherits the canonical-form invariant
+    /// STRUCTURALLY instead of by per-site convention.
+    let mapChildren (f: FrozenType -> FrozenType) (t: FrozenType) : FrozenType =
+        match t with
+        | FTConst(name, args) -> FTConst(name, EqArray.map f args)
+        | FTFun(arg, result) -> FTFun(f arg, f result)
+        | FTTuple items -> FTTuple(EqArray.map f items)
+        | FTRecord(key, args) -> FTRecord(key, EqArray.map f args)
+        | FTUnion(key, args) -> FTUnion(key, EqArray.map f args)
+        | FTClass(key, args) -> FTClass(key, EqArray.map f args)
+        | FTOr members -> FrozenType.MkUnion(seq { for m in members -> f m })
+        | FTKeyOf ty -> FTKeyOf(f ty)
+        | FTIndexedAccess(objTy, index) -> FTIndexedAccess(f objTy, f index)
+        | FTConditional(check, extends, whenTrue, whenFalse) ->
+            FTConditional(f check, f extends, f whenTrue, f whenFalse)
+        | FTEnum _
+        | FTLiteral _
+        | FTTypar _
+        | FTUnknown _ -> t
+
+    let iterChildren (f: FrozenType -> unit) (t: FrozenType) : unit =
+        match t with
+        | FTConst(_, args)
+        | FTRecord(_, args)
+        | FTUnion(_, args)
+        | FTClass(_, args) -> EqArray.iter f args
+        | FTFun(arg, result) ->
+            f arg
+            f result
+        | FTTuple items -> EqArray.iter f items
+        | FTOr members -> EqSet.iter f members
+        | FTKeyOf ty -> f ty
+        | FTIndexedAccess(objTy, index) ->
+            f objTy
+            f index
+        | FTConditional(check, extends, whenTrue, whenFalse) ->
+            f check
+            f extends
+            f whenTrue
+            f whenFalse
+        | FTEnum _
+        | FTLiteral _
+        | FTTypar _
+        | FTUnknown _ -> ()
+
+    /// `p` holds for EVERY direct child (vacuously true at a leaf). Short-circuits.
+    let forallChildren (p: FrozenType -> bool) (t: FrozenType) : bool =
+        match t with
+        | FTConst(_, args)
+        | FTRecord(_, args)
+        | FTUnion(_, args)
+        | FTClass(_, args) -> EqArray.forall p args
+        | FTFun(arg, result) -> p arg && p result
+        | FTTuple items -> EqArray.forall p items
+        | FTOr members -> EqSet.forall p members
+        | FTKeyOf ty -> p ty
+        | FTIndexedAccess(objTy, index) -> p objTy && p index
+        | FTConditional(check, extends, whenTrue, whenFalse) -> p check && p extends && p whenTrue && p whenFalse
+        | FTEnum _
+        | FTLiteral _
+        | FTTypar _
+        | FTUnknown _ -> true
+
+    /// `p` holds for SOME direct child (vacuously false at a leaf). Short-circuits.
+    let existsChild (p: FrozenType -> bool) (t: FrozenType) : bool =
+        not (forallChildren (fun c -> not (p c)) t)
+
+    /// PAIRWISE descent: when `a` and `b` share the same head (same case, same
+    /// child count — nominal KEYS are deliberately not compared, mirroring the
+    /// open-vs-instantiated template matching this serves), invoke `f` on each
+    /// corresponding child pair; any head mismatch is a silent no-op (the caller
+    /// decides what a mismatch means). `FTOr` pairs members POSITIONALLY: `EqSet`
+    /// preserves insertion order and instantiation maps members in order (no
+    /// re-sort), so the i-th open member pairs with the i-th instantiated one; a
+    /// dedup-collapse changes the length and the guard declines.
+    let iterChildren2 (f: FrozenType -> FrozenType -> unit) (a: FrozenType) (b: FrozenType) : unit =
+        let pairwise (xs: EqArray<FrozenType>) (ys: EqArray<FrozenType>) =
+            if xs.Length = ys.Length then
+                for i in 0 .. xs.Length - 1 do
+                    f xs.[i] ys.[i]
+
+        match a, b with
+        | FTFun(a1, r1), FTFun(a2, r2) ->
+            f a1 a2
+            f r1 r2
+        | FTTuple xs, FTTuple ys
+        | FTConst(_, xs), FTConst(_, ys)
+        | FTRecord(_, xs), FTRecord(_, ys)
+        | FTUnion(_, xs), FTUnion(_, ys)
+        | FTClass(_, xs), FTClass(_, ys) -> pairwise xs ys
+        | FTOr xs, FTOr ys when xs.Length = ys.Length ->
+            for i in 0 .. xs.Length - 1 do
+                f xs.[i] ys.[i]
+        | FTKeyOf x1, FTKeyOf x2 -> f x1 x2
+        | FTIndexedAccess(o1, i1), FTIndexedAccess(o2, i2) ->
+            f o1 o2
+            f i1 i2
+        | FTConditional(c1, e1, wt1, wf1), FTConditional(c2, e2, wt2, wf2) ->
+            f c1 c2
+            f e1 e2
+            f wt1 wt2
+            f wf1 wf2
+        | _ -> ()
+
+/// `SemType` sibling of the `FrozenType` child-walk module above — the same
+/// one-level skeletons, PURELY structural: no `resolveStep`/`zonk` here (a walk
+/// dispatches on its own resolved view first, then delegates the child-carrying
+/// remainder). `TyVar` is a leaf from this module's viewpoint.
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+[<RequireQualifiedAccess>]
+module SemType =
+    /// Rebuild with `f` applied to each DIRECT child; a leaf (incl. `TyVar`)
+    /// returns unchanged. `TyOr` rebuilds through `UnionMembers.Map`/`MkUnion`, so
+    /// every mapping walk inherits the canonical-form invariant structurally.
+    let mapChildren (f: SemType -> SemType) (t: SemType) : SemType =
+        match t with
+        | TyConst(name, args) -> TyConst(name, EqArray.map f args)
+        | TyFun(arg, result) -> TyFun(f arg, f result)
+        | TyTuple items -> TyTuple(EqArray.map f items)
+        | TyRecord(key, args) -> TyRecord(key, EqArray.map f args)
+        | TyUnion(key, args) -> TyUnion(key, EqArray.map f args)
+        | TyClass(key, args) -> TyClass(key, EqArray.map f args)
+        | TyOr members -> members.Map f
+        | TyKeyOf ty -> TyKeyOf(f ty)
+        | TyIndexedAccess(objTy, index) -> TyIndexedAccess(f objTy, f index)
+        | TyConditional(check, extends, whenTrue, whenFalse) ->
+            TyConditional(f check, f extends, f whenTrue, f whenFalse)
+        | TyVar _
+        | TyEnum _
+        | TyLiteral _
+        | TyTypar _
+        | TyUnknown _ -> t
+
+    let iterChildren (f: SemType -> unit) (t: SemType) : unit =
+        match t with
+        | TyConst(_, args)
+        | TyRecord(_, args)
+        | TyUnion(_, args)
+        | TyClass(_, args) -> EqArray.iter f args
+        | TyFun(arg, result) ->
+            f arg
+            f result
+        | TyTuple items -> EqArray.iter f items
+        | TyOr members -> EqSet.iter f members.Members
+        | TyKeyOf ty -> f ty
+        | TyIndexedAccess(objTy, index) ->
+            f objTy
+            f index
+        | TyConditional(check, extends, whenTrue, whenFalse) ->
+            f check
+            f extends
+            f whenTrue
+            f whenFalse
+        | TyVar _
+        | TyEnum _
+        | TyLiteral _
+        | TyTypar _
+        | TyUnknown _ -> ()
+
+    /// `p` holds for EVERY direct child (vacuously true at a leaf). Short-circuits.
+    let forallChildren (p: SemType -> bool) (t: SemType) : bool =
+        match t with
+        | TyConst(_, args)
+        | TyRecord(_, args)
+        | TyUnion(_, args)
+        | TyClass(_, args) -> EqArray.forall p args
+        | TyFun(arg, result) -> p arg && p result
+        | TyTuple items -> EqArray.forall p items
+        | TyOr members -> EqSet.forall p members.Members
+        | TyKeyOf ty -> p ty
+        | TyIndexedAccess(objTy, index) -> p objTy && p index
+        | TyConditional(check, extends, whenTrue, whenFalse) -> p check && p extends && p whenTrue && p whenFalse
+        | TyVar _
+        | TyEnum _
+        | TyLiteral _
+        | TyTypar _
+        | TyUnknown _ -> true
+
+    /// `p` holds for SOME direct child (vacuously false at a leaf). Short-circuits.
+    let existsChild (p: SemType -> bool) (t: SemType) : bool =
+        not (forallChildren (fun c -> not (p c)) t)
+
 /// The `SemType` ↔ `FrozenType` bridge. `toFrozen` is
 /// the Edge-A sink-side conversion; `ofFrozen` its inverse. On the *post-freeze*
 /// `SemType` subset (`{TyConst, TyFun, TyTuple, TyRecord, TyUnion, TyClass,
@@ -834,31 +1029,40 @@ module MeasureTerm =
 /// boundary callers can wrap a `.ty` in `toFrozen` unqualified.
 [<AutoOpen>]
 module FrozenTypeBridge =
-    /// `SemType -> FrozenType`. Total on the post-freeze subset; a hard error on
-    /// `TyVar` (an inference metavar must never reach the frozen boundary).
-    let rec toFrozen (ty: SemType) : FrozenType =
+    /// `toFrozen` with the `TyVar` leaf as a POLICY parameter — the single
+    /// `SemType -> FrozenType` structural fold; `toFrozen` (hard error) and
+    /// `Freeze.freezeTy`'s documented-temporary lenient placeholder are its two
+    /// instantiations, so the fold body cannot drift between them.
+    let rec toFrozenWith (onVar: SemType -> FrozenType) (ty: SemType) : FrozenType =
+        let go = toFrozenWith onVar
+
         match ty with
-        | TyConst(name, args) -> FTConst(name, EqArray.map toFrozen args)
-        | TyFun(arg, result) -> FTFun(toFrozen arg, toFrozen result)
-        | TyTuple items -> FTTuple(EqArray.map toFrozen items)
-        | TyRecord(key, args) -> FTRecord(key, EqArray.map toFrozen args)
-        | TyUnion(key, args) -> FTUnion(key, EqArray.map toFrozen args)
-        | TyClass(key, args) -> FTClass(key, EqArray.map toFrozen args)
+        | TyConst(name, args) -> FTConst(name, EqArray.map go args)
+        | TyFun(arg, result) -> FTFun(go arg, go result)
+        | TyTuple items -> FTTuple(EqArray.map go items)
+        | TyRecord(key, args) -> FTRecord(key, EqArray.map go args)
+        | TyUnion(key, args) -> FTUnion(key, EqArray.map go args)
+        | TyClass(key, args) -> FTClass(key, EqArray.map go args)
         // Enums are niladic nominals (no args, no typars) — a pure key carry-over.
         | TyEnum key -> FTEnum key
         // Rebuild through the smart constructor — freezing members can collapse the
         // set (two distinct `SemType` members freezing equal), so never a raw map.
-        | TyOr members -> FrozenType.MkUnion(seq { for m in members.Members -> toFrozen m })
+        | TyOr members -> FrozenType.MkUnion(seq { for m in members.Members -> go m })
         | TyLiteral v -> FTLiteral v
         // The type-level computations carry across as inert nodes; their children
-        // freeze structurally (a still-open method var would fail on the TyVar arm).
-        | TyKeyOf t -> FTKeyOf(toFrozen t)
-        | TyIndexedAccess(objTy, index) -> FTIndexedAccess(toFrozen objTy, toFrozen index)
+        // freeze structurally (a still-open method var lands on the `onVar` policy).
+        | TyKeyOf t -> FTKeyOf(go t)
+        | TyIndexedAccess(objTy, index) -> FTIndexedAccess(go objTy, go index)
         | TyConditional(check, extends, whenTrue, whenFalse) ->
-            FTConditional(toFrozen check, toFrozen extends, toFrozen whenTrue, toFrozen whenFalse)
+            FTConditional(go check, go extends, go whenTrue, go whenFalse)
         | TyTypar(axis, index) -> FTTypar(axis, index)
         | TyUnknown name -> FTUnknown name
-        | TyVar _ -> failwithf "FrozenType.toFrozen: cannot freeze SemType: %A" ty
+        | TyVar _ -> onVar ty
+
+    /// `SemType -> FrozenType`. Total on the post-freeze subset; a hard error on
+    /// `TyVar` (an inference metavar must never reach the frozen boundary).
+    let toFrozen (ty: SemType) : FrozenType =
+        toFrozenWith (fun v -> failwithf "FrozenType.toFrozen: cannot freeze SemType: %A" v) ty
 
     /// Realise a `FrozenType` template, resolving its open typars via the two
     /// supplied callbacks: `declaring i` yields the declaring type's i-th arg;
@@ -970,37 +1174,14 @@ module FrozenTypeBridge =
     /// on their own. A method typar is a producer bug here (type-shape / contract
     /// templates carry no method axis).
     let rec maxDeclaringIndex (template: FrozenType) : int =
-        let maxOf (args: EqArray<FrozenType>) =
-            let mutable m = -1
-
-            for i in 0 .. args.Length - 1 do
-                m <- max m (maxDeclaringIndex args.[i])
-
-            m
-
         match template with
-        | FTConst(_, args)
-        | FTRecord(_, args)
-        | FTUnion(_, args)
-        | FTClass(_, args) -> maxOf args
-        // A niladic nominal references no declaring typar; likewise a ground literal.
-        | FTEnum _
-        | FTLiteral _ -> -1
-        | FTOr members -> members |> EqSet.fold (fun m t -> max m (maxDeclaringIndex t)) -1
-        | FTFun(arg, result) -> max (maxDeclaringIndex arg) (maxDeclaringIndex result)
-        | FTTuple items -> maxOf items
-        // The type-level computations reference declaring typars through their children
-        // (`Events[Key]` → `FTIndexedAccess(FTTypar(Declaring,0), FTTypar(Method,0))`).
-        | FTKeyOf t -> maxDeclaringIndex t
-        | FTIndexedAccess(objTy, index) -> max (maxDeclaringIndex objTy) (maxDeclaringIndex index)
-        | FTConditional(check, extends, whenTrue, whenFalse) ->
-            max
-                (max (maxDeclaringIndex check) (maxDeclaringIndex extends))
-                (max (maxDeclaringIndex whenTrue) (maxDeclaringIndex whenFalse))
         | FTTypar(TyparAxis.Declaring, i) -> i
         | FTTypar(TyparAxis.Method, j) ->
             failwithf "FrozenTypeBridge.maxDeclaringIndex: unexpected method typar %d in a type-shape template" j
-        | FTUnknown _ -> -1
+        | t ->
+            let mutable m = -1
+            FrozenType.iterChildren (fun c -> m <- max m (maxDeclaringIndex c)) t
+            m
 
     /// Split a freshly-translated member signature's single typar axis into the
     /// declaring + method axes. The contract-extraction translate (`translateType`)
@@ -1015,30 +1196,12 @@ module FrozenTypeBridge =
     /// the single point that gives an extracted member its method axis (so codegen
     /// reads a real `MethodArity` and mints the `MethodSpec`'s generic params).
     let rec reaxisMethodTypars (declaringArity: int) (template: FrozenType) : FrozenType =
-        let go = reaxisMethodTypars declaringArity
-
         match template with
-        | FTConst(name, args) -> FTConst(name, EqArray.map go args)
-        | FTFun(arg, result) -> FTFun(go arg, go result)
-        | FTTuple items -> FTTuple(EqArray.map go items)
-        | FTRecord(key, args) -> FTRecord(key, EqArray.map go args)
-        | FTUnion(key, args) -> FTUnion(key, EqArray.map go args)
-        | FTClass(key, args) -> FTClass(key, EqArray.map go args)
-        // Route through the smart constructor — reaxis can't collapse members, but
-        // the invariant is that every FTOr rebuild goes through `MkUnion`.
-        | FTOr members -> FrozenType.MkUnion(seq { for m in members -> go m })
-        // Reaxis threads the computations' children so a member-introduced typar buried
-        // in a `keyof`/indexed/conditional child flips to the method axis too.
-        | FTKeyOf t -> FTKeyOf(go t)
-        | FTIndexedAccess(objTy, index) -> FTIndexedAccess(go objTy, go index)
-        | FTConditional(check, extends, whenTrue, whenFalse) ->
-            FTConditional(go check, go extends, go whenTrue, go whenFalse)
         | FTTypar(TyparAxis.Declaring, i) when i >= declaringArity -> FTTypar(TyparAxis.Method, i - declaringArity)
-        | FTTypar _
-        // A niladic nominal carries no typar axis to reaxis; a literal is a ground leaf.
-        | FTEnum _
-        | FTLiteral _
-        | FTUnknown _ -> template
+        // Child recursion reaches a member-introduced typar buried in ANY child —
+        // `keyof`/indexed/conditional included; `mapChildren` routes `FTOr` through
+        // `MkUnion`, keeping the every-rebuild-canonicalises invariant.
+        | t -> FrozenType.mapChildren (reaxisMethodTypars declaringArity) t
 
     /// `true` when the type is fully ground: no open typar on either axis and no
     /// `FTUnknown` (a leaked inference metavar the front end never resolved). The
@@ -1047,26 +1210,9 @@ module FrozenTypeBridge =
         match t with
         | FTTypar _
         | FTUnknown _ -> false
-        | FTConst(_, args)
-        | FTRecord(_, args)
-        | FTUnion(_, args)
-        | FTClass(_, args) -> args |> EqArray.forall ftIsGround
-        // A niladic nominal is unconditionally ground (no args, no typars); a
-        // literal is a ground constant.
-        | FTEnum _
-        | FTLiteral _ -> true
-        | FTOr members -> members |> EqSet.forall ftIsGround
-        | FTFun(a, b) -> ftIsGround a && ftIsGround b
-        | FTTuple items -> items |> EqArray.forall ftIsGround
-        // A type-level computation is ground iff every child is — an open typar in any
-        // child (e.g. an ungrounded `keyof T`) keeps the whole node non-ground.
-        | FTKeyOf t -> ftIsGround t
-        | FTIndexedAccess(objTy, index) -> ftIsGround objTy && ftIsGround index
-        | FTConditional(check, extends, whenTrue, whenFalse) ->
-            ftIsGround check
-            && ftIsGround extends
-            && ftIsGround whenTrue
-            && ftIsGround whenFalse
+        // Every other node is ground iff every child is (vacuously ground leaves
+        // included) — an open typar in any child keeps the whole node non-ground.
+        | t -> FrozenType.forallChildren ftIsGround t
 
     /// The `FrozenType → FrozenType` use-site substitution codegen applies to a
     /// type-shape template directly: codegen reads the template and does its own
@@ -1081,24 +1227,7 @@ module FrozenTypeBridge =
     /// args; that leaf degrades to `FTUnknown` rather than crashing — the frozen
     /// counterpart of `translateType`'s unresolved-name → `FTUnknown` arm.
     let rec substituteDeclaring (declaringArgs: FrozenType[]) (template: FrozenType) : FrozenType =
-        let go = substituteDeclaring declaringArgs
-
         match template with
-        | FTConst(name, args) -> FTConst(name, EqArray.map go args)
-        | FTFun(arg, result) -> FTFun(go arg, go result)
-        | FTTuple items -> FTTuple(EqArray.map go items)
-        | FTRecord(key, args) -> FTRecord(key, EqArray.map go args)
-        | FTUnion(key, args) -> FTUnion(key, EqArray.map go args)
-        | FTClass(key, args) -> FTClass(key, EqArray.map go args)
-        // A niladic nominal references no declaring typar — pass it through; a
-        // literal is a ground leaf.
-        | FTEnum _
-        | FTLiteral _ -> template
-        | FTOr members -> FrozenType.MkUnion(seq { for m in members -> go m })
-        | FTKeyOf t -> FTKeyOf(go t)
-        | FTIndexedAccess(objTy, index) -> FTIndexedAccess(go objTy, go index)
-        | FTConditional(check, extends, whenTrue, whenFalse) ->
-            FTConditional(go check, go extends, go whenTrue, go whenFalse)
         | FTTypar(TyparAxis.Declaring, i) ->
             if i < declaringArgs.Length then
                 declaringArgs.[i]
@@ -1106,7 +1235,7 @@ module FrozenTypeBridge =
                 FTUnknown "<abbrev-arity-mismatch>"
         | FTTypar(TyparAxis.Method, j) ->
             failwithf "FrozenTypeBridge.substituteDeclaring: unexpected method typar %d in a type-shape template" j
-        | FTUnknown name -> FTUnknown name
+        | t -> FrozenType.mapChildren (substituteDeclaring declaringArgs) t
 
     /// The shared tail of the project-local and external seq-interface witnesses
     /// (`EmitResolve.tryInterfaceWitness` / `ClrRecipes.tryExternalInterfaceWitness`):

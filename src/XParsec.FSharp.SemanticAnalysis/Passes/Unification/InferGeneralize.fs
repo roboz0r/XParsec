@@ -136,27 +136,8 @@ module internal UnificationInferGeneralize =
                 match root.Link with
                 | ValueSome target -> hasPendingDotAccess target
                 | ValueNone -> false
-        | TyConst(_, args) -> EqArray.exists hasPendingDotAccess args
-        | TyFun(a, r) -> hasPendingDotAccess a || hasPendingDotAccess r
-        | TyTuple xs -> EqArray.exists hasPendingDotAccess xs
-        | TyRecord(_, args) -> EqArray.exists hasPendingDotAccess args
-        | TyUnion(_, args) -> EqArray.exists hasPendingDotAccess args
-        | TyClass(_, args) -> EqArray.exists hasPendingDotAccess args
-        | TyOr members -> EqSet.exists hasPendingDotAccess members.Members
-        // A type-level computation carries pending dot access iff a child does.
-        | TyKeyOf t -> hasPendingDotAccess t
-        | TyIndexedAccess(objTy, index) -> hasPendingDotAccess objTy || hasPendingDotAccess index
-        | TyConditional(check, extends, whenTrue, whenFalse) ->
-            hasPendingDotAccess check
-            || hasPendingDotAccess extends
-            || hasPendingDotAccess whenTrue
-            || hasPendingDotAccess whenFalse
-        | TyUnknown _ -> false
-        // Post-freeze leaf; never seen during generalisation.
-        | TyTypar _ -> false
-        // A nominal enum / a structural literal holds no TyVar — no pending dot access.
-        | TyEnum _
-        | TyLiteral _ -> false
+        // A compound carries pending dot access iff a child does; leaves hold none.
+        | t -> SemType.existsChild hasPendingDotAccess t
 
     /// A chained default like `default ^T3 : ^T1 ; default ^T1 : int` needs
     /// two passes, hence the fixpoint iteration.
@@ -192,41 +173,7 @@ module internal UnificationInferGeneralize =
                         match root.Link with
                         | ValueSome target -> go target
                         | ValueNone -> ()
-                | TyConst(_, args) ->
-                    for a in args do
-                        go a
-                | TyFun(a, r) ->
-                    go a
-                    go r
-                | TyTuple xs ->
-                    for x in xs do
-                        go x
-                | TyRecord(_, args) ->
-                    for a in args do
-                        go a
-                | TyUnion(_, args) ->
-                    for a in args do
-                        go a
-                | TyClass(_, args) ->
-                    for a in args do
-                        go a
-                | TyOr members ->
-                    for m in members.Members do
-                        go m
-                | TyKeyOf t -> go t
-                | TyIndexedAccess(objTy, index) ->
-                    go objTy
-                    go index
-                | TyConditional(check, extends, whenTrue, whenFalse) ->
-                    go check
-                    go extends
-                    go whenTrue
-                    go whenFalse
-                | TyUnknown _ -> ()
-                | TyTypar _ -> ()
-                // A nominal enum / a structural literal holds no defaultable TyVar.
-                | TyEnum _
-                | TyLiteral _ -> ()
+                | t -> SemType.iterChildren go t
 
             go t
             acc
@@ -340,34 +287,7 @@ module internal UnificationInferGeneralize =
                                     root.Link <- ValueSome listTy
                                 | _ -> root.Level <- outerLevel
                             | _ -> ()
-                | TyFun(a, b) ->
-                    walk a
-                    walk b
-                | TyConst(_, xs)
-                | TyTuple xs
-                | TyRecord(_, xs)
-                | TyUnion(_, xs)
-                | TyClass(_, xs) ->
-                    for x in xs do
-                        walk x
-                | TyOr members ->
-                    for x in members.Members do
-                        walk x
-                | TyKeyOf t -> walk t
-                | TyIndexedAccess(objTy, index) ->
-                    walk objTy
-                    walk index
-                | TyConditional(check, extends, whenTrue, whenFalse) ->
-                    walk check
-                    walk extends
-                    walk whenTrue
-                    walk whenFalse
-                | TyUnknown _ -> ()
-                | TyTypar _ -> ()
-                // A nominal enum / a structural literal holds no list-literal
-                // container TyVar — a leaf.
-                | TyEnum _
-                | TyLiteral _ -> ()
+                | t -> SemType.iterChildren walk t
 
             walk ty
 

@@ -48,6 +48,8 @@ module Inline =
     /// Substitute typar roots present in `subst`. The frozen TAST is zonked,
     /// so a free typar is `TyVar root` with no Link; chase to the union-find
     /// root and swap. Roots absent from `subst` stay abstract.
+    /// (TODO(frozen-type): substitute by `(axis,index)` once inline bindings carry
+    /// `TyTypar` — it passes through `mapChildren`'s leaf arm until then.)
     let rec private substType (subst: Dictionary<TypeVar, SemType>) (t: SemType) : SemType =
         match t with
         | TyVar tv ->
@@ -56,32 +58,9 @@ module Inline =
             match subst.TryGetValue root with
             | true, repl -> repl
             | _ -> TyVar root
-        | TyConst(n, args) -> TyConst(n, EqArray.map (substType subst) args)
-        | TyFun(a, r) -> TyFun(substType subst a, substType subst r)
-        | TyTuple xs -> TyTuple(EqArray.map (substType subst) xs)
-        | TyRecord(n, args) -> TyRecord(n, EqArray.map (substType subst) args)
-        | TyUnion(n, args) -> TyUnion(n, EqArray.map (substType subst) args)
-        | TyClass(n, args) -> TyClass(n, EqArray.map (substType subst) args)
-        // Through `mkUnion`: substituting a typar member can collapse / reorder the
-        // set, so re-canonicalise rather than `EqArray.map` (see `Engine.zonk`).
-        | TyOr members -> members.Map(substType subst)
-        // The type-level computations carry typars in their children.
-        | TyKeyOf t -> TyKeyOf(substType subst t)
-        | TyIndexedAccess(objTy, index) -> TyIndexedAccess(substType subst objTy, substType subst index)
-        | TyConditional(check, extends, whenTrue, whenFalse) ->
-            TyConditional(
-                substType subst check,
-                substType subst extends,
-                substType subst whenTrue,
-                substType subst whenFalse
-            )
-        // A nominal enum / a structural literal carries no typar to substitute.
-        | TyEnum _
-        | TyLiteral _ -> t
-        | TyUnknown _ -> t
-        // TODO(frozen-type): substitute by `(axis,index)` once inline
-        // bindings carry `TyTypar`. Passthrough until then.
-        | TyTypar _ -> t
+        // Pure child recursion (`mapChildren` routes `TyOr` through the smart
+        // constructor: substituting a typar member can collapse / reorder the set).
+        | t -> SemType.mapChildren (substType subst) t
 
     /// Canonicalise the primitive type-name aliases a static-optimization clause
     /// might use (`int32`/`int`, `double`/`float64`/`float`, `uint8`/`byte`) so a

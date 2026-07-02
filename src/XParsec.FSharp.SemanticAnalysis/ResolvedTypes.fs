@@ -29,39 +29,9 @@ module ResolvedTypes =
                 | ValueNone ->
                     if not (allowed.Contains root) then
                         acc.Add(root) |> ignore
-            | TyConst(_, args) ->
-                for a in args do
-                    go a
-            | TyFun(a, r) ->
-                go a
-                go r
-            | TyTuple items ->
-                for x in items do
-                    go x
-            | TyRecord(_, args)
-            | TyUnion(_, args)
-            | TyClass(_, args) ->
-                for a in args do
-                    go a
-            | TyOr members ->
-                for a in members.Members do
-                    go a
-            // The type-level computations can hold a still-free var in any child.
-            | TyKeyOf t -> go t
-            | TyIndexedAccess(objTy, index) ->
-                go objTy
-                go index
-            | TyConditional(check, extends, whenTrue, whenFalse) ->
-                go check
-                go extends
-                go whenTrue
-                go whenFalse
-            | TyUnknown _ -> ()
-            // Post-freeze leaf; this check runs pre-freeze and never sees it.
-            | TyTypar _ -> ()
-            // A nominal enum / a structural literal has no free typar — leaf.
-            | TyEnum _
-            | TyLiteral _ -> ()
+            // A still-free var can hide in any child (the type-level computations
+            // included); leaves hold none.
+            | t -> SemType.iterChildren go t
 
         go t
 

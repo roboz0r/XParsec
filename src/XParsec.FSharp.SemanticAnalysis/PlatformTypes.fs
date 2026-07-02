@@ -59,39 +59,10 @@ module PlatformTypes =
 
                 for a in args do
                     go a
-            | TyFun(a, r) ->
-                go a
-                go r
-            | TyTuple items ->
-                for x in items do
-                    go x
-            | TyRecord(_, args)
-            | TyUnion(_, args)
-            | TyClass(_, args) ->
-                for a in args do
-                    go a
-            | TyOr members ->
-                for a in members.Members do
-                    go a
-            // The type-level computations are checked through their children (a child
-            // could name an unrepresentable platform type).
-            | TyKeyOf t -> go t
-            | TyIndexedAccess(objTy, index) ->
-                go objTy
-                go index
-            | TyConditional(check, extends, whenTrue, whenFalse) ->
-                go check
-                go extends
-                go whenTrue
-                go whenFalse
-            // A nominal enum / a structural literal has no type args and is not an
-            // intrinsic name — it contributes nothing to the unrepresentable set (a
-            // literal erases to its base primitive, which is always representable).
-            | TyEnum _
-            | TyLiteral _
-            | TyVar _
-            | TyTypar _
-            | TyUnknown _ -> ()
+            // Every other node is judged through its children (a child anywhere —
+            // the type-level computations included — could name an unrepresentable
+            // platform type); leaves contribute nothing.
+            | ty -> SemType.iterChildren go ty
 
         go (Unification.zonk t)
 

@@ -144,28 +144,10 @@ module InlineExpansion =
     /// back to codegen's `BuiltinOps`.
     let rec private isGroundType (t: SemType) : bool =
         match Unification.zonk t with
-        | TyVar _ -> false
-        | TyConst(_, xs) -> EqArray.forall isGroundType xs
-        | TyFun(a, b) -> isGroundType a && isGroundType b
-        | TyTuple xs -> EqArray.forall isGroundType xs
-        | TyRecord(_, xs)
-        | TyUnion(_, xs)
-        | TyClass(_, xs) -> EqArray.forall isGroundType xs
-        | TyOr members -> EqSet.forall isGroundType members.Members
-        // A type-level computation is ground iff every child is.
-        | TyKeyOf t -> isGroundType t
-        | TyIndexedAccess(objTy, index) -> isGroundType objTy && isGroundType index
-        | TyConditional(check, extends, whenTrue, whenFalse) ->
-            isGroundType check
-            && isGroundType extends
-            && isGroundType whenTrue
-            && isGroundType whenFalse
-        | TyUnknown _ -> false
+        | TyVar _
+        | TyUnknown _
         | TyTypar _ -> false
-        // A nominal enum is niladic; a structural literal is a ground constant —
-        // both unconditionally ground.
-        | TyEnum _
-        | TyLiteral _ -> true
+        | t -> SemType.forallChildren isGroundType t
 
     /// Whether a derived inline type argument is concrete enough to splice a saturated
     /// builtin operator. A ground type qualifies; so does a *nominal-headed* type

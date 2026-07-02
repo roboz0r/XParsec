@@ -113,31 +113,16 @@ module internal UnificationInferExternalCall =
 
     /// Method typars of `chosen` referenced in `t` (any structural depth) — the axis a
     /// carried node's grounding must seed.
-    let rec private referencedMethodTypars (t: SemType) : Set<int> =
-        match resolveStep t with
-        | TyTypar(TyparAxis.Method, j) -> Set.singleton j
-        | TyFun(a, b) -> Set.union (referencedMethodTypars a) (referencedMethodTypars b)
-        | TyTuple xs
-        | TyConst(_, xs)
-        | TyRecord(_, xs)
-        | TyUnion(_, xs)
-        | TyClass(_, xs) ->
-            xs
-            |> EqArray.fold (fun acc x -> Set.union acc (referencedMethodTypars x)) Set.empty
-        | TyOr ms ->
-            ms.Members
-            |> EqSet.fold (fun acc x -> Set.union acc (referencedMethodTypars x)) Set.empty
-        | TyKeyOf x -> referencedMethodTypars x
-        | TyIndexedAccess(o, i) -> Set.union (referencedMethodTypars o) (referencedMethodTypars i)
-        | TyConditional(c, e, wt, wf) ->
-            Set.unionMany
-                [
-                    referencedMethodTypars c
-                    referencedMethodTypars e
-                    referencedMethodTypars wt
-                    referencedMethodTypars wf
-                ]
-        | _ -> Set.empty
+    let private referencedMethodTypars (t: SemType) : Set<int> =
+        let mutable acc = Set.empty
+
+        let rec walk t =
+            match resolveStep t with
+            | TyTypar(TyparAxis.Method, j) -> acc <- Set.add j acc
+            | t -> SemType.iterChildren walk t
+
+        walk t
+        acc
 
     /// Pre-bind a method typar to a `TyLiteral` when a syntactic string constant grounds it
     /// but the typar appears ONLY inside a non-bare parameter position (mitt's no-payload

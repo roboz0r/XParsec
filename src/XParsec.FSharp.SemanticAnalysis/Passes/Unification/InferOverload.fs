@@ -31,14 +31,7 @@ module UnificationInferOverload =
         | TyKeyOf _
         | TyIndexedAccess _
         | TyConditional _ -> true
-        | TyFun(a, b) -> hasCarriedNode a || hasCarriedNode b
-        | TyTuple xs -> xs |> EqArray.exists hasCarriedNode
-        | TyConst(_, args)
-        | TyRecord(_, args)
-        | TyUnion(_, args)
-        | TyClass(_, args) -> args |> EqArray.exists hasCarriedNode
-        | TyOr ms -> ms.Members |> EqSet.exists hasCarriedNode
-        | _ -> false
+        | t -> SemType.existsChild hasCarriedNode t
 
     /// NOT an equality: the structural-match relation overload FILTERING uses.
     /// Wildcard arms (open method typars, carried type-level nodes, opaque unions)

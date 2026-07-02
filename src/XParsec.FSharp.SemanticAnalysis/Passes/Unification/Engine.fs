@@ -37,29 +37,9 @@ module UnificationEngine =
             match UnionFind.headZonk t with
             | TyVar _ as v -> v
             | resolved -> zonk resolved
-        | TyConst(n, args) -> TyConst(n, EqArray.map zonk args)
-        | TyFun(a, r) -> TyFun(zonk a, zonk r)
-        | TyTuple items -> TyTuple(EqArray.map zonk items)
-        | TyRecord(n, args) -> TyRecord(n, EqArray.map zonk args)
-        | TyUnion(n, args) -> TyUnion(n, EqArray.map zonk args)
-        | TyClass(n, args) -> TyClass(n, EqArray.map zonk args)
-        // Rebuild through `mkUnion`, not a bare `EqArray.map`: resolving a member
-        // can collapse the set (`'T | string` with `'T := string` → `string | string`
-        // → `string`) or reorder it, and only `mkUnion` re-establishes the canonical
-        // (sorted/deduped/collapsed) form the equality layer's `n1 = n2` relies on.
-        | TyOr members -> members.Map zonk
-        // The type-level computations zonk their children — a fresh method var can
-        // live inside after instantiation, so it MUST be resolved here.
-        | TyKeyOf t -> TyKeyOf(zonk t)
-        | TyIndexedAccess(objTy, index) -> TyIndexedAccess(zonk objTy, zonk index)
-        | TyConditional(check, extends, whenTrue, whenFalse) ->
-            TyConditional(zonk check, zonk extends, zonk whenTrue, zonk whenFalse)
-        | TyUnknown _ -> t
-        // Post-freeze leaf; never produced during inference. Passthrough.
-        | TyTypar _ -> t
-        // A nominal enum / a structural literal has no args/typars to zonk — a leaf.
-        | TyEnum _
-        | TyLiteral _ -> t
+        // Pure child recursion (`mapChildren` routes `TyOr` through the smart
+        // constructor: resolving a member can collapse / reorder the set).
+        | t -> SemType.mapChildren zonk t
 
     /// Decompose a (zonked) tupled-argument type into its element types: a
     /// .NET-style call passes one argument that is a tuple / unit / single
@@ -150,28 +130,9 @@ module UnificationEngine =
                     root.Level <- target.Level
 
                 false
-        | TyConst(_, args) -> EqArray.exists (occursAndAdjust target) args
-        | TyFun(a, r) -> occursAndAdjust target a || occursAndAdjust target r
-        | TyTuple items -> EqArray.exists (occursAndAdjust target) items
-        | TyRecord(_, args) -> EqArray.exists (occursAndAdjust target) args
-        | TyUnion(_, args) -> EqArray.exists (occursAndAdjust target) args
-        | TyClass(_, args) -> EqArray.exists (occursAndAdjust target) args
-        | TyOr members -> EqSet.exists (occursAndAdjust target) members.Members
-        // The occurs check MUST descend the computations' children — a metavar buried
-        // in a `keyof`/indexed/conditional child still needs detection + level adjust.
-        | TyKeyOf t -> occursAndAdjust target t
-        | TyIndexedAccess(objTy, index) -> occursAndAdjust target objTy || occursAndAdjust target index
-        | TyConditional(check, extends, whenTrue, whenFalse) ->
-            occursAndAdjust target check
-            || occursAndAdjust target extends
-            || occursAndAdjust target whenTrue
-            || occursAndAdjust target whenFalse
-        | TyUnknown _ -> false
-        // A post-freeze typar leaf is not a TyVar and holds none — never occurs.
-        | TyTypar _ -> false
-        // A nominal enum / a structural literal holds no TyVar — never occurs.
-        | TyEnum _
-        | TyLiteral _ -> false
+        // Pure child descent — a metavar buried in ANY child (the type-level
+        // computations included) still needs detection + level adjustment.
+        | t -> SemType.existsChild (occursAndAdjust target) t
 
     /// Two non-equal measures emit a diagnostic; one of them is kept on the
     /// survivor so further unifications against it stay coherent.
@@ -216,31 +177,9 @@ module UnificationEngine =
                 match root.Link with
                 | ValueSome target when root.Units.IsNone -> substituteWith subst target
                 | _ -> TyVar root
-        | TyConst(n, args) -> TyConst(n, EqArray.map (substituteWith subst) args)
-        | TyFun(a, r) -> TyFun(substituteWith subst a, substituteWith subst r)
-        | TyTuple xs -> TyTuple(EqArray.map (substituteWith subst) xs)
-        | TyRecord(n, args) -> TyRecord(n, EqArray.map (substituteWith subst) args)
-        | TyUnion(n, args) -> TyUnion(n, EqArray.map (substituteWith subst) args)
-        | TyClass(n, args) -> TyClass(n, EqArray.map (substituteWith subst) args)
-        // Through `mkUnion`: substituting a typar member can collapse / reorder the
-        // set, so re-canonicalise rather than `EqArray.map` (see `zonk`).
-        | TyOr members -> members.Map(substituteWith subst)
-        // The type-level computations substitute their children.
-        | TyKeyOf t -> TyKeyOf(substituteWith subst t)
-        | TyIndexedAccess(objTy, index) -> TyIndexedAccess(substituteWith subst objTy, substituteWith subst index)
-        | TyConditional(check, extends, whenTrue, whenFalse) ->
-            TyConditional(
-                substituteWith subst check,
-                substituteWith subst extends,
-                substituteWith subst whenTrue,
-                substituteWith subst whenFalse
-            )
-        | TyUnknown _ -> t
-        // Post-freeze leaf; never produced during inference. Passthrough.
-        | TyTypar _ -> t
-        // A nominal enum / a structural literal carries no typar to substitute.
-        | TyEnum _
-        | TyLiteral _ -> t
+        // Pure child recursion (`mapChildren` routes `TyOr` through the smart
+        // constructor: substituting a typar member can collapse / reorder the set).
+        | t -> SemType.mapChildren (substituteWith subst) t
 
     /// Empty when the lengths don't match — the caller has already (or
     /// should) emit an arity diagnostic, and an empty subst keeps the field
@@ -927,14 +866,7 @@ module UnificationEngine =
         | TyKeyOf _
         | TyIndexedAccess _
         | TyConditional _ -> false
-        | TyFun(a, b) -> isGroundEval a && isGroundEval b
-        | TyTuple xs -> xs |> EqArray.forall isGroundEval
-        | TyConst(_, args)
-        | TyRecord(_, args)
-        | TyUnion(_, args)
-        | TyClass(_, args) -> args |> EqArray.forall isGroundEval
-        | TyOr ms -> ms.Members |> EqSet.forall isGroundEval
-        | _ -> true
+        | t -> SemType.forallChildren isGroundEval t
 
     /// Ground-evaluate a carried type-level computation as far as its inputs allow.
     /// Returns the FOLDED type when a rule fires; otherwise returns the (child-eval'd)
@@ -990,16 +922,9 @@ module UnificationEngine =
         // its leaf via `unify`'s structural descent, but a param that WRAPS the arrow (off's
         // optional `Handler<Events[Key]> | undefined` → `TyOr`) is admitted by `subsumes`,
         // which compares members whole — so its nested access must be folded HERE for the
-        // member to match. Rebuild `TyOr` through its smart constructor (a folded member can
-        // collapse/reorder the set); positional args ride `EqArray.map`.
-        | TyFun(a, b) -> TyFun(evalTypeLevel ctx a, evalTypeLevel ctx b)
-        | TyTuple xs -> TyTuple(EqArray.map (evalTypeLevel ctx) xs)
-        | TyOr members -> members.Map(evalTypeLevel ctx)
-        | TyConst(n, args) -> TyConst(n, EqArray.map (evalTypeLevel ctx) args)
-        | TyRecord(n, args) -> TyRecord(n, EqArray.map (evalTypeLevel ctx) args)
-        | TyUnion(n, args) -> TyUnion(n, EqArray.map (evalTypeLevel ctx) args)
-        | TyClass(n, args) -> TyClass(n, EqArray.map (evalTypeLevel ctx) args)
-        | other -> other
+        // member to match. `mapChildren` routes `TyOr` through its smart constructor
+        // (a folded member can collapse/reorder the set).
+        | t -> SemType.mapChildren (evalTypeLevel ctx) t
 
     /// A carried type-level node folded to a CONCRETE (non-carrier) type, or `ValueNone`
     /// when it is not a carrier or is still inert — the guard `unify`/`subsumes` re-enter
@@ -1237,23 +1162,10 @@ module UnificationEngine =
         match t with
         | TyClass(n, args) when args.IsEmpty && RuntimeNames.isSystemObjectKey n ->
             TyConst(RuntimeNames.objAbbrevName, EqArray.empty)
-        | TyClass(n, args) -> TyClass(n, EqArray.map normalizeObj args)
-        | TyFun(a, r) -> TyFun(normalizeObj a, normalizeObj r)
-        | TyTuple xs -> TyTuple(EqArray.map normalizeObj xs)
-        | TyRecord(n, args) -> TyRecord(n, EqArray.map normalizeObj args)
-        | TyUnion(n, args) -> TyUnion(n, EqArray.map normalizeObj args)
-        | TyConst(n, args) -> TyConst(n, EqArray.map normalizeObj args)
-        // Rebuild through `mkUnion`: normalising a member to `obj` can collapse
-        // the set (`System.Object | obj` → `obj`), so re-canonicalise rather than
-        // a bare member map (see `zonk`). Reachable once external/provider
-        // signatures carry a `TyOr` (the TS symbol-provider plan).
-        | TyOr members -> members.Map normalizeObj
-        // The type-level computations normalise `System.Object` in their children too.
-        | TyKeyOf t -> TyKeyOf(normalizeObj t)
-        | TyIndexedAccess(objTy, index) -> TyIndexedAccess(normalizeObj objTy, normalizeObj index)
-        | TyConditional(check, extends, whenTrue, whenFalse) ->
-            TyConditional(normalizeObj check, normalizeObj extends, normalizeObj whenTrue, normalizeObj whenFalse)
-        | other -> other
+        // Pure child recursion. `mapChildren` routes `TyOr` through the smart
+        // constructor: normalising a member to `obj` can collapse the set
+        // (`System.Object | obj` → `obj`).
+        | t -> SemType.mapChildren normalizeObj t
 
     let rec unify (ctx: PassContext) (key: NodeKey) (a: SemType) (b: SemType) =
         let a = resolveStep a
@@ -1827,6 +1739,11 @@ module UnificationEngine =
     /// satisfied iff every component supports it, so a still-free component
     /// carries the same constraint forward.
     and propagateToFreeArgs (ctx: PassContext) (c: SemanticConstraint) (t: SemType) : unit =
+        // Every child of a compound carries the constraint forward: an anonymous
+        // union supports a structural constraint iff every member does
+        // (`checkConstraint`'s all-members rule), and a carried type-level
+        // computation defers its constraint, so its still-free children take it
+        // so the check re-fires on grounding.
         let rec walk t =
             match resolveStep t with
             | TyVar tv ->
@@ -1834,45 +1751,7 @@ module UnificationEngine =
 
                 if not (root.Constraints |> List.exists (fun e -> e.Kind = c.Kind)) then
                     root.Constraints <- c :: root.Constraints
-            | TyConst(_, args) -> EqArray.iter walk args
-            | TyFun(a, r) ->
-                walk a
-                walk r
-            | TyTuple xs ->
-                for x in xs do
-                    walk x
-            | TyRecord(_, args) ->
-                for a in args do
-                    walk a
-            | TyUnion(_, args) ->
-                for a in args do
-                    walk a
-            | TyClass(_, args) ->
-                for a in args do
-                    walk a
-            | TyOr members ->
-                // An anonymous union supports a structural constraint iff every
-                // member does (`checkConstraint`'s all-members rule), so a still-free
-                // member carries the constraint forward.
-                for m in members.Members do
-                    walk m
-            // A carried type-level computation defers its constraint (`checkConstraint`
-            // above), so push it onto every still-free child so it re-fires on grounding.
-            | TyKeyOf t -> walk t
-            | TyIndexedAccess(objTy, index) ->
-                walk objTy
-                walk index
-            | TyConditional(check, extends, whenTrue, whenFalse) ->
-                walk check
-                walk extends
-                walk whenTrue
-                walk whenFalse
-            | TyUnknown _ -> ()
-            // A post-freeze typar leaf carries no free args.
-            | TyTypar _ -> ()
-            // A nominal enum / a structural literal has no free args to carry to.
-            | TyEnum _
-            | TyLiteral _ -> ()
+            | t -> SemType.iterChildren walk t
 
         walk t
 

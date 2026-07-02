@@ -368,78 +368,11 @@ type internal ClrEncoder(env: ClrEnv) =
 
                 if i >= 0 && i < slot.Length && slot.[i].IsNone then
                     slot.[i] <- ValueSome a
-            | FTFun(a1, r1) ->
-                match a with
-                | FTFun(a2, r2) ->
-                    go a1 a2
-                    go r1 r2
-                | _ -> ()
-            | FTTuple xs ->
-                match a with
-                | FTTuple ys when xs.Length = ys.Length ->
-                    for i in 0 .. xs.Length - 1 do
-                        go xs.[i] ys.[i]
-                | _ -> ()
-            | FTRecord(_, xs) ->
-                match a with
-                | FTRecord(_, ys) when xs.Length = ys.Length ->
-                    for i in 0 .. xs.Length - 1 do
-                        go xs.[i] ys.[i]
-                | _ -> ()
-            | FTUnion(_, xs) ->
-                match a with
-                | FTUnion(_, ys) when xs.Length = ys.Length ->
-                    for i in 0 .. xs.Length - 1 do
-                        go xs.[i] ys.[i]
-                | _ -> ()
-            | FTClass(_, xs) ->
-                match a with
-                | FTClass(_, ys) when xs.Length = ys.Length ->
-                    for i in 0 .. xs.Length - 1 do
-                        go xs.[i] ys.[i]
-                | _ -> ()
-            | FTConst(_, xs) ->
-                match a with
-                | FTConst(_, ys) when xs.Length = ys.Length ->
-                    for i in 0 .. xs.Length - 1 do
-                        go xs.[i] ys.[i]
-                | _ -> ()
-            | FTOr xs ->
-                // `EqSet` preserves INSERTION order and instantiation maps members
-                // in order (no re-sort), so the i-th member of the open template still
-                // pairs with the i-th of the instantiated union; a dedup-collapse
-                // changes the length and the guard declines (no recovery, same as a
-                // sorted mismatch used to).
-                match a with
-                | FTOr ys when xs.Length = ys.Length ->
-                    for i in 0 .. xs.Length - 1 do
-                        go xs.[i] ys.[i]
-                | _ -> ()
-            // The carried type-level computations pair the open template against the
-            // instantiated node by matching head + recursing children — the method vars
-            // recovered live inside them, exactly like `FTOr`'s members.
-            | FTKeyOf x1 ->
-                match a with
-                | FTKeyOf x2 -> go x1 x2
-                | _ -> ()
-            | FTIndexedAccess(o1, i1) ->
-                match a with
-                | FTIndexedAccess(o2, i2) ->
-                    go o1 o2
-                    go i1 i2
-                | _ -> ()
-            | FTConditional(c1, e1, wt1, wf1) ->
-                match a with
-                | FTConditional(c2, e2, wt2, wf2) ->
-                    go c1 c2
-                    go e1 e2
-                    go wt1 wt2
-                    go wf1 wf2
-                | _ -> ()
-            // A niladic nominal / a ground literal carries no open typar — a leaf no-op.
-            | FTEnum _
-            | FTLiteral _ -> ()
-            | FTUnknown _ -> ()
+            // Same-head pairwise descent (`iterChildren2`): a head mismatch declines
+            // silently (no recovery from that subtree); `collect` below fails loud on
+            // any slot left empty. See `iterChildren2`'s doc for the `FTOr`
+            // insertion-order pairing contract.
+            | d -> FrozenType.iterChildren2 go d a
 
         go openT instT
 
