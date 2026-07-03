@@ -1,0 +1,192 @@
+{
+  "schemaVersion": 1,
+  "package": "globals",
+  "version": null,
+  "exports": [
+    {
+      "export": "function",
+      "name": "greet",
+      "signatures": [
+        {
+          "typeParams": 0,
+          "params": [
+            {
+              "name": "name",
+              "type": {
+                "k": "named",
+                "name": "string",
+                "args": []
+              },
+              "optional": false,
+              "rest": false
+            }
+          ],
+          "returns": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          }
+        }
+      ],
+      "import": "named"
+    },
+    {
+      "export": "class",
+      "name": "Thing",
+      "typeParams": 1,
+      "members": [
+        {
+          "name": "value",
+          "kind": "property",
+          "type": {
+            "k": "typar",
+            "i": 0
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "get",
+          "kind": "method",
+          "type": null,
+          "signatures": [
+            {
+              "typeParams": 0,
+              "params": [],
+              "returns": {
+                "k": "typar",
+                "i": 0
+              }
+            }
+          ],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "from",
+          "kind": "method",
+          "type": null,
+          "signatures": [
+            {
+              "typeParams": 1,
+              "params": [
+                {
+                  "name": "v",
+                  "type": {
+                    "k": "methodTypar",
+                    "i": 0
+                  },
+                  "optional": false,
+                  "rest": false
+                }
+              ],
+              "returns": {
+                "k": "named",
+                "name": "Thing",
+                "args": [
+                  {
+                    "k": "methodTypar",
+                    "i": 0
+                  }
+                ]
+              }
+            }
+          ],
+          "static": true,
+          "optional": false
+        },
+        {
+          "name": ".ctor",
+          "kind": "method",
+          "type": null,
+          "signatures": [
+            {
+              "typeParams": 1,
+              "params": [
+                {
+                  "name": "v",
+                  "type": {
+                    "k": "methodTypar",
+                    "i": 0
+                  },
+                  "optional": false,
+                  "rest": false
+                }
+              ],
+              "returns": {
+                "k": "named",
+                "name": "Thing",
+                "args": [
+                  {
+                    "k": "methodTypar",
+                    "i": 0
+                  }
+                ]
+              }
+            }
+          ],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": [],
+      "import": "named"
+    },
+    {
+      "export": "interface",
+      "name": "Widget",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "a",
+          "kind": "method",
+          "type": null,
+          "signatures": [
+            {
+              "typeParams": 0,
+              "params": [],
+              "returns": {
+                "k": "named",
+                "name": "unit",
+                "args": []
+              }
+            }
+          ],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "b",
+          "kind": "method",
+          "type": null,
+          "signatures": [
+            {
+              "typeParams": 0,
+              "params": [],
+              "returns": {
+                "k": "named",
+                "name": "unit",
+                "args": []
+              }
+            }
+          ],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": []
+    },
+    {
+      "export": "typeAlias",
+      "name": "Id",
+      "typeParams": 0,
+      "target": {
+        "k": "named",
+        "name": "string",
+        "args": []
+      }
+    }
+  ],
+  "diagnostics": []
+}

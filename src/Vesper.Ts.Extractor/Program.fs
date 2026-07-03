@@ -17,9 +17,16 @@ let main _ =
     match args with
     | [| "--package"; specifier; resolveFromDir; packageName; outPath |] ->
         Extractor.runPackage specifier resolveFromDir packageName outPath
+    // Ambient-global entry: `--globals <packageName> <outPath> <dts…>` (variadic — the
+    // merge fixture spans multiple sibling `.d.ts`, all fed to one program so the
+    // checker merges cross-file declarations). Gated behind the flag so it never
+    // collides with the single-file `<dts> <pkg> <out>` form.
+    | _ when args.Length >= 4 && args.[0] = "--globals" ->
+        Extractor.runGlobals (args.[3..] |> List.ofArray) args.[1] args.[2]
     | [| dtsPath; packageName; outPath |] -> Extractor.run dtsPath packageName outPath
     | _ ->
         eprintfn "usage: extractor <dtsPath> <packageName> <outPath>"
         eprintfn "       extractor --package <specifier> <resolveFromDir> <packageName> <outPath>"
+        eprintfn "       extractor --globals <packageName> <outPath> <dtsPath...>"
 
     0

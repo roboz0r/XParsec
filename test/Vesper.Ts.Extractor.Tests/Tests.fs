@@ -231,4 +231,9 @@ let goldenTests =
                     for pkgDir in packageDirs.Value do
                         test $"extract-package: {Path.GetFileName pkgDir}" { testExtractorMatchesGoldenPackage pkgDir }
                 ]
+
+            // Ambient-globals golden (Step 2): run the extractor in globals mode over
+            // the fixture's sibling `.d.ts`, exercising the fused class-like pair + the
+            // cross-file interface merge.
+            test "extract-globals: globals" { testExtractorMatchesGoldenGlobals () }
         ]

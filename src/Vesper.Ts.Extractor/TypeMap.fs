@@ -361,11 +361,14 @@ type SigAxis =
     /// DECLARING index space unambiguously and the provider's `scheme` freshens
     /// them; bounds are not needed downstream.
     | FreeFunction
-    /// A CONSTRUCTOR: carries NO method axis at all — TS models a generic class's
-    /// construct signatures as generic over the CLASS typars, but per the seam
-    /// those are the declaring axis (already counted in the type's `typeParams`),
-    /// so `TypeParams`/`TypeParamBounds` are forced empty ("MethodArity = 0 for
-    /// every constructor").
+    /// A CONSTRUCTOR: its own typars split by ORIGIN. TS models a real generic
+    /// class's construct signatures as generic over the CLASS typars — those already
+    /// ride the DECLARING axis (counted in the type's `typeParams`), so they resolve
+    /// to `Typar i` and DON'T inflate the ctor's method arity ("MethodArity = 0 for
+    /// every real-class constructor"). The constructor-INTERFACE idiom (`interface
+    /// FooCtor { new <T>(v: T): Foo<T> }`, the fused-global class-like shape) instead
+    /// introduces FRESH typars unknown to the declaring axis; those ride the METHOD
+    /// axis so `v: T` / `Foo<T>` stay faithful instead of erasing to obj.
     | Ctor
 
 let mapSignature (ctx: MapCtx) (axis: SigAxis) (sg: Ts.Signature) : Schema.Signature =
@@ -406,7 +409,22 @@ let mapSignature (ctx: MapCtx) (axis: SigAxis) (sg: Ts.Signature) : Schema.Signa
                 }
 
             bodyCtx, List.length ownTypars, ownTypars |> List.map (fun _ -> None)
-        | SigAxis.Ctor -> { ctx with MethodEnv = [] }, 0, []
+        | SigAxis.Ctor ->
+            // Seed the method env with the own typars so a FRESH construct-sig typar
+            // resolves to `MethodTypar i`; declaring-first resolution keeps a real
+            // class's construct-sig typars on the `Typar` axis (their method slots stay
+            // dead). Count as the ctor's method arity ONLY the own typars the declaring
+            // axis does NOT already bind — 0 for every real class (byte-identical to the
+            // former forced-empty rule), N for the constructor-interface idiom. Bounds
+            // stay `None` per slot (constructors carry no harvested constraints).
+            let ownSyms = ownTyparSyms ()
+
+            let freshCount =
+                ownSyms
+                |> List.filter (fun s -> not (ctx.DeclaringEnv |> List.exists (fun e -> jsRefEq e s)))
+                |> List.length
+
+            { ctx with MethodEnv = ownSyms }, freshCount, List.replicate freshCount None
 
     {
         TypeParams = typeParams

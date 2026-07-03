@@ -178,6 +178,96 @@ let extractPackage (specifier: string) (resolveFromDir: string) (packageName: st
         if existsSync entryPath then
             unlinkSync entryPath
 
+/// Ambient-global entry mode. A global-scope (script) `.d.ts` — `lib.es*.d.ts`'s
+/// shape — declares GLOBALS, it is NOT a module: `moduleSymbolOf` throws "not a
+/// module" there (correctly fatal for the module entries), so this entry BYPASSES it
+/// and enumerates the checker's GLOBAL scope directly. It takes a LIST of `.d.ts`
+/// (the merge fixture spans two files) so `ts.createProgram` over all of them lets the
+/// checker MERGE cross-file interface declarations into one symbol — the merged
+/// symbol's declared type is the truth, so we enumerate by SYMBOL, never per-file
+/// statement (which would emit duplicate/partial interfaces and MISS the merges).
+let extractGlobals (dtsPaths: string list) (packageName: string) : Schema.PackageManifest =
+    let options = baseOptions ()
+    let program = ts.createProgram (ResizeArray dtsPaths, options)
+    let checker = program.getTypeChecker ()
+
+    // The fixture's OWN source files (everything the program loaded that is NOT the
+    // default lib): a global script references default-lib types (`string`, `Array`),
+    // which must NOT be re-extracted here — they are the ref pack's / Step 3's concern.
+    let fixtureSources =
+        program.getSourceFiles ()
+        |> Seq.filter (fun sf -> not (program.isSourceFileDefaultLibrary sf))
+        |> List.ofSeq
+
+    // Global scope is program-wide and MERGED, so ONE query anchored at any fixture
+    // file sees every global (including declarations merged in from the sibling files).
+    let anchor =
+        match fixtureSources with
+        | sf :: _ -> unbox<Ts.Node> sf
+        | [] -> failwithf "globals extraction loaded no fixture source files from %A" dtsPaths
+
+    // `meaning` spans the type + value + function namespaces so a fused class-like pair
+    // (type-side interface + value-side ctor var) surfaces as its one merged symbol.
+    let meaning =
+        Ts.SymbolFlags.Type ||| Ts.SymbolFlags.Value ||| Ts.SymbolFlags.Function
+
+    // Keep only symbols the FIXTURE declares — a symbol is fixture-declared when ANY of
+    // its declarations sits in a non-default-lib source file (a merged interface with a
+    // half in each fixture file still qualifies on its first fixture declaration).
+    let isFixtureDeclared (sym: Ts.Symbol) : bool =
+        match sym.declarations with
+        | Some ds ->
+            ds
+            |> Seq.exists (fun d -> not (program.isSourceFileDefaultLibrary ((unbox<Ts.Node> d).getSourceFile ())))
+        | None -> false
+
+    let globals =
+        checker.getSymbolsInScope (anchor, meaning)
+        |> Seq.filter isFixtureDeclared
+        |> List.ofSeq
+
+    // A fused class-like global is THREE symbols → ONE `Export.Class`: the type-side
+    // interface, the value-side ctor var (already MERGED into the same symbol), and the
+    // SEPARATE constructor-interface (`MapConstructor`) the var's type resolves to. That
+    // carrier is CONSUMED (its construct sigs → ctors, its other members → statics), so
+    // it must not ALSO stand alone as an `Export.Interface`. Collect the consumed
+    // carriers first (identity-keyed), then skip them in the emit pass.
+    let consumedCarriers =
+        globals
+        |> List.choose (fun sym ->
+            if isFusedClassLike sym then
+                fusedCarrierSymbol checker sym
+            else
+                None
+        )
+
+    let isConsumed (sym: Ts.Symbol) : bool =
+        consumedCarriers |> List.exists (fun c -> jsRefEq (box c) (box sym))
+
+    let diags = ResizeArray<Schema.Diagnostic>()
+    let refs = ResizeArray<string * Schema.RefEntry>()
+    let ctx0 = MapCtx.Root checker program diags refs
+
+    let exports =
+        globals
+        |> List.filter (fun sym -> not (isConsumed sym))
+        |> List.choose (mapGlobalSymbol ctx0)
+
+    // Spans/refs relativize against the FIRST input's directory (all fixture files are
+    // siblings), mirroring `extractFile`.
+    let baseDir = pathDirname (List.head dtsPaths)
+
+    {
+        SchemaVersion = Schema.SchemaVersion
+        Package = packageName
+        // The fixture carries no version; the reserved-home `es2015` version stamp is
+        // Step 3's concern (this entry must not hardcode it).
+        Version = None
+        Exports = exports
+        Diagnostics = drainDiagnostics baseDir diags
+        Refs = drainRefs refs
+    }
+
 let run (dtsPath: string) (packageName: string) (outPath: string) : unit =
     let manifest = extractFile dtsPath packageName
     writeFileSync outPath (Codec.serialize manifest)
@@ -185,5 +275,10 @@ let run (dtsPath: string) (packageName: string) (outPath: string) : unit =
 
 let runPackage (specifier: string) (resolveFromDir: string) (packageName: string) (outPath: string) : unit =
     let manifest = extractPackage specifier resolveFromDir packageName
+    writeFileSync outPath (Codec.serialize manifest)
+    eprintfn "Wrote %s (%d exports)" outPath manifest.Exports.Length
+
+let runGlobals (dtsPaths: string list) (packageName: string) (outPath: string) : unit =
+    let manifest = extractGlobals dtsPaths packageName
     writeFileSync outPath (Codec.serialize manifest)
     eprintfn "Wrote %s (%d exports)" outPath manifest.Exports.Length

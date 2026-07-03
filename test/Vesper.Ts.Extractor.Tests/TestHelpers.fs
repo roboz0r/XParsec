@@ -18,15 +18,40 @@ open XParsec.FSharp.Codegen.Js
 let specsDir =
     lazy DirectoryInfo(Path.Combine(__SOURCE_DIRECTORY__, "specs")).FullName
 
+// The ambient-GLOBALS fixture is a DIRECTORY holding MANY `.d.ts` (the merge case
+// spans two files) but ONE manifest — like a package, not a single-file spec. So it
+// is excluded from the single-file `dtsFiles`/`manifestFiles` globs and the orphan
+// guard (which pair a `.d.ts` with a same-base `.manifest.json`, and would else
+// false-flag the second file as an orphan and run single-file extraction on it), and
+// is discovered on its own path below (mirroring the `packageDirs` split).
+let globalsDir =
+    lazy DirectoryInfo(Path.Combine(specsDir.Value, "globals")).FullName
+
+let private underGlobals (path: string) =
+    path.StartsWith(globalsDir.Value, StringComparison.OrdinalIgnoreCase)
+
 let manifestFiles =
     lazy
         (Directory.GetFiles(specsDir.Value, "*.manifest.json", SearchOption.AllDirectories)
+         |> Array.filter (fun p -> not (underGlobals p))
          |> Array.sort)
 
 let dtsFiles =
     lazy
         (Directory.GetFiles(specsDir.Value, "*.d.ts", SearchOption.AllDirectories)
+         |> Array.filter (fun p -> not (underGlobals p))
          |> Array.sort)
+
+/// The globals fixture's input `.d.ts` (sorted, so program/order is deterministic and
+/// matches the extractor invocation) and its single manifest golden.
+let globalsDtsFiles =
+    lazy
+        (if Directory.Exists globalsDir.Value then
+             Directory.GetFiles(globalsDir.Value, "*.d.ts") |> Array.sort
+         else
+             [||])
+
+let globalsManifest = lazy Path.Combine(globalsDir.Value, "globals.manifest.json")
 
 // ─── package fixtures (item 18: multi-file / package entry) ─────────────────
 //
@@ -64,7 +89,19 @@ let packageManifestFiles = lazy (packageDirs.Value |> Array.map packageManifestO
 /// canonical-form and provider-resolution suites cover both (a package manifest is a
 /// `PackageManifest` like any other; the cross-file closure is invisible to them).
 let allManifestFiles =
-    lazy (Array.append manifestFiles.Value packageManifestFiles.Value)
+    lazy
+        (Array.concat
+            [
+                manifestFiles.Value
+                packageManifestFiles.Value
+                // The globals fixture's manifest joins the canonical-form + provider-
+                // resolution suites like any other `PackageManifest` (its cross-file
+                // origin and fused class-like exports are invisible to them).
+                (if File.Exists globalsManifest.Value then
+                     [| globalsManifest.Value |]
+                 else
+                     [||])
+            ])
 
 let private updateSnapshots =
     Environment.GetEnvironmentVariable "UPDATE_SNAPSHOTS" |> isNull |> not
@@ -389,3 +426,58 @@ let testExtractorMatchesGoldenPackage (pkgDir: string) =
                 (normalize actual)
                 (normalize (File.ReadAllText golden))
                 "Package extractor output does not match the golden (run UPDATE_SNAPSHOTS=1 to refresh)"
+
+/// Ambient-globals golden contract (Step 2): run the compiled extractor in GLOBALS
+/// mode (`--globals <packageName> <outPath> <dts…>`) over the fixture's sibling
+/// `.d.ts` files (all fed to one program so the checker merges cross-file
+/// declarations) and assert its output equals `globals/globals.manifest.json`. Same
+/// skip/refresh semantics as the single-file path.
+let testExtractorMatchesGoldenGlobals () =
+    if not (File.Exists extractorJs.Value) then
+        skiptest "extractor not built — run: dotnet fable src/Vesper.Ts.Extractor -o src/Vesper.Ts.Extractor/dist"
+
+    let inputs = globalsDtsFiles.Value
+
+    if inputs.Length = 0 then
+        skiptest "no globals fixture present"
+
+    let packageName = "globals"
+    let golden = globalsManifest.Value
+    let outPath = Path.Combine(Path.GetTempPath(), "globals.vesper.globals.out.json")
+
+    let started =
+        try
+            let psi = ProcessStartInfo("node")
+            psi.ArgumentList.Add extractorJs.Value
+            psi.ArgumentList.Add "--globals"
+            psi.ArgumentList.Add packageName
+            psi.ArgumentList.Add outPath
+
+            for dts in inputs do
+                psi.ArgumentList.Add dts
+
+            psi.RedirectStandardError <- true
+            psi.RedirectStandardOutput <- true
+            psi.UseShellExecute <- false
+            Some(Process.Start psi)
+        with _ ->
+            None // node not on PATH
+
+    match started with
+    | None -> skiptest "node not available; skipping extractor run"
+    | Some p ->
+        let stderr = p.StandardError.ReadToEnd()
+        p.WaitForExit()
+
+        if p.ExitCode <> 0 then
+            failtestf "globals extractor failed (exit %d): %s" p.ExitCode stderr
+
+        let actual = File.ReadAllText outPath
+
+        if updateSnapshots then
+            File.WriteAllText(golden, actual.TrimEnd() + "\n")
+        else
+            Expect.equal
+                (normalize actual)
+                (normalize (File.ReadAllText golden))
+                "Globals extractor output does not match the golden (run UPDATE_SNAPSHOTS=1 to refresh)"

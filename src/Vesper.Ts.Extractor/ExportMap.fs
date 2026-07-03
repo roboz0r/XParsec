@@ -207,6 +207,55 @@ let private classImplements (ctx: MapCtx) (resolved: Ts.Symbol) : Schema.TypeRef
         )
         |> List.ofSeq
 
+/// The shared class-like extraction that BOTH the `Class` export arm AND the
+/// fused-global path use (a global `interface Map<K,V>` + `declare var Map:
+/// MapConstructor` merge into ONE symbol Vesper needs as ONE `Export.Class`). Two
+/// distinct walks keep the static/instance split honest (item 3): the DECLARED type
+/// yields the instance members and the declaring-axis typars; the symbol's
+/// TYPE-AT-LOCATION is the constructor-function (static) type whose `getProperties`
+/// are the static members and whose `getConstructSignatures` are the constructors.
+/// The static side surfaces the synthetic `prototype` slot — filtered (not an
+/// authored member). `name`/`import` are supplied by the caller: a `class` may be
+/// `export default class` (reusing its resolved brand); a fused GLOBAL is always a
+/// plain `Named` global. Statics cannot reference the class typars in TS, so the env
+/// is inert on the static walk; passing it uniformly keeps one path.
+///
+/// Heritage (item 16): a class's `extends` base CLASS comes from `getBaseTypes` on
+/// the instance type, its `implements` interfaces from the heritage clauses
+/// (`getBaseTypes` omits them). Emitted as ONE flat list (extends first); the
+/// provider disambiguates base-class vs interface by name-resolving each entry
+/// against the manifest's type table (the schema carries no base/interface bit).
+let private classLikeExport
+    (ctx0: MapCtx)
+    (resolved: Ts.Symbol)
+    (name: string)
+    (import: Schema.ImportShape)
+    : Schema.Export =
+    let checker = ctx0.Checker
+    let instanceTy = checker.getDeclaredTypeOfSymbol resolved
+    let staticTy = checker.getTypeOfSymbolAtLocation (resolved, declOf resolved)
+    let env = declaredTypars instanceTy
+
+    let ctx = { ctx0 with DeclaringEnv = env }
+
+    let instanceMembers =
+        checker.getPropertiesOfType instanceTy
+        |> Seq.map (mapMember ctx false)
+        |> List.ofSeq
+
+    let staticMembers =
+        staticTy.getProperties ()
+        |> Seq.filter (fun p -> p.getName () <> "prototype")
+        |> Seq.map (mapMember ctx true)
+        |> List.ofSeq
+
+    let ctorMember =
+        ctorMemberOf ctx (staticTy.getConstructSignatures ()) |> Option.toList
+
+    let heritage = extendsBases ctx instanceTy @ classImplements ctx resolved
+
+    Schema.Export.Class(name, List.length env, instanceMembers @ staticMembers @ ctorMember, heritage, import)
+
 /// `ctx0` is the walk ROOT (empty typar axes); each arm seeds `DeclaringEnv` with
 /// its declaration's own typar scope.
 let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option =
@@ -300,44 +349,10 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
         // (an interface cannot have a base class), so `getBaseTypes` alone is faithful.
         Some(Schema.Export.Interface(name, List.length env, members @ ctorMember, extendsBases ctx declared))
     elif hasFlag flags Ts.SymbolFlags.Class then
-        // Two distinct walks keep the static/instance split honest (item 3): the
-        // DECLARED type yields the instance members; the symbol's TYPE-AT-LOCATION is
-        // the constructor-function (static) type whose `getProperties` are the static
-        // members and whose `getConstructSignatures` are the constructors. The static
-        // side also surfaces the synthetic `prototype` slot — filter it (it is not an
-        // authored member). A class may itself be `export default class`, so it reuses
-        // the resolved `name`/`import` computed above.
-        let instanceTy = checker.getDeclaredTypeOfSymbol resolved
-        let staticTy = checker.getTypeOfSymbolAtLocation (resolved, declOf resolved)
-        // Declaring-axis typar scope (item 11): the class's own type parameters, read
-        // off the instance (declared) type. Statics cannot reference them in TS, so the
-        // env is inert there; passing it uniformly is harmless and keeps one path.
-        let env = declaredTypars instanceTy
-
-        let ctx = { ctx0 with DeclaringEnv = env }
-
-        let instanceMembers =
-            checker.getPropertiesOfType instanceTy
-            |> Seq.map (mapMember ctx false)
-            |> List.ofSeq
-
-        let staticMembers =
-            staticTy.getProperties ()
-            |> Seq.filter (fun p -> p.getName () <> "prototype")
-            |> Seq.map (mapMember ctx true)
-            |> List.ofSeq
-
-        let ctorMember =
-            ctorMemberOf ctx (staticTy.getConstructSignatures ()) |> Option.toList
-
-        // Heritage (item 16): a class's `extends` base CLASS comes from `getBaseTypes`
-        // on the instance type, its `implements` interfaces from the heritage clauses
-        // (`getBaseTypes` omits them). Emitted as ONE flat list (extends first); the
-        // provider disambiguates base-class vs interface by name-resolving each entry
-        // against the manifest's type table (the schema carries no base/interface bit).
-        let heritage = extendsBases ctx instanceTy @ classImplements ctx resolved
-
-        Some(Schema.Export.Class(name, List.length env, instanceMembers @ staticMembers @ ctorMember, heritage, import))
+        // The instance/static two-walk lives in the shared `classLikeExport` (the
+        // fused-global path calls it too). A class may itself be `export default class`,
+        // so it reuses the resolved `name`/`import` computed above.
+        Some(classLikeExport ctx0 resolved name import)
     elif hasFlag flags Ts.SymbolFlags.Function then
         let t = checker.getTypeOfSymbolAtLocation (resolved, declOf resolved)
 
@@ -464,3 +479,45 @@ let extractModuleExports
         | _ -> named
 
     exportSyms |> List.choose (mapExport (MapCtx.Root checker program diags refs))
+
+// ─── ambient-global dispatch (the `extractGlobals` entry mode) ─────────────────
+//
+// A global-scope (script) `.d.ts` is enumerated by SYMBOL, not per-file statement, so
+// cross-file interface MERGES are one symbol. Each enumerated global routes through
+// `mapGlobalSymbol`, which PREFERS the fused class-like path (`interface Map<K,V>` +
+// `declare var Map: MapConstructor` merged into one `new`-able symbol) and otherwise
+// delegates to the very same `mapExport` arms the module paths use — so a pure global
+// interface / free function / `declare var` / `type` alias / `enum` is byte-identical
+// to its module-entry form.
+
+/// The fused class-like predicate. A symbol carrying BOTH the Interface (type) meaning
+/// AND a Value meaning is a `new`-able global class (the merged `interface Map<K,V>` +
+/// `declare var Map: MapConstructor` pair) — the exact predicate `classifyKind` uses to
+/// mint an `FTClass` for the refs table. A pure type-only interface lacks the Value
+/// meaning and stays an `Export.Interface`.
+let isFusedClassLike (sym: Ts.Symbol) : bool =
+    let flags = sym.getFlags ()
+
+    hasFlag flags Ts.SymbolFlags.Interface && hasFlag flags Ts.SymbolFlags.Value
+
+/// The constructor-INTERFACE (`MapConstructor`) a fused symbol's value side resolves
+/// to. It is CONSUMED into the fused `Export.Class` (its construct signatures → ctors,
+/// its other members → statics), so the global enumerator must NOT also emit it as a
+/// standalone `Export.Interface`. `None` when the value type carries no naming symbol.
+let fusedCarrierSymbol (checker: Ts.TypeChecker) (sym: Ts.Symbol) : Ts.Symbol option =
+    (checker.getTypeOfSymbolAtLocation (sym, declOf sym)).getSymbol ()
+
+/// Route ONE enumerated global symbol to its export. The fused class-like path wins
+/// when both the type and value meanings are present; everything else delegates to the
+/// shared `mapExport` arms unchanged (so the module goldens stay byte-identical).
+let mapGlobalSymbol (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option =
+    let resolved =
+        if hasFlag (sym.getFlags ()) Ts.SymbolFlags.Alias then
+            ctx0.Checker.getAliasedSymbol sym
+        else
+            sym
+
+    if isFusedClassLike resolved then
+        Some(classLikeExport ctx0 resolved (resolved.getName ()) Schema.ImportShape.Named)
+    else
+        mapExport ctx0 sym
