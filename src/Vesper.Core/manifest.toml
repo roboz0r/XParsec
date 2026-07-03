@@ -67,6 +67,13 @@ files-js = [
     # harvested as BOTH marker and platform face (no base/override split). (`null` is
     # NOT declared here: it is a reserved keyword and already distinct without an entry.)
     "prim-types-undefined.js.fsi",
+    # JS-only opaque `dynamic` intrinsic type — the F#-side landing point for TS `any`,
+    # no CLR analog. Harvested (marker + `"any"` platform face) exactly like `undefined`.
+    "prim-types-dynamic.js.fsi",
+    # The `dynamic` operators — `retype`/`dynamic` (enter) and `(?)`/`(?<-)` (member
+    # access, target-typed via `default ^TResult : dynamic`). Bodies in `ops-dynamic.js.fs`
+    # (`inline-bodies-js`). Extracted after the `dynamic` type it references.
+    "ops-dynamic.js.fsi",
 ]
 
 # Every `.fs` in the package is listed here (one source of truth, no orphaned
@@ -115,6 +122,9 @@ inline-bodies = [
 inline-bodies-js = [
     "ops-platform.js.fs",
     "ops-std.fs",
+    # The `dynamic` operator bodies (`retype`/`dynamic`/`(?)`/`(?<-)`) — JS-only
+    # (`$0[$1]` computed-member templates), spliced at each `?` use site.
+    "ops-dynamic.js.fs",
 ]
 
 # Hand-authored JS runtime *asset*: the structural

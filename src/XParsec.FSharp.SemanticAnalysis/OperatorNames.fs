@@ -51,6 +51,15 @@ module OperatorNames =
         | Token.OpPipeLeft -> ValueSome "op_PipeLeft"
         | Token.OpComposeRight -> ValueSome "op_ComposeRight"
         | Token.OpComposeLeft -> ValueSome "op_ComposeLeft"
+        // The dynamic-access operators. `?` / `?<-` lex to KEYWORD-kind tokens
+        // (`OpDynamic` / `OpDynamicAssignment`), so `OperatorInfo.GetName` returns the
+        // bare token name ("OpDynamic") rather than the compiled `op_*` form — map them
+        // here (the single symbol→compiled-name authority) so the `(?)` / `(?<-)`
+        // binding heads in `ops-dynamic.js.fsi` harvest under the names the front end
+        // resolves (`op_Dynamic` / `op_DynamicAssignment`). Never appear as a bare
+        // `InfixApp` op (a `?` use site is `Expr.DynamicLookup`), so this is additive.
+        | Token.OpDynamic -> ValueSome "op_Dynamic"
+        | Token.OpDynamicAssignment -> ValueSome "op_DynamicAssignment"
         | _ -> ValueNone
 
     /// Compiled name for a parenthesised *symbolic* operator head (`(<<<)`,

@@ -73,6 +73,10 @@ module UnificationInfer =
             | Expr.Function(rules = Rules(rules = rules)) -> inferFunction infer ctx key rules
             | Expr.TryWith(expr = body; rules = Rules(rules = rules)) -> inferTryWith infer ctx key body rules
             | Expr.TryFinally(tryExpr = body; finallyExpr = finallyE) -> inferTryFinally infer ctx key body finallyE
+            // `recv?name <- value` — the dynamic setter, routed through
+            // `op_DynamicAssignment` (parses as `Assignment(DynamicLookup(...), v)`).
+            | Expr.Assignment(leftExpr = Expr.DynamicLookup(expr = recv); rightExpr = right) ->
+                inferDynamicSet infer ctx key recv right
             | Expr.Assignment(leftExpr = left; rightExpr = right) -> inferAssignment infer ctx key left right
             | Expr.Range(fromExpr = a; toExpr = b) -> inferRange infer ctx key a ValueNone b
             | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) -> inferRange infer ctx key a (ValueSome s) b
@@ -104,6 +108,9 @@ module UnificationInfer =
                 inferLibraryOnlyStaticOptimization infer ctx key baseE cs optE
             | Expr.StaticMemberInvocation(expr = argExpr) -> inferStaticMemberInvocation infer ctx argExpr
             | Expr.TypeApp(expr = inner; types = typeArgs) -> inferTypeApp infer ctx key inner typeArgs
+            // `recv?name` — dynamic member access, routed through the `op_Dynamic`
+            // operator so its `default ^TResult : dynamic` drives target typing.
+            | Expr.DynamicLookup(expr = recv) -> inferDynamicLookup infer ctx key recv
             | _ ->
                 // Surface the unhandled case loudly rather than fabricating a
                 // free TyVar and silently producing a broken type for every

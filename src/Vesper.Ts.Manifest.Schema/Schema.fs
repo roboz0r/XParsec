@@ -73,7 +73,7 @@ type TypeRef =
     /// `check`/`extends_` are ground (mitt's `undefined extends Events[Key] ? Key :
     /// never`).
     | Conditional of check: TypeRef * extends: TypeRef * whenTrue: TypeRef * whenFalse: TypeRef
-    /// `any` → `TyDynamic` (deferred front-end type).
+    /// TS `any` → the opaque `dynamic` JS intrinsic front-end side (`FTConst "dynamic"`).
     | Dynamic
     /// Structural object type, content-hashed (deferred milestone).
     | Structural of hash: string * fields: (string * TypeRef) list

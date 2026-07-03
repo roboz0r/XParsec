@@ -91,6 +91,10 @@ module CstKeys =
             | StringKind.VerbatimInterpolatedString t
             | StringKind.Interpolated3String t -> t
         | Expr.DotLookup(expr = inner) -> firstTokenOfExpr inner
+        // Key off the `?` operator token (not the receiver's first token, which the
+        // receiver sub-expression already owns) so the two never collide and a chain
+        // `o?a?b` keys each `?` node distinctly — same rationale as `IndexedLookup`.
+        | Expr.DynamicLookup(questionMark = t) -> t
         // A generic-type / generic-value application's first token is the applied
         // expr's (`EqualityComparer` in `EqualityComparer<int>`). Reached when an
         // enclosing node (a static-member `DotLookup`) keys off its first token.

@@ -414,6 +414,55 @@ module internal UnificationInferApp =
             // for an InfixApp key) — leave the result free.
             TyVar(freshTyVar ctx)
 
+    /// `recv?name` — the dynamic-access operator (F# spec 6.4.5: `x ? ident`
+    /// desugars to `(?) x "ident"`). Resolve `op_Dynamic` and instantiate it exactly
+    /// as `inferInfix` does an operator, unifying against `recv -> string -> ^TResult`.
+    /// The operator's declared `target: dynamic` parameter enforces the STRICT dynamic
+    /// receiver (a non-`dynamic` receiver fails the unify), and its `default ^TResult :
+    /// dynamic` rides on the instantiated result var — so an unconstrained context keeps
+    /// the result `dynamic` (chains stay dynamic) while a pinned context unifies it
+    /// first and the default never fires (the principled escape back to static).
+    and inferDynamicLookup (infer: Infer) (ctx: PassContext) (key: NodeKey) (recv: Expr<SyntaxToken>) : SemType =
+        let recvTy = infer ctx recv
+
+        match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "op_Dynamic" with
+        | ValueSome sym ->
+            let resultTy = TyVar(freshTyVar ctx)
+
+            unify
+                ctx
+                key
+                (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel)
+                (TyFun(recvTy, TyFun(BuiltinTypes.tyString, resultTy)))
+
+            resultTy
+        | ValueNone -> errorTy ctx key "dynamic-access operator '?' (op_Dynamic) is not in scope (Vesper.Core missing?)"
+
+    /// `recv?name <- value` — the dynamic-set operator (`(?<-) recv "name" value`).
+    /// Resolve `op_DynamicAssignment` and unify against `recv -> string -> value ->
+    /// unit`. Result is `unit` (an assignment).
+    and inferDynamicSet
+        (infer: Infer)
+        (ctx: PassContext)
+        (key: NodeKey)
+        (recv: Expr<SyntaxToken>)
+        (value: Expr<SyntaxToken>)
+        : SemType =
+        let recvTy = infer ctx recv
+        let valueTy = infer ctx value
+
+        match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "op_DynamicAssignment" with
+        | ValueSome sym ->
+            unify
+                ctx
+                key
+                (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel)
+                (TyFun(recvTy, TyFun(BuiltinTypes.tyString, TyFun(valueTy, BuiltinTypes.tyUnit))))
+
+            BuiltinTypes.tyUnit
+        | ValueNone ->
+            errorTy ctx key "dynamic-set operator '?<-' (op_DynamicAssignment) is not in scope (Vesper.Core missing?)"
+
     and inferPrefix (infer: Infer) (ctx: PassContext) (key: NodeKey) (operand: Expr<SyntaxToken>) : SemType =
         let operandTy = infer ctx operand
 

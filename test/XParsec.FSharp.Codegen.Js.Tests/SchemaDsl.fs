@@ -33,6 +33,9 @@ let union (members: Schema.TypeRef list) : Schema.TypeRef = Schema.TypeRef.Union
 let strLit (s: string) : Schema.TypeRef =
     Schema.TypeRef.Literal(Schema.LiteralValue.StringVal s)
 
+/// TS `any` — arrives F#-side as the opaque `dynamic` JS intrinsic (`FTConst "dynamic"`).
+let dynamic: Schema.TypeRef = Schema.TypeRef.Dynamic
+
 /// `keyof t`.
 let keyof (t: Schema.TypeRef) : Schema.TypeRef = Schema.TypeRef.KeyOf t
 

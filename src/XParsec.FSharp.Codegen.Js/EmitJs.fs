@@ -757,6 +757,13 @@ module EmitJs =
             | [ arr ] -> JsExpr.Member(buildExpr ctx arr, JsExpr.Identifier("length", ValueNone), false, loc)
             | _ -> failwith "EmitJs: 'ldlen' expects one operand (the array)"
 
+        // The empty-string identity intrinsic `(# "" x : 'U #)` — FSharp.Core's
+        // erasing reinterpret (`retype`, the primitive `dynamic` enter/exit builds on).
+        // It has NO runtime effect: emit the lone operand verbatim, re-typed (the CLR
+        // emits nothing likewise). Handled before the generic `$N`-template expander,
+        // which would (correctly) reject an operand-bearing template with no hole.
+        | TExprG.ILIntrinsic("", _, args, _, _) when args.Length = 1 -> buildExpr ctx args.[0]
+
         | TExprG.ILIntrinsic(opCode, _, args, _, _) -> JsExpr.Raw(expandTemplate ctx opCode (EqArray.toList args), loc)
 
         | TExprG.Format(sink, segments, _, _) ->

@@ -2231,6 +2231,7 @@ module internal TokenInfo =
             | Token.OpEquality
             | Token.OpDereference
             | Token.OpDynamic
+            | Token.OpDynamicAssignment
             | Token.OpRange
             | Token.KWLazy
             | Token.KWAssert

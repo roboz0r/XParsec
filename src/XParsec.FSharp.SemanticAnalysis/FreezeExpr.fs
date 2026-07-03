@@ -436,6 +436,26 @@ module internal FreezeExpr =
 
                 let lastName = ctx.NameOf receiverIdents.[lastIdx]
                 TExpr.FieldSet(receiverChain, lastName, translateExpr ctx right, ty, tok)
+            // `recv?name <- v` → `(?<-) recv "name" v` → the `op_DynamicAssignment`
+            // inline body `$0[$1] = $2` splices to the computed-member write
+            // `recv["name"] = v`. The name is a compile-time string literal (the ident
+            // text), NOT a value reference. Mirrors the `SetArray` curried-External shape.
+            | Expr.DynamicLookup(expr = r; ident = idTok) ->
+                let recvTy = typeOfKey ctx (CstKeys.ofExpr r)
+                let valTy = typeOfKey ctx (CstKeys.ofExpr right)
+
+                let nameLit =
+                    TExpr.Const(TConstValue.String(ctx.NameOf idTok), BuiltinTypes.tyString, tok)
+
+                let valuePartial = TyFun(valTy, ty)
+                let namePartial = TyFun(BuiltinTypes.tyString, valuePartial)
+
+                let opExpr =
+                    TExpr.External("op_DynamicAssignment", ValueNone, TyFun(recvTy, namePartial), tok)
+
+                let app1 = TExpr.App(opExpr, translateExpr ctx r, namePartial, tok)
+                let app2 = TExpr.App(app1, nameLit, valuePartial, tok)
+                TExpr.App(app2, translateExpr ctx right, ty, tok)
             | _ -> TExpr.Assignment(translateExpr ctx left, translateExpr ctx right, ty, tok)
         | Expr.Record(fieldInitializers = inits) ->
             let fields =
@@ -514,6 +534,20 @@ module internal FreezeExpr =
             | TyConst(name, _) when name = RuntimeNames.arrayName 1 && memberName = "Length" ->
                 TExpr.App(TExpr.External("GetArrayLength", ValueNone, TyFun(rTy, ty), tok), receiver, ty, tok)
             | _ -> TExpr.FieldGet(receiver, memberName, ty, tok)
+        // `recv?name` → `(?) recv "name"` → the `op_Dynamic` inline body `$0[$1]`
+        // splices to the computed-member read `recv["name"]`. The name is a compile-time
+        // string literal (the ident text), NOT a value reference. `ty` is the (possibly
+        // target-typed) result. Mirrors the `GetArray` curried-External shape.
+        | Expr.DynamicLookup(expr = r; ident = idTok) ->
+            let recvTy = typeOfKey ctx (CstKeys.ofExpr r)
+
+            let nameLit =
+                TExpr.Const(TConstValue.String(ctx.NameOf idTok), BuiltinTypes.tyString, tok)
+
+            let partialTy = TyFun(BuiltinTypes.tyString, ty)
+            let opExpr = TExpr.External("op_Dynamic", ValueNone, TyFun(recvTy, partialTy), tok)
+            let app1 = TExpr.App(opExpr, translateExpr ctx r, partialTy, tok)
+            TExpr.App(app1, nameLit, ty, tok)
         | Expr.Null _ -> TExpr.Null(ty, tok)
         | Expr.Range(fromExpr = a; toExpr = b) -> TExpr.Range(translateExpr ctx a, None, translateExpr ctx b, ty, tok)
         | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) ->

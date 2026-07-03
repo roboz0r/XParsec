@@ -257,7 +257,9 @@ module internal TsManifestTranslate =
                     WhenTrue = toFrozen ctx whenTrue
                     WhenFalse = toFrozen ctx whenFalse
                 }
-        | Schema.TypeRef.Dynamic -> FTUnknown "any" // TODO: TyDynamic once it lands
+        // TS `any` → the opaque `dynamic` JS intrinsic (no special unifier behaviour;
+        // its only capability is the `?` operator). It is `FTConst "dynamic"` everywhere.
+        | Schema.TypeRef.Dynamic -> FTConst("dynamic", EqArray.empty)
         | Schema.TypeRef.Structural(hash, _) -> FTUnknown("structural:" + hash) // TODO: content-hash record
 
     let unitFrozen: FrozenType = FTConst("unit", EqArray.empty)
