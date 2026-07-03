@@ -62,6 +62,11 @@ files-js = [
     # inline); the JS `=`/`<>`/`hash` aggregate arms delegate to them, bodies in
     # `Vesper.Core.mjs`. Appended after `capabilities-compat` (no dependency on it).
     "ops-platform-runtime.js.fsi",
+    # JS-only absence-sentinel intrinsic type `undefined` — a distinct identity from
+    # `unit`, no CLR analog (so never in base `files`). Its `.js.fs` companion is
+    # harvested as BOTH marker and platform face (no base/override split). (`null` is
+    # NOT declared here: it is a reserved keyword and already distinct without an entry.)
+    "prim-types-undefined.js.fsi",
 ]
 
 # Every `.fs` in the package is listed here (one source of truth, no orphaned

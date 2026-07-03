@@ -544,6 +544,20 @@ module ReferencedProject =
                         // rather than re-parsing the file.
                         ()
 
+            // Target-only EXTRA contracts (`files-<t>`) may declare an intrinsic that
+            // exists ONLY on that target (`undefined`/`null` — JS-only, no CLR analog and
+            // so no base `.fs`). Such a type has no base/override split: its single
+            // `<base>.<t>.fs` companion is BOTH the marker (→ `IntrinsicBaseReprs`, so the
+            // `extern` publishes as an `Intrinsic` not an opaque `Class`) AND the JS
+            // platform face (→ `IntrinsicReprs`). `File.Exists` skips a shim `.fsi` with
+            // no `.fs` companion (`capabilities-compat.js.fsi`, `ops-platform-runtime.js.fsi`).
+            for rel in resolveExtraFiles target manifest do
+                let companionAbs = baseFs dir rel
+
+                if File.Exists companionAbs then
+                    harvestCompanion ctx.IntrinsicBaseReprs companionAbs
+                    harvestCompanion ctx.IntrinsicReprs companionAbs
+
             // CLR (and any target whose primitive has no override): the base repr is the
             // platform face. Seed `IntrinsicReprs` from the base markers WITHOUT a
             // second parse; a real per-target override (harvested above) already shadows

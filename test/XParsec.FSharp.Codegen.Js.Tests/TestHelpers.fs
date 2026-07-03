@@ -228,18 +228,27 @@ let runJs (name: string) (input: string) : (int * string) option =
 
 // ─── TS-provider test scaffolding (shared by the provider tests) ─────────
 
+/// Aggregate the sources' ambient `open` prefixes, exactly as the production composite
+/// (`ExternalSymbols.composite` via `collectAmbient`) does. `stackTs`/`stackTsMany` must
+/// surface this (not `[]`): the JS-native provider carries `Vesper` ambient, and
+/// `canonName`'s forward intrinsic resolution reaches `Vesper.undefined` (a JS-only
+/// intrinsic registered under its qualified name) only through it — dropping ambient
+/// would let the reverse-canon map collapse `undefined` onto `unit`.
+let private stackWithAmbient (sources: IExternalSymbolProvider list) : IExternalSymbolProvider =
+    let ambient = sources |> List.collect (fun s -> s.AmbientOpenPrefixes)
+    ExternalSymbols.stack ValueNone ambient sources
+
 /// The provider-stack one-liner: a TS-manifest provider layered over the standard
 /// JS-native provider (so the manifest's primitive/`int`/`string` argument types still
-/// resolve). `ValueNone`/`[]` = no home-assembly identity and no metadata tail.
+/// resolve). `ValueNone` = no home-assembly identity; ambient is aggregated from the
+/// sources (mirroring production) so JS-only intrinsics resolve by bare name.
 let stackTs (manifest: Schema.PackageManifest) : IExternalSymbolProvider =
-    ExternalSymbols.stack ValueNone [] [ TsManifestProvider.providerOfManifest manifest; jsProvider.Value ]
+    stackWithAmbient [ TsManifestProvider.providerOfManifest manifest; jsProvider.Value ]
 
 /// Like `stackTs` but layers SEVERAL TS-manifest providers (order preserved) over the
 /// JS-native provider — for a program driving more than one external package.
 let stackTsMany (manifests: Schema.PackageManifest list) : IExternalSymbolProvider =
-    ExternalSymbols.stack
-        ValueNone
-        []
+    stackWithAmbient
         [
             yield! manifests |> List.map TsManifestProvider.providerOfManifest
             jsProvider.Value

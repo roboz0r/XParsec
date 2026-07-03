@@ -6,11 +6,11 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// The two HONEST residues the mitt full-surface gate deliberately does NOT
-// close, each pinned so a future regression (or a future closure) is visible:
-//   • Wall 1 — the annotation-required POLICY for the generic factory.
-//   • the undefined-vs-unit type-identity precision gap (the deferred `null`/`undefined`
-//     intrinsic support, orthogonal to the conditional-fold machinery).
+// The mitt full-surface gate's residues, each pinned so a future regression is
+// visible:
+//   • the annotation-required POLICY for the generic factory (deliberately open).
+//   • undefined-vs-unit type identity — now CLOSED (Wall 1): a `unit`-typed event is
+//     correctly rejected by no-payload `emit`, an `undefined`-typed one accepted.
 
 let private analyseErrors (input: string) : string list =
     analyseWith MittFixture.provider input |> List.map (fun d -> d.Message)
@@ -69,12 +69,14 @@ let tests =
                     "int is not undefined-bearing; no-payload emit('ping') must error"
             }
 
-            test "KNOWN GAP: a unit-typed event is wrongly accepted by no-payload emit (undefined≠unit deferred)" {
-                // The precision limit of the deferred `null`/`undefined`-intrinsic support: `unit`
-                // and `undefined` are not yet distinct types, so `undefined extends Events[Key]`
-                // wrongly holds for a `unit` payload. The conditional-fold machinery is correct;
-                // only the undefined-vs-unit identity is imprecise. Pinned as GAP — when that
-                // intrinsic support lands and this starts erroring, flip to `isNonEmpty`.
+            test "a unit-typed event is REJECTED by no-payload emit (undefined≠unit now holds)" {
+                // GAP CLOSED (Wall 1): `unit` and `undefined` are now distinct type
+                // identities, so `undefined extends Events[Key]` NO LONGER holds for a `unit`
+                // payload — the conditional folds to `never` and a no-payload `emit("tick")`
+                // on a `unit`-typed event correctly errors. (Only an `undefined`-typed event
+                // admits the no-payload overload; see the sibling test above.) The backend
+                // repr coincidence — both `unit` and `undefined` emit JS `undefined` — is
+                // unaffected; this is a type-identity distinction only.
                 let input =
                     String.concat
                         "\n"
@@ -85,8 +87,8 @@ let tests =
                             ""
                         ]
 
-                Expect.isEmpty
+                Expect.isNonEmpty
                     (analyseErrors input)
-                    "GAP (documented): unit is currently accepted where only undefined should be"
+                    "unit is not undefined-bearing; no-payload emit('tick') must error"
             }
         ]
