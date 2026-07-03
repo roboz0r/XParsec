@@ -358,6 +358,59 @@ type MetadataSymbolProvider(reverseCanon: Map<string, string>, assemblyPaths: st
                     }
             | None -> None
 
+    /// A mapped method as an `ExternalMember`; `None` if its signature doesn't map.
+    /// Shared by the eager `enumerateClassMembers` method walk and the lazy
+    /// `TryLookupMember` per-type probe so the two paths can never drift on the shape
+    /// they mint for the same `MethodInfo`.
+    let methodMemberOf
+        (declKey: SymbolKey)
+        (origin: SymbolOrigin)
+        (arity: int)
+        (m: MethodInfo)
+        : ExternalMember option =
+        MetadataMapping.tryMethodSignature reverseCanon m
+        |> Option.map (fun (ps, ret) ->
+            let argSig =
+                m.GetParameters()
+                |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
+                |> EqArray.ofArray
+
+            let methodArity = MetadataMapping.methodArityOf m
+
+            {
+                Name = m.Name
+                IsStatic = m.IsStatic
+                Storage = MemberStorage.Method
+                Signature = MetadataMapping.methodSignature arity methodArity (ps, ret)
+                MethodArity = methodArity
+                Origin = origin
+                Key = SymbolKey.MemberKey(declKey, m.Name, argSig, MemberKind.Method)
+                OptionalDefaults = MetadataMapping.optionalDefaults (m.GetParameters())
+            }
+        )
+
+    /// A mapped property as an `ExternalMember`; `None` if its value type doesn't map.
+    /// Shared by the eager and lazy paths (see `methodMemberOf`).
+    let propertyMemberOf
+        (declKey: SymbolKey)
+        (origin: SymbolOrigin)
+        (arity: int)
+        (p: PropertyInfo)
+        : ExternalMember option =
+        MetadataMapping.tryPropertySignature reverseCanon p
+        |> Option.map (fun valueTy ->
+            {
+                Name = p.Name
+                IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
+                Storage = MemberStorage.Property
+                Signature = MetadataMapping.propertySignature arity valueTy
+                MethodArity = 0
+                Origin = origin
+                Key = SymbolKey.MemberKey(declKey, p.Name, EqArray.empty, MemberKind.Property)
+                OptionalDefaults = []
+            }
+        )
+
     /// Public declared members of `t` whose signatures map. Accessors are modelled
     /// through `Storage = Property` and filtered from the method walk. Must hold `gate`.
     let enumerateClassMembers (t: Type) : ExternalMember[] =
@@ -373,49 +426,13 @@ type MetadataSymbolProvider(reverseCanon: Map<string, string>, assemblyPaths: st
 
         let properties =
             t.GetProperties declaredFlags
-            |> Array.choose (fun p ->
-                match MetadataMapping.tryPropertySignature reverseCanon p with
-                | Some valueTy ->
-                    Some
-                        {
-                            Name = p.Name
-                            IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
-                            Storage = MemberStorage.Property
-                            Signature = MetadataMapping.propertySignature arity valueTy
-                            MethodArity = 0
-                            Origin = origin
-                            Key = SymbolKey.MemberKey(declKey, p.Name, EqArray.empty, MemberKind.Property)
-                            OptionalDefaults = []
-                        }
-                | None -> None
-            )
+            |> Array.choose (propertyMemberOf declKey origin arity)
 
         let methods =
             t.GetMethods declaredFlags
             // `IsSpecialName` covers property getters/setters and event add/remove.
             |> Array.filter (fun m -> not m.IsSpecialName)
-            |> Array.choose (fun m ->
-                MetadataMapping.tryMethodSignature reverseCanon m
-                |> Option.map (fun (ps, ret) ->
-                    let argSig =
-                        m.GetParameters()
-                        |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
-                        |> EqArray.ofArray
-
-                    let methodArity = MetadataMapping.methodArityOf m
-
-                    {
-                        Name = m.Name
-                        IsStatic = m.IsStatic
-                        Storage = MemberStorage.Method
-                        Signature = MetadataMapping.methodSignature arity methodArity (ps, ret)
-                        MethodArity = methodArity
-                        Origin = origin
-                        Key = SymbolKey.MemberKey(declKey, m.Name, argSig, MemberKind.Method)
-                        OptionalDefaults = MetadataMapping.optionalDefaults (m.GetParameters())
-                    }
-                )
-            )
+            |> Array.choose (methodMemberOf declKey origin arity)
 
         // Indexers surface as `get_Item` method members (the property shape can't
         // model index arguments). Ref-returning indexers (`Span<T>.Item : T&`) are
@@ -564,11 +581,11 @@ type MetadataSymbolProvider(reverseCanon: Map<string, string>, assemblyPaths: st
                 match resolveTypeLocked typeName with
                 | None -> [||]
                 | Some t ->
-                    // Interfaces don't inherit members through `DeclaredOnly`
-                    // (e.g. `IEnumerator<T>` inherits `MoveNext` from `IEnumerator`),
-                    // so for an interface we walk `t` then its transitive base set.
-                    // Each member's `declKey`/`origin` come from its declaring interface.
-                    let lookupOn (st: Type) : ExternalMember[] =
+                    // Per-type probes reading ONE type's own members (`DeclaredOnly`);
+                    // the inheritance walk that feeds them the receiver's base types (so
+                    // an *inherited* member resolves) is `candidates` below. Each member's
+                    // `declKey`/`origin` come from the type it is declared on.
+                    let commonOf (st: Type) =
                         let origin = originOf st (Some(MetadataMapping.metadataName st))
                         let declKey = MetadataMapping.declTypeKey st
 
@@ -578,100 +595,143 @@ type MetadataSymbolProvider(reverseCanon: Map<string, string>, assemblyPaths: st
                             else
                                 0
 
-                        match st.GetProperty(memberName, declaredFlags) with
-                        | (null: PropertyInfo) when memberName = ".ctor" ->
-                            st.GetConstructors declaredFlags
-                            |> Array.sortByDescending (fun c -> c.GetParameters().Length)
-                            |> Array.choose (fun c ->
-                                MetadataMapping.tryCtorSignature reverseCanon c
-                                |> Option.map (fun (ps, ret) ->
-                                    let argSig =
-                                        c.GetParameters()
-                                        |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
-                                        |> EqArray.ofArray
+                        origin, declKey, arity
 
-                                    ExternalMember.ctor
-                                        declKey
-                                        (MetadataMapping.methodSignature arity 0 (ps, ret))
-                                        argSig
-                                        origin
-                                        (MetadataMapping.optionalDefaults (c.GetParameters()))
-                                )
+                    let ctorsOn (st: Type) : ExternalMember[] =
+                        let origin, declKey, arity = commonOf st
+
+                        st.GetConstructors declaredFlags
+                        |> Array.sortByDescending (fun c -> c.GetParameters().Length)
+                        |> Array.choose (fun c ->
+                            MetadataMapping.tryCtorSignature reverseCanon c
+                            |> Option.map (fun (ps, ret) ->
+                                let argSig =
+                                    c.GetParameters()
+                                    |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
+                                    |> EqArray.ofArray
+
+                                ExternalMember.ctor
+                                    declKey
+                                    (MetadataMapping.methodSignature arity 0 (ps, ret))
+                                    argSig
+                                    origin
+                                    (MetadataMapping.optionalDefaults (c.GetParameters()))
                             )
-                        | (null: PropertyInfo) ->
-                            let methods =
-                                st.GetMethods declaredFlags
-                                |> Array.filter (fun m -> m.Name = memberName)
-                                |> Array.sortByDescending (fun m -> m.GetParameters().Length)
-                                |> Array.choose (fun m ->
-                                    MetadataMapping.tryMethodSignature reverseCanon m
-                                    |> Option.map (fun (ps, ret) ->
-                                        let argSig =
-                                            m.GetParameters()
-                                            |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
-                                            |> EqArray.ofArray
+                        )
 
-                                        let methodArity = MetadataMapping.methodArityOf m
+                    let methodsOn (st: Type) : ExternalMember[] =
+                        let origin, declKey, arity = commonOf st
 
-                                        {
-                                            Name = memberName
-                                            IsStatic = m.IsStatic
-                                            Storage = MemberStorage.Method
-                                            Signature = MetadataMapping.methodSignature arity methodArity (ps, ret)
-                                            MethodArity = methodArity
-                                            Origin = origin
-                                            Key = SymbolKey.MemberKey(declKey, memberName, argSig, MemberKind.Method)
-                                            OptionalDefaults = MetadataMapping.optionalDefaults (m.GetParameters())
-                                        }
-                                    )
-                                )
+                        st.GetMethods declaredFlags
+                        |> Array.filter (fun m -> m.Name = memberName)
+                        |> Array.sortByDescending (fun m -> m.GetParameters().Length)
+                        |> Array.choose (methodMemberOf declKey origin arity)
 
-                            if not (Array.isEmpty methods) then
-                                methods
-                            else
-                                // No property and no method by this name — try a genuine
-                                // field (`String.Empty`, `ValueTuple.Item1`), the lazy-path
-                                // analogue of the eager `fields` walk above.
-                                match st.GetField(memberName, declaredFlags) with
-                                | (null: FieldInfo) -> [||]
-                                | f ->
-                                    match fieldMemberOf declKey origin arity f with
-                                    | Some m -> [| m |]
-                                    | None -> [||]
+                    let propertyOn (st: Type) : ExternalMember[] =
+                        let origin, declKey, arity = commonOf st
+
+                        match st.GetProperty(memberName, declaredFlags) with
+                        | (null: PropertyInfo) -> [||]
                         | p ->
-                            match MetadataMapping.tryPropertySignature reverseCanon p with
-                            | Some valueTy ->
-                                [|
-                                    {
-                                        Name = memberName
-                                        IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
-                                        Storage = MemberStorage.Property
-                                        Signature = MetadataMapping.propertySignature arity valueTy
-                                        MethodArity = 0
-                                        Origin = origin
-                                        Key =
-                                            SymbolKey.MemberKey(
-                                                declKey,
-                                                memberName,
-                                                EqArray.empty,
-                                                MemberKind.Property
-                                            )
-                                        OptionalDefaults = []
-                                    }
-                                |]
+                            match propertyMemberOf declKey origin arity p with
+                            | Some m -> [| m |]
                             | None -> [||]
 
-                    // Interfaces: walk `t` then its transitive base set.
-                    if t.IsInterface then
-                        Array.append [| t |] (t.GetInterfaces())
-                        |> Array.tryPick (fun st ->
-                            match lookupOn st with
-                            | [||] -> None
-                            | arr -> Some arr
+                    // No property / method by this name — a genuine field (`String.Empty`,
+                    // `ValueTuple.Item1`).
+                    let fieldOn (st: Type) : ExternalMember[] =
+                        let origin, declKey, arity = commonOf st
+
+                        match st.GetField(memberName, declaredFlags) with
+                        | (null: FieldInfo) -> [||]
+                        | f ->
+                            match fieldMemberOf declKey origin arity f with
+                            | Some m -> [| m |]
+                            | None -> [||]
+
+                    // The receiver's type plus the types it inherits members from, in
+                    // most-derived-first order.
+                    //   * A class or struct walks its base chain, which terminates at
+                    //     `System.Object` (whose `BaseType` is null): on the CLR every
+                    //     value ultimately inherits `ToString` / `Equals` / `GetHashCode`
+                    //     from `Object`, plus any un-overridden member of an intermediate
+                    //     base (`SystemException.Message`).
+                    //   * An interface walks its transitive base interfaces, then
+                    //     `System.Object` — an interface reference inherits the `Object`
+                    //     members too, but `GetInterfaces()` never yields `Object` (it is
+                    //     not an interface) and an interface's `BaseType` is null, so it
+                    //     is appended explicitly.
+                    let candidates =
+                        if t.IsInterface then
+                            let objectTy =
+                                match resolveTypeLocked "System.Object" with
+                                | Some ot -> [| ot |]
+                                | None -> [||]
+
+                            Array.concat [ [| t |]; t.GetInterfaces(); objectTy ]
+                        else
+                            let rec baseChain (ty: Type) : Type list =
+                                if isNull ty then [] else ty :: baseChain ty.BaseType
+
+                            baseChain t |> List.toArray
+
+                    // Dedupe collected method overloads by signature `(argSig, kind,
+                    // methodArity)`: fed a most-derived-first array, `HashSet.Add` keeps
+                    // the first sighting, so a derived override drops its base twin while
+                    // overloads split across levels all survive. Re-sorted most-params-first
+                    // (stable) so `computeMember`'s `arr.[0]` is the widest overload.
+                    let dedupMethods (methods: ExternalMember[]) : ExternalMember[] =
+                        let seen = System.Collections.Generic.HashSet<_>(HashIdentity.Structural)
+
+                        methods
+                        |> Array.filter (fun m ->
+                            match m.Key with
+                            | SymbolKey.MemberKey(_, _, argSig, kind) -> seen.Add((argSig, kind, m.MethodArity))
+                            | _ -> true
                         )
-                        |> Option.defaultValue [||]
+                        |> Array.sortByDescending (fun m ->
+                            match m.Key with
+                            | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length
+                            | _ -> 0
+                        )
+
+                    // Constructors are NOT inherited — a `.ctor` request stays on `t`.
+                    if memberName = ".ctor" then
+                        ctorsOn t
                     else
-                        lookupOn t
+                        // Resolve `memberName` under CLR by-name hiding: the MOST-DERIVED
+                        // declaration of the name wins, and lookup never falls through to a
+                        // base member of a DIFFERENT KIND. Concretely:
+                        //   * A property or field owns the name outright — it hides every
+                        //     base member (any kind) of that name.
+                        //   * Methods overload, so they are COLLECTED down the chain (an
+                        //     override drops its base twin; overloads split across levels all
+                        //     survive) — but a property/field on a lower level hides all
+                        //     further base methods, so collection stops at that level.
+                        // Walking most-derived first, the first level that declares the name
+                        // therefore decides everything: a non-method with no method seen above
+                        // it IS the answer; otherwise the methods gathered above it win and the
+                        // non-method (and everything below) is hidden. Within a single level,
+                        // precedence is property > method > field, mirroring the single-type
+                        // `enumerateClassMembers` order (real types never collide across kinds
+                        // at one level, so this only orders the theoretical IL case).
+                        let rec resolve (methods: ExternalMember[]) (i: int) : ExternalMember[] =
+                            if i >= candidates.Length then
+                                dedupMethods methods
+                            else
+                                let st = candidates.[i]
+
+                                match propertyOn st with
+                                | [| _ |] as p -> if Array.isEmpty methods then p else dedupMethods methods
+                                | _ ->
+                                    match methodsOn st with
+                                    | [||] ->
+                                        match fieldOn st with
+                                        | [||] -> resolve methods (i + 1)
+                                        | f -> if Array.isEmpty methods then f else dedupMethods methods
+                                    | ms -> resolve (Array.append methods ms) (i + 1)
+
+                        resolve [||] 0
             )
 
     /// Single best member (most-params wins). Call sites use `computeMembers` for overloads.

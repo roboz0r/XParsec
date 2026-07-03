@@ -72,6 +72,7 @@
     <Compile Include="LocalModuleTests.fs" />
     <Compile Include="InferResolutionTests.fs" />
     <Compile Include="TupleTests.fs" />
+    <Compile Include="TypeTestAsBinderTests.fs" />
     <Compile Include="StructuralFormatTests.fs" />
     <Compile Include="PrintfDifferentialTests.fs" />
     <Compile Include="StructuralFormatBench.fs" />
