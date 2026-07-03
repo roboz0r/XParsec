@@ -79,6 +79,13 @@ module JsImports =
     /// runtime module.
     let addRef (imports: JsImports) (compiledName: string) (key: SymbolKey voption) (form: ImportForm) : string =
         match key with
+        // A GLOBAL pack's export (its home is in `globalLibHomes`) is provided by the
+        // JS runtime intrinsically: emit its BARE export name, record NO import. Global
+        // rides the HOME, so this is decided by the key's home assembly — the SAME
+        // single-source fact the provider mounted the pack under `Js` by. (A Global
+        // class's construction bypasses `addRef` entirely via the external-new arm;
+        // this covers a Global pack's free-function / variable exports.)
+        | ValueSome(SymbolKey.ValueKey(Some asm, _, name)) when TsGlobalHomes.globalLibHomes.ContainsKey asm -> name
         | ValueSome(SymbolKey.ValueKey(Some asm, ns, name)) ->
             let entry = entryFor imports asm (sprintf "external value '%s'" compiledName)
             let alias = "$" + (ns + "." + name).Replace('.', '_')

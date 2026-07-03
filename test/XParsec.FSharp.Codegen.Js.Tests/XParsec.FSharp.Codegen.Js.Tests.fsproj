@@ -46,6 +46,7 @@
     <Compile Include="UnannotatedMittTests.fs" />
     <Compile Include="TypeLevelFoldTests.fs" />
     <Compile Include="RefsTableTests.fs" />
+    <Compile Include="JsNamespaceTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

@@ -171,13 +171,27 @@ module TsManifestProvider =
         // later tier supplies nested namespace paths here instead of `pkg` directly.
         let moduleSpec = pkg
 
-        let flatExports = flatten "" man.Exports
+        // A GLOBAL pack (its `Package`/home appears in `globalLibHomes`) mounts every
+        // export under its Vesper-facing namespace: start the flatten at that prefix,
+        // so `es2015`'s `Map` registers as `Js.Map` (nsPath `Js`) and every downstream
+        // site — `mint`/`originFor`/`buildCtx`/`toTypeShape`/`funcs`/synthetic types —
+        // picks up the prefix from the SAME `flatExports`. `mountPrefix = ""` for a
+        // real package (flatten at root, as before). ONE source: `globalLibHomes`.
+        let mountPrefix =
+            TsGlobalHomes.globalLibHomes.TryFind man.Package |> Option.defaultValue ""
+
+        // Global rides the HOME: a type this manifest builds is import-free iff its
+        // home is a global pack (equivalently, `mountPrefix <> ""`). Stamped onto
+        // every class/interface shape below.
+        let isGlobalPack = mountPrefix <> ""
+
+        let flatExports = flatten mountPrefix man.Exports
 
         // ONE pre-pass mints every declared `Interface`/`Class` identity (see
         // `TsManifestTranslate.mint`/`buildCtx`) over ALL flat exports before any
         // per-export walk, so a member signature that names a type declared LATER
         // (mitt's `mitt` referencing `Emitter`) still resolves.
-        let ctx = buildCtx moduleSpec man.Refs flatExports
+        let ctx = buildCtx moduleSpec mountPrefix man.Refs flatExports
 
         // Partition free functions by call-signature count. A single-signature
         // function stays a BARE free function (the name-keyed `funcs` map /
@@ -199,7 +213,8 @@ module TsManifestProvider =
             )
 
         let regularTypes =
-            flatExports |> List.choose (fun (nsPath, ex) -> toTypeShape ctx nsPath ex)
+            flatExports
+            |> List.choose (fun (nsPath, ex) -> toTypeShape ctx isGlobalPack nsPath ex)
 
         // Synthesize one erased grouping type per (nsPath) GROUP of overloaded free
         // functions: its static members are the overloads, expanded with `expandMethod`
@@ -262,6 +277,9 @@ module TsManifestProvider =
                         Flags =
                             { ExternalClassFlags.Default with
                                 MemberLowering = MemberLowering.ErasedBare
+                                // Global rides the HOME: a global pack's grouping type is
+                                // import-free like its real types.
+                                Global = isGlobalPack
                             }
                         Origin = origin
                         // JS is single-faced — no BCL platform spelling to reconcile.

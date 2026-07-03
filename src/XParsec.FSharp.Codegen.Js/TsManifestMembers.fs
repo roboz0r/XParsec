@@ -141,7 +141,12 @@ module internal TsManifestMembers =
 
         interfaces.ToArray(), baseTy
 
-    let toTypeShape (ctx: TranslateCtx) (nsPath: string) (ex: Schema.Export) : (string * ExternalTypeShape) option =
+    let toTypeShape
+        (ctx: TranslateCtx)
+        (isGlobal: bool)
+        (nsPath: string)
+        (ex: Schema.Export)
+        : (string * ExternalTypeShape) option =
         let build name tp members heritage isInterface =
             let origin = originFor ctx nsPath
             // The identity comes FROM the ctx table (`declaredIdentity`), never
@@ -174,6 +179,9 @@ module internal TsManifestMembers =
                         Flags =
                             { ExternalClassFlags.Default with
                                 MemberLowering = MemberLowering.AttachedNative
+                                // Global rides the HOME: a global pack's types are
+                                // import-free (bare-name emit), a real package's are not.
+                                Global = isGlobal
                             }
                         Origin = origin
                         // JS is single-faced — no BCL platform spelling to reconcile.

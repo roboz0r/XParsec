@@ -4,6 +4,23 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open Vesper.Ts.Manifest
 
+/// THE single-source home→namespace table for GLOBAL (ambient) ref packs. A wire
+/// HOME/assembly that appears here is a global pack: the JS runtime provides its
+/// types intrinsically, so they mount under their VESPER-FACING namespace AND emit
+/// with NO `import`. This ONE fact — `es2015 → Js` — ties three sites together:
+///   1. the provider mounts a global pack's exports under its namespace
+///      (`providerOfManifest` starts its flatten at the mount prefix);
+///   2. the provider stamps `ExternalClassFlags.Global = true` on those shapes;
+///   3. the consumer ref-minting (`toFrozen`'s `nominal`) homes a `RefEntry` under
+///      the same namespace, so a homed `Map` ref and the mounted es2015 `Map`
+///      share the qualified name `Js.Map`.
+/// Design-table row: the ECMAScript CORE library flattens into a single `Js`
+/// namespace — the `es2015`/`es2017`/… lib version suffix is TS's compile-TARGET
+/// mechanism, not a semantic namespace, so every ES-core lib home maps to `Js`.
+/// A home ABSENT here is a real package: normal namespace `""` and normal import.
+module TsGlobalHomes =
+    let globalLibHomes: Map<string, string> = Map [ "es2015", "Js" ]
+
 /// Type translation for the TS-manifest provider: the manifest's `TypeRef` grammar
 /// → the seam's `FrozenType` / `ExternalSignature`, plus the per-manifest
 /// `TranslateCtx` (the type-identity table every walk threads). Consumed by
@@ -81,6 +98,14 @@ module internal TsManifestTranslate =
             /// The symbols' import path (for a flat single-file package, the package
             /// name); stamped into every minted key and `SymbolOrigin`.
             ModuleSpec: string
+            /// The namespace a GLOBAL pack's exports are MOUNTED under (`Js` for an
+            /// `es2015` home; `""` for a real package). A global pack registers its
+            /// types under `Js.<name>`, but its member signatures still spell an
+            /// intra-pack sibling by its BARE name (`Map`'s ctor returns `Map`, not
+            /// `Js.Map`), so `nominal`'s own-registry probe retries the BARE name
+            /// prefixed by this mount (`Js.Map`). `""` makes the retry a no-op, so a
+            /// real package is byte-identical. ONE source: `globalLibHomes`.
+            MountPrefix: string
         }
 
         /// THE gate that turns a nominal `Named` into `FTClass` — and only for a
@@ -103,6 +128,7 @@ module internal TsManifestTranslate =
     /// those two export kinds register — the mirror image of what `Resolve` must miss.
     let buildCtx
         (moduleSpec: string)
+        (mountPrefix: string)
         (refs: (string * Schema.RefEntry) list)
         (flatExports: (string * Schema.Export) list)
         : TranslateCtx =
@@ -124,6 +150,7 @@ module internal TsManifestTranslate =
             Types = types
             Refs = Map.ofList refs
             ModuleSpec = moduleSpec
+            MountPrefix = mountPrefix
         }
 
     /// The identity `buildCtx` registered for a DECLARED `Interface`/`Class` export —
@@ -156,7 +183,18 @@ module internal TsManifestTranslate =
         let nominal name (args: FrozenType[]) =
             // Suffix the manifest's bare spelling by the applied arg count before
             // probing the table (THE LAW, see `mint`).
-            match ctx.Resolve(SymbolKeyOps.arityName name args.Length) with
+            let suffixed = SymbolKeyOps.arityName name args.Length
+
+            // A GLOBAL pack registers its types under its mount namespace (`Js.Map`) but
+            // spells an intra-pack sibling by its BARE name (`Map`) — retry the
+            // mount-qualified name on the direct miss. `MountPrefix = ""` (a real
+            // package) makes `qualify` a no-op, so this is the SAME lookup twice.
+            let owned =
+                match ctx.Resolve suffixed with
+                | Some key -> Some key
+                | None -> ctx.Resolve(qualify ctx.MountPrefix suffixed)
+
+            match owned with
             | Some key -> FTClass(key, EqArray.ofSeq args)
             | None ->
                 // Own-registry miss: consult the FOREIGN refs table (keyed by the BARE
@@ -176,8 +214,16 @@ module internal TsManifestTranslate =
                     match entry.Kind with
                     | Schema.RefKind.Class
                     | Schema.RefKind.Interface ->
+                        // A GLOBAL home mints its ref under the Vesper-facing namespace
+                        // (`es2015` → `Js`) so this homed identity's `qualifiedName`
+                        // (`Js.Map\`2`) equals what the MOUNTED home provider registers
+                        // its own type under (`providerOfManifest` starts its flatten at
+                        // the same mount prefix). A real-package home stays namespace ""
+                        // (normal in-package spelling). ONE source: `globalLibHomes`.
+                        let ns = TsGlobalHomes.globalLibHomes.TryFind entry.Home |> Option.defaultValue ""
+
                         let key =
-                            SymbolKey.TypeKey(Some entry.Home, "", SymbolKeyOps.arityName name entry.Arity)
+                            SymbolKey.TypeKey(Some entry.Home, ns, SymbolKeyOps.arityName name entry.Arity)
 
                         FTClass(key, EqArray.ofSeq args)
                     | Schema.RefKind.Alias

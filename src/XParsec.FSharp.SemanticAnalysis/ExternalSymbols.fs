@@ -425,6 +425,16 @@ type ExternalClassFlags =
         /// HOW instance-member calls lower on JS (attached-native / receiver-first /
         /// erased-bare). Replaces the former `Erased`/`AttachMembers` bool pair.
         MemberLowering: MemberLowering
+        /// A GLOBAL (ambient) type — one the JS runtime provides intrinsically
+        /// (`Map`, `Set`, `Promise`, …), reachable by its BARE name with NO `import`.
+        /// A SEPARATE axis from `MemberLowering`: that decides call-lowering shape,
+        /// this decides import emission. Fable-named after `[<Global>]`. STAMPED by
+        /// the TS-manifest provider for a type whose HOME is a global pack (an entry
+        /// of `TsGlobalHomes.globalLibHomes`, e.g. `es2015` mounted under `Js`) —
+        /// Global rides the HOME, not the type, so a real-package home keeps `false`
+        /// (normal import). CONSUMED by the JS backend: `JsImports.addRef` skips
+        /// recording and the external-new / member-emit sites use the bare name.
+        Global: bool
     }
 
     /// The conservative default the contract layer stamps when a `.fsi` only
@@ -436,6 +446,7 @@ type ExternalClassFlags =
             AllowNullLiteral = false
             IsValueType = false
             MemberLowering = MemberLowering.ReceiverFirst
+            Global = false
         }
 
 /// The two faces of a **dual-faced capability interface** — a `Class` that, like

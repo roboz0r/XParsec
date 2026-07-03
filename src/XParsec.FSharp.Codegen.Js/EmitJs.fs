@@ -513,10 +513,26 @@ module EmitJs =
                     | _ -> ValueNone
                 | ValueNone -> ValueNone
 
-            match localClassName with
-            | ValueSome name ->
+            // A GLOBAL (ambient) external class — its home is a global pack (`Js.Map`,
+            // `Js.Widget`) — constructs by its BARE export name with NO import: the JS
+            // runtime provides it intrinsically. `Global` rides the HOME (the resolved
+            // shape's `ExternalClassFlags.Global`, reached via the receiver-shape key),
+            // so this fires for an es2015-home type but not a real package. The bare
+            // name is the key's simple name (`Js.Widget` → `Widget`). Resolved after
+            // the local-class path and before the external `exn`-repr fallback.
+            let globalClassName =
+                match TastLower.receiverShape ty with
+                | ValueSome(key, _) ->
+                    JsExternalMembers.classFlagsOf ctx.Provider key
+                    |> ValueOption.filter (fun flags -> flags.Global)
+                    |> ValueOption.map (fun _ -> SymbolKeyOps.simpleName key)
+                | ValueNone -> ValueNone
+
+            match localClassName, globalClassName with
+            | ValueSome name, _
+            | ValueNone, ValueSome name ->
                 JsExpr.New(JsExpr.Identifier(name, ValueNone), [ for a in args -> buildExpr ctx a ], loc)
-            | ValueNone ->
+            | ValueNone, ValueNone ->
                 match JsExternalMembers.exnReprOf ctx.Provider ty with
                 | ValueSome repr ->
                     let errArgs =
