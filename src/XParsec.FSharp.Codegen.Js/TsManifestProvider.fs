@@ -13,7 +13,10 @@ open XParsec.FSharp.Codegen.Js.TsManifestMembers
 /// of `MetadataSymbols` (which reads .NET assemblies via `MetadataLoadContext`):
 /// here the "metadata oracle" is the serialised manifest the TS extractor emitted,
 /// and this maps its type-description grammar into the seam's `ExternalTypeShape`
-/// / `ExternalSymbol` / `FrozenType`. Mirrors `JsNativeSymbols` structurally.
+/// / `ExternalSymbol` / `FrozenType`. It mirrors `MetadataSymbolProvider`'s
+/// concrete-type shape: a named provider type (`TsManifestSymbolProvider`) whose
+/// ctor resolves the manifest into `let` fields, with `IExternalSymbolProvider`
+/// implemented as its interface members.
 ///
 /// This module assembles and loads the provider (free-function/value symbols,
 /// overload grouping, the `IExternalSymbolProvider` maps); type translation lives
@@ -126,8 +129,11 @@ module TsManifestProvider =
             Some(qn, sym)
         | _ -> None
 
-    /// Build a provider from an already-parsed manifest.
-    let providerOfManifest (man: Schema.PackageManifest) : IExternalSymbolProvider =
+    /// Concrete provider holding the manifest's resolved state — the JS analog of
+    /// `MetadataSymbols`'s `MetadataSymbolProvider`: the ctor builds every map/guard
+    /// into `let` fields and the `IExternalSymbolProvider` members serve them. It is a
+    /// named type (not an object expression) precisely because it carries that state.
+    type internal TsManifestSymbolProvider(man: Schema.PackageManifest) =
         let pkg = man.Package
         // Flat single-file package: the module specifier IS the package name. A
         // later tier supplies nested namespace paths here instead of `pkg` directly.
@@ -169,18 +175,20 @@ module TsManifestProvider =
         // capitalised module segment): silently shadowing it would corrupt resolution.
         let regularTypeNames = regularTypes |> List.map fst |> Set.ofList
 
-        for (qn, _) in syntheticTypes do
-            if Set.contains qn regularTypeNames then
-                failwithf
-                    "synthetic free-function-overload grouping type '%s' collides with a real exported type of the same name; rename the module or the type"
-                    qn
+        do
+            for (qn, _) in syntheticTypes do
+                if Set.contains qn regularTypeNames then
+                    failwithf
+                        "synthetic free-function-overload grouping type '%s' collides with a real exported type of the same name; rename the module or the type"
+                        qn
 
         // The structural erasing nominal is homed under the reserved `@struct` namespace,
         // which a real export's qualified name cannot spell — but keep the same collision
         // guard as the grouping type rather than trusting that reservation silently.
-        for (qn, _) in structuralTypes do
-            if Set.contains qn regularTypeNames then
-                failwithf "synthetic structural type '%s' collides with a real exported type of the same name" qn
+        do
+            for (qn, _) in structuralTypes do
+                if Set.contains qn regularTypeNames then
+                    failwithf "synthetic structural type '%s' collides with a real exported type of the same name" qn
 
         let types = (regularTypes @ syntheticTypes @ structuralTypes) |> Map.ofList
 
@@ -203,7 +211,7 @@ module TsManifestProvider =
             | Some(ExternalTypeShape.Class shape) -> shape.Members |> Array.filter (fun m -> m.Name = memberName)
             | _ -> [||]
 
-        { new IExternalSymbolProvider with
+        interface IExternalSymbolProvider with
             member _.TryLookup name =
                 match Map.tryFind name funcs with
                 | Some s -> ValueSome s
@@ -226,7 +234,10 @@ module TsManifestProvider =
             member _.TryLookupInlineBodyByName _ = ValueNone
             member _.IntrinsicReverseCanon = Map.empty
             member _.IntrinsicForwardRepr = Map.empty
-        }
+
+    /// Build a provider from an already-parsed manifest.
+    let providerOfManifest (man: Schema.PackageManifest) : IExternalSymbolProvider =
+        TsManifestSymbolProvider man :> IExternalSymbolProvider
 
     /// Parse a manifest JSON file and build its provider.
     let tryLoadFile (path: string) : Result<IExternalSymbolProvider, string> =
