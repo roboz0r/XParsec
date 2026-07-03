@@ -286,11 +286,11 @@ module UnificationEngine =
         | TyIndexedAccess(o1, i1), TyIndexedAccess(o2, i2) ->
             unify ctx key o1 o2
             unify ctx key i1 i2
-        | TyConditional(c1, e1, wt1, wf1), TyConditional(c2, e2, wt2, wf2) ->
-            unify ctx key c1 c2
-            unify ctx key e1 e2
-            unify ctx key wt1 wt2
-            unify ctx key wf1 wf2
+        | TyConditional c1, TyConditional c2 ->
+            unify ctx key c1.Check c2.Check
+            unify ctx key c1.Extends c2.Extends
+            unify ctx key c1.WhenTrue c2.WhenTrue
+            unify ctx key c1.WhenFalse c2.WhenFalse
         | TyVar tv1, TyVar tv2 when System.Object.ReferenceEquals(tv1, tv2) -> ()
         | TyVar tv1, TyVar tv2 ->
             let r1 = UnionFind.find tv1

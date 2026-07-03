@@ -169,7 +169,13 @@ module internal TsManifestTranslate =
         | Schema.TypeRef.KeyOf t -> FTKeyOf(toFrozen ctx t)
         | Schema.TypeRef.IndexedAccess(objTy, index) -> FTIndexedAccess(toFrozen ctx objTy, toFrozen ctx index)
         | Schema.TypeRef.Conditional(check, extends, whenTrue, whenFalse) ->
-            FTConditional(toFrozen ctx check, toFrozen ctx extends, toFrozen ctx whenTrue, toFrozen ctx whenFalse)
+            FTConditional
+                {
+                    Check = toFrozen ctx check
+                    Extends = toFrozen ctx extends
+                    WhenTrue = toFrozen ctx whenTrue
+                    WhenFalse = toFrozen ctx whenFalse
+                }
         | Schema.TypeRef.Dynamic -> FTUnknown "any" // TODO: TyDynamic once it lands
         | Schema.TypeRef.Structural(hash, _) -> FTUnknown("structural:" + hash) // TODO: content-hash record
 

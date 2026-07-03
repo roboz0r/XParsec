@@ -65,12 +65,13 @@ let private sampleFrozenTypes: FrozenType list =
             // typars), so include them in the oracle.
             FTKeyOf(FTTypar(TyparAxis.Declaring, 0))
             FTIndexedAccess(FTTypar(TyparAxis.Declaring, 0), FTTypar(TyparAxis.Method, 0))
-            FTConditional(
-                FTConst("undefined", EqArray.empty),
-                FTIndexedAccess(FTTypar(TyparAxis.Declaring, 0), FTTypar(TyparAxis.Method, 0)),
-                FTTypar(TyparAxis.Method, 0),
-                FTConst("never", EqArray.empty)
-            )
+            FTConditional
+                {
+                    Check = FTConst("undefined", EqArray.empty)
+                    Extends = FTIndexedAccess(FTTypar(TyparAxis.Declaring, 0), FTTypar(TyparAxis.Method, 0))
+                    WhenTrue = FTTypar(TyparAxis.Method, 0)
+                    WhenFalse = FTConst("never", EqArray.empty)
+                }
         ]
 
     let branch2 =
@@ -171,5 +172,84 @@ let tests =
                 Expect.throws
                     (fun () -> toFrozen nested |> ignore)
                     "a buried metavar is still rejected (the recursion reaches it)"
+            }
+        ]
+
+// `iterChildren2` pairs the members of an `FTOr` — a SET, so storage order is not a
+// semantic invariant across instantiation. These pin the head-keyed fallback that
+// recovers the pairing when the members line up NON-positionally (the case
+// `ClrEncoder.recoverOpenTypars` rests on): a positional-only walk would silently
+// mis-recover an open typar buried under a reordered union member.
+[<Tests>]
+let iterChildren2FTOrTests =
+    // A minimal mirror of `ClrEncoder.recoverOpenTypars`' descent: record what each
+    // method-axis `FTTypar` slot instantiates to as `iterChildren2` pairs children.
+    let recoverMethodTypars (openT: FrozenType) (instT: FrozenType) =
+        let recovered = System.Collections.Generic.Dictionary<int, FrozenType>()
+
+        let rec go (d: FrozenType) (a: FrozenType) =
+            match d with
+            | FTTypar(TyparAxis.Method, i) -> recovered.[i] <- a
+            | _ -> FrozenType.iterChildren2 go d a
+
+        go openT instT
+        recovered
+
+    testList
+        "FrozenType.iterChildren2 FTOr pairing"
+        [
+            test "recovers a typar buried under a REORDERED FTOr member by head key, not position" {
+                let kBox = SymbolKeyOps.qualifiedTypeKey "Test.Box" 1
+                // open template `Box<!!0> | int`; instantiated view `int | Box<string>`.
+                // `EqSet` preserves insertion order, so the two are stored REORDERED —
+                // a positional pairing would match `Box<!!0>` against `int` and lose the
+                // typar; the head-keyed fallback pairs `Box` with `Box`.
+                let openOr =
+                    FrozenType.MkUnion
+                        [
+                            FTClass(kBox, EqArray.singleton (FTTypar(TyparAxis.Method, 0)))
+                            FTConst("int", EqArray.empty)
+                        ]
+
+                let instOr =
+                    FrozenType.MkUnion
+                        [
+                            FTConst("int", EqArray.empty)
+                            FTClass(kBox, EqArray.singleton (FTConst("string", EqArray.empty)))
+                        ]
+
+                let recovered = recoverMethodTypars openOr instOr
+
+                Expect.equal recovered.Count 1 "exactly the one method typar is recovered"
+
+                Expect.equal
+                    recovered.[0]
+                    (FTConst("string", EqArray.empty))
+                    "!!0 recovers to `string` via head-keyed pairing, not the positional `int`"
+            }
+
+            test "fails loudly when an open FTOr member's head matches TWO instantiated members" {
+                let kBox = SymbolKeyOps.qualifiedTypeKey "Test.Box" 1
+                // open `int | Box<!!0>`; instantiated `Box<string> | Box<float>`. Positional
+                // heads mismatch (int vs Box) so the fallback runs; the concrete `int` open
+                // member has no partner, and `Box<!!0>` matches BOTH instantiated members —
+                // genuinely ambiguous, so guessing is a bug: fail.
+                let openOr =
+                    FrozenType.MkUnion
+                        [
+                            FTConst("int", EqArray.empty)
+                            FTClass(kBox, EqArray.singleton (FTTypar(TyparAxis.Method, 0)))
+                        ]
+
+                let instOr =
+                    FrozenType.MkUnion
+                        [
+                            FTClass(kBox, EqArray.singleton (FTConst("string", EqArray.empty)))
+                            FTClass(kBox, EqArray.singleton (FTConst("float", EqArray.empty)))
+                        ]
+
+                Expect.throws
+                    (fun () -> recoverMethodTypars openOr instOr |> ignore)
+                    "an ambiguous head-keyed FTOr pairing must fail, not guess"
             }
         ]

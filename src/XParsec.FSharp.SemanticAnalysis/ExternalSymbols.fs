@@ -56,7 +56,7 @@ type ExternalConstraint =
 /// statement shape at a use site. `Named` (`import { x from … }`) for everything
 /// except a TS `export default` (`Default` — `import x from …`; a default export
 /// cannot be imported by name). A semantic classification of the external
-/// package, so it rides the provider seam (like `ExternalClassFlags.AttachMembers`);
+/// package, so it rides the provider seam (like `ExternalClassFlags.MemberLowering`);
 /// only the JS backend consumes it (`JsImports.addRef`). Two arms only: these are
 /// the only forms produced today — the manifest's `Schema.ImportShape.Namespace` /
 /// `CommonJsExport` collapse to `Named` at the provider until a fixture needs them.
@@ -281,6 +281,24 @@ type ExternalSignature =
             MethodTyparBounds = [||]
         }
 
+    /// Smart constructor for the COMMON eager case: a fully-known `Parameters` /
+    /// `Return` template with no TS keyof method bounds. Defaults the churn-prone
+    /// `MethodTyparBounds` to EMPTY (every non-TS producer — reflection / `.fsi` /
+    /// JS-native — carries no bound), so a future signature field is a one-site
+    /// addition here rather than an edit at each construction site. The rare
+    /// bound-carrying producer (the TS-manifest `signatureOf`) still builds the
+    /// record explicitly.
+    static member make
+        (declaringArity: int, methodArity: int, parameters: FrozenType, return': FrozenType)
+        : ExternalSignature =
+        {
+            DeclaringArity = declaringArity
+            MethodArity = methodArity
+            Parameters = parameters
+            Return = return'
+            MethodTyparBounds = [||]
+        }
+
 /// A resolved member (static/instance method or property getter) on an external
 /// type. `Signature` is the immutable two-axis `ExternalSignature` template
 /// parameterised over the *enclosing type's* typars (and the member's own, on
@@ -362,6 +380,30 @@ type ExternalMember =
             OptionalDefaults = optionalDefaults
         }
 
+/// HOW an external type's instance-member CALLS lower on the JS backend — a single
+/// axis replacing the former `Erased`/`AttachMembers` bool pair (both-true was
+/// unrepresentable nonsense the type admitted). Exactly one of these holds.
+type MemberLowering =
+    /// Instance members live ON the object as genuine prototype/own methods — native
+    /// `receiver.member(args)` calls / property reads. Named after F#/Fable's
+    /// `[<AttachMembers>]`, whose semantic this is. SET by the TS-manifest provider
+    /// for real Interface/Class shapes (the object has native methods); CONSUMED by
+    /// JS emit to pick the `receiver.member(args)` lowering.
+    | AttachedNative
+    /// Vesper's OWN emitted form: members compile to receiver-first FREE FUNCTIONS as
+    /// a tree-shaking optimisation (the Fable trick). The DEFAULT, so every existing
+    /// provider is unaffected.
+    | ReceiverFirst
+    /// A SYNTHETIC grouping type that does not exist at runtime — its static members
+    /// are bare module-level exports collected under one F#-visible type purely so the
+    /// front end can resolve them (F# has no free-function overloading; the TS provider
+    /// groups overloaded free functions of a module as static members of a synthetic
+    /// type named after the module). A call to such a member (`Util.format(x)`) ERASES
+    /// at JS emit to the bare export (`format(x)`) — the real export name is the bare
+    /// member name, NOT a mangled `Type_member`. SET by the TS-manifest provider;
+    /// CONSUMED by the JS emit erase branch.
+    | ErasedBare
+
 /// Capability flags on an external class or interface. The metadata layer reads
 /// them off the .NET `TypeAttributes` plus
 /// `[<AllowNullLiteral>]` attribute decoding; the contract layer leaves them at
@@ -380,28 +422,9 @@ type ExternalClassFlags =
         /// first consumer. Contract-layer providers
         /// leave it `false` (a `.fsi` doesn't yet publish struct-ness).
         IsValueType: bool
-        /// `true` for a SYNTHETIC grouping type that does not exist at runtime — its
-        /// static members are bare module-level exports collected under one F#-visible
-        /// type purely so the front end can resolve them (F# has no free-function
-        /// overloading; the TS provider groups overloaded free functions of a module as
-        /// static members of a synthetic type named after the module). A call to such a
-        /// member (`Util.format(x)`) must ERASE at JS emit to the bare export
-        /// (`format(x)`) — the real export name is the bare member name, NOT a mangled
-        /// `Type_member`. SET by the TS-manifest provider (Tier 2 item 9b Phase 1);
-        /// CONSUMED by the JS emit erase branch (Phase 2). Always `false` for real
-        /// (metadata/contract) classes.
-        Erased: bool
-        /// `true` when the type's instance members live ON the object as genuine
-        /// prototype/own methods (native `receiver.member(args)` / property reads),
-        /// NOT as receiver-first free-function imports. Named after F#/Fable's
-        /// `[<AttachMembers>]`, whose semantic this is exactly. Vesper's OWN emitted
-        /// runtimes deliberately compile members to receiver-first FREE FUNCTIONS as a
-        /// tree-shaking optimisation (the Fable trick); attached members are the
-        /// general/native form a third-party object presents. SET `true` by the
-        /// TS-manifest provider for real Interface/Class shapes (the object has native
-        /// methods); CONSUMED by JS emit to pick the `receiver.member(args)` lowering.
-        /// Default `false` so every existing provider is unaffected.
-        AttachMembers: bool
+        /// HOW instance-member calls lower on JS (attached-native / receiver-first /
+        /// erased-bare). Replaces the former `Erased`/`AttachMembers` bool pair.
+        MemberLowering: MemberLowering
     }
 
     /// The conservative default the contract layer stamps when a `.fsi` only
@@ -412,8 +435,7 @@ type ExternalClassFlags =
             IsAbstract = false
             AllowNullLiteral = false
             IsValueType = false
-            Erased = false
-            AttachMembers = false
+            MemberLowering = MemberLowering.ReceiverFirst
         }
 
 /// The two faces of a **dual-faced capability interface** — a `Class` that, like
@@ -1033,15 +1055,15 @@ module ExternalSymbols =
         // by one mints a distinct `argSig`.
         | FTKeyOf t -> "keyof(" + argTypeName t + ")"
         | FTIndexedAccess(objTy, index) -> argTypeName objTy + "[" + argTypeName index + "]"
-        | FTConditional(check, extends, whenTrue, whenFalse) ->
+        | FTConditional c ->
             "("
-            + argTypeName check
+            + argTypeName c.Check
             + " extends "
-            + argTypeName extends
+            + argTypeName c.Extends
             + " ? "
-            + argTypeName whenTrue
+            + argTypeName c.WhenTrue
             + " : "
-            + argTypeName whenFalse
+            + argTypeName c.WhenFalse
             + ")"
         | FTTypar(axis, i) ->
             (match axis with

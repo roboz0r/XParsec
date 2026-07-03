@@ -370,8 +370,8 @@ type internal ClrEncoder(env: ClrEnv) =
                     slot.[i] <- ValueSome a
             // Same-head pairwise descent (`iterChildren2`): a head mismatch declines
             // silently (no recovery from that subtree); `collect` below fails loud on
-            // any slot left empty. See `iterChildren2`'s doc for the `FTOr`
-            // insertion-order pairing contract.
+            // any slot left empty. See `iterChildren2`'s doc for the `FTOr` pairing
+            // (positional when heads line up, head-keyed fallback otherwise).
             | d -> FrozenType.iterChildren2 go d a
 
         go openT instT

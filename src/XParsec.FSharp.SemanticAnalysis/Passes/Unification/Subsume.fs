@@ -394,16 +394,22 @@ module UnificationSubsume =
         // `extends_` are ground; the `extends` test is the directional `subsumes`
         // membership/subtype query (a ground union's membership included). mitt's
         // `undefined extends Events[Key] ? Key : never` is the pinned stress case.
-        | TyConditional(check, extends, whenTrue, whenFalse) ->
-            let check = evalTypeLevel ctx check
-            let extends = evalTypeLevel ctx extends
+        | TyConditional c ->
+            let check = evalTypeLevel ctx c.Check
+            let extends = evalTypeLevel ctx c.Extends
 
             if isGroundEval check && isGroundEval extends then
                 match subsumes ctx check extends with
-                | SubsumeOutcome.Unrelated -> evalTypeLevel ctx whenFalse
-                | _ -> evalTypeLevel ctx whenTrue
+                | SubsumeOutcome.Unrelated -> evalTypeLevel ctx c.WhenFalse
+                | _ -> evalTypeLevel ctx c.WhenTrue
             else
-                TyConditional(check, extends, evalTypeLevel ctx whenTrue, evalTypeLevel ctx whenFalse)
+                TyConditional
+                    {
+                        Check = check
+                        Extends = extends
+                        WhenTrue = evalTypeLevel ctx c.WhenTrue
+                        WhenFalse = evalTypeLevel ctx c.WhenFalse
+                    }
         // COMPOUND types recurse so a carried node NESTED inside them folds too — a
         // `keyof`/`T[K]` under a `TyFun`, `TyOr`, tuple, or nominal argument. A bare
         // `TyFun` parameter (mitt's `on` handler `(Events[Key]) -> unit`) already folds at

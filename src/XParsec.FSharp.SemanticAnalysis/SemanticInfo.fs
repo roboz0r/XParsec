@@ -417,7 +417,7 @@ type FrozenType =
     /// survives into diagnostics, SET-semantic equality/hash so `A | B ≡ B | A`),
     /// flattened/deduped/singleton-collapsed by the `MkUnion` smart constructor —
     /// the ONLY sanctioned producer (every rebuild site routes through it, never a
-    /// raw `EqSet.map`, because instantiation can introduce duplicates). The
+    /// raw member re-map, because instantiation can introduce duplicates). The
     /// backend lowers it to its universal-supertype primitive (`obj`+`isinst` on
     /// the CLR, erased on JS); no nominal identity. `FTOr []` is `never`.
     | FTOr of members: EqSet<FrozenType>
@@ -438,7 +438,7 @@ type FrozenType =
     /// (they only arise on the JS seam and must be evaluated before codegen).
     | FTKeyOf of ty: FrozenType
     | FTIndexedAccess of objTy: FrozenType * index: FrozenType
-    | FTConditional of check: FrozenType * extends: FrozenType * whenTrue: FrozenType * whenFalse: FrozenType
+    | FTConditional of FTConditionalPayload
     /// An open type parameter of the enclosing generic definition: `axis`
     /// selects the declaring-type vs method axis; `index` is its position in
     /// that axis's typar list — the order `freeze` quantifies in, which is the
@@ -456,7 +456,7 @@ type FrozenType =
     /// EVERY rebuild site (`toFrozen`, freshen/reaxis walks, `substituteDeclaring`,
     /// the TS provider's `toFrozen`) MUST route through here — duplicates arise
     /// POST-construction when a member instantiates to another member's value, so a
-    /// raw `EqSet.map` would leave a stale `FTOr [string; string]`.
+    /// raw member re-map would leave a stale `FTOr [string; string]`.
     static member MkUnion(members: FrozenType seq) : FrozenType =
         let acc = ResizeArray<FrozenType>()
 
@@ -474,6 +474,18 @@ type FrozenType =
             canonical.[0]
         else
             FTOr canonical
+
+/// Named payload of `FrozenType.FTConditional` (`Check extends Extends ? WhenTrue
+/// : WhenFalse`). All four fields are the same type, so a positional tuple lets a
+/// `WhenTrue`/`WhenFalse` swap typecheck silently — the record makes each branch's
+/// identity nominal.
+and FTConditionalPayload =
+    {
+        Check: FrozenType
+        Extends: FrozenType
+        WhenTrue: FrozenType
+        WhenFalse: FrozenType
+    }
 
 /// Mutually recursive with TypeVar — every TyVar is a pointer into the
 /// union-find graph. Will grow to include generics, units.
@@ -552,7 +564,7 @@ type SemType =
     /// can live inside after an external signature is instantiated.
     | TyKeyOf of ty: SemType
     | TyIndexedAccess of objTy: SemType * index: SemType
-    | TyConditional of check: SemType * extends: SemType * whenTrue: SemType * whenFalse: SemType
+    | TyConditional of TyConditionalPayload
     /// A nominal reference that resolved to no in-scope type shape during extraction.
     /// It never unifies with anything; Unification reports it at the use site and
     /// recovers, so one broken contract head doesn't cascade. Distinct from
@@ -591,6 +603,18 @@ type SemType =
             canonical.Members.[0]
         else
             TyOr canonical
+
+/// Named payload of `SemType.TyConditional` — the mirror of `FTConditionalPayload`
+/// (`Check extends Extends ? WhenTrue : WhenFalse`). Same-typed branches, so the
+/// record makes a `WhenTrue`/`WhenFalse` swap a compile error rather than a silent
+/// positional mistake.
+and TyConditionalPayload =
+    {
+        Check: SemType
+        Extends: SemType
+        WhenTrue: SemType
+        WhenFalse: SemType
+    }
 
 /// The member set of an anonymous union (`SemType.TyOr`): an order-insensitive,
 /// deduped, flattened `EqSet` — insertion-ordered storage (declared order
@@ -855,8 +879,14 @@ module FrozenType =
         | FTOr members -> FrozenType.MkUnion(seq { for m in members -> f m })
         | FTKeyOf ty -> FTKeyOf(f ty)
         | FTIndexedAccess(objTy, index) -> FTIndexedAccess(f objTy, f index)
-        | FTConditional(check, extends, whenTrue, whenFalse) ->
-            FTConditional(f check, f extends, f whenTrue, f whenFalse)
+        | FTConditional c ->
+            FTConditional
+                {
+                    Check = f c.Check
+                    Extends = f c.Extends
+                    WhenTrue = f c.WhenTrue
+                    WhenFalse = f c.WhenFalse
+                }
         | FTEnum _
         | FTLiteral _
         | FTTypar _
@@ -877,11 +907,11 @@ module FrozenType =
         | FTIndexedAccess(objTy, index) ->
             f objTy
             f index
-        | FTConditional(check, extends, whenTrue, whenFalse) ->
-            f check
-            f extends
-            f whenTrue
-            f whenFalse
+        | FTConditional c ->
+            f c.Check
+            f c.Extends
+            f c.WhenTrue
+            f c.WhenFalse
         | FTEnum _
         | FTLiteral _
         | FTTypar _
@@ -899,7 +929,7 @@ module FrozenType =
         | FTOr members -> EqSet.forall p members
         | FTKeyOf ty -> p ty
         | FTIndexedAccess(objTy, index) -> p objTy && p index
-        | FTConditional(check, extends, whenTrue, whenFalse) -> p check && p extends && p whenTrue && p whenFalse
+        | FTConditional c -> p c.Check && p c.Extends && p c.WhenTrue && p c.WhenFalse
         | FTEnum _
         | FTLiteral _
         | FTTypar _
@@ -909,14 +939,43 @@ module FrozenType =
     let existsChild (p: FrozenType -> bool) (t: FrozenType) : bool =
         not (forallChildren (fun c -> not (p c)) t)
 
+    /// True when `a` and `b` present the SAME head — same case, and for a nominal
+    /// the same `key`; child structure is ignored (that is what the pairwise descent
+    /// recovers). An `FTTypar` is a WILDCARD that heads-matches anything: an open
+    /// template slot accepts any instantiated shape. Used to test whether an `FTOr`'s
+    /// members line up POSITIONALLY, and to head-key the fallback pairing when they do
+    /// not.
+    let private sameHead (a: FrozenType) (b: FrozenType) : bool =
+        match a, b with
+        | FTTypar _, _
+        | _, FTTypar _ -> true
+        | FTConst(n1, _), FTConst(n2, _) -> n1 = n2
+        | FTRecord(k1, _), FTRecord(k2, _)
+        | FTUnion(k1, _), FTUnion(k2, _)
+        | FTClass(k1, _), FTClass(k2, _) -> k1 = k2
+        | FTEnum k1, FTEnum k2 -> k1 = k2
+        | FTFun _, FTFun _ -> true
+        | FTTuple _, FTTuple _ -> true
+        | FTOr _, FTOr _ -> true
+        | FTLiteral v1, FTLiteral v2 -> v1 = v2
+        | FTKeyOf _, FTKeyOf _ -> true
+        | FTIndexedAccess _, FTIndexedAccess _ -> true
+        | FTConditional _, FTConditional _ -> true
+        | FTUnknown n1, FTUnknown n2 -> n1 = n2
+        | _ -> false
+
     /// PAIRWISE descent: when `a` and `b` share the same head (same case, same
     /// child count — nominal KEYS are deliberately not compared, mirroring the
     /// open-vs-instantiated template matching this serves), invoke `f` on each
     /// corresponding child pair; any head mismatch is a silent no-op (the caller
-    /// decides what a mismatch means). `FTOr` pairs members POSITIONALLY: `EqSet`
-    /// preserves insertion order and instantiation maps members in order (no
-    /// re-sort), so the i-th open member pairs with the i-th instantiated one; a
-    /// dedup-collapse changes the length and the guard declines.
+    /// decides what a mismatch means). `FTOr` members are a SET (`EqSet`), so their
+    /// storage order is NOT a semantic invariant across instantiation. When the
+    /// members line up positionally (the common case — instantiation maps in order),
+    /// pair by position; otherwise pair each open member to the instantiated member
+    /// sharing its HEAD KEY (a wildcard `FTTypar` open member takes any leftover). A
+    /// concrete open member whose head matches TWO unused instantiated members is
+    /// genuinely ambiguous — fail loudly rather than guess; no match declines
+    /// silently (like a head mismatch). A length mismatch declines wholesale.
     let iterChildren2 (f: FrozenType -> FrozenType -> unit) (a: FrozenType) (b: FrozenType) : unit =
         let pairwise (xs: EqArray<FrozenType>) (ys: EqArray<FrozenType>) =
             if xs.Length = ys.Length then
@@ -933,17 +992,58 @@ module FrozenType =
         | FTUnion(_, xs), FTUnion(_, ys)
         | FTClass(_, xs), FTClass(_, ys) -> pairwise xs ys
         | FTOr xs, FTOr ys when xs.Length = ys.Length ->
-            for i in 0 .. xs.Length - 1 do
-                f xs.[i] ys.[i]
+            let n = xs.Length
+            let mutable positionalOk = true
+
+            for i in 0 .. n - 1 do
+                positionalOk <- positionalOk && sameHead xs.[i] ys.[i]
+
+            if positionalOk then
+                for i in 0 .. n - 1 do
+                    f xs.[i] ys.[i]
+            else
+                // Members were reordered (or freshly re-set-ified) by instantiation:
+                // recover the pairing by head key instead of trusting position.
+                let used = Array.zeroCreate<bool> n
+                let wildcards = ResizeArray<FrozenType>()
+
+                for i in 0 .. n - 1 do
+                    match xs.[i] with
+                    | FTTypar _ -> wildcards.Add xs.[i]
+                    | x ->
+                        let candidates =
+                            [
+                                for j in 0 .. n - 1 do
+                                    if not used.[j] && sameHead x ys.[j] then
+                                        yield j
+                            ]
+
+                        match candidates with
+                        | [ j ] ->
+                            used.[j] <- true
+                            f x ys.[j]
+                        | [] -> () // no partner: decline, mirroring a head mismatch
+                        | _ ->
+                            failwithf
+                                "FrozenType.iterChildren2: ambiguous FTOr member pairing — open member %A matches multiple instantiated members in %A"
+                                x
+                                ys
+
+                let mutable wi = 0
+
+                for j in 0 .. n - 1 do
+                    if not used.[j] && wi < wildcards.Count then
+                        f wildcards.[wi] ys.[j]
+                        wi <- wi + 1
         | FTKeyOf x1, FTKeyOf x2 -> f x1 x2
         | FTIndexedAccess(o1, i1), FTIndexedAccess(o2, i2) ->
             f o1 o2
             f i1 i2
-        | FTConditional(c1, e1, wt1, wf1), FTConditional(c2, e2, wt2, wf2) ->
-            f c1 c2
-            f e1 e2
-            f wt1 wt2
-            f wf1 wf2
+        | FTConditional c1, FTConditional c2 ->
+            f c1.Check c2.Check
+            f c1.Extends c2.Extends
+            f c1.WhenTrue c2.WhenTrue
+            f c1.WhenFalse c2.WhenFalse
         | _ -> ()
 
 /// `SemType` sibling of the `FrozenType` child-walk module above — the same
@@ -967,8 +1067,14 @@ module SemType =
         | TyOr members -> members.Map f
         | TyKeyOf ty -> TyKeyOf(f ty)
         | TyIndexedAccess(objTy, index) -> TyIndexedAccess(f objTy, f index)
-        | TyConditional(check, extends, whenTrue, whenFalse) ->
-            TyConditional(f check, f extends, f whenTrue, f whenFalse)
+        | TyConditional c ->
+            TyConditional
+                {
+                    Check = f c.Check
+                    Extends = f c.Extends
+                    WhenTrue = f c.WhenTrue
+                    WhenFalse = f c.WhenFalse
+                }
         | TyVar _
         | TyEnum _
         | TyLiteral _
@@ -990,11 +1096,11 @@ module SemType =
         | TyIndexedAccess(objTy, index) ->
             f objTy
             f index
-        | TyConditional(check, extends, whenTrue, whenFalse) ->
-            f check
-            f extends
-            f whenTrue
-            f whenFalse
+        | TyConditional c ->
+            f c.Check
+            f c.Extends
+            f c.WhenTrue
+            f c.WhenFalse
         | TyVar _
         | TyEnum _
         | TyLiteral _
@@ -1013,7 +1119,7 @@ module SemType =
         | TyOr members -> EqSet.forall p members.Members
         | TyKeyOf ty -> p ty
         | TyIndexedAccess(objTy, index) -> p objTy && p index
-        | TyConditional(check, extends, whenTrue, whenFalse) -> p check && p extends && p whenTrue && p whenFalse
+        | TyConditional c -> p c.Check && p c.Extends && p c.WhenTrue && p c.WhenFalse
         | TyVar _
         | TyEnum _
         | TyLiteral _
@@ -1060,8 +1166,14 @@ module FrozenTypeBridge =
         // freeze structurally (a still-open method var lands on the `onVar` policy).
         | TyKeyOf t -> FTKeyOf(go t)
         | TyIndexedAccess(objTy, index) -> FTIndexedAccess(go objTy, go index)
-        | TyConditional(check, extends, whenTrue, whenFalse) ->
-            FTConditional(go check, go extends, go whenTrue, go whenFalse)
+        | TyConditional c ->
+            FTConditional
+                {
+                    Check = go c.Check
+                    Extends = go c.Extends
+                    WhenTrue = go c.WhenTrue
+                    WhenFalse = go c.WhenFalse
+                }
         | TyTypar(axis, index) -> FTTypar(axis, index)
         | TyUnknown name -> FTUnknown name
         | TyVar _ -> onVar ty
@@ -1101,8 +1213,14 @@ module FrozenTypeBridge =
         // declaring/method placeholders) but are NOT evaluated here — carried inert.
         | FTKeyOf t -> TyKeyOf(go t)
         | FTIndexedAccess(objTy, index) -> TyIndexedAccess(go objTy, go index)
-        | FTConditional(check, extends, whenTrue, whenFalse) ->
-            TyConditional(go check, go extends, go whenTrue, go whenFalse)
+        | FTConditional c ->
+            TyConditional
+                {
+                    Check = go c.Check
+                    Extends = go c.Extends
+                    WhenTrue = go c.WhenTrue
+                    WhenFalse = go c.WhenFalse
+                }
         | FTTypar(TyparAxis.Declaring, i) -> declaring i
         | FTTypar(TyparAxis.Method, j) -> methodVar j
         | FTUnknown name -> TyUnknown name

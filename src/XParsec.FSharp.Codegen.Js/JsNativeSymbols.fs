@@ -35,13 +35,7 @@ module JsNativeSymbols =
     let private errorCtor: ExternalMember =
         ExternalMember.ctor
             errorKey
-            {
-                DeclaringArity = 0
-                MethodArity = 0
-                Parameters = stringTy
-                Return = errorTy
-                MethodTyparBounds = [||]
-            }
+            (ExternalSignature.make (0, 0, stringTy, errorTy))
             (EqArray.singleton "string")
             errorOrigin
             []
@@ -52,14 +46,7 @@ module JsNativeSymbols =
             Name = "message"
             IsStatic = false
             Storage = MemberStorage.Property
-            Signature =
-                {
-                    DeclaringArity = 0
-                    MethodArity = 0
-                    Parameters = unitTy
-                    Return = stringTy
-                    MethodTyparBounds = [||]
-                }
+            Signature = ExternalSignature.make (0, 0, unitTy, stringTy)
             MethodArity = 0
             Origin = errorOrigin
             Key = SymbolKey.MemberKey(errorKey, "message", EqArray.empty, MemberKind.Property)
@@ -145,14 +132,7 @@ module JsNativeSymbols =
                     MemberStorage.Property
                 else
                     MemberStorage.Method
-            Signature =
-                {
-                    DeclaringArity = declaringArity
-                    MethodArity = 0
-                    Parameters = parameters
-                    Return = ret
-                    MethodTyparBounds = [||]
-                }
+            Signature = ExternalSignature.make (declaringArity, 0, parameters, ret)
             MethodArity = 0
             Origin = origin
             Key = SymbolKey.MemberKey(declKey, name, EqArray.empty, MemberKind.InterfaceMethod declKey)

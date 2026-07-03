@@ -15,7 +15,7 @@ let tests =
         "EqSet"
         [
             test "iteration preserves declared (insertion) order" {
-                let s = EqSet.ofList [ "a"; "b"; "c" ]
+                let s = EqSet.ofSeq [ "a"; "b"; "c" ]
                 Expect.equal (EqSet.toList s) [ "a"; "b"; "c" ] "members iterate in declared order"
                 Expect.equal s.Length 3 "three distinct members"
                 Expect.equal s.[0] "a" "indexer reads insertion order"
@@ -23,28 +23,27 @@ let tests =
             }
 
             test "equality is order-insensitive: [a;b] = [b;a]" {
-                let ab = EqSet.ofList [ "a"; "b" ]
-                let ba = EqSet.ofList [ "b"; "a" ]
+                let ab = EqSet.ofSeq [ "a"; "b" ]
+                let ba = EqSet.ofSeq [ "b"; "a" ]
                 Expect.equal ab ba "same member set, different order, equal"
-                Expect.notEqual ab (EqSet.ofList [ "a"; "c" ]) "different member set, not equal"
-                Expect.notEqual ab (EqSet.ofList [ "a" ]) "different cardinality, not equal"
+                Expect.notEqual ab (EqSet.ofSeq [ "a"; "c" ]) "different member set, not equal"
+                Expect.notEqual ab (EqSet.ofSeq [ "a" ]) "different cardinality, not equal"
             }
 
             test "hashes agree for equal (permuted) sets" {
-                let ab = EqSet.ofList [ 1; 2; 3 ]
-                let ba = EqSet.ofList [ 3; 1; 2 ]
+                let ab = EqSet.ofSeq [ 1; 2; 3 ]
+                let ba = EqSet.ofSeq [ 3; 1; 2 ]
                 Expect.equal ab ba "permutation is equal"
                 Expect.equal (ab.GetHashCode()) (ba.GetHashCode()) "equal sets hash identically (commutative combine)"
             }
 
             test "construction dedupes, keeping the first occurrence" {
-                let s = EqSet.ofList [ "a"; "b"; "a"; "c"; "b" ]
+                let s = EqSet.ofSeq [ "a"; "b"; "a"; "c"; "b" ]
                 Expect.equal (EqSet.toList s) [ "a"; "b"; "c" ] "duplicates dropped, first-seen order kept"
                 Expect.equal s.Length 3 "three distinct members"
             }
 
-            test "singleton and empty" {
-                Expect.equal (EqSet.singleton 7 |> EqSet.toList) [ 7 ] "singleton holds one member"
+            test "empty" {
                 Expect.isTrue (EqSet.empty<int>.IsEmpty) "empty is empty"
                 Expect.equal EqSet.empty<int>.Length 0 "empty has length 0"
             }
@@ -55,23 +54,16 @@ let tests =
                 Expect.isTrue d.IsEmpty "default is empty"
             }
 
-            test "map re-dedupes when the mapping collapses members" {
-                // `[1;2;3]` mapped to parity `[1;0;1]` collapses to `{1;0}`.
-                let s = EqSet.ofList [ 1; 2; 3 ] |> EqSet.map (fun n -> n % 2)
-                Expect.equal (EqSet.toList s) [ 1; 0 ] "collapsed images dedupe, first-seen order"
-            }
-
-            test "contains / exists / forall" {
-                let s = EqSet.ofList [ "x"; "y" ]
-                Expect.isTrue (EqSet.contains "x" s) "member present"
-                Expect.isFalse (EqSet.contains "z" s) "non-member absent"
+            test "exists / forall" {
+                let s = EqSet.ofSeq [ "x"; "y" ]
                 Expect.isTrue (s |> EqSet.forall (fun v -> v.Length = 1)) "all single-char"
                 Expect.isTrue (s |> EqSet.exists (fun v -> v = "y")) "exists finds y"
+                Expect.isFalse (s |> EqSet.exists (fun v -> v = "z")) "exists misses absent member"
             }
 
             test "nested EqSet members recurse structurally under equality" {
-                let a = EqSet.ofList [ EqSet.ofList [ 1; 2 ]; EqSet.ofList [ 3 ] ]
-                let b = EqSet.ofList [ EqSet.ofList [ 2; 1 ]; EqSet.ofList [ 3 ] ]
+                let a = EqSet.ofSeq [ EqSet.ofSeq [ 1; 2 ]; EqSet.ofSeq [ 3 ] ]
+                let b = EqSet.ofSeq [ EqSet.ofSeq [ 2; 1 ]; EqSet.ofSeq [ 3 ] ]
                 Expect.equal a b "nested set members compare by set equality"
             }
         ]

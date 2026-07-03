@@ -10,7 +10,7 @@ open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 // R2 (TS provider): an instance-member call on an external TS-manifest object
 // lowers to a NATIVE `receiver.member(args)` — the object has genuine prototype/own
 // methods, NOT the receiver-first `$Box_get`-style free-fn import Vesper's OWN runtimes
-// emit (a tree-shaking optimisation). The signal is `ExternalClassFlags.AttachMembers`,
+// emit (a tree-shaking optimisation). The signal is `MemberLowering.AttachedNative`,
 // which `TsManifestProvider` stamps on every real Interface/Class shape; EmitJs reads it
 // through the declaring type's shape.
 //

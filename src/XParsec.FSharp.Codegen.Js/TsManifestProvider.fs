@@ -261,7 +261,7 @@ module TsManifestProvider =
                         FrozenBaseType = ValueNone
                         Flags =
                             { ExternalClassFlags.Default with
-                                Erased = true
+                                MemberLowering = MemberLowering.ErasedBare
                             }
                         Origin = origin
                         // JS is single-faced — no BCL platform spelling to reconcile.

@@ -127,24 +127,17 @@ module VesperLib =
                         // a nullary value rather than fabricating a parameter slot.
                         | other -> FTConst("unit", EqArray.empty), other
 
-                ValueSome
-                    {
-                        DeclaringArity = declaringArity
-                        MethodArity = methodArityNow ()
-                        Parameters = parameters
-                        Return = ret
-                        MethodTyparBounds = [||]
-                    }
+                ValueSome(ExternalSignature.make (declaringArity, methodArityNow (), parameters, ret))
             | Error _ -> ValueNone
         with BodylessExternalShape _ ->
-            ValueSome
-                {
-                    DeclaringArity = declaringArity
-                    MethodArity = methodArityNow ()
-                    Parameters = FTConst("unit", EqArray.empty)
-                    Return = ExternalSymbols.unfreezable
-                    MethodTyparBounds = [||]
-                }
+            ValueSome(
+                ExternalSignature.make (
+                    declaringArity,
+                    methodArityNow (),
+                    FTConst("unit", EqArray.empty),
+                    ExternalSymbols.unfreezable
+                )
+            )
 
     /// Resolve a `RawConstraint`'s typar names against the val's typar collector,
     /// dropping entries that reference an undeclared typar. `Trait` entries fold to
@@ -513,13 +506,7 @@ module VesperLib =
 
                             ExternalMember.ctor
                                 declKey
-                                {
-                                    DeclaringArity = arity
-                                    MethodArity = 0
-                                    Parameters = parameters
-                                    Return = ret
-                                    MethodTyparBounds = [||]
-                                }
+                                (ExternalSignature.make (arity, 0, parameters, ret))
                                 (ExternalSymbols.argSigOfParameters parameters)
                                 SymbolOrigin.Empty
                                 []

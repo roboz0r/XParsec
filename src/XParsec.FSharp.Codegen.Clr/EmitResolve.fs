@@ -116,11 +116,13 @@ module EmitResolve =
         | FTOr _ -> "obj"
         // A literal erases to its base primitive — match on that head.
         | FTLiteral v -> v.BaseName
-        // A carried type-level computation erases like a union / `obj` for head
-        // identity (external-vocabulary only; it should be evaluated before codegen).
+        // A carried type-level computation is external-vocabulary only and must be
+        // ground-EVALUATED before codegen; `encodeType` rejects a residual carrier
+        // loudly upstream, so one can never reach overload-head matching on the CLR.
         | FTKeyOf _
         | FTIndexedAccess _
-        | FTConditional _ -> "obj"
+        | FTConditional _ ->
+            failwithf "EmitResolve.headOf: unreachable carried type-level node reached the CLR backend: %A" t
         | FTTypar _ -> "!typar"
         | FTUnknown n -> n
 

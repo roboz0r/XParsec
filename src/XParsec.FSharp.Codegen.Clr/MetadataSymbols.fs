@@ -222,13 +222,7 @@ module private MetadataMapping =
 
     /// Property `ExternalSignature`: `Parameters = unit`, value type in `Return`.
     let propertySignature (declaringArity: int) (valueTy: FrozenType) : ExternalSignature =
-        {
-            DeclaringArity = declaringArity
-            MethodArity = 0
-            Parameters = FTConst("unit", EqArray.empty)
-            Return = valueTy
-            MethodTyparBounds = [||]
-        }
+        ExternalSignature.make (declaringArity, 0, FTConst("unit", EqArray.empty), valueTy)
 
     /// Method/ctor `ExternalSignature` from its `(Parameters, Return)` templates.
     let methodSignature
@@ -236,13 +230,7 @@ module private MetadataMapping =
         (methodArity: int)
         (parameters: FrozenType, ret: FrozenType)
         : ExternalSignature =
-        {
-            DeclaringArity = declaringArity
-            MethodArity = methodArity
-            Parameters = parameters
-            Return = ret
-            MethodTyparBounds = [||]
-        }
+        ExternalSignature.make (declaringArity, methodArity, parameters, ret)
 
     /// `SymbolKey.TypeKey` for the declaring type.
     let declTypeKey (t: Type) : SymbolKey =
@@ -531,18 +519,15 @@ type MetadataSymbolProvider(reverseCanon: Map<string, string>, assemblyPaths: st
             | _ -> false
         )
 
+    // A real .NET type is never the synthetic grouping / native-attached JS shape, so
+    // `MemberLowering` stays at the `ReceiverFirst` default; only the metadata-derived
+    // fields are set here, so a future flag (e.g. R5's `Global`) is not restated.
     let decodeClassFlags (t: Type) : ExternalClassFlags =
-        {
+        { ExternalClassFlags.Default with
             IsSealed = t.IsSealed
             IsAbstract = t.IsAbstract
             AllowNullLiteral = hasAllowNullLiteral t
             IsValueType = t.IsValueType
-            // A real .NET type is never the synthetic free-function-overload grouping
-            // type the TS provider mints; only that provider sets `Erased`.
-            Erased = false
-            // `AttachMembers` is a JS-backend signal (native object methods vs Vesper's
-            // receiver-first free-fn imports); the CLR backend never consults it.
-            AttachMembers = false
         }
 
     let computeType (name: string) : ExternalTypeShape voption =

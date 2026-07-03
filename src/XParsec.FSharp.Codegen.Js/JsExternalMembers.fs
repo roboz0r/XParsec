@@ -191,7 +191,7 @@ module JsExternalMembers =
         match head with
         | TExprG.ExternalMember(ValueSome recv, key, memberName, MemberStorage.Method, _, _) when
             classFlagsOf provider (declKey key)
-            |> ValueOption.exists (fun flags -> flags.AttachMembers)
+            |> ValueOption.exists (fun flags -> flags.MemberLowering = MemberLowering.AttachedNative)
             ->
             match spine with
             | (argExpr, _, _) :: rest ->

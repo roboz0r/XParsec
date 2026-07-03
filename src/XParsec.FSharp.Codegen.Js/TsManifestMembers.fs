@@ -77,14 +77,7 @@ module internal TsManifestMembers =
                     Name = mem.Name
                     IsStatic = mem.Static
                     Storage = MemberStorage.Property
-                    Signature =
-                        {
-                            DeclaringArity = declArity
-                            MethodArity = 0
-                            Parameters = unitFrozen
-                            Return = ret
-                            MethodTyparBounds = [||]
-                        }
+                    Signature = ExternalSignature.make (declArity, 0, unitFrozen, ret)
                     MethodArity = 0
                     Origin = origin
                     Key = SymbolKey.MemberKey(declKey, mem.Name, EqArray.empty, MemberKind.Property)
@@ -176,11 +169,11 @@ module internal TsManifestMembers =
                         // members live ON it as prototype/own methods, so JS emit must lower
                         // them as `receiver.member(args)`, not receiver-first free-fn imports
                         // (Vesper's own-runtime tree-shaking form). The synthetic erased
-                        // grouping type (`providerOfManifest`) keeps `AttachMembers = false`
-                        // — its members go through the `Erased` bare-export path anyway.
+                        // grouping type (`providerOfManifest`) uses `ErasedBare` instead —
+                        // its members go through the bare-export path anyway.
                         Flags =
                             { ExternalClassFlags.Default with
-                                AttachMembers = true
+                                MemberLowering = MemberLowering.AttachedNative
                             }
                         Origin = origin
                         // JS is single-faced — no BCL platform spelling to reconcile.

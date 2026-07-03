@@ -597,20 +597,31 @@ module EmitJs =
             let isProperty = storage.IsValueMember
 
             match JsExternalMembers.classFlagsOf ctx.Provider declKey, receiver with
-            | ValueSome { Erased = true }, ValueSome _ ->
+            | ValueSome {
+                            MemberLowering = MemberLowering.ErasedBare
+                        },
+              ValueSome _ ->
                 failwithf
                     "EmitJs (Step 9b): erased grouping type member '%s' has an instance receiver, but a synthetic free-function-overload type carries only static members"
                     memberName
-            | ValueSome { Erased = true }, ValueNone ->
-                JsExternalMembers.erasedGroupingRef ctx.Imports declKey memberName loc
-            | ValueSome { AttachMembers = true }, ValueSome r when isProperty ->
+            | ValueSome {
+                            MemberLowering = MemberLowering.ErasedBare
+                        },
+              ValueNone -> JsExternalMembers.erasedGroupingRef ctx.Imports declKey memberName loc
+            | ValueSome {
+                            MemberLowering = MemberLowering.AttachedNative
+                        },
+              ValueSome r when isProperty ->
                 // A manifest Property is a JS DATA property — native access is a plain
                 // member READ `recv.prop`, NOT a zero-arg call. (Contrast the LOCAL
                 // interface-impl property path, which emits `Call(attachedAccess, [])`
                 // because Vesper compiles interface properties as zero-arg methods; a
                 // TS property is genuinely a data slot, not a method.)
                 JsExternalMembers.attachedMember (buildExpr ctx r) memberName loc
-            | ValueSome { AttachMembers = true }, ValueSome r ->
+            | ValueSome {
+                            MemberLowering = MemberLowering.AttachedNative
+                        },
+              ValueSome r ->
                 JsExternalMembers.etaWrapAttachedMethod
                     (buildExpr ctx)
                     r
