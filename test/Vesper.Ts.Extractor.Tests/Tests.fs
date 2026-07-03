@@ -187,6 +187,106 @@ let mittDiagnosticsContract =
             }
         ]
 
+// STEP 3 (the real-scale burndown): the `lib.es2015.*` closure is extracted via
+// `--lib-globals` (noLib + explicit lib inputs) and vendored at `ts-fixtures/es2015/`.
+// UNLIKE `mittDiagnosticsContract` (a GATE asserting `Diagnostics = []`), this is a
+// BURNDOWN: real residue is EXPECTED and the diagnostics ranked by code frequency are
+// asserted to equal a COMMITTED table. Any drift — up OR down — fails and forces a
+// deliberate golden update; shrinking these counts is the R5 scoreboard. Each code's
+// gloss (WHY that construct degraded):
+//   • structural-object-stubbed — anonymous/structural OBJECT and TUPLE types
+//     (`{ [idx]: … }`, the `Readonly<T>`/`Record` mapped types, `{}`, constructor
+//     types `new(...)=>R`, `[number, string]`) have no faithful schema arm yet
+//     (item 14 deferred) → opaque content-hashed `Structural` stub.
+//   • recursion-depth-exceeded — the self-recursive `Awaited<T>` conditional (and the
+//     `infer`-introduced pieces it expands into) recurses unbounded; `mapType` degrades
+//     the subtree to `obj` at the depth bound so `Promise` still extracts as a class.
+//   • method-axis-typar-erased — a type parameter bound by NEITHER axis: `infer` typars
+//     inside conditional types and the apply/bind/call typars on `CallableFunction`/
+//     `NewableFunction` that TS does not surface on the tracked axes → erased to `obj`.
+//   • intersection-erased — `A & B` object intersections (`PropertyDescriptor &
+//     ThisType<any>`, generic `T & U`) erased to `obj` (item 15 deferred).
+// The PRIMITIVE-OVERLAP skip-list is pinned here too: the pack exports NONE of the
+// intrinsic-overlap names (`Array`/`String`/…) and homes no self-ref for them, while
+// `Map` (not on the list) IS exported as a class.
+[<Tests>]
+let es2015BurndownContract =
+    let es2015Path = Path.Combine(packagesDir.Value, "es2015", "es2015.manifest.json")
+
+    // The COMMITTED burndown ranking (code, count), sorted by count desc then code asc.
+    // Regenerated deliberately (never silently) when the extractor's fidelity changes.
+    let committedRanking =
+        [
+            "structural-object-stubbed", 25
+            "recursion-depth-exceeded", 15
+            "method-axis-typar-erased", 14
+            "intersection-erased", 4
+        ]
+
+    testList
+        "es2015 ref-pack burndown"
+        [
+            test "es2015 diagnostics rank matches the committed burndown (drift up OR down fails)" {
+                match Codec.deserialize (File.ReadAllText es2015Path) with
+                | Error e -> failtestf "es2015 manifest does not parse: %s" e
+                | Ok man ->
+                    let ranking =
+                        man.Diagnostics
+                        |> List.countBy (fun d -> d.Code.Wire)
+                        |> List.sortByDescending snd
+                        // Stable secondary key so equal counts order deterministically.
+                        |> List.sortWith (fun (c1, n1) (c2, n2) -> if n1 <> n2 then compare n2 n1 else compare c1 c2)
+
+                    Expect.equal
+                        ranking
+                        committedRanking
+                        "es2015 burndown ranking drifted; if intended, update `committedRanking` and the gloss above"
+            }
+
+            test "skip-list pinned: Array/String/… are ABSENT as exports; Map IS present" {
+                match Codec.deserialize (File.ReadAllText es2015Path) with
+                | Error e -> failtestf "es2015 manifest does not parse: %s" e
+                | Ok man ->
+                    let exportName =
+                        function
+                        | Schema.Export.Function(n, _, _)
+                        | Schema.Export.Variable(n, _, _, _)
+                        | Schema.Export.TypeAlias(n, _, _)
+                        | Schema.Export.Interface(n, _, _, _)
+                        | Schema.Export.Class(n, _, _, _, _)
+                        | Schema.Export.Enum(n, _)
+                        | Schema.Export.Namespace(n, _) -> n
+
+                    let names = man.Exports |> List.map exportName |> Set.ofList
+
+                    for skipped in
+                        [
+                            "Array"
+                            "String"
+                            "Number"
+                            "Boolean"
+                            "Object"
+                            "Function"
+                            "Symbol"
+                            "BigInt"
+                        ] do
+                        Expect.isFalse
+                            (names.Contains skipped)
+                            (sprintf "intrinsic-overlap name '%s' must NOT be exported by the es2015 pack" skipped)
+
+                    Expect.isTrue (names.Contains "Map") "Map (not on the skip-list) must be exported as a class"
+
+                    // A skip-list name must not appear as a self-ref either (the es2015
+                    // pack homes its own types LOCAL, so refs is empty — but assert no
+                    // skip-list name leaked in regardless).
+                    let refNames = man.Refs |> List.map fst |> Set.ofList
+
+                    Expect.isFalse
+                        (refNames.Contains "Array")
+                        "the es2015 pack must carry no self-ref for the skip-listed 'Array'"
+            }
+        ]
+
 [<Tests>]
 let goldenTests =
     testSequenced
@@ -203,11 +303,13 @@ let goldenTests =
                         test $"canonical: {Path.GetFileName path}" { testManifestCanonical path }
                 ]
 
-            // Loader resolves what each manifest declares.
+            // Loader resolves what each manifest declares. Runs on
+            // `providerResolutionManifests` (all EXCEPT the es2015 ref pack — see its
+            // doc: full provider consumption of the real-scale pack is Step 4/5).
             testList
                 "provider resolution"
                 [
-                    for path in allManifestFiles.Value do
+                    for path in providerResolutionManifests.Value do
                         test $"resolves: {Path.GetFileName path}" { testProviderResolves path }
                 ]
 
@@ -236,4 +338,9 @@ let goldenTests =
             // the fixture's sibling `.d.ts`, exercising the fused class-like pair + the
             // cross-file interface merge.
             test "extract-globals: globals" { testExtractorMatchesGoldenGlobals () }
+
+            // Real-scale lib-globals golden (Step 3): run the extractor in `--lib-globals`
+            // mode over TypeScript's OWN `lib.es2015.*` + `lib.es5` closure and assert the
+            // vendored `es2015.manifest.json`. Regenerated under UPDATE_SNAPSHOTS.
+            test "extract-lib-globals: es2015" { testExtractorMatchesGoldenLibGlobals () }
         ]

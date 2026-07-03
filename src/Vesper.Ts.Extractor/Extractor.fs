@@ -41,6 +41,17 @@ let private baseOptions () : Ts.CompilerOptions =
         o.noEmit <- Some true
     )
 
+/// `baseOptions` + `noLib` (Step 3's lib-extraction path). CRITICAL: to extract the
+/// `lib.es*.d.ts` files AS CONTENT (rather than as the program's implicit DEFAULT
+/// library) they MUST be passed as EXPLICIT inputs AND `noLib` must be set — otherwise
+/// TS loads them as the default lib and `isSourceFileDefaultLibrary` filters EVERY one
+/// out, yielding an empty manifest. With `noLib` the explicit lib files are ordinary
+/// (non-default-library) source files, so the globals walk enumerates their globals.
+let private libOptions () : Ts.CompilerOptions =
+    let o = baseOptions ()
+    o.noLib <- Some true
+    o
+
 let extractFile (dtsPath: string) (packageName: string) : Schema.PackageManifest =
     let options = baseOptions ()
     let program = ts.createProgram (ResizeArray [ dtsPath ], options)
@@ -186,8 +197,33 @@ let extractPackage (specifier: string) (resolveFromDir: string) (packageName: st
 /// checker MERGE cross-file interface declarations into one symbol — the merged
 /// symbol's declared type is the truth, so we enumerate by SYMBOL, never per-file
 /// statement (which would emit duplicate/partial interfaces and MISS the merges).
-let extractGlobals (dtsPaths: string list) (packageName: string) : Schema.PackageManifest =
-    let options = baseOptions ()
+/// Route ONE enumerated global through `mapGlobalSymbol`, but with a per-symbol
+/// RESILIENCE backstop (Step 3): an unforeseen construct that makes the walk THROW is
+/// caught, diagnosed (`SymbolWalkFailed`), and the symbol DROPPED — so one exotic lib
+/// symbol never aborts the whole real-scale extraction. The known in-place degrades
+/// (accessor / enum / heritage / intersection / structural) fire BELOW this and keep
+/// their symbol; this only catches what those did not anticipate.
+let private mapGlobalSymbolResilient (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option =
+    try
+        mapGlobalSymbol ctx0 sym
+    with ex ->
+        let span = tryDeclOf sym |> Option.map spanOfNode
+
+        emitWarning
+            ctx0
+            Schema.DiagCode.SymbolWalkFailed
+            (sym.getName ())
+            span
+            (sprintf "global symbol '%s' could not be extracted and was dropped: %s" (sym.getName ()) ex.Message)
+
+        None
+
+/// `extractGlobals` shared core. `noLib` selects the compiler options: the plain
+/// ambient-globals fixture (`--globals`) runs WITHOUT it (its own files are non-lib,
+/// the real default lib is implicit + filtered); the real `lib.es2015` pack
+/// (`--lib-globals`) runs WITH it so the passed lib files extract as content.
+let private extractGlobalsCore (noLib: bool) (dtsPaths: string list) (packageName: string) : Schema.PackageManifest =
+    let options = if noLib then libOptions () else baseOptions ()
     let program = ts.createProgram (ResizeArray dtsPaths, options)
     let checker = program.getTypeChecker ()
 
@@ -221,19 +257,27 @@ let extractGlobals (dtsPaths: string list) (packageName: string) : Schema.Packag
             |> Seq.exists (fun d -> not (program.isSourceFileDefaultLibrary ((unbox<Ts.Node> d).getSourceFile ())))
         | None -> false
 
-    let globals =
+    // The FULL fixture-declared set, BEFORE the name skip-list. `consumedCarriers` must
+    // be computed over THIS set: a skip-listed fused type (e.g. `Object` = `interface
+    // Object` + `declare var Object: ObjectConstructor`) is still fused class-like, and
+    // its constructor-INTERFACE carrier (`ObjectConstructor`) must be marked consumed so
+    // it is suppressed too — else the carrier survives as a standalone `Export.Interface`
+    // that double-represents the very intrinsic the skip-list exists to drop. So compute
+    // carriers first, THEN apply the name skip-list to the emit set.
+    let fixtureGlobals =
         checker.getSymbolsInScope (anchor, meaning)
         |> Seq.filter isFixtureDeclared
         |> List.ofSeq
 
     // A fused class-like global is THREE symbols → ONE `Export.Class`: the type-side
     // interface, the value-side ctor var (already MERGED into the same symbol), and the
-    // SEPARATE constructor-interface (`MapConstructor`) the var's type resolves to. That
-    // carrier is CONSUMED (its construct sigs → ctors, its other members → statics), so
-    // it must not ALSO stand alone as an `Export.Interface`. Collect the consumed
-    // carriers first (identity-keyed), then skip them in the emit pass.
+    // SEPARATE constructor-interface (`MapConstructor` / `ObjectConstructor`) the var's
+    // type resolves to. That carrier is CONSUMED (its construct sigs → ctors, its other
+    // members → statics), so it must not ALSO stand alone as an `Export.Interface`.
+    // Collected over `fixtureGlobals` (pre-skip-list) so a skip-listed fused type's
+    // carrier is included here even though the type itself is dropped from the emit set.
     let consumedCarriers =
-        globals
+        fixtureGlobals
         |> List.choose (fun sym ->
             if isFusedClassLike sym then
                 fusedCarrierSymbol checker sym
@@ -249,9 +293,16 @@ let extractGlobals (dtsPaths: string list) (packageName: string) : Schema.Packag
     let ctx0 = MapCtx.Root checker program diags refs
 
     let exports =
-        globals
+        fixtureGlobals
         |> List.filter (fun sym -> not (isConsumed sym))
-        |> List.choose (mapGlobalSymbol ctx0)
+        // Primitive-overlap skip-list (Step 3): a TS-lib intrinsic-overlap interface
+        // (`Array`, `String`, `Object`, …) is NOT emitted as an export — the ref pack
+        // does not REGISTER the names Vesper already represents intrinsically (they ride
+        // `IntrinsicRepr` / native JS arrays). `Map`/`Set`/… are absent from the list and
+        // extract normally. Applied AFTER the consumed-carrier pass so both the type AND
+        // its ctor-interface carrier are dropped. Consistent with `recordForeignRef`.
+        |> List.filter (fun sym -> not (intrinsicOverlapNames.Contains(sym.getName ())))
+        |> List.choose (mapGlobalSymbolResilient ctx0)
 
     // Spans/refs relativize against the FIRST input's directory (all fixture files are
     // siblings), mirroring `extractFile`.
@@ -268,6 +319,23 @@ let extractGlobals (dtsPaths: string list) (packageName: string) : Schema.Packag
         Refs = drainRefs refs
     }
 
+/// Ambient-global entry mode (see the header). The plain fixture form: no `noLib`, the
+/// real default lib is implicit and filtered out.
+let extractGlobals (dtsPaths: string list) (packageName: string) : Schema.PackageManifest =
+    extractGlobalsCore false dtsPaths packageName
+
+/// The real-scale `lib.es2015` extraction (Step 3): `noLib` + the explicit lib file
+/// set. Decision recorded here: the pack is "es2015 FLAT, INCLUDING es5" — the full
+/// `lib.es2015.*.d.ts` closure plus `lib.es5.d.ts` are fed to ONE program (they
+/// cross-`/// <reference>` each other) and flattened into ONE `Package = "es2015"`
+/// home. That reserved home is exactly what Step-1B's refs point at (e.g. mitt's `Map`
+/// homes to `es2015`), so a later stacked es2015 provider registers `Map` under
+/// `es2015` and the refs resolve. The intrinsic-overlap names (`Array`, `String`, …)
+/// are SKIPPED (see `intrinsicOverlapNames`); residue is EXPECTED and rides the
+/// burndown diagnostics (this path never aborts — `mapGlobalSymbolResilient`).
+let extractLibGlobals (dtsPaths: string list) (packageName: string) : Schema.PackageManifest =
+    extractGlobalsCore true dtsPaths packageName
+
 let run (dtsPath: string) (packageName: string) (outPath: string) : unit =
     let manifest = extractFile dtsPath packageName
     writeFileSync outPath (Codec.serialize manifest)
@@ -282,3 +350,9 @@ let runGlobals (dtsPaths: string list) (packageName: string) (outPath: string) :
     let manifest = extractGlobals dtsPaths packageName
     writeFileSync outPath (Codec.serialize manifest)
     eprintfn "Wrote %s (%d exports)" outPath manifest.Exports.Length
+
+let runLibGlobals (dtsPaths: string list) (packageName: string) (outPath: string) : unit =
+    let manifest = extractLibGlobals dtsPaths packageName
+    writeFileSync outPath (Codec.serialize manifest)
+
+    eprintfn "Wrote %s (%d exports, %d diagnostics)" outPath manifest.Exports.Length manifest.Diagnostics.Length

@@ -44,6 +44,11 @@ type MapCtx =
         /// Method-axis scope: a generic MEMBER's own typars. Empty for a free
         /// function / property / heritage walk.
         MethodEnv: Ts.Symbol list
+        /// SHARED `mapType` recursion depth (a single mutable cell threaded like `Diags`
+        /// — the `{ ctx with … }` copies alias the SAME ref, so it counts total nesting
+        /// across every axis). Guards a self-recursive conditional type (`Awaited<T>`)
+        /// from blowing the JS stack: `mapType` degrades to `obj` past the bound.
+        Depth: int ref
     }
 
     /// The walk root: empty typar axes (per-export arms seed `DeclaringEnv`).
@@ -60,7 +65,39 @@ type MapCtx =
             Refs = refs
             DeclaringEnv = []
             MethodEnv = []
+            Depth = ref 0
         }
+
+/// The PRIMITIVE-OVERLAP skip-list (Step 3). `lib.es5`/`lib.es2015` declare capital
+/// wrapper/library interfaces — `String`/`Number`/`Boolean`/`Object`/`Function`/
+/// `Array`/`Symbol`/`BigInt` — that OVERLAP Vesper's own intrinsic representation of
+/// the same runtime values: the numeric/string/bool primitives ride `IntrinsicRepr`
+/// (canon `.fsi` names, per-target platform reprs), `obj` is the universal supertype,
+/// and Vesper arrays ARE native JS arrays. Registering these as `Js.*` nominals would
+/// DOUBLE-REPRESENT them and fight the intrinsic subsumes/canonName machinery (see
+/// `reference_intrinsic_repr_overloaded_canonname_codegen` /
+/// `reference_null_undefined_already_survive_js`). This list MIRRORS the front-end
+/// intrinsic set — `RuntimeNames.numericTypeNames` ∪ {string, bool, unit, obj} ∪ the
+/// native array `[]` — but spelled with the TS-lib INTERFACE names (capitalised
+/// wrappers). The lowercase primitive TYPES (`string`/`number`/`boolean`/`void`) are
+/// already remapped upstream in `mapType` (→ `string`/`float`/`bool`/`unit`) and never
+/// reach the `Named` fallthrough, so only the capital interfaces need listing here.
+/// Applied at TWO sites: `recordForeignRef` (a skip-list name is NOT homed — it stays a
+/// carried `Named`→`FTConst`, never minting a dangling homed `FTClass`) and
+/// `extractGlobals` (a skip-list name is NOT emitted as an export — the ref pack does
+/// not REGISTER the intrinsic-repr'd names; their member surface is a later question).
+let intrinsicOverlapNames: Set<string> =
+    Set.ofList
+        [
+            "String"
+            "Number"
+            "Boolean"
+            "Object"
+            "Function"
+            "Array"
+            "Symbol"
+            "BigInt"
+        ]
 
 /// A source `Span` anchored on a `ts.Node` — its source-file name + start/end
 /// offsets (the binding returns the offsets as `float`; the wire carries `int`).
@@ -217,26 +254,35 @@ let private refArity (sym: Ts.Symbol) : int =
 /// symbol). Follows a re-export alias to the REAL symbol whose declarations home it.
 /// Degrades silently (records nothing) for a non-homeable symbol — never throws.
 let recordForeignRef (ctx: MapCtx) (name: string) (sym: Ts.Symbol) : unit =
-    let resolved =
-        if hasFlag (sym.getFlags ()) Ts.SymbolFlags.Alias then
-            ctx.Checker.getAliasedSymbol sym
-        else
-            sym
+    // Primitive-overlap skip (Step 3): a TS-lib intrinsic-overlap interface (`Array`,
+    // `String`, …) is NOT homed — it stays a carried `Named`→`FTConst` (its pre-Step-1B
+    // behaviour), so the extractor never mints a dangling homed `FTClass` for a name
+    // Vesper already represents intrinsically (and that no stacked es2015 provider
+    // registers). `Map`/`Set`/… are absent from the list and home normally.
+    if intrinsicOverlapNames.Contains name then
+        ()
+    else
 
-    match classifyHome ctx resolved with
-    | None -> ()
-    | Some home ->
-        match classifyKind resolved with
+        let resolved =
+            if hasFlag (sym.getFlags ()) Ts.SymbolFlags.Alias then
+                ctx.Checker.getAliasedSymbol sym
+            else
+                sym
+
+        match classifyHome ctx resolved with
         | None -> ()
-        | Some kind ->
-            ctx.Refs.Add(
-                name,
-                {
-                    Home = home
-                    Kind = kind
-                    Arity = refArity resolved
-                }
-            )
+        | Some home ->
+            match classifyKind resolved with
+            | None -> ()
+            | Some kind ->
+                ctx.Refs.Add(
+                    name,
+                    {
+                        Home = home
+                        Kind = kind
+                        Arity = refArity resolved
+                    }
+                )
 
 /// Drain the accumulated foreign refs into the manifest table: DEDUPE by bare name
 /// (the same foreign type referenced N times → ONE entry) keeping FIRST-SEEN order, so

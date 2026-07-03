@@ -117,7 +117,38 @@ let isFunctionType (t: Ts.Type) : bool =
 
 // ─── ts.Type → Schema.TypeRef ──────────────────────────────────────────────
 
+/// The `mapType` recursion bound. A legitimate lib type nests only a few levels
+/// deep; a self-recursive conditional (`Awaited<T>`) recurses UNBOUNDED and blows the
+/// JS stack (~thousands of frames). This bound sits far above any real type yet far
+/// below the overflow, so it trips ONLY on genuine runaway recursion and degrades the
+/// subtree to `obj` + a diagnostic instead of aborting the enclosing symbol.
+let maxMapTypeDepth = 200
+
 let rec mapType (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
+    ctx.Depth.Value <- ctx.Depth.Value + 1
+
+    try
+        if ctx.Depth.Value > maxMapTypeDepth then
+            // Runaway recursion (a self-recursive conditional): degrade to `obj` at the
+            // bound. Anchored on the type's declaration when it has one.
+            let span = t.getSymbol () |> Option.bind tryDeclOf |> Option.map spanOfNode
+
+            emitWarning
+                ctx
+                Schema.DiagCode.RecursionDepthExceeded
+                (ctx.Checker.typeToString t)
+                span
+                (sprintf
+                    "type mapping exceeded depth %d (a self-recursive conditional such as Awaited<T>); the subtree was degraded to obj"
+                    maxMapTypeDepth)
+
+            Schema.TypeRef.Named("obj", [])
+        else
+            mapTypeInner ctx t
+    finally
+        ctx.Depth.Value <- ctx.Depth.Value - 1
+
+and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
     let checker = ctx.Checker
     let printed = checker.typeToString t
 

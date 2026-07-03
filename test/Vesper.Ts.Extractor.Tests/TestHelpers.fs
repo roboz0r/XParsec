@@ -73,10 +73,52 @@ let globalsManifest = lazy Path.Combine(globalsDir.Value, "globals.manifest.json
 let packagesDir =
     lazy DirectoryInfo(Path.Combine(__SOURCE_DIRECTORY__, "..", "ts-fixtures")).FullName
 
+// The real-scale `lib.es2015` ref pack (Step 3) is vendored at `ts-fixtures/es2015/`
+// like a package fixture, but it is NOT a resolvable npm package — it has no
+// `package.json`/entry `.d.ts`, and its manifest is produced by the `--lib-globals`
+// path over TypeScript's OWN lib files, not `--package`. So it is EXCLUDED from
+// `packageDirs` (which would else run `--package ./es2015` and fail to resolve) and
+// gets its own extraction/burndown wiring below, while its manifest STILL joins the
+// canonical-form + provider-resolution suites via `allManifestFiles`.
+let es2015Dir = lazy Path.Combine(packagesDir.Value, "es2015")
+
+let es2015Manifest = lazy Path.Combine(es2015Dir.Value, "es2015.manifest.json")
+
+/// The vendored `typescript` package's own `lib.es2015.*` + `lib.es5` `.d.ts` files —
+/// the `--lib-globals` inputs. Passed in a FIXED order (es5 first, then the es2015
+/// members alphabetically, then the `lib.es2015.d.ts` aggregator) so the extractor's
+/// symbol enumeration — and thus the golden — is deterministic. They cross-`/// <reference>`
+/// one another, so the full set loads the es2015 closure; `noLib` (set in
+/// `libOptions`) makes them extract AS CONTENT rather than as the implicit default lib.
+let es2015LibDir =
+    lazy Path.GetFullPath(Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "node_modules", "typescript", "lib"))
+
+let es2015LibFiles =
+    lazy
+        ([
+            "lib.es5.d.ts"
+            "lib.es2015.core.d.ts"
+            "lib.es2015.collection.d.ts"
+            "lib.es2015.generator.d.ts"
+            "lib.es2015.iterable.d.ts"
+            "lib.es2015.promise.d.ts"
+            "lib.es2015.proxy.d.ts"
+            "lib.es2015.reflect.d.ts"
+            "lib.es2015.symbol.d.ts"
+            "lib.es2015.symbol.wellknown.d.ts"
+            "lib.es2015.d.ts"
+         ]
+         |> List.map (fun f -> Path.Combine(es2015LibDir.Value, f))
+         |> Array.ofList)
+
 let packageDirs =
     lazy
         (if Directory.Exists packagesDir.Value then
-             Directory.GetDirectories packagesDir.Value |> Array.sort
+             Directory.GetDirectories packagesDir.Value
+             |> Array.filter (fun d ->
+                 not (String.Equals(Path.GetFileName d, "es2015", StringComparison.OrdinalIgnoreCase))
+             )
+             |> Array.sort
          else
              [||])
 
@@ -101,7 +143,37 @@ let allManifestFiles =
                      [| globalsManifest.Value |]
                  else
                      [||])
+                // The es2015 ref pack's manifest joins the canonical-form + provider-
+                // resolution suites like any other `PackageManifest` (Step 3). Its
+                // real-scale export surface exercises those loaders at 100× the fixtures.
+                (if File.Exists es2015Manifest.Value then
+                     [| es2015Manifest.Value |]
+                 else
+                     [||])
             ])
+
+/// Manifests the PROVIDER-RESOLUTION suite consumes — `allManifestFiles` MINUS the
+/// es2015 ref pack. Suppressing the skip-listed intrinsics' `*Constructor` carriers
+/// removed the `ObjectConstructor.freeze` collision, but the REAL es2015 types still
+/// carry overload sets whose PARAMS collapse to one argSig (the provider keys overloads
+/// on param types only, not return type), so the pack does not yet load cleanly. The
+/// GENUINE remaining collisions (enumerated with the real `argTypeName` renderer):
+///   • the six Error subclasses `EvalError`/`RangeError`/`ReferenceError`/`SyntaxError`/
+///     `TypeError`/`URIError` — each `.ctor` argSig `(undefined|string)`: they inherit
+///     `new(message?: string): Error` from `ErrorConstructor` AND declare their own
+///     `new(message?: string): <SubError>`, identical params, differing only in return;
+///   • `Map` — `.ctor` argSig `()`: the cross-file `MapConstructor` merge (es2015.collection
+///     + es2015.iterable) contributes two equivalent no-arg construct signatures.
+/// Sharpening these (return-type-in-key, or ctor-merge dedup) is Step 4/5's job
+/// (mounting es2015 into the `Js` namespace). WeakMap/Set/WeakSet/Date and the array-like
+/// method overloads do NOT collide — their params render distinctly. So the deep loader
+/// assertion runs on the hand-built fixtures only for now.
+let providerResolutionManifests =
+    lazy
+        (allManifestFiles.Value
+         |> Array.filter (fun p ->
+             not (String.Equals(Path.GetFileName p, "es2015.manifest.json", StringComparison.OrdinalIgnoreCase))
+         ))
 
 let private updateSnapshots =
     Environment.GetEnvironmentVariable "UPDATE_SNAPSHOTS" |> isNull |> not
@@ -481,3 +553,59 @@ let testExtractorMatchesGoldenGlobals () =
                 (normalize actual)
                 (normalize (File.ReadAllText golden))
                 "Globals extractor output does not match the golden (run UPDATE_SNAPSHOTS=1 to refresh)"
+
+/// Real-scale `lib.es2015` golden contract (Step 3): run the compiled extractor in
+/// LIB-GLOBALS mode (`--lib-globals es2015 <outPath> <lib.es*.d.ts…>`) over the
+/// vendored `typescript` package's own lib files and assert its output equals
+/// `es2015/es2015.manifest.json`. Same skip/refresh semantics as the other goldens;
+/// `UPDATE_SNAPSHOTS=1` (re)generates the vendored manifest from the real lib. This is
+/// the sole producer of the burndown manifest the diagnostics contract asserts.
+let testExtractorMatchesGoldenLibGlobals () =
+    if not (File.Exists extractorJs.Value) then
+        skiptest "extractor not built — run: dotnet fable src/Vesper.Ts.Extractor -o src/Vesper.Ts.Extractor/dist"
+
+    let inputs = es2015LibFiles.Value
+
+    if inputs |> Array.exists (File.Exists >> not) then
+        skiptest "typescript lib files not present under node_modules; skipping es2015 extraction"
+
+    let golden = es2015Manifest.Value
+    let outPath = Path.Combine(Path.GetTempPath(), "es2015.vesper.lib.out.json")
+
+    let started =
+        try
+            let psi = ProcessStartInfo("node")
+            psi.ArgumentList.Add extractorJs.Value
+            psi.ArgumentList.Add "--lib-globals"
+            psi.ArgumentList.Add "es2015"
+            psi.ArgumentList.Add outPath
+
+            for dts in inputs do
+                psi.ArgumentList.Add dts
+
+            psi.RedirectStandardError <- true
+            psi.RedirectStandardOutput <- true
+            psi.UseShellExecute <- false
+            Some(Process.Start psi)
+        with _ ->
+            None // node not on PATH
+
+    match started with
+    | None -> skiptest "node not available; skipping extractor run"
+    | Some p ->
+        let stderr = p.StandardError.ReadToEnd()
+        p.WaitForExit()
+
+        if p.ExitCode <> 0 then
+            failtestf "es2015 lib extractor failed (exit %d): %s" p.ExitCode stderr
+
+        let actual = File.ReadAllText outPath
+
+        if updateSnapshots then
+            Directory.CreateDirectory es2015Dir.Value |> ignore
+            File.WriteAllText(golden, actual.TrimEnd() + "\n")
+        else
+            Expect.equal
+                (normalize actual)
+                (normalize (File.ReadAllText golden))
+                "es2015 lib extractor output does not match the golden (run UPDATE_SNAPSHOTS=1 to refresh)"

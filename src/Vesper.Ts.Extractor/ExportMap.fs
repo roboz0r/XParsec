@@ -41,10 +41,15 @@ let private checkAccessorSymmetry (ctx: MapCtx) (prop: Ts.Symbol) : unit =
 
         match getter, setter with
         | Some g, Some s ->
+            // Resolve the getter's return + setter's param as `TypeRef option`; a
+            // structural obstacle (no resolvable signature, a setter that isn't
+            // exactly-one-param) DEGRADES to `None` + a diagnostic rather than aborting
+            // the whole class — the symmetry check simply cannot run and the property
+            // still lowers to its `getTypeOfSymbolAtLocation` type in `mapMember`.
             let getReturn =
                 match ctx.Checker.getSignatureFromDeclaration (unbox g) with
-                | Some sg -> mapType ctx (sg.getReturnType ())
-                | None -> failwithf "accessor '%s' getter has no resolvable signature" (prop.getName ())
+                | Some sg -> Some(mapType ctx (sg.getReturnType ()))
+                | None -> None
 
             let setParam =
                 match ctx.Checker.getSignatureFromDeclaration (unbox s) with
@@ -52,15 +57,23 @@ let private checkAccessorSymmetry (ctx: MapCtx) (prop: Ts.Symbol) : unit =
                     let ps = sg.getParameters ()
 
                     if ps.Count <> 1 then
-                        failwithf
-                            "accessor '%s' setter must take exactly one parameter (got %d)"
-                            (prop.getName ())
-                            ps.Count
+                        None
+                    else
+                        Some(mapType ctx (ctx.Checker.getTypeOfSymbolAtLocation (ps.[0], unbox s)))
+                | None -> None
 
-                    mapType ctx (ctx.Checker.getTypeOfSymbolAtLocation (ps.[0], unbox s))
-                | None -> failwithf "accessor '%s' setter has no resolvable signature" (prop.getName ())
-
-            if getReturn <> setParam then
+            match getReturn, setParam with
+            | None, _
+            | _, None ->
+                emitWarning
+                    ctx
+                    Schema.DiagCode.AccessorSignatureUnresolved
+                    (prop.getName ())
+                    (Some(spanOfNode (unbox g)))
+                    (sprintf
+                        "accessor '%s' has an unresolvable get/set signature (or a non-unary setter); the get/set symmetry check was skipped and the property kept its resolved type"
+                        (prop.getName ()))
+            | Some getReturn, Some setParam when getReturn <> setParam ->
                 // Asymmetric get/set types: a TS-only construct with no backend analog.
                 // DEGRADE by NARROWING to the getter's type — the property already lowers
                 // to `getTypeOfSymbolAtLocation` (the getter's return) in `mapMember`, so
@@ -75,6 +88,8 @@ let private checkAccessorSymmetry (ctx: MapCtx) (prop: Ts.Symbol) : unit =
                         (prop.getName ())
                         getReturn
                         setParam)
+            // Symmetric (get type = set type): nothing to degrade.
+            | Some _, Some _ -> ()
         | _ -> ()
 
 /// `isStatic` is supplied by the caller, not read off the symbol: instance members
@@ -191,7 +206,10 @@ let private classImplements (ctx: MapCtx) (resolved: Ts.Symbol) : Schema.TypeRef
                 clauses
                 |> Seq.filter (fun c -> int c.token = int Ts.SyntaxKind.ImplementsKeyword)
                 |> Seq.collect (fun c -> c.types)
-                |> Seq.map (fun e ->
+                // An entry whose interface symbol cannot be resolved DEGRADES to `None`
+                // (dropped from the heritage list) + a diagnostic, rather than aborting the
+                // whole class — a lib-scale resilience over the former hard throw.
+                |> Seq.choose (fun e ->
                     match ctx.Checker.getSymbolAtLocation (unbox e.expression) with
                     | Some s ->
                         let target =
@@ -200,8 +218,18 @@ let private classImplements (ctx: MapCtx) (resolved: Ts.Symbol) : Schema.TypeRef
                             else
                                 s
 
-                        mapType ctx (ctx.Checker.getDeclaredTypeOfSymbol target)
-                    | None -> failwithf "class implements clause entry has no resolvable interface symbol"
+                        Some(mapType ctx (ctx.Checker.getDeclaredTypeOfSymbol target))
+                    | None ->
+                        emitWarning
+                            ctx
+                            Schema.DiagCode.HeritageEntryUnresolved
+                            (resolved.getName ())
+                            (Some(spanOfNode (unbox e)))
+                            (sprintf
+                                "class '%s' has an implements-clause entry with no resolvable interface symbol; the entry was dropped"
+                                (resolved.getName ()))
+
+                        None
                 )
             | None -> Seq.empty
         )
@@ -397,7 +425,20 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
                 let memberName =
                     match checker.getSymbolAtLocation (unbox em.name) with
                     | Some s -> s.getName ()
-                    | None -> failwithf "enum '%s' has a member with no resolvable name symbol" name
+                    // A member with no resolvable name symbol degrades to a reserved
+                    // sentinel (kept as a member so the enum arity survives) + a
+                    // diagnostic, rather than aborting the extraction.
+                    | None ->
+                        emitWarning
+                            ctx0
+                            Schema.DiagCode.EnumMemberDegraded
+                            name
+                            (Some(spanOfNode (unbox em)))
+                            (sprintf
+                                "enum '%s' has a member with no resolvable name symbol; kept as '__unresolved__'"
+                                name)
+
+                        "__unresolved__"
 
                 let value =
                     match checker.getConstantValue (unbox em) with
@@ -405,12 +446,23 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
                     | Some(U2.Case2 n) ->
                         // Integer-subset discipline: TS technically permits non-integer
                         // numeric enum members, but the wire only carries `IntVal of
-                        // int64`. Throw loudly rather than widen/round (the producer's
-                        // "throw, don't swallow" rule).
+                        // int64`. At lib scale, DEGRADE a non-integer to `None` (a computed
+                        // member) + a diagnostic rather than widen/round or abort.
                         if System.Math.Floor n <> n || System.Double.IsInfinity n then
-                            failwithf "enum '%s' member '%s' has a non-integer numeric value (%g)" name memberName n
+                            emitWarning
+                                ctx0
+                                Schema.DiagCode.EnumMemberDegraded
+                                (sprintf "%s.%s" name memberName)
+                                (Some(spanOfNode (unbox em)))
+                                (sprintf
+                                    "enum '%s' member '%s' has a non-integer numeric value (%g); the value was dropped (no int64 wire form)"
+                                    name
+                                    memberName
+                                    n)
 
-                        Some(Schema.LiteralValue.IntVal(int64 n))
+                            None
+                        else
+                            Some(Schema.LiteralValue.IntVal(int64 n))
                     | None -> None
 
                 memberName, value

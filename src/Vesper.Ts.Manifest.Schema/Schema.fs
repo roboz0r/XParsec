@@ -218,6 +218,29 @@ type DiagCode =
     | MergedNamespaceDropped
     /// A `&`-intersection type erased to `obj`.
     | IntersectionErased
+    /// A whole top-level symbol whose extraction threw was DROPPED (the per-symbol
+    /// resilience backstop for the real-scale `lib.es2015` burndown): an unforeseen
+    /// construct made the walk abort, so the symbol is diagnosed + skipped rather than
+    /// aborting the entire extraction. Coarser than the in-place degrades above (it
+    /// loses the whole export), so those are preferred where the construct is known.
+    | SymbolWalkFailed
+    /// An accessor (get/set) whose signature could not be resolved for the symmetry
+    /// check — degraded to the property's resolved type without the check (a lib-scale
+    /// analog of `AsymmetricAccessorNarrowed`, distinguished because nothing was
+    /// narrowed: the check simply could not run).
+    | AccessorSignatureUnresolved
+    /// An `enum` member carrying a NON-INTEGER numeric value (`1.5`) or an unresolvable
+    /// name — the wire only carries `IntVal of int64`, so the member's value is dropped
+    /// to `None` (a computed member) rather than widening/rounding.
+    | EnumMemberDegraded
+    /// A class `implements`/heritage clause entry whose interface symbol could not be
+    /// resolved — the single entry is dropped from the heritage list.
+    | HeritageEntryUnresolved
+    /// A `mapType` recursion that exceeded the depth bound — a self-recursive
+    /// conditional type (`Awaited<T>`, which `Promise`'s members reference) would else
+    /// blow the JS stack; the subtree is degraded to `obj` at the bound so the enclosing
+    /// symbol still extracts.
+    | RecursionDepthExceeded
     /// Forward tolerance: a code minted by a NEWER extractor decodes losslessly
     /// instead of failing the whole manifest.
     | Unknown of string
@@ -230,6 +253,11 @@ type DiagCode =
         | AsymmetricAccessorNarrowed -> "asymmetric-accessor-narrowed"
         | MergedNamespaceDropped -> "merged-namespace-dropped"
         | IntersectionErased -> "intersection-erased"
+        | SymbolWalkFailed -> "symbol-walk-failed"
+        | AccessorSignatureUnresolved -> "accessor-signature-unresolved"
+        | EnumMemberDegraded -> "enum-member-degraded"
+        | HeritageEntryUnresolved -> "heritage-entry-unresolved"
+        | RecursionDepthExceeded -> "recursion-depth-exceeded"
         | Unknown s -> s
 
     static member OfWire(s: string) : DiagCode =
@@ -239,6 +267,11 @@ type DiagCode =
         | "asymmetric-accessor-narrowed" -> AsymmetricAccessorNarrowed
         | "merged-namespace-dropped" -> MergedNamespaceDropped
         | "intersection-erased" -> IntersectionErased
+        | "symbol-walk-failed" -> SymbolWalkFailed
+        | "accessor-signature-unresolved" -> AccessorSignatureUnresolved
+        | "enum-member-degraded" -> EnumMemberDegraded
+        | "heritage-entry-unresolved" -> HeritageEntryUnresolved
+        | "recursion-depth-exceeded" -> RecursionDepthExceeded
         | other -> Unknown other
 
 /// A degradation the extractor recorded instead of throwing — a structured note
