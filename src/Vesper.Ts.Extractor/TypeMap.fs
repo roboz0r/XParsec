@@ -174,6 +174,33 @@ let rec mapType (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
     finally
         ctx.Depth.Value <- ctx.Depth.Value - 1
 
+/// Carry a structural/merged object as `Structural(printed, …)`: harvest its OWN
+/// members as fields when `faithful`, else warn and carry OPAQUE (empty). A merged or
+/// anonymous member is SYNTHETIC (no single declaration node), so read its type via
+/// `getTypeOfSymbol` (`getTypeOfSymbolAtLocation` would need a declaration `declOf`
+/// cannot supply). INVARIANT: a `Structural` carries fields IFF it is faithful;
+/// otherwise it is OPAQUE. The two call sites — an object-only intersection and a
+/// non-nominal anonymous object — differ ONLY in how they establish `faithful`: an
+/// intersection type is not itself `TypeFlags.Object` (its object-ness is per-constituent),
+/// so it cannot reuse `isPureRecordObject`'s leading object-flag test.
+and private carryStructural (ctx: MapCtx) (t: Ts.Type) (printed: string) (faithful: bool) : Schema.TypeRef =
+    if faithful then
+        let fields =
+            t.getProperties ()
+            |> Seq.map (fun p -> p.getName (), mapType ctx (ctx.Checker.getTypeOfSymbol p))
+            |> List.ofSeq
+
+        Schema.TypeRef.Structural(printed, fields)
+    else
+        emitWarning
+            ctx
+            Schema.DiagCode.StructuralObjectStubbed
+            printed
+            (t.getSymbol () |> Option.bind tryDeclOf |> Option.map spanOfNode)
+            (sprintf "structural type '%s' has no faithful representation; carried as an opaque Structural" printed)
+
+        Schema.TypeRef.Structural(printed, [])
+
 and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
     let checker = ctx.Checker
     let printed = checker.typeToString t
@@ -309,32 +336,10 @@ and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
                     && constituents |> Seq.forall (fun c -> isObjectTypeFlag (unbox<Ts.Type> c) ts)
 
                 if objectOnly then
-                    // INVARIANT: a `Structural` carries fields IFF it is a faithful pure
-                    // record; otherwise it is OPAQUE (empty fields). When the checker's merge
-                    // is a pure record, harvest its MERGED apparent members — a merged
-                    // property is SYNTHETIC (no single declaration node), so read its type via
-                    // `getTypeOfSymbol` (`getTypeOfSymbolAtLocation` would need a declaration
-                    // `declOf` cannot supply) — and carry them losslessly with NO warning. A
-                    // merged object that still bears an index/call/construct signature has no
-                    // faithful field carry, so stay OPAQUE (empty) and warn.
-                    if carriesFaithfullyAsFields checker t then
-                        let mergedFields =
-                            t.getProperties ()
-                            |> Seq.map (fun p -> p.getName (), mapType ctx (checker.getTypeOfSymbol p))
-                            |> List.ofSeq
-
-                        Schema.TypeRef.Structural(printed, mergedFields)
-                    else
-                        emitWarning
-                            ctx
-                            Schema.DiagCode.StructuralObjectStubbed
-                            printed
-                            (t.getSymbol () |> Option.bind tryDeclOf |> Option.map spanOfNode)
-                            (sprintf
-                                "structural type '%s' has no faithful representation; carried as an opaque Structural"
-                                printed)
-
-                        Schema.TypeRef.Structural(printed, [])
+                    // The checker's merge is one apparent member set: carry it as a
+                    // `Structural`, faithful IFF that merged set is a pure record (a merged
+                    // object still bearing an index/call/construct signature stays OPAQUE).
+                    carryStructural ctx t printed (carriesFaithfullyAsFields checker t)
                 else
                     // A non-object intersection has no merged member set to carry: erase to
                     // `obj`, the universal supertype — a REAL fidelity loss, so it warns.
@@ -390,45 +395,20 @@ and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
                          | None -> ())
 
                         Schema.TypeRef.Named(printed, [])
-                    else if
+                    else
                         // A STRUCTURAL/anonymous form (`{ x: number }`) that surfaced as
                         // non-nominal — `keyof` / indexed-access / conditional have faithful
-                        // arms above and never reach here. Carry it as `Structural(printed,
-                        // fields)`, keyed on the printed form as a stable content hash.
-                        //
-                        // INVARIANT: a `Structural` carries fields IFF it is a faithful pure
-                        // record; otherwise it is OPAQUE (empty fields, warned). A pure record
-                        // (`isPureRecordObject`: a non-tuple/array object with named properties
-                        // and no index/call/construct signature) freezes to a resolvable nominal
-                        // with member access — so harvest its OWN members (each via
-                        // `getTypeOfSymbol`, since an anonymous object's members can be SYNTHETIC
-                        // with no declaration node for `declOf`) and carry them with NO warning.
-                        // Everything else — an index signature, a call/construct signature, a
-                        // tuple/array, `{}`, or a non-object opaque form — has no faithful field
-                        // carry, so emit EMPTY fields (the consumer keeps it opaque `FTUnknown`)
-                        // plus the honest warning. Harvesting partial members here would present
-                        // a lossy type as complete AND explode the golden with members no
-                        // consumer reads (a primitive/union base's inherited prototype members
-                        // like `string | symbol`'s `toString`/`valueOf`/…).
-                        isPureRecordObject checker t
-                    then
-                        let fields =
-                            t.getProperties ()
-                            |> Seq.map (fun p -> p.getName (), mapType ctx (checker.getTypeOfSymbol p))
-                            |> List.ofSeq
-
-                        Schema.TypeRef.Structural(printed, fields)
-                    else
-                        emitWarning
-                            ctx
-                            Schema.DiagCode.StructuralObjectStubbed
-                            printed
-                            (t.getSymbol () |> Option.bind tryDeclOf |> Option.map spanOfNode)
-                            (sprintf
-                                "structural type '%s' has no faithful representation; carried as an opaque Structural"
-                                printed)
-
-                        Schema.TypeRef.Structural(printed, [])
+                        // arms above and never reach here. Carry it as a `Structural`, keyed on
+                        // the printed form as a stable content hash. Faithful IFF it is a pure
+                        // record (`isPureRecordObject`: a non-tuple/array object with named
+                        // properties and no index/call/construct signature) — which freezes to a
+                        // resolvable nominal with member access. Everything else — an index
+                        // signature, a call/construct signature, a tuple/array, `{}`, or a
+                        // non-object opaque form — stays OPAQUE: harvesting its partial members
+                        // would present a lossy type as complete AND explode the golden with
+                        // members no consumer reads (a primitive/union base's inherited prototype
+                        // members like `string | symbol`'s `toString`/`valueOf`/…).
+                        carryStructural ctx t printed (isPureRecordObject checker t)
 
 let mapParam (ctx: MapCtx) (p: Ts.Symbol) : Schema.Param =
     // A parameter symbol's declaration is the `ParameterDeclaration` node carrying
