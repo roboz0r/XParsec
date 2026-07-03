@@ -39,6 +39,11 @@ let dynamic: Schema.TypeRef = Schema.TypeRef.Dynamic
 /// `keyof t`.
 let keyof (t: Schema.TypeRef) : Schema.TypeRef = Schema.TypeRef.KeyOf t
 
+/// An anonymous structural object type: a tsc-`printed` diagnostic string paired with
+/// its harvested `(name, type)` fields (`{x:number;y:number}`).
+let structural (printed: string) (fields: (string * Schema.TypeRef) list) : Schema.TypeRef =
+    Schema.TypeRef.Structural(printed, fields)
+
 /// `obj[index]` (an indexed-access type).
 let idx (obj: Schema.TypeRef) (index: Schema.TypeRef) : Schema.TypeRef =
     Schema.TypeRef.IndexedAccess(obj, index)

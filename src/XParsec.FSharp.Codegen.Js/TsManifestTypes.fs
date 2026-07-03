@@ -177,6 +177,65 @@ module internal TsManifestTranslate =
             DeclaringType = None
         }
 
+    // ─── Structural shape-hash ─────────────────────────────────────────────
+
+    /// Canonical, ACYCLIC structural shape-hash — the field-ORDER-INVARIANT identity a
+    /// `Structural` shape freezes to. The canonical STRING *is* the identity (no
+    /// numeric/crypto digest — a deterministic string is easier to debug and equally
+    /// discriminating): `FTUnknown` unifies by NAME equality (`SemanticInfo.fs`), so two
+    /// field-order-permuted shapes render the SAME name and unify as opaque, without any
+    /// member resolution yet.
+    ///
+    /// INVARIANTS that keep the hash acyclic and canonical:
+    ///   • `Named` refs are LEAVES — hashed by name + hashed args, NEVER expanded. TS
+    ///     recursion requires a name (`interface Node { children: Node[] }` is nominal),
+    ///     so leaving named refs unexpanded bounds the recursion to the finite schema tree.
+    ///   • `Structural` fields are SORTED by name before rendering — order-invariant.
+    ///   • `Union` members are SORTED (an order-invariant multiset) — a TS union's source
+    ///     order is diagnostic-only, immaterial to identity.
+    /// Every case renders a per-case tag so no two shapes alias across constructors.
+    let rec private shapeHash (t: Schema.TypeRef) : string =
+        match t with
+        | Schema.TypeRef.Named(name, []) -> "N:" + name
+        | Schema.TypeRef.Named(name, args) -> "N:" + name + "<" + String.concat "," (List.map shapeHash args) + ">"
+        | Schema.TypeRef.Typar i -> "T:" + string i
+        | Schema.TypeRef.MethodTypar i -> "M:" + string i
+        | Schema.TypeRef.Fun(args, ret) -> "Fn(" + String.concat "," (List.map shapeHash args) + ")->" + shapeHash ret
+        | Schema.TypeRef.Tuple items -> "Tup(" + String.concat "," (List.map shapeHash items) + ")"
+        | Schema.TypeRef.Union members -> "U(" + String.concat "|" (List.sort (List.map shapeHash members)) + ")"
+        | Schema.TypeRef.Literal(Schema.LiteralValue.StringVal s) -> "Ls:" + s
+        | Schema.TypeRef.Literal(Schema.LiteralValue.IntVal n) -> "Li:" + string n
+        | Schema.TypeRef.KeyOf t -> "K(" + shapeHash t + ")"
+        | Schema.TypeRef.IndexedAccess(objTy, index) -> "Ix(" + shapeHash objTy + "," + shapeHash index + ")"
+        | Schema.TypeRef.Conditional(check, extends, whenTrue, whenFalse) ->
+            "Cond("
+            + shapeHash check
+            + ","
+            + shapeHash extends
+            + ","
+            + shapeHash whenTrue
+            + ","
+            + shapeHash whenFalse
+            + ")"
+        | Schema.TypeRef.Dynamic -> "Dyn"
+        | Schema.TypeRef.Structural(printed, fields) -> structuralHash printed fields
+
+    /// The `Structural` arm of `shapeHash`, split out so `toFrozen` reaches it directly.
+    /// FIELDLESS fallback: the extractor emits empty `fields` for a non-object structural
+    /// form (function&, branded), which carries NO usable shape — so DON'T collapse all
+    /// such forms to one `{}` identity; fall back to the tsc-`printed` string (preserving
+    /// the pre-Wall-3 behaviour for the fieldless case). Only a genuine object shape gets
+    /// the order-invariant `{name:hash;…}` canonicalisation.
+    and private structuralHash (printed: string) (fields: (string * Schema.TypeRef) list) : string =
+        match fields with
+        | [] -> "printed:" + printed
+        | _ ->
+            fields
+            |> List.sortBy fst
+            |> List.map (fun (name, ft) -> name + ":" + shapeHash ft)
+            |> String.concat ";"
+            |> fun body -> "{" + body + "}"
+
     // ─── TypeRef → FrozenType (member signature templates) ─────────────────
 
     let rec toFrozen (ctx: TranslateCtx) (t: Schema.TypeRef) : FrozenType =
@@ -260,7 +319,13 @@ module internal TsManifestTranslate =
         // TS `any` → the opaque `dynamic` JS intrinsic (no special unifier behaviour;
         // its only capability is the `?` operator). It is `FTConst "dynamic"` everywhere.
         | Schema.TypeRef.Dynamic -> FTConst("dynamic", EqArray.empty)
-        | Schema.TypeRef.Structural(hash, _) -> FTUnknown("structural:" + hash) // TODO: content-hash record
+        // Identity is the canonical, field-ORDER-INVARIANT shape-hash of `fields`
+        // (`{x;y}` ≡ `{y;x}`), so two permuted anonymous shapes intern to the SAME
+        // `FTUnknown` name and unify — still OPAQUE, with no member resolution (the shape
+        // has no nominal identity yet). The tsc-`printed` string demotes to the
+        // fieldless-fallback identity only (see `structuralHash`); it is no longer the
+        // identity for an object shape.
+        | Schema.TypeRef.Structural(printed, fields) -> FTUnknown("structural:" + structuralHash printed fields)
 
     let unitFrozen: FrozenType = FTConst("unit", EqArray.empty)
 
