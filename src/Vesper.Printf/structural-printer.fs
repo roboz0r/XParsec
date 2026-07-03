@@ -27,8 +27,6 @@ open Vesper.IntComparison
 //     `Object.ReferenceEquals` (`DocLayout.containsRef` + `RuntimeFormatState.Visited`)
 //     rather than `HashSet<obj>` + `ReferenceEqualityComparer`. Bounded by the
 //     `PrintDepth = 100` guard; path-set semantics identical to the C#.
-//   * The `:?` chain is `if value :? T then … (value :?> T)` (test + downcast, no
-//     `as` binder) — a large `match | :? T as x` in a member body drops a binder slot.
 
 /// The recorded layout document. A group renders all-flat or all-broken; nesting
 /// governs the indent broken lines hang at.
@@ -147,31 +145,28 @@ module internal DocLayout =
     /// integral / decimal carries the type suffix the XParsec.FSharp lexer accepts
     /// (`5L`, `5uy`, `1.5M`) so it re-lexes at its source type.
     let formatPrimitive (value: obj) : string =
-        if value :? double then
-            let d = value :?> double
-            fixFloat (d.ToString(null, CultureInfo.InvariantCulture)) (Double.IsFinite d) ""
-        elif value :? single then
-            let f = value :?> single
-            fixFloat (f.ToString(null, CultureInfo.InvariantCulture)) (Single.IsFinite f) "f"
-        else
+        match value with
+        | :? double as d -> fixFloat (d.ToString(null, CultureInfo.InvariantCulture)) (Double.IsFinite d) ""
+        | :? single as f -> fixFloat (f.ToString(null, CultureInfo.InvariantCulture)) (Single.IsFinite f) "f"
+        | _ ->
             let s =
-                if value :? IFormattable then
-                    (value :?> IFormattable).ToString(null, CultureInfo.InvariantCulture)
-                else
-                    value.ToString()
+                match value with
+                | :? IFormattable as fmt -> fmt.ToString(null, CultureInfo.InvariantCulture)
+                | _ -> value.ToString()
 
             let suffix =
-                if value :? sbyte then "y"
-                elif value :? byte then "uy"
-                elif value :? int16 then "s"
-                elif value :? uint16 then "us"
-                elif value :? uint32 then "u"
-                elif value :? int64 then "L"
-                elif value :? uint64 then "UL"
-                elif value :? IntPtr then "n"
-                elif value :? UIntPtr then "un"
-                elif value :? decimal then "M"
-                else ""
+                match value with
+                | :? sbyte -> "y"
+                | :? byte -> "uy"
+                | :? int16 -> "s"
+                | :? uint16 -> "us"
+                | :? uint32 -> "u"
+                | :? int64 -> "L"
+                | :? uint64 -> "UL"
+                | :? IntPtr -> "n"
+                | :? UIntPtr -> "un"
+                | :? decimal -> "M"
+                | _ -> ""
 
             s + suffix
 
@@ -520,27 +515,26 @@ type RuntimeFormatState =
     /// shapes, then a `ToString` fallback. Leaf cases spend one unit of the node
     /// budget; composites don't (their leaf children do).
     member private this.DispatchInner(value: obj) =
-        if value :? Vesper.IStructuralFormattable then
+        match value with
+        | :? Vesper.IStructuralFormattable as structural ->
             // The synthesised body drives the semantic protocol (BeginRecord / BeginCase
             // / Child / …).
-            (value :?> Vesper.IStructuralFormattable).Format(this :> Vesper.IFormatSink)
-        elif value :? string then
+            structural.Format(this :> Vesper.IFormatSink)
+        | :? string as s ->
             this.Size <- this.Size - 1
-            this.Add(DocText(DocLayout.quoteString (value :?> string)))
-        elif value :? char then
+            this.Add(DocText(DocLayout.quoteString s))
+        | :? char as c ->
             this.Size <- this.Size - 1
-            this.Add(DocText(DocLayout.quoteChar (value :?> char)))
-        elif value :? bool then
+            this.Add(DocText(DocLayout.quoteChar c))
+        | :? bool as b ->
             this.Size <- this.Size - 1
-            this.Add(DocText(if (value :?> bool) then "true" else "false"))
-        elif value :? ITuple then
-            this.FormatTuple(value :?> ITuple)
-        elif value :? IFormattable then
+            this.Add(DocText(if b then "true" else "false"))
+        | :? ITuple as t -> this.FormatTuple t
+        | :? IFormattable ->
             this.Size <- this.Size - 1
             this.Add(DocText(DocLayout.formatPrimitive value))
-        elif value :? IEnumerable then
-            this.FormatEnumerable(value :?> IEnumerable)
-        else
+        | :? IEnumerable as xs -> this.FormatEnumerable xs
+        | _ ->
             this.Size <- this.Size - 1
             this.Add(DocText(value.ToString()))
 
