@@ -60,6 +60,78 @@ type Opt =
                 sink.FormatArg(v)
                 sink.EndApplication()
 
+// ---- the semantic protocol (BeginRecord/Field/BeginCase/Child) ----
+// These hand-written impls drive the NEW sink members directly (the emitter does
+// not yet emit them, so this is the only exercise of that path in Phase A). The
+// sink reconstructs the same `{ F = ·; G = · }` / `Case ·` forms the layout ops do.
+
+// A record driven semantically: `Field name` marks each label, `Child` supplies
+// the value. The sink owns the `{ … }` / `+2` hang policy.
+type SemPoint =
+    {
+        PX: int
+        PY: string
+    }
+
+    interface IStructuralFormattable with
+        member this.Format(sink: IFormatSink) =
+            sink.BeginRecord()
+            sink.Field("X")
+            sink.Child(box this.PX)
+            sink.Field("Y")
+            sink.Child(box this.PY)
+            sink.EndRecord()
+
+// An option-shaped DU driven semantically: `BeginCase name; (Child payload); EndCase`.
+// The sink decides nullary vs single-payload and the single-payload parenthesisation
+// (`Some (Some 3)` but not `Some 3` / `Some None`) from the observed child count + the
+// application-shaped mark.
+type SemOpt =
+    | SemNone
+    | SemSome of obj
+
+    interface IStructuralFormattable with
+        member this.Format(sink: IFormatSink) =
+            match this with
+            | SemNone ->
+                sink.BeginCase("None")
+                sink.EndCase()
+            | SemSome v ->
+                sink.BeginCase("Some")
+                sink.Child(v)
+                sink.EndCase()
+
+// A record whose second field is itself a `Child` — exercises the pending-label
+// invariant: the outer `Inner = ` label must be emitted before recursing, so the
+// nested record's first `Field` cannot clobber it.
+type SemBox =
+    {
+        BLabel: string
+        BInner: obj
+    }
+
+    interface IStructuralFormattable with
+        member this.Format(sink: IFormatSink) =
+            sink.BeginRecord()
+            sink.Field("Label")
+            sink.Child(box this.BLabel)
+            sink.Field("Inner")
+            sink.Child(this.BInner)
+            sink.EndRecord()
+
+// A two-payload case, to exercise the tuple arm `Pair (a, b)`.
+type SemPair =
+    | SemPair of obj * obj
+
+    interface IStructuralFormattable with
+        member this.Format(sink: IFormatSink) =
+            match this with
+            | SemPair(a, b) ->
+                sink.BeginCase("Pair")
+                sink.Child(a)
+                sink.Child(b)
+                sink.EndCase()
+
 [<Tests>]
 let tests =
     testList
@@ -214,6 +286,56 @@ let tests =
                             (structuralPrintSized (box (1, 2, 3)) 80 1)
                             "(1, ..., ...)"
                             "one leaf, the rest ... (matches F#)"
+                    }
+                ]
+
+            // The NEW semantic sink members (BeginRecord/Field/BeginCase/Child/…),
+            // driven directly since the emitter does not yet call them. Output must
+            // match the layout the equivalent layout-op impls produce.
+            testList
+                "semantic protocol"
+                [
+                    test "record renders like the layout ops" {
+                        Expect.equal (flat (box { PX = 1; PY = "a" })) "{ X = 1; Y = \"a\" }" "{ X = 1; Y = \"a\" }"
+                    }
+                    test "nullary case is a bare identifier" {
+                        Expect.equal (flat (box SemNone)) "None" "None"
+                    }
+                    test "single atom payload does not parenthesise" {
+                        Expect.equal (flat (box (SemSome(box 3)))) "Some 3" "Some 3"
+                    }
+                    test "single case payload parenthesises (application-shaped)" {
+                        Expect.equal (flat (box (SemSome(box (SemSome(box 3)))))) "Some (Some 3)" "Some (Some 3)"
+                    }
+                    test "single nullary-case payload does not parenthesise" {
+                        Expect.equal (flat (box (SemSome(box SemNone)))) "Some None" "Some None"
+                    }
+                    test "single list payload does not parenthesise" {
+                        Expect.equal (flat (box (SemSome(box [ 1; 2 ])))) "Some [1; 2]" "Some [1; 2]"
+                    }
+                    test "single record payload does not parenthesise" {
+                        Expect.equal (flat (box (SemSome(box { PX = 1; PY = "a" })))) "Some { X = 1; Y = \"a\" }" "Some { X = 1; Y = \"a\" }"
+                    }
+                    test "two-field payload renders as a tuple" {
+                        Expect.equal (flat (box (SemPair(box 1, box "a")))) "Pair (1, \"a\")" "Pair (1, \"a\")"
+                    }
+                    test "tuple-arm components are not individually parenthesised" {
+                        Expect.equal
+                            (flat (box (SemPair(box (SemSome(box 1)), box (SemSome(box 2))))))
+                            "Pair (Some 1, Some 2)"
+                            "Pair (Some 1, Some 2)"
+                    }
+                    test "an application-shaped tuple case parenthesises as a lone payload" {
+                        Expect.equal
+                            (flat (box (SemSome(box (SemPair(box 1, box 2))))))
+                            "Some (Pair (1, 2))"
+                            "Some (Pair (1, 2))"
+                    }
+                    test "nested record field does not clobber the outer label" {
+                        Expect.equal
+                            (flat (box { BLabel = "a"; BInner = box { PX = 1; PY = "b" } }))
+                            "{ Label = \"a\"; Inner = { X = 1; Y = \"b\" } }"
+                            "outer Inner = label survives the nested record's first Field"
                     }
                 ]
         ]

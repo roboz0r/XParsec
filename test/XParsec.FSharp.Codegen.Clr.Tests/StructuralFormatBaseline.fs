@@ -89,6 +89,15 @@ module internal DocLayout =
         | [] -> acc
         | h :: t -> revOnto t (h :: acc)
 
+    let rec interleaveComponents (xs: Doc list) (firstDone: bool) : Doc list =
+        match xs with
+        | [] -> []
+        | k :: rest ->
+            if firstDone then
+                DocText "," :: DocLine " " :: k :: interleaveComponents rest true
+            else
+                k :: interleaveComponents rest true
+
     let rec containsRef (xs: obj list) (v: obj) : bool =
         match xs with
         | [] -> false
@@ -172,6 +181,7 @@ type FrameKind =
     | Group
     | Nest
     | Application
+    | CaseCollect
 
 type Frame =
     {
@@ -181,12 +191,22 @@ type Frame =
         mutable Kids: Doc list
     }
 
+type SemFrame =
+    {
+        IsCase: bool
+        Name: string
+        mutable Count: int
+        mutable ChildAppShaped: bool
+    }
+
 type RuntimeFormatState =
     val Width: int
     val mutable Size: int
     val mutable Depth: int
     val mutable Frames: Frame list
     val mutable ArgPending: bool
+    val mutable SemFrames: SemFrame list
+    val mutable LastAppShaped: bool
     val mutable Visited: obj list
 
     new(width: int, printSize: int) =
@@ -204,6 +224,8 @@ type RuntimeFormatState =
             Depth = 0
             Frames = [ root ]
             ArgPending = false
+            SemFrames = []
+            LastAppShaped = false
             Visited = []
         }
 
@@ -240,7 +262,8 @@ type RuntimeFormatState =
                 | Group -> DocGroup(inner, false)
                 | Application -> DocGroup(inner, f.Parens)
                 | Nest -> DocNest(f.NestIndent, inner)
-                | Root -> inner
+                | Root
+                | CaseCollect -> inner
 
             this.Add(wrapped)
         | [] -> ()
@@ -253,6 +276,109 @@ type RuntimeFormatState =
         this.ArgPending <- true
         this.Dispatch(value)
         this.ArgPending <- false
+
+    // ---- the semantic protocol (mirror of Vesper.Printf/structural-printer.fs) ----
+
+    member private this.BeginRecordP() =
+        this.SemFrames <-
+            {
+                IsCase = false
+                Name = ""
+                Count = 0
+                ChildAppShaped = false
+            }
+            :: this.SemFrames
+
+        this.PushKind(Group, 0, false)
+
+    member private this.FieldP(name: string) =
+        match this.SemFrames with
+        | rf :: _ ->
+            if rf.Count = 0 then
+                this.Add(DocText("{ " + name + " = "))
+                this.PushKind(Nest, 2, false)
+            else
+                this.Add(DocText ";")
+                this.Add(DocLine " ")
+                this.Add(DocText(name + " = "))
+
+            rf.Count <- rf.Count + 1
+        | [] -> ()
+
+    member private this.EndRecordP() =
+        match this.SemFrames with
+        | rf :: rest ->
+            this.SemFrames <- rest
+
+            if rf.Count = 0 then
+                this.Add(DocText "{ }")
+                this.PopWrap(Group)
+            else
+                this.PopWrap(Nest)
+                this.Add(DocText " }")
+                this.PopWrap(Group)
+
+            this.LastAppShaped <- false
+        | [] -> ()
+
+    member private this.BeginCaseP(name: string) =
+        this.SemFrames <-
+            {
+                IsCase = true
+                Name = name
+                Count = 0
+                ChildAppShaped = false
+            }
+            :: this.SemFrames
+
+        this.PushKind(CaseCollect, 0, false)
+
+    member private this.ChildP(value: obj) =
+        this.ArgPending <- false
+        this.Dispatch(value)
+
+        match this.SemFrames with
+        | sf :: _ when sf.IsCase ->
+            sf.Count <- sf.Count + 1
+            sf.ChildAppShaped <- this.LastAppShaped
+        | _ -> ()
+
+    member private this.EndCaseP() =
+        match this.SemFrames with
+        | cf :: rest ->
+            this.SemFrames <- rest
+
+            let kids =
+                match this.Frames with
+                | f :: fr ->
+                    this.Frames <- fr
+                    DocLayout.revOnto f.Kids []
+                | [] -> []
+
+            let caseDoc =
+                match cf.Count with
+                | 0 -> DocText cf.Name
+                | 1 ->
+                    let child =
+                        match kids with
+                        | [ single ] -> single
+                        | _ -> DocCat kids
+
+                    let payload =
+                        if cf.ChildAppShaped then DocGroup(child, true) else child
+
+                    DocGroup(DocCat [ DocText(cf.Name + " "); payload ], false)
+                | _ ->
+                    let tupleKids = DocLayout.interleaveComponents kids false
+
+                    let tuple =
+                        DocGroup(DocCat [ DocText "("; DocNest(1, DocCat tupleKids); DocText ")" ], false)
+
+                    DocGroup(DocCat [ DocText(cf.Name + " "); tuple ], false)
+
+            this.Add(caseDoc)
+            this.LastAppShaped <- cf.Count >= 1
+        | [] -> ()
 
     member private this.FormatTuple(t: ITuple) =
         this.PushKind(Group, 0, false)
@@ -269,6 +395,7 @@ type RuntimeFormatState =
         this.PopWrap(Nest)
         this.Add(DocText ")")
         this.PopWrap(Group)
+        this.LastAppShaped <- false
 
     member private this.FormatEnumerable(xs: IEnumerable) =
         this.PushKind(Group, 0, false)
@@ -295,8 +422,11 @@ type RuntimeFormatState =
         this.Add(DocLine "")
         this.Add(DocText "]")
         this.PopWrap(Group)
+        this.LastAppShaped <- false
 
     member private this.Dispatch(value: obj) =
+        this.LastAppShaped <- false
+
         match value with
         | null -> this.Add(DocText "null")
         | _ ->
@@ -369,6 +499,12 @@ type RuntimeFormatState =
         member this.EndApplication() = this.PopWrap(Application)
         member this.FormatChild(value: obj) = this.FormatChildP(value)
         member this.FormatArg(value: obj) = this.FormatArgP(value)
+        member this.BeginRecord() = this.BeginRecordP()
+        member this.Field(name: string) = this.FieldP(name)
+        member this.EndRecord() = this.EndRecordP()
+        member this.BeginCase(name: string) = this.BeginCaseP(name)
+        member this.EndCase() = this.EndCaseP()
+        member this.Child(value: obj) = this.ChildP(value)
 
 type StructuralPrinter =
 

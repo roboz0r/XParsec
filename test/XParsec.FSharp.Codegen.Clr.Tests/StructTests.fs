@@ -1587,6 +1587,16 @@ let structTests =
                             "            this.ArgPending <- true"
                             "            this.Dispatch(value)"
                             "            this.ArgPending <- false"
+                            // The semantic ops (Phase A additions); this simplified sink
+                            // renders via the layout ops, so these stay unexercised stubs.
+                            "        member this.BeginRecord() = ()"
+                            "        member this.Field(name: string) = ()"
+                            "        member this.EndRecord() = ()"
+                            "        member this.BeginCase(name: string) = ()"
+                            "        member this.EndCase() = ()"
+                            "        member this.Child(value: obj) ="
+                            "            this.ArgPending <- false"
+                            "            this.Dispatch(value)"
                             "let rec emitElems (sink: Vesper.IFormatSink) (xs: int list) (first: bool) : unit ="
                             "    match xs with"
                             "    | [] -> ()"
@@ -2038,6 +2048,14 @@ let structTests =
                             "        member this.EndApplication() = this.PopWrap(Application)"
                             "        member this.FormatChild(value: obj) = this.FormatChildP(value)"
                             "        member this.FormatArg(value: obj) = this.FormatArgP(value)"
+                            // The semantic ops (Phase A additions); this simplified sink
+                            // renders via the layout ops, so these stay unexercised stubs.
+                            "        member this.BeginRecord() = ()"
+                            "        member this.Field(name: string) = ()"
+                            "        member this.EndRecord() = ()"
+                            "        member this.BeginCase(name: string) = ()"
+                            "        member this.EndCase() = ()"
+                            "        member this.Child(value: obj) = this.FormatChildP(value)"
                             "type MyOpt(payload: obj, isSome: bool) ="
                             "    interface Vesper.IStructuralFormattable with"
                             "        member this.Format(sink: Vesper.IFormatSink) ="

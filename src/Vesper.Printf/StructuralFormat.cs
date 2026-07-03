@@ -120,7 +120,23 @@ public sealed class RuntimeFormatState : IFormatSink
     private int _size;
 
     // The kind of an open layout scope. Root is the implicit outermost frame.
-    private enum FrameKind { Root, Group, Nest, Application }
+    // CaseCollect gathers a union case's payload child Docs so EndCase can pick the
+    // nullary / single / tuple form from the observed count (popped by hand there).
+    private enum FrameKind { Root, Group, Nest, Application, CaseCollect }
+
+    // Bookkeeping for one open BeginRecord / BeginCase scope (the semantic protocol).
+    // A record tracks its field count (first field opens `{ `, the rest prefix `;` +
+    // a soft break). A case tracks its payload count — the arity, fixed at EndCase —
+    // and whether its lone payload was itself application-shaped (a single-payload
+    // case parenthesises such a child, `Some (Some 3)`).
+    private sealed class SemFrame
+    {
+        internal readonly bool IsCase;
+        internal readonly string Name;
+        internal int Count;
+        internal bool ChildAppShaped;
+        internal SemFrame(bool isCase, string name) { IsCase = isCase; Name = name; }
+    }
 
     // Doc-building frames. Each frame collects children; closing a group/nest pops
     // and wraps. The root frame (index 0) holds the whole document.
@@ -139,6 +155,15 @@ public sealed class RuntimeFormatState : IFormatSink
     // Set by FormatArg for the immediately-dispatched value; consumed by the first
     // BeginApplication it produces (so only a top-level application parenthesizes).
     private bool _argPending;
+
+    // The semantic-frame stack for the BeginRecord / BeginCase protocol (top = last).
+    private readonly List<SemFrame> _semFrames = new();
+
+    // The application-shapedness of the value Dispatch most recently completed (true
+    // iff it was a union case with >= 1 payload). Child reads it to mark a case
+    // payload for single-payload parenthesisation; every non-case terminal in
+    // Dispatch resets it to false, so it always reflects the just-dispatched value.
+    private bool _lastAppShaped;
 
     /// <summary>Create a layout state with the given column budget (0 ⇒ never
     /// break) and node budget (F# PrintSize; nodes past it render as "...").</summary>
@@ -184,6 +209,138 @@ public sealed class RuntimeFormatState : IFormatSink
 
     /// <inheritdoc />
     public void EndApplication() => PopWrap(FrameKind.Application);
+
+    // ---- the semantic protocol (BeginRecord/Field/BeginCase/Child/…) ----
+    // The record/union layout policy that once lived in `StructuralFormatRecipe`
+    // realised here, lowering the semantic frames into the same Doc builders. Two
+    // invariants: the field label is added at `Field`, before `Child` recurses (so a
+    // nested record's first `Field` cannot clobber it); and a single-payload case
+    // parenthesises its child iff the child is application-shaped (`ChildAppShaped`).
+
+    /// <inheritdoc />
+    public void BeginRecord()
+    {
+        _semFrames.Add(new SemFrame(false, ""));
+        BeginGroup();
+    }
+
+    /// <inheritdoc />
+    public void Field(string name)
+    {
+        SemFrame rf = _semFrames[_semFrames.Count - 1];
+        if (rf.Count == 0)
+        {
+            // First field opens `{ name = ` (outside the hang); the fields hang at +2
+            // when the group breaks.
+            Add(new DocText("{ " + name + " = "));
+            BeginNest(2);
+        }
+        else
+        {
+            Add(new DocText(";"));
+            Add(new DocLine(" "));
+            Add(new DocText(name + " = "));
+        }
+        rf.Count++;
+    }
+
+    /// <inheritdoc />
+    public void EndRecord()
+    {
+        SemFrame rf = _semFrames[_semFrames.Count - 1];
+        _semFrames.RemoveAt(_semFrames.Count - 1);
+        if (rf.Count == 0)
+        {
+            // A field-less record is a bare `{ }`.
+            Add(new DocText("{ }"));
+            PopWrap(FrameKind.Group);
+        }
+        else
+        {
+            PopWrap(FrameKind.Nest);
+            Add(new DocText(" }"));
+            PopWrap(FrameKind.Group);
+        }
+        _lastAppShaped = false;
+    }
+
+    /// <inheritdoc />
+    public void BeginCase(string name)
+    {
+        _semFrames.Add(new SemFrame(true, name));
+        _frames.Add(new Frame(FrameKind.CaseCollect, 0, false));
+    }
+
+    /// <inheritdoc />
+    public void Child(object? value)
+    {
+        _argPending = false;
+        Dispatch(value);
+        // In a record the label was emitted at Field; here we only record, for a
+        // case, the payload count and (for the single-payload arm) the child's
+        // application-shapedness.
+        SemFrame sf = _semFrames[_semFrames.Count - 1];
+        if (sf.IsCase)
+        {
+            sf.Count++;
+            sf.ChildAppShaped = _lastAppShaped;
+        }
+    }
+
+    /// <inheritdoc />
+    public void EndCase()
+    {
+        SemFrame cf = _semFrames[_semFrames.Count - 1];
+        _semFrames.RemoveAt(_semFrames.Count - 1);
+
+        // Harvest the case's payload child Docs (source order) from its CaseCollect
+        // layout frame, popped by hand.
+        Frame collect = Top;
+        _frames.RemoveAt(_frames.Count - 1);
+        List<Doc> kids = collect.Kids;
+
+        Doc caseDoc;
+        if (cf.Count == 0)
+        {
+            // Nullary case: a bare identifier (`None`).
+            caseDoc = new DocText(cf.Name);
+        }
+        else if (cf.Count == 1)
+        {
+            Doc child = kids.Count == 1 ? kids[0] : new DocCat(kids);
+            // The lone payload parenthesises iff it is itself a payload-bearing case.
+            // The parent decides this (the child's Doc is already built), so we wrap
+            // here rather than bake parens into the child.
+            Doc payload = cf.ChildAppShaped ? new DocGroup(child, true) : child;
+            caseDoc = new DocGroup(new DocCat(new List<Doc> { new DocText(cf.Name + " "), payload }), false);
+        }
+        else
+        {
+            // Multi-field payload: a parenthesised tuple whose parens already
+            // disambiguate, so components stay in normal position.
+            var tupleKids = new List<Doc>();
+            bool first = true;
+            foreach (Doc k in kids)
+            {
+                if (!first)
+                {
+                    tupleKids.Add(new DocText(","));
+                    tupleKids.Add(new DocLine(" "));
+                }
+                first = false;
+                tupleKids.Add(k);
+            }
+            Doc tuple = new DocGroup(
+                new DocCat(new List<Doc> { new DocText("("), new DocNest(1, new DocCat(tupleKids)), new DocText(")") }),
+                false);
+            caseDoc = new DocGroup(new DocCat(new List<Doc> { new DocText(cf.Name + " "), tuple }), false);
+        }
+
+        Add(caseDoc);
+        // A case is application-shaped iff it carries a payload; that mark is what an
+        // enclosing single-payload case reads to parenthesise this one.
+        _lastAppShaped = cf.Count >= 1;
+    }
 
     private void PopWrap(FrameKind expected)
     {
@@ -234,6 +391,11 @@ public sealed class RuntimeFormatState : IFormatSink
     /// then our own types, then BCL shapes, then a ToString fallback.</summary>
     private void Dispatch(object? value)
     {
+        // Default: the value about to be dispatched is not application-shaped. Only a
+        // payload-bearing union case sets it true at its EndCase, and each composite
+        // resets it as its last act, so on return this reflects exactly `value`.
+        _lastAppShaped = false;
+
         if (value is null)
         {
             Text("null");
@@ -345,6 +507,9 @@ public sealed class RuntimeFormatState : IFormatSink
         EndNest();
         Text(")");
         EndGroup();
+        // A tuple is never application-shaped, so a single-payload case wrapping it
+        // must not add an extra pair of parens.
+        _lastAppShaped = false;
     }
 
     private void FormatEnumerable(IEnumerable enumerable)
@@ -380,6 +545,8 @@ public sealed class RuntimeFormatState : IFormatSink
         SoftBreak();
         Text("]");
         EndGroup();
+        // A list is never application-shaped (see FormatTuple).
+        _lastAppShaped = false;
     }
 
     /// <summary>Lay the recorded document out to a string.</summary>

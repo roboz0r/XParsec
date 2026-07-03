@@ -27,6 +27,18 @@ type IFormatSink =
     abstract member FormatChild: value: obj -> unit
     /// <summary>Recurse into a child in DU-argument position (parenthesised if an application).</summary>
     abstract member FormatArg: value: obj -> unit
+    /// <summary>Open a record: the fields follow as <c>Field name</c> / <c>Child value</c> pairs.</summary>
+    abstract member BeginRecord: unit -> unit
+    /// <summary>Mark the next field's label; its value arrives in the following <c>Child</c>.</summary>
+    abstract member Field: name: string -> unit
+    /// <summary>Close the current record (renders <c>{ }</c> if it had no fields).</summary>
+    abstract member EndRecord: unit -> unit
+    /// <summary>Open a union case named <paramref name="name"/>; its payloads follow as <c>Child</c>s.</summary>
+    abstract member BeginCase: name: string -> unit
+    /// <summary>Close the current union case (arity decided from the observed <c>Child</c> count).</summary>
+    abstract member EndCase: unit -> unit
+    /// <summary>Recurse into a record field / union payload child; the enclosing frame fixes its position.</summary>
+    abstract member Child: value: obj -> unit
 
 /// <summary>Implemented by every compiler-synthesised record / union.</summary>
 type IStructuralFormattable =

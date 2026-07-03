@@ -74,6 +74,18 @@ module internal DocLayout =
         | [] -> acc
         | h :: t -> revOnto t (h :: acc)
 
+    /// Interleave a union case's payload components with `,` + a soft `Line`
+    /// separator (`(a, b, c)`). `firstDone` is false for the first component (no
+    /// leading separator), true thereafter — the recipe's `if i > 0`.
+    let rec interleaveComponents (xs: Doc list) (firstDone: bool) : Doc list =
+        match xs with
+        | [] -> []
+        | k :: rest ->
+            if firstDone then
+                DocText "," :: DocLine " " :: k :: interleaveComponents rest true
+            else
+                k :: interleaveComponents rest true
+
     /// True if `v` is reference-identical to any element of `xs`.
     /// Linear walk over the DFS-ancestor chain (bounded by PrintDepth = 100).
     let rec containsRef (xs: obj list) (v: obj) : bool =
@@ -169,11 +181,15 @@ module internal DocLayout =
     let quoteChar (c: char) : string = "'" + appendEscaped "" c '\'' + "'"
 
 /// The kind of an open layout scope. `Root` is the implicit outermost frame.
+/// `CaseCollect` gathers a union case's payload child `Doc`s so `EndCase` can pick
+/// the nullary / single / tuple form from the observed count (popped by hand there,
+/// never through `PopWrap`).
 type FrameKind =
     | Root
     | Group
     | Nest
     | Application
+    | CaseCollect
 
 /// A Doc-building frame: it collects children; closing a group/nest pops and wraps.
 type Frame =
@@ -183,6 +199,19 @@ type Frame =
         Parens: bool
         /// Children, accumulated by consing (so reversed); flipped at `PopWrap`.
         mutable Kids: Doc list
+    }
+
+/// Bookkeeping for one open `BeginRecord` / `BeginCase` scope (the semantic
+/// protocol). A record tracks its field count (the first field opens `{ `, the
+/// rest prefix `;` + a soft break). A case tracks its payload count — the arity,
+/// fixed at `EndCase` — and whether its lone payload was itself application-shaped
+/// (a single-payload case parenthesises such a child, `Some (Some 3)`).
+type SemFrame =
+    {
+        IsCase: bool
+        Name: string
+        mutable Count: int
+        mutable ChildAppShaped: bool
     }
 
 /// The concrete <see cref="Vesper.IFormatSink"/>: builds a `Doc` via a frame stack,
@@ -201,6 +230,13 @@ type RuntimeFormatState =
     /// Set by FormatArg for the immediately-dispatched value; consumed by the first
     /// BeginApplication it produces (so only a top-level application parenthesizes).
     val mutable ArgPending: bool
+    /// The semantic-frame stack for the BeginRecord / BeginCase protocol (top = head).
+    val mutable SemFrames: SemFrame list
+    /// The application-shapedness of the value `Dispatch` most recently completed
+    /// (true iff it was a union case with >= 1 payload). `Child` reads it to mark a
+    /// case payload for single-payload parenthesisation; every non-case terminal in
+    /// `Dispatch` resets it to false, so it always reflects the just-dispatched value.
+    val mutable LastAppShaped: bool
     /// DFS-ancestor chain for cycle detection (top = head). A value reference-identical
     /// to an ancestor is a back-edge and renders `...`.
     val mutable Visited: obj list
@@ -225,6 +261,8 @@ type RuntimeFormatState =
             Depth = 0
             Frames = [ root ]
             ArgPending = false
+            SemFrames = []
+            LastAppShaped = false
             Visited = []
             RenderBuf = ArrayPool<char>.Shared.Rent(256)
             RenderPos = 0
@@ -264,7 +302,10 @@ type RuntimeFormatState =
                 | Group -> DocGroup(inner, false)
                 | Application -> DocGroup(inner, f.Parens)
                 | Nest -> DocNest(f.NestIndent, inner)
-                | Root -> inner
+                // `CaseCollect` is popped by hand in `EndCaseP`; this arm only keeps
+                // the match total and unwraps like `Root` if ever reached generically.
+                | Root
+                | CaseCollect -> inner
 
             this.Add(wrapped)
         | [] -> ()
@@ -277,6 +318,135 @@ type RuntimeFormatState =
         this.ArgPending <- true
         this.Dispatch(value)
         this.ArgPending <- false
+
+    // ---- the semantic protocol (BeginRecord/Field/BeginCase/Child/…) ----
+    // The record/union layout policy that once lived in `StructuralFormatRecipe`
+    // (`recordRecipe`/`unionCaseRecipe`) is realised here, lowering the semantic
+    // frames into the same `Doc` builders the layout ops use. The two invariants:
+    //   * the field label is added to the `Doc` at `Field`, before `Child` recurses,
+    //     so a nested record's first `Field` cannot clobber it (immediate emission);
+    //   * a single-payload case parenthesises its child iff the child is
+    //     application-shaped (`ChildAppShaped`, captured in `ChildP` from the state
+    //     flag `Dispatch` leaves) — the one bit the child count cannot settle.
+
+    member private this.BeginRecordP() =
+        this.SemFrames <-
+            {
+                IsCase = false
+                Name = ""
+                Count = 0
+                ChildAppShaped = false
+            }
+            :: this.SemFrames
+
+        this.PushKind(Group, 0, false)
+
+    member private this.FieldP(name: string) =
+        match this.SemFrames with
+        | rf :: _ ->
+            if rf.Count = 0 then
+                // First field opens `{ name = ` (outside the hang), then the fields
+                // hang at +2 when the group breaks.
+                this.Add(DocText("{ " + name + " = "))
+                this.PushKind(Nest, 2, false)
+            else
+                this.Add(DocText ";")
+                this.Add(DocLine " ")
+                this.Add(DocText(name + " = "))
+
+            rf.Count <- rf.Count + 1
+        | [] -> ()
+
+    member private this.EndRecordP() =
+        match this.SemFrames with
+        | rf :: rest ->
+            this.SemFrames <- rest
+
+            if rf.Count = 0 then
+                // A field-less record is a bare `{ }` (kept total; F# records have >=1
+                // field, but the sink stays defined on the empty shape).
+                this.Add(DocText "{ }")
+                this.PopWrap(Group)
+            else
+                this.PopWrap(Nest)
+                this.Add(DocText " }")
+                this.PopWrap(Group)
+
+            this.LastAppShaped <- false
+        | [] -> ()
+
+    member private this.BeginCaseP(name: string) =
+        this.SemFrames <-
+            {
+                IsCase = true
+                Name = name
+                Count = 0
+                ChildAppShaped = false
+            }
+            :: this.SemFrames
+
+        this.PushKind(CaseCollect, 0, false)
+
+    member private this.ChildP(value: obj) =
+        this.ArgPending <- false
+        this.Dispatch(value)
+        // In a record the label was already emitted at `Field`; here we only record,
+        // for a case, the payload count and (for the single-payload arm) the child's
+        // application-shapedness.
+        match this.SemFrames with
+        | sf :: _ when sf.IsCase ->
+            sf.Count <- sf.Count + 1
+            sf.ChildAppShaped <- this.LastAppShaped
+        | _ -> ()
+
+    member private this.EndCaseP() =
+        match this.SemFrames with
+        | cf :: rest ->
+            this.SemFrames <- rest
+
+            // Harvest the case's payload child `Doc`s (source order) from its
+            // CaseCollect layout frame, popped by hand.
+            let kids =
+                match this.Frames with
+                | f :: fr ->
+                    this.Frames <- fr
+                    DocLayout.revOnto f.Kids []
+                | [] -> []
+
+            let caseDoc =
+                match cf.Count with
+                | 0 ->
+                    // Nullary case: a bare identifier (`None`).
+                    DocText cf.Name
+                | 1 ->
+                    let child =
+                        match kids with
+                        | [ single ] -> single
+                        | _ -> DocCat kids
+
+                    // The lone payload parenthesises iff it is itself a payload-bearing
+                    // case. The parent decides this (the child's own `Doc` is already
+                    // built), so we wrap here rather than bake parens into the child.
+                    let payload =
+                        if cf.ChildAppShaped then DocGroup(child, true) else child
+
+                    DocGroup(DocCat [ DocText(cf.Name + " "); payload ], false)
+                | _ ->
+                    // Multi-field payload: a parenthesised tuple whose parens already
+                    // disambiguate, so components stay in normal position. The
+                    // components are `,` + soft-`Line` separated (recipe's `if i > 0`).
+                    let tupleKids = DocLayout.interleaveComponents kids false
+
+                    let tuple =
+                        DocGroup(DocCat [ DocText "("; DocNest(1, DocCat tupleKids); DocText ")" ], false)
+
+                    DocGroup(DocCat [ DocText(cf.Name + " "); tuple ], false)
+
+            this.Add(caseDoc)
+            // A case is application-shaped iff it carries a payload; that mark is what
+            // an enclosing single-payload case reads to parenthesise this one.
+            this.LastAppShaped <- cf.Count >= 1
+        | [] -> ()
 
     member private this.FormatTuple(t: ITuple) =
         // `(a, b)` flat; broken hangs the components under the open paren (indent 1).
@@ -294,6 +464,9 @@ type RuntimeFormatState =
         this.PopWrap(Nest)
         this.Add(DocText ")")
         this.PopWrap(Group)
+        // A tuple is never application-shaped, so a single-payload case wrapping it
+        // must not parenthesise (`Some (1, 2)` keeps its own parens, no extra pair).
+        this.LastAppShaped <- false
 
     member private this.FormatEnumerable(xs: IEnumerable) =
         // `[1; 2; 3]` flat; broken puts the brackets on their own lines with the
@@ -325,9 +498,17 @@ type RuntimeFormatState =
         this.Add(DocLine "")
         this.Add(DocText "]")
         this.PopWrap(Group)
+        // A list is never application-shaped (see FormatTuple).
+        this.LastAppShaped <- false
 
     /// The depth/size budget guard; the type-switch lives in `DispatchInner`.
     member private this.Dispatch(value: obj) =
+        // Default: the value about to be dispatched is not application-shaped. Every
+        // terminal below keeps this (atoms, truncations, `null`); only a payload-bearing
+        // union case sets it true at its `EndCase`, and each composite resets it as its
+        // last act, so on return this reflects exactly `value`.
+        this.LastAppShaped <- false
+
         match value with
         | null -> this.Add(DocText "null")
         | _ ->
@@ -492,6 +673,12 @@ type RuntimeFormatState =
         member this.EndApplication() = this.PopWrap(Application)
         member this.FormatChild(value: obj) = this.FormatChildP(value)
         member this.FormatArg(value: obj) = this.FormatArgP(value)
+        member this.BeginRecord() = this.BeginRecordP()
+        member this.Field(name: string) = this.FieldP(name)
+        member this.EndRecord() = this.EndRecordP()
+        member this.BeginCase(name: string) = this.BeginCaseP(name)
+        member this.EndCase() = this.EndCaseP()
+        member this.Child(value: obj) = this.ChildP(value)
 
 /// Entry point for `%A`. `Print` renders a value as copy-pasteable Vesper source;
 /// it is the standalone "render to string" used by tests and by the printf
