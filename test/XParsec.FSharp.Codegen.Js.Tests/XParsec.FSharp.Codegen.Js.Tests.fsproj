@@ -47,6 +47,7 @@
     <Compile Include="TypeLevelFoldTests.fs" />
     <Compile Include="RefsTableTests.fs" />
     <Compile Include="JsNamespaceTests.fs" />
+    <Compile Include="JsMapE2ETests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

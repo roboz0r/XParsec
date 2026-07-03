@@ -7,13 +7,19 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// R4a STEP 4 — the mitt full-fidelity GATE. A Vesper program drives mitt's COMPLETE
-// public surface — the DEFAULT-exported generic factory `mitt<Events>()`, `on`, `off`,
-// `emit` WITH a payload, `emit` WITHOUT a payload (the conditional-fold overload), and a
-// read of `all` — over a ≥2-key `Events` record with DIFFERENT payload types
-// (`ping:int`, `pong:string`, `tick:undefined`), emitted via Codegen.Js and RUN against
-// the real vendored `mitt.mjs` under Node. Reads ONLY committed files (the golden
-// manifest, the vendored runtime, the program below); the Node extractor is NEVER run.
+// R4a STEP 4 / R5 STEP 5 — the mitt full-fidelity GATE. A Vesper program drives mitt's
+// COMPLETE public surface — the DEFAULT-exported generic factory `mitt<Events>()`, `on`,
+// `off`, `emit` WITH a payload, `emit` WITHOUT a payload (the conditional-fold overload),
+// and `all` — over a ≥2-key `Events` record with DIFFERENT payload types (`ping:int`,
+// `pong:string`, `tick:undefined`), emitted via Codegen.Js and RUN against the real
+// vendored `mitt.mjs` under Node. Reads ONLY committed files (the golden manifest, the
+// vendored runtime, the program below); the Node extractor is NEVER run.
+//
+// R5: `all` is a full `Js.Map`, not reads-only. mitt's `all: Map<"*" | keyof Events, …>`
+// carries a `Map` ref homed to `es2015` (`Refs` table); with the es2015 pack STACKED
+// under mitt (`MittFixture.provider` / `stackTsMany [mitt; recorder; es2015]`) that homed
+// ref resolves as a real `Js.Map`, so a MEMBER CALL on it (`e.all.has("pong")`) types and
+// runs against the real runtime Map — the graduation from the old reads-only pin.
 //
 // The handlers observe through a tiny auxiliary `recorder` external object (the BusE2E
 // stash idiom — a Vesper lambda calling a captured native member), NOT a module-level
@@ -99,8 +105,10 @@ let private recorderRuntime =
 
 let private mittRuntimeSource = MittFixture.runtimeSource
 
+// es2015 is STACKED under mitt+recorder so mitt's `all: Map<…>` homed ref resolves as a
+// real `Js.Map` (Step 5) — a member call on `e.all` types and emits native `.has(`.
 let private mittProvider: IExternalSymbolProvider =
-    stackTsMany [ MittFixture.manifest; recorderManifest ]
+    stackTsMany [ MittFixture.manifest; recorderManifest; es2015Manifest ]
 
 // The full-surface Vesper program. Effectful unit member calls are bound (`let u = …`)
 // per the front-end sequencing convention.
@@ -126,8 +134,12 @@ let private program =
             "let pingResult = r.lastPing()"
             "let pongResult = r.lastPong()"
             "let tickResult = r.tickCount()"
-            // Read `all` — mitt's `Map` of registered handlers (reads-only coverage).
+            // `all` is mitt's `Js.Map` of registered handlers (homed es2015 ref). A MEMBER
+            // CALL on it — `has` a key the pong handler registered — exercises the graduated
+            // (no-longer-reads-only) capability against the real runtime Map. `pong` is
+            // registered and never `off`'d, so `has("pong")` is deterministically true.
             "let allMap = e.all"
+            "let allHasPong = allMap.has(\"pong\")"
             ""
         ]
 
@@ -135,8 +147,8 @@ let private harness =
     String.concat
         "\n"
         [
-            "import { pingResult, pongResult, tickResult, allMap } from \"./mitt-program.mjs\";"
-            "console.log(`${pingResult},${pongResult},${tickResult},${allMap instanceof Map}`);"
+            "import { pingResult, pongResult, tickResult, allMap, allHasPong } from \"./mitt-program.mjs\";"
+            "console.log(`${pingResult},${pongResult},${tickResult},${allMap instanceof Map},${allHasPong}`);"
             ""
         ]
 
@@ -179,9 +191,12 @@ let tests =
                 Expect.isTrue (js.Contains ".emit(") (sprintf "expected native `.emit(`:\n%s" js)
                 Expect.isTrue (js.Contains ".off(") (sprintf "expected native `.off(`:\n%s" js)
 
+                // R5: the member call on the homed `Js.Map` `all` lowers to a native `.has(`.
+                Expect.isTrue (js.Contains ".has(") (sprintf "expected the graduated `all` member call `.has(`:\n%s" js)
+
                 // ping observed 7 (emit-with-payload) and STILL 7 after off+emit(99) (off
                 // removed the handler); pong "hi"; tick fired once (no-payload emit); `all`
-                // is the real Map.
+                // is the real Map AND a member call on it (`has("pong")`) returns true.
                 expectNodeOutput
                     "mitt-e2e"
                     [
@@ -190,6 +205,6 @@ let tests =
                         "mitt.mjs", mittRuntimeSource
                         "recorder.mjs", recorderRuntime
                     ]
-                    "7,hi,1,true"
+                    "7,hi,1,true,true"
             }
         ]

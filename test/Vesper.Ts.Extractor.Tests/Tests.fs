@@ -304,8 +304,9 @@ let goldenTests =
                 ]
 
             // Loader resolves what each manifest declares. Runs on
-            // `providerResolutionManifests` (all EXCEPT the es2015 ref pack — see its
-            // doc: full provider consumption of the real-scale pack is Step 4/5).
+            // `providerResolutionManifests` — now the FULL manifest set including the
+            // es2015 ref pack (it loads and resolves cleanly since ctor overloads dedupe
+            // by argSig; the pack mounts under `Js`, so the walk qualifies through it).
             testList
                 "provider resolution"
                 [

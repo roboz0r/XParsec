@@ -308,6 +308,19 @@ let expectNodeOutput (name: string) (files: (string * string) list) (expected: s
         Expect.equal code 0 (sprintf "node exited non-zero:\n%s" out)
         Expect.equal out expected (sprintf "round-trip output, got:\n%s" out)
 
+/// The vendored es2015 ref pack (`../ts-fixtures/es2015/es2015.manifest.json`) — the
+/// GLOBAL lib manifest mounted under `Js` (its `Package = "es2015"` is a
+/// `TsGlobalHomes.globalLibHomes` entry). Shared by the `Js.Map` gate and by
+/// `MittFixture` (mitt's `all: Map<…>` is a homed ref into es2015). Committed golden;
+/// the Node extractor is never run.
+let es2015Manifest: Schema.PackageManifest =
+    let path =
+        IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "ts-fixtures", "es2015", "es2015.manifest.json")
+
+    match Codec.deserialize (IO.File.ReadAllText path) with
+    | Error e -> failwithf "es2015 manifest does not parse: %s" e
+    | Ok man -> man
+
 /// The mitt TS fixture (golden manifest + vendored runtime under `../ts-fixtures/mitt`),
 /// shared by `MittE2ETests` and `UnannotatedMittTests`. Reads ONLY committed files; the
 /// Node extractor is never run.
@@ -325,5 +338,7 @@ module MittFixture =
     let runtimeSource: string =
         IO.File.ReadAllText(IO.Path.Combine(dir, "dist", "mitt.mjs"))
 
-    /// The base provider — mitt over the JS-native provider (no auxiliary packages).
-    let provider: IExternalSymbolProvider = stackTs manifest
+    /// The base provider — mitt STACKED OVER es2015 (so mitt's `all: Map<…>` homed ref
+    /// resolves as a real `Js.Map` and its members can be called) over the JS-native
+    /// provider. es2015 mounts under `Js` and emits no import (global pack).
+    let provider: IExternalSymbolProvider = stackTsMany [ manifest; es2015Manifest ]

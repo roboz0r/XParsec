@@ -152,28 +152,13 @@ let allManifestFiles =
                      [||])
             ])
 
-/// Manifests the PROVIDER-RESOLUTION suite consumes — `allManifestFiles` MINUS the
-/// es2015 ref pack. Suppressing the skip-listed intrinsics' `*Constructor` carriers
-/// removed the `ObjectConstructor.freeze` collision, but the REAL es2015 types still
-/// carry overload sets whose PARAMS collapse to one argSig (the provider keys overloads
-/// on param types only, not return type), so the pack does not yet load cleanly. The
-/// GENUINE remaining collisions (enumerated with the real `argTypeName` renderer):
-///   • the six Error subclasses `EvalError`/`RangeError`/`ReferenceError`/`SyntaxError`/
-///     `TypeError`/`URIError` — each `.ctor` argSig `(undefined|string)`: they inherit
-///     `new(message?: string): Error` from `ErrorConstructor` AND declare their own
-///     `new(message?: string): <SubError>`, identical params, differing only in return;
-///   • `Map` — `.ctor` argSig `()`: the cross-file `MapConstructor` merge (es2015.collection
-///     + es2015.iterable) contributes two equivalent no-arg construct signatures.
-/// Sharpening these (return-type-in-key, or ctor-merge dedup) is Step 4/5's job
-/// (mounting es2015 into the `Js` namespace). WeakMap/Set/WeakSet/Date and the array-like
-/// method overloads do NOT collide — their params render distinctly. So the deep loader
-/// assertion runs on the hand-built fixtures only for now.
-let providerResolutionManifests =
-    lazy
-        (allManifestFiles.Value
-         |> Array.filter (fun p ->
-             not (String.Equals(Path.GetFileName p, "es2015.manifest.json", StringComparison.OrdinalIgnoreCase))
-         ))
+/// Manifests the PROVIDER-RESOLUTION suite consumes — now the FULL `allManifestFiles`
+/// set including the es2015 ref pack. es2015's genuine ctor-argSig collisions (the six
+/// Error subclasses' inherited+own `new(message?: string)` pair, and `Map`'s cross-file
+/// `MapConstructor` no-arg merge) load cleanly since `overloadArgSigs` DEDUPES ctor
+/// overloads by argSig — a constructor dispatches on arguments alone, so a same-argSig
+/// ctor pair is genuinely redundant (see `TsManifestTypes.overloadArgSigs`).
+let providerResolutionManifests = lazy allManifestFiles.Value
 
 let private updateSnapshots =
     Environment.GetEnvironmentVariable "UPDATE_SNAPSHOTS" |> isNull |> not
@@ -309,15 +294,32 @@ let testProviderResolves (path: string) =
                     let resolved = prov.TryLookupMembers(name, m.Name)
                     Expect.isGreaterThan resolved.Length 0 $"member '{name}.{m.Name}' should resolve"
 
-                    // Overload identity (Tier 2 item 9): a method/.ctor with N call
-                    // signatures must expand into N members, each with its own
-                    // `MemberKey` argSig — so the resolved count matches the signature
-                    // count AND the keys are all distinct (no argSig collision survived).
+                    // Overload identity (Tier 2 item 9): a method with N call signatures
+                    // must expand into N members, each with its own `MemberKey` argSig —
+                    // so the resolved count matches the signature count AND the keys are
+                    // all distinct (no argSig collision survived). CONSTRUCTORS differ: a
+                    // ctor dispatches on ARGUMENTS ALONE, so `overloadArgSigs` DEDUPES
+                    // same-argSig ctor signatures (es2015's Error-subclass inherited+own
+                    // pair, Map's cross-file merge) rather than throwing — N signatures
+                    // collapse to the DISTINCT-argSig count. Assert that bound (≤ N, ≥ 1)
+                    // plus distinct keys for ctors; keep strict per-signature parity for
+                    // methods.
                     if m.Signatures.Length > 1 then
-                        Expect.equal
-                            resolved.Length
-                            m.Signatures.Length
-                            $"overloaded member '{name}.{m.Name}' should resolve to one member per signature"
+                        if m.Name = ".ctor" then
+                            Expect.isLessThanOrEqual
+                                resolved.Length
+                                m.Signatures.Length
+                                $"ctor '{name}.{m.Name}' resolves to at most one member per signature (same-argSig overloads dedupe)"
+
+                            Expect.isGreaterThan
+                                resolved.Length
+                                0
+                                $"ctor '{name}.{m.Name}' should resolve to at least one member"
+                        else
+                            Expect.equal
+                                resolved.Length
+                                m.Signatures.Length
+                                $"overloaded member '{name}.{m.Name}' should resolve to one member per signature"
 
                         Expect.equal
                             (resolved |> Array.map (fun r -> r.Key) |> Array.distinct |> Array.length)
@@ -351,8 +353,16 @@ let testProviderResolves (path: string) =
                 for nx in nested do
                     check childPrefix nx
 
+        // A GLOBAL pack (its home is in `globalLibHomes`, e.g. `es2015` → `Js`) mounts
+        // every export under its Vesper-facing namespace, so the provider registers
+        // `eval` as `Js.eval` and `Map` as `Js.Map\`2`. Start the resolution walk at that
+        // mount prefix — the SAME single source the provider flattens from — so a real
+        // package stays prefix "" (byte-identical) and es2015 resolves through `Js`.
+        let mountPrefix =
+            TsGlobalHomes.globalLibHomes.TryFind man.Package |> Option.defaultValue ""
+
         for ex in man.Exports do
-            check "" ex
+            check mountPrefix ex
 
 /// `.d.ts` and `.manifest.json` must come in pairs (a fixture with one but not the
 /// other is almost always a mistake). Returns human-readable orphan descriptions.

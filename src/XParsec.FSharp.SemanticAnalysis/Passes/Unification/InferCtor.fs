@@ -126,8 +126,19 @@ module internal UnificationInferCtor =
             | ValueSome chosen ->
                 let ctorSig = ExternalSymbols.openSignature chosen typeArgs
                 let resultTy = TyVar(freshTyVar ctx)
+                // Unify the ctor SIGNATURE (grounding each parameter against the call's
+                // arguments) but leave `resultTy` free: a constructor's declared return is
+                // definitionally the class it constructs, so the receiver `TyClass` built
+                // from the `new T<args>` annotation is the AUTHORITY on the result's type
+                // args — unifying the declared return back onto it adds nothing when they
+                // agree and actively CLASHES when a no-arg overload hardcodes `any` type
+                // args (TS's `new (): Map<any, any>`, which `dynamic → FTUnknown "any"`
+                // makes an absorbing/error head). `resultTy` absorbs that noise harmlessly;
+                // it never meets `receiverTy`, so the explicit `new Map<string,int>()`
+                // grounds cleanly. (Ctor return args are the SAME declaring typars,
+                // substituted by the SAME `typeArgs` that built the receiver, so nothing
+                // the receiver leaves open could have been solved only by the return.)
                 unify ctx key ctorSig (TyFun(argTy, resultTy))
-                unify ctx key resultTy receiverTy
                 receiverTy
             | ValueNone ->
                 ctx.Error(key, sprintf "No applicable constructor on '%s' for the given arguments" name)

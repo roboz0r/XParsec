@@ -7,10 +7,10 @@ its open forks (erased `U2` DU vs native union, the overload "seam change", the
 five gating decisions) are all resolved here and in code. This provider resolves
 TS-sourced types into TAST and emits on the JS backend.
 
-**This doc holds the DECISIONS (the why).** For the runnable step-by-step sequence
-(the how — currently R5: refs-table identity → ambient-global extraction →
-`lib.es2015` ref pack → `Js.*` consumption), see the companion
-[`ts-provider-implementation-plan.md`](ts-provider-implementation-plan.md).
+**This doc holds the DECISIONS (the why).** The R5 tranche that made cross-package
+nominals real (refs-table identity → ambient-global extraction → `lib.es2015` ref
+pack → `Js.*` consumption) has LANDED; its ephemeral step-by-step sequence doc is
+deleted per the ephemeral-doc convention.
 
 ## The core idea
 
@@ -306,12 +306,14 @@ coerce; keep the declared name in a side table for diagnostics.
 
 ## Cross-package nominals, globals, and the JS ref pack (RESOLVED 2026-07-02)
 
-**The problem.** A foreign named type in a manifest (`mitt`'s `all: Map<…>`) carries
-no home and no kind: `TsManifestProvider.toFrozen` consults only the manifest's OWN
-registry, so anything cross-package degrades to an opaque `FTConst` — it survives as a
-carried nominal (R4a's reads-only `all`) but its members can never resolve. R5's real
-packages make this a hard requirement: `@types/node` and DOM surfaces are *built from*
-cross-package and global references.
+**The problem (SOLVED in R5).** A foreign named type in a manifest (`mitt`'s
+`all: Map<…>`) used to carry no home and no kind: `TsManifestProvider.toFrozen`
+consulted only the manifest's OWN registry, so anything cross-package degraded to an
+opaque `FTConst` — it survived as a carried nominal but its members could never
+resolve. R5 closed this: mitt's `all` now resolves as a homed `Js.Map` and member
+calls on it (`e.all.has("pong")`) type and run. Real packages make this a hard
+requirement — `@types/node` and DOM surfaces are *built from* cross-package and global
+references.
 
 ### Identity + kind are BAKED at extraction (decided)
 
@@ -349,9 +351,10 @@ has no fidelity oracle. `JsNativeSymbols` shrinks to the intrinsic-repr seam
 tsc-derived format plugs into.
 
 **First target: full `lib.es2015`, run as a diagnostics burndown** (the failure
-contract's coverage-golden machinery, below) — the committed diagnostics report ranks
-the extractor gaps by frequency so the high-value wins surface empirically instead of
-by curation.
+contract's coverage-golden machinery, below) — LANDED as the vendored
+`test/ts-fixtures/es2015` pack (mounted under `Js`, driven end-to-end by the `Js.Map`
+gate); the committed diagnostics report ranks the extractor gaps by frequency so the
+high-value wins surface empirically instead of by curation.
 
 ### Vesper surface: the `Js` namespace, mirroring TS's lib structure (decided)
 

@@ -297,18 +297,34 @@ module internal TsManifestTranslate =
             MethodTyparBounds = bounds
         }
 
-    /// Intern each overload signature's parameter shape into its `argSig`, guarding
-    /// the set for collisions: two overloads that collapse to the same argSig (same
-    /// param count AND types) would mint the SAME `MemberKey`, so throw rather than let
-    /// them silently coincide — the forcing function that fires exactly when a
-    /// collapsed spelling has erased a real distinction (it points at the fixture whose
-    /// thin extracted type wants sharpening). `label` names the member in the error.
-    /// Each parameter renders through the SHARED `FrozenType` spelling grammar
+    /// How `overloadArgSigs` treats two overloads of one member that intern to the
+    /// SAME `argSig` (same param count AND spelled types) — the two overload flavours
+    /// need opposite handling, so the caller states which.
+    type OverloadCollision =
+        /// A collision is a real overload distinction ERASED by a too-thin extracted
+        /// type: both would mint the SAME `MemberKey`, so throw and point at the
+        /// fixture to sharpen. The method flavour — dispatch keys on the argSig.
+        | ErasedDistinction
+        /// A collision is genuinely redundant, so keep the first. The constructor
+        /// flavour — `new X(args)` selects on ARGUMENTS ALONE (never the return type),
+        /// so two same-argSig ctor signatures are identical for selection. They arise
+        /// from a cross-file merge (es2015's `MapConstructor` accretes an identical
+        /// no-arg construct sig from two lib files) or an inherited+own ctor pair (an
+        /// `Error` subclass's `new(message?): <Sub>` beside the inherited
+        /// `new(message?): Error`); the return-type divergence of the latter is inert
+        /// here (a ctor never keys on return type), so collapsing loses nothing.
+        | RedundantKeepFirst
+
+    /// Intern each overload signature's parameter shape into its `argSig`. Each
+    /// parameter renders through the SHARED `FrozenType` spelling grammar
     /// (`ExternalSymbols.argTypeName`, over the same `toFrozen` translation the
     /// `Signature.Parameters` template carries) — one renderer with the `.fsi`
     /// contract layer, so the two producers cannot drift on overload identity.
+    /// `collision` decides same-argSig handling; `label` names the member in the
+    /// `ErasedDistinction` error.
     let overloadArgSigs
         (ctx: TranslateCtx)
+        (collision: OverloadCollision)
         (label: string)
         (mem: Schema.Member)
         : (string list * Schema.Signature) list =
@@ -320,11 +336,14 @@ module internal TsManifestTranslate =
                 sg
             )
 
-        built
-        |> List.countBy (fun (a, _) -> System.String.Join(",", a))
-        |> List.tryFind (fun (_, n) -> n > 1)
-        |> Option.iter (fun (k, _) ->
-            failwithf "%s has duplicate overload argSig (%s); sharpen the extracted parameter types" label k
-        )
+        match collision with
+        | RedundantKeepFirst -> built |> List.distinctBy (fun (a, _) -> System.String.Join(",", a))
+        | ErasedDistinction ->
+            built
+            |> List.countBy (fun (a, _) -> System.String.Join(",", a))
+            |> List.tryFind (fun (_, n) -> n > 1)
+            |> Option.iter (fun (k, _) ->
+                failwithf "%s has duplicate overload argSig (%s); sharpen the extracted parameter types" label k
+            )
 
-        built
+            built

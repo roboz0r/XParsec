@@ -23,7 +23,7 @@ module internal TsManifestMembers =
         (declArity: int)
         (mem: Schema.Member)
         : ExternalMember list =
-        overloadArgSigs ctx (sprintf "type '%A' .ctor" declKey) mem
+        overloadArgSigs ctx RedundantKeepFirst (sprintf "type '%A' .ctor" declKey) mem
         |> List.map (fun (argSig, sg) ->
             ExternalMember.ctor declKey (signatureOf ctx declArity sg) (EqArray.ofList argSig) origin []
         )
@@ -42,7 +42,7 @@ module internal TsManifestMembers =
         (kind: MemberKind)
         (mem: Schema.Member)
         : ExternalMember list =
-        overloadArgSigs ctx (sprintf "type '%A' method '%s'" declKey mem.Name) mem
+        overloadArgSigs ctx ErasedDistinction (sprintf "type '%A' method '%s'" declKey mem.Name) mem
         |> List.map (fun (argSig, sg) ->
             {
                 Name = mem.Name

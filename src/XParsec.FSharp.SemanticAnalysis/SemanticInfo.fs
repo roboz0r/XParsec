@@ -1031,6 +1031,12 @@ module FrozenType =
                                 x
                                 ys
 
+                // Leftover instantiated members go to the wildcard open members. With a
+                // SINGLE wildcard (the only shape any producer reaches today) this is
+                // exact. With TWO+ wildcards the pairing is index-order ARBITRARY — head
+                // keys can't disambiguate one bare typar from another — so if a future
+                // reachable producer can emit a reordered `FTOr` with multiple bare-typar
+                // members, this needs a real assignment, not first-come.
                 let mutable wi = 0
 
                 for j in 0 .. n - 1 do
