@@ -72,40 +72,12 @@ let private calcManifestJson =
 let private calcProvider: IExternalSymbolProvider =
     match Codec.deserialize calcManifestJson with
     | Error e -> failwithf "calc manifest does not parse: %s" e
-    | Ok man -> ExternalSymbols.stack ValueNone [] [ TsManifestProvider.providerOfManifest man; jsProvider.Value ]
+    | Ok man -> stackTs man
 
 /// Emit `input` to JS through the `calc` provider, injecting a fake `calc` runtime
 /// module so the static-member `addMemberRef` import resolves.
 let private emitWithCalc (input: string) : string =
-    let lexed, file = parseFile input
-    let tast = Pipeline.analyseSemForSelfHost calcProvider input lexed file
-
-    let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
-
-    if not (List.isEmpty errors) then
-        failwithf "analysis errors: %A" (errors |> List.map (fun d -> d.Message))
-
-    let frozen = Freeze.run tast
-
-    let runtime = Map.ofList [ "calc", { FileName = "calc.mjs"; Source = "" } ]
-
-    let ctx: EmitJs.WalkCtx =
-        {
-            Resolver = ValueNone
-            Source = ValueSome input
-            Records = System.Collections.Generic.Dictionary()
-            Unions = System.Collections.Generic.Dictionary()
-            Classes = System.Collections.Generic.Dictionary()
-            Enums = System.Collections.Generic.Dictionary()
-            Provider = ValueSome calcProvider
-            ExternalUnions = System.Collections.Generic.Dictionary()
-            Imports = JsImports.create runtime
-            ExportTopLevel = false
-            CompiledFns = System.Collections.Generic.Dictionary()
-            LocalInterfaces = System.Collections.Generic.HashSet()
-        }
-
-    (JsPrint.print (EmitJs.buildProgram ctx frozen)).Source
+    emitWith calcProvider (Map.ofList [ "calc", { FileName = "calc.mjs"; Source = "" } ]) false input
 
 [<Tests>]
 let tests =

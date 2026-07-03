@@ -51,41 +51,13 @@ let private utilManifestJson =
 let private utilProvider: IExternalSymbolProvider =
     match Codec.deserialize utilManifestJson with
     | Error e -> failwithf "util manifest does not parse: %s" e
-    | Ok man -> ExternalSymbols.stack ValueNone [] [ TsManifestProvider.providerOfManifest man; jsProvider.Value ]
+    | Ok man -> stackTs man
 
 /// Emit `input` to JS through `provider`, injecting a fake `util` runtime module so the
 /// erase branch's bare-export `addRef` import resolves (the synthetic package has no
 /// `.toml`/`runtime-js` asset of its own — the erase contract is what this test pins).
 let private emitWithUtil (input: string) : string =
-    let lexed, file = parseFile input
-    let tast = Pipeline.analyseSemForSelfHost utilProvider input lexed file
-
-    let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
-
-    if not (List.isEmpty errors) then
-        failwithf "analysis errors: %A" (errors |> List.map (fun d -> d.Message))
-
-    let frozen = Freeze.run tast
-
-    let runtime = Map.ofList [ "util", { FileName = "util.mjs"; Source = "" } ]
-
-    let ctx: EmitJs.WalkCtx =
-        {
-            Resolver = ValueNone
-            Source = ValueSome input
-            Records = System.Collections.Generic.Dictionary()
-            Unions = System.Collections.Generic.Dictionary()
-            Classes = System.Collections.Generic.Dictionary()
-            Enums = System.Collections.Generic.Dictionary()
-            Provider = ValueSome utilProvider
-            ExternalUnions = System.Collections.Generic.Dictionary()
-            Imports = JsImports.create runtime
-            ExportTopLevel = false
-            CompiledFns = System.Collections.Generic.Dictionary()
-            LocalInterfaces = System.Collections.Generic.HashSet()
-        }
-
-    (JsPrint.print (EmitJs.buildProgram ctx frozen)).Source
+    emitWith utilProvider (Map.ofList [ "util", { FileName = "util.mjs"; Source = "" } ]) false input
 
 [<Tests>]
 let tests =

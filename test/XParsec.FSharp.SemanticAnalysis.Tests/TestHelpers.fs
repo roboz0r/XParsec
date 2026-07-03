@@ -73,6 +73,42 @@ let (|TyClass|_|) (t: SemType) =
     | SemType.TyClass(k, args) -> Some(nominalDisplayName k, args)
     | _ -> None
 
+/// An `ExternalSignature` with `MethodTyparBounds` DEFAULTED to empty (the churn-free
+/// default for every non-TS producer — reflection/`.fsi`/JS-native carry no keyof bound).
+/// Route hand-built signatures through this so the next `ExternalSignature` field
+/// addition is a ONE-site change here, not a mechanical edit at every construction site
+/// (as the `MethodTyparBounds` slot addition was). Reference qualified
+/// (`TestHelpers.mkSignature`) from files that must not `open` this module's shadow
+/// `TyUnion`/`TyRecord`/`TyClass` constructors.
+let mkSignature
+    (declaringArity: int)
+    (methodArity: int)
+    (parameters: FrozenType)
+    (ret: FrozenType)
+    : ExternalSignature =
+    {
+        DeclaringArity = declaringArity
+        MethodArity = methodArity
+        Parameters = parameters
+        Return = ret
+        MethodTyparBounds = [||]
+    }
+
+/// A default `ExternalMember` skeleton — a static nullary `unit -> unit` method with an
+/// empty origin and a bare value key. Layer over it (`{ mkMember with Name = …;
+/// Signature = …; Key = … }`) so an `ExternalMember` field addition is a one-site change.
+let mkMember: ExternalMember =
+    {
+        Name = ""
+        IsStatic = true
+        Storage = MemberStorage.Method
+        Signature = mkSignature 0 0 (FTConst("unit", EqArray.empty)) (FTConst("unit", EqArray.empty))
+        MethodArity = 0
+        Origin = SymbolOrigin.Empty
+        Key = SymbolKeyOps.valueKeyOf None ""
+        OptionalDefaults = []
+    }
+
 /// A throwaway source token for hand-built TAST construction in tests. The
 /// frozen `TExprG` spine pins `'tok = SyntaxToken`, so every hand-assembled
 /// `TExpr.*` node needs a token; tests that don't exercise source-map positions

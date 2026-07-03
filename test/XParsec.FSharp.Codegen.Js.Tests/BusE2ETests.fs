@@ -5,6 +5,7 @@ open Vesper.Ts.Manifest
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
 // R3 (TS provider): the real Vesper e2e that proves the R1+R2 consumption machinery
 // end-to-end on the EASIEST honest path — a NON-GENERIC emitter-style external object.
@@ -18,62 +19,13 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // manifest member's function-typed parameter (`handler: int -> unit`), and the lambda body
 // itself making a further native member call on a captured receiver.
 
-// ─── Hand-built manifest (no JSON round-trip) ──────────────────────────────
+// ─── Hand-built manifest (no JSON round-trip); builders from `SchemaDsl` ────────
 
-let private named n = Schema.TypeRef.Named(n, [])
 let private intT = named "int"
 let private unitT = named "unit"
 
 /// `int -> unit`, the event-handler callback type.
-let private handlerT = Schema.TypeRef.Fun([ intT ], unitT)
-
-let private sig0 (ret: Schema.TypeRef) : Schema.Signature =
-    {
-        TypeParams = 0
-        TypeParamBounds = []
-        Params = []
-        Returns = ret
-    }
-
-let private param' (name: string) (ty: Schema.TypeRef) : Schema.Param =
-    {
-        Name = name
-        Type = ty
-        Optional = false
-        Rest = false
-    }
-
-let private sig1 (pname: string) (pty: Schema.TypeRef) (ret: Schema.TypeRef) : Schema.Signature =
-    {
-        TypeParams = 0
-        TypeParamBounds = []
-        Params = [ param' pname pty ]
-        Returns = ret
-    }
-
-let private sig2
-    (p1n: string)
-    (p1t: Schema.TypeRef)
-    (p2n: string)
-    (p2t: Schema.TypeRef)
-    (ret: Schema.TypeRef)
-    : Schema.Signature =
-    {
-        TypeParams = 0
-        TypeParamBounds = []
-        Params = [ param' p1n p1t; param' p2n p2t ]
-        Returns = ret
-    }
-
-let private method' (name: string) (sg: Schema.Signature) : Schema.Member =
-    {
-        Name = name
-        Kind = Schema.MemberKind.Method
-        Type = None
-        Signatures = [ sg ]
-        Static = false
-        Optional = false
-    }
+let private handlerT = fn [ intT ] unitT
 
 /// `buslib`: a NON-GENERIC stateful event bus. `on` takes a name and a `int -> unit`
 /// handler; `emit` fires all handlers registered for a name with an int payload;
@@ -102,8 +54,7 @@ let private busManifest: Schema.PackageManifest =
         Diagnostics = []
     }
 
-let private busProvider: IExternalSymbolProvider =
-    ExternalSymbols.stack ValueNone [] [ TsManifestProvider.providerOfManifest busManifest; jsProvider.Value ]
+let private busProvider: IExternalSymbolProvider = stackTs busManifest
 
 // State (registered handlers + last recorded payload) lives on `this`; `emit` invokes
 // each handler with the payload, and the Vesper handler calls back through `this.record`.
@@ -125,43 +76,18 @@ let private busRuntime =
         ]
 
 let private emitBus (input: string) : string =
-    let lexed, file = parseFile input
-    let tast = Pipeline.analyseSemForSelfHost busProvider input lexed file
-
-    let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
-
-    if not (List.isEmpty errors) then
-        failwithf "analysis errors: %A" (errors |> List.map (fun d -> d.Message))
-
-    let frozen = Freeze.run tast
-
-    let runtime =
-        Map.ofList
+    emitWith
+        busProvider
+        (Map.ofList
             [
                 "buslib",
                 {
                     FileName = "buslib.mjs"
                     Source = busRuntime
                 }
-            ]
-
-    let ctx: EmitJs.WalkCtx =
-        {
-            Resolver = ValueNone
-            Source = ValueSome input
-            Records = System.Collections.Generic.Dictionary()
-            Unions = System.Collections.Generic.Dictionary()
-            Classes = System.Collections.Generic.Dictionary()
-            Enums = System.Collections.Generic.Dictionary()
-            Provider = ValueSome busProvider
-            ExternalUnions = System.Collections.Generic.Dictionary()
-            Imports = JsImports.create runtime
-            ExportTopLevel = true
-            CompiledFns = System.Collections.Generic.Dictionary()
-            LocalInterfaces = System.Collections.Generic.HashSet()
-        }
-
-    (JsPrint.print (EmitJs.buildProgram ctx frozen)).Source
+            ])
+        true
+        input
 
 let private resultHarness =
     "import { result } from \"./bus-program.mjs\";\nconsole.log(result);\n"
@@ -197,19 +123,14 @@ let tests =
                 Expect.isTrue (js.Contains ".emit(") (sprintf "expected a native `.emit(` call, got:\n%s" js)
                 Expect.isFalse (js.Contains "Bus__") (sprintf "unexpected mangled member import in:\n%s" js)
 
-                match
-                    runNodeFiles
-                        "bus-e2e"
-                        [
-                            "harness.mjs", resultHarness
-                            "bus-program.mjs", js
-                            "buslib.mjs", busRuntime
-                        ]
-                with
-                | None -> () // node absent — the emit above still ran + asserted
-                | Some(code, out) ->
-                    Expect.equal code 0 (sprintf "node exited non-zero:\n%s" out)
-                    // The handler observed the emitted payload (7) and stashed it.
-                    Expect.equal out "7" (sprintf "round-trip output, got:\n%s" out)
+                // The handler observed the emitted payload (7) and stashed it.
+                expectNodeOutput
+                    "bus-e2e"
+                    [
+                        "harness.mjs", resultHarness
+                        "bus-program.mjs", js
+                        "buslib.mjs", busRuntime
+                    ]
+                    "7"
             }
         ]

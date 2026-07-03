@@ -5,6 +5,7 @@ open Vesper.Ts.Manifest
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
 // R4a STEP 1 (TS provider): TS string-LITERAL types + set-semantic union
 // identity. A manifest member `setMode(mode: "auto" | "manual"): unit` exercises the
@@ -17,51 +18,12 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 //   • an enum with an extra case is rejected;
 //   • a literal-union RETURN widens OUTWARD to its base primitive.
 
-// ─── Hand-built manifest ───────────────────────────────────────────────────
+// ─── Hand-built manifest; builders from `SchemaDsl` ────────────────────────────
 
-let private named n = Schema.TypeRef.Named(n, [])
 let private unitT = named "unit"
 
-let private strLit s =
-    Schema.TypeRef.Literal(Schema.LiteralValue.StringVal s)
-
 /// `"auto" | "manual"` — the mode literal union.
-let private modeUnion: Schema.TypeRef =
-    Schema.TypeRef.Union [ strLit "auto"; strLit "manual" ]
-
-let private sig0 (ret: Schema.TypeRef) : Schema.Signature =
-    {
-        TypeParams = 0
-        TypeParamBounds = []
-        Params = []
-        Returns = ret
-    }
-
-let private sig1 (pname: string) (pty: Schema.TypeRef) (ret: Schema.TypeRef) : Schema.Signature =
-    {
-        TypeParams = 0
-        TypeParamBounds = []
-        Params =
-            [
-                {
-                    Name = pname
-                    Type = pty
-                    Optional = false
-                    Rest = false
-                }
-            ]
-        Returns = ret
-    }
-
-let private method' (name: string) (sg: Schema.Signature) : Schema.Member =
-    {
-        Name = name
-        Kind = Schema.MemberKind.Method
-        Type = None
-        Signatures = [ sg ]
-        Static = false
-        Optional = false
-    }
+let private modeUnion: Schema.TypeRef = union [ strLit "auto"; strLit "manual" ]
 
 /// `widgetlib`: an interface `Widget { setMode(mode: "auto"|"manual"): unit;
 /// getMode(): "auto"|"manual" }` plus a factory `makeWidget(): Widget`.
@@ -86,16 +48,9 @@ let private widgetManifest: Schema.PackageManifest =
         Diagnostics = []
     }
 
-let private widgetProvider: IExternalSymbolProvider =
-    ExternalSymbols.stack ValueNone [] [ TsManifestProvider.providerOfManifest widgetManifest; jsProvider.Value ]
+let private widgetProvider: IExternalSymbolProvider = stackTs widgetManifest
 
-let private analyse (input: string) : Diagnostic list =
-    let lexed, file = parseFile input
-    let tast = Pipeline.analyseSemForSelfHost widgetProvider input lexed file
-    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
-
-let private errorText (ds: Diagnostic list) : string =
-    ds |> List.map (fun d -> d.Message) |> String.concat "\n"
+let private analyse (input: string) : Diagnostic list = analyseWith widgetProvider input
 
 // State lives on `this`; `setMode` stashes the received value so a Vesper-only
 // program can read back what the native side observed.
@@ -114,42 +69,18 @@ let private widgetRuntime =
         ]
 
 let private emitWidget (input: string) : string =
-    let lexed, file = parseFile input
-    let tast = Pipeline.analyseSemForSelfHost widgetProvider input lexed file
-    let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
-
-    if not (List.isEmpty errors) then
-        failwithf "analysis errors: %A" (errors |> List.map (fun d -> d.Message))
-
-    let frozen = Freeze.run tast
-
-    let runtime =
-        Map.ofList
+    emitWith
+        widgetProvider
+        (Map.ofList
             [
                 "widgetlib",
                 {
                     FileName = "widgetlib.mjs"
                     Source = widgetRuntime
                 }
-            ]
-
-    let ctx: EmitJs.WalkCtx =
-        {
-            Resolver = ValueNone
-            Source = ValueSome input
-            Records = System.Collections.Generic.Dictionary()
-            Unions = System.Collections.Generic.Dictionary()
-            Classes = System.Collections.Generic.Dictionary()
-            Enums = System.Collections.Generic.Dictionary()
-            Provider = ValueSome widgetProvider
-            ExternalUnions = System.Collections.Generic.Dictionary()
-            Imports = JsImports.create runtime
-            ExportTopLevel = true
-            CompiledFns = System.Collections.Generic.Dictionary()
-            LocalInterfaces = System.Collections.Generic.HashSet()
-        }
-
-    (JsPrint.print (EmitJs.buildProgram ctx frozen)).Source
+            ])
+        true
+        input
 
 let private resultHarness =
     "import { result } from \"./widget-program.mjs\";\nconsole.log(result);\n"
@@ -244,18 +175,13 @@ let tests =
                 // The literal argument is the bare JS string — no wrapping object / call.
                 Expect.isTrue (js.Contains "setMode(\"auto\")") (sprintf "expected a bare-string arg, got:\n%s" js)
 
-                match
-                    runNodeFiles
-                        "widget-e2e"
-                        [
-                            "harness.mjs", resultHarness
-                            "widget-program.mjs", js
-                            "widgetlib.mjs", widgetRuntime
-                        ]
-                with
-                | None -> () // node absent — the emit above still ran + asserted
-                | Some(code, out) ->
-                    Expect.equal code 0 (sprintf "node exited non-zero:\n%s" out)
-                    Expect.equal out "auto" (sprintf "round-trip output, got:\n%s" out)
+                expectNodeOutput
+                    "widget-e2e"
+                    [
+                        "harness.mjs", resultHarness
+                        "widget-program.mjs", js
+                        "widgetlib.mjs", widgetRuntime
+                    ]
+                    "auto"
             }
         ]

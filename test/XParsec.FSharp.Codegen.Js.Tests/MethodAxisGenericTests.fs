@@ -5,6 +5,7 @@ open Vesper.Ts.Manifest
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
 // Phase 3.5 (Piece A) consumer half: a METHOD-AXIS generic member resolves, emits, and
 // runs end-to-end, with its method typar FRESHENED per call site. `Id.identity<U>(x: U)
@@ -23,45 +24,38 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // path stamps a real assembly origin onto the member key (the v1 free-function path
 // leaves `asm=None`).
 
-let private idManifestJson =
-    """{
-  "schemaVersion": 1,
-  "package": "idlib",
-  "version": null,
-  "exports": [
-    {
-      "export": "class",
-      "name": "Id",
-      "typeParams": 0,
-      "members": [
-        {
-          "name": "identity",
-          "kind": "method",
-          "type": null,
-          "signatures": [
-            { "typeParams": 1,
-              "params": [ { "name": "x", "type": { "k": "methodTypar", "i": 0 }, "optional": false, "rest": false } ],
-              "returns": { "k": "methodTypar", "i": 0 } },
-            { "typeParams": 0,
-              "params": [
-                { "name": "x", "type": { "k": "named", "name": "float", "args": [] }, "optional": false, "rest": false },
-                { "name": "y", "type": { "k": "named", "name": "float", "args": [] }, "optional": false, "rest": false } ],
-              "returns": { "k": "named", "name": "float", "args": [] } }
-          ],
-          "static": true,
-          "optional": false
-        }
-      ],
-      "heritage": [],
-      "import": "named"
-    }
-  ]
-}"""
+/// `idlib`: a class `Id` with a static `identity` carrying TWO overloads — the
+/// generic arity-1 `identity<U>(x: U): U` (the method-axis typar under test) and a
+/// deliberately-non-matching arity-2 `identity(x: float, y: float): float` sham that
+/// forces the multi-candidate overload-commit path (see the header note).
+let private floatT = named "float"
 
-let private idProvider: IExternalSymbolProvider =
-    match Codec.deserialize idManifestJson with
-    | Error e -> failwithf "idlib manifest does not parse: %s" e
-    | Ok man -> ExternalSymbols.stack ValueNone [] [ TsManifestProvider.providerOfManifest man; jsProvider.Value ]
+let private idManifest: Schema.PackageManifest =
+    {
+        SchemaVersion = Schema.SchemaVersion
+        Package = "idlib"
+        Version = None
+        Exports =
+            [
+                Schema.Export.Class(
+                    "Id",
+                    0,
+                    [
+                        staticMethod'
+                            "identity"
+                            [
+                                sigG 1 [ param' "x" (methodTypar 0) ] (methodTypar 0)
+                                sig2 "x" floatT "y" floatT floatT
+                            ]
+                    ],
+                    [],
+                    Schema.ImportShape.Named
+                )
+            ]
+        Diagnostics = []
+    }
+
+let private idProvider: IExternalSymbolProvider = stackTs idManifest
 
 /// Hand-authored runtime backing the `idlib` manifest. A single-argument external
 /// static-member call passes its argument directly (`$Id_identity(x)`).
@@ -80,43 +74,18 @@ let private program =
         ]
 
 let private emitWithId (input: string) : string =
-    let lexed, file = parseFile input
-    let tast = Pipeline.analyseSemForSelfHost idProvider input lexed file
-
-    let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
-
-    if not (List.isEmpty errors) then
-        failwithf "analysis errors: %A" (errors |> List.map (fun d -> d.Message))
-
-    let frozen = Freeze.run tast
-
-    let runtime =
-        Map.ofList
+    emitWith
+        idProvider
+        (Map.ofList
             [
                 "idlib",
                 {
                     FileName = "idlib.mjs"
                     Source = idRuntimeSource
                 }
-            ]
-
-    let ctx: EmitJs.WalkCtx =
-        {
-            Resolver = ValueNone
-            Source = ValueSome input
-            Records = System.Collections.Generic.Dictionary()
-            Unions = System.Collections.Generic.Dictionary()
-            Classes = System.Collections.Generic.Dictionary()
-            Enums = System.Collections.Generic.Dictionary()
-            Provider = ValueSome idProvider
-            ExternalUnions = System.Collections.Generic.Dictionary()
-            Imports = JsImports.create runtime
-            ExportTopLevel = false
-            CompiledFns = System.Collections.Generic.Dictionary()
-            LocalInterfaces = System.Collections.Generic.HashSet()
-        }
-
-    (JsPrint.print (EmitJs.buildProgram ctx frozen)).Source
+            ])
+        false
+        input
 
 [<Tests>]
 let tests =
@@ -132,12 +101,9 @@ let tests =
                     (js.Contains "Id_identity")
                     (sprintf "expected a mangled static-member ref `Id_identity`, got:\n%s" js)
 
-                match
-                    runNodeFiles "method-axis-generic" [ "method-axis-generic.mjs", js; "idlib.mjs", idRuntimeSource ]
-                with
-                | None -> () // node absent — exec test skips, the emit above still ran
-                | Some(code, out) ->
-                    Expect.equal code 0 (sprintf "node exited non-zero:\n%s" out)
-                    Expect.equal out "5 hi" (sprintf "round-trip output, got:\n%s" out)
+                expectNodeOutput
+                    "method-axis-generic"
+                    [ "method-axis-generic.mjs", js; "idlib.mjs", idRuntimeSource ]
+                    "5 hi"
             }
         ]

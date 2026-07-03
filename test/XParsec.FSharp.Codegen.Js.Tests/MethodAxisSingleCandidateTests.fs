@@ -5,6 +5,7 @@ open Vesper.Ts.Manifest
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
 // R4a STEP 3 item 5 (TS provider): the SINGLE-candidate `TryLookupMember`
 // field-walk must freshen a member's method typars per call site, exactly as the
@@ -21,45 +22,28 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // (int, string) in one program is the discriminator: shared inert markers cross-
 // contaminate (or fail rigid unification), independent fresh `TyVar`s type both.
 
-let private echoManifestJson =
-    """{
-  "schemaVersion": 1,
-  "package": "boxlib",
-  "version": null,
-  "exports": [
+/// `boxlib`: an interface `Box` with a SINGLE generic instance method
+/// `echo<U>(x: U): U` (one signature, so the single-candidate field-walk path), plus a
+/// `makeBox(): Box` factory.
+let private echoManifest: Schema.PackageManifest =
     {
-      "export": "interface",
-      "name": "Box",
-      "typeParams": 0,
-      "members": [
-        {
-          "name": "echo",
-          "kind": "method",
-          "type": null,
-          "signatures": [
-            { "typeParams": 1,
-              "params": [ { "name": "x", "type": { "k": "methodTypar", "i": 0 }, "optional": false, "rest": false } ],
-              "returns": { "k": "methodTypar", "i": 0 } }
-          ],
-          "static": false,
-          "optional": false
-        }
-      ],
-      "heritage": []
-    },
-    {
-      "export": "function",
-      "name": "makeBox",
-      "signatures": [ { "typeParams": 0, "params": [], "returns": { "k": "named", "name": "Box", "args": [] } } ],
-      "import": "named"
+        SchemaVersion = Schema.SchemaVersion
+        Package = "boxlib"
+        Version = None
+        Exports =
+            [
+                Schema.Export.Interface(
+                    "Box",
+                    0,
+                    [ method' "echo" (sigG 1 [ param' "x" (methodTypar 0) ] (methodTypar 0)) ],
+                    []
+                )
+                Schema.Export.Function("makeBox", [ sig0 (named "Box") ], Schema.ImportShape.Named)
+            ]
+        Diagnostics = []
     }
-  ]
-}"""
 
-let private echoProvider: IExternalSymbolProvider =
-    match Codec.deserialize echoManifestJson with
-    | Error e -> failwithf "boxlib manifest does not parse: %s" e
-    | Ok man -> ExternalSymbols.stack ValueNone [] [ TsManifestProvider.providerOfManifest man; jsProvider.Value ]
+let private echoProvider: IExternalSymbolProvider = stackTs echoManifest
 
 /// Hand-authored runtime backing `boxlib`: `makeBox()` yields an object whose
 /// `echo` instance method is the identity (so R2's `receiver.member(args)`
@@ -81,51 +65,21 @@ let private program =
         ]
 
 let private analyseErrors (input: string) : string list =
-    let lexed, file = parseFile input
-    let tast = Pipeline.analyseSemForSelfHost echoProvider input lexed file
-
-    tast.Diagnostics
-    |> List.filter (fun d -> d.Severity = Severity.Error)
-    |> List.map (fun d -> d.Message)
+    analyseWith echoProvider input |> List.map (fun d -> d.Message)
 
 let private emitWithEcho (input: string) : string =
-    let lexed, file = parseFile input
-    let tast = Pipeline.analyseSemForSelfHost echoProvider input lexed file
-
-    let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
-
-    if not (List.isEmpty errors) then
-        failwithf "analysis errors: %A" (errors |> List.map (fun d -> d.Message))
-
-    let frozen = Freeze.run tast
-
-    let runtime =
-        Map.ofList
+    emitWith
+        echoProvider
+        (Map.ofList
             [
                 "boxlib",
                 {
                     FileName = "boxlib.mjs"
                     Source = echoRuntimeSource
                 }
-            ]
-
-    let ctx: EmitJs.WalkCtx =
-        {
-            Resolver = ValueNone
-            Source = ValueSome input
-            Records = System.Collections.Generic.Dictionary()
-            Unions = System.Collections.Generic.Dictionary()
-            Classes = System.Collections.Generic.Dictionary()
-            Enums = System.Collections.Generic.Dictionary()
-            Provider = ValueSome echoProvider
-            ExternalUnions = System.Collections.Generic.Dictionary()
-            Imports = JsImports.create runtime
-            ExportTopLevel = false
-            CompiledFns = System.Collections.Generic.Dictionary()
-            LocalInterfaces = System.Collections.Generic.HashSet()
-        }
-
-    (JsPrint.print (EmitJs.buildProgram ctx frozen)).Source
+            ])
+        false
+        input
 
 [<Tests>]
 let tests =
@@ -151,12 +105,9 @@ let tests =
                     (js.Contains "echo")
                     (sprintf "expected the instance member call `.echo(...)`, got:\n%s" js)
 
-                match
-                    runNodeFiles "method-axis-single" [ "method-axis-single.mjs", js; "boxlib.mjs", echoRuntimeSource ]
-                with
-                | None -> () // node absent — exec test skips, the emit above still ran
-                | Some(code, out) ->
-                    Expect.equal code 0 (sprintf "node exited non-zero:\n%s" out)
-                    Expect.equal out "5 hi" (sprintf "round-trip output, got:\n%s" out)
+                expectNodeOutput
+                    "method-axis-single"
+                    [ "method-axis-single.mjs", js; "boxlib.mjs", echoRuntimeSource ]
+                    "5 hi"
             }
         ]

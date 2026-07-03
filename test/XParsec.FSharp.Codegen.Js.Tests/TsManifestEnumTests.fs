@@ -51,50 +51,24 @@ let private paletteManifest: Schema.PackageManifest =
 
 /// The `palette` enum provider, layered over the standard JS provider (so the integer
 /// literals / primitives still resolve). The enum shapes come from the TS-manifest provider.
-let private paletteProvider: IExternalSymbolProvider =
-    ExternalSymbols.stack ValueNone [] [ TsManifestProvider.providerOfManifest paletteManifest; jsProvider.Value ]
+let private paletteProvider: IExternalSymbolProvider = stackTs paletteManifest
 
 /// Emit `input` to JS through the `palette` provider, injecting a fake `palette` runtime
 /// module so the enum-object import resolves (the synthetic package ships no runtime
 /// asset of its own — the import contract is what this test pins).
 let private emitWithPalette (input: string) : string =
-    let lexed, file = parseFile input
-    let tast = Pipeline.analyseSemForSelfHost paletteProvider input lexed file
-
-    let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
-
-    if not (List.isEmpty errors) then
-        failwithf "analysis errors: %A" (errors |> List.map (fun d -> d.Message))
-
-    let frozen = Freeze.run tast
-
-    let runtime =
-        Map.ofList
+    emitWith
+        paletteProvider
+        (Map.ofList
             [
                 "palette",
                 {
                     FileName = "palette.mjs"
                     Source = ""
                 }
-            ]
-
-    let ctx: EmitJs.WalkCtx =
-        {
-            Resolver = ValueNone
-            Source = ValueSome input
-            Records = System.Collections.Generic.Dictionary()
-            Unions = System.Collections.Generic.Dictionary()
-            Classes = System.Collections.Generic.Dictionary()
-            Enums = System.Collections.Generic.Dictionary()
-            Provider = ValueSome paletteProvider
-            ExternalUnions = System.Collections.Generic.Dictionary()
-            Imports = JsImports.create runtime
-            ExportTopLevel = false
-            CompiledFns = System.Collections.Generic.Dictionary()
-            LocalInterfaces = System.Collections.Generic.HashSet()
-        }
-
-    (JsPrint.print (EmitJs.buildProgram ctx frozen)).Source
+            ])
+        false
+        input
 
 [<Tests>]
 let tests =

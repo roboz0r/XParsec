@@ -39,13 +39,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
                         IsStatic = true
                         Storage = MemberStorage.Method
                         Signature =
-                            {
-                                DeclaringArity = 0
-                                MethodArity = 0
-                                Parameters = FTConst("unit", EqArray.empty)
-                                Return = FTConst(tag, EqArray.empty)
-                                MethodTyparBounds = [||]
-                            }
+                            TestHelpers.mkSignature 0 0 (FTConst("unit", EqArray.empty)) (FTConst(tag, EqArray.empty))
                         MethodArity = 0
                         Origin = origin
                         Key =

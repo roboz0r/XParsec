@@ -1,11 +1,11 @@
 module XParsec.FSharp.Codegen.Js.Tests.MittE2ETests
 
-open System.IO
 open Expecto
 open Vesper.Ts.Manifest
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
 // R4a STEP 4 — the mitt full-fidelity GATE. A Vesper program drives mitt's COMPLETE
 // public surface — the DEFAULT-exported generic factory `mitt<Events>()`, `on`, `off`,
@@ -47,44 +47,9 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 // ─── auxiliary recorder (a stateful native object the handlers write to) ──────
 
-let private named n = Schema.TypeRef.Named(n, [])
 let private intT = named "int"
 let private strT = named "string"
 let private unitT = named "unit"
-
-let private param' (name: string) (ty: Schema.TypeRef) : Schema.Param =
-    {
-        Name = name
-        Type = ty
-        Optional = false
-        Rest = false
-    }
-
-let private sig0 (ret: Schema.TypeRef) : Schema.Signature =
-    {
-        TypeParams = 0
-        TypeParamBounds = []
-        Params = []
-        Returns = ret
-    }
-
-let private sig1 (pn: string) (pt: Schema.TypeRef) (ret: Schema.TypeRef) : Schema.Signature =
-    {
-        TypeParams = 0
-        TypeParamBounds = []
-        Params = [ param' pn pt ]
-        Returns = ret
-    }
-
-let private method' (name: string) (sg: Schema.Signature) : Schema.Member =
-    {
-        Name = name
-        Kind = Schema.MemberKind.Method
-        Type = None
-        Signatures = [ sg ]
-        Static = false
-        Optional = false
-    }
 
 let private recorderManifest: Schema.PackageManifest =
     {
@@ -129,31 +94,12 @@ let private recorderRuntime =
             ""
         ]
 
-// ─── mitt provider + fixtures ────────────────────────────────────────────────
+// ─── mitt provider + fixtures (shared fixture via `TestHelpers.MittFixture`) ──────
 
-let private fixtureDir =
-    Path.Combine(__SOURCE_DIRECTORY__, "..", "ts-fixtures", "mitt")
-
-let private mittManifestJson =
-    File.ReadAllText(Path.Combine(fixtureDir, "mitt.manifest.json"))
-
-let private mittRuntimeSource =
-    File.ReadAllText(Path.Combine(fixtureDir, "dist", "mitt.mjs"))
-
-let private manifest =
-    match Codec.deserialize mittManifestJson with
-    | Error e -> failwithf "mitt manifest does not parse: %s" e
-    | Ok man -> man
+let private mittRuntimeSource = MittFixture.runtimeSource
 
 let private mittProvider: IExternalSymbolProvider =
-    ExternalSymbols.stack
-        ValueNone
-        []
-        [
-            TsManifestProvider.providerOfManifest manifest
-            TsManifestProvider.providerOfManifest recorderManifest
-            jsProvider.Value
-        ]
+    stackTsMany [ MittFixture.manifest; recorderManifest ]
 
 // The full-surface Vesper program. Effectful unit member calls are bound (`let u = …`)
 // per the front-end sequencing convention.
@@ -193,17 +139,9 @@ let private harness =
             ""
         ]
 
+// No default-import wiring is needed: the DEFAULT-import lowering flows purely from the
+// provider-stamped `ExternalSymbol.ImportForm` on mitt's factory.
 let private emitWithMitt (input: string) : string =
-    let lexed, file = parseFile input
-    let tast = Pipeline.analyseSemForSelfHost mittProvider input lexed file
-
-    let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
-
-    if not (List.isEmpty errors) then
-        failwithf "analysis errors: %A" (errors |> List.map (fun d -> d.Message))
-
-    let frozen = Freeze.run tast
-
     let runtime =
         Map.ofList
             [
@@ -219,25 +157,7 @@ let private emitWithMitt (input: string) : string =
                 }
             ]
 
-    let ctx: EmitJs.WalkCtx =
-        {
-            Resolver = ValueNone
-            Source = ValueSome input
-            Records = System.Collections.Generic.Dictionary()
-            Unions = System.Collections.Generic.Dictionary()
-            Classes = System.Collections.Generic.Dictionary()
-            Enums = System.Collections.Generic.Dictionary()
-            Provider = ValueSome mittProvider
-            ExternalUnions = System.Collections.Generic.Dictionary()
-            // No default-import wiring: the DEFAULT-import lowering below flows purely
-            // from the provider-stamped `ExternalSymbol.ImportForm` on mitt's factory.
-            Imports = JsImports.create runtime
-            ExportTopLevel = true
-            CompiledFns = System.Collections.Generic.Dictionary()
-            LocalInterfaces = System.Collections.Generic.HashSet()
-        }
-
-    (JsPrint.print (EmitJs.buildProgram ctx frozen)).Source
+    emitWith mittProvider runtime true input
 
 [<Tests>]
 let tests =
@@ -258,22 +178,17 @@ let tests =
                 Expect.isTrue (js.Contains ".emit(") (sprintf "expected native `.emit(`:\n%s" js)
                 Expect.isTrue (js.Contains ".off(") (sprintf "expected native `.off(`:\n%s" js)
 
-                match
-                    runNodeFiles
-                        "mitt-e2e"
-                        [
-                            "harness.mjs", harness
-                            "mitt-program.mjs", js
-                            "mitt.mjs", mittRuntimeSource
-                            "recorder.mjs", recorderRuntime
-                        ]
-                with
-                | None -> () // node absent — the emit + type-check above still ran
-                | Some(code, out) ->
-                    Expect.equal code 0 (sprintf "node exited non-zero:\n%s" out)
-                    // ping observed 7 (emit-with-payload) and STILL 7 after off+emit(99)
-                    // (off removed the handler); pong "hi"; tick fired once (no-payload
-                    // emit); `all` is the real Map.
-                    Expect.equal out "7,hi,1,true" (sprintf "full-surface round-trip, got:\n%s" out)
+                // ping observed 7 (emit-with-payload) and STILL 7 after off+emit(99) (off
+                // removed the handler); pong "hi"; tick fired once (no-payload emit); `all`
+                // is the real Map.
+                expectNodeOutput
+                    "mitt-e2e"
+                    [
+                        "harness.mjs", harness
+                        "mitt-program.mjs", js
+                        "mitt.mjs", mittRuntimeSource
+                        "recorder.mjs", recorderRuntime
+                    ]
+                    "7,hi,1,true"
             }
         ]

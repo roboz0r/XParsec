@@ -12,24 +12,8 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 //   • the undefined-vs-unit type-identity precision gap (the deferred `null`/`undefined`
 //     intrinsic step, orthogonal to the conditional-fold machinery).
 
-let private fixtureDir =
-    System.IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "ts-fixtures", "mitt")
-
-let private manifest =
-    match Codec.deserialize (System.IO.File.ReadAllText(System.IO.Path.Combine(fixtureDir, "mitt.manifest.json"))) with
-    | Error e -> failwithf "mitt manifest does not parse: %s" e
-    | Ok man -> man
-
-let private mittProvider: IExternalSymbolProvider =
-    ExternalSymbols.stack ValueNone [] [ TsManifestProvider.providerOfManifest manifest; jsProvider.Value ]
-
 let private analyseErrors (input: string) : string list =
-    let lexed, file = parseFile input
-    let tast = Pipeline.analyseSemForSelfHost mittProvider input lexed file
-
-    tast.Diagnostics
-    |> List.filter (fun d -> d.Severity = Severity.Error)
-    |> List.map (fun d -> d.Message)
+    analyseWith MittFixture.provider input |> List.map (fun d -> d.Message)
 
 [<Tests>]
 let tests =

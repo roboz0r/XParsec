@@ -557,14 +557,7 @@ let private mkMember (name: string) (methodArity: int) (parameters: FrozenType) 
         Name = name
         IsStatic = false
         Storage = MemberStorage.Method
-        Signature =
-            {
-                DeclaringArity = 0
-                MethodArity = methodArity
-                Parameters = parameters
-                Return = ret
-                MethodTyparBounds = [||]
-            }
+        Signature = mkSignature 0 methodArity parameters ret
         MethodArity = methodArity
         Origin = SymbolOrigin.Empty
         Key = SymbolKey.MemberKey(SymbolKeyOps.qualifiedTypeKeyOf None "C" 0, name, EqArray.empty, MemberKind.Method)

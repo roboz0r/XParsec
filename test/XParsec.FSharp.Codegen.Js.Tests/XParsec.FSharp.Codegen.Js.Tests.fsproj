@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="TestHelpers.fs" />
+    <Compile Include="SchemaDsl.fs" />
     <Compile Include="PrintfEmissionTests.fs" />
     <Compile Include="SourceMapTests.fs" />
     <Compile Include="OpsPlatformJsTests.fs" />

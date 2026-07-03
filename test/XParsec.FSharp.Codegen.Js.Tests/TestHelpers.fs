@@ -2,6 +2,8 @@ module XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 open System
 open System.Diagnostics
+open Expecto
+open Vesper.Ts.Manifest
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Lexer.Lexing
 open XParsec.FSharp.Parser
@@ -223,3 +225,105 @@ let runJs (name: string) (input: string) : (int * string) option =
 
     runNode jsPath
     |> Option.map (fun (code, out) -> code, out.Replace("\r", "").Trim())
+
+// ─── TS-provider test scaffolding (shared by the R2–R5 provider tests) ─────────
+
+/// The provider-stack one-liner: a TS-manifest provider layered over the standard
+/// JS-native provider (so the manifest's primitive/`int`/`string` argument types still
+/// resolve). `ValueNone`/`[]` = no home-assembly identity and no metadata tail.
+let stackTs (manifest: Schema.PackageManifest) : IExternalSymbolProvider =
+    ExternalSymbols.stack ValueNone [] [ TsManifestProvider.providerOfManifest manifest; jsProvider.Value ]
+
+/// Like `stackTs` but layers SEVERAL TS-manifest providers (order preserved) over the
+/// JS-native provider — for a program driving more than one external package.
+let stackTsMany (manifests: Schema.PackageManifest list) : IExternalSymbolProvider =
+    ExternalSymbols.stack
+        ValueNone
+        []
+        [
+            yield! manifests |> List.map TsManifestProvider.providerOfManifest
+            jsProvider.Value
+        ]
+
+/// Analyse `input` through `provider` (the self-host front end) and return the ERROR
+/// diagnostics — the shared body of the per-package `analyse`/`analyseErrors` wrappers.
+let analyseWith (provider: IExternalSymbolProvider) (input: string) : Diagnostic list =
+    let lexed, file = parseFile input
+    let tast = Pipeline.analyseSemForSelfHost provider input lexed file
+    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+/// The newline-joined messages of `ds` (for `stringContains` assertions on the set of
+/// allowed values a directional-admission error names).
+let errorText (ds: Diagnostic list) : string =
+    ds |> List.map (fun d -> d.Message) |> String.concat "\n"
+
+/// The ONE shared `EmitJs.WalkCtx` builder, matching production wiring
+/// (`Codegen.compileWith`): a real `LineIndex` resolver over the source (the hand-built
+/// test copies wrongly left `Resolver = ValueNone`), `Source` carrying the input, and
+/// all lowering tables empty for `buildProgram` to fill. `runtime` is the injected
+/// package → `.mjs` map; `exportTopLevel` selects script (`false`) vs library (`true`).
+let private jsWalkCtx
+    (provider: IExternalSymbolProvider)
+    (runtime: Map<string, JsRuntimeModule>)
+    (exportTopLevel: bool)
+    (input: string)
+    : EmitJs.WalkCtx =
+    {
+        Resolver = ValueSome(EmitJs.LineIndex.build input)
+        Source = ValueSome input
+        Records = System.Collections.Generic.Dictionary()
+        Unions = System.Collections.Generic.Dictionary()
+        Classes = System.Collections.Generic.Dictionary()
+        Enums = System.Collections.Generic.Dictionary()
+        Provider = ValueSome provider
+        ExternalUnions = System.Collections.Generic.Dictionary()
+        Imports = JsImports.create runtime
+        ExportTopLevel = exportTopLevel
+        CompiledFns = System.Collections.Generic.Dictionary()
+        LocalInterfaces = System.Collections.Generic.HashSet()
+    }
+
+/// Front-end + freeze `input` through `provider`, then emit JS with the injected
+/// `runtime` modules — the shared body of the per-package `emitWithX` helpers. Routes
+/// through `frozenImplJs` (analyse-for-self-host + freeze) and the one `jsWalkCtx`
+/// builder, so every provider test emits through identical, production-matched wiring.
+let emitWith
+    (provider: IExternalSymbolProvider)
+    (runtime: Map<string, JsRuntimeModule>)
+    (exportTopLevel: bool)
+    (input: string)
+    : string =
+    let frozen = frozenImplJs provider input
+    let ctx = jsWalkCtx provider runtime exportTopLevel input
+    (JsPrint.print (EmitJs.buildProgram ctx frozen)).Source
+
+/// The Node round-trip assertion, documented ONCE: write `files` to a tmp dir, run the
+/// first under Node, and require the trimmed stdout to EXACTLY equal `expected`. When
+/// `node` is absent `runNodeFiles` yields `None` and the exec check is SKIPPED — the
+/// caller's emit-time assertions already ran, so the test still exercises codegen.
+let expectNodeOutput (name: string) (files: (string * string) list) (expected: string) : unit =
+    match runNodeFiles name files with
+    | None -> () // node absent — exec check skips; the caller's emit-time asserts still ran
+    | Some(code, out) ->
+        Expect.equal code 0 (sprintf "node exited non-zero:\n%s" out)
+        Expect.equal out expected (sprintf "round-trip output, got:\n%s" out)
+
+/// The mitt TS fixture (golden manifest + vendored runtime under `../ts-fixtures/mitt`),
+/// shared by `MittE2ETests` and `UnannotatedMittTests`. Reads ONLY committed files; the
+/// Node extractor is never run.
+module MittFixture =
+
+    let dir = IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "ts-fixtures", "mitt")
+
+    /// The golden `mitt.manifest.json`, deserialised.
+    let manifest: Schema.PackageManifest =
+        match Codec.deserialize (IO.File.ReadAllText(IO.Path.Combine(dir, "mitt.manifest.json"))) with
+        | Error e -> failwithf "mitt manifest does not parse: %s" e
+        | Ok man -> man
+
+    /// The vendored `dist/mitt.mjs` runtime source.
+    let runtimeSource: string =
+        IO.File.ReadAllText(IO.Path.Combine(dir, "dist", "mitt.mjs"))
+
+    /// The base provider — mitt over the JS-native provider (no auxiliary packages).
+    let provider: IExternalSymbolProvider = stackTs manifest

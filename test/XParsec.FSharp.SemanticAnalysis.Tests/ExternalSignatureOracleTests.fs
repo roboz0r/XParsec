@@ -105,24 +105,18 @@ let tests =
                 // freshen one var per method index, shared across
                 // `Parameters`/`Return`, stamped at `level`.
                 let signature: ExternalSignature =
-                    {
-                        DeclaringArity = 1
-                        MethodArity = 2
-                        Parameters = FTTuple(EqArray.ofList [ d 0; FTTypar(TyparAxis.Method, 0) ])
-                        Return = FTTuple(EqArray.ofList [ FTTypar(TyparAxis.Method, 0); FTTypar(TyparAxis.Method, 1) ])
-                        MethodTyparBounds = [||]
-                    }
+                    TestHelpers.mkSignature
+                        1
+                        2
+                        (FTTuple(EqArray.ofList [ d 0; FTTypar(TyparAxis.Method, 0) ]))
+                        (FTTuple(EqArray.ofList [ FTTypar(TyparAxis.Method, 0); FTTypar(TyparAxis.Method, 1) ]))
 
                 let m: ExternalMember =
-                    {
+                    { TestHelpers.mkMember with
                         Name = "genericMethod"
-                        IsStatic = true
-                        Storage = MemberStorage.Method
                         Signature = signature
                         MethodArity = 2
-                        Origin = SymbolOrigin.Empty
                         Key = SymbolKeyOps.valueKeyOf None "genericMethod"
-                        OptionalDefaults = []
                     }
 
                 let level = 7
@@ -171,9 +165,8 @@ let tests =
                 =
                 test name {
                     let m: ExternalMember =
-                        {
+                        { TestHelpers.mkMember with
                             Name = name
-                            IsStatic = true
                             Storage =
                                 if isProperty then
                                     MemberStorage.Property
@@ -181,9 +174,7 @@ let tests =
                                     MemberStorage.Method
                             Signature = signature
                             MethodArity = methodArity
-                            Origin = SymbolOrigin.Empty
                             Key = SymbolKeyOps.valueKeyOf None name
-                            OptionalDefaults = []
                         }
 
                     let args = argsForArity declArity
@@ -215,13 +206,7 @@ let tests =
                         false
                         0
                         0
-                        {
-                            DeclaringArity = 0
-                            MethodArity = 0
-                            Parameters = FTConst("unit", EqArray.empty)
-                            Return = FTConst("int", EqArray.empty)
-                            MethodTyparBounds = [||]
-                        }
+                        (TestHelpers.mkSignature 0 0 (FTConst("unit", EqArray.empty)) (FTConst("int", EqArray.empty)))
                         (Some(TyFun(TyConst("unit", EqArray.empty), TyConst("int", EqArray.empty))))
 
                     // 1-param method over a declaring typar: `'T0 -> bool`.
@@ -230,13 +215,7 @@ let tests =
                         false
                         1
                         0
-                        {
-                            DeclaringArity = 1
-                            MethodArity = 0
-                            Parameters = d 0
-                            Return = FTConst("bool", EqArray.empty)
-                            MethodTyparBounds = [||]
-                        }
+                        (TestHelpers.mkSignature 1 0 (d 0) (FTConst("bool", EqArray.empty)))
                         (Some(TyFun(groundArgs.[0], TyConst("bool", EqArray.empty))))
 
                     // N≥2 params: one tupled arg.
@@ -245,13 +224,11 @@ let tests =
                         false
                         2
                         0
-                        {
-                            DeclaringArity = 2
-                            MethodArity = 0
-                            Parameters = FTTuple(EqArray.ofList [ d 0; d 1 ])
-                            Return = FTConst("unit", EqArray.empty)
-                            MethodTyparBounds = [||]
-                        }
+                        (TestHelpers.mkSignature
+                            2
+                            0
+                            (FTTuple(EqArray.ofList [ d 0; d 1 ]))
+                            (FTConst("unit", EqArray.empty)))
                         (Some(
                             TyFun(
                                 TyTuple(EqArray.ofList [ groundArgs.[0]; groundArgs.[1] ]),
@@ -265,13 +242,11 @@ let tests =
                         true
                         1
                         0
-                        {
-                            DeclaringArity = 1
-                            MethodArity = 0
-                            Parameters = FTConst("unit", EqArray.empty)
-                            Return = FTClass(kRec, EqArray.singleton (d 0))
-                            MethodTyparBounds = [||]
-                        }
+                        (TestHelpers.mkSignature
+                            1
+                            0
+                            (FTConst("unit", EqArray.empty))
+                            (FTClass(kRec, EqArray.singleton (d 0))))
                         (Some(TyClass(kRec, EqArray.singleton groundArgs.[0])))
 
                     // Ctor-shaped: `(p1 * p2) -> declType`.
@@ -280,13 +255,11 @@ let tests =
                         false
                         1
                         0
-                        {
-                            DeclaringArity = 1
-                            MethodArity = 0
-                            Parameters = FTTuple(EqArray.ofList [ d 0; FTConst("int", EqArray.empty) ])
-                            Return = FTRecord(kRec, EqArray.singleton (d 0))
-                            MethodTyparBounds = [||]
-                        }
+                        (TestHelpers.mkSignature
+                            1
+                            0
+                            (FTTuple(EqArray.ofList [ d 0; FTConst("int", EqArray.empty) ]))
+                            (FTRecord(kRec, EqArray.singleton (d 0))))
                         (Some(
                             TyFun(
                                 TyTuple(EqArray.ofList [ groundArgs.[0]; TyConst("int", EqArray.empty) ]),
@@ -300,13 +273,11 @@ let tests =
                         false
                         1
                         1
-                        {
-                            DeclaringArity = 1
-                            MethodArity = 1
-                            Parameters = FTTypar(TyparAxis.Method, 0)
-                            Return = FTTuple(EqArray.ofList [ d 0; FTTypar(TyparAxis.Method, 0) ])
-                            MethodTyparBounds = [||]
-                        }
+                        (TestHelpers.mkSignature
+                            1
+                            1
+                            (FTTypar(TyparAxis.Method, 0))
+                            (FTTuple(EqArray.ofList [ d 0; FTTypar(TyparAxis.Method, 0) ])))
                         None
                 ]
         ]

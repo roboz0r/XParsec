@@ -5,6 +5,7 @@ open Vesper.Ts.Manifest
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
+open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
 // R2 (TS provider): an instance-member call on an external TS-manifest object
 // lowers to a NATIVE `receiver.member(args)` — the object has genuine prototype/own
@@ -16,55 +17,10 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // The runtime object below holds state in a `this._v` field and its methods READ `this`,
 // so a detached-function bug (which loses `this` in JS) cannot hide behind a closure.
 
-// ─── Hand-built manifest (no JSON round-trip) ──────────────────────────────
+// ─── Hand-built manifest (no JSON round-trip); builders from `SchemaDsl` ────────
 
-let private named n = Schema.TypeRef.Named(n, [])
 let private intT = named "int"
 let private unitT = named "unit"
-
-let private sig0 (ret: Schema.TypeRef) : Schema.Signature =
-    {
-        TypeParams = 0
-        TypeParamBounds = []
-        Params = []
-        Returns = ret
-    }
-
-let private sig1 (pname: string) (pty: Schema.TypeRef) (ret: Schema.TypeRef) : Schema.Signature =
-    {
-        TypeParams = 0
-        TypeParamBounds = []
-        Params =
-            [
-                {
-                    Name = pname
-                    Type = pty
-                    Optional = false
-                    Rest = false
-                }
-            ]
-        Returns = ret
-    }
-
-let private method' (name: string) (sg: Schema.Signature) : Schema.Member =
-    {
-        Name = name
-        Kind = Schema.MemberKind.Method
-        Type = None
-        Signatures = [ sg ]
-        Static = false
-        Optional = false
-    }
-
-let private property' (name: string) (ty: Schema.TypeRef) : Schema.Member =
-    {
-        Name = name
-        Kind = Schema.MemberKind.Property
-        Type = Some ty
-        Signatures = []
-        Static = false
-        Optional = false
-    }
 
 /// `boxlib`: a NON-GENERIC stateful interface `Box { get(): int; set(x: int): unit;
 /// value: int }` plus a `makeBox(): Box` factory whose RETURN freezes to `FTClass`
@@ -91,8 +47,7 @@ let private boxManifest: Schema.PackageManifest =
         Diagnostics = []
     }
 
-let private boxProvider: IExternalSymbolProvider =
-    ExternalSymbols.stack ValueNone [] [ TsManifestProvider.providerOfManifest boxManifest; jsProvider.Value ]
+let private boxProvider: IExternalSymbolProvider = stackTs boxManifest
 
 // A hand-authored runtime whose factory returns a STATEFUL object: state lives in
 // `this._v` and every method reads/writes `this`, so a lowering that detached the
@@ -113,45 +68,20 @@ let private boxRuntime =
         ]
 
 /// Emit `input` as a JS module (library mode) resolving `boxlib` to the hand-authored
-/// runtime above — mirrors `MittE2ETests.emitWithMitt`.
+/// runtime above.
 let private emitBox (input: string) : string =
-    let lexed, file = parseFile input
-    let tast = Pipeline.analyseSemForSelfHost boxProvider input lexed file
-
-    let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
-
-    if not (List.isEmpty errors) then
-        failwithf "analysis errors: %A" (errors |> List.map (fun d -> d.Message))
-
-    let frozen = Freeze.run tast
-
-    let runtime =
-        Map.ofList
+    emitWith
+        boxProvider
+        (Map.ofList
             [
                 "boxlib",
                 {
                     FileName = "boxlib.mjs"
                     Source = boxRuntime
                 }
-            ]
-
-    let ctx: EmitJs.WalkCtx =
-        {
-            Resolver = ValueNone
-            Source = ValueSome input
-            Records = System.Collections.Generic.Dictionary()
-            Unions = System.Collections.Generic.Dictionary()
-            Classes = System.Collections.Generic.Dictionary()
-            Enums = System.Collections.Generic.Dictionary()
-            Provider = ValueSome boxProvider
-            ExternalUnions = System.Collections.Generic.Dictionary()
-            Imports = JsImports.create runtime
-            ExportTopLevel = true
-            CompiledFns = System.Collections.Generic.Dictionary()
-            LocalInterfaces = System.Collections.Generic.HashSet()
-        }
-
-    (JsPrint.print (EmitJs.buildProgram ctx frozen)).Source
+            ])
+        true
+        input
 
 // A tiny harness: import the library-mode `export const result` the Vesper program emits
 // and print it, so Node's stdout carries the observed value.
@@ -182,20 +112,15 @@ let tests =
                 // for a native manifest member: no `Box__get` / `Box__set` mangled export.
                 Expect.isFalse (js.Contains "Box__") (sprintf "unexpected mangled member import in:\n%s" js)
 
-                match
-                    runNodeFiles
-                        "attach-members"
-                        [
-                            "harness.mjs", resultHarness
-                            "box-program.mjs", js
-                            "boxlib.mjs", boxRuntime
-                        ]
-                with
-                | None -> () // node absent — the emit above still ran + asserted
-                | Some(code, out) ->
-                    Expect.equal code 0 (sprintf "node exited non-zero:\n%s" out)
-                    // `set(5)` then `get()` reading `this._v` returns 5.
-                    Expect.stringContains out "5" (sprintf "round-trip output, got:\n%s" out)
+                // `set(5)` then `get()` reading `this._v` returns 5.
+                expectNodeOutput
+                    "attach-members"
+                    [
+                        "harness.mjs", resultHarness
+                        "box-program.mjs", js
+                        "boxlib.mjs", boxRuntime
+                    ]
+                    "5"
             }
 
             test "a zero-arg method emits recv.get() with the lone unit dropped" {
@@ -222,19 +147,14 @@ let tests =
                 let js = emitBox program
                 Expect.isFalse (js.Contains "Box__") (sprintf "unexpected mangled member import in:\n%s" js)
 
-                match
-                    runNodeFiles
-                        "attach-escape"
-                        [
-                            "harness.mjs", resultHarness
-                            "box-program.mjs", js
-                            "boxlib.mjs", boxRuntime
-                        ]
-                with
-                | None -> ()
-                | Some(code, out) ->
-                    Expect.equal code 0 (sprintf "node exited non-zero:\n%s" out)
-                    Expect.stringContains out "9" (sprintf "escaped-method round-trip, got:\n%s" out)
+                expectNodeOutput
+                    "attach-escape"
+                    [
+                        "harness.mjs", resultHarness
+                        "box-program.mjs", js
+                        "boxlib.mjs", boxRuntime
+                    ]
+                    "9"
             }
 
             test "a Property member lowers to a plain receiver.prop READ (no call)" {
