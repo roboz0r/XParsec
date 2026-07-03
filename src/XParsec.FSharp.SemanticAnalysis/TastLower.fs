@@ -322,6 +322,22 @@ module TastLower =
             e
         |> ignore
 
+    /// True when any immediate child of `e` satisfies `p` — the exists-over-children
+    /// primitive the recursive `TExpr` search predicates build on (mirrors
+    /// `FrozenType.existsChild` / `SemType.existsChild`). `p` is not invoked on further
+    /// children once one has matched, so a `p` that recurses short-circuits the descent.
+    let existsChild (p: Frozen.TExpr -> bool) (e: Frozen.TExpr) : bool =
+        let mutable found = false
+
+        iterChildren
+            (fun c ->
+                if not found then
+                    found <- p c
+            )
+            e
+
+        found
+
     /// Source of synthetic `NodeKey`s for placeholder lambda-parameter slots —
     /// the unit binder (`fun () -> …`) and the tuple binder (`fun (a, b) -> …`).
     /// The body never references the key (a unit value is dropped; a tuple is

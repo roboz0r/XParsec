@@ -163,17 +163,7 @@ module JsEmitHelpers =
     let rec isAssignedIn (k: NodeKey) (e: Frozen.TExpr) : bool =
         match e with
         | TExprG.Assignment(TExprG.Var(vk, _, _), _, _, _) when vk.Raw = k.Raw -> true
-        | _ ->
-            let mutable found = false
-
-            TastLower.iterChildren
-                (fun c ->
-                    if not found then
-                        found <- isAssignedIn k c
-                )
-                e
-
-            found
+        | _ -> TastLower.existsChild (isAssignedIn k) e
 
     /// Does `value` read a variable that `body` later reassigns? F# `let x = value`
     /// takes a *snapshot* of `value` at the bind point; substituting `value` into `x`'s
@@ -186,17 +176,24 @@ module JsEmitHelpers =
     let rec valueReadsAssignedIn (body: Frozen.TExpr) (value: Frozen.TExpr) : bool =
         match value with
         | TExprG.Var(vk, _, _) -> isAssignedIn vk body
-        | _ ->
-            let mutable found = false
+        | _ -> TastLower.existsChild (valueReadsAssignedIn body) value
 
-            TastLower.iterChildren
-                (fun c ->
-                    if not found then
-                        found <- valueReadsAssignedIn body c
-                )
-                value
-
-            found
+    /// A `NamedSimple` `let` whose value is safe to inline into its uses, reduced to
+    /// its substituted body. The value must be duplicable (`isPureValue`), the binder
+    /// never reassigned in the body (else the substitution would corrupt the assignment
+    /// lhs and the binder must stay a real reassignable `let`), and the value must not
+    /// read a var the body later mutates (F#'s bind-point snapshot — see
+    /// `valueReadsAssignedIn`). Every `buildExpr`/`buildStatements`/`buildTailBody` site
+    /// that collapses a pure `let` matches through here so the guard lives in one place.
+    let (|InlinableLet|_|) (e: Frozen.TExpr) : Frozen.TExpr option =
+        match e with
+        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when
+            isPureValue value
+            && not (isAssignedIn k body)
+            && not (valueReadsAssignedIn body value)
+            ->
+            Some(substVar k value body)
+        | _ -> None
 
     // ---- Functions -----------------------------------------------------------
 

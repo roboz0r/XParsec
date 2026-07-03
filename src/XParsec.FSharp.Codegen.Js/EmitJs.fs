@@ -236,11 +236,20 @@ module EmitJs =
     /// Emit a top-level binding. `reassignable` (the binder is mutated elsewhere in the
     /// module) selects the reassignable form — `export let` / `let` — over the default
     /// `export const` / `const`, so a module-scope `let mutable` write is not an
-    /// assignment-to-const `TypeError`. Mirrors the nested `Let`/`Const` selection.
+    /// assignment-to-const `TypeError`. Mirrors the nested `localBinding` selection.
     let private topLevelBinding (ctx: WalkCtx) (reassignable: bool) (name: string) (init: JsExpr) : JsStatement =
         if ctx.ExportTopLevel then
             JsStatement.Export(name, init, reassignable)
         elif reassignable then
+            JsStatement.Let(name, init)
+        else
+            JsStatement.Const(name, init)
+
+    /// Emit a nested (non-top-level) `let`/`const` for binder `k`: a reassignable `let`
+    /// when the body mutates the binder (`k <- …`), else a `const`. The top-level
+    /// analogue is `topLevelBinding`.
+    let private localBinding (k: NodeKey) (body: Frozen.TExpr) (name: string) (init: JsExpr) : JsStatement =
+        if isAssignedIn k body then
             JsStatement.Let(name, init)
         else
             JsStatement.Const(name, init)
@@ -353,12 +362,7 @@ module EmitJs =
         // templates). A *mutable* binder (assigned in the body) is excluded — it must
         // stay a real binding so its writes land; it falls to the IIFE arm, where the
         // arrow parameter is the (reassignable) mutable cell.
-        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when
-            isPureValue value
-            && not (isAssignedIn k body)
-            && not (valueReadsAssignedIn body value)
-            ->
-            buildExpr ctx (substVar k value body)
+        | InlinableLet reduced -> buildExpr ctx reduced
 
         // Non-pure (or mutable) `let` in expression position: JS has no let-expression,
         // so lowers to an IIFE `((x) => <body>)(<value>)` — the binder evaluated once,
@@ -1222,22 +1226,9 @@ module EmitJs =
         match e with
         | TExprG.IfThenElse(cond, thenE, elseE, _, _) ->
             [ JsStatement.If(buildExpr ctx cond, recur thenE, recur elseE) ]
-        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when
-            isPureValue value
-            && not (isAssignedIn k body)
-            && not (valueReadsAssignedIn body value)
-            ->
-            recur (substVar k value body)
+        | InlinableLet reduced -> recur reduced
         | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) ->
-            let name = identName ctx.Source k
-            let init = buildExpr ctx value
-
-            let binding =
-                if isAssignedIn k body then
-                    JsStatement.Let(name, init)
-                else
-                    JsStatement.Const(name, init)
-
+            let binding = localBinding k body (identName ctx.Source k) (buildExpr ctx value)
             binding :: recur body
         // `let _ = value in body` — discard the value (effects only); body stays in tail
         // position. A pure value drops away (see `buildExpr`).
@@ -1437,23 +1428,10 @@ module EmitJs =
             ]
         // Pure, immutable binder: substitute away so synthetic operand lets don't
         // surface as `const`s. A mutable binder is excluded (see `buildExpr`).
-        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when
-            isPureValue value
-            && not (isAssignedIn k body)
-            && not (valueReadsAssignedIn body value)
-            ->
-            buildStatements ctx (substVar k value body)
+        | InlinableLet reduced -> buildStatements ctx reduced
         // A mutable binder emits a reassignable `let`; an immutable one a `const`.
         | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) ->
-            let name = identName ctx.Source k
-            let init = emitBound ctx k value
-
-            let binding =
-                if isAssignedIn k body then
-                    JsStatement.Let(name, init)
-                else
-                    JsStatement.Const(name, init)
-
+            let binding = localBinding k body (identName ctx.Source k) (emitBound ctx k value)
             binding :: buildStatements ctx body
         // `let _ = value in body` — emit the discarded value as its own statement(s)
         // (effects only), then the body. A pure value drops away (see `buildExpr`).
