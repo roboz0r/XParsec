@@ -1,4 +1,4 @@
-module XParsec.FSharp.Codegen.Js.Tests.Step5Tests
+module XParsec.FSharp.Codegen.Js.Tests.TupleTests
 
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
@@ -6,7 +6,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 [<Tests>]
 let tests =
     testList
-        "Codegen.Js Step5"
+        "Codegen.Js Tuples"
         [
             test "a tuple is a JS array; a tupled module-function group flattens to flat params" {
                 Expect.equal
@@ -18,7 +18,7 @@ let tests =
             }
 
             test "a tupled function adds its destructured elements (f (2,3) → 5)" {
-                match runJs "step5-tuple-add" "let f (a, b) = a + b\nprintfn \"%d\" (f (2, 3))" with
+                match runJs "tuple-add" "let f (a, b) = a + b\nprintfn \"%d\" (f (2, 3))" with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
@@ -28,7 +28,7 @@ let tests =
             test "a tuple pattern in match binds positionally (first/second)" {
                 match
                     runJs
-                        "step5-tuple-match"
+                        "tuple-match"
                         ("let f t =\n"
                          + "    match t with\n"
                          + "    | (0, y) -> y\n"
@@ -43,7 +43,7 @@ let tests =
             }
 
             test "a nested tuple param destructures recursively (((a,b),c) → a+b+c)" {
-                match runJs "step5-tuple-nested" "let f ((a, b), c) = a + b + c\nprintfn \"%d\" (f ((1, 2), 3))" with
+                match runJs "tuple-nested" "let f ((a, b), c) = a + b + c\nprintfn \"%d\" (f ((1, 2), 3))" with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
@@ -66,7 +66,7 @@ let tests =
             test "an 8-tuple round-trips: destructure all eight (sum)" {
                 match
                     runJs
-                        "step5-tuple8"
+                        "tuple8"
                         "let f (a, b, c, d, e, g, h, i) = a+b+c+d+e+g+h+i\nprintfn \"%d\" (f (1, 2, 3, 4, 5, 6, 7, 8))"
                 with
                 | None -> skiptest "node not found on PATH"
@@ -78,7 +78,7 @@ let tests =
             test "a 15-tuple round-trips (would be double Rest-nested on CLR; flat on JS)" {
                 match
                     runJs
-                        "step5-tuple15"
+                        "tuple15"
                         ("let f (a,b,c,d,e,g,h,i,j,k,l,m,n,o,p) = a+b+c+d+e+g+h+i+j+k+l+m+n+o+p\n"
                          + "printfn \"%d\" (f (1,2,3,4,5,6,7,8,9,10,11,12,13,14,15))")
                 with
@@ -86,60 +86,5 @@ let tests =
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
                     Expect.equal out "120" "all fifteen array slots add (1+..+15)"
-            }
-
-            test "Some imports the case class from the Option runtime module" {
-                Expect.equal
-                    (emitJs "let x = Some 5")
-                    ("import { Option_Some as $Vesper_Option_Option_Some } from \"./Vesper.Option.mjs\";\n"
-                     + "const x = new $Vesper_Option_Option_Some(5);\n")
-                    "external Option `Some` → import the case class from its home module, then `new` it (no local re-emit)"
-            }
-
-            test "Some binds its value in a match (Some 5 → 5)" {
-                match
-                    runJs
-                        "step5-option-some"
-                        ("let x = Some 5\n"
-                         + "match x with\n"
-                         + "| Some n -> printfn \"%d\" n\n"
-                         + "| None -> printfn \"%d\" 0")
-                with
-                | None -> skiptest "node not found on PATH"
-                | Some(code, out) ->
-                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
-                    Expect.equal out "5" "Some arm binds the Value field"
-            }
-
-            test "None matches its tag (None → 0)" {
-                match
-                    runJs
-                        "step5-option-none"
-                        ("let x : int option = None\n"
-                         + "match x with\n"
-                         + "| Some n -> printfn \"%d\" n\n"
-                         + "| None -> printfn \"%d\" 0")
-                with
-                | None -> skiptest "node not found on PATH"
-                | Some(code, out) ->
-                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
-                    Expect.equal out "0" "None matches tag 0"
-            }
-
-            test "Option threads through a function (toInt)" {
-                match
-                    runJs
-                        "step5-option-fn"
-                        ("let toInt o =\n"
-                         + "    match o with\n"
-                         + "    | Some n -> n\n"
-                         + "    | None -> -1\n"
-                         + "printfn \"%d\" (toInt (Some 42))\n"
-                         + "printfn \"%d\" (toInt None)")
-                with
-                | None -> skiptest "node not found on PATH"
-                | Some(code, out) ->
-                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
-                    Expect.equal out "42\n-1" "Some/None both route through the match"
             }
         ]

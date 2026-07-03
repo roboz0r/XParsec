@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// R4a STEP 1 (TS provider): TS string-LITERAL types + set-semantic union
+// TS provider: TS string-LITERAL types + set-semantic union
 // identity. A manifest member `setMode(mode: "auto" | "manual"): unit` exercises the
 // DIRECTIONAL admission at the external-arg seam (companion design §"Literal types
 // stay structural … the nominalism invariant"):

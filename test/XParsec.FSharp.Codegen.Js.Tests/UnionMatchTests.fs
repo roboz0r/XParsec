@@ -1,4 +1,4 @@
-module XParsec.FSharp.Codegen.Js.Tests.Step4Tests
+module XParsec.FSharp.Codegen.Js.Tests.UnionMatchTests
 
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
@@ -6,7 +6,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 [<Tests>]
 let tests =
     testList
-        "Codegen.Js Step4"
+        "Codegen.Js Unions & Pattern Matching"
         [
             test "a union type emits a base class + one subclass per case" {
                 Expect.equal
@@ -47,7 +47,7 @@ let tests =
             test "construction + match on a field-carrying case (Circle 5 → 5)" {
                 match
                     runJs
-                        "step4-circle"
+                        "union-circle"
                         ("type Shape = Circle of int | Rect of int * int | Dot\n"
                          + "let area s =\n"
                          + "    match s with\n"
@@ -65,7 +65,7 @@ let tests =
             test "a multi-field case destructures positionally (Rect 3 4 → 12)" {
                 match
                     runJs
-                        "step4-rect"
+                        "union-rect"
                         ("type Shape = Circle of int | Rect of int * int | Dot\n"
                          + "let area s =\n"
                          + "    match s with\n"
@@ -83,7 +83,7 @@ let tests =
             test "a nullary case matches by tag (Dot → 0)" {
                 match
                     runJs
-                        "step4-dot"
+                        "union-dot"
                         ("type Shape = Circle of int | Rect of int * int | Dot\n"
                          + "let area s =\n"
                          + "    match s with\n"
@@ -101,7 +101,7 @@ let tests =
             test "a guarded arm falls through on guard failure (A 0 → 100, A 7 → 7)" {
                 match
                     runJs
-                        "step4-guard"
+                        "union-guard"
                         ("type T = A of int | B\n"
                          + "let f x =\n"
                          + "    match x with\n"
@@ -121,7 +121,7 @@ let tests =
             test "a nested union pattern matches inner tag (Wrap Two → 2)" {
                 match
                     runJs
-                        "step4-nested"
+                        "union-nested"
                         ("type Inner = One | Two\n"
                          + "type Outer = Wrap of Inner | Empty\n"
                          + "let g x =\n"
@@ -140,7 +140,7 @@ let tests =
             test "constant + wildcard arms on a scalar scrutinee (1 → 20, 5 → 99)" {
                 match
                     runJs
-                        "step4-const"
+                        "union-const"
                         ("let h n =\n"
                          + "    match n with\n"
                          + "    | 0 -> 10\n"

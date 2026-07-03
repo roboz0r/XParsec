@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// R2 (TS provider): an instance-member call on an external TS-manifest object
+// TS provider: an instance-member call on an external TS-manifest object
 // lowers to a NATIVE `receiver.member(args)` — the object has genuine prototype/own
 // methods, NOT the receiver-first `$Box_get`-style free-fn import Vesper's OWN runtimes
 // emit (a tree-shaking optimisation). The signal is `MemberLowering.AttachedNative`,
@@ -23,8 +23,8 @@ let private intT = named "int"
 let private unitT = named "unit"
 
 /// `boxlib`: a NON-GENERIC stateful interface `Box { get(): int; set(x: int): unit;
-/// value: int }` plus a `makeBox(): Box` factory whose RETURN freezes to `FTClass`
-/// (R1), so a Vesper value flowing from it admits native member calls (R2).
+/// value: int }` plus a `makeBox(): Box` factory whose RETURN freezes to `FTClass`,
+/// so a Vesper value flowing from it admits native member calls.
 let private boxManifest: Schema.PackageManifest =
     {
         SchemaVersion = Schema.SchemaVersion
@@ -99,7 +99,7 @@ let tests =
                 // factory returns — NOT the mangled `$Box__get` free-fn import.
                 // `set` (unit) is bound to a named `u`: a BARE `b.set(5)` mid-sequence is a
                 // front-end parse gap (`Expr.Missing`) and a top-level `let _ =` is not an
-                // emit-supported declaration — both unrelated to R2. A named unit binding
+                // emit-supported declaration — both unrelated to native member calls. A named unit binding
                 // runs the call for its effect and emits as `const u = recv.set(5)`.
                 let program =
                     String.concat "\n" [ "let b = makeBox()"; "let u = b.set(5)"; "let result = b.get()"; "" ]

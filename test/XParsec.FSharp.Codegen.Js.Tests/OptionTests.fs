@@ -1,9 +1,10 @@
-module XParsec.FSharp.Codegen.Js.Tests.Step5OptionImplTests
+module XParsec.FSharp.Codegen.Js.Tests.OptionTests
 
 open System
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
+/// The generated `Vesper.Option.mjs` source (deps-only provider, library mode).
 let private generated: Lazy<string> =
     lazy
         compileLibrary
@@ -17,8 +18,67 @@ let private lf (s: string) : string = s.Replace("\r\n", "\n")
 [<Tests>]
 let tests =
     testList
-        "Codegen.Js Step5-OptionImpl"
+        "Codegen.Js Option"
         [
+            // ---- consumer-side: `Some`/`None` import + match against the runtime module ----
+
+            test "Some imports the case class from the Option runtime module" {
+                Expect.equal
+                    (emitJs "let x = Some 5")
+                    ("import { Option_Some as $Vesper_Option_Option_Some } from \"./Vesper.Option.mjs\";\n"
+                     + "const x = new $Vesper_Option_Option_Some(5);\n")
+                    "external Option `Some` → import the case class from its home module, then `new` it (no local re-emit)"
+            }
+
+            test "Some binds its value in a match (Some 5 → 5)" {
+                match
+                    runJs
+                        "option-some"
+                        ("let x = Some 5\n"
+                         + "match x with\n"
+                         + "| Some n -> printfn \"%d\" n\n"
+                         + "| None -> printfn \"%d\" 0")
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "5" "Some arm binds the Value field"
+            }
+
+            test "None matches its tag (None → 0)" {
+                match
+                    runJs
+                        "option-none"
+                        ("let x : int option = None\n"
+                         + "match x with\n"
+                         + "| Some n -> printfn \"%d\" n\n"
+                         + "| None -> printfn \"%d\" 0")
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "0" "None matches tag 0"
+            }
+
+            test "Option threads through a function (toInt)" {
+                match
+                    runJs
+                        "option-fn"
+                        ("let toInt o =\n"
+                         + "    match o with\n"
+                         + "    | Some n -> n\n"
+                         + "    | None -> -1\n"
+                         + "printfn \"%d\" (toInt (Some 42))\n"
+                         + "printfn \"%d\" (toInt None)")
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "42\n-1" "Some/None both route through the match"
+            }
+
+            // ---- the Vesper.Option runtime module (generated in library mode) ----
+
             test "the generated module exports the Option module surface" {
                 let src = generated.Value
 
@@ -99,7 +159,7 @@ let tests =
                         ]
 
                 match
-                    runNodeFiles "option-js-phase3" [ "driver.mjs", driver; "Vesper.Option.mjs", generated.Value ]
+                    runNodeFiles "option-module-node" [ "driver.mjs", driver; "Vesper.Option.mjs", generated.Value ]
                 with
                 | None -> skiptest "node is not installed"
                 | Some(code, out) ->

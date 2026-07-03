@@ -10,10 +10,10 @@ open XParsec.FSharp.SemanticAnalysis
 // codegen backends. The CLR-only `(HoleKind, .NET-format, alignment)` projection
 // is `Codegen.Clr.ClrHoleFormat.toDotNetFormat`.
 //
-// Step (a)'s equivalence net compared `tryClassify` against the legacy
-// `PrintfSpec.tryHoleFormat` oracle; step (d) deleted that oracle, so byte-parity
-// is now pinned end-to-end by `PrintfDifferentialTests` / `PrintfHappyPathTests`
-// (CLR) and `PrintfPhase4Tests` (JS Node). What remains here is a light
+// An earlier equivalence net compared `tryClassify` against the legacy
+// `PrintfSpec.tryHoleFormat` oracle; that oracle is now deleted, so byte-parity
+// is pinned end-to-end by `PrintfDifferentialTests` / `PrintfHappyPathTests`
+// (CLR) and `PrintfSpecifierTests` (JS Node). What remains here is a light
 // non-vacuity guard: the classifier must both accept and defer across the matrix.
 
 /// Every specifier string the matrix probes: `%` + flags + optional width +

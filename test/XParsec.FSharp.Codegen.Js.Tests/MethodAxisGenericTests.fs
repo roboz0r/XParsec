@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// Phase 3.5 (Piece A) consumer half: a METHOD-AXIS generic member resolves, emits, and
+// Consumer half: a METHOD-AXIS generic member resolves, emits, and
 // runs end-to-end, with its method typar FRESHENED per call site. `Id.identity<U>(x: U)
 // : U` is called at TWO different types in one program; both must type-check and run,
 // which is only possible if `U` (`FTTypar(TyparAxis.Method, 0)` through the provider,

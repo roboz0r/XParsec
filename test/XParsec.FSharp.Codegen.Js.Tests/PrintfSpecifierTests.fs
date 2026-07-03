@@ -1,14 +1,14 @@
-module XParsec.FSharp.Codegen.Js.Tests.PrintfPhase4Tests
+module XParsec.FSharp.Codegen.Js.Tests.PrintfSpecifierTests
 
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// Half B on JS (route (a) — inline front-end lowering): the format-handler specifiers (`%x`/`%o`/`%u`/`%b`/padding/alignment/
-// `%f`/forced-sign) now emit per-hole JS string expressions instead of the raw value.
-// Before Phase 4 `printfn "%x" 255` silently emitted the number `255`; these tests
-// pin each specifier's Node output to F#'s `printf` semantics (the CLR
-// `PrintfDifferentialTests` goldens, extended). The genuinely subtle float forms
-// (`%e`/`%E`/`%g`/`%G`) now emit `toExponential`/`toPrecision` — an accepted JS
+// Per-hole format-specifier lowering: the format-handler specifiers
+// (`%x`/`%o`/`%u`/`%b`/padding/alignment/`%f`/forced-sign) emit per-hole JS string
+// expressions inline (no runtime import, no `.NET` format-string round trip) instead
+// of the raw value. These tests pin each specifier's Node output to F#'s `printf`
+// semantics (the CLR `PrintfDifferentialTests` goldens, extended). The genuinely subtle
+// float forms (`%e`/`%E`/`%g`/`%G`) emit `toExponential`/`toPrecision` — an accepted JS
 // *approximation* of .NET's byte-exact output, so their tests pin the JS behaviour
 // rather than F# parity.
 //
@@ -19,7 +19,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 /// `printfn`-per-line program; the expected lines joined by `\n` (output is trimmed).
 /// `name` is the per-test output module (distinct so concurrent runs don't share a file).
 let private runsLines (name: string) (program: string) (expected: string list) =
-    match runJs ("printf-phase4-" + name) program with
+    match runJs ("printf-specifier-" + name) program with
     | None -> skiptest "node not found on PATH"
     | Some(code, out) ->
         Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
@@ -28,10 +28,10 @@ let private runsLines (name: string) (program: string) (expected: string list) =
 [<Tests>]
 let tests =
     testList
-        "Codegen.Js Printf-Phase4"
+        "Codegen.Js printf format specifiers"
         [
             // Emission: a lone `%x` hole splices its operand once into the radix form
-            // as real `JsExpr` nodes (step (c): no runtime import, no IIFE, no `.NET`
+            // as real `JsExpr` nodes (inline: no runtime import, no IIFE, no `.NET`
             // format-string round trip — the operand is referenced once).
             test "`%x` emits an inline radix conversion" {
                 Expect.equal

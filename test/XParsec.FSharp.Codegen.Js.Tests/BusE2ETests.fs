@@ -7,14 +7,14 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// R3 (TS provider): the real Vesper e2e that proves the R1+R2 consumption machinery
-// end-to-end on the EASIEST honest path — a NON-GENERIC emitter-style external object.
-// A Vesper program creates the object, REGISTERS A HANDLER (a Vesper lambda passed as a
-// callback argument to a native member — new territory beyond R2's int-only args), emits
-// an event, and reads back the value the handler observed. Everything runs against a
-// hand-authored stateful runtime under Node.
+// The real Vesper e2e that proves the external-object consumption machinery (type
+// resolution + native member calls) end-to-end on the EASIEST honest path — a
+// NON-GENERIC emitter-style external object. A Vesper program creates the object,
+// REGISTERS A HANDLER (a Vesper lambda passed as a callback argument to a native member —
+// new territory beyond plain int-only args), emits an event, and reads back the value the
+// handler observed. Everything runs against a hand-authored stateful runtime under Node.
 //
-// The new machinery this exercises (vs R2): a Vesper lambda flowing as an argument INTO a
+// The new machinery this exercises (vs plain member calls): a Vesper lambda flowing as an argument INTO a
 // native `receiver.member(args)` call, with the lambda's parameter type inferred from the
 // manifest member's function-typed parameter (`handler: int -> unit`), and the lambda body
 // itself making a further native member call on a captured receiver.
@@ -104,7 +104,7 @@ let tests =
                 // from the manifest `handler: int -> unit`; `emit` fires it; the handler
                 // stashes the payload via `bus.record`; `bus.last` reads it back. Effectful
                 // unit calls are bound (`let u = …`) — a bare mid-sequence unit call is a
-                // front-end parse gap unrelated to R3.
+                // front-end parse gap unrelated to this e2e.
                 let program =
                     String.concat
                         "\n"

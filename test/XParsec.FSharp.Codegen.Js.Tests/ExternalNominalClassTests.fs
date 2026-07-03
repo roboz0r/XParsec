@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// R1 (TS provider): a manifest `Interface`/`Class` name resolves through
+// TS provider: a manifest `Interface`/`Class` name resolves through
 // `TsManifestProvider.toFrozen` as `FTClass` (→ front-end `TyClass`), so a receiver
 // whose type FLOWS FROM A SIGNATURE (a function/member return — the path that goes
 // through `toFrozen`, unlike a direct annotation, which Translate.fs already minted as
@@ -128,10 +128,11 @@ let tests =
         "ExternalNominalClass"
         [
             test "a value from a manifest-interface-returning function admits .member access" {
-                // `b`'s type flows from `makeBox`'s return (the `toFrozen` path). Pre-R1 it
-                // was `FTConst`→`TyConst` and `.get`/`.set` fell to the "non-record
-                // non-class" catch-all; post-R1 it is `FTClass`→`TyClass` and the member
-                // resolves through the provider. Analysis-only — no JS emission (that is R2).
+                // `b`'s type flows from `makeBox`'s return (the `toFrozen` path). Without the
+                // external-class freeze it would be `FTConst`→`TyConst` and `.get`/`.set` would
+                // fall to the "non-record non-class" catch-all; with it, `b` is
+                // `FTClass`→`TyClass` and the member resolves through the provider. Analysis-only
+                // — no JS emission (that is the member-call path's concern).
                 let program =
                     String.concat "\n" [ "let b = makeBox()"; "let n = b.get()"; "b.set(n)"; "" ]
 

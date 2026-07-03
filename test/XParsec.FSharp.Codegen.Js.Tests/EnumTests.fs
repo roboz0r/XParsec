@@ -3,7 +3,7 @@ module XParsec.FSharp.Codegen.Js.Tests.EnumTests
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// Step 6 (JS codegen) of enum support: every enum variant (numeric / string /
+// JS codegen of enum support: every enum variant (numeric / string /
 // mixed) emits a module-scope FROZEN OBJECT MAP `const E = Object.freeze({ … })`,
 // `E.Ci` is a property read, and an `EnumCase` pattern lowers to `scrut === E.Ci`
 // (JS `===` is value equality for numbers and strings, so it is correct for all

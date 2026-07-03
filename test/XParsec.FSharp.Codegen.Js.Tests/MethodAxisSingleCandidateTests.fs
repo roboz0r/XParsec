@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// R4a STEP 3 item 5 (TS provider): the SINGLE-candidate `TryLookupMember`
+// TS provider: the SINGLE-candidate `TryLookupMember`
 // field-walk must freshen a member's method typars per call site, exactly as the
 // multi-candidate overload-commit path already does
 // (`ExternalSymbols.instantiateSignature` via `commitExternalOverload`).
@@ -47,7 +47,7 @@ let private echoManifest: Schema.PackageManifest =
 let private echoProvider: IExternalSymbolProvider = stackTs echoManifest
 
 /// Hand-authored runtime backing `boxlib`: `makeBox()` yields an object whose
-/// `echo` instance method is the identity (so R2's `receiver.member(args)`
+/// `echo` instance method is the identity (so the native `receiver.member(args)`
 /// lowering round-trips the argument unchanged).
 let private echoRuntimeSource =
     "export function makeBox() { return { echo(x) { return x; } }; }\n"

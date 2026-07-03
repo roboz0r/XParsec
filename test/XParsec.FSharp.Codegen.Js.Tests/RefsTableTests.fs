@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// Step 1 (refs table) isolation fixture, systematic-tests-first: a hand-built
+// Refs-table isolation fixture, systematic-tests-first: a hand-built
 // TWO-manifest slice pins the CROSS-PACKAGE identity path end-to-end, independent of
 // the extractor/Fable follow-on that will populate a real manifest's `Refs`.
 //

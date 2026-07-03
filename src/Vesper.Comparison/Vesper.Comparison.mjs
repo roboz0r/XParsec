@@ -12,7 +12,8 @@
 // tuples (arrays) lexicographically then by length, unions by case `tag` first, then
 // records / unions field-by-field in declaration (own-key) order. Returns a three-way
 // sign (-1 / 0 / 1) the bases test against 0. It must agree with Vesper.Core.mjs's
-// `eq` — equal values compare 0 — a cross-package contract the Step6 tests pin down.
+// `eq` — equal values compare 0 — a cross-package contract the structural comparison
+// and equality tests pin down.
 //
 // TYPE BRAND (as in Vesper.Core.mjs): emitted union instances carry a non-enumerable
 // `$type`; when both operands are branded, a mismatch orders by it first, so two

@@ -6,7 +6,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 let private lines xs = String.concat "\n" xs
 
-// Step B + C — general JS class emission and the custom-equality dispatch slot.
+// General JS class emission and the custom-equality dispatch slot.
 //
 // Before this work the JS backend dropped `TTypeKindG.Class` entirely (`collectTypes`
 // matched only Record/Union). These tests prove a plain class emits + RUNS on JS
@@ -108,7 +108,7 @@ let tests =
 
             // ---- custom-equality dispatch slot: execution proves the slot is live ----
             //
-            // The fuller custom-eq round-trip oracle is a later step; this is a single
+            // The fuller custom-eq round-trip oracle is later work; this is a single
             // execution check that the ATTACHED `Equals` slot is genuinely dispatched by
             // `Vesper.Core.eq` (`a.Equals(b)`). `Tagged.Equals` compares ONLY `id`, so
             // `a = b` (same id, different payload) is `true` ONLY via the custom member

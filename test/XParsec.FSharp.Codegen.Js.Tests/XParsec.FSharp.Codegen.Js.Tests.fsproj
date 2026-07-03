@@ -12,25 +12,27 @@
     <Compile Include="PrintfEmissionTests.fs" />
     <Compile Include="SourceMapTests.fs" />
     <Compile Include="OpsPlatformJsTests.fs" />
-    <Compile Include="Step1Tests.fs" />
-    <Compile Include="Step2Tests.fs" />
-    <Compile Include="Step3Tests.fs" />
-    <Compile Include="Step4Tests.fs" />
-    <Compile Include="Step5Tests.fs" />
-    <Compile Include="Step5OptionImplTests.fs" />
-    <Compile Include="Step5bTests.fs" />
-    <Compile Include="Step5bPhase3Tests.fs" />
-    <Compile Include="Step6Tests.fs" />
-    <Compile Include="Step7Tests.fs" />
-    <Compile Include="Step8Tests.fs" />
+    <Compile Include="PrimitiveExprTests.fs" />
+    <Compile Include="FunctionEmissionTests.fs" />
+    <Compile Include="RecordTests.fs" />
+    <Compile Include="UnionMatchTests.fs" />
+    <Compile Include="TupleTests.fs" />
+    <Compile Include="OptionTests.fs" />
+    <Compile Include="ListTests.fs" />
+    <Compile Include="LibraryModeTests.fs" />
+    <Compile Include="StructuralEqualityTests.fs" />
+    <Compile Include="StructuralComparisonTests.fs" />
+    <Compile Include="StructuralFormatTests.fs" />
+    <Compile Include="MemberEmissionTests.fs" />
+    <Compile Include="ExceptionTests.fs" />
     <Compile Include="ArrayLoopTests.fs" />
     <Compile Include="UseTests.fs" />
     <Compile Include="ForInTests.fs" />
     <Compile Include="ClassEmitTests.fs" />
     <Compile Include="StructuralFormatRecipeTests.fs" />
     <Compile Include="PrintfHoleFormTests.fs" />
-    <Compile Include="PrintfPhase3Tests.fs" />
-    <Compile Include="PrintfPhase4Tests.fs" />
+    <Compile Include="StructuralPrinterTests.fs" />
+    <Compile Include="PrintfSpecifierTests.fs" />
     <Compile Include="FreeFnOverloadTests.fs" />
     <Compile Include="MemberOverloadTests.fs" />
     <Compile Include="TsManifestEnumTests.fs" />
@@ -59,7 +61,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />
     <ProjectReference Include="..\..\src\XParsec.FSharp.Codegen.Js\XParsec.FSharp.Codegen.Js.fsproj" />
-    <!-- The free-fn-overload erase test (Tier 2 item 9b) builds a synthetic provider
+    <!-- The free-fn-overload erase test builds a synthetic provider
          from an in-memory TS manifest via `Vesper.Ts.Manifest.Codec`/`Schema`. -->
     <ProjectReference Include="..\..\src\Vesper.Ts.Manifest.Schema\Vesper.Ts.Manifest.Schema.fsproj" />
     <!-- The OpsPlatformJs tests build the JS-TARGET layer-1 harvest through the

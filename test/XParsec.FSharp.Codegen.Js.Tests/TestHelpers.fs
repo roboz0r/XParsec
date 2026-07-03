@@ -226,7 +226,7 @@ let runJs (name: string) (input: string) : (int * string) option =
     runNode jsPath
     |> Option.map (fun (code, out) -> code, out.Replace("\r", "").Trim())
 
-// ─── TS-provider test scaffolding (shared by the R2–R5 provider tests) ─────────
+// ─── TS-provider test scaffolding (shared by the provider tests) ─────────
 
 /// The provider-stack one-liner: a TS-manifest provider layered over the standard
 /// JS-native provider (so the manifest's primitive/`int`/`string` argument types still

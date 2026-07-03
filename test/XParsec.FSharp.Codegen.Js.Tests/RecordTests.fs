@@ -1,4 +1,4 @@
-module XParsec.FSharp.Codegen.Js.Tests.Step3Tests
+module XParsec.FSharp.Codegen.Js.Tests.RecordTests
 
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
@@ -6,7 +6,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 [<Tests>]
 let tests =
     testList
-        "Codegen.Js Step3"
+        "Codegen.Js Records"
         [
             test "a record type emits a class with a positional constructor" {
                 Expect.equal
@@ -65,7 +65,7 @@ let tests =
 
             test "record construction + field-get executes (p.X = 7)" {
                 match
-                    runJs "step3-lit" "type Point = { X: int; Y: int }\nlet p = { X = 7; Y = 9 }\nprintfn \"%d\" p.X"
+                    runJs "record-lit" "type Point = { X: int; Y: int }\nlet p = { X = 7; Y = 9 }\nprintfn \"%d\" p.X"
                 with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
@@ -76,7 +76,7 @@ let tests =
             test "field arithmetic over a record executes (p.X + p.Y = 30)" {
                 match
                     runJs
-                        "step3-arith"
+                        "record-arith"
                         "type Point = { X: int; Y: int }\nlet p = { X = 10; Y = 20 }\nprintfn \"%d\" (p.X + p.Y)"
                 with
                 | None -> skiptest "node not found on PATH"
@@ -88,7 +88,7 @@ let tests =
             test "copy-update overrides one field and copies the rest (prints 99 then 1)" {
                 match
                     runJs
-                        "step3-clone"
+                        "record-clone"
                         ("type Point = { X: int; Y: int }\n"
                          + "let p = { X = 1; Y = 2 }\n"
                          + "let p2 = { p with Y = 99 }\n"
@@ -104,7 +104,7 @@ let tests =
             test "a record threaded through a function executes (mk + read = 5)" {
                 match
                     runJs
-                        "step3-fn"
+                        "record-fn"
                         ("type Point = { X: int; Y: int }\n"
                          + "let mk a b = { X = a; Y = b }\n"
                          + "let p = mk 2 3\n"

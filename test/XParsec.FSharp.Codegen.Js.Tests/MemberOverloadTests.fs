@@ -6,13 +6,13 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// Tier 2 item 9a (member overloads), consumer half. A TS method with N call
+// Member overloads, consumer half. A TS method with N call
 // signatures is expanded by the provider into N distinct keyed `ExternalMember`s
 // (`TsManifestProvider.expandMethod`), `TryLookupMembers` returns the full set, and
 // `UnificationInferOverload.pickBestOverload` selects by arity + argument type. This
 // pins that the selection RESOLVES end-to-end (front end + JS emit) and — unlike the
-// synthetic free-function grouping type (9b) — a real class's static member emits the
-// ordinary mangled `Calc_add` import, NOT an erased bare export.
+// synthetic free-function grouping type (see `FreeFnOverloadTests`) — a real class's
+// static member emits the ordinary mangled `Calc_add` import, NOT an erased bare export.
 
 /// A `calc` package whose `Calc.add` static method carries THREE overloads: arity-1
 /// `(float)`, arity-2 `(float, float)`, and arity-2 `(string, string)` — exercising

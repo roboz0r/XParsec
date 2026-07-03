@@ -43,7 +43,7 @@ let private renderFlat (ops: SinkOp list) (child: int -> string) (arg: int -> st
 // A minimal value model — exactly the shapes the recipe owns: a `Prim` leaf plus
 // the `Record`/`Union` forms that route through `recordRecipe`/`unionCaseRecipe`.
 // Tuple/list/atom grammar is NOT recipe-driven (no recipe form), so it stays in
-// `Step6Tests` rather than being re-modelled here.
+// `StructuralFormatTests` rather than being re-modelled here.
 type private V =
     | Prim of string
     | Record of (string * V) list
@@ -73,7 +73,7 @@ and private render (v: V) : string =
 // Each case: a label, the Vesper source whose `%A` we run, and the value model
 // the recipe renders to derive the expectation. Only recipe-owned shapes
 // (records, unions, options) live here — this test is the canonical owner of
-// their JS `%A` goldens; tuple/list/atom forms stay in `Step6Tests`.
+// their JS `%A` goldens; tuple/list/atom forms stay in `StructuralFormatTests`.
 let private cases: (string * string * V) list =
     [
         "record",

@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// Phase 0: `null` / `undefined` as first-class intrinsic types. A TS `T | null` /
+// `null` / `undefined` as first-class intrinsic types. A TS `T | null` /
 // `T | undefined` rides in as a `TyOr`/`FTOr` member; this pins that such a type
 // resolves through the provider, survives JS emit (no `PlatformTypes` reject), and
 // runs under Node round-tripping present / absent values.

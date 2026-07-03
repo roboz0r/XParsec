@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// R4a STEP 4 / R5 STEP 5 — the mitt full-fidelity GATE. A Vesper program drives mitt's
+// The mitt full-fidelity GATE. A Vesper program drives mitt's
 // COMPLETE public surface — the DEFAULT-exported generic factory `mitt<Events>()`, `on`,
 // `off`, `emit` WITH a payload, `emit` WITHOUT a payload (the conditional-fold overload),
 // and `all` — over a ≥2-key `Events` record with DIFFERENT payload types (`ping:int`,
@@ -15,7 +15,7 @@ open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 // vendored `mitt.mjs` under Node. Reads ONLY committed files (the golden manifest, the
 // vendored runtime, the program below); the Node extractor is NEVER run.
 //
-// R5: `all` is a full `Js.Map`, not reads-only. mitt's `all: Map<"*" | keyof Events, …>`
+// `all` is a full `Js.Map`, not reads-only. mitt's `all: Map<"*" | keyof Events, …>`
 // carries a `Map` ref homed to `es2015` (`Refs` table); with the es2015 pack STACKED
 // under mitt (`MittFixture.provider` / `stackTsMany [mitt; recorder; es2015]`) that homed
 // ref resolves as a real `Js.Map`, so a MEMBER CALL on it (`e.all.has("pong")`) types and
@@ -27,7 +27,7 @@ open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 // (the cell is accessed as `x.contents` but declared as a bare value) orthogonal to this
 // gate. The recorder proves each mitt call actually FIRED against the real runtime.
 //
-// ── walls status (was the R3 residue; now the gate) ──
+// ── resolution walls: status of each once-open issue ──
 //  1. UNANNOTATED `mitt()` leaves `Events` ungrounded. POLICY: annotation-required (an
 //     external generic factory with nothing to solve `Events` from is ungrounded on
 //     purpose, exactly as TS needs a use/`as` to infer it). Pinned by
@@ -46,7 +46,7 @@ open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 //
 // ── documented residual precision gap (NOT a wall — orthogonal, deferred by design) ──
 //  `undefined` is not yet a registered intrinsic type DISTINCT from `unit` (design
-//  §"`null`/`undefined` as JS-intrinsic types — step 0 OUTSTANDING"): a `unit`-typed
+//  §"`null`/`undefined` as JS-intrinsic types" — OUTSTANDING): a `unit`-typed
 //  event is wrongly ACCEPTED by the no-payload `emit` overload. The conditional-fold
 //  machinery is correct; the imprecision is undefined-vs-unit identity. Pinned in
 //  `UnannotatedMittTests`.
@@ -106,7 +106,7 @@ let private recorderRuntime =
 let private mittRuntimeSource = MittFixture.runtimeSource
 
 // es2015 is STACKED under mitt+recorder so mitt's `all: Map<…>` homed ref resolves as a
-// real `Js.Map` (Step 5) — a member call on `e.all` types and emits native `.has(`.
+// real `Js.Map` — a member call on `e.all` types and emits native `.has(`.
 let private mittProvider: IExternalSymbolProvider =
     stackTsMany [ MittFixture.manifest; recorderManifest; es2015Manifest ]
 
@@ -191,7 +191,7 @@ let tests =
                 Expect.isTrue (js.Contains ".emit(") (sprintf "expected native `.emit(`:\n%s" js)
                 Expect.isTrue (js.Contains ".off(") (sprintf "expected native `.off(`:\n%s" js)
 
-                // R5: the member call on the homed `Js.Map` `all` lowers to a native `.has(`.
+                // the member call on the homed `Js.Map` `all` lowers to a native `.has(`.
                 Expect.isTrue (js.Contains ".has(") (sprintf "expected the graduated `all` member call `.has(`:\n%s" js)
 
                 // ping observed 7 (emit-with-payload) and STILL 7 after off+emit(99) (off

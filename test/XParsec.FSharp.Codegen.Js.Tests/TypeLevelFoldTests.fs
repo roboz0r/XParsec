@@ -6,20 +6,20 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// R4a STEP 3 items 1–4 (TS provider): the front end GROUND-EVALUATES the carried
+// TS provider: the front end GROUND-EVALUATES the carried
 // TS type-level computations `keyof T`, `T[K]`, and `check extends E ? X : Y`. This
 // hand-built manifest is mitt-SHAPED — a generic event-bus interface whose `on`/`emit`
 // carry `<Key extends keyof Events>` with a FAITHFUL function-typed handler
 // `(Events[Key]) -> unit` (mitt's committed golden degrades the handler to the opaque
-// `__type`, which is a step-2 extractor gap, not a step-3 one) — so all four rules are
+// `__type`, which is an extractor-side gap, not a fold gap) — so all four rules are
 // pinned WITHOUT the extractor:
-//   • item 1 (keyof fold): `subscribe(key: keyof Events)` admits a member-name constant,
+//   • keyof fold: `subscribe(key: keyof Events)` admits a member-name constant,
 //     rejects a non-key naming the allowed set.
-//   • item 2 (method-typar grounding) + item 3 (T[K] fold): `on("ping", fun p -> …)`
+//   • method-typar grounding + T[K] fold: `on("ping", fun p -> …)`
 //     solves `Key := "ping"` from the syntactic constant and types `p` as `Events.ping`;
 //     `emit("ping", v)` types `v` as `Events["ping"]`. The per-key contrast (a `%d` body
 //     on `"ping"` vs `"pong"`) proves the payload is typed FROM the addressed member.
-//   • item 4 (conditional fold): a ground `check extends E ? X : Y` picks its branch by
+//   • conditional fold: a ground `check extends E ? X : Y` picks its branch by
 //     the directional `subsumes` membership test.
 
 // ─── Schema builders ────────────────────────────────────────────────────────
@@ -57,7 +57,7 @@ let private methodMem name (sigs: Schema.Signature list) : Schema.Member =
         Optional = false
     }
 
-// `subscribe(key: keyof Events): unit` — a bare `keyof` parameter (item 1).
+// `subscribe(key: keyof Events): unit` — a bare `keyof` parameter (keyof fold).
 let private subscribeSig: Schema.Signature =
     {
         TypeParams = 0
@@ -67,7 +67,7 @@ let private subscribeSig: Schema.Signature =
     }
 
 // `on<Key extends keyof Events>(type: Key, handler: (Events[Key]) -> unit): unit`
-// (items 2+3) with the wildcard overload `on(type: '*', handler: (unit)->unit): unit`
+// (method-typar grounding + T[K] fold) with the wildcard overload `on(type: '*', handler: (unit)->unit): unit`
 // so the call site is genuinely MULTI-candidate (the literal must select the typar arm).
 let private onKeyedSig: Schema.Signature =
     {
@@ -89,7 +89,7 @@ let private onWildcardSig: Schema.Signature =
         Returns = unitT
     }
 
-// `emit<Key extends keyof Events>(type: Key, event: Events[Key]): unit` (items 2+3),
+// `emit<Key extends keyof Events>(type: Key, event: Events[Key]): unit` (method-typar grounding + T[K] fold),
 // paired with a wildcard overload so the call is MULTI-candidate — mitt's `emit` is
 // likewise overloaded (keyed + no-payload), which is what routes a call through the
 // commit seam where the syntactic constant grounds `Key`.
@@ -109,7 +109,7 @@ let private emitWildcardSig: Schema.Signature =
         Returns = unitT
     }
 
-// Ground conditionals (item 4): the true branch (`string extends string ? int : bool`)
+// Ground conditionals (conditional fold): the true branch (`string extends string ? int : bool`)
 // and the false branch (`int extends string ? int : bool`).
 let private condTrueSig: Schema.Signature =
     {
@@ -193,7 +193,7 @@ let tests =
     testList
         "TypeLevelFold"
         [
-            // ── item 1: keyof fold via a bare `keyof Events` parameter ──
+            // ── keyof fold via a bare `keyof Events` parameter ──
             test "(keyof) a member-name constant admits into a keyof parameter" {
                 let errors = analyse "e.subscribe(\"ping\")"
                 Expect.isEmpty errors (sprintf "expected no errors, got:\n%s" (errorText errors))
@@ -207,10 +207,10 @@ let tests =
                 Expect.stringContains msg "pong" "the message names the allowed key 'pong'"
             }
 
-            // ── items 2+3: method-typar grounding + T[K] fold types the handler param ──
+            // ── method-typar grounding + T[K] fold types the handler param ──
             test "(on) the handler param is typed from the addressed member (ping:int)" {
-                // `Key := "ping"` (item 2) grounds `Events[Key]` to `int` (item 3), so a
-                // `%d` body type-checks.
+                // method-typar grounding solves `Key := "ping"`, then the T[K] fold grounds
+                // `Events[Key]` to `int`, so a `%d` body type-checks.
                 let errors = analyse "e.on(\"ping\", fun p -> printfn \"%d\" p)"
                 Expect.isEmpty errors (sprintf "expected p : int, got:\n%s" (errorText errors))
             }
@@ -225,7 +225,7 @@ let tests =
                 Expect.isEmpty errors (sprintf "expected p : string, got:\n%s" (errorText errors))
             }
 
-            // ── items 2+3: T[K] fold types the emit payload ──
+            // ── T[K] fold types the emit payload ──
             test "(emit) the payload is typed from the addressed member (ping:int)" {
                 let errors = analyse "e.emit(\"ping\", 5)"
                 Expect.isEmpty errors (sprintf "expected an int payload, got:\n%s" (errorText errors))
@@ -236,7 +236,7 @@ let tests =
                 Expect.isNonEmpty errors "a string payload for the int key 'ping' must error"
             }
 
-            // ── item 4: conditional fold picks the branch by `subsumes` membership ──
+            // ── conditional fold picks the branch by `subsumes` membership ──
             test "(conditional) the TRUE branch is selected when check subsumes extends" {
                 // `string extends string ? int : bool` folds to `int`.
                 Expect.isEmpty (analyse "e.cond(5)") "true-branch param folds to int"

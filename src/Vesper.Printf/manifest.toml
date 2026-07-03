@@ -68,7 +68,7 @@ inline-bodies-js = []
 # holes import `structuralFormat` from here. GENERATED from
 # `structural-printer.js.fs` (incl. surface-B width breaking) by the JS backend in library mode — the shape-keyed, Wadler-`Doc`-laid-out
 # successor to the hand-authored asset (regenerable via the codegen-js test suite,
-# `PrintfPhase3Tests`). It is NOT compiled
+# `StructuralPrinterTests`). It is NOT compiled
 # from the printf `.fsi` contract (printf is front-end special-cased, lowered to `Format`
 # nodes), so unlike Vesper.List it needs no `impl-js`/`inline-bodies-js` wiring — the source
 # is a standalone runtime-asset, distinct from the CLR `structural-printer.fs`

@@ -5,15 +5,15 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// R5 Step 5 — ★ the consumer GATE. A Vesper program CONSTRUCTS and DRIVES a real
+// The `Js.Map` consumer GATE. A Vesper program CONSTRUCTS and DRIVES a real
 // `Js.Map<string, int>` directly against the VENDORED es2015 ref pack
 // (`../ts-fixtures/es2015`, mounted under `Js`), emitted via Codegen.Js and RUN under
 // Node. `Map` is a Node GLOBAL: `new Map()`/`.set()`/`.get()`/`.has()`/`.size`/`.delete()`
 // run intrinsically, so NO runtime `.mjs` module is emitted and NO import appears.
 //
 // Iteration (`for … in` over a `Js.Map`, `Symbol.iterator`) is EXPLICITLY OUT of this
-// gate — it is the next burndown item (wiring TS iterables to the capability-interface
-// machinery is its own step). This gate drives only the direct member surface.
+// gate — wiring TS iterables to the capability-interface machinery is its own separate
+// concern. This gate drives only the direct member surface.
 //
 // The es2015 pack stacks over the JS-native provider (`stackTs es2015Manifest`), the
 // same shape `JsNamespaceTests` pins on a hand-built global manifest — this is the REAL

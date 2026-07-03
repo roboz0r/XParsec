@@ -6,11 +6,11 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// R4a STEP 4 — the two HONEST residues the mitt full-surface gate deliberately does NOT
+// The two HONEST residues the mitt full-surface gate deliberately does NOT
 // close, each pinned so a future regression (or a future closure) is visible:
 //   • Wall 1 — the annotation-required POLICY for the generic factory.
 //   • the undefined-vs-unit type-identity precision gap (the deferred `null`/`undefined`
-//     intrinsic step, orthogonal to the conditional-fold machinery).
+//     intrinsic support, orthogonal to the conditional-fold machinery).
 
 let private analyseErrors (input: string) : string list =
     analyseWith MittFixture.provider input |> List.map (fun d -> d.Message)
@@ -30,8 +30,8 @@ let tests =
                 // No annotation and no use to solve `Events` from → an unresolved TyVar. This
                 // is the DELIBERATE policy (an external generic factory carries nothing to
                 // infer its parameter from), not a bug to fix; it mirrors TS needing an
-                // annotation / `as` at such a site. If a future milestone infers `Events`
-                // from later uses, flip this pin.
+                // annotation / `as` at such a site. If later work infers `Events`
+                // from downstream uses, flip this pin.
                 let input = "let e = mitt()\nlet u = e.emit(\"x\", 1)\n"
                 Expect.isNonEmpty (analyseErrors input) "an unannotated mitt() must leave Events ungrounded"
             }
@@ -70,11 +70,11 @@ let tests =
             }
 
             test "KNOWN GAP: a unit-typed event is wrongly accepted by no-payload emit (undefined≠unit deferred)" {
-                // The precision limit of the deferred `null`/`undefined`-intrinsic step: `unit`
+                // The precision limit of the deferred `null`/`undefined`-intrinsic support: `unit`
                 // and `undefined` are not yet distinct types, so `undefined extends Events[Key]`
                 // wrongly holds for a `unit` payload. The conditional-fold machinery is correct;
-                // only the undefined-vs-unit identity is imprecise. Pinned as GAP — when the
-                // intrinsic step lands and this starts erroring, flip to `isNonEmpty`.
+                // only the undefined-vs-unit identity is imprecise. Pinned as GAP — when that
+                // intrinsic support lands and this starts erroring, flip to `isNonEmpty`.
                 let input =
                     String.concat
                         "\n"

@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// Enum support step 7b — the `TsManifestProvider` consumption arm that closes the
+// Enum support — the `TsManifestProvider` consumption arm that closes the
 // extractor's last stubbed enum case. A TS module exporting a NUMERIC and a STRING
 // enum is modelled by the provider as `ExternalTypeShape.Enum` (was `Opaque 0`, members
 // dropped). The front end must then (a) resolve the enum TYPE name to its nominal

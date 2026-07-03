@@ -1,4 +1,4 @@
-module XParsec.FSharp.Codegen.Js.Tests.Step2Tests
+module XParsec.FSharp.Codegen.Js.Tests.FunctionEmissionTests
 
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
@@ -6,7 +6,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 [<Tests>]
 let tests =
     testList
-        "Codegen.Js Step2"
+        "Codegen.Js Function Emission"
         [
             test "a module function emits one flat multi-arg arrow" {
                 Expect.equal
@@ -47,7 +47,7 @@ let tests =
             }
 
             test "a saturated curried call executes (add 2 3 = 5)" {
-                match runJs "step2-add" "let add x y = x + y\nprintfn \"%d\" (add 2 3)" with
+                match runJs "fn-add" "let add x y = x + y\nprintfn \"%d\" (add 2 3)" with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
@@ -55,7 +55,7 @@ let tests =
             }
 
             test "partial application executes (add 5 then 3 = 8)" {
-                match runJs "step2-partial" "let add x y = x + y\nlet add5 = add 5\nprintfn \"%d\" (add5 3)" with
+                match runJs "fn-partial" "let add x y = x + y\nlet add5 = add 5\nprintfn \"%d\" (add5 3)" with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
@@ -64,7 +64,7 @@ let tests =
 
             test "non-tail recursion executes (fact 5 = 120)" {
                 match
-                    runJs "step2-fact" "let rec fact n = if n = 0 then 1 else n * fact (n - 1)\nprintfn \"%d\" (fact 5)"
+                    runJs "fn-fact" "let rec fact n = if n = 0 then 1 else n * fact (n - 1)\nprintfn \"%d\" (fact 5)"
                 with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
@@ -75,9 +75,7 @@ let tests =
             test "self-tail recursion runs in constant stack (loop 1000000 = 42)" {
                 // Without the trampoline this overflows the JS call stack (RangeError).
                 match
-                    runJs
-                        "step2-loop"
-                        "let rec loop n = if n = 0 then 42 else loop (n - 1)\nprintfn \"%d\" (loop 1000000)"
+                    runJs "fn-loop" "let rec loop n = if n = 0 then 42 else loop (n - 1)\nprintfn \"%d\" (loop 1000000)"
                 with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
@@ -89,7 +87,7 @@ let tests =
                 // new `acc` reads the *old* `n`, so both must be captured before either is written back.
                 match
                     runJs
-                        "step2-sum"
+                        "fn-sum"
                         "let rec sum n acc = if n = 0 then acc else sum (n - 1) (acc + n)\nprintfn \"%d\" (sum 10 0)"
                 with
                 | None -> skiptest "node not found on PATH"

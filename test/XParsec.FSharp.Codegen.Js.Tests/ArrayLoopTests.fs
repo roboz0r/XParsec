@@ -10,7 +10,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // proven by emission (the lowering shape) plus Node execution (the behaviour).
 
 // A function whose body sums `1 .. n` with a `while` loop over two mutable locals —
-// the canonical loop+mutation shape this phase enables.
+// the canonical loop+mutation shape.
 let private sumToSrc =
     String.concat
         "\n"
@@ -78,7 +78,7 @@ let tests =
             }
 
             test "the `for i = 1 to 5` sum executes (1+2+3+4+5 = 15)" {
-                match runJs "phase2-forto-sum" forToSrc with
+                match runJs "arrayloop-forto-sum" forToSrc with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
@@ -95,7 +95,7 @@ let tests =
             }
 
             test "the `while`/mutable sum executes (1+2+3+4+5 = 15)" {
-                match runJs "phase2-while-sum" sumToSrc with
+                match runJs "arrayloop-while-sum" sumToSrc with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
@@ -118,7 +118,7 @@ let tests =
             }
 
             test "the array build+index+length+loop executes (10+20+30 = 60)" {
-                match runJs "phase2-array-sum" arraySrc with
+                match runJs "arrayloop-array-sum" arraySrc with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
@@ -143,7 +143,7 @@ let tests =
                 let src =
                     "let charAt (s: string) (i: int) = s.[i]\nprintfn \"%c\" (charAt \"hello\" 1)"
 
-                match runJs "phase2-string-index" src with
+                match runJs "arrayloop-string-index" src with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
@@ -194,7 +194,7 @@ let tests =
                             "printfn \"%d\" (f ())"
                         ]
 
-                match runJs "phase2-wildcard-let" src with
+                match runJs "arrayloop-wildcard-let" src with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)

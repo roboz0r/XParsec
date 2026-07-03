@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// Tier 2 item 9b Phase 2 — the JS-emit ERASE branch for a synthetic free-function-
+// The JS-emit ERASE branch for a synthetic free-function-
 // overload grouping type. A TS module `util` exporting an OVERLOADED free function
 // `format` is modelled by the provider as a synthetic erased type `Util` with `format`
 // as a static member (F# has no free-function overloading). A call `Util.format(x)` must

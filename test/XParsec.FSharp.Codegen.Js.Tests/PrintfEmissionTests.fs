@@ -15,7 +15,7 @@ let tests =
             }
 
             test "`printfn \"hi\"` compiles to ESM that prints `hi` under Node" {
-                let outDir = tmpDir "codegen-js-step0a"
+                let outDir = tmpDir "codegen-js-hello"
                 let jsPath = IO.Path.Combine(outDir, "hi.mjs")
 
                 let artifact =

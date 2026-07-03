@@ -1,19 +1,17 @@
-module XParsec.FSharp.Codegen.Js.Tests.PrintfPhase3Tests
+module XParsec.FSharp.Codegen.Js.Tests.StructuralPrinterTests
 
 open System
 open Expecto
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// The `%A` structural
-// formatter, authored as Vesper source (`structural-printer.js.fs`) and compiled by the
-// JS backend in library mode into the committed `Vesper.Printf.mjs` — retiring the
-// hand-authored runtime. The walker stays shape-keyed and FLAT-output (byte-parity with
-// the hand-authored version), proven two ways:
-//   * this file — the generator runs, exports `structuralFormat`, imports nothing, and
-//     the standalone module renders representative shapes correctly under Node;
-//   * the EXISTING suite — `Step6Tests`' `%A` cases + `StructuralFormatRecipeTests`'
-//     cross-target differential now materialise THIS generated `.mjs` (via `runtime-js`),
-//     so they are the end-to-end parity guardrail over real emitted unions/lists/records.
+// The `%A` structural formatter runtime module: authored as Vesper source
+// (`structural-printer.js.fs`) and compiled by the JS backend in library mode into the
+// committed `Vesper.Printf.mjs`. The walker is shape-keyed and FLAT-output; this file
+// pins the generated module in isolation (it exports `structuralFormat`, imports nothing,
+// and renders representative shapes correctly under Node) plus its Wadler width-breaking
+// pretty-print layout. The end-to-end parity over real emitted unions/lists/records —
+// which materialises THIS generated `.mjs` — lives in `StructuralFormatTests` (the `%A`
+// hole-lowering cases) and `StructuralFormatRecipeTests` (the cross-target differential).
 
 /// The generated `Vesper.Printf.mjs` source (deps-only provider, library mode).
 let private generated: Lazy<string> =
@@ -30,7 +28,7 @@ let private lf (s: string) : string = s.Replace("\r\n", "\n")
 [<Tests>]
 let tests =
     testList
-        "Codegen.Js Printf-Phase3"
+        "Codegen.Js Structural Printer (%A runtime module)"
         [
             test "the generated module exports `structuralFormat` and imports nothing" {
                 let src = generated.Value
@@ -86,7 +84,7 @@ let tests =
                         ]
 
                 match
-                    runNodeFiles "printf-js-phase3" [ "driver.mjs", driver; "Vesper.Printf.mjs", generated.Value ]
+                    runNodeFiles "structural-printer" [ "driver.mjs", driver; "Vesper.Printf.mjs", generated.Value ]
                 with
                 | None -> skiptest "node is not installed"
                 | Some(code, out) ->
@@ -114,12 +112,11 @@ let tests =
                         "primitives / unit / tuple / record / union forms / cons-list, all flat"
             }
 
-            // Surface B proper: the shared
-            // Wadler `Doc`/`render` width-breaking kernel. A `Group` lays out ALL-FLAT when
-            // its flat width fits from the current column, else ALL-BROKEN — its `Line`s
-            // become a newline + the active `Nest` indent. The expectations below are
+            // The shared Wadler `Doc`/`render` width-breaking kernel. A `Group` lays out
+            // ALL-FLAT when its flat width fits from the current column, else ALL-BROKEN — its
+            // `Line`s become a newline + the active `Nest` indent. The expectations below are
             // byte-identical to the CLR `PrintfDifferentialTests` goldens (record nest 2,
-            // tuple nest 1, list brackets on own lines nest 2), so JS `%NA` now matches CLR
+            // tuple nest 1, list brackets on own lines nest 2), so JS `%NA` matches CLR
             // `%NA` rather than collapsing to `%0A`.
             test "the layout breaks under a tight width budget (CLR parity)" {
                 let driver =
@@ -146,7 +143,9 @@ let tests =
                         ]
 
                 match
-                    runNodeFiles "printf-js-phase3-break" [ "driver.mjs", driver; "Vesper.Printf.mjs", generated.Value ]
+                    runNodeFiles
+                        "structural-printer-break"
+                        [ "driver.mjs", driver; "Vesper.Printf.mjs", generated.Value ]
                 with
                 | None -> skiptest "node is not installed"
                 | Some(code, out) ->

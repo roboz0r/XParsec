@@ -1,4 +1,4 @@
-module XParsec.FSharp.Codegen.Js.Tests.Step1Tests
+module XParsec.FSharp.Codegen.Js.Tests.PrimitiveExprTests
 
 open System
 open Expecto
@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 [<Tests>]
 let tests =
     testList
-        "Codegen.Js Step1"
+        "Codegen.Js Primitive Expressions"
         [
             test "int32 `+` emits the masked `| 0` template, operands parenthesised" {
                 Expect.equal
@@ -31,7 +31,7 @@ let tests =
             }
 
             test "int32 arithmetic executes (2 + 2 = 4)" {
-                match runJs "step1-add" "printfn \"%d\" (2 + 2)" with
+                match runJs "prim-add" "printfn \"%d\" (2 + 2)" with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
@@ -39,7 +39,7 @@ let tests =
             }
 
             test "int32 multiply wraps (Math.imul: 100000 * 100000 = 1410065408)" {
-                match runJs "step1-imul" "printfn \"%d\" (100000 * 100000)" with
+                match runJs "prim-imul" "printfn \"%d\" (100000 * 100000)" with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
@@ -47,17 +47,17 @@ let tests =
             }
 
             test "float arithmetic executes (1.5 + 2.0 = 3.5, `%f` defaults to 6 places)" {
-                match runJs "step1-float" "printfn \"%f\" (1.5 + 2.0)" with
+                match runJs "prim-float" "printfn \"%f\" (1.5 + 2.0)" with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
-                    // Phase 4 (Half B): `%f` now lowers to `toFixed(6)`, matching F#'s
+                    // `%f` lowers to `toFixed(6)`, matching F#'s
                     // default fixed-point precision (CLR `printfn "%f" 3.5` = "3.500000").
                     Expect.equal out "3.500000" "float add formatted at `%f`'s default 6 places"
             }
 
             test "int equality executes (2 = 2 → true)" {
-                match runJs "step1-eq" "printfn \"%b\" (2 = 2)" with
+                match runJs "prim-eq" "printfn \"%b\" (2 = 2)" with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
@@ -65,7 +65,7 @@ let tests =
             }
 
             test "conditional executes (if true then 1 else 2 → 1)" {
-                match runJs "step1-if" "printfn \"%d\" (if true then 1 else 2)" with
+                match runJs "prim-if" "printfn \"%d\" (if true then 1 else 2)" with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
@@ -73,7 +73,7 @@ let tests =
             }
 
             test "a `let` binding + reference executes (x = 2 + 3 → 5)" {
-                match runJs "step1-let" "let x = 2 + 3\nprintfn \"%d\" x" with
+                match runJs "prim-let" "let x = 2 + 3\nprintfn \"%d\" x" with
                 | None -> skiptest "node not found on PATH"
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)

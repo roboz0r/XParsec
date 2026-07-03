@@ -7,15 +7,15 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// Step 4 (TS provider) isolation fixtures, systematic-tests-first: a hand-built
+// TS-provider isolation fixtures, systematic-tests-first: a hand-built
 // GLOBAL ref-pack manifest (`Package = "es2015"`, an entry of
 // `TsGlobalHomes.globalLibHomes`) is MOUNTED under its Vesper-facing `Js` namespace
 // AND emits with NO `import` — the JS runtime provides its types intrinsically. A
 // NON-global control (`Package = "somepkg"`) pins that `Global` rides the HOME: the
 // mounting/no-import fires only for a global-pack home.
 //
-// These manifests are hand-built and collision-free — the REAL es2015 pack is
-// stacked in Step 5 (and has a ctor-merge collision that would throw on load), so
+// These manifests are hand-built and collision-free — the REAL es2015 pack (stacked
+// by the `Js.Map` / mitt gates) has a ctor-merge collision that would throw on load, so
 // nothing here runs Node; every assertion is on the emitted JS TEXT.
 
 let private unitT = named "unit"
@@ -59,7 +59,7 @@ let private somepkgManifest: Schema.PackageManifest =
 
 let private es2015Provider: IExternalSymbolProvider = stackTs es2015Manifest
 
-/// Package B (Step-1 refs-table shape): references `Widget` with `home = es2015`, so its
+/// Package B (refs-table shape): references `Widget` with `home = es2015`, so its
 /// homed identity must mint under the `Js` namespace (`Js.Widget`) — the same qualified
 /// name the mounted es2015 provider registers, letting the two resolve against each other.
 let private manifestB: Schema.PackageManifest =

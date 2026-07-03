@@ -6,10 +6,9 @@ open Expecto
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// Step 0b — V3 source maps over the working 0a slice. The `loc` threaded onto
-// each emitted `JsExpr` (from its `TExprG` node's `'tok`) lets the printer emit a
-// `.js.map` that resolves the generated `console.log` back to the `printfn`
-// call's source position. Done when that map ships and resolves.
+// V3 source maps. The `loc` threaded onto each emitted `JsExpr` (from its `TExprG`
+// node's `'tok`) lets the printer emit a `.js.map` that resolves the generated
+// `console.log` back to the `printfn` call's source position.
 
 /// Compile `input` with its own text as the source, so source-map emission is on.
 let private compileWithMap (input: string) (outputPath: string option) : JsArtifact =
@@ -67,7 +66,7 @@ let tests =
             }
 
             test "the `.js` and `.js.map` are written and Node still runs the `.js`" {
-                let outDir = tmpDir "codegen-js-step0b"
+                let outDir = tmpDir "codegen-js-sourcemap"
                 let jsPath = IO.Path.Combine(outDir, "hi.mjs")
                 let mapPath = jsPath + ".map"
 
