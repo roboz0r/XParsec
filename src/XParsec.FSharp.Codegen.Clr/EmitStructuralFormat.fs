@@ -72,12 +72,7 @@ module internal EmitStructuralFormat =
     /// `sink.<label>(name)` — a string-arg marker call (`Field(name)` /
     /// `BeginCase(name)`): push the sink, the literal name, `callvirt` the label
     /// entry.
-    let private sinkLabel
-        (b: IlBuilder)
-        (mk: string -> UserStringHandle)
-        (label: EntityHandle)
-        (name: string)
-        : unit =
+    let private sinkLabel (b: IlBuilder) (mk: string -> UserStringHandle) (label: EntityHandle) (name: string) : unit =
         b.Add(ILInstr.Ldarg 1)
         b.Add(ILInstr.Ldstr(mk name))
         b.Add(ILInstr.Callvirt(label, 2, 0))

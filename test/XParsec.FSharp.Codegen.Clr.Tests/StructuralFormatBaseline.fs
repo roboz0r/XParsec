@@ -98,6 +98,17 @@ module internal DocLayout =
             else
                 k :: interleaveComponents rest true
 
+    let buildTupleDoc (kids: Doc list) : Doc =
+        DocGroup(
+            DocCat
+                [
+                    DocText "("
+                    DocNest(1, DocCat(interleaveComponents kids false))
+                    DocText ")"
+                ],
+            false
+        )
+
     let rec containsRef (xs: obj list) (v: obj) : bool =
         match xs with
         | [] -> false
@@ -180,13 +191,12 @@ type FrameKind =
     | Root
     | Group
     | Nest
-    | CaseCollect
+    | Collect
 
 type Frame =
     {
         Kind: FrameKind
         NestIndent: int
-        Parens: bool
         mutable Kids: Doc list
     }
 
@@ -212,7 +222,6 @@ type RuntimeFormatState =
             {
                 Kind = Root
                 NestIndent = 0
-                Parens = false
                 Kids = []
             }
 
@@ -233,12 +242,11 @@ type RuntimeFormatState =
 
     member private this.Push(f: Frame) = this.Frames <- f :: this.Frames
 
-    member private this.PushKind(kind: FrameKind, indent: int, parens: bool) =
+    member private this.PushKind(kind: FrameKind, indent: int) =
         this.Push(
             {
                 Kind = kind
                 NestIndent = indent
-                Parens = parens
                 Kids = []
             }
         )
@@ -259,7 +267,7 @@ type RuntimeFormatState =
                 | Group -> DocGroup(inner, false)
                 | Nest -> DocNest(f.NestIndent, inner)
                 | Root
-                | CaseCollect -> inner
+                | Collect -> inner
 
             this.Add(wrapped)
         | [] -> ()
@@ -276,14 +284,14 @@ type RuntimeFormatState =
             }
             :: this.SemFrames
 
-        this.PushKind(Group, 0, false)
+        this.PushKind(Group, 0)
 
     member private this.FieldP(name: string) =
         match this.SemFrames with
         | rf :: _ ->
             if rf.Count = 0 then
                 this.Add(DocText("{ " + name + " = "))
-                this.PushKind(Nest, 2, false)
+                this.PushKind(Nest, 2)
             else
                 this.Add(DocText ";")
                 this.Add(DocLine " ")
@@ -318,7 +326,7 @@ type RuntimeFormatState =
             }
             :: this.SemFrames
 
-        this.PushKind(CaseCollect, 0, false)
+        this.PushKind(Collect, 0)
 
     member private this.ChildP(value: obj) =
         this.Dispatch(value)
@@ -350,43 +358,35 @@ type RuntimeFormatState =
                         | [ single ] -> single
                         | _ -> DocCat kids
 
-                    let payload =
-                        if cf.ChildAppShaped then DocGroup(child, true) else child
+                    let payload = if cf.ChildAppShaped then DocGroup(child, true) else child
 
                     DocGroup(DocCat [ DocText(cf.Name + " "); payload ], false)
-                | _ ->
-                    let tupleKids = DocLayout.interleaveComponents kids false
-
-                    let tuple =
-                        DocGroup(DocCat [ DocText "("; DocNest(1, DocCat tupleKids); DocText ")" ], false)
-
-                    DocGroup(DocCat [ DocText(cf.Name + " "); tuple ], false)
+                | _ -> DocGroup(DocCat [ DocText(cf.Name + " "); DocLayout.buildTupleDoc kids ], false)
 
             this.Add(caseDoc)
             this.LastAppShaped <- cf.Count >= 1
         | [] -> ()
 
     member private this.FormatTuple(t: ITuple) =
-        this.PushKind(Group, 0, false)
-        this.Add(DocText "(")
-        this.PushKind(Nest, 1, false)
+        this.PushKind(Collect, 0)
 
         for i in 0 .. t.Length - 1 do
-            if i > 0 then
-                this.Add(DocText ",")
-                this.Add(DocLine " ")
-
             this.Dispatch(t.[i])
 
-        this.PopWrap(Nest)
-        this.Add(DocText ")")
-        this.PopWrap(Group)
+        let kids =
+            match this.Frames with
+            | f :: fr ->
+                this.Frames <- fr
+                DocLayout.revOnto f.Kids []
+            | [] -> []
+
+        this.Add(DocLayout.buildTupleDoc kids)
         this.LastAppShaped <- false
 
     member private this.FormatEnumerable(xs: IEnumerable) =
-        this.PushKind(Group, 0, false)
+        this.PushKind(Group, 0)
         this.Add(DocText "[")
-        this.PushKind(Nest, 2, false)
+        this.PushKind(Nest, 2)
         this.Add(DocLine "")
         let mutable i = 0
         let mutable truncated = false
@@ -472,9 +472,9 @@ type RuntimeFormatState =
         member this.Text(s: string) = this.Add(DocText s)
         member this.Line() = this.Add(DocLine " ")
         member this.SoftBreak() = this.Add(DocLine "")
-        member this.BeginGroup() = this.PushKind(Group, 0, false)
+        member this.BeginGroup() = this.PushKind(Group, 0)
         member this.EndGroup() = this.PopWrap(Group)
-        member this.BeginNest(indent: int) = this.PushKind(Nest, indent, false)
+        member this.BeginNest(indent: int) = this.PushKind(Nest, indent)
         member this.EndNest() = this.PopWrap(Nest)
         member this.BeginRecord() = this.BeginRecordP()
         member this.Field(name: string) = this.FieldP(name)

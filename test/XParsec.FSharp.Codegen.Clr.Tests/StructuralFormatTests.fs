@@ -239,9 +239,7 @@ let tests =
                             "{ X = 1;\n  Y = \"a\" }"
                             "record breaks under the budget"
                     }
-                    test "nullary case is a bare identifier" {
-                        Expect.equal (flat (box SemNone)) "None" "None"
-                    }
+                    test "nullary case is a bare identifier" { Expect.equal (flat (box SemNone)) "None" "None" }
                     test "single atom payload does not parenthesise" {
                         Expect.equal (flat (box (SemSome(box 3)))) "Some 3" "Some 3"
                     }
@@ -261,7 +259,10 @@ let tests =
                         Expect.equal (flat (box (SemSome(box [ 1; 2 ])))) "Some [1; 2]" "Some [1; 2]"
                     }
                     test "single record payload does not parenthesise" {
-                        Expect.equal (flat (box (SemSome(box { PX = 1; PY = "a" })))) "Some { X = 1; Y = \"a\" }" "Some { X = 1; Y = \"a\" }"
+                        Expect.equal
+                            (flat (box (SemSome(box { PX = 1; PY = "a" }))))
+                            "Some { X = 1; Y = \"a\" }"
+                            "Some { X = 1; Y = \"a\" }"
                     }
                     test "two-field payload renders as a tuple" {
                         Expect.equal (flat (box (SemPair(box 1, box "a")))) "Pair (1, \"a\")" "Pair (1, \"a\")"
@@ -280,7 +281,13 @@ let tests =
                     }
                     test "nested record field does not clobber the outer label" {
                         Expect.equal
-                            (flat (box { BLabel = "a"; BInner = box { PX = 1; PY = "b" } }))
+                            (flat (
+                                box
+                                    {
+                                        BLabel = "a"
+                                        BInner = box { PX = 1; PY = "b" }
+                                    }
+                            ))
                             "{ Label = \"a\"; Inner = { X = 1; Y = \"b\" } }"
                             "outer Inner = label survives the nested record's first Field"
                     }
