@@ -137,6 +137,31 @@ let tests =
                     Expect.equal out "1" "x holds the bind-time snapshot, not the post-mutation value"
             }
 
+            test "a reassigned module-level `let mutable` emits `let` (not `const`) and runs" {
+                let src =
+                    String.concat "\n" [ "let mutable m = 1"; "let x = m"; "m <- 2"; "printfn \"%d\" x" ]
+
+                Expect.equal
+                    (emitJs src)
+                    "let m = 1;\nconst x = m;\n(m = 2);\nconsole.log(x);\n"
+                    "script-mode reassignable top-level binding"
+
+                match runJs "toplevel-mutable" src with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "1" "x snapshots m=1; the `let m` reassignment does not TypeError"
+            }
+
+            test "a reassigned module-level `let mutable` emits `export let` in library mode" {
+                let src = String.concat "\n" [ "let mutable m = 1"; "m <- 2" ]
+
+                Expect.equal
+                    (emitJsLibrary src)
+                    "export let m = 1;\n(m = 2);\n"
+                    "library-mode reassignable top-level binding"
+            }
+
             test "a generic intrinsic (array) is NOT flagged unrepresentable on JS" {
                 // Array shares `platform = None` with `decimal` but has arity >= 1, so
                 // `PlatformTypes` skips the platform-repr check. Any other failure is fine.

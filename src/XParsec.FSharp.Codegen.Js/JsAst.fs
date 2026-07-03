@@ -82,7 +82,10 @@ and [<RequireQualifiedAccess>] JsStatement =
     /// (a binder the body mutates via `Assignment`); an immutable binder stays `Const`.
     | Let of name: string * init: JsExpr
     /// `export const <name> = <init>;` — top-level binding in library compile mode.
-    | Export of name: string * init: JsExpr
+    /// `reassignable` selects `export let` for a binder the module later mutates
+    /// (`Assignment`), mirroring the script-mode `Let`/`Const` split; a `const` export
+    /// would make the later write a runtime `TypeError`.
+    | Export of name: string * init: JsExpr * reassignable: bool
     /// `import <default>, { <name> as <alias>, … } from "<source>";`. `defaultBinding`
     /// is the local name a TS DEFAULT export binds to (`None` for a named-only import);
     /// each `named` entry is an `(exportName, alias)` pair — STRUCTURE, rendered to the

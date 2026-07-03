@@ -233,10 +233,15 @@ module EmitJs =
         | [] -> None
         | t :: rest -> Some(List.fold (fun acc x -> JsExpr.Logical("&&", acc, x, ValueNone)) t rest)
 
-    /// Emit a top-level binding as `export const` (library) or `const` (script).
-    let private topLevelBinding (ctx: WalkCtx) (name: string) (init: JsExpr) : JsStatement =
+    /// Emit a top-level binding. `reassignable` (the binder is mutated elsewhere in the
+    /// module) selects the reassignable form — `export let` / `let` — over the default
+    /// `export const` / `const`, so a module-scope `let mutable` write is not an
+    /// assignment-to-const `TypeError`. Mirrors the nested `Let`/`Const` selection.
+    let private topLevelBinding (ctx: WalkCtx) (reassignable: bool) (name: string) (init: JsExpr) : JsStatement =
         if ctx.ExportTopLevel then
-            JsStatement.Export(name, init)
+            JsStatement.Export(name, init, reassignable)
+        elif reassignable then
+            JsStatement.Let(name, init)
         else
             JsStatement.Const(name, init)
 
@@ -1311,7 +1316,8 @@ module EmitJs =
             | [] -> body
             | _ -> nestUnaryArrows ValueNone allNames (JsFnBody.Expr body)
 
-        topLevelBinding ctx name init
+        // A member function is an arrow value, never reassigned → always `const`.
+        topLevelBinding ctx false name init
 
     /// Re-bind a member's receiver source-name binder (`m.ThisKey`) to JS `this` via a
     /// leading `const`, leaving the body's `TExpr.Var(thisKey)` references intact. Empty
@@ -1630,6 +1636,17 @@ module EmitJs =
         let memberDecls =
             [ for (typeName, m) in collected.Members -> emitMemberFn ctx typeName m ]
 
+        // A module binder mutated by a later module-level `Assignment` (a top-level
+        // `let mutable m … m <- e`) must emit as `let`/`export let`, not `const`.
+        let reassignedAtTop (k: NodeKey) =
+            lowered
+            |> List.exists (fun d ->
+                match d with
+                | TDeclG.Expression(e, _) -> isAssignedIn k e
+                | TDeclG.Let(_, value, _, _) -> isAssignedIn k value
+                | _ -> false
+            )
+
         let body =
             [
                 for decl in lowered do
@@ -1643,7 +1660,7 @@ module EmitJs =
                             | true, cf -> emitFlatModuleFn ctx k cf (locOf ctx (TastWalk.exprTok value))
                             | _ -> emitBound ctx k value
 
-                        topLevelBinding ctx (identName ctx.Source k) init
+                        topLevelBinding ctx (reassignedAtTop k) (identName ctx.Source k) init
                     | other -> failwithf "EmitJs: unsupported declaration %A" other
             ]
 

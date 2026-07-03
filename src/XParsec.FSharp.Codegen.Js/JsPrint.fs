@@ -236,7 +236,12 @@ module JsPrint =
         | JsStatement.Expression e -> expr e ++ text ";"
         | JsStatement.Const(name, init) -> text "const " ++ text name ++ text " = " ++ expr init ++ text ";"
         | JsStatement.Let(name, init) -> text "let " ++ text name ++ text " = " ++ expr init ++ text ";"
-        | JsStatement.Export(name, init) -> text "export const " ++ text name ++ text " = " ++ expr init ++ text ";"
+        | JsStatement.Export(name, init, reassignable) ->
+            text (if reassignable then "export let " else "export const ")
+            ++ text name
+            ++ text " = "
+            ++ expr init
+            ++ text ";"
         | JsStatement.Import(defaultBinding, named, source) ->
             // `import D from`, `import { a, b } from`, or `import D, { a, b } from` — a TS
             // default export binds positionally (no braces), named bindings ride the braces.
