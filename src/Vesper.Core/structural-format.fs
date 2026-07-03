@@ -6,8 +6,8 @@ namespace Vesper
 
 /// <summary>The declarative layout surface the synthesised
 /// <c>IStructuralFormattable.Format</c> body drives. Calls record tokens that the
-/// engine lays out group-by-group; <c>FormatChild</c>/<c>FormatArg</c> take
-/// <c>obj</c> (value children box once — fine on the <c>%A</c> heavy path).</summary>
+/// engine lays out group-by-group; <c>Child</c> takes <c>obj</c> (value children
+/// box once — fine on the <c>%A</c> heavy path).</summary>
 type IFormatSink =
     /// <summary>A literal run that never breaks (labels, punctuation, brackets).</summary>
     abstract member Text: s: string -> unit
@@ -23,14 +23,6 @@ type IFormatSink =
     abstract member BeginNest: indent: int -> unit
     /// <summary>Close the current indentation scope.</summary>
     abstract member EndNest: unit -> unit
-    /// <summary>Open a DU application (<c>Case payload</c>): parenthesised in argument position.</summary>
-    abstract member BeginApplication: unit -> unit
-    /// <summary>Close the current DU application.</summary>
-    abstract member EndApplication: unit -> unit
-    /// <summary>Recurse into a child in normal position (record field, element, component).</summary>
-    abstract member FormatChild: value: obj -> unit
-    /// <summary>Recurse into a child in DU-argument position (parenthesised if an application).</summary>
-    abstract member FormatArg: value: obj -> unit
     /// <summary>Open a record: the fields follow as <c>Field name</c> / <c>Child value</c> pairs.
     /// The layout policy (<c>{ F = ·; G = · }</c>, <c>+2</c> hang) lives in the sink, not the caller.</summary>
     abstract member BeginRecord: unit -> unit

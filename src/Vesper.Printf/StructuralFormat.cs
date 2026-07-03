@@ -122,7 +122,7 @@ public sealed class RuntimeFormatState : IFormatSink
     // The kind of an open layout scope. Root is the implicit outermost frame.
     // CaseCollect gathers a union case's payload child Docs so EndCase can pick the
     // nullary / single / tuple form from the observed count (popped by hand there).
-    private enum FrameKind { Root, Group, Nest, Application, CaseCollect }
+    private enum FrameKind { Root, Group, Nest, CaseCollect }
 
     // Bookkeeping for one open BeginRecord / BeginCase scope (the semantic protocol).
     // A record tracks its field count (first field opens `{ `, the rest prefix `;` +
@@ -152,9 +152,6 @@ public sealed class RuntimeFormatState : IFormatSink
     private readonly List<Frame> _frames = new();
     private readonly HashSet<object> _visited = new(ReferenceEqualityComparer.Instance);
     private int _depth;
-    // Set by FormatArg for the immediately-dispatched value; consumed by the first
-    // BeginApplication it produces (so only a top-level application parenthesizes).
-    private bool _argPending;
 
     // The semantic-frame stack for the BeginRecord / BeginCase protocol (top = last).
     private readonly List<SemFrame> _semFrames = new();
@@ -198,17 +195,6 @@ public sealed class RuntimeFormatState : IFormatSink
 
     /// <inheritdoc />
     public void EndNest() => PopWrap(FrameKind.Nest);
-
-    /// <inheritdoc />
-    public void BeginApplication()
-    {
-        bool parens = _argPending;
-        _argPending = false;
-        _frames.Add(new Frame(FrameKind.Application, 0, parens));
-    }
-
-    /// <inheritdoc />
-    public void EndApplication() => PopWrap(FrameKind.Application);
 
     // ---- the semantic protocol (BeginRecord/Field/BeginCase/Child/…) ----
     // The record/union layout policy that once lived in `StructuralFormatRecipe`
@@ -274,16 +260,19 @@ public sealed class RuntimeFormatState : IFormatSink
     /// <inheritdoc />
     public void Child(object? value)
     {
-        _argPending = false;
         Dispatch(value);
         // In a record the label was emitted at Field; here we only record, for a
         // case, the payload count and (for the single-payload arm) the child's
-        // application-shapedness.
-        SemFrame sf = _semFrames[_semFrames.Count - 1];
-        if (sf.IsCase)
+        // application-shapedness. At the top level (the `Print` entry) there is no open
+        // semantic frame, so this is a bare dispatch.
+        if (_semFrames.Count > 0)
         {
-            sf.Count++;
-            sf.ChildAppShaped = _lastAppShaped;
+            SemFrame sf = _semFrames[_semFrames.Count - 1];
+            if (sf.IsCase)
+            {
+                sf.Count++;
+                sf.ChildAppShaped = _lastAppShaped;
+            }
         }
     }
 
@@ -356,35 +345,10 @@ public sealed class RuntimeFormatState : IFormatSink
         Doc wrapped = f.Kind switch
         {
             FrameKind.Group => new DocGroup(inner, false),
-            FrameKind.Application => new DocGroup(inner, f.Parens),
             FrameKind.Nest => new DocNest(f.NestIndent, inner),
             _ => inner,
         };
         Add(wrapped);
-    }
-
-    /// <inheritdoc />
-    public void FormatChild(object? value)
-    {
-        _argPending = false;
-        Dispatch(value);
-    }
-
-    /// <inheritdoc />
-    public void FormatArg(object? value)
-    {
-        _argPending = true;
-        // finally so a throwing child (e.g. a user ToString in the fallback arm)
-        // can't strand _argPending=true onto an unrelated later value — matching
-        // Dispatch's own depth/visited cleanup.
-        try
-        {
-            Dispatch(value);
-        }
-        finally
-        {
-            _argPending = false;
-        }
     }
 
     /// <summary>Resolution order (reflection-free). Cycle + depth guard first,
@@ -435,8 +399,9 @@ public sealed class RuntimeFormatState : IFormatSink
             switch (value)
             {
                 case IStructuralFormattable structural:
-                    // Propagate arg position so the structural value's own
-                    // BeginApplication can parenthesize (only DUs open one).
+                    // The synthesised body drives the semantic protocol; a
+                    // payload-bearing case sets _lastAppShaped at its EndCase, which the
+                    // enclosing Child reads for single-payload parenthesisation.
                     structural.Format(this);
                     break;
 
@@ -502,7 +467,7 @@ public sealed class RuntimeFormatState : IFormatSink
                 Text(",");
                 Line();
             }
-            FormatChild(tuple[i]);
+            Dispatch(tuple[i]);
         }
         EndNest();
         Text(")");
@@ -538,7 +503,7 @@ public sealed class RuntimeFormatState : IFormatSink
                 Text("...");
                 break;
             }
-            FormatChild(item);
+            Dispatch(item);
             i++;
         }
         EndNest();
@@ -752,7 +717,7 @@ public static class StructuralPrinter
     public static string Print(object? value, int widthBudget, int sizeBudget = 10000)
     {
         var state = new RuntimeFormatState(widthBudget, sizeBudget);
-        state.FormatChild(value);
+        state.Child(value);
         return state.Finish();
     }
 }

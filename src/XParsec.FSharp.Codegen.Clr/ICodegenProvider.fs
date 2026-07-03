@@ -219,11 +219,12 @@ type FormatHandles =
     }
 
 /// The `Vesper.IFormatSink` member refs the synthesised `IStructuralFormattable.Format`
-/// body `callvirt`s. One handle per declarative layout
-/// primitive; the `Format` body interleaves them around the type's fields exactly
-/// as the hand-written `Point`/`Opt` impls do (`StructuralFormatTests.fs`). All are
-/// `instance void` on the `IFormatSink` interface — the sink builds a `Doc` tree and
-/// lays it out, so the synthesised IL stays straight-line.
+/// body `callvirt`s. One handle per layout primitive plus the semantic record/case
+/// ops; the `Format` body drives the semantic protocol (`BeginRecord; (Field; Child)×n;
+/// EndRecord` / `BeginCase; Child×k; EndCase`) exactly as the hand-written `Sem*` impls
+/// do (`StructuralFormatTests.fs`). All are `instance void` on the `IFormatSink`
+/// interface — the sink builds a `Doc` tree and lays it out, so the synthesised IL
+/// stays straight-line.
 type FormatSinkHandles =
     {
         /// `void Text(string)` — a literal run that never breaks.
@@ -237,12 +238,6 @@ type FormatSinkHandles =
         /// `void BeginNest(int)` — open an indent scope for broken lines.
         BeginNest: EntityHandle
         EndNest: EntityHandle
-        BeginApplication: EntityHandle
-        EndApplication: EntityHandle
-        /// `void FormatChild(object)` — recurse into a normal-position child.
-        FormatChild: EntityHandle
-        /// `void FormatArg(object)` — recurse into a DU-argument-position child.
-        FormatArg: EntityHandle
         /// `void BeginRecord()` — open a synthesised record frame.
         BeginRecord: EntityHandle
         /// `void Field(string)` — a record-field label marker; the value follows via `Child`.

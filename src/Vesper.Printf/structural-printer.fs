@@ -188,7 +188,6 @@ type FrameKind =
     | Root
     | Group
     | Nest
-    | Application
     | CaseCollect
 
 /// A Doc-building frame: it collects children; closing a group/nest pops and wraps.
@@ -227,9 +226,6 @@ type RuntimeFormatState =
     val mutable Depth: int
     /// The frame stack (top = head). Seeded with the Root frame.
     val mutable Frames: Frame list
-    /// Set by FormatArg for the immediately-dispatched value; consumed by the first
-    /// BeginApplication it produces (so only a top-level application parenthesizes).
-    val mutable ArgPending: bool
     /// The semantic-frame stack for the BeginRecord / BeginCase protocol (top = head).
     val mutable SemFrames: SemFrame list
     /// The application-shapedness of the value `Dispatch` most recently completed
@@ -260,7 +256,6 @@ type RuntimeFormatState =
             Size = printSize
             Depth = 0
             Frames = [ root ]
-            ArgPending = false
             SemFrames = []
             LastAppShaped = false
             Visited = []
@@ -300,7 +295,6 @@ type RuntimeFormatState =
             let wrapped =
                 match f.Kind with
                 | Group -> DocGroup(inner, false)
-                | Application -> DocGroup(inner, f.Parens)
                 | Nest -> DocNest(f.NestIndent, inner)
                 // `CaseCollect` is popped by hand in `EndCaseP`; this arm only keeps
                 // the match total and unwraps like `Root` if ever reached generically.
@@ -309,15 +303,6 @@ type RuntimeFormatState =
 
             this.Add(wrapped)
         | [] -> ()
-
-    member private this.FormatChildP(value: obj) =
-        this.ArgPending <- false
-        this.Dispatch(value)
-
-    member private this.FormatArgP(value: obj) =
-        this.ArgPending <- true
-        this.Dispatch(value)
-        this.ArgPending <- false
 
     // ---- the semantic protocol (BeginRecord/Field/BeginCase/Child/…) ----
     // The record/union layout policy that once lived in `StructuralFormatRecipe`
@@ -388,7 +373,6 @@ type RuntimeFormatState =
         this.PushKind(CaseCollect, 0, false)
 
     member private this.ChildP(value: obj) =
-        this.ArgPending <- false
         this.Dispatch(value)
         // In a record the label was already emitted at `Field`; here we only record,
         // for a case, the payload count and (for the single-payload arm) the child's
@@ -459,7 +443,7 @@ type RuntimeFormatState =
                 this.Add(DocText ",")
                 this.Add(DocLine " ")
 
-            this.FormatChildP(t.[i])
+            this.Dispatch(t.[i])
 
         this.PopWrap(Nest)
         this.Add(DocText ")")
@@ -491,7 +475,7 @@ type RuntimeFormatState =
                     this.Add(DocText "...")
                     truncated <- true
                 else
-                    this.FormatChildP(item)
+                    this.Dispatch(item)
                     i <- i + 1
 
         this.PopWrap(Nest)
@@ -540,8 +524,9 @@ type RuntimeFormatState =
     /// budget; composites don't (their leaf children do).
     member private this.DispatchInner(value: obj) =
         if value :? Vesper.IStructuralFormattable then
-            // Propagate arg position so the structural value's own BeginApplication
-            // can parenthesize (only DUs open one).
+            // The synthesised body drives the semantic protocol (BeginRecord / BeginCase
+            // / Child / …); a payload-bearing case sets `LastAppShaped` at its `EndCase`,
+            // which the enclosing `ChildP` reads for single-payload parenthesisation.
             (value :?> Vesper.IStructuralFormattable).Format(this :> Vesper.IFormatSink)
         elif value :? string then
             this.Size <- this.Size - 1
@@ -664,15 +649,6 @@ type RuntimeFormatState =
         member this.EndGroup() = this.PopWrap(Group)
         member this.BeginNest(indent: int) = this.PushKind(Nest, indent, false)
         member this.EndNest() = this.PopWrap(Nest)
-
-        member this.BeginApplication() =
-            let parens = this.ArgPending
-            this.ArgPending <- false
-            this.PushKind(Application, 0, parens)
-
-        member this.EndApplication() = this.PopWrap(Application)
-        member this.FormatChild(value: obj) = this.FormatChildP(value)
-        member this.FormatArg(value: obj) = this.FormatArgP(value)
         member this.BeginRecord() = this.BeginRecordP()
         member this.Field(name: string) = this.FieldP(name)
         member this.EndRecord() = this.EndRecordP()
@@ -690,7 +666,7 @@ type StructuralPrinter =
     /// render as `...`, the `%.NA` mode).
     static member Print(value: obj, widthBudget: int, sizeBudget: int) : string =
         let state = RuntimeFormatState(widthBudget, sizeBudget)
-        (state :> Vesper.IFormatSink).FormatChild(value)
+        (state :> Vesper.IFormatSink).Child(value)
         state.Finish()
 
     /// Render `value` with the default node budget (F#'s 10000 — plain `%A`).

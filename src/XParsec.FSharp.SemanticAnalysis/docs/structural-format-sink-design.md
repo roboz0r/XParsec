@@ -52,10 +52,14 @@ we are not doing two things at once.
 
 ## The extended surface
 
-Layout ops — **unchanged**, for custom implementors, who thereby pin their own
-layout (their choice, documented): `Text`, `Line`, `SoftBreak`,
-`BeginGroup`/`EndGroup`, `BeginNest`/`EndNest`,
-`BeginApplication`/`EndApplication`, `FormatChild(obj)`, `FormatArg(obj)`.
+Layout ops — the primitive layout vocabulary, for custom implementors who thereby
+pin their own layout (their choice, documented): `Text`, `Line`, `SoftBreak`,
+`BeginGroup`/`EndGroup`, `BeginNest`/`EndNest`. The old DU-application recursion
+entries (`BeginApplication`/`EndApplication`, `FormatChild(obj)`, `FormatArg(obj)`)
+were **retired in Phase C**: `Child` is now the sole recursion entry, and a
+record/case decides its own parenthesisation semantically (from the enclosing frame
++ the child's application-shapedness), so custom implementors no longer need — or
+have — a separate arg-position recursion op.
 
 Semantic ops — the only thing synthesised bodies call:
 
@@ -218,13 +222,25 @@ regen).**
 - **Gate:** full solution build; `%A` corpus byte-identical; JS differential test
   green.
 
-**Phase C — retire `FormatChild`/`FormatArg` (second breaking change, isolated).**
+**Phase C — retire the DU-application recursion vocabulary (DONE — full cascade).**
 
-- Decide first (this is the `FormatArg`-fate open question): keep the layout
-  recursion entries for custom implementors, or retire them now while breakage
-  is still free. If retiring: drop them from `structural-format.fsi/.fs`, from
-  `RuntimeFormatState` + `StructuralFormatBaseline`, and from `FormatSinkHandles`
-  + the `ClrRecipes` build block.
+Decided: retire, while breakage was still free. Dropped `FormatChild` / `FormatArg` /
+`BeginApplication` / `EndApplication` from `structural-format.fsi/.fs`, from all three
+sinks (`RuntimeFormatState`, the C# `StructuralFormat.cs`, `StructuralFormatBaseline`),
+and from `FormatSinkHandles` + the `ClrRecipes` mint block. Everything dead behind them
+went with them: the `ArgPending` field, `FormatArgP`/`FormatChildP`, the `Application`
+`FrameKind` case (and its `PopWrap` arm), and the `FormatChild`/`FormatArg` bodies.
+
+- The two recursion paths were kept distinct: `FormatTuple`/`FormatEnumerable` recurse
+  into their elements via a bare `Dispatch` — a tuple/list element is *not* a case payload,
+  so it must not touch the semantic `SemFrames` (no case-count bump, no `LastAppShaped`
+  reset from the element). The interface `Child` (`ChildP`) *does* update the case frame.
+  `Child` is the sole recursion entry; `Print` enters through it too (empty `SemFrames` at
+  the top level ⇒ a bare dispatch).
+- The committed `Vesper.Core.dll` ref was regenerated (`REGEN_VESPER_CORE_REF=1`) for the
+  shrunk interface; the in-sync guard test bootstraps against the freshly backend-compiled
+  Core, so the regen is decoupled from the C# `Vesper.Printf` build. `%A` output stays
+  byte-identical.
 - **Gate:** same as B, in its own commit.
 
 **JS:** nothing in A–C — the central walker is already semantic; the differential

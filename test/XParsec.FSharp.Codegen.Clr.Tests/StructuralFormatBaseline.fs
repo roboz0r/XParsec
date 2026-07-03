@@ -180,7 +180,6 @@ type FrameKind =
     | Root
     | Group
     | Nest
-    | Application
     | CaseCollect
 
 type Frame =
@@ -204,7 +203,6 @@ type RuntimeFormatState =
     val mutable Size: int
     val mutable Depth: int
     val mutable Frames: Frame list
-    val mutable ArgPending: bool
     val mutable SemFrames: SemFrame list
     val mutable LastAppShaped: bool
     val mutable Visited: obj list
@@ -223,7 +221,6 @@ type RuntimeFormatState =
             Size = printSize
             Depth = 0
             Frames = [ root ]
-            ArgPending = false
             SemFrames = []
             LastAppShaped = false
             Visited = []
@@ -260,22 +257,12 @@ type RuntimeFormatState =
             let wrapped =
                 match f.Kind with
                 | Group -> DocGroup(inner, false)
-                | Application -> DocGroup(inner, f.Parens)
                 | Nest -> DocNest(f.NestIndent, inner)
                 | Root
                 | CaseCollect -> inner
 
             this.Add(wrapped)
         | [] -> ()
-
-    member private this.FormatChildP(value: obj) =
-        this.ArgPending <- false
-        this.Dispatch(value)
-
-    member private this.FormatArgP(value: obj) =
-        this.ArgPending <- true
-        this.Dispatch(value)
-        this.ArgPending <- false
 
     // ---- the semantic protocol (mirror of Vesper.Printf/structural-printer.fs) ----
 
@@ -334,7 +321,6 @@ type RuntimeFormatState =
         this.PushKind(CaseCollect, 0, false)
 
     member private this.ChildP(value: obj) =
-        this.ArgPending <- false
         this.Dispatch(value)
 
         match this.SemFrames with
@@ -390,7 +376,7 @@ type RuntimeFormatState =
                 this.Add(DocText ",")
                 this.Add(DocLine " ")
 
-            this.FormatChildP(t.[i])
+            this.Dispatch(t.[i])
 
         this.PopWrap(Nest)
         this.Add(DocText ")")
@@ -415,7 +401,7 @@ type RuntimeFormatState =
                     this.Add(DocText "...")
                     truncated <- true
                 else
-                    this.FormatChildP(item)
+                    this.Dispatch(item)
                     i <- i + 1
 
         this.PopWrap(Nest)
@@ -490,15 +476,6 @@ type RuntimeFormatState =
         member this.EndGroup() = this.PopWrap(Group)
         member this.BeginNest(indent: int) = this.PushKind(Nest, indent, false)
         member this.EndNest() = this.PopWrap(Nest)
-
-        member this.BeginApplication() =
-            let parens = this.ArgPending
-            this.ArgPending <- false
-            this.PushKind(Application, 0, parens)
-
-        member this.EndApplication() = this.PopWrap(Application)
-        member this.FormatChild(value: obj) = this.FormatChildP(value)
-        member this.FormatArg(value: obj) = this.FormatArgP(value)
         member this.BeginRecord() = this.BeginRecordP()
         member this.Field(name: string) = this.FieldP(name)
         member this.EndRecord() = this.EndRecordP()
@@ -510,7 +487,7 @@ type StructuralPrinter =
 
     static member Print(value: obj, widthBudget: int, sizeBudget: int) : string =
         let state = RuntimeFormatState(widthBudget, sizeBudget)
-        (state :> Vesper.IFormatSink).FormatChild(value)
+        (state :> Vesper.IFormatSink).Child(value)
         state.Finish()
 
     static member Print(value: obj, widthBudget: int) : string =

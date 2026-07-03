@@ -19,14 +19,6 @@ type IFormatSink =
     abstract member BeginNest: indent: int -> unit
     /// <summary>Close the current indentation scope.</summary>
     abstract member EndNest: unit -> unit
-    /// <summary>Open a DU application (<c>Case payload</c>): parenthesised in argument position.</summary>
-    abstract member BeginApplication: unit -> unit
-    /// <summary>Close the current DU application.</summary>
-    abstract member EndApplication: unit -> unit
-    /// <summary>Recurse into a child in normal position (record field, element, component).</summary>
-    abstract member FormatChild: value: obj -> unit
-    /// <summary>Recurse into a child in DU-argument position (parenthesised if an application).</summary>
-    abstract member FormatArg: value: obj -> unit
     /// <summary>Open a record: the fields follow as <c>Field name</c> / <c>Child value</c> pairs.</summary>
     abstract member BeginRecord: unit -> unit
     /// <summary>Mark the next field's label; its value arrives in the following <c>Child</c>.</summary>

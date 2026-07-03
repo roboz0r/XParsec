@@ -12,7 +12,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //
 // These drive the **Vesper-compiled** `StructuralPrinter` (`structural-printer.fs`)
 // via reflection (`structuralPrint` / `structuralPrintSized` in `TestHelpers`), not
-// the C# `Vesper.StructuralPrinter` that fsc would bind here. The `Point`/`Opt`
+// the C# `Vesper.StructuralPrinter` that fsc would bind here. The `Sem*`
 // `IStructuralFormattable` impls still bind the Core interfaces at compile time;
 // only the engine entry point is the self-hosted one.
 
@@ -22,48 +22,10 @@ let private flat (v: obj) = structuralPrint v 80
 /// Force breaking with a tiny budget.
 let private narrow (v: obj) = structuralPrint v 5
 
-// A record with a hand-written Format: `{ X = <int>; Y = <string> }`.
-type Point =
-    {
-        X: int
-        Y: string
-    }
-
-    interface IStructuralFormattable with
-        member this.Format(sink: IFormatSink) =
-            sink.BeginGroup()
-            sink.Text("{ X = ")
-            sink.BeginNest(2)
-            sink.FormatChild(box this.X)
-            sink.Text(";")
-            sink.Line()
-            sink.Text("Y = ")
-            sink.FormatChild(this.Y)
-            sink.EndNest()
-            sink.Text(" }")
-            sink.EndGroup()
-
-// An option-shaped DU: `None` / `Some <payload>`. The payload is rendered in
-// argument position (`FormatArg`), so a nested `Some` parenthesizes but a
-// negative literal (a single atom token) does not.
-type Opt =
-    | None0
-    | Some0 of obj
-
-    interface IStructuralFormattable with
-        member this.Format(sink: IFormatSink) =
-            match this with
-            | None0 -> sink.Text("None")
-            | Some0 v ->
-                sink.BeginApplication()
-                sink.Text("Some ")
-                sink.FormatArg(v)
-                sink.EndApplication()
-
 // ---- the semantic protocol (BeginRecord/Field/BeginCase/Child) ----
-// These hand-written impls drive the NEW sink members directly (the emitter does
-// not yet emit them, so this is the only exercise of that path in Phase A). The
-// sink reconstructs the same `{ F = ·; G = · }` / `Case ·` forms the layout ops do.
+// These hand-written impls drive the sink's semantic members directly — the only
+// recursion vocabulary a `Format` body has (the layout-op recursion entries were
+// retired in Phase C). The sink reconstructs the `{ F = ·; G = · }` / `Case ·` forms.
 
 // A record driven semantically: `Field name` marks each label, `Child` supplies
 // the value. The sink owns the `{ … }` / `+2` hang policy.
@@ -215,33 +177,6 @@ let tests =
                 ]
 
             testList
-                "structural"
-                [
-                    test "record flat" {
-                        Expect.equal (flat (box { X = 1; Y = "a" })) "{ X = 1; Y = \"a\" }" "record flat"
-                    }
-                    test "record broken" {
-                        Expect.equal
-                            (narrow (box { X = 1; Y = "a" }))
-                            "{ X = 1;\n  Y = \"a\" }"
-                            "record breaks under the budget"
-                    }
-                    test "DU no parens for simple payload" {
-                        Expect.equal (flat (box (Some0(box 3)))) "Some 3" "Some 3"
-                    }
-                    test "DU parenthesizes a nested application" {
-                        Expect.equal (flat (box (Some0(box (Some0(box 3)))))) "Some (Some 3)" "Some (Some 3)"
-                    }
-                    test "DU does NOT parenthesize a negative literal" {
-                        Expect.equal
-                            (flat (box (Some0(box -3))))
-                            "Some -3"
-                            "Some -3 (adjacent minus lexes as a literal)"
-                    }
-                    test "nullary DU case" { Expect.equal (flat (box None0)) "None" "None" }
-                ]
-
-            testList
                 "policy"
                 [
                     test "width 0 never breaks" {
@@ -298,11 +233,23 @@ let tests =
                     test "record renders like the layout ops" {
                         Expect.equal (flat (box { PX = 1; PY = "a" })) "{ X = 1; Y = \"a\" }" "{ X = 1; Y = \"a\" }"
                     }
+                    test "record breaks under the budget" {
+                        Expect.equal
+                            (narrow (box { PX = 1; PY = "a" }))
+                            "{ X = 1;\n  Y = \"a\" }"
+                            "record breaks under the budget"
+                    }
                     test "nullary case is a bare identifier" {
                         Expect.equal (flat (box SemNone)) "None" "None"
                     }
                     test "single atom payload does not parenthesise" {
                         Expect.equal (flat (box (SemSome(box 3)))) "Some 3" "Some 3"
+                    }
+                    test "single negative-literal payload does not parenthesise" {
+                        Expect.equal
+                            (flat (box (SemSome(box -3))))
+                            "Some -3"
+                            "Some -3 (adjacent minus lexes as a literal)"
                     }
                     test "single case payload parenthesises (application-shaped)" {
                         Expect.equal (flat (box (SemSome(box (SemSome(box 3)))))) "Some (Some 3)" "Some (Some 3)"
