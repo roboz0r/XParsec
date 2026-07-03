@@ -10,6 +10,8 @@
 /// THROW: a degraded type is meaningful; a half-loaded program is not.
 module Vesper.Ts.Extractor.Diagnostics
 
+open Fable.Core
+
 open TypeScript
 open Vesper.Ts.Manifest
 
@@ -25,7 +27,17 @@ open Vesper.Ts.Extractor.TsInterop
 type MapCtx =
     {
         Checker: Ts.TypeChecker
+        /// The whole program — the ORACLE for a source file's ORIGIN
+        /// (`isSourceFileDefaultLibrary` / `isSourceFileFromExternalLibrary`), which
+        /// homes a foreign named reference into the refs table. The checker alone
+        /// cannot answer origin; hence it rides here alongside it.
+        Program: Ts.Program
         Diags: ResizeArray<Schema.Diagnostic>
+        /// The foreign-reference accumulator (the `TypeRef`/`AssemblyRef` analog),
+        /// filled as `mapType` emits each foreign `Named` and DEDUPED by bare name at
+        /// drain (`drainRefs`). A shared mutable buffer, like `Diags` — single-threaded
+        /// Node makes it safe; created once per extraction and threaded through the walk.
+        Refs: ResizeArray<string * Schema.RefEntry>
         /// Declaring-axis typar scope: the enclosing type's typars for a member,
         /// or a FREE FUNCTION's own typars (its single index space).
         DeclaringEnv: Ts.Symbol list
@@ -35,10 +47,17 @@ type MapCtx =
     }
 
     /// The walk root: empty typar axes (per-export arms seed `DeclaringEnv`).
-    static member Root (checker: Ts.TypeChecker) (diags: ResizeArray<Schema.Diagnostic>) : MapCtx =
+    static member Root
+        (checker: Ts.TypeChecker)
+        (program: Ts.Program)
+        (diags: ResizeArray<Schema.Diagnostic>)
+        (refs: ResizeArray<string * Schema.RefEntry>)
+        : MapCtx =
         {
             Checker = checker
+            Program = program
             Diags = diags
+            Refs = refs
             DeclaringEnv = []
             MethodEnv = []
         }
@@ -104,3 +123,124 @@ let drainDiagnostics (baseDir: string) (diags: ResizeArray<Schema.Diagnostic>) :
     )
     |> List.ofSeq
     |> List.distinctBy (fun d -> d.Code, d.Symbol, d.Span)
+
+// ─── foreign-reference classification (home + kind + arity) ────────────────────
+//
+// Every foreign `Named` the encoder emits records its IDENTITY — home + kind + arity —
+// so the provider can re-mint a HOMED `FTClass`/abbrev. IDENTITY ONLY: never the
+// foreign type's shape/members (the staleness trap the design forbids). The
+// classification is RESILIENT (the standing extractor rule): a symbol whose home
+// cannot be determined — an intrinsic with no declaration (`symbol`, `never`,
+// `unknown`), or a LOCAL type declared in the package under extraction — is simply
+// NOT recorded (a LOCAL type rides the own-registry path; homing it would be wrong).
+// Nothing here EVALUATES a type (no `getConstraint`, no keyof-fold).
+
+/// The referenced type's HOME:
+///   • declared in a DEFAULT-LIBRARY source file → the reserved ES-core home
+///     `"es2015"` (the plan flattens TS's `lib.es*` version grouping into one home; a
+///     finer lib-file→home split is a later tranche — do not over-engineer it here);
+///   • declared in an EXTERNAL library (a `node_modules` package) → that package's
+///     specifier (its own `package.json`'s `name`, nearest walking up from the decl);
+///   • otherwise LOCAL (declared in the package being extracted) → `None`, no ref.
+/// Origin is read off the symbol's DECLARATION source file via the program oracle,
+/// never a numeric flag.
+let private classifyHome (ctx: MapCtx) (sym: Ts.Symbol) : string option =
+    match tryDeclOf sym with
+    | None -> None // an intrinsic type has no declaration → not a foreign nominal ref
+    | Some decl ->
+        let sf = decl.getSourceFile ()
+
+        if ctx.Program.isSourceFileDefaultLibrary sf then
+            Some "es2015"
+        elif ctx.Program.isSourceFileFromExternalLibrary sf then
+            // Nearest `package.json` name walking up from the declaration's file — the
+            // external package's own manifest sits closest (mirrors `packageVersionOf`'s
+            // walk). A package.json missing a `name` degrades to `None` (no ref recorded).
+            let rec walk (dir: string) : string option =
+                let pj = pathJoin dir "package.json"
+
+                if existsSync pj then
+                    jsonNameField (JS.JSON.parse (readFileSyncUtf8 pj "utf8"))
+                else
+                    let parent = pathDirname dir
+
+                    if parent = dir then None else walk parent
+
+            walk (pathDirname sf.fileName)
+        else
+            None // LOCAL: rides the own-registry path
+
+/// The referenced type's KIND, mirroring what its home manifest's export arm would
+/// emit (so the provider's re-mint dispatch matches). Classified by the SAME
+/// `SymbolFlags` named-constant predicates the export arms use (never raw numerics):
+///   • `Class` flag → `Class`; `Enum` → `Enum`; `TypeAlias` → `Alias`;
+///   • `Interface` flag → `Interface`, UNLESS the symbol ALSO carries a VALUE meaning
+///     (`SymbolFlags.Value`) — a class-like FUSED pair (`interface Map<K,V>` +
+///     `declare var Map: MapConstructor`) is `new`-able and mints an `FTClass`, so it
+///     is a `Class` at the seam, distinct from a pure type-only interface.
+/// A symbol that is neither a type nor a class-like value (a bare value reached in a
+/// type position) yields `None` — not a nominal type reference.
+let private classifyKind (sym: Ts.Symbol) : Schema.RefKind option =
+    let flags = sym.getFlags ()
+
+    if hasFlag flags Ts.SymbolFlags.Class then
+        Some Schema.RefKind.Class
+    elif hasFlag flags Ts.SymbolFlags.Enum then
+        Some Schema.RefKind.Enum
+    elif hasFlag flags Ts.SymbolFlags.TypeAlias then
+        Some Schema.RefKind.Alias
+    elif hasFlag flags Ts.SymbolFlags.Interface then
+        if hasFlag flags Ts.SymbolFlags.Value then
+            Some Schema.RefKind.Class
+        else
+            Some Schema.RefKind.Interface
+    else
+        None
+
+/// The referenced type's DECLARED generic arity: the MAX type-parameter count over
+/// the symbol's declarations, read SYNTACTICALLY off each declaration node's effective
+/// type-parameter list. The max handles a class-like fused pair whose value-side
+/// (`declare var Map`) declares NO type params while its type-side (`interface
+/// Map<K,V>`) declares two — the interface's count is the real arity. Never
+/// `getConstraint()` (it EVALUATES) nor the declared type (avoid resolving).
+let private refArity (sym: Ts.Symbol) : int =
+    match sym.declarations with
+    | Some ds when ds.Count > 0 ->
+        ds
+        |> Seq.map (fun d -> (ts.getEffectiveTypeParameterDeclarations (unbox d)).Count)
+        |> Seq.max
+    | _ -> 0
+
+/// Record a foreign named reference's identity in the refs accumulator. `name` is the
+/// BARE name carried in the emitted `Named` node (the refs key); `sym` is the
+/// referenced type's symbol (the generic-instantiation target, or a bare nominal's own
+/// symbol). Follows a re-export alias to the REAL symbol whose declarations home it.
+/// Degrades silently (records nothing) for a non-homeable symbol — never throws.
+let recordForeignRef (ctx: MapCtx) (name: string) (sym: Ts.Symbol) : unit =
+    let resolved =
+        if hasFlag (sym.getFlags ()) Ts.SymbolFlags.Alias then
+            ctx.Checker.getAliasedSymbol sym
+        else
+            sym
+
+    match classifyHome ctx resolved with
+    | None -> ()
+    | Some home ->
+        match classifyKind resolved with
+        | None -> ()
+        | Some kind ->
+            ctx.Refs.Add(
+                name,
+                {
+                    Home = home
+                    Kind = kind
+                    Arity = refArity resolved
+                }
+            )
+
+/// Drain the accumulated foreign refs into the manifest table: DEDUPE by bare name
+/// (the same foreign type referenced N times → ONE entry) keeping FIRST-SEEN order, so
+/// the golden stays deterministic (the walk order is deterministic). A name recurs with
+/// the same identity, so keeping the first occurrence is lossless.
+let drainRefs (refs: ResizeArray<string * Schema.RefEntry>) : (string * Schema.RefEntry) list =
+    refs |> List.ofSeq |> List.distinctBy fst

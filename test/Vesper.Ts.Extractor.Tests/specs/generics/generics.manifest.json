@@ -186,5 +186,13 @@
       "heritage": []
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "refs": [
+    {
+      "name": "Array",
+      "home": "es2015",
+      "kind": "class",
+      "arity": 1
+    }
+  ]
 }

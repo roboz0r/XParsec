@@ -51,7 +51,8 @@ let extractFile (dtsPath: string) (packageName: string) : Schema.PackageManifest
     | Some sf ->
         let moduleSym = moduleSymbolOf checker sf dtsPath
         let diags = ResizeArray<Schema.Diagnostic>()
-        let exports = extractModuleExports checker diags moduleSym
+        let refs = ResizeArray<string * Schema.RefEntry>()
+        let exports = extractModuleExports checker program diags refs moduleSym
 
         {
             SchemaVersion = Schema.SchemaVersion
@@ -65,11 +66,10 @@ let extractFile (dtsPath: string) (packageName: string) : Schema.PackageManifest
             // degraded + diagnosed rather than aborting the extraction. Spans are
             // relativized against the `.d.ts`'s directory so the manifest is portable.
             Diagnostics = drainDiagnostics (pathDirname dtsPath) diags
-            // TODO(refs-table): the foreign-reference classification (home + kind + arity
-            // from `SymbolFlags` / `program.isSourceFileDefaultLibrary`) is the Fable
-            // follow-on dispatch; until it lands, no foreign refs are recorded (an empty
-            // table is codec-omitted, so the golden stays byte-identical).
-            Refs = []
+            // Foreign named references homed at extraction (identity only): a
+            // default-lib type → `es2015`, an external package → its specifier, a LOCAL
+            // type → no entry. Deduped by bare name; empty stays codec-omitted.
+            Refs = drainRefs refs
         }
 
 /// The package version stamp (item 18). Preference order:
@@ -159,7 +159,8 @@ let extractPackage (specifier: string) (resolveFromDir: string) (packageName: st
 
             let moduleSym = moduleSymbolOf checker sf resolvedFileName
             let diags = ResizeArray<Schema.Diagnostic>()
-            let exports = extractModuleExports checker diags moduleSym
+            let refs = ResizeArray<string * Schema.RefEntry>()
+            let exports = extractModuleExports checker program diags refs moduleSym
 
             {
                 SchemaVersion = Schema.SchemaVersion
@@ -168,9 +169,10 @@ let extractPackage (specifier: string) (resolveFromDir: string) (packageName: st
                 Exports = exports
                 // Spans relativized against the package resolve dir for portability.
                 Diagnostics = drainDiagnostics resolveFromDir diags
-                // TODO(refs-table): see `extractFile` — foreign-ref classification is the
-                // Fable follow-on; empty here, codec-omitted, golden stays identical.
-                Refs = []
+                // Foreign named references homed at extraction (see `extractFile`): the
+                // package's OWN cross-file types stay LOCAL (relative-resolved, not
+                // external), so only default-lib / external-package refs land here.
+                Refs = drainRefs refs
             }
     finally
         if existsSync entryPath then

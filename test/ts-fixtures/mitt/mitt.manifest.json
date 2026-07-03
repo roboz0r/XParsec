@@ -841,5 +841,19 @@
       "heritage": []
     }
   ],
-  "diagnostics": []
+  "diagnostics": [],
+  "refs": [
+    {
+      "name": "Map",
+      "home": "es2015",
+      "kind": "class",
+      "arity": 2
+    },
+    {
+      "name": "Array",
+      "home": "es2015",
+      "kind": "class",
+      "arity": 1
+    }
+  ]
 }

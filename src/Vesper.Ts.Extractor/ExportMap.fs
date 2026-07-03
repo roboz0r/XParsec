@@ -450,7 +450,9 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
 /// reserved internal name and prepend it. The entry is an alias; `mapExport` follows it.
 let extractModuleExports
     (checker: Ts.TypeChecker)
+    (program: Ts.Program)
     (diags: ResizeArray<Schema.Diagnostic>)
+    (refs: ResizeArray<string * Schema.RefEntry>)
     (moduleSym: Ts.Symbol)
     : Schema.Export list =
     let exportSyms =
@@ -461,4 +463,4 @@ let extractModuleExports
         | Some tbl when tbl.has exportEqKey -> tbl.get exportEqKey :: named
         | _ -> named
 
-    exportSyms |> List.choose (mapExport (MapCtx.Root checker diags))
+    exportSyms |> List.choose (mapExport (MapCtx.Root checker program diags refs))

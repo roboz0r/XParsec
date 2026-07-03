@@ -42,6 +42,13 @@ let pathBasename (p: string) : string = jsNative
 [<Emit("(typeof $0.version === 'string') ? $0.version : undefined")>]
 let jsonVersionField (parsed: obj) : string option = jsNative
 
+/// Read a `package.json`'s `name` field, defensively (same discipline as
+/// `jsonVersionField`): a foreign ref's HOME is the referenced package's name, so
+/// walk-up-and-read the nearest `package.json`'s `name`, surfacing anything that is
+/// not genuinely a string as `None`.
+[<Emit("(typeof $0.name === 'string') ? $0.name : undefined")>]
+let jsonNameField (parsed: obj) : string option = jsNative
+
 /// Windows-vs-POSIX path portability: the manifest and TS's program tables both
 /// speak forward slashes.
 let normalizeSlashes (p: string) : string = p.Replace("\\", "/")

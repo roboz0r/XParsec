@@ -53,7 +53,10 @@ let lookupTypar (env: Ts.Symbol list) (t: Ts.Type) : int option =
 /// the generic definition (`Array`, `Box`); `getTypeArguments` yields the substituted
 /// arguments (for `string[]` the element type), which the caller recurses `mapType`
 /// over — so the manifest carries `Named(name, [args])`, not the printed-form blob.
-let asGenericInstantiation (checker: Ts.TypeChecker) (t: Ts.Type) : (string * Ts.Type list) option =
+/// The target's SYMBOL rides out alongside its name so the caller can HOME the
+/// reference (`recordForeignRef`) — the generic definition's symbol names both the
+/// identity (`Map`) and the origin (its declaration's source file).
+let asGenericInstantiation (checker: Ts.TypeChecker) (t: Ts.Type) : (string * Ts.Symbol * Ts.Type list) option =
     if hasTargetRef t then
         let tr = unbox<Ts.TypeReference> t
 
@@ -69,7 +72,7 @@ let asGenericInstantiation (checker: Ts.TypeChecker) (t: Ts.Type) : (string * Ts
         // already substituted, so the faithful `Fun` carries the resolved `Events[Key]`
         // indexed access.
         | Some sym when isAnonymousTypeName (sym.getName ()) -> None
-        | Some sym -> Some(sym.getName (), checker.getTypeArguments tr |> List.ofSeq)
+        | Some sym -> Some(sym.getName (), sym, checker.getTypeArguments tr |> List.ofSeq)
         | None -> None
     else
         None
@@ -254,7 +257,12 @@ let rec mapType (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
                 // → `Named(target name, mapped args)` (item 11), recursing `mapType` over the
                 // type arguments rather than emitting the printed-form blob (`Named("string[]")`).
                 match asGenericInstantiation checker t with
-                | Some(name, args) -> Schema.TypeRef.Named(name, args |> List.map (mapType ctx))
+                | Some(name, targetSym, args) ->
+                    // A foreign generic instantiation (`Map<K,V>`, `Array<string>`) HOMES
+                    // its target (identity only — never the args' owners; each arg recurses
+                    // and homes itself). LOCAL/intrinsic targets self-skip in `recordForeignRef`.
+                    recordForeignRef ctx name targetSym
+                    Schema.TypeRef.Named(name, args |> List.map (mapType ctx))
                 | None when isFunctionType t && not (looksNominal printed) ->
                     // A pure FUNCTION type (`(event: T) => void`, `Handler<T>`): map it
                     // FAITHFULLY to `TypeRef.Fun(curried param types, return)` — the
@@ -277,6 +285,14 @@ let rec mapType (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
                     // any other genuinely-unknown printed form (exotic primitives) rather than
                     // silently degrading to `Named(printed)`.
                     if looksNominal printed then
+                        // A bare nominal reference (`Emitter`, a foreign `Date`): HOME it by
+                        // its own symbol. An intrinsic-without-symbol (`symbol`, `never`,
+                        // `unknown`) has no `getSymbol` and is left unhomed (a Vesper
+                        // primitive, not a foreign type); LOCAL types self-skip.
+                        (match t.getSymbol () with
+                         | Some sym -> recordForeignRef ctx printed sym
+                         | None -> ())
+
                         Schema.TypeRef.Named(printed, [])
                     else
                         // A STRUCTURAL/anonymous form (`{ x: number }`, item 14, DEFERRED) that
