@@ -189,7 +189,7 @@ let testManifestCanonical (path: string) =
         | Ok man2 -> Expect.equal man2 man "Manifest does not round-trip through the codec"
         | Error e -> failtestf "canonical form failed to re-parse: %s" e
 
-/// Mirror of `TsManifestProvider.syntheticTypeName` (it is `private`): the SIMPLE
+/// Mirror of `TsManifestMembers.syntheticTypeName` (it is `private`): the SIMPLE
 /// name of the synthetic per-module grouping type that holds a module's overloaded
 /// free functions (Tier 2 item 9b). Kept in lock-step with the provider rule —
 /// last '/'-segment of the module specifier, first char upper-cased.
