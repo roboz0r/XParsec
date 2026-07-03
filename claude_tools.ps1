@@ -5,7 +5,7 @@
 
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("Build", "Test", "Format", "Benchmark")]
+    [ValidateSet("Build", "Test", "Format", "Benchmark", "Fable")]
     [string]$Action,
 
     [Parameter(Mandatory = $false)]
@@ -191,6 +191,37 @@ try {
 
             & dotnet @benchArgs 2>&1 | Tee-Object -FilePath $LogFile
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        }
+
+        "Fable" {
+            # Vesper.Ts.Extractor is a Fable project: `-Action Build` only runs the
+            # .NET/IDE pass, NOT the F#->JS compile. This produces the runnable
+            # `dist/Program.js` the extractor exercises. `Vesper.Ts.Extractor.Tests`
+            # SKIPS every extractor-run test until this has been run at least once, and
+            # must be re-run whenever the extractor source changes.
+            $proj = if ([string]::IsNullOrWhiteSpace($SourceProject)) { "Vesper.Ts.Extractor" } else { $SourceProject }
+            $projPath = "src/$proj"
+            $distPath = "$projPath/dist"
+            Write-Host "Fable-compiling $proj to $distPath..." -ForegroundColor Cyan
+
+            $fableOutput = dotnet fable $projPath -o $distPath 2>&1
+            $fableExitCode = $LASTEXITCODE
+
+            # Save full output to log
+            $fableOutput | Out-File -FilePath $LogFile -Encoding utf8
+
+            # Fable is chatty (per-file progress). Surface any error lines, then the tail
+            # (which carries the "compilation finished" / timing or the failure summary);
+            # the full transcript stays in the log.
+            $fableErrors = $fableOutput | Where-Object { "$_" -match '(?i)\b(error|failed|exception)\b' }
+            if ($fableErrors) {
+                Write-Host "Full output saved to $LogFile." -ForegroundColor DarkGray
+                $fableErrors
+            }
+            $fableOutput | Where-Object { "$_" -match '\S' } | Select-Object -Last 5
+
+            # Propagate exit code
+            if ($fableExitCode -ne 0) { exit $fableExitCode }
         }
     }
 }

@@ -10,7 +10,7 @@ You are operating on a Windows machine in the `XParsec` repository. To perform d
 - **DO NOT** use raw `dotnet` commands. They will trigger permission blocks or flood your context window.
 - **DO** use the **serena** MCP to search within the repository and navigate the codebase efficiently.
 
-The script exposes four actions: `Build`, `Test`, `Format`, and `Benchmark`.
+The script exposes five actions: `Build`, `Test`, `Format`, `Benchmark`, and `Fable`.
 
 ## Available Actions
 
@@ -33,6 +33,8 @@ To compile a specific library project (path `src/<SourceProject>`) and isolate c
 - `XParsec.FSharp.Codegen.Js`
 - `XParsec.FSharp.SemanticAnalysis`
 - `XParsec.Json`
+- `Vesper.Ts.Manifest.Schema`
+- `Vesper.Ts.Extractor` — but see the **Fable** action below: `Build` only runs the .NET/IDE pass, not the F#→JS compile.
 
 The terminal shows only error/warning lines plus the build summary; the full build output is always written to the log file (see Logging below).
 
@@ -58,6 +60,7 @@ To run a test suite, you must use the `Test` action and specify the exact test p
 - `XParsec.Tests`
 - `XParsec.Toml.Tests`
 - `Vesper.Tests`
+- `Vesper.Ts.Extractor.Tests` — the golden/snapshot suite for the TS extractor. Its extractor-run tests **SKIP** until the extractor has been Fable-built (see the **Fable** action); build it first, then run this suite (optionally with `-UpdateSnapshots` to regenerate the `.manifest.json` goldens).
 
 **Focusing a specific test — two options:**
 
@@ -105,6 +108,26 @@ By default the fast in-process toolchain (`-i`) is used. To capture a profile, p
 ```
 
 When a profiler is set, BDN runs out-of-process (drops `-i`) and writes `.speedscope.json` traces alongside the report. Profiling has extra restore prerequisites (BDN >= 0.15.x, FSharp.Core centrally pinned) — see the `reference_bdn_profiler_eventpipe` memory before running with `-Profiler`.
+
+### 5. Fable-building the TS Extractor (`-Action Fable`)
+
+`Vesper.Ts.Extractor` is a **Fable** project: it is written in F# but compiled to JavaScript (`src/Vesper.Ts.Extractor/dist/`) and run under Node. `-Action Build` on it only performs the .NET/IDE type-check pass — it does **not** produce the runnable `dist/Program.js`. Use the `Fable` action to compile it to JS:
+
+```bash
+./claude_tools.cmd -Action Fable
+```
+
+This runs `dotnet fable src/Vesper.Ts.Extractor -o src/Vesper.Ts.Extractor/dist` (the one command that previously had to be run as raw `dotnet`). `-SourceProject` defaults to `Vesper.Ts.Extractor`; pass it explicitly only if another Fable project is added later.
+
+**When to run it:** whenever you change any `src/Vesper.Ts.Extractor/**` source. The `Vesper.Ts.Extractor.Tests` suite executes the compiled `dist/Program.js`, so its extractor-run tests **skip silently** until this has been run, and will assert against a **stale** extractor if you changed the source but didn't rebuild. The typical loop is:
+
+```bash
+./claude_tools.cmd -Action Fable
+./claude_tools.cmd -Action Test -TestProject "Vesper.Ts.Extractor.Tests"                    # verify against committed goldens
+./claude_tools.cmd -Action Test -TestProject "Vesper.Ts.Extractor.Tests" -UpdateSnapshots   # regenerate goldens if the change is intended
+```
+
+Requires the Fable dotnet tool (already restored for the repo) and Node on PATH.
 
 ## Logging and Debugging
 
