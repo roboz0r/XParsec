@@ -106,6 +106,37 @@ let tests =
                     Expect.stringContains m "decimal" "names the offending type"
             }
 
+            test "`let x = m` snapshots a mutable read; a later `m <- _` is not seen through x" {
+                // F# `let x = m` copies m at the bind point, so after `m <- 2` the use of
+                // `x` still yields 1. The pure-`let` substitution must NOT inline `x := m`
+                // (that would re-read m after the mutation and return 2).
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let f () ="
+                            "    let mutable m = 1"
+                            "    let x = m"
+                            "    m <- 2"
+                            "    x"
+                            "printfn \"%d\" (f ())"
+                        ]
+
+                // `x` stays a bound arrow parameter (snapshot of m) rather than being
+                // inlined to a re-read of m — the inner `((x) => …)(m)` captures m's
+                // bind-time value before `m = 2`.
+                Expect.equal
+                    (emitJs src)
+                    "const f = () => ((m) => ((x) => ((m = 2), x))(m))(1);\nconsole.log(f());\n"
+                    "x is a captured snapshot, not an inlined re-read of m"
+
+                match runJs "let-snapshot-mutable" src with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "1" "x holds the bind-time snapshot, not the post-mutation value"
+            }
+
             test "a generic intrinsic (array) is NOT flagged unrepresentable on JS" {
                 // Array shares `platform = None` with `decimal` but has arity >= 1, so
                 // `PlatformTypes` skips the platform-repr check. Any other failure is fine.

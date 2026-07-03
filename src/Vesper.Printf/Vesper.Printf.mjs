@@ -167,7 +167,8 @@ export const renderCat = (kids, i, out, indent, broken, col, width) => {
 };
 export const fmtString = (s) => ((len) => ((out) => ((i) => ((() => {
   while (intLt(i, len)) {
-    (strEq(((s)[(i)]), "\\") ? (out = cat(out, "\\\\")) : (strEq(((s)[(i)]), "\n") ? (out = cat(out, "\\n")) : (strEq(((s)[(i)]), "\r") ? (out = cat(out, "\\r")) : (strEq(((s)[(i)]), "\t") ? (out = cat(out, "\\t")) : (strEq(((s)[(i)]), "\"") ? (out = cat(out, "\\\"")) : (out = cat(out, ((s)[(i)]))))))));
+    const c = ((s)[(i)]);
+    (strEq(c, "\\") ? (out = cat(out, "\\\\")) : (strEq(c, "\n") ? (out = cat(out, "\\n")) : (strEq(c, "\r") ? (out = cat(out, "\\r")) : (strEq(c, "\t") ? (out = cat(out, "\\t")) : (strEq(c, "\"") ? (out = cat(out, "\\\"")) : (out = cat(out, c)))))));
     (i = inc(i));
   }
 })(), cat(out, "\"")))(0))("\""))(lenOf(s));

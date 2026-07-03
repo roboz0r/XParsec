@@ -348,7 +348,11 @@ module EmitJs =
         // templates). A *mutable* binder (assigned in the body) is excluded — it must
         // stay a real binding so its writes land; it falls to the IIFE arm, where the
         // arrow parameter is the (reassignable) mutable cell.
-        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when isPureValue value && not (isAssignedIn k body) ->
+        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when
+            isPureValue value
+            && not (isAssignedIn k body)
+            && not (valueReadsAssignedIn body value)
+            ->
             buildExpr ctx (substVar k value body)
 
         // Non-pure (or mutable) `let` in expression position: JS has no let-expression,
@@ -1213,7 +1217,11 @@ module EmitJs =
         match e with
         | TExprG.IfThenElse(cond, thenE, elseE, _, _) ->
             [ JsStatement.If(buildExpr ctx cond, recur thenE, recur elseE) ]
-        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when isPureValue value && not (isAssignedIn k body) ->
+        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when
+            isPureValue value
+            && not (isAssignedIn k body)
+            && not (valueReadsAssignedIn body value)
+            ->
             recur (substVar k value body)
         | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) ->
             let name = identName ctx.Source k
@@ -1423,7 +1431,11 @@ module EmitJs =
             ]
         // Pure, immutable binder: substitute away so synthetic operand lets don't
         // surface as `const`s. A mutable binder is excluded (see `buildExpr`).
-        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when isPureValue value && not (isAssignedIn k body) ->
+        | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) when
+            isPureValue value
+            && not (isAssignedIn k body)
+            && not (valueReadsAssignedIn body value)
+            ->
             buildStatements ctx (substVar k value body)
         // A mutable binder emits a reassignable `let`; an immutable one a `const`.
         | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) ->

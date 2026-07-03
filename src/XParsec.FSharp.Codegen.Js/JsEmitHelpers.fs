@@ -175,6 +175,29 @@ module JsEmitHelpers =
 
             found
 
+    /// Does `value` read a variable that `body` later reassigns? F# `let x = value`
+    /// takes a *snapshot* of `value` at the bind point; substituting `value` into `x`'s
+    /// uses re-reads it at each use, so if `value` reads a var that `body` mutates
+    /// (`let x = m … m <- e … x`), the uses would observe the post-mutation value
+    /// instead of the snapshot. `isPureValue` alone is not enough — a `Var` read is
+    /// pure/effect-free but not *stable* across an intervening assignment. Only the
+    /// duplicating `NamedSimple` substitution needs this; the `Wildcard` case drops the
+    /// value unread, so a non-stable-but-pure value is safe to discard there.
+    let rec valueReadsAssignedIn (body: Frozen.TExpr) (value: Frozen.TExpr) : bool =
+        match value with
+        | TExprG.Var(vk, _, _) -> isAssignedIn vk body
+        | _ ->
+            let mutable found = false
+
+            TastLower.iterChildren
+                (fun c ->
+                    if not found then
+                        found <- valueReadsAssignedIn body c
+                )
+                value
+
+            found
+
     // ---- Functions -----------------------------------------------------------
 
     /// A lambda parameter → its JS binding form. Wildcards get fresh unused names (JS
