@@ -243,6 +243,18 @@ type FormatSinkHandles =
         FormatChild: EntityHandle
         /// `void FormatArg(object)` — recurse into a DU-argument-position child.
         FormatArg: EntityHandle
+        /// `void BeginRecord()` — open a synthesised record frame.
+        BeginRecord: EntityHandle
+        /// `void Field(string)` — a record-field label marker; the value follows via `Child`.
+        Field: EntityHandle
+        /// `void EndRecord()` — close the record frame.
+        EndRecord: EntityHandle
+        /// `void BeginCase(string)` — open a synthesised union-case frame.
+        BeginCase: EntityHandle
+        /// `void EndCase()` — close the union-case frame.
+        EndCase: EntityHandle
+        /// `void Child(object)` — the sole child entry for synthesised bodies (records + cases).
+        Child: EntityHandle
     }
 
 /// Resolves compiled names to emission recipes for one target (the .NET

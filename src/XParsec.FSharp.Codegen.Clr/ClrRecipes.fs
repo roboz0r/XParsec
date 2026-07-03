@@ -843,6 +843,12 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                  EndApplication = nullary "EndApplication"
                  FormatChild = sinkMember "FormatChild" 1 (fun te -> te.Object())
                  FormatArg = sinkMember "FormatArg" 1 (fun te -> te.Object())
+                 BeginRecord = nullary "BeginRecord"
+                 Field = sinkMember "Field" 1 (fun te -> te.String())
+                 EndRecord = nullary "EndRecord"
+                 BeginCase = sinkMember "BeginCase" 1 (fun te -> te.String())
+                 EndCase = nullary "EndCase"
+                 Child = sinkMember "Child" 1 (fun te -> te.Object())
              })
 
     /// `instance void Format(IFormatSink)` — the signature of the synthesised
