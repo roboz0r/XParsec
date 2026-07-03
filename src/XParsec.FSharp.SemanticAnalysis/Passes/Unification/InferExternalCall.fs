@@ -27,6 +27,19 @@ module internal UnificationInferExternalCall =
         | ValueSome strings -> ValueSome(Set.ofList strings)
         | ValueNone -> ValueNone
 
+    /// Per-tuple-position syntactic string constants of an external call's argument
+    /// expression (`ValueSome s` where the position is a plain string literal, else
+    /// `ValueNone`), aligned to tuple positions. Computed ONCE per external call
+    /// (`constArgFacts`) and threaded to both the pick refinement
+    /// (`admitLiteralMethodTypars`) and the commit seed (`methodTyparConstantSeed`) so
+    /// the two seams cannot derive divergent constant facts through `constStringArg`.
+    type private ConstArgFacts = string voption[]
+
+    let private constArgFacts (ctx: PassContext) (argExpr: Expr<SyntaxToken>) : ConstArgFacts =
+        match argExpr with
+        | Expr.Tuple(exprs = xs) -> xs |> Seq.map (constStringArg ctx) |> Seq.toArray
+        | single -> [| constStringArg ctx single |]
+
     /// R4a step 3 item 2 — DIRECTIONAL constant admission of a syntactic string constant
     /// into a keyof-bounded METHOD TYPAR at an external instance-method call. Refines
     /// `argTy` so a tuple position whose argument is a plain string literal AND whose
@@ -42,27 +55,22 @@ module internal UnificationInferExternalCall =
         (ctx: PassContext)
         (candidates: ExternalMember[])
         (declArgs: SemType[])
-        (argExpr: Expr<SyntaxToken>)
+        (facts: ConstArgFacts)
         (argTy: SemType)
         : SemType =
-        let elemExprs =
-            match argExpr with
-            | Expr.Tuple(exprs = xs) -> xs |> Seq.toArray
-            | single -> [| single |]
-
         let elemTys =
             match resolveStep argTy with
             | TyTuple ts -> ts |> EqArray.toList |> List.toArray
             | single -> [| single |]
 
-        if elemExprs.Length <> elemTys.Length then
+        if facts.Length <> elemTys.Length then
             argTy // a shape we don't model (spread/rest) — leave the arg untouched
         else
             let refined = Array.copy elemTys
             let mutable changed = false
 
-            for i in 0 .. elemExprs.Length - 1 do
-                match constStringArg ctx elemExprs.[i] with
+            for i in 0 .. facts.Length - 1 do
+                match facts.[i] with
                 | ValueSome s ->
                     let admits =
                         candidates
@@ -111,16 +119,11 @@ module internal UnificationInferExternalCall =
         (ctx: PassContext)
         (chosen: ExternalMember)
         (declArgs: SemType[])
-        (argExpr: Expr<SyntaxToken>)
+        (facts: ConstArgFacts)
         : (int * SemType) list =
-        let elemExprs =
-            match argExpr with
-            | Expr.Tuple(exprs = xs) -> xs |> Seq.toArray
-            | single -> [| single |]
-
         let paramTys = memberParamTypes declArgs chosen |> List.toArray
 
-        if elemExprs.Length <> paramTys.Length then
+        if facts.Length <> paramTys.Length then
             []
         else
             let bareTypars =
@@ -135,8 +138,8 @@ module internal UnificationInferExternalCall =
             let bounds = ExternalSymbols.instantiateSignatureBounds chosen declArgs
             let seed = System.Collections.Generic.Dictionary<int, SemType>()
 
-            for i in 0 .. elemExprs.Length - 1 do
-                match constStringArg ctx elemExprs.[i] with
+            for i in 0 .. facts.Length - 1 do
+                match facts.[i] with
                 | ValueSome s ->
                     for j in referencedMethodTypars paramTys.[i] do
                         if not (Set.contains j bareTypars) && not (seed.ContainsKey j) then
@@ -157,23 +160,23 @@ module internal UnificationInferExternalCall =
     /// solution (a non-generic overload is unchanged), unify the signature against
     /// `argTy -> result`, and return the result type. Shared by the static and
     /// instance probes so the two cannot drift; `chosen.IsStatic` is authoritative
-    /// for both (the instance probe pre-filters to non-static candidates). `argExpr`
-    /// supplies the syntactic constants that seed a conditional-only method typar
-    /// (`methodTyparConstantSeed`).
+    /// for both (the instance probe pre-filters to non-static candidates). `facts`
+    /// supplies the per-position syntactic constants that seed a conditional-only
+    /// method typar (`methodTyparConstantSeed`).
     let rec commitExternalOverload
         (ctx: PassContext)
         (key: NodeKey)
         (fn: Expr<SyntaxToken>)
         (chosen: ExternalMember)
         (declArgs: SemType[])
-        (argExpr: Expr<SyntaxToken>)
+        (facts: ConstArgFacts)
         (argTy: SemType)
         : SemType =
         let fnKey = CstKeys.ofExpr fn
 
         let memberSig =
             ExternalSymbols.instantiateSignatureWith
-                (methodTyparConstantSeed ctx chosen declArgs argExpr)
+                (methodTyparConstantSeed ctx chosen declArgs facts)
                 chosen
                 declArgs
                 ctx.CurrentLevel
@@ -226,9 +229,18 @@ module internal UnificationInferExternalCall =
                 ValueNone
             else
                 let argTy = infer ctx argExpr
+                // The static probe seeds conditional-only method typars at commit but,
+                // unlike the instance probe, does NOT pre-refine literals before the
+                // pick: a folded type-qualified LongIdent names a non-generic type
+                // (`declArgs = [||]`), so no candidate parameter is a keyof-bounded
+                // method typar `<Key extends keyof T>` — the exact shape
+                // `admitLiteralMethodTypars` selects on. The keyof-bounded-typar
+                // selection the instance `on`/`off`/`emit` path needs cannot arise
+                // here, so refinement is deliberately scoped out (commit-seed only).
+                let facts = constArgFacts ctx argExpr
 
                 match pickBestOverload typeArgs candidates (argElemsOf argTy) with
-                | ValueSome chosen -> ValueSome(commitExternalOverload ctx key fn chosen typeArgs argExpr argTy)
+                | ValueSome chosen -> ValueSome(commitExternalOverload ctx key fn chosen typeArgs facts argTy)
                 | ValueNone ->
                     ValueSome(
                         errorTy
@@ -291,15 +303,18 @@ module internal UnificationInferExternalCall =
                     ValueNone
                 else
                     let declArgs = typeArgs |> EqArray.toList |> List.toArray
+                    // Constant facts computed once, shared by the pick refinement and
+                    // the commit seed (so the two cannot derive divergent facts).
+                    let facts = constArgFacts ctx argExpr
                     // Refine a syntactic-string-constant position that lands on a keyof-
                     // bounded method typar to a `TyLiteral` (R4a step 3 item 2) BEFORE the
                     // pick, so the literal both selects the typar overload and solves the
                     // freshened `Key` at commit.
                     let argTy =
-                        admitLiteralMethodTypars ctx candidates declArgs argExpr (infer ctx argExpr)
+                        admitLiteralMethodTypars ctx candidates declArgs facts (infer ctx argExpr)
 
                     match pickBestOverload declArgs candidates (argElemsOf argTy) with
-                    | ValueSome chosen -> ValueSome(commitExternalOverload ctx key fn chosen declArgs argExpr argTy)
+                    | ValueSome chosen -> ValueSome(commitExternalOverload ctx key fn chosen declArgs facts argTy)
                     // No unique best on the argument types: decline rather than
                     // error, so the existing single-pick path keeps the prior
                     // behaviour (this probe only ever *improves* a confident pick).

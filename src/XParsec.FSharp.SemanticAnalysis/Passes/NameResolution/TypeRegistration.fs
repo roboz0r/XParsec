@@ -439,21 +439,22 @@ module NameResolutionTypeRegistration =
                 else
                     let caseNames = [| for EnumTypeCase(ident = id) in cases -> ctx.NameOf id |]
 
-                    // The case VALUES, but ONLY when EVERY case is a plain string
-                    // literal — the literal-union admission (`subsumes`) runs before
-                    // Elaborate resolves the full case table, so read the simple form
-                    // here. A single non-plain-string case ⇒ `ValueNone` (the
-                    // admission then declines and the enum stays a plain nominal).
+                    // The case VALUES, but ONLY when EVERY case is a string literal —
+                    // the literal-union admission (`subsumes`) runs before Elaborate
+                    // resolves the full case table, so read the string form here
+                    // through the SAME `StringLiterals.tryEnumCaseStringLiteral`
+                    // projection `Elaborate.resolveEnumCaseValue` uses (peels a
+                    // value-grouping paren, decodes escapes, admits verbatim/triple),
+                    // so a legal `| A = ("auto")` is not silently declined. A single
+                    // non-string case ⇒ `ValueNone` (the admission then declines and
+                    // the enum stays a plain nominal).
                     let caseStringValues =
                         let vals =
                             [|
                                 for EnumTypeCase(constValue = v) in cases do
-                                    match v with
-                                    | Expr.String(kind = StringKind.String _; parts = parts) when parts.Length = 1 ->
-                                        match parts.[0] with
-                                        | StringPart.Text t -> yield ctx.NameOf t
-                                        | _ -> ()
-                                    | _ -> ()
+                                    match StringLiterals.tryEnumCaseStringLiteral ctx v with
+                                    | ValueSome s -> yield s
+                                    | ValueNone -> ()
                             |]
 
                         if vals.Length = cases.Length && cases.Length > 0 then

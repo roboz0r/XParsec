@@ -1072,15 +1072,19 @@ module UnificationEngine =
             | TyOr ms -> ms.Members |> EqSet.forall isLiteralBearing
             | _ -> false
 
+        // Both admissions reduce to the SAME check — the actual subsumes into the
+        // annotation (`subsumes <> Unrelated`) — under complementary guards, so they
+        // merge into one arm: a `TyOr` annotation admits any subsuming actual
+        // (value→union, `let x: int | string = 1`); a non-union annotation admits it
+        // only for a literal-bearing actual (OUTWARD widening, `let s: string =
+        // getMode()`, design §"reading a literal-typed value back into Vesper needs
+        // nothing new"). Everything else — a plain nominal / non-literal union
+        // annotated to a supertype — still GROUNDS via symmetric `unify`.
         match resolveStep expected with
-        | TyOr _ when subsumes ctx actual expected <> SubsumeOutcome.Unrelated -> ()
-        // OUTWARD widening: a literal(-union) value read into its base-primitive
-        // annotation (`let s: string = getMode()`) admits directionally (design
-        // §"reading a literal-typed value back into Vesper needs nothing new"). The
-        // guard confines this to literal-bearing actuals — a plain nominal / non-literal
-        // union annotated to a supertype still goes through symmetric `unify`.
-        | _ when
-            isLiteralBearing actual
+        | expected' when
+            (match expected' with
+             | TyOr _ -> true
+             | _ -> isLiteralBearing actual)
             && subsumes ctx actual expected <> SubsumeOutcome.Unrelated
             ->
             ()

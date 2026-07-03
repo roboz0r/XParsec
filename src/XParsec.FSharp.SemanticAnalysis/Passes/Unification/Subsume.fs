@@ -92,7 +92,13 @@ module UnificationSubsume =
     /// The ground type of member `name` on record / interface / class `t` (for `T[K]`),
     /// or `ValueNone` when `t` is not a known nominal or has no such member. A
     /// project-local field's declared type is substituted against the receiver's args; an
-    /// external value member is realised through `instantiateSignature`.
+    /// external value member is realised through the NON-freshening `openSignature` — this
+    /// is a read-only fold query (it must not mint call-site vars into the graph), so the
+    /// member's own method typars stay inert `TyTypar(Method,j)` markers rather than fresh
+    /// TyVars. The arm pre-filters `IsValueMember`, whose signature is a bare value type
+    /// (no method-typar-bearing parameter list to solve), so `openSignature` is exactly
+    /// `instantiateSignature` here — but stating the non-freshening realiser makes the
+    /// read-only-ness structural rather than a load-bearing coincidence.
     let private groundMemberType (ctx: PassContext) (t: SemType) (name: string) : SemType voption =
         match resolveStep t with
         | TyRecord(key, args) ->
@@ -105,9 +111,7 @@ module UnificationSubsume =
         | TyClass(key, args) when (TypeRegistry.tryClassByKey ctx.Types key).IsNone ->
             match ctx.Provider.TryLookupMember(SymbolKeyOps.qualifiedName key, name) with
             | ValueSome m when m.IsValueMember && not m.IsStatic ->
-                ValueSome(
-                    ExternalSymbols.instantiateSignature m (args |> EqArray.toList |> List.toArray) ctx.CurrentLevel
-                )
+                ValueSome(ExternalSymbols.openSignature m (args |> EqArray.toList |> List.toArray))
             | _ -> ValueNone
         | _ -> ValueNone
 
@@ -207,9 +211,10 @@ module UnificationSubsume =
     let rec subsumes (ctx: PassContext) (src: SemType) (tgt: SemType) : SubsumeOutcome =
         match resolveStep src, resolveStep tgt with
         // union → union (`A | B ≤ A | B | C`, order-insensitive): every member of
-        // the source must land in some member of the target. Identical canonical
-        // member sets are `Equal` (reflexivity, sound because both are sorted/deduped);
-        // a member-wise subset is `Subtype`. `A | B ⋠ A | C` ⇒ `Unrelated`.
+        // the source must land in some member of the target. Identical member sets
+        // are `Equal` (reflexivity, sound because `ssm = tsm` is EqSet set-equality —
+        // order-independent, deduped — so it holds regardless of declared member
+        // order); a member-wise subset is `Subtype`. `A | B ⋠ A | C` ⇒ `Unrelated`.
         | TyOr ss, TyOr ts ->
             let ssm = ss.Members
             let tsm = ts.Members
@@ -350,9 +355,10 @@ module UnificationSubsume =
     /// its nested access must fold here (`Handler<Events[Key]>` → `(int) -> unit`)
     /// for the member to match; a bare-arrow parameter already folds at its leaf
     /// via `unify`'s structural descent. Gated on an actual carrier occurrence so
-    /// the common (carrier-free) member pays nothing. `evalTypeLevel` is read-only
-    /// apart from fresh-var minting in `groundMemberType`'s `instantiateSignature`
-    /// (pre-existing fold behaviour), so `subsumes` stays a pure read.
+    /// the common (carrier-free) member pays nothing. `evalTypeLevel` is a pure read —
+    /// `groundMemberType` realises external members through the NON-freshening
+    /// `openSignature`, so no call-site vars enter the graph — so `subsumes` stays
+    /// side-effect-free.
     and private foldMemberCarried (ctx: PassContext) (m: SemType) : SemType =
         if hasCarriedNode m then evalTypeLevel ctx m else m
 
@@ -417,8 +423,11 @@ module UnificationSubsume =
         // optional `Handler<Events[Key]> | undefined` → `TyOr`) is admitted by `subsumes`,
         // which compares members whole — so its nested access must be folded HERE for the
         // member to match. `mapChildren` routes `TyOr` through its smart constructor
-        // (a folded member can collapse/reorder the set).
-        | t -> SemType.mapChildren (evalTypeLevel ctx) t
+        // (a folded member can collapse/reorder the set). A carrier-free type has
+        // nothing to fold, so return it BY REFERENCE — a casual `evalTypeLevel` on an
+        // already-ground / non-foldable operand allocates nothing.
+        | t when hasCarriedNode t -> SemType.mapChildren (evalTypeLevel ctx) t
+        | t -> t
 
     /// A carried type-level node folded to a CONCRETE (non-carrier) type, or `ValueNone`
     /// when it is not a carrier or is still inert — the guard `unify`/`subsumes` re-enter

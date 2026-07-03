@@ -12,43 +12,11 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 
 module internal FreezeLiterals =
 
-    /// Decode one backslash escape body (`inner` starts with `\\`) to its char.
-    /// The escape set mirrors the lexer's `pCharChar` (Lexing.fs) exactly — a
-    /// literal that reaches here already lexed clean, so any unexpected shape is a
-    /// broken invariant. Shared by `parseCharLiteral` (a `'\n'` char literal) and
-    /// `foldStringParts` (a `\n` *string*-part escape) so the two never diverge.
-    let private decodeEscape (inner: string) : char =
-        match inner.[1] with
-        | '"' -> '"'
-        | '\\' -> '\\'
-        | '\'' -> '\''
-        | 'n' -> '\n'
-        | 't' -> '\t'
-        | 'b' -> '\b'
-        | 'r' -> '\r'
-        | 'a' -> '\a'
-        | 'f' -> '\f'
-        | 'v' -> '\v'
-        | 'u' ->
-            char (
-                System.UInt16.Parse(
-                    inner.Substring(2, 4),
-                    System.Globalization.NumberStyles.AllowHexSpecifier,
-                    System.Globalization.CultureInfo.InvariantCulture
-                )
-            )
-        | 'x' ->
-            char (
-                System.Byte.Parse(
-                    inner.Substring(2, 2),
-                    System.Globalization.NumberStyles.AllowHexSpecifier,
-                    System.Globalization.CultureInfo.InvariantCulture
-                )
-            )
-        | d when System.Char.IsDigit d ->
-            // Trigraph `\DDD` (decimal byte).
-            char (System.Int32.Parse(inner.Substring(1, 3), System.Globalization.CultureInfo.InvariantCulture))
-        | other -> failwithf "Freeze.decodeEscape: unsupported escape '\\%c' in %s" other inner
+    /// Backslash-escape and string-part folding moved to the shared
+    /// `StringLiterals` module (ahead of the passes) so the enum-case reader in
+    /// NameResolution shares the identical decoding; re-exported here under the
+    /// historical `FreezeLiterals` names the Freeze/Elaborate call sites still use.
+    let private decodeEscape = StringLiterals.decodeEscape
 
     /// A char literal that reaches here already lexed clean; decode its (possibly
     /// escaped) single character.
@@ -114,35 +82,8 @@ module internal FreezeLiterals =
     /// Concatenate the literal text of every string part via `ctx.NameOf`,
     /// rendering an interpolation hole (`StringPart.Expr`) through `onHole`.
     /// Shared by the IL-intrinsic and literal-string stitchers, which differ
-    /// only in how a hole renders.
-    let foldStringParts
-        (ctx: PassContext)
-        (onHole: unit -> string)
-        (parts: ImmutableArray<StringPart<SyntaxToken>>)
-        : string =
-        let sb = System.Text.StringBuilder()
-
-        for part in parts do
-            match part with
-            // The parser folds every string fragment — including escape-sequence
-            // tokens (`\n`, `\t`, `\"`, `\uXXXX`) — into a `StringPart.Text`
-            // carrying the raw 2+-char source span (`ctx.NameOf` = `\n`, two
-            // chars). Decode an escape *token* to the single char it denotes; a
-            // plain text fragment appends verbatim. Without this a literal `"\n"`
-            // value would emit a backslash-n, not a newline.
-            | StringPart.Text t ->
-                match t.Token with
-                | Token.EscapeSequence -> sb.Append(decodeEscape (ctx.NameOf t)) |> ignore
-                | _ -> sb.Append(ctx.NameOf t) |> ignore
-            | StringPart.EscapeSequence t -> sb.Append(decodeEscape (ctx.NameOf t)) |> ignore
-            | StringPart.FormatSpecifier t
-            | StringPart.EscapePercent t
-            | StringPart.VerbatimEscapeQuote t
-            | StringPart.OrphanFormatSpecifier t
-            | StringPart.InvalidText t -> sb.Append(ctx.NameOf t) |> ignore
-            | StringPart.Expr _ -> sb.Append(onHole ()) |> ignore
-
-        sb.ToString()
+    /// only in how a hole renders. (Lives in `StringLiterals`; re-exported here.)
+    let foldStringParts = StringLiterals.foldStringParts
 
     /// Stitch a value-level `Expr.ILIntrinsic` instruction string (e.g.
     /// `(# "ceq" … #)` → `"ceq"`), trimming surrounding whitespace. Mirrors

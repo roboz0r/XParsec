@@ -535,17 +535,19 @@ type SemType =
     /// An anonymous (structural) union — TypeScript-style `X | Y | null`. Distinct
     /// from the nominal `TyUnion` (a declared `type Foo = A | B`): it has no key,
     /// no nominal identity, and its members are an order-insensitive, deduped,
-    /// flattened **set** held in canonical (sorted) form. The smart constructor
-    /// `mkUnion` is the ONLY sanctioned producer — it enforces that canonical form,
-    /// so the raw case must never be built directly outside `mkUnion` and the
-    /// mechanical structural traversals (`resolveStep`/`zonk`/`occursAndAdjust`/
-    /// `freeze`). Canonicalisation is what makes `string | int` ≡ `int | string`
-    /// under the equality layer's `n1 = n2` discipline. `TyOr []` is `never`
-    /// (bottom). Unions enter the graph only at annotation sites — inference never
-    /// synthesises one (the principality rule); membership/assignability lives in
-    /// the directional `subsumes` layer, never in symmetric `unify`.
+    /// flattened **set** held in EqSet set-semantic form — INSERTION-ordered, NOT
+    /// sorted (no total order on `SemType` is imposed; declared member order is
+    /// preserved). The smart constructor `mkUnion` is the ONLY sanctioned producer —
+    /// it enforces that set form, so the raw case is never built directly outside
+    /// `mkUnion` (the private `UnionMembers` payload makes this structural — see
+    /// below). Set semantics are what make `string | int` ≡ `int | string` under the
+    /// equality layer's `n1 = n2` discipline (EqSet set-equality, order-independent),
+    /// NOT a shared sort order. `TyOr []` is `never` (bottom). Unions enter the graph
+    /// only at annotation sites — inference never synthesises one (the principality
+    /// rule); membership/assignability lives in the directional `subsumes` layer,
+    /// never in symmetric `unify`.
     ///
-    /// The payload is a private-ctor `UnionMembers`, so the canonical-set form is
+    /// The payload is a private-ctor `UnionMembers`, so the set form is
     /// type-enforced: the raw case cannot be built with an arbitrary `EqArray`.
     /// `SemType.MkUnion` (aliased as `mkUnion`) is the sole producer.
     | TyOr of members: UnionMembers

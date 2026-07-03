@@ -1140,15 +1140,13 @@ module Elaborate =
                 )
 
                 ValueNone
-        | Expr.String(kind = kind; parts = parts) ->
-            match kind with
-            // Plain / verbatim / triple-quoted string literals are constants;
-            // an interpolated string ($"…") is not — reject it as non-literal.
-            | StringKind.String _
-            | StringKind.VerbatimString _
-            | StringKind.String3 _ ->
-                ValueSome(TEnumLiteral.String(FreezeLiterals.foldStringParts ctx (fun () -> "") parts))
-            | _ ->
+        | Expr.String _ ->
+            // Plain / verbatim / triple-quoted string literals are constants (the
+            // shared projection folds them); an interpolated string ($"…") is the
+            // only String kind it declines — reject that as non-literal.
+            match StringLiterals.tryEnumCaseStringLiteral ctx v with
+            | ValueSome s -> ValueSome(TEnumLiteral.String s)
+            | ValueNone ->
                 ctx.Error(
                     NodeKey.ofToken idTok NodeKind.DeclType,
                     "An enum case value must be a literal string; an interpolated string is not a constant"

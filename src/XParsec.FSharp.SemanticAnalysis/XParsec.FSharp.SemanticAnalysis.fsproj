@@ -35,6 +35,7 @@
     <Compile Include="ConformancePass.fs" />
     <Compile Include="ConformanceTypars.fs" />
     <Compile Include="SideTables.fs" />
+    <Compile Include="StringLiterals.fs" />
     <Compile Include="Inline.fs" />
     <Compile Include="Passes\Attributes.fs" />
     <Compile Include="Passes\Desugar.fs" />

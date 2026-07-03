@@ -350,11 +350,14 @@ type EnumTypeInfo
     /// Case identifiers in declaration order. The `E.C1` qualified-access path
     /// checks membership here; a name absent from it is a resolution error.
     member val CaseNames = caseNames
-    /// The case VALUES when every case is a plain string literal (`| Auto = "auto"`),
-    /// in declaration order; `ValueNone` otherwise (numeric / mixed / computed). The
-    /// full case→literal table is resolved later by `Elaborate.tryEnumType`, but the
-    /// literal-union admission (`subsumes`, at Unification time — BEFORE Elaborate)
-    /// needs the string value SET early, so the simple string case is read here.
+    /// The case VALUES when every case is a string literal (`| Auto = "auto"`,
+    /// `| A = ("auto")`), in declaration order; `ValueNone` otherwise (numeric /
+    /// mixed / computed). The full case→literal table is resolved later by
+    /// `Elaborate.resolveEnumCaseValue`, but the literal-union admission (`subsumes`,
+    /// at Unification time — BEFORE Elaborate) needs the string value SET early, so
+    /// the string cases are read here through the SAME
+    /// `StringLiterals.tryEnumCaseStringLiteral` projection Elaborate uses (they
+    /// cannot disagree on which cases carry a string constant).
     member val CaseStringValues: string[] voption = caseStringValues
     member val DeclKey = declKey
     /// Stable project-local nominal identity — the arity-0 `TypeKey(asm, declNs,

@@ -133,6 +133,26 @@ let tests =
                 Expect.isEmpty errors (sprintf "expected no errors, got:\n%s" (errorText errors))
             }
 
+            test "(4b) parenthesized string case values still admit (shared projection peels the paren)" {
+                // A value-grouping paren (`| Auto = ("auto")`) is a legal string case.
+                // The enum-registration reader now shares `Elaborate`'s projection
+                // (`StringLiterals.tryEnumCaseStringLiteral`), which peels the paren, so
+                // the case-VALUE set is populated early and the enum admits — before the
+                // fix the bare-string-only reader declined this silently.
+                let program =
+                    String.concat
+                        "\n"
+                        [
+                            "type Mode = | Auto = (\"auto\") | Manual = (\"manual\")"
+                            "let w = makeWidget()"
+                            "w.setMode(Mode.Auto)"
+                            ""
+                        ]
+
+                let errors = analyse program
+                Expect.isEmpty errors (sprintf "expected no errors, got:\n%s" (errorText errors))
+            }
+
             test "(5) a string enum with a case NOT in the union is rejected" {
                 let program =
                     String.concat
