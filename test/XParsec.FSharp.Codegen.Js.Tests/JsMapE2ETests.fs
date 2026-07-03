@@ -11,9 +11,11 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // Node. `Map` is a Node GLOBAL: `new Map()`/`.set()`/`.get()`/`.has()`/`.size`/`.delete()`
 // run intrinsically, so NO runtime `.mjs` module is emitted and NO import appears.
 //
-// Iteration (`for … in` over a `Js.Map`, `Symbol.iterator`) is EXPLICITLY OUT of this
-// gate — wiring TS iterables to the capability-interface machinery is its own separate
-// concern. This gate drives only the direct member surface.
+// Iteration lives in its own gate now (`IterableForInTests`): the provider homes a
+// `[Symbol.iterator]` type as `seq<'T>`, the extractor carries `Map`'s `[K,V]` entry as a
+// real tuple, and `for (k,v) in (m: Js.Map<_,_>)` lowers to a native `for..of` with a tuple
+// binder — driven END-TO-END against THIS vendored pack. This gate stays focused on the
+// direct member surface (construct / set / get / has / size / delete).
 //
 // The es2015 pack stacks over the JS-native provider (`stackTs es2015Manifest`), the
 // same shape `JsNamespaceTests` pins on a hand-built global manifest — this is the REAL

@@ -112,12 +112,9 @@ module JsNativeSymbols =
     let private ienumerableKey: SymbolKey =
         SymbolKey.TypeKey(Some RuntimeAssembly, collectionsGenericNs, "IEnumerable`1")
 
-    /// The compiled qualified name of the erased `IEnumerable\`1` iteration interface
-    /// (`System.Collections.Generic.IEnumerable\`1`) — the name `for … in` recognition
-    /// matches (`CapabilityIds.Enumerable`, resolved asm-blind off `seq`'s abbreviation
-    /// head). A provider that wants a foreign type treated as `seq<'T>` — the TS-manifest
-    /// provider homing a `[Symbol.iterator]` type — injects THIS name into the type's
-    /// interface set, so `pickEnumerableElem` admits it. Spelled once, here, off the key.
+    /// The compiled qualified name of the erased `IEnumerable\`1` interface — the name
+    /// `for … in` recognition matches (`pickEnumerableElem`). A provider that wants a
+    /// foreign type treated as `seq<'T>` injects this name into the type's interface set.
     let enumerableInterfaceName: string = SymbolKeyOps.qualifiedName ienumerableKey
 
     /// An instance interface member of an erased interface. `declaringArity` is the

@@ -290,6 +290,22 @@ and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
                         mapType ctx (branch ct.resolvedFalseType ct.root.node.falseType)
                     )
                 )
+            elif checker.isTupleType t then
+                // A fixed tuple (`[K, V]`) → `TypeRef.Tuple`, elements recursed. Gated to the
+                // F#-expressible shape: arity ≥ 2 and every element required — a 0-/1-tuple has
+                // no F# tuple form, and an optional/rest/variadic element (`[K, V?]`,
+                // `[K, ...V[]]`) is not carriable positionally, so both fall back to the
+                // opaque-`Structural` degrade. `readonly` and labels drop.
+                let target = (unbox<Ts.TupleTypeReference> t).target
+                let elems = checker.getTypeArguments (unbox<Ts.TypeReference> t)
+
+                let allRequired =
+                    target.elementFlags |> Seq.forall (fun f -> f = Ts.ElementFlags.Required)
+
+                if elems.Count >= 2 && allRequired then
+                    Some(Schema.TypeRef.Tuple(elems |> Seq.map (mapType ctx) |> List.ofSeq))
+                else
+                    None
             else
                 None
 

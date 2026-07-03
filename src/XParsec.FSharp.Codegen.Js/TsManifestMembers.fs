@@ -141,37 +141,35 @@ module internal TsManifestMembers =
 
         interfaces.ToArray(), baseTy
 
-    /// The escaped member name TypeScript gives a `[Symbol.iterator]()` method: a
-    /// well-known-symbol member reads out as `__@iterator@<symbolId>`, the trailing id
-    /// varying by lib, so recognise by prefix. This is a TS-FAITHFUL member the extractor
-    /// carries verbatim (not scrubbed) — the provider READS it here to home the type.
+    /// TypeScript escapes a `[Symbol.iterator]()` method as `__@iterator@<symbolId>`; the
+    /// trailing id varies by lib, so match by prefix. The extractor carries this member
+    /// verbatim — the provider reads it here to home the type.
     [<Literal>]
     let private symbolIteratorPrefix = "__@iterator"
 
-    /// A TS `[Symbol.iterator](): Iterator<T>` IS the `seq<'T>` capability on JS — both are
-    /// the one native iterator protocol (a Vesper `seq` impl lowers to `[Symbol.iterator]`,
-    /// `JsNativeSymbols`). The provider owns that iterator→`seq` judgment (a backend fact
-    /// SemanticAnalysis must not learn), so when a type declares the member it peels the
-    /// element type — the FIRST type arg of the iterator its signature returns
-    /// (`SetIterator<T>` / `IterableIterator<T>` / `ArrayIterator<T>` → `T`; `Map`'s
-    /// `IterableIterator<[K,V]>` → the `[K,V]` tuple) — baked over the declaring typars so
-    /// `instantiateInterfaces` substitutes the receiver's args. `None` when absent or the
-    /// return is not an applied nominal (a mis-shaped symbol member is left as-is, not
-    /// faked). The element is later injected as the erased `IEnumerable\`1` interface so
-    /// `for … in` recognition (`pickEnumerableElem`) admits the type as enumerable.
-    let private tryIteratorElement (ctx: TranslateCtx) (members: Schema.Member list) : FrozenType option =
+    /// A TS `[Symbol.iterator](): Iterator<T>` IS the `seq<'T>` capability on JS (both are
+    /// the native iterator protocol). This backend judgment lives here, not in
+    /// SemanticAnalysis: peel the element — the first type arg of the iterator the signature
+    /// returns (`IterableIterator<T>` → `T`; `Map`'s `IterableIterator<[K,V]>` → the `[K,V]`
+    /// tuple), over the declaring typars so `instantiateInterfaces` substitutes the
+    /// receiver's args. `None` when the member is absent or its return is not an applied
+    /// nominal. The element is later injected as the erased `IEnumerable\`1` interface so
+    /// `for … in` recognition (`pickEnumerableElem`) admits the type.
+    let private tryIteratorElement (ctx: TranslateCtx) (members: Schema.Member list) : FrozenType voption =
         members
         |> List.tryPick (fun m ->
             if m.Name.StartsWith symbolIteratorPrefix then
                 match m.Signatures with
-                | sg :: _ ->
-                    match sg.Returns with
-                    | Schema.TypeRef.Named(_, elem :: _) -> Some(toFrozen ctx elem)
-                    | _ -> None
-                | [] -> None
+                | {
+                      Returns = Schema.TypeRef.Named(_, elem :: _)
+                  } :: _ -> Some(toFrozen ctx elem)
+                | _ -> None
             else
                 None
         )
+        |> function
+            | Some elem -> ValueSome elem
+            | None -> ValueNone
 
     let toTypeShape
         (ctx: TranslateCtx)
@@ -193,15 +191,15 @@ module internal TsManifestMembers =
 
             let heritageInterfaces, frozenBaseType = classifyHeritage ctx heritage
 
-            // Home a `[Symbol.iterator]`-bearing type as `seq<'T>`: inject the erased
-            // `IEnumerable\`1` head (the name `CapabilityIds.Enumerable` matches) with the
-            // peeled element, so the EXISTING `tryForInEnumerator` external-class arm admits
-            // it and `for … in` lowers to `for..of`. No front-end or emit change — the
-            // capability just has to appear in the interface set.
+            // Home a `[Symbol.iterator]`-bearing type as `seq<'T>` by injecting the erased
+            // `IEnumerable\`1` head with the peeled element: the existing `tryForInEnumerator`
+            // arm then admits it and `for … in` lowers to `for..of`, no front-end or emit
+            // change — the capability just has to appear in the interface set.
             let frozenInterfaces =
                 match tryIteratorElement ctx members with
-                | Some elem -> Array.append heritageInterfaces [| JsNativeSymbols.enumerableInterfaceName, [| elem |] |]
-                | None -> heritageInterfaces
+                | ValueSome elem ->
+                    Array.append heritageInterfaces [| JsNativeSymbols.enumerableInterfaceName, [| elem |] |]
+                | ValueNone -> heritageInterfaces
 
             Some(
                 qn,

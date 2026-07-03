@@ -279,15 +279,35 @@ let testProviderResolves (path: string) =
                 // provider slot — `FrozenInterfaces` (extended/implemented interfaces) or the
                 // single `FrozenBaseType` (base class) — so the populated count equals the
                 // emitted heritage count. Trivially satisfied for the (many) empty-heritage
-                // fixtures; exercises the disambiguation on the `heritage` fixture.
+                // fixtures; exercises the disambiguation on the `heritage` fixture. PLUS the
+                // provider synthesizes ONE extra `FrozenInterfaces` entry (the erased
+                // `IEnumerable`, NOT from heritage) for a type declaring `[Symbol.iterator]`,
+                // homing a TS iterable as `seq<'T>` — mirror that gate
+                // (`TsManifestMembers.tryIteratorElement`: a `__@iterator…` member returning
+                // an applied nominal iterator) so the slot count stays exact.
+                let injectedEnumerable =
+                    members
+                    |> List.exists (fun m ->
+                        m.Name.StartsWith "__@iterator"
+                        && (
+                            match m.Signatures with
+                            | sg :: _ ->
+                                match sg.Returns with
+                                | Schema.TypeRef.Named(_, _ :: _) -> true
+                                | _ -> false
+                            | [] -> false
+                        )
+                    )
+
                 match prov.TryLookupType name with
                 | ValueSome(ExternalTypeShape.Class shape) ->
                     let baseCount = if shape.FrozenBaseType.IsSome then 1 else 0
+                    let enumerableCount = if injectedEnumerable then 1 else 0
 
                     Expect.equal
                         (shape.FrozenInterfaces.Length + baseCount)
-                        heritage.Length
-                        $"type '{name}' heritage must populate FrozenInterfaces/FrozenBaseType"
+                        (heritage.Length + enumerableCount)
+                        $"type '{name}' heritage (+ any synthesized enumerable) must populate FrozenInterfaces/FrozenBaseType"
                 | _ -> ()
 
                 for m in members do

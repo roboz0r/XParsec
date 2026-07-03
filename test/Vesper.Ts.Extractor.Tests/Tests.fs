@@ -196,10 +196,12 @@ let mittDiagnosticsContract =
 // gloss (WHY that construct degraded):
 //   • structural-object-stubbed — the genuinely-UNREPRESENTABLE structural residue: a
 //     type whose content a named-field list cannot fully carry — an index signature
-//     (`{ [idx]: … }`), a call/construct signature (`new(...)=>R`), a tuple/array
-//     (`[number, string]`), an empty `{}`, or a mapped type (`Readonly<T>`/`Record`)
-//     → an OPAQUE (empty-field) content-hashed `Structural`. Only a pure named-property
-//     record carries its fields (FAITHFULLY, no warning); everything else is opaque.
+//     (`{ [idx]: … }`), a call/construct signature (`new(...)=>R`), an array, a 0-/1-tuple
+//     or an optional/rest/variadic tuple (`[K, V?]`, `[K, ...V[]]`), an empty `{}`, or a
+//     mapped type (`Readonly<T>`/`Record`) → an OPAQUE (empty-field) content-hashed
+//     `Structural`. Only a pure named-property record carries its fields (FAITHFULLY, no
+//     warning), and a fixed all-required multi-element tuple (`[number, string]`, `[K, V]`)
+//     now carries as a real `Tuple` (→ `FTTuple`); everything else here is opaque.
 //   • recursion-depth-exceeded — the self-recursive `Awaited<T>` conditional (and the
 //     `infer`-introduced pieces it expands into) recurses unbounded; `mapType` degrades
 //     the subtree to `obj` at the depth bound so `Promise` still extracts as a class.
@@ -221,7 +223,7 @@ let es2015BurndownContract =
     // Regenerated deliberately (never silently) when the extractor's fidelity changes.
     let committedRanking =
         [
-            "structural-object-stubbed", 24
+            "structural-object-stubbed", 18
             "recursion-depth-exceeded", 15
             "method-axis-typar-erased", 14
             "intersection-erased", 2

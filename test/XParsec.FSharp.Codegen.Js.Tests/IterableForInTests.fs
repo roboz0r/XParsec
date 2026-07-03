@@ -55,6 +55,12 @@ let private setManifest: Schema.PackageManifest =
 
 let private setProvider: IExternalSymbolProvider = stackTs setManifest
 
+// The REAL vendored es2015 pack: its `Map<K,V>.[Symbol.iterator](): MapIterator<[K,V]>`
+// now carries a genuine `(K, V)` TUPLE (the extractor's tuple arm), so the provider homes
+// `Map` as `seq<K*V>` and `for (k, v) in m` destructures — no hand fixture needed. `Map`
+// is a Node global (constructible, `.set` intrinsic), so it round-trips under Node.
+let private mapProvider: IExternalSymbolProvider = stackTs es2015Manifest
+
 // A function-local mutable accumulates the iteration (module-level `let mutable` is a
 // separate emit gap — it lowers to `const`; the loop capture is Wall 5). `sum` is a
 // top-level `let` so library-mode emit exports it and the harness reads it back.
@@ -90,6 +96,40 @@ let private analyseErrors (input: string) : string list =
 let private emitSet (input: string) : string =
     emitWith setProvider Map.empty true input
 
+// `for (k, v) in m` over `[K,V]` pairs — the tuple binder (step 2). Both `k` and `v` are
+// used at runtime (`total <- total + k + v`), so the destructuring binds both positions.
+let private mapProgram =
+    String.concat
+        "\n"
+        [
+            "let sumKV (m: Js.Map<int, int>) ="
+            "    let mutable total = 0"
+            "    for (k, v) in m do"
+            "        total <- total + k + v"
+            "    total"
+            "let m = new Js.Map<int, int>()"
+            "let s1 = m.set(1, 10)"
+            "let s2 = m.set(2, 20)"
+            "let s3 = m.set(3, 30)"
+            "let sum = sumKV m"
+            ""
+        ]
+
+let private mapHarness =
+    String.concat
+        "\n"
+        [
+            "import { sum } from \"./map-forin-program.mjs\";"
+            "console.log(`${sum}`);"
+            ""
+        ]
+
+let private analyseMapErrors (input: string) : string list =
+    analyseWith mapProvider input |> List.map (fun d -> d.Message)
+
+let private emitMap (input: string) : string =
+    emitWith mapProvider Map.empty true input
+
 [<Tests>]
 let tests =
     testList
@@ -112,5 +152,24 @@ let tests =
                 Expect.isFalse (js.Contains "import") (sprintf "a global Set program emits NO import, got:\n%s" js)
 
                 expectNodeOutput "set-forin-e2e" [ "harness.mjs", harness; "set-forin-program.mjs", js ] "6"
+            }
+
+            test "a `for (k, v) in Js.Map` program type-checks (tuple element binder)" {
+                let errors = analyseMapErrors mapProgram
+
+                Expect.isEmpty errors (sprintf "the for-(k,v)-in-Map program must type-check, got:\n%A" errors)
+            }
+
+            test "a `for (k, v) in Js.Map` destructures each pair and round-trips under Node" {
+                let js = emitMap mapProgram
+
+                // The pair binder lowers to a `for..of` over a fresh loop temp, then
+                // deconstructs it positionally into the body head (`t[0]`/`t[1]`).
+                Expect.stringContains js " of " (sprintf "expected a `for..of`, got:\n%s" js)
+                Expect.stringContains js "[0]" (sprintf "expected positional `[0]` destructure, got:\n%s" js)
+                Expect.stringContains js "[1]" (sprintf "expected positional `[1]` destructure, got:\n%s" js)
+                Expect.stringContains js "new Map(" (sprintf "expected bare `new Map(`, got:\n%s" js)
+
+                expectNodeOutput "map-forin-e2e" [ "harness.mjs", mapHarness; "map-forin-program.mjs", js ] "66"
             }
         ]

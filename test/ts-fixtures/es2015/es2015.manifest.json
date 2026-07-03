@@ -3400,9 +3400,19 @@
                 "name": "ArrayIterator",
                 "args": [
                   {
-                    "k": "structural",
-                    "hash": "[number, string]",
-                    "fields": []
+                    "k": "tuple",
+                    "items": [
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      },
+                      {
+                        "k": "named",
+                        "name": "string",
+                        "args": []
+                      }
+                    ]
                   }
                 ]
               }
@@ -8026,9 +8036,19 @@
                 "name": "ArrayIterator",
                 "args": [
                   {
-                    "k": "structural",
-                    "hash": "[number, string]",
-                    "fields": []
+                    "k": "tuple",
+                    "items": [
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      },
+                      {
+                        "k": "named",
+                        "name": "string",
+                        "args": []
+                      }
+                    ]
                   }
                 ]
               }
@@ -10561,9 +10581,19 @@
                 "name": "ArrayIterator",
                 "args": [
                   {
-                    "k": "structural",
-                    "hash": "[number, string]",
-                    "fields": []
+                    "k": "tuple",
+                    "items": [
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      },
+                      {
+                        "k": "named",
+                        "name": "string",
+                        "args": []
+                      }
+                    ]
                   }
                 ]
               }
@@ -14238,9 +14268,18 @@
                 "name": "ArrayIterator",
                 "args": [
                   {
-                    "k": "structural",
-                    "hash": "[number, T]",
-                    "fields": []
+                    "k": "tuple",
+                    "items": [
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      },
+                      {
+                        "k": "typar",
+                        "i": 0
+                      }
+                    ]
                   }
                 ]
               }
@@ -48927,9 +48966,19 @@
                 "name": "ArrayIterator",
                 "args": [
                   {
-                    "k": "structural",
-                    "hash": "[number, number]",
-                    "fields": []
+                    "k": "tuple",
+                    "items": [
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      },
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      }
+                    ]
                   }
                 ]
               }
@@ -51114,9 +51163,19 @@
                 "name": "ArrayIterator",
                 "args": [
                   {
-                    "k": "structural",
-                    "hash": "[number, number]",
-                    "fields": []
+                    "k": "tuple",
+                    "items": [
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      },
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      }
+                    ]
                   }
                 ]
               }
@@ -53301,9 +53360,19 @@
                 "name": "ArrayIterator",
                 "args": [
                   {
-                    "k": "structural",
-                    "hash": "[number, number]",
-                    "fields": []
+                    "k": "tuple",
+                    "items": [
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      },
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      }
+                    ]
                   }
                 ]
               }
@@ -55488,9 +55557,19 @@
                 "name": "ArrayIterator",
                 "args": [
                   {
-                    "k": "structural",
-                    "hash": "[number, number]",
-                    "fields": []
+                    "k": "tuple",
+                    "items": [
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      },
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      }
+                    ]
                   }
                 ]
               }
@@ -57675,9 +57754,19 @@
                 "name": "ArrayIterator",
                 "args": [
                   {
-                    "k": "structural",
-                    "hash": "[number, number]",
-                    "fields": []
+                    "k": "tuple",
+                    "items": [
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      },
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      }
+                    ]
                   }
                 ]
               }
@@ -59862,9 +59951,19 @@
                 "name": "ArrayIterator",
                 "args": [
                   {
-                    "k": "structural",
-                    "hash": "[number, number]",
-                    "fields": []
+                    "k": "tuple",
+                    "items": [
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      },
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      }
+                    ]
                   }
                 ]
               }
@@ -62049,9 +62148,19 @@
                 "name": "ArrayIterator",
                 "args": [
                   {
-                    "k": "structural",
-                    "hash": "[number, number]",
-                    "fields": []
+                    "k": "tuple",
+                    "items": [
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      },
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      }
+                    ]
                   }
                 ]
               }
@@ -64236,9 +64345,19 @@
                 "name": "ArrayIterator",
                 "args": [
                   {
-                    "k": "structural",
-                    "hash": "[number, number]",
-                    "fields": []
+                    "k": "tuple",
+                    "items": [
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      },
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      }
+                    ]
                   }
                 ]
               }
@@ -66423,9 +66542,19 @@
                 "name": "ArrayIterator",
                 "args": [
                   {
-                    "k": "structural",
-                    "hash": "[number, number]",
-                    "fields": []
+                    "k": "tuple",
+                    "items": [
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      },
+                      {
+                        "k": "named",
+                        "name": "float",
+                        "args": []
+                      }
+                    ]
                   }
                 ]
               }
@@ -69678,9 +69807,17 @@
                 "name": "MapIterator",
                 "args": [
                   {
-                    "k": "structural",
-                    "hash": "[K, V]",
-                    "fields": []
+                    "k": "tuple",
+                    "items": [
+                      {
+                        "k": "typar",
+                        "i": 0
+                      },
+                      {
+                        "k": "typar",
+                        "i": 1
+                      }
+                    ]
                   }
                 ]
               }
@@ -69748,9 +69885,17 @@
                 "name": "MapIterator",
                 "args": [
                   {
-                    "k": "structural",
-                    "hash": "[K, V]",
-                    "fields": []
+                    "k": "tuple",
+                    "items": [
+                      {
+                        "k": "typar",
+                        "i": 0
+                      },
+                      {
+                        "k": "typar",
+                        "i": 1
+                      }
+                    ]
                   }
                 ]
               }
@@ -69827,9 +69972,17 @@
                         "name": "ReadonlyArray",
                         "args": [
                           {
-                            "k": "structural",
-                            "hash": "readonly [K, V]",
-                            "fields": []
+                            "k": "tuple",
+                            "items": [
+                              {
+                                "k": "methodTypar",
+                                "i": 0
+                              },
+                              {
+                                "k": "methodTypar",
+                                "i": 1
+                              }
+                            ]
                           }
                         ]
                       }
@@ -69893,9 +70046,17 @@
                         "name": "Iterable",
                         "args": [
                           {
-                            "k": "structural",
-                            "hash": "readonly [K, V]",
-                            "fields": []
+                            "k": "tuple",
+                            "items": [
+                              {
+                                "k": "methodTypar",
+                                "i": 0
+                              },
+                              {
+                                "k": "methodTypar",
+                                "i": 1
+                              }
+                            ]
                           },
                           {
                             "k": "dynamic"
@@ -70093,9 +70254,17 @@
                 "name": "MapIterator",
                 "args": [
                   {
-                    "k": "structural",
-                    "hash": "[K, V]",
-                    "fields": []
+                    "k": "tuple",
+                    "items": [
+                      {
+                        "k": "typar",
+                        "i": 0
+                      },
+                      {
+                        "k": "typar",
+                        "i": 1
+                      }
+                    ]
                   }
                 ]
               }
@@ -70163,9 +70332,17 @@
                 "name": "MapIterator",
                 "args": [
                   {
-                    "k": "structural",
-                    "hash": "[K, V]",
-                    "fields": []
+                    "k": "tuple",
+                    "items": [
+                      {
+                        "k": "typar",
+                        "i": 0
+                      },
+                      {
+                        "k": "typar",
+                        "i": 1
+                      }
+                    ]
                   }
                 ]
               }
@@ -70361,9 +70538,17 @@
                         "name": "ReadonlyArray",
                         "args": [
                           {
-                            "k": "structural",
-                            "hash": "readonly [K, V]",
-                            "fields": []
+                            "k": "tuple",
+                            "items": [
+                              {
+                                "k": "methodTypar",
+                                "i": 0
+                              },
+                              {
+                                "k": "methodTypar",
+                                "i": 1
+                              }
+                            ]
                           }
                         ]
                       }
@@ -70411,9 +70596,17 @@
                         "name": "Iterable",
                         "args": [
                           {
-                            "k": "structural",
-                            "hash": "readonly [K, V]",
-                            "fields": []
+                            "k": "tuple",
+                            "items": [
+                              {
+                                "k": "methodTypar",
+                                "i": 0
+                              },
+                              {
+                                "k": "methodTypar",
+                                "i": 1
+                              }
+                            ]
                           },
                           {
                             "k": "dynamic"
@@ -70649,9 +70842,17 @@
                 "name": "SetIterator",
                 "args": [
                   {
-                    "k": "structural",
-                    "hash": "[T, T]",
-                    "fields": []
+                    "k": "tuple",
+                    "items": [
+                      {
+                        "k": "typar",
+                        "i": 0
+                      },
+                      {
+                        "k": "typar",
+                        "i": 0
+                      }
+                    ]
                   }
                 ]
               }
@@ -70980,9 +71181,17 @@
                 "name": "SetIterator",
                 "args": [
                   {
-                    "k": "structural",
-                    "hash": "[T, T]",
-                    "fields": []
+                    "k": "tuple",
+                    "items": [
+                      {
+                        "k": "typar",
+                        "i": 0
+                      },
+                      {
+                        "k": "typar",
+                        "i": 0
+                      }
+                    ]
                   }
                 ]
               }
@@ -74675,13 +74884,6 @@
     {
       "severity": "warning",
       "code": "structural-object-stubbed",
-      "symbol": "[number, string]",
-      "span": null,
-      "message": "structural type '[number, string]' has no faithful representation; carried as an opaque Structural"
-    },
-    {
-      "severity": "warning",
-      "code": "structural-object-stubbed",
       "symbol": "{ readonly [x: number]: boolean | undefined; readonly length?: boolean | undefined; toString?: boolean | undefined; toLocaleString?: boolean | undefined; concat?: boolean | undefined; join?: boolean | undefined; ... 16 more ...; readonly [Symbol.unscopables]?: boolean | undefined; }",
       "span": {
         "file": "lib.es2015.symbol.wellknown.d.ts",
@@ -74711,13 +74913,6 @@
         "end": 3319
       },
       "message": "structural type '{ [x: number]: boolean | undefined; length?: boolean | undefined; toString?: boolean | undefined; toLocaleString?: boolean | undefined; pop?: boolean | undefined; push?: boolean | undefined; ... 25 more ...; readonly [Symbol.unscopables]?: boolean | undefined; }' has no faithful representation; carried as an opaque Structural"
-    },
-    {
-      "severity": "warning",
-      "code": "structural-object-stubbed",
-      "symbol": "[number, T]",
-      "span": null,
-      "message": "structural type '[number, T]' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
@@ -75051,34 +75246,6 @@
         "end": 75435
       },
       "message": "type parameter 'R' is bound by neither the declaring nor the method axis; erased to obj"
-    },
-    {
-      "severity": "warning",
-      "code": "structural-object-stubbed",
-      "symbol": "[number, number]",
-      "span": null,
-      "message": "structural type '[number, number]' has no faithful representation; carried as an opaque Structural"
-    },
-    {
-      "severity": "warning",
-      "code": "structural-object-stubbed",
-      "symbol": "[K, V]",
-      "span": null,
-      "message": "structural type '[K, V]' has no faithful representation; carried as an opaque Structural"
-    },
-    {
-      "severity": "warning",
-      "code": "structural-object-stubbed",
-      "symbol": "readonly [K, V]",
-      "span": null,
-      "message": "structural type 'readonly [K, V]' has no faithful representation; carried as an opaque Structural"
-    },
-    {
-      "severity": "warning",
-      "code": "structural-object-stubbed",
-      "symbol": "[T, T]",
-      "span": null,
-      "message": "structural type '[T, T]' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",

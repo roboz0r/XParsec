@@ -1706,8 +1706,28 @@ module EmitJs =
         | TExprG.ForIn(pat, source, body, enumerator, _ty, _tok) ->
             match enumerator with
             | ForInEnumeratorG.Interface ->
-                let name = patBinderName ctx "_forin" pat
-                [ JsStatement.ForOf(name, buildExpr ctx source, buildStatements ctx body) ]
+                match pat with
+                // Simple/wildcard binder: `for (const x of src)` directly.
+                | TPatG.NamedSimple _
+                | TPatG.Wildcard _ ->
+                    let name = patBinderName ctx "_forin" pat
+                    [ JsStatement.ForOf(name, buildExpr ctx source, buildStatements ctx body) ]
+                // Destructuring binder — `for (k, v) in map` over `[K,V]` pairs: bind a
+                // fresh loop temp and reuse `compileMatchPattern` (the SAME lowering
+                // `let (k, v) = …` uses) to deconstruct it into the body head. The binder
+                // must be irrefutable — a `Some test` means a nested refutable sub-pattern,
+                // which a `for … in` binder cannot express, so reject it rather than emit
+                // the binds without the guard.
+                | TPatG.Tuple(_, _, tok) ->
+                    let tmp = "_forin" + string tok.StartIndex
+
+                    match compileMatchPattern ctx (JsExpr.Identifier(tmp, ValueNone)) pat with
+                    | None, binds ->
+                        [
+                            JsStatement.ForOf(tmp, buildExpr ctx source, binds @ buildStatements ctx body)
+                        ]
+                    | Some _, _ -> failwithf "EmitJs: refutable `for … in` binder pattern is unsupported %A" pat
+                | other -> failwithf "EmitJs: unsupported `for … in` binder pattern %A" other
             | ForInEnumeratorG.Pattern _ ->
                 failwith
                     "EmitJs: duck-typed `for...in` (Pattern enumerator) is unsupported on JS; only IEnumerable<'T> sources lower to `for...of`"

@@ -289,13 +289,27 @@ homing. Two settled sub-decisions:
      MODULE-LEVEL `let mutable` written in a loop lowers to `const` (a codegen gap adjacent
      to Wall 5's closure case) — the fixture accumulates in a function-local mutable instead.
 
-2. **Tuple binder in the `for..of` lowering (the ONE genuine EmitJs change).** `Js.Map`
-   iteration yields `[K,V]` pairs, so `for (k,v) in m` needs a destructuring binder — but
-   `patBinderName` (`EmitJs.fs`) currently rejects non-simple binders. JS supports
-   `for (const [k,v] of m)` natively; extend the ForOf binder to emit array destructuring
-   for a tuple pattern. **Test:** a Vesper `for (k,v) in (m: Js.Map<_,_>)` summing entries,
-   Node round-trip; remove the iteration descope caveat from the `JsMapE2ETests` header when
-   it closes.
+2. **Tuple binder in the `for..of` lowering (the ONE genuine EmitJs change) — SHIPPED.**
+   The `ForIn`/`Interface` arm (`EmitJs.fs`) now splits on the binder pattern: a
+   simple/wildcard binder stays a direct `for (const x of src)`; a `TPatG.Tuple` binds a
+   fresh loop temp and REUSES `compileMatchPattern` to deconstruct it into the body head
+   (`const k = t[0]; const v = t[1]`) — the same positional lowering `let (k,v) = …` uses,
+   so nested/wildcard tuple elements work for free. **Test (`IterableForInTests`):**
+   `for (k,v) in (m: Js.Map<int,int>)` summing `k + v` to 66, Node round-trip — driven
+   END-TO-END against the REAL vendored es2015 `Map` (see the tuple-extraction step below).
+
+3. **Tuple extraction — fixed all-required TS tuple → `Schema.TypeRef.Tuple` (extractor +
+   Fable + goldens) — SHIPPED.** Really Wall 3 work, but the last blocker for faithful
+   `Js.Map` entries, so it landed with this slice. The vendored es2015 `Map`'s
+   `[Symbol.iterator](): MapIterator<[K,V]>` used to carry `[K,V]` as an opaque fieldless
+   `Structural "[K, V]"`; a new `TypeMap.mapType` arm (gated on `checker.isTupleType` +
+   arity ≥ 2 + all elements `ElementFlags.Required`) now maps it to `Tuple` — element types
+   recursed, `readonly`/labels dropped, exotic (0-/1-tuple, optional/rest/variadic) kept as
+   the honest opaque-`Structural` degrade. Schema/provider/front-end already carried `Tuple`
+   (`toFrozen Tuple → FTTuple`), so this is extractor-only. es2015 burndown
+   `structural-object-stubbed` 24 → 18; the `IterableForInTests` Map test flips to the real
+   pack; the `testProviderResolves` heritage invariant now accounts for the synthesized
+   enumerable interface.
 
 **Trap.** JS iteration is native `for..of`; there is no `GetEnumerator`/`MoveNext` walk — do
 not reach for the IL enumerator descriptor. The `__@iterator@N` member is NOT dropped from
