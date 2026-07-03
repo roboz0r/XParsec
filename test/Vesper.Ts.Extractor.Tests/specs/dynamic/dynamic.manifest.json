@@ -85,9 +85,26 @@
           "name": "person",
           "kind": "property",
           "type": {
-            "k": "named",
-            "name": "obj",
-            "args": []
+            "k": "structural",
+            "hash": "Named & Aged",
+            "fields": [
+              {
+                "name": "name",
+                "type": {
+                  "k": "named",
+                  "name": "string",
+                  "args": []
+                }
+              },
+              {
+                "name": "age",
+                "type": {
+                  "k": "named",
+                  "name": "float",
+                  "args": []
+                }
+              }
+            ]
           },
           "signatures": [],
           "static": false,
@@ -97,13 +114,5 @@
       "heritage": []
     }
   ],
-  "diagnostics": [
-    {
-      "severity": "warning",
-      "code": "intersection-erased",
-      "symbol": "Named & Aged",
-      "span": null,
-      "message": "intersection type 'Named & Aged' erased to obj (structural intersections are deferred)"
-    }
-  ]
+  "diagnostics": []
 }

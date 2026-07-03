@@ -1539,9 +1539,526 @@
                         "args": []
                       },
                       {
-                        "k": "named",
-                        "name": "obj",
-                        "args": []
+                        "k": "structural",
+                        "hash": "NumberFormatOptions & DateTimeFormatOptions",
+                        "fields": [
+                          {
+                            "name": "localeMatcher",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "lookup"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "best fit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "style",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "decimal"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "percent"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "currency"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "currency",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "string",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "currencyDisplay",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "symbol"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "code"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "name"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "useGrouping",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "bool",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "minimumIntegerDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "minimumFractionDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "maximumFractionDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "minimumSignificantDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "maximumSignificantDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "weekday",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "long"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "short"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "narrow"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "era",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "long"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "short"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "narrow"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "year",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "month",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "long"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "short"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "narrow"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "day",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "hour",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "minute",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "second",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "timeZoneName",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "long"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "short"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "shortOffset"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "longOffset"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "shortGeneric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "longGeneric"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "formatMatcher",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "best fit"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "basic"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "hour12",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "bool",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "timeZone",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "string",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          }
+                        ]
                       }
                     ]
                   },
@@ -5209,9 +5726,526 @@
                         "args": []
                       },
                       {
-                        "k": "named",
-                        "name": "obj",
-                        "args": []
+                        "k": "structural",
+                        "hash": "NumberFormatOptions & DateTimeFormatOptions",
+                        "fields": [
+                          {
+                            "name": "localeMatcher",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "lookup"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "best fit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "style",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "decimal"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "percent"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "currency"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "currency",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "string",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "currencyDisplay",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "symbol"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "code"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "name"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "useGrouping",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "bool",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "minimumIntegerDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "minimumFractionDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "maximumFractionDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "minimumSignificantDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "maximumSignificantDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "weekday",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "long"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "short"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "narrow"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "era",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "long"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "short"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "narrow"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "year",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "month",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "long"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "short"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "narrow"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "day",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "hour",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "minute",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "second",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "timeZoneName",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "long"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "short"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "shortOffset"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "longOffset"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "shortGeneric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "longGeneric"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "formatMatcher",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "best fit"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "basic"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "hour12",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "bool",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "timeZone",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "string",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          }
+                        ]
                       }
                     ]
                   },
@@ -7227,9 +8261,526 @@
                         "args": []
                       },
                       {
-                        "k": "named",
-                        "name": "obj",
-                        "args": []
+                        "k": "structural",
+                        "hash": "NumberFormatOptions & DateTimeFormatOptions",
+                        "fields": [
+                          {
+                            "name": "localeMatcher",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "lookup"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "best fit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "style",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "decimal"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "percent"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "currency"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "currency",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "string",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "currencyDisplay",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "symbol"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "code"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "name"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "useGrouping",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "bool",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "minimumIntegerDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "minimumFractionDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "maximumFractionDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "minimumSignificantDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "maximumSignificantDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "weekday",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "long"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "short"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "narrow"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "era",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "long"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "short"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "narrow"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "year",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "month",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "long"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "short"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "narrow"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "day",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "hour",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "minute",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "second",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "timeZoneName",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "long"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "short"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "shortOffset"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "longOffset"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "shortGeneric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "longGeneric"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "formatMatcher",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "best fit"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "basic"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "hour12",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "bool",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "timeZone",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "string",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          }
+                        ]
                       }
                     ]
                   },
@@ -9339,7 +10890,7 @@
           "optional": false
         },
         {
-          "name": "__@match@760",
+          "name": "__@match@794",
           "kind": "method",
           "type": null,
           "signatures": [
@@ -9378,7 +10929,7 @@
           "optional": false
         },
         {
-          "name": "__@replace@762",
+          "name": "__@replace@796",
           "kind": "method",
           "type": null,
           "signatures": [
@@ -9466,7 +11017,7 @@
           "optional": false
         },
         {
-          "name": "__@search@765",
+          "name": "__@search@799",
           "kind": "method",
           "type": null,
           "signatures": [
@@ -9495,7 +11046,7 @@
           "optional": false
         },
         {
-          "name": "__@split@767",
+          "name": "__@split@801",
           "kind": "method",
           "type": null,
           "signatures": [
@@ -9778,7 +11329,7 @@
           "optional": false
         },
         {
-          "name": "__@species@797",
+          "name": "__@species@831",
           "kind": "property",
           "type": {
             "k": "named",
@@ -10885,9 +12436,526 @@
                         "args": []
                       },
                       {
-                        "k": "named",
-                        "name": "obj",
-                        "args": []
+                        "k": "structural",
+                        "hash": "NumberFormatOptions & DateTimeFormatOptions",
+                        "fields": [
+                          {
+                            "name": "localeMatcher",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "lookup"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "best fit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "style",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "decimal"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "percent"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "currency"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "currency",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "string",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "currencyDisplay",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "symbol"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "code"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "name"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "useGrouping",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "bool",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "minimumIntegerDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "minimumFractionDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "maximumFractionDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "minimumSignificantDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "maximumSignificantDigits",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "float",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "weekday",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "long"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "short"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "narrow"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "era",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "long"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "short"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "narrow"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "year",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "month",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "long"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "short"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "narrow"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "day",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "hour",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "minute",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "second",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "numeric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "2-digit"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "timeZoneName",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "long"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "short"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "shortOffset"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "longOffset"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "shortGeneric"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "longGeneric"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "formatMatcher",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "best fit"
+                                },
+                                {
+                                  "k": "literal",
+                                  "kind": "string",
+                                  "value": "basic"
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "hour12",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "bool",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          },
+                          {
+                            "name": "timeZone",
+                            "type": {
+                              "k": "union",
+                              "members": [
+                                {
+                                  "k": "named",
+                                  "name": "undefined",
+                                  "args": []
+                                },
+                                {
+                                  "k": "named",
+                                  "name": "string",
+                                  "args": []
+                                }
+                              ]
+                            }
+                          }
+                        ]
                       }
                     ]
                   },
@@ -38737,7 +40805,7 @@
           "optional": false
         },
         {
-          "name": "__@species@797",
+          "name": "__@species@831",
           "kind": "property",
           "type": {
             "k": "named",
@@ -44292,7 +46360,7 @@
           "optional": false
         },
         {
-          "name": "__@species@797",
+          "name": "__@species@831",
           "kind": "property",
           "type": {
             "k": "named",
@@ -67704,7 +69772,7 @@
           "optional": false
         },
         {
-          "name": "__@species@797",
+          "name": "__@species@831",
           "kind": "property",
           "type": {
             "k": "named",
@@ -68674,7 +70742,7 @@
           "optional": false
         },
         {
-          "name": "__@species@797",
+          "name": "__@species@831",
           "kind": "property",
           "type": {
             "k": "named",
@@ -71503,7 +73571,27 @@
               "returns": {
                 "k": "structural",
                 "hash": "{ proxy: T; revoke: () => void; }",
-                "fields": []
+                "fields": [
+                  {
+                    "name": "proxy",
+                    "type": {
+                      "k": "methodTypar",
+                      "i": 0
+                    }
+                  },
+                  {
+                    "name": "revoke",
+                    "type": {
+                      "k": "fun",
+                      "args": [],
+                      "ret": {
+                        "k": "named",
+                        "name": "unit",
+                        "args": []
+                      }
+                    }
+                  }
+                ]
               },
               "typeParamBounds": [
                 {
@@ -71823,9 +73911,116 @@
                 {
                   "name": "attributes",
                   "type": {
-                    "k": "named",
-                    "name": "obj",
-                    "args": []
+                    "k": "structural",
+                    "hash": "PropertyDescriptor & ThisType<any>",
+                    "fields": [
+                      {
+                        "name": "configurable",
+                        "type": {
+                          "k": "union",
+                          "members": [
+                            {
+                              "k": "named",
+                              "name": "undefined",
+                              "args": []
+                            },
+                            {
+                              "k": "named",
+                              "name": "bool",
+                              "args": []
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "name": "enumerable",
+                        "type": {
+                          "k": "union",
+                          "members": [
+                            {
+                              "k": "named",
+                              "name": "undefined",
+                              "args": []
+                            },
+                            {
+                              "k": "named",
+                              "name": "bool",
+                              "args": []
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "name": "value",
+                        "type": {
+                          "k": "dynamic"
+                        }
+                      },
+                      {
+                        "name": "writable",
+                        "type": {
+                          "k": "union",
+                          "members": [
+                            {
+                              "k": "named",
+                              "name": "undefined",
+                              "args": []
+                            },
+                            {
+                              "k": "named",
+                              "name": "bool",
+                              "args": []
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "name": "get",
+                        "type": {
+                          "k": "union",
+                          "members": [
+                            {
+                              "k": "named",
+                              "name": "undefined",
+                              "args": []
+                            },
+                            {
+                              "k": "fun",
+                              "args": [],
+                              "ret": {
+                                "k": "dynamic"
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "name": "set",
+                        "type": {
+                          "k": "union",
+                          "members": [
+                            {
+                              "k": "named",
+                              "name": "undefined",
+                              "args": []
+                            },
+                            {
+                              "k": "fun",
+                              "args": [
+                                {
+                                  "k": "dynamic"
+                                }
+                              ],
+                              "ret": {
+                                "k": "named",
+                                "name": "unit",
+                                "args": []
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
                   },
                   "optional": false,
                   "rest": false
@@ -72464,14 +74659,7 @@
         "start": 15820,
         "end": 15841
       },
-      "message": "anonymous/structural type 'new (...args: B) => R' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
-    },
-    {
-      "severity": "warning",
-      "code": "intersection-erased",
-      "symbol": "NumberFormatOptions & DateTimeFormatOptions",
-      "span": null,
-      "message": "intersection type 'NumberFormatOptions & DateTimeFormatOptions' erased to obj (structural intersections are deferred)"
+      "message": "structural type 'new (...args: B) => R' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
@@ -72489,7 +74677,7 @@
       "code": "structural-object-stubbed",
       "symbol": "[number, string]",
       "span": null,
-      "message": "anonymous/structural type '[number, string]' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type '[number, string]' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
@@ -72500,7 +74688,7 @@
         "start": 3528,
         "end": 3582
       },
-      "message": "anonymous/structural type '{ readonly [x: number]: boolean | undefined; readonly length?: boolean | undefined; toString?: boolean | undefined; toLocaleString?: boolean | undefined; concat?: boolean | undefined; join?: boolean | undefined; ... 16 more ...; readonly [Symbol.unscopables]?: boolean | undefined; }' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type '{ readonly [x: number]: boolean | undefined; readonly length?: boolean | undefined; toString?: boolean | undefined; toLocaleString?: boolean | undefined; concat?: boolean | undefined; join?: boolean | undefined; ... 16 more ...; readonly [Symbol.unscopables]?: boolean | undefined; }' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
@@ -72522,14 +74710,14 @@
         "start": 3274,
         "end": 3319
       },
-      "message": "anonymous/structural type '{ [x: number]: boolean | undefined; length?: boolean | undefined; toString?: boolean | undefined; toLocaleString?: boolean | undefined; pop?: boolean | undefined; push?: boolean | undefined; ... 25 more ...; readonly [Symbol.unscopables]?: boolean | undefined; }' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type '{ [x: number]: boolean | undefined; length?: boolean | undefined; toString?: boolean | undefined; toLocaleString?: boolean | undefined; pop?: boolean | undefined; push?: boolean | undefined; ... 25 more ...; readonly [Symbol.unscopables]?: boolean | undefined; }' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
       "code": "structural-object-stubbed",
       "symbol": "[number, T]",
       "span": null,
-      "message": "anonymous/structural type '[number, T]' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type '[number, T]' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
@@ -72547,7 +74735,7 @@
       "code": "intersection-erased",
       "symbol": "object & { then(onfulfilled: F, ...args: _): any; }",
       "span": null,
-      "message": "intersection type 'object & { then(onfulfilled: F, ...args: _): any; }' erased to obj (structural intersections are deferred)"
+      "message": "intersection type 'object & { then(onfulfilled: F, ...args: _): any; }' erased to obj (a non-object intersection has no structural form)"
     },
     {
       "severity": "warning",
@@ -72623,7 +74811,7 @@
       "code": "structural-object-stubbed",
       "symbol": "[]",
       "span": null,
-      "message": "anonymous/structural type '[]' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type '[]' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
@@ -72634,7 +74822,7 @@
         "start": 1714,
         "end": 1758
       },
-      "message": "anonymous/structural type '{ -readonly [P in keyof T]: Awaited<T[P]>; }' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type '{ -readonly [P in keyof T]: Awaited<T[P]>; }' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
@@ -72734,7 +74922,7 @@
         "start": 73787,
         "end": 73817
       },
-      "message": "anonymous/structural type 'Partial<T>' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type 'Partial<T>' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
@@ -72745,7 +74933,7 @@
         "start": 73884,
         "end": 73915
       },
-      "message": "anonymous/structural type 'Required<T>' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type 'Required<T>' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
@@ -72756,7 +74944,7 @@
         "start": 73982,
         "end": 74020
       },
-      "message": "anonymous/structural type 'Readonly<T>' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type 'Readonly<T>' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
@@ -72767,7 +74955,7 @@
         "start": 74131,
         "end": 74154
       },
-      "message": "anonymous/structural type 'Pick<T, K>' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type 'Pick<T, K>' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
@@ -72778,7 +74966,7 @@
         "start": 74260,
         "end": 74280
       },
-      "message": "anonymous/structural type 'Record<K, T>' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type 'Record<K, T>' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
@@ -72789,14 +74977,14 @@
         "start": 74131,
         "end": 74154
       },
-      "message": "anonymous/structural type 'Omit<T, K>' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type 'Omit<T, K>' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
       "code": "intersection-erased",
       "symbol": "NonNullable<T>",
       "span": null,
-      "message": "intersection type 'NonNullable<T>' erased to obj (structural intersections are deferred)"
+      "message": "intersection type 'NonNullable<T>' erased to obj (a non-object intersection has no structural form)"
     },
     {
       "severity": "warning",
@@ -72818,7 +75006,7 @@
         "start": 75051,
         "end": 75089
       },
-      "message": "anonymous/structural type 'abstract new (...args: P) => any' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type 'abstract new (...args: P) => any' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
@@ -72851,7 +75039,7 @@
         "start": 75397,
         "end": 75435
       },
-      "message": "anonymous/structural type 'abstract new (...args: any) => R' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type 'abstract new (...args: any) => R' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
@@ -72869,53 +75057,42 @@
       "code": "structural-object-stubbed",
       "symbol": "[number, number]",
       "span": null,
-      "message": "anonymous/structural type '[number, number]' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type '[number, number]' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
       "code": "structural-object-stubbed",
       "symbol": "[K, V]",
       "span": null,
-      "message": "anonymous/structural type '[K, V]' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type '[K, V]' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
       "code": "structural-object-stubbed",
       "symbol": "readonly [K, V]",
       "span": null,
-      "message": "anonymous/structural type 'readonly [K, V]' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type 'readonly [K, V]' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
       "code": "structural-object-stubbed",
       "symbol": "[T, T]",
       "span": null,
-      "message": "anonymous/structural type '[T, T]' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type '[T, T]' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
       "code": "structural-object-stubbed",
       "symbol": "[TNext]",
       "span": null,
-      "message": "anonymous/structural type '[TNext]' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type '[TNext]' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
       "code": "structural-object-stubbed",
       "symbol": "[unknown]",
       "span": null,
-      "message": "anonymous/structural type '[unknown]' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
-    },
-    {
-      "severity": "warning",
-      "code": "structural-object-stubbed",
-      "symbol": "{ proxy: T; revoke: () => void; }",
-      "span": {
-        "file": "lib.es2015.proxy.d.ts",
-        "start": 4540,
-        "end": 4573
-      },
-      "message": "anonymous/structural type '{ proxy: T; revoke: () => void; }' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type '[unknown]' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
@@ -72926,7 +75103,7 @@
         "start": 73982,
         "end": 74020
       },
-      "message": "anonymous/structural type 'Readonly<A>' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type 'Readonly<A>' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
@@ -72937,7 +75114,7 @@
         "start": 1896,
         "end": 1917
       },
-      "message": "anonymous/structural type 'new (...args: A) => R' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
+      "message": "structural type 'new (...args: A) => R' has no faithful representation; carried as an opaque Structural"
     },
     {
       "severity": "warning",
@@ -72948,14 +75125,7 @@
         "start": 1975,
         "end": 2000
       },
-      "message": "anonymous/structural type 'new (...args: any) => any' stubbed as a content-hashed Structural (item 14 deferred); the provider rehydrates it as an opaque type"
-    },
-    {
-      "severity": "warning",
-      "code": "intersection-erased",
-      "symbol": "PropertyDescriptor & ThisType<any>",
-      "span": null,
-      "message": "intersection type 'PropertyDescriptor & ThisType<any>' erased to obj (structural intersections are deferred)"
+      "message": "structural type 'new (...args: any) => any' has no faithful representation; carried as an opaque Structural"
     }
   ]
 }

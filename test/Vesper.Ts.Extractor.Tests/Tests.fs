@@ -187,25 +187,29 @@ let mittDiagnosticsContract =
             }
         ]
 
-// STEP 3 (the real-scale burndown): the `lib.es2015.*` closure is extracted via
+// The real-scale burndown: the `lib.es2015.*` closure is extracted via
 // `--lib-globals` (noLib + explicit lib inputs) and vendored at `ts-fixtures/es2015/`.
 // UNLIKE `mittDiagnosticsContract` (a GATE asserting `Diagnostics = []`), this is a
 // BURNDOWN: real residue is EXPECTED and the diagnostics ranked by code frequency are
 // asserted to equal a COMMITTED table. Any drift — up OR down — fails and forces a
-// deliberate golden update; shrinking these counts is the R5 scoreboard. Each code's
+// deliberate golden update; shrinking these counts is the scoreboard. Each code's
 // gloss (WHY that construct degraded):
-//   • structural-object-stubbed — anonymous/structural OBJECT and TUPLE types
-//     (`{ [idx]: … }`, the `Readonly<T>`/`Record` mapped types, `{}`, constructor
-//     types `new(...)=>R`, `[number, string]`) have no faithful schema arm yet
-//     (item 14 deferred) → opaque content-hashed `Structural` stub.
+//   • structural-object-stubbed — the genuinely-UNREPRESENTABLE structural residue: a
+//     type whose content a named-field list cannot fully carry — an index signature
+//     (`{ [idx]: … }`), a call/construct signature (`new(...)=>R`), a tuple/array
+//     (`[number, string]`), an empty `{}`, or a mapped type (`Readonly<T>`/`Record`)
+//     → an OPAQUE (empty-field) content-hashed `Structural`. Only a pure named-property
+//     record carries its fields (FAITHFULLY, no warning); everything else is opaque.
 //   • recursion-depth-exceeded — the self-recursive `Awaited<T>` conditional (and the
 //     `infer`-introduced pieces it expands into) recurses unbounded; `mapType` degrades
 //     the subtree to `obj` at the depth bound so `Promise` still extracts as a class.
 //   • method-axis-typar-erased — a type parameter bound by NEITHER axis: `infer` typars
 //     inside conditional types and the apply/bind/call typars on `CallableFunction`/
 //     `NewableFunction` that TS does not surface on the tracked axes → erased to `obj`.
-//   • intersection-erased — `A & B` object intersections (`PropertyDescriptor &
-//     ThisType<any>`, generic `T & U`) erased to `obj` (item 15 deferred).
+//   • intersection-erased — only a NON-object intersection, which has no merged member
+//     set to carry: a constituent is a primitive-ish `object` (`object & { then… }`) or
+//     a type parameter (`NonNullable<T>` = `T & {}`) → erased to `obj`. An OBJECT-ONLY
+//     intersection instead MERGES into a faithful `Structural` and no longer warns.
 // The PRIMITIVE-OVERLAP skip-list is pinned here too: the pack exports NONE of the
 // intrinsic-overlap names (`Array`/`String`/…) and homes no self-ref for them, while
 // `Map` (not on the list) IS exported as a class.
@@ -217,10 +221,10 @@ let es2015BurndownContract =
     // Regenerated deliberately (never silently) when the extractor's fidelity changes.
     let committedRanking =
         [
-            "structural-object-stubbed", 25
+            "structural-object-stubbed", 24
             "recursion-depth-exceeded", 15
             "method-axis-typar-erased", 14
-            "intersection-erased", 4
+            "intersection-erased", 2
         ]
 
     testList

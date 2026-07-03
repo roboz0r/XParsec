@@ -102,3 +102,15 @@ let inline isIndexedAccessType (t: Ts.Type) : bool = jsNative
 
 [<Emit("$0.root !== undefined && $0.checkType !== undefined && $0.extendsType !== undefined")>]
 let inline isConditionalType (t: Ts.Type) : bool = jsNative
+
+// Object-ness of a `Type` — is it a `TypeFlags.Object` (an interface/class instance,
+// an anonymous object literal, a tuple/array reference, …) as opposed to a
+// primitive/union/intersection/type-parameter. Read the flag from the LIVE
+// `ts.TypeFlags.Object` at runtime (passed as `$1`) rather than an F#-side enum
+// constant: the vendored `TypeFlags` numeric VALUES drift between TypeScript releases
+// (TS 6 renumbered `Object`), so a Fable-inlined constant silently mis-tests against
+// the installed compiler. Reading the flag through the imported `ts` module keeps the
+// test correct whatever TypeScript is resolved — the standing producer rule that flag
+// VALUES drift while the field/enum NAMES stay stable.
+[<Emit("($0.flags & $1.TypeFlags.Object) !== 0")>]
+let inline isObjectTypeFlag (t: Ts.Type) (tsExports: Ts.IExports) : bool = jsNative

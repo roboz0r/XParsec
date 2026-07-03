@@ -176,11 +176,38 @@ real, resolvable identity.
    `{x:number,y:number}`; read `.x`; emit + Node round-trip observes the value. Two
    distinct fns returning the same shape resolve to one identity.
 
-3. **Foreign-call arg widening (inflow).** At `InferExternalCall.fs` arg binding, admit a
-   record/structural whose fields ⊇ the structural param's, each boundary-compatible
-   (incl. `int`/`float` → `number`), emitting the operand verbatim. **Test:** pass a
-   Vesper `Point` to a foreign fn wanting `{x,y}`, Node round-trip; a `Point3D{x,y,z}`
-   also passes (width); a missing/incompatible field is **rejected** (negative test).
+3. **Foreign-call arg widening (inflow) — DEFERRED to its first real consumer; design +
+   entry point settled.** At `InferExternalCall.fs` arg binding, admit a record/structural
+   whose fields ⊇ the structural param's, each boundary-compatible (incl. `int`/`float` →
+   `number`), emitting the operand verbatim.
+   - **Settled design (resolves the two guardrails).** The check is CONFINED to the
+     foreign-call arg position — NOT a general `subsumes`/`unify` edge. And the front end
+     must NOT recognise a structural target itself (that would leak the `@struct` backend
+     convention upstream). Resolution: **the provider is the assignability oracle.** When a
+     foreign arg doesn't directly unify, the front end hands the provider the ARG's field
+     structure (the arg is often a project-local record the provider can't introspect) and
+     the provider — which owns `@struct`/`IsInterface` recognition AND field-level
+     assignability (`int`/`float` → `number`) — returns a coerced signature (param matched to
+     the arg) when structurally satisfiable, else `None`. The front end then unifies against
+     the returned signature by ORDINARY unification, so it grows no structural rule and never
+     learns why. Generalises the existing `obj`-absorption coercion at the same seam. Needs a
+     new arg-aware coercion capability on `IExternalSymbolProvider`.
+   - **Entry-point consumer shape (what to drive it with).** The pervasive real inflow is the
+     **options/config-object call**, and its target is usually a NAMED foreign interface, not
+     an anonymous `@struct` (DOM `addEventListener(…, options: AddEventListenerOptions)` /
+     `scrollIntoView(ScrollIntoViewOptions)`; node `fs.readFile(path, options)`). Since a TS
+     interface is structural, the SAME checked-width admission must fire for **external-
+     interface targets** (via the provider's `IsInterface`), not just `@struct` — which is
+     exactly what `@types/node`/`Js.Dom` demand, so driving with the interface case builds the
+     general thing. Vesper has no `{| |}` literal yet, so the argument is a NAMED record.
+     Isolation fixture: `interface Options { retries: number; label: string; verbose?: boolean }`
+     + `configure(opts: Options)`, called with a Vesper `type Cfg = { retries: int; label:
+     string }` value — exercises width (`Cfg` ⊇ required), boundary coercion (`int`→`number`),
+     verbatim emit (POJO record), and negatives (missing/`int`-typed `label` rejected). Design
+     point to settle then: WHICH external targets admit width — interfaces + `@struct` yes; a
+     foreign class is more nominal (construct it), likely no. **Test:** the fixture above,
+     Node round-trip; `Cfg` with an extra field also passes (width); missing/incompatible
+     field rejected.
 
 4. **Intersection graduation (extractor + Fable rebuild + goldens).** Change the
    `t.isIntersection()` arm (`TypeMap.fs:273`): an **object-only** intersection harvests
@@ -252,6 +279,34 @@ mutate captured state), so it belongs in this tranche.
 - **`Vesper.Platform.Map` portability layer** — a target-agnostic `Map` forwarding to
   `SCG.Dictionary`/`Js.Map` per target; RECORDED as a possibility, explicitly out of scope
   (`Js.*` stays JS-target-only by design).
+- **Callable-object-with-props → `Fun`-implementing erasing nominal.** A TS callable object
+  carrying data props (`{ (x): void; prop: string }`) is currently a partial-degrade: it
+  falls to `Structural(props)`, DROPS the call signature, and warns (the honest
+  representability gate from the structural-honesty work). The faithful model: surface it as
+  an erasing nominal that lists `Fun<params,ret>` in its interface set (the call signature,
+  carried faithfully) AND registers the data props as Property members — so `f(x)` resolves
+  through the `Fun` capability and `f.prop` through member access, both zero-emission (a JS
+  function-with-props is native). This is the SAME erasing-nominal machinery the structural
+  work uses, plus the `Fun` interface. Needs: (a) a schema slot for the call signature
+  alongside the fields (the `Structural` node has none today — a contract bump: Fable +
+  goldens), and (b) provider work so application resolves through `Fun` on an EXTERNAL
+  nominal. When it lands, callable-objects graduate from warned partial-degrade to faithful
+  and their warning disappears — the standard burndown progression, no rework of the honest
+  gate. Its own small design pass.
+- **Partial structural resolution + a caller-facing warning.** The honest gate keeps a
+  non-pure structural OPAQUE (`fields = []` → consumer `FTUnknown`) rather than carrying a
+  partial field set: the fields ARE usable (a caller can read the representable subset;
+  missing capabilities — calling a callable-object, indexing an index-signature type —
+  self-enforce as resolution errors, so partial is *sound*, not wrong), but the extractor's
+  incompleteness warning dies at extraction and never reaches the caller, and blanket
+  partial-carry bloats goldens with apparent members no consumer reads (es2015: 96/109 nodes
+  at 10–30 fields each, ~74K lines). The faithful middle ground — carry the partial fields
+  AND propagate a `partial`/`faithful` bit on the `Structural` schema node through the
+  provider to a front-end warn-on-use — is deferred until a consumer actually needs the
+  usable subset of a specific non-faithful type (build-when-it-bites). Until then non-pure
+  stays opaque; many such types are "faithful-later" anyway (callable-object → `Fun` above;
+  `Readonly<T>`/`Partial<T>` are already near-pure records; index signatures → a future
+  dictionary/index capability), so the partial-with-warning state would be transitional.
 
 Delete this doc when Walls 3–5 land; fold durable facts into module headers +
 [[project_js_ref_pack]] / `reference_*` memories ([[feedback_plan_docs_ephemeral]]). The

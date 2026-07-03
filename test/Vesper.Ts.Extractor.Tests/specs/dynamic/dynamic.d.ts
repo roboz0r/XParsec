@@ -1,5 +1,6 @@
-// Dynamic fixture: exercises `any` → Dynamic (item 12) and intersection erase
-// `A & B` → obj (item 15). The intersection operands are named interfaces so TS
+// Dynamic fixture: exercises `any` → Dynamic and an OBJECT-ONLY intersection
+// `Named & Aged`, which the checker merges into a faithful `Structural` carrying its
+// merged fields (name, age) — no diagnostic. The operands are named interfaces so TS
 // keeps it a genuine intersection rather than simplifying it away.
 
 export interface Named {
