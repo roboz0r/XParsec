@@ -183,7 +183,7 @@ let tests =
             }
 
             // A fully-applied literal call with lowerable specifiers now freezes
-            // to a `TExpr.Format` (vesper-printf-plan P1) — no `New PrintfFormat`
+            // to a `TExpr.Format` — no `New PrintfFormat`
             // / `App printfn`. The non-lowerable cases above (`%x`, `%a`, partial
             // application, `fprintf`, shadowing) still type the same and keep the
             // FSharp.Core path; this section pins the lowered shape.

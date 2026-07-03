@@ -8,7 +8,7 @@
 # the happy path), like the operators in Vesper.Core.
 #
 # Depends on Vesper.Core (Fun, unit, string). See ./README.md and
-# ../XParsec.FSharp.SemanticAnalysis/docs/vesper-printf-plan.md.
+# ../XParsec.FSharp.SemanticAnalysis/docs/printf-architecture.md.
 
 [core]
 namespace = "Vesper"

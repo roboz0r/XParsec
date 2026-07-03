@@ -19,10 +19,9 @@ A per-type package is therefore the natural **unit of self-hosting work**: a typ
 + its module, compiled to a BCL-only DLL and conformance-checked against its
 `.fsi`. **Merging packages is deferred to a later publishing concern** (PS6).
 
-This generalises a split the plan already contains: [vesper-printf-plan](vesper-printf-plan.md)
-(D4) already carves `Vesper.Printf` out as its own library depending on
-`Vesper.Core`. Per-type packages are the same pattern, applied to the collection
-and option/result types.
+This generalises a split already in place: [printf-architecture](printf-architecture.md)
+carves `Vesper.Printf` out as its own library depending on `Vesper.Core`. Per-type
+packages are the same pattern, applied to the collection and option/result types.
 
 ## The mechanism already exists
 
@@ -237,7 +236,7 @@ this tree has no `[upstream]` pin.)
   per-package.
 - [function-representation-plan](function-representation-plan.md) — `Vesper.Fun`,
   the representation R1 cuts over to (PS3 gate).
-- [vesper-printf-plan](vesper-printf-plan.md) — `Vesper.Printf`, the existing
+- [printf-architecture](printf-architecture.md) — `Vesper.Printf`, the existing
   precedent for a sibling `Vesper.*` library depending on `Vesper.Core`.
 - [brainstorm-structural-equality](brainstorm-structural-equality.md) — `=`/`hash`
   for collections; the equality half of the Map/Set capability.
