@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // The `%A` output *grammar* (record /
 // union forms) is lifted to `Codegen.Common.StructuralFormatRecipe`, the single
 // source of truth. The CLR backend lowers the recipe to IL directly (the
-// end-to-end `PrintfDifferentialTests` prove that path byte-identical, flat and
+// end-to-end `PrintfSpecTests` prove that path byte-identical, flat and
 // broken). The JS central shape-keyed walker (`Vesper.Printf.mjs`) deliberately does NOT consume the
 // recipe — it reconstructs the same grammar dynamically. Parity between the two
 // is held by THIS differential test, not by a shared call path: the *expected*

@@ -74,7 +74,7 @@
     <Compile Include="TupleTests.fs" />
     <Compile Include="TypeTestAsBinderTests.fs" />
     <Compile Include="StructuralFormatTests.fs" />
-    <Compile Include="PrintfDifferentialTests.fs" />
+    <Compile Include="PrintfSpecTests.fs" />
     <Compile Include="StructuralFormatBench.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

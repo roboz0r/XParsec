@@ -32,11 +32,11 @@ files = [
 ]
 
 # The `.fs` compiled into Vesper.Printf.dll by this repo's own backend. Both halves
-# of the printf stack are now Vesper-compiled (PP7d): the `%A` structural engine
-# (`structural-printer.fs`, ported from `StructuralFormat.cs`) BEFORE the
-# write-through format handler (`formatter.fs`, ported from `Formatter.cs`) — a
-# single-package compile is declaration-ordered, so `StructuralPrinter` must precede
-# `Formatter.AppendStructured`'s call to `StructuralPrinter.Print`.
+# of the printf stack are Vesper-compiled: the `%A` structural engine
+# (`structural-printer.fs`) BEFORE the write-through format handler
+# (`formatter.fs`) — a single-package compile is declaration-ordered, so
+# `StructuralPrinter` must precede `Formatter.AppendStructured`'s call to
+# `StructuralPrinter.Print`.
 impl = [
     "structural-printer.fs",
     "formatter.fs",

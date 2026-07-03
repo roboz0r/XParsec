@@ -12,7 +12,7 @@ open XParsec.FSharp.SemanticAnalysis
 //
 // An earlier equivalence net compared `tryClassify` against the legacy
 // `PrintfSpec.tryHoleFormat` oracle; that oracle is now deleted, so byte-parity
-// is pinned end-to-end by `PrintfDifferentialTests` / `PrintfHappyPathTests`
+// is pinned end-to-end by `PrintfSpecTests` / `PrintfHappyPathTests`
 // (CLR) and `PrintfSpecifierTests` (JS Node). What remains here is a light
 // non-vacuity guard: the classifier must both accept and defer across the matrix.
 

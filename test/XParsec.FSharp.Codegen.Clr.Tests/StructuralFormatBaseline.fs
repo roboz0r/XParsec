@@ -15,7 +15,7 @@ open System.Runtime.CompilerServices
 // same `Vesper.StructuralPrinter` as the live engine and binds the same Core-owned
 // `Vesper.IStructuralFormattable` / `Vesper.IFormatSink` interfaces; the two engines are
 // compiled into separate assemblies / load contexts, so the duplicate type names never
-// collide. Output is byte-identical to the live engine (the golden/differential suite
+// collide. Output is byte-identical to the live engine (the golden spec suite
 // guards that); only the render strategy (O(n^2) `string + string` here vs the O(n)
 // pooled `char[]` buffer in the live engine) differs.
 

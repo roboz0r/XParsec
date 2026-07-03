@@ -62,7 +62,7 @@ let private soleDecl (src: string) : TDecl =
     | _ -> failtestf "expected one decl for %s, got: %A" src tast.Decls
 
 let private runPrints (name: string) (src: string) (expected: string) =
-    let exitCode, output = withPrintfAlc Vesper (fun alc -> runDriverInAlc alc src)
+    let exitCode, output = withPrintfAlc (fun alc -> runDriverInAlc alc src)
     Expect.equal exitCode 0 (sprintf "Main returns 0 for: %s" src)
     Expect.equal (output.Trim()) expected (sprintf "%s prints %s" src expected)
 
@@ -71,7 +71,7 @@ let private runPrints (name: string) (src: string) (expected: string) =
 /// spaces survive) and pairs with an `expected` from the test process's own
 /// `sprintf` for byte-for-byte parity with real F#.
 let private runParity (name: string) (src: string) (expected: string) =
-    let exitCode, output = withPrintfAlc Vesper (fun alc -> runDriverInAlc alc src)
+    let exitCode, output = withPrintfAlc (fun alc -> runDriverInAlc alc src)
     Expect.equal exitCode 0 (sprintf "Main returns 0 for: %s" src)
     Expect.equal (output.TrimEnd('\r', '\n')) expected (sprintf "%s == F# parity" src)
 
@@ -491,7 +491,7 @@ let tests =
 
             test "`printfn \"%5d\"` right-justifies in a width-5 field" {
                 let exitCode, output =
-                    withPrintfAlc Vesper (fun alc -> runDriverInAlc alc "printfn \"%5d\" 42")
+                    withPrintfAlc (fun alc -> runDriverInAlc alc "printfn \"%5d\" 42")
 
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.TrimEnd()) "   42" "right-justified in a width-5 field (3 leading spaces)"
@@ -883,8 +883,8 @@ let tests =
 
             // A negative *float* can't be produced in the codegen subset, so the
             // sign-then-zeros placement (F# `%08.2f` of `-3.14159` is `"-0003.14"`)
-            // is exercised only by the C# handler; the runs below cover positive /
-            // zero / wider-than-field cases.
+            // is not exercised here; the runs below cover positive / zero /
+            // wider-than-field cases.
 
             test "`%08.2f` zero-pads a positive float to width 8" {
                 runParity "PHpZFloat" "printfn \"%08.2f\" 3.14159" (sprintf "%08.2f" 3.14159)

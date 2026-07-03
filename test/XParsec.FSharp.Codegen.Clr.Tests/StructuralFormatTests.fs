@@ -11,10 +11,10 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // diverge.
 //
 // These drive the **Vesper-compiled** `StructuralPrinter` (`structural-printer.fs`)
-// via reflection (`structuralPrint` / `structuralPrintSized` in `TestHelpers`), not
-// the C# `Vesper.StructuralPrinter` that fsc would bind here. The `Sem*`
-// `IStructuralFormattable` impls still bind the Core interfaces at compile time;
-// only the engine entry point is the self-hosted one.
+// via reflection (`structuralPrint` / `structuralPrintSized` in `TestHelpers`) — the
+// real backend-emitted engine, loaded from the `buildPackage`-produced
+// `Vesper.Printf.dll`. The `Sem*` `IStructuralFormattable` impls still bind the Core
+// interfaces at compile time; only the engine entry point is the self-hosted one.
 
 /// `structuralPrint v 80` — the default 80-column budget (most values stay flat).
 let private flat (v: obj) = structuralPrint v 80

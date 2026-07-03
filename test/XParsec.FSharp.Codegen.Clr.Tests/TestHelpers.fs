@@ -337,19 +337,18 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
 
                  // A contract-only package (`impl = []`: Vesper.Comparison, whose
                  // operators are inlined) compiles to an *empty* DLL here — it carries
-                 // no runtime types. `Vesper.Printf` is a special case: it now carries a
-                 // *real* Vesper-compiled `Vesper.Formatter` (`formatter.fs`), but
-                 // its runtime peer is still the C#-built `Vesper.Printf.dll` (which also
-                 // holds `StructuralPrinter`, the `%A` engine left as C#, and the
-                 // printf module surface). Registering either in `packageAlc` would
-                 // shadow that host-loaded assembly: a driver `printfn` would bind
-                 // `Vesper.Formatter` / `StructuralPrinter` to the wrong copy and fail.
-                 // So load both into a throwaway context and leave `packageAlc` without
-                 // them — the driver's `Vesper.Printf` reference then falls through to the
-                 // Default ALC (where the test project's C# `Vesper.Printf.dll` is
-                 // loaded). The on-disk path stays in `References` for emit-time identity.
-                 // (The `buildsBclOnly "Vesper.Printf"` test only needs the build to
-                 // succeed; it does not drive the emitted handler.)
+                 // no runtime types. `Vesper.Printf` is a special case: its runtime
+                 // peer — the Vesper-compiled `Vesper.Formatter` (`formatter.fs`) and
+                 // `StructuralPrinter` (`structural-printer.fs`, the `%A` engine), plus
+                 // the printf module surface — is loaded separately into the Default ALC
+                 // by `vesperPrintfDll` for the in-process driver path. Registering it in
+                 // `packageAlc` too would make a second copy: a driver `printfn` would
+                 // bind `Vesper.Formatter` / `StructuralPrinter` to the wrong one and
+                 // fail. So load it into a throwaway context and leave `packageAlc`
+                 // without it — the driver's `Vesper.Printf` reference then falls through
+                 // to the Default ALC copy. The on-disk path stays in `References` for
+                 // emit-time identity. (The `buildsBclOnly "Vesper.Printf"` test only
+                 // needs the build to succeed; it does not drive the emitted handler.)
                  if List.isEmpty manifest.Impl || manifest.Name = "Vesper.Printf" then
                      let throwaway = AssemblyLoadContext("xparsec-contract-only", isCollectible = true)
 
@@ -363,8 +362,8 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
 /// The Vesper-compiled `Vesper.Printf.dll` (`structural-printer.fs` + `formatter.fs`),
 /// built by the `buildPackage` harness and loaded into the *Default*
 /// `AssemblyLoadContext` — the in-process runtime printf/`%A` handler a driver binds
-/// (C# DLL is off the TPA, so the Vesper handler is the one a fresh-ALC
-/// `runEntryPoint` driver resolves through the Default fall-through). Forcing it builds `Vesper.Printf` (and its `Vesper.Core` /
+/// (the only `Vesper.Printf` in Default, so a fresh-ALC
+/// `runEntryPoint` driver resolves it through the Default fall-through). Forcing it builds `Vesper.Printf` (and its `Vesper.Core` /
 /// `Vesper.List` deps) and loads the on-disk DLL into Default; the printf assembly's
 /// `Vesper.Core` / `Vesper.List` references resolve by simple name to the
 /// `vesperCoreDll` / `vesperListDll` copies (forced first), the same value-identity
@@ -593,50 +592,6 @@ let runEntryPoint (bytes: byte[]) : int * string =
 // `withCore`) forces `vesperCoreDll`/`vesperListDll` into Default first, so the
 // child ALC's fall-through finds them loaded.
 
-/// Which `Vesper.Printf.dll` a driver binds when run through `withPrintfAlc`.
-type PrintfHandler =
-    /// The committed, host-loaded C# `Vesper.Printf.dll` (the current runtime peer).
-    | CSharp
-    /// The `buildPackage`-produced, fully Vesper-compiled `Vesper.Printf.dll`.
-    | Vesper
-
-/// The C# `Vesper.Printf.dll`, built on demand for the differential safety net.
-/// `Codegen.Clr` no longer references `Vesper.Printf.csproj`, so the C# DLL is
-/// neither copied beside the test binary nor on the process TPA — that is what keeps
-/// the C# handler off the Default ALC so the in-process drivers bind the
-/// *Vesper*-compiled handler. The differential suite (its only consumer) builds the
-/// `.csproj` via `dotnet build` and reads the produced DLL by path. `lazy`, so the
-/// build runs once and only when a `CSharp`-handler run forces it.
-let private csharpPrintfPath: Lazy<string> =
-    lazy
-        (let csproj =
-            IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.Printf", "Vesper.Printf.csproj")
-
-         let psi = Diagnostics.ProcessStartInfo "dotnet"
-         psi.ArgumentList.Add "build"
-         psi.ArgumentList.Add csproj
-         psi.ArgumentList.Add "-c"
-         psi.ArgumentList.Add "Release"
-         psi.RedirectStandardOutput <- true
-         psi.RedirectStandardError <- true
-         psi.UseShellExecute <- false
-
-         use p = Diagnostics.Process.Start psi
-         let out = p.StandardOutput.ReadToEnd()
-         let err = p.StandardError.ReadToEnd()
-         p.WaitForExit()
-
-         if p.ExitCode <> 0 then
-             failwithf "dotnet build of the C# Vesper.Printf.csproj failed (exit %d):\n%s\n%s" p.ExitCode out err
-
-         let dll =
-             IO.Path.Combine(IO.Path.GetDirectoryName csproj, "bin", "Release", "net8.0", "Vesper.Printf.dll")
-
-         if IO.File.Exists dll then
-             dll
-         else
-             failwithf "C# Vesper.Printf.dll not found after build (%s)\n--- dotnet build output ---\n%s" dll out)
-
 /// The Vesper-compiled `Vesper.Printf.dll` path (built + materialised to disk by
 /// the `buildPackage` harness). Forcing the lazy also builds its `Vesper.Core` /
 /// `Vesper.List` / `Vesper.Comparison` deps into `packageAlc`.
@@ -658,16 +613,11 @@ type private PrintfLoadContext(printfPath: string) as this =
     override _.Load(name: AssemblyName) : Assembly =
         if name.Name = "Vesper.Printf" then printf.Value else null
 
-/// Create a fresh collectible ALC bound to `handler`'s `Vesper.Printf.dll`, run
-/// `run` against it, then unload. The result must hold no `Type`/`Assembly` from
+/// Create a fresh collectible ALC bound to the Vesper-compiled `Vesper.Printf.dll`,
+/// run `run` against it, then unload. The result must hold no `Type`/`Assembly` from
 /// the context (return captured stdout / scalars), so `Unload` can collect it.
-let withPrintfAlc (handler: PrintfHandler) (run: AssemblyLoadContext -> 'a) : 'a =
-    let path =
-        match handler with
-        | CSharp -> csharpPrintfPath.Value
-        | Vesper -> vesperPrintfPath ()
-
-    let alc = PrintfLoadContext path
+let withPrintfAlc (run: AssemblyLoadContext -> 'a) : 'a =
+    let alc = PrintfLoadContext(vesperPrintfPath ())
 
     try
         run (alc :> AssemblyLoadContext)
@@ -688,59 +638,38 @@ let runDriverInAlc (alc: AssemblyLoadContext) (src: string) : int * string =
     let asm = alc.LoadFromStream ms
     runLoadedEntryPoint asm
 
-/// Run `src` through both printf handlers in dedicated ALCs and assert the two
-/// produce byte-identical (CRLF-normalised, trimmed) stdout, exit 0 each — the
-/// bring-up safety net before the C# handler is deleted. Returns the
-/// shared output so a caller can additionally pin it against an oracle.
-let runsDifferential (src: string) : string =
-    let runWith handler =
-        withPrintfAlc
-            handler
-            (fun alc ->
-                let exitCode, output = runDriverInAlc alc src
-                // Strip CR + trailing newlines only (not all whitespace): a `%5d`
-                // right-justify ("   42") carries meaningful LEADING spaces, and a
-                // broken `%A` group carries embedded newlines + indent — both must
-                // survive so the oracle can pin them.
-                let actual = output.Replace("\r", "").TrimEnd('\n')
+/// Run `src` through the Vesper-compiled printf handler in a dedicated ALC and
+/// return its (CRLF-normalised, trailing-newline-trimmed) stdout, asserting exit 0.
+let runsPrintf (src: string) : string =
+    withPrintfAlc (fun alc ->
+        let exitCode, output = runDriverInAlc alc src
+        // Strip CR + trailing newlines only (not all whitespace): a `%5d`
+        // right-justify ("   42") carries meaningful LEADING spaces, and a
+        // broken `%A` group carries embedded newlines + indent — both must
+        // survive so the oracle can pin them.
+        let actual = output.Replace("\r", "").TrimEnd('\n')
 
-                if exitCode <> 0 then
-                    failwithf
-                        "[%A] expected exit 0 but got %d for:\n%s\n--- stdout ---\n%s"
-                        handler
-                        exitCode
-                        src
-                        actual
+        if exitCode <> 0 then
+            failwithf "expected exit 0 but got %d for:\n%s\n--- stdout ---\n%s" exitCode src actual
 
-                actual
-            )
+        actual
+    )
 
-    let csOut = runWith CSharp
-    let vesOut = runWith Vesper
-
-    if csOut <> vesOut then
-        failwithf "printf handlers diverge for:\n%s\n--- C# ---\n%A\n--- Vesper ---\n%A" src csOut vesOut
-
-    csOut
-
-/// `runsDifferential` plus an assertion that the shared output equals `expected`
-/// (the structural spec oracle) — pins both handlers to the spec at once.
-let runsDifferentialEq (expected: string) (src: string) : unit =
-    let actual = runsDifferential src
+/// `runsPrintf` plus an assertion that the output equals `expected` (the
+/// structural spec oracle) — pins the handler to the spec.
+let runsEq (expected: string) (src: string) : unit =
+    let actual = runsPrintf src
 
     if actual <> expected then
-        failwithf "expected %A but both handlers produced %A for:\n%s" expected actual src
+        failwithf "expected %A but the handler produced %A for:\n%s" expected actual src
 
 // ---- Drive the `%A` golden oracle on the VESPER engine ------------
-// `StructuralFormatTests` is fsc-compiled and used to bind the C#
-// `Vesper.StructuralPrinter.Print` at compile time. To exercise the
-// *Vesper-compiled* engine instead (`structural-printer.fs`, including its cons-list
-// `Object.ReferenceEquals` cycle scan rather than the C# `HashSet<obj>`), resolve
-// `StructuralPrinter` by reflection from the `buildPackage`-produced
-// `Vesper.Printf.dll`. It is loaded into a dedicated long-lived (non-collectible) ALC
-// with no `Load` override, so its `Vesper.Core` dependency resolves through the
-// runtime's Default fall-through — the same value-identity unification `withPrintfAlc`
-// does for drivers. The hand-written `Point`/`Opt` `IStructuralFormattable` impls
+// Exercise the *Vesper-compiled* engine (`structural-printer.fs`, including its
+// cons-list `Object.ReferenceEquals` cycle scan) by resolving `StructuralPrinter` by
+// reflection from the `buildPackage`-produced `Vesper.Printf.dll`. It is loaded into
+// a dedicated long-lived (non-collectible) ALC with no `Load` override, so its
+// `Vesper.Core` dependency resolves through the runtime's Default fall-through — the
+// same value-identity unification `withPrintfAlc` does for drivers. The hand-written `Point`/`Opt` `IStructuralFormattable` impls
 // (bound to the test's `Vesper.Core`) and the engine's `RuntimeFormatState`
 // (`IFormatSink`) then meet on the single Default `Vesper.Core`, so the engine's
 // `value :? IStructuralFormattable` test succeeds across the ALC boundary.

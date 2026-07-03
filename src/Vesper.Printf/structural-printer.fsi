@@ -1,7 +1,7 @@
 namespace Vesper
 
 // Front-end symbol contract for the `%A` structural engine
-// (`structural-printer.fs`, ported from `StructuralFormat.cs`). The `.fs`
+// (`structural-printer.fs`). The `.fs`
 // over-exposes its layout internals (the `Doc` document tree, the `Frame` stack,
 // `DocLayout`, `FrameKind`) for want of a signature; this contract encapsulates
 // them and publishes only the genuine cross-package surface:

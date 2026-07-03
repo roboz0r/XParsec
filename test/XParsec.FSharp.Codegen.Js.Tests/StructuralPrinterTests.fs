@@ -115,7 +115,7 @@ let tests =
             // The shared Wadler `Doc`/`render` width-breaking kernel. A `Group` lays out
             // ALL-FLAT when its flat width fits from the current column, else ALL-BROKEN — its
             // `Line`s become a newline + the active `Nest` indent. The expectations below are
-            // byte-identical to the CLR `PrintfDifferentialTests` goldens (record nest 2,
+            // byte-identical to the CLR `PrintfSpecTests` goldens (record nest 2,
             // tuple nest 1, list brackets on own lines nest 2), so JS `%NA` matches CLR
             // `%NA` rather than collapsing to `%0A`.
             test "the layout breaks under a tight width budget (CLR parity)" {

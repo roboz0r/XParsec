@@ -95,12 +95,15 @@ let tests =
             }
 
             // The `%A` structural-format interfaces (`IFormatSink` /
-            // `IStructuralFormattable`) are Core-owned. `Vesper.Printf` (C#) references
-            // a committed copy `src/Vesper.Printf/refs/Vesper.Core.dll`. This guard
-            // keeps that copy in sync with the Vesper source: it verifies surface parity
-            // with the freshly backend-compiled `Vesper.Core.dll` and that the copy
-            // carries no `Vesper.Printf` reference (a Vesper.Core→Vesper.Printf cycle
-            // at the C# build). Regenerate after editing `structural-format.fs` by
+            // `IStructuralFormattable`) are Core-owned. This test project's
+            // `StructuralFormatTests.fs` hand-writes `IFormatSink` impls, so fsc needs
+            // `Vesper.Core` on its `-r` line — supplied by the committed copy
+            // `src/Vesper.Printf/refs/Vesper.Core.dll` (assembly references don't flow
+            // transitively through ProjectReferences). This guard keeps that copy in
+            // sync with the Vesper source: it verifies surface parity with the freshly
+            // backend-compiled `Vesper.Core.dll` and that the copy carries no
+            // `Vesper.Printf` reference (which would be a Vesper.Core→Vesper.Printf
+            // dependency cycle). Regenerate after editing `structural-format.fs` by
             // running this suite with `REGEN_VESPER_CORE_REF=1`.
             test "the committed Vesper.Core reference copy is in sync" {
                 let committedPath =
@@ -117,8 +120,8 @@ let tests =
 
                 Expect.equal (committedAsm.GetName().Name) "Vesper.Core" "the committed reference is named Vesper.Core"
 
-                // A stale copy would reintroduce a Vesper.Core→Vesper.Printf
-                // cycle at the C# build.
+                // A stale copy carrying a Vesper.Printf reference would be a
+                // Vesper.Core→Vesper.Printf dependency cycle.
                 let refs = committedAsm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
 
                 Expect.isFalse

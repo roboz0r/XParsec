@@ -1615,11 +1615,11 @@ let structTests =
                         ])
             }
 
-            test "PP7f: %u / aligned / zero-padded-float holes match the C# handler" {
-                runsDifferentialEq "42" "printfn \"%u\" 42"
-                runsDifferentialEq "   42" "printfn \"%5u\" 42"
-                runsDifferentialEq "00003.14" "printfn \"%08.2f\" 3.14"
-                runsDifferentialEq "42   ,7" "printfn \"%-5u,%d\" 42 7"
+            test "%u / aligned / zero-padded-float holes match the structural spec" {
+                runsEq "42" "printfn \"%u\" 42"
+                runsEq "   42" "printfn \"%5u\" 42"
+                runsEq "00003.14" "printfn \"%08.2f\" 3.14"
+                runsEq "42   ,7" "printfn \"%-5u,%d\" 42 7"
             }
 
             test "PP7b: RuntimeFormatState : IFormatSink — sink + frame stack" {

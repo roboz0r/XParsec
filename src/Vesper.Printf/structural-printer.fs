@@ -10,23 +10,24 @@ open System.Runtime.CompilerServices
 // deliberately does not reference; see ../Vesper.Core/int-comparison.fsi.
 open Vesper.IntComparison
 
-// Vesper-compiled `%A` structural engine, ported from the C# `StructuralFormat.cs`.
-// Reflection-free pretty-printer: group-based layout where every composite renders
-// ALL-flat (if its flat form fits the width budget) or ALL-broken.
-// `Formatter.AppendStructured` calls `StructuralPrinter.Print`. Output is
-// copy-pasteable Vesper source (`5L`, `3.0`, `nan`, `[1; 2; 3]`).
+// Vesper-compiled `%A` structural engine. Reflection-free pretty-printer:
+// group-based layout where every composite renders ALL-flat (if its flat form fits
+// the width budget) or ALL-broken. `Formatter.AppendStructured` calls
+// `StructuralPrinter.Print`. Output is copy-pasteable Vesper source (`5L`, `3.0`,
+// `nan`, `[1; 2; 3]`).
 //
-// Deviations from `StructuralFormat.cs`:
-//   * `Doc` tree recomputes `flatWidth` (the C# caches it per node); trees are small.
+// Implementation notes:
+//   * The `Doc` tree recomputes `flatWidth` per node rather than caching it; trees
+//     are small.
 //   * Render pass appends into a single pooled `char[]` buffer (`RenderBuf`/`RenderPos`,
 //     `Emit`/`EmitSpaces`); each `RenderDoc` returns only the end column (an `int`).
-//     The C# `StringBuilder` analogue; O(n) vs the naive O(n²) `string + string` port.
+//     O(n) vs a naive O(n²) `string + string` build.
 //   * Frame stack is a cons-list (push = cons, pop = head/tail; `PopWrap` reverses
 //     via `revOnto`) rather than a BCL mutable `List<Doc>`.
 //   * Cycle detection uses a cons-list of DFS-ancestor values scanned by
 //     `Object.ReferenceEquals` (`DocLayout.containsRef` + `RuntimeFormatState.Visited`)
-//     rather than `HashSet<obj>` + `ReferenceEqualityComparer`. Bounded by the
-//     `PrintDepth = 100` guard; path-set semantics identical to the C#.
+//     rather than `HashSet<obj>` + `ReferenceEqualityComparer`, bounded by the
+//     `PrintDepth = 100` guard.
 
 /// The recorded layout document. A group renders all-flat or all-broken; nesting
 /// governs the indent broken lines hang at.

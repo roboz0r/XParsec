@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // (`%x`/`%o`/`%u`/`%b`/padding/alignment/`%f`/forced-sign) emit per-hole JS string
 // expressions inline (no runtime import, no `.NET` format-string round trip) instead
 // of the raw value. These tests pin each specifier's Node output to F#'s `printf`
-// semantics (the CLR `PrintfDifferentialTests` goldens, extended). The genuinely subtle
+// semantics (the CLR `PrintfSpecTests` goldens, extended). The genuinely subtle
 // float forms (`%e`/`%E`/`%g`/`%G`) emit `toExponential`/`toPrecision` — an accepted JS
 // *approximation* of .NET's byte-exact output, so their tests pin the JS behaviour
 // rather than F# parity.
