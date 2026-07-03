@@ -53,6 +53,7 @@ let private idManifest: Schema.PackageManifest =
                 )
             ]
         Diagnostics = []
+        Refs = []
     }
 
 let private idProvider: IExternalSymbolProvider = stackTs idManifest

@@ -36,6 +36,7 @@ let enumValueCodecTests =
                                 )
                             ]
                         Diagnostics = []
+                        Refs = []
                     }
 
                 match Codec.deserialize (Codec.serialize man) with
@@ -90,11 +91,65 @@ let enumValueCodecTests =
                                     Message = "a code this build does not know"
                                 }
                             ]
+                        Refs = []
                     }
 
                 match Codec.deserialize (Codec.serialize man) with
                 | Error e -> failtestf "round-trip failed to decode: %s" e
                 | Ok man2 -> Expect.equal man2 man "manifest with a diagnostic must survive encode→decode unchanged"
+            }
+
+            // Step 1 refs table: a foreign-reference-bearing manifest must round-trip
+            // (every RefKind included), AND an empty table must be OMITTED from the wire
+            // so a ref-free manifest stays byte-identical to a pre-refs golden.
+            test "a refs-bearing manifest round-trips and an empty table is omitted from the wire" {
+                let man: Schema.PackageManifest =
+                    {
+                        SchemaVersion = Schema.SchemaVersion
+                        Package = "refcheck"
+                        Version = None
+                        Exports = []
+                        Diagnostics = []
+                        Refs =
+                            [
+                                "Box",
+                                {
+                                    Home = "boxlib"
+                                    Kind = Schema.RefKind.Class
+                                    Arity = 1
+                                }
+                                "Bus",
+                                {
+                                    Home = "eventlib"
+                                    Kind = Schema.RefKind.Interface
+                                    Arity = 0
+                                }
+                                "Handler",
+                                {
+                                    Home = "eventlib"
+                                    Kind = Schema.RefKind.Alias
+                                    Arity = 1
+                                }
+                                "Color",
+                                {
+                                    Home = "palette"
+                                    Kind = Schema.RefKind.Enum
+                                    Arity = 0
+                                }
+                            ]
+                    }
+
+                match Codec.deserialize (Codec.serialize man) with
+                | Error e -> failtestf "refs round-trip failed to decode: %s" e
+                | Ok man2 -> Expect.equal man2 man "a refs-bearing manifest must survive encode→decode unchanged"
+
+                // Byte-identity guard: a ref-FREE manifest carries no `refs` key at all.
+                let refFree = { man with Refs = [] }
+                let text = Codec.serialize refFree
+
+                Expect.isFalse
+                    (text.Contains "\"refs\"")
+                    "an empty refs table must be OMITTED from the wire (pre-refs byte-identity)"
             }
         ]
 

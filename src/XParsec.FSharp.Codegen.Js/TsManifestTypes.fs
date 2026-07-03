@@ -71,6 +71,13 @@ module internal TsManifestTranslate =
             /// `Emitter`) still resolves. A primitive, a cross-package name, and a
             /// `TypeAlias` name all MISS — deliberately (see `Resolve`).
             Types: Map<string, TypeIdentity>
+            /// The manifest's foreign-reference table (`man.Refs`), keyed by the
+            /// referenced type's BARE name. Consulted by `toFrozen`'s `nominal` helper
+            /// AFTER the own-registry miss: a class/interface-kind entry mints a HOMED
+            /// `FTClass` identity so member access resolves through the ordinary provider
+            /// stack when the home manifest is stacked. IDENTITY ONLY — never the foreign
+            /// shape (the ECMA-335 `TypeRef` analog).
+            Refs: Map<string, Schema.RefEntry>
             /// The symbols' import path (for a flat single-file package, the package
             /// name); stamped into every minted key and `SymbolOrigin`.
             ModuleSpec: string
@@ -94,7 +101,11 @@ module internal TsManifestTranslate =
     /// Build the per-manifest context: ONE pre-pass over the flat exports, minting
     /// each declared `Interface`/`Class` identity through `mint` exactly once. Only
     /// those two export kinds register — the mirror image of what `Resolve` must miss.
-    let buildCtx (moduleSpec: string) (flatExports: (string * Schema.Export) list) : TranslateCtx =
+    let buildCtx
+        (moduleSpec: string)
+        (refs: (string * Schema.RefEntry) list)
+        (flatExports: (string * Schema.Export) list)
+        : TranslateCtx =
         let types =
             flatExports
             |> List.choose (fun (nsPath, ex) ->
@@ -111,6 +122,7 @@ module internal TsManifestTranslate =
 
         {
             Types = types
+            Refs = Map.ofList refs
             ModuleSpec = moduleSpec
         }
 
@@ -143,11 +155,34 @@ module internal TsManifestTranslate =
     let rec toFrozen (ctx: TranslateCtx) (t: Schema.TypeRef) : FrozenType =
         let nominal name (args: FrozenType[]) =
             // Suffix the manifest's bare spelling by the applied arg count before
-            // probing the table (THE LAW, see `mint`). The `FTConst` fallback keeps the
-            // BARE name (a primitive/cross-package/alias name carries no arity suffix).
+            // probing the table (THE LAW, see `mint`).
             match ctx.Resolve(SymbolKeyOps.arityName name args.Length) with
             | Some key -> FTClass(key, EqArray.ofSeq args)
-            | None -> FTConst(name, EqArray.ofSeq args)
+            | None ->
+                // Own-registry miss: consult the FOREIGN refs table (keyed by the BARE
+                // name — a `RefEntry` carries its own declared `Arity`). A
+                // class/interface-kind ref mints a HOMED `FTClass` IDENTITY — the
+                // ECMA-335 `TypeRef` analog — whose `qualifiedName` equals what the home
+                // manifest's provider registers its own type under (`mint` at nsPath "":
+                // just the arity-suffixed simple name), so member access resolves through
+                // the ordinary provider stack once the home is stacked (`resolveFieldStep`
+                // → `TryLookupMember`). Alias/Enum-kind refs stay a carried `FTConst` for
+                // v1: a homed alias must resolve through its home manifest's `Abbrev`
+                // (deferred), and there is no home-independent identity to mint. A name
+                // that misses BOTH the own registry and the refs table stays `FTConst` (a
+                // true primitive / genuinely-unknown name).
+                match Map.tryFind name ctx.Refs with
+                | Some entry ->
+                    match entry.Kind with
+                    | Schema.RefKind.Class
+                    | Schema.RefKind.Interface ->
+                        let key =
+                            SymbolKey.TypeKey(Some entry.Home, "", SymbolKeyOps.arityName name entry.Arity)
+
+                        FTClass(key, EqArray.ofSeq args)
+                    | Schema.RefKind.Alias
+                    | Schema.RefKind.Enum -> FTConst(name, EqArray.ofSeq args)
+                | None -> FTConst(name, EqArray.ofSeq args)
 
         match t with
         | Schema.TypeRef.Named(name, []) -> nominal name [||]

@@ -177,7 +177,7 @@ module TsManifestProvider =
         // `TsManifestTranslate.mint`/`buildCtx`) over ALL flat exports before any
         // per-export walk, so a member signature that names a type declared LATER
         // (mitt's `mitt` referencing `Emitter`) still resolves.
-        let ctx = buildCtx moduleSpec flatExports
+        let ctx = buildCtx moduleSpec man.Refs flatExports
 
         // Partition free functions by call-signature count. A single-signature
         // function stays a BARE free function (the name-keyed `funcs` map /

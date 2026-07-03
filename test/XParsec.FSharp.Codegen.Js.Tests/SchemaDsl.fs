@@ -103,6 +103,19 @@ let method' (name: string) (sg: Schema.Signature) : Schema.Member = methodOf nam
 /// A STATIC method carrying one or more (overloaded) signatures.
 let staticMethod' (name: string) (sigs: Schema.Signature list) : Schema.Member = methodOf name true sigs
 
+// ─── Refs-table builders (foreign identity: home + kind + arity) ────────────────
+
+/// A refs-table entry pairing the FOREIGN bare name with its `{home; kind; arity}`
+/// identity. `Box` referenced from package `A` at arity 1: `refEntry "Box" "A"
+/// Schema.RefKind.Class 1`.
+let refEntry (name: string) (home: string) (kind: Schema.RefKind) (arity: int) : string * Schema.RefEntry =
+    name,
+    {
+        Home = home
+        Kind = kind
+        Arity = arity
+    }
+
 /// An instance data Property of type `ty`.
 let property' (name: string) (ty: Schema.TypeRef) : Schema.Member =
     {

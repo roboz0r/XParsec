@@ -46,6 +46,7 @@ let private widgetManifest: Schema.PackageManifest =
                 Schema.Export.Function("makeWidget", [ sig0 (named "Widget") ], Schema.ImportShape.Named)
             ]
         Diagnostics = []
+        Refs = []
     }
 
 let private widgetProvider: IExternalSymbolProvider = stackTs widgetManifest

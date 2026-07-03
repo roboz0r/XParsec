@@ -74,6 +74,7 @@ let private recorderManifest: Schema.PackageManifest =
                 Schema.Export.Function("makeRecorder", [ sig0 (named "Recorder") ], Schema.ImportShape.Named)
             ]
         Diagnostics = []
+        Refs = []
     }
 
 let private recorderRuntime =

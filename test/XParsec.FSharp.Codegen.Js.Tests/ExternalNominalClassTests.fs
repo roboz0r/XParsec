@@ -98,6 +98,7 @@ let private boxManifest: Schema.PackageManifest =
                 )
             ]
         Diagnostics = []
+        Refs = []
     }
 
 let private boxProviderRaw: IExternalSymbolProvider =

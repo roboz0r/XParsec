@@ -65,6 +65,11 @@ let extractFile (dtsPath: string) (packageName: string) : Schema.PackageManifest
             // degraded + diagnosed rather than aborting the extraction. Spans are
             // relativized against the `.d.ts`'s directory so the manifest is portable.
             Diagnostics = drainDiagnostics (pathDirname dtsPath) diags
+            // TODO(refs-table): the foreign-reference classification (home + kind + arity
+            // from `SymbolFlags` / `program.isSourceFileDefaultLibrary`) is the Fable
+            // follow-on dispatch; until it lands, no foreign refs are recorded (an empty
+            // table is codec-omitted, so the golden stays byte-identical).
+            Refs = []
         }
 
 /// The package version stamp (item 18). Preference order:
@@ -163,6 +168,9 @@ let extractPackage (specifier: string) (resolveFromDir: string) (packageName: st
                 Exports = exports
                 // Spans relativized against the package resolve dir for portability.
                 Diagnostics = drainDiagnostics resolveFromDir diags
+                // TODO(refs-table): see `extractFile` — foreign-ref classification is the
+                // Fable follow-on; empty here, codec-omitted, golden stays identical.
+                Refs = []
             }
     finally
         if existsSync entryPath then

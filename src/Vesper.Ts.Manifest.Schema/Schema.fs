@@ -145,6 +145,55 @@ type Severity =
     | Warning
     | Error
 
+/// The KIND of a foreign named reference — mirrors the home manifest's export kind
+/// for the same name, so the provider knows how to re-mint the reference: a
+/// class/interface mints a homed `FTClass` IDENTITY; an alias/enum stays a carried
+/// `FTConst` until its home manifest is stacked (v1 decision — a homed alias must
+/// resolve through its home's `Abbrev`, deferred). A CLOSED set here (unlike
+/// `DiagCode`, whose `Unknown` tolerates a newer producer): the provider's re-mint
+/// dispatch depends on knowing the kind, so `OfWire` rejects an unrecognised one.
+[<RequireQualifiedAccess>]
+type RefKind =
+    | Class
+    | Interface
+    | Alias
+    | Enum
+
+    /// The lowercase wire spelling (stable across schema versions).
+    member this.Wire: string =
+        match this with
+        | Class -> "class"
+        | Interface -> "interface"
+        | Alias -> "alias"
+        | Enum -> "enum"
+
+    static member OfWire(s: string) : Result<RefKind, string> =
+        match s with
+        | "class" -> Ok Class
+        | "interface" -> Ok Interface
+        | "alias" -> Ok Alias
+        | "enum" -> Ok Enum
+        | other -> Error(sprintf "unknown ref kind '%s'" other)
+
+/// One entry in the manifest-level refs table: the FOREIGN identity of a named type
+/// this manifest references but does NOT declare — its home module/package, its kind,
+/// and its declared generic arity. The ECMA-335 `TypeRef`/`AssemblyRef` analog:
+/// IDENTITY ONLY, never the foreign type's shape or members (inlining them is the
+/// staleness trap the design forbids). The provider re-mints a homed `SymbolKey`
+/// identity from this; member access then resolves through the ordinary provider
+/// stack IF the home manifest is part of the compilation, and fails with a
+/// "package not referenced" diagnostic when it is not.
+type RefEntry =
+    {
+        /// The referenced type's home module specifier / package — the `Assembly` of
+        /// the minted `SymbolKey`.
+        Home: string
+        Kind: RefKind
+        /// The referenced type's DECLARED generic arity: the arity law applies, so the
+        /// minted key's simple name is `SymbolKeyOps.arityName name Arity`.
+        Arity: int
+    }
+
 type Span = { File: string; Start: int; End: int }
 
 /// The degradation vocabulary — one case per way the extractor lowers a TS
@@ -211,4 +260,11 @@ type PackageManifest =
         Version: string option
         Exports: Export list
         Diagnostics: Diagnostic list
+        /// Foreign named references (the `TypeRef`/`AssemblyRef` analog), keyed by the
+        /// referenced type's BARE name. A list of pairs (not a `Map`) so the wire order
+        /// is stable for the golden — mirroring `Exports`. IDENTITY ONLY: the provider
+        /// mints a homed identity from an entry, never the foreign type's shape. The
+        /// codec OMITS the table when empty, so a ref-free manifest stays byte-identical
+        /// to a pre-refs golden.
+        Refs: (string * RefEntry) list
     }

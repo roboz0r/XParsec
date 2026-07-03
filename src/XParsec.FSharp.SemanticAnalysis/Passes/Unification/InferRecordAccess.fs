@@ -300,7 +300,25 @@ module internal UnificationInferRecordAccess =
                     )
 
                     memberSig
-                | _ -> errorTy ctx diagKey (sprintf "Unknown class type '%s'" clsQual)
+                | _ ->
+                    // A homed external `TyClass` whose home is ABSENT from the
+                    // compilation: the provider stack has NO shape for it at all
+                    // (`TryLookupType` also misses) and the key carries a home assembly
+                    // — the fingerprint of a refs-table identity minted by one package's
+                    // provider whose HOME manifest was never stacked. Name the missing
+                    // package rather than emit a generic no-such-member (the plain
+                    // "Unknown class type" is for an in-stack type genuinely lacking the
+                    // member).
+                    match ctx.Provider.TryLookupType clsQual, SymbolKeyOps.keyAsm clsKey with
+                    | ValueNone, Some home ->
+                        errorTy
+                            ctx
+                            diagKey
+                            (sprintf
+                                "type '%s' is referenced from package '%s' but that package is not part of the compilation"
+                                clsSimple
+                                home)
+                    | _ -> errorTy ctx diagKey (sprintf "Unknown class type '%s'" clsQual)
         | TyUnion(unionKey, args) ->
             // Union instance member access — mirrors the `TyClass` arm
             // against the union's augmentation members.

@@ -163,6 +163,7 @@ let private busManifest: Schema.PackageManifest =
                 )
             ]
         Diagnostics = []
+        Refs = []
     }
 
 let private busProvider: IExternalSymbolProvider =

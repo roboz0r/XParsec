@@ -164,7 +164,12 @@ let testProviderResolves (path: string) =
                     Expect.isTrue (prov.TryLookup(q name)).IsSome $"function '{q name}' should resolve"
             | Schema.Export.Interface(name, typeParams, members, heritage)
             | Schema.Export.Class(name, typeParams, members, heritage, _) ->
-                let name = q name
+                // THE LOOKUP CONTRACT (`SymbolKeyOps.arityName`): the provider keys types
+                // under their ARITY-SUFFIXED qualified name (`Box\`1`), and CALLERS suffix
+                // by arity before lookup — the same law `TsManifestTypes.mint` and the
+                // front-end `TypeTranslate` speak. A generic type (`Box<T>`) resolves ONLY
+                // under `Box\`1`, never the bare `Box`, so suffix here deliberately.
+                let name = SymbolKeyOps.arityName (q name) typeParams
                 Expect.isTrue (prov.TryLookupType name).IsSome $"type '{name}' should resolve"
 
                 // Generics (Tier 3 item 11): the declaring-axis arity round-trips — a
@@ -212,13 +217,17 @@ let testProviderResolves (path: string) =
             | Schema.Export.Variable(name, _, _, _) ->
                 Expect.isTrue (prov.TryLookup(q name)).IsSome $"variable '{q name}' should resolve"
             | Schema.Export.TypeAlias(name, typeParams, _) ->
-                Expect.isTrue (prov.TryLookupType(q name)).IsSome $"type alias '{q name}' should resolve"
+                // Same lookup contract: a GENERIC alias (`Handler<T>`, mitt's `Handler`) is
+                // keyed under its arity-suffixed name (`Handler\`1`), so suffix before the
+                // lookup — the bare-name read is exactly the pre-existing miss this fixes.
+                let name = SymbolKeyOps.arityName (q name) typeParams
+                Expect.isTrue (prov.TryLookupType name).IsSome $"type alias '{name}' should resolve"
 
                 // A generic alias (`Pair<A,B>`) resolves to an `Abbrev` whose arity equals
                 // its `typeParams` (item 11 — was hardcoded 0 before generics landed).
-                match prov.TryLookupType(q name) with
+                match prov.TryLookupType name with
                 | ValueSome(ExternalTypeShape.Abbrev(arity, _)) ->
-                    Expect.equal arity typeParams $"type alias '{q name}' arity must equal its typeParams"
+                    Expect.equal arity typeParams $"type alias '{name}' arity must equal its typeParams"
                 | _ -> ()
             | Schema.Export.Enum(name, _) ->
                 // The enum NAME resolves (an `Opaque` shape); its MEMBERS are stubbed on

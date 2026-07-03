@@ -52,6 +52,7 @@ let private busManifest: Schema.PackageManifest =
                 Schema.Export.Function("makeBus", [ sig0 (named "Bus") ], Schema.ImportShape.Named)
             ]
         Diagnostics = []
+        Refs = []
     }
 
 let private busProvider: IExternalSymbolProvider = stackTs busManifest

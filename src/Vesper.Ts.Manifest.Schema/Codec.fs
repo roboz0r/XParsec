@@ -637,10 +637,41 @@ and private decodeEnumMember (j: JsonValue) : Result<string * LiteralValue optio
         return (n, v)
     }
 
+// ─── Refs table (foreign identity: home + kind + arity) ────────────────────
+
+let private encodeRefEntry (name: string) (e: RefEntry) : JsonValue =
+    jObj
+        [
+            "name", jStr name
+            "home", jStr e.Home
+            "kind", jStr e.Kind.Wire
+            "arity", jInt e.Arity
+        ]
+
+let private decodeRefEntry (j: JsonValue) : Result<string * RefEntry, string> =
+    result {
+        let! m = asObject j
+        let! name = readField "name" asString m
+        let! home = readField "home" asString m
+        // `RefKind.OfWire` is a closed-set decode (`Result`), unlike `DiagCode.OfWire`:
+        // an unknown kind fails the manifest rather than degrading, since the provider's
+        // re-mint dispatch depends on knowing it.
+        let! kind = readField "kind" asString m >>= RefKind.OfWire
+        let! arity = readField "arity" asInt m
+
+        return
+            (name,
+             {
+                 Home = home
+                 Kind = kind
+                 Arity = arity
+             })
+    }
+
 // ─── Manifest + text entrypoints ───────────────────────────────────────────
 
 let encodeManifest (man: PackageManifest) : JsonValue =
-    jObj
+    let baseFields =
         [
             "schemaVersion", jInt man.SchemaVersion
             "package", jStr man.Package
@@ -648,6 +679,18 @@ let encodeManifest (man: PackageManifest) : JsonValue =
             "exports", jArr (List.map encodeExport man.Exports)
             "diagnostics", jArr (List.map encodeDiagnostic man.Diagnostics)
         ]
+
+    // OMIT `refs` when empty, so a ref-free manifest stays byte-identical to a
+    // pre-refs golden — the `typeParamBounds` omit-when-empty precedent. When present
+    // the wire order mirrors the source list (`Refs` is a list, not a `Map`).
+    let fields =
+        match man.Refs with
+        | [] -> baseFields
+        | refs ->
+            baseFields
+            @ [ "refs", jArr (refs |> List.map (fun (n, e) -> encodeRefEntry n e)) ]
+
+    jObj fields
 
 let decodeManifest (j: JsonValue) : Result<PackageManifest, string> =
     result {
@@ -675,6 +718,13 @@ let decodeManifest (j: JsonValue) : Result<PackageManifest, string> =
             | None -> Ok []
             | Some v -> (asArray v >>= traverse decodeDiagnostic)
 
+        // Tolerant on read, exactly like `diagnostics`: an absent `refs` field decodes
+        // to `[]` (the codec omits it when empty), so a pre-refs manifest round-trips.
+        let! refs =
+            match tryField "refs" m with
+            | None -> Ok []
+            | Some v -> (asArray v >>= traverse decodeRefEntry)
+
         return
             {
                 SchemaVersion = ver
@@ -682,6 +732,7 @@ let decodeManifest (j: JsonValue) : Result<PackageManifest, string> =
                 Version = version
                 Exports = exports
                 Diagnostics = diagnostics
+                Refs = refs
             }
     }
 

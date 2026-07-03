@@ -41,6 +41,7 @@ let private echoManifest: Schema.PackageManifest =
                 Schema.Export.Function("makeBox", [ sig0 (named "Box") ], Schema.ImportShape.Named)
             ]
         Diagnostics = []
+        Refs = []
     }
 
 let private echoProvider: IExternalSymbolProvider = stackTs echoManifest

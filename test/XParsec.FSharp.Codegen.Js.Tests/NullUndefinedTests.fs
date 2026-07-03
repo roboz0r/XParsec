@@ -51,6 +51,7 @@ let private nullManifest: Schema.PackageManifest =
                 )
             ]
         Diagnostics = []
+        Refs = []
     }
 
 let private nullProvider: IExternalSymbolProvider = stackTs nullManifest
