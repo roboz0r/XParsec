@@ -152,6 +152,87 @@ representation; inferred purity handles the cross-call story. Avoid the failure
 mode where `pure` becomes decorative (.NET `[Pure]`) — if the backend doesn't
 consume it, don't ship it.
 
+## EF9 — First implementation: the effect seam (types + fold)
+
+The full inference/serialisation story (EF5/EF6) is optimiser-era. But the *seam*
+— where effect facts are produced and consumed — is a layering decision worth
+fixing now, because it is cheap now and expensive to retrofit once transforms
+accrete against an ad-hoc predicate. Today the only purity notion that runs is
+`JsEmitHelpers.isPureValue`, a syntactic `Const`/`Var`/pure-IL heuristic living
+*inside* the JS backend and recomputed at emit time. It has already produced one
+miscompile: `let x = m` over a later `m <- e` was substituted to a live re-read of
+`m` (F# `let` is a bind-time snapshot; the read is effect-free but not *stable*).
+That is the EF2 `effect-free` vs `deterministic` split showing up in practice — a
+read of a mutable is effect-free but non-deterministic, and duplication needs the
+stronger axis. (Patched narrowly for now via `valueReadsAssignedIn`; the seam below
+subsumes that patch.)
+
+**The split (resolves the layering tension).** Effect *composition over language
+forms* is target-independent and belongs upstream in SemanticAnalysis; effect
+*classification of opaque leaves* (`External` / `ExternalMember` / `ILIntrinsic`)
+is target-defined — codegen owns intrinsic-repr — and is injected by the backend.
+This is exactly MLIR/jsir's model: op effect *traits* declared at the dialect
+(target) level, consumed by a target-agnostic analysis. So:
+
+```fsharp
+/// Composable effect summary (EF2). Independent axes; each transform reads the
+/// axis it needs. Worst case (all false) = fully opaque / assume-effectful.
+[<Struct>]
+type Effect =
+    { EffectFree: bool     // no observable mutation / IO      → reorder, dedup
+      Deterministic: bool  // depends only on inputs; reads no  → CSE, hoist, SUBSTITUTE
+      //                      mutable state
+      Total: bool }        // cannot throw or diverge           → drop-if-unused
+
+module Effect =
+    let pure'  = { EffectFree = true;  Deterministic = true;  Total = true }
+    let opaque = { EffectFree = false; Deterministic = false; Total = false }
+    let meet a b =            // a compound is only as strong as its weakest part
+        { EffectFree    = a.EffectFree    && b.EffectFree
+          Deterministic = a.Deterministic && b.Deterministic
+          Total         = a.Total         && b.Total }
+
+/// The ONE thing the backend supplies: the effect of an operation SemanticAnalysis
+/// cannot see through, whose purity depends on the target's chosen representation.
+type Op = Intrinsic of opcode: string | Extern of ExternRef
+type EffectOracle = Op -> Effect
+
+/// Effect of an expression, target-parametric via `oracle`. Composition over the
+/// language forms lives HERE; opaque leaves defer to `oracle`. `isMutable` (a binder
+/// → bool, known in SemanticAnalysis) is what makes a mutable-local READ
+/// non-deterministic — the fact the syntactic heuristic was missing. No optimiser.
+val effectOf :
+    oracle: EffectOracle -> isMutable: (NodeKey -> bool) -> e: TExprG<'ty,'tok> -> Effect
+```
+
+Sketch of the fold: `Const → pure'`; `Var k → if isMutable k then { pure' with
+Deterministic = false } else pure'`; `Assignment → { pure' with EffectFree =
+false }`; `Let`/`Sequential`/`Tuple`/`IfThenElse`/`App` → `meet` of parts;
+`ILIntrinsic op args → meet (oracle (Intrinsic op)) (meet-over args)`;
+`External`/`ExternalMember`/`Static*`/`MethodCall`/`PropertyGet`/`New` → likewise
+via `oracle`; loops/`Try*`/`Match` weaken `Total`.
+
+**The transforms rederive from the summary — no bespoke scan:**
+
+```fsharp
+let isDuplicable e = let x = effectOf oracle isMutable e in x.EffectFree && x.Deterministic
+let isDroppable  e = let x = effectOf oracle isMutable e in x.EffectFree && x.Total
+```
+
+The pure-`let` substitution guard becomes `isDuplicable value && not (isAssignedIn
+k body)` — the second clause still guards a reassigned *binder* (a distinct
+condition from the *value*'s effect). `let x = m` now declines because
+`effectOf (Var m)` carries `Deterministic = false`; the snapshot bug is fixed *in
+the shared model*, not per-backend.
+
+**Placement now:** `effectOf` is a pure function in SemanticAnalysis; the JS backend
+calls it with its oracle (today's `newarr|ldelem|…` blacklist + extern
+classification), replacing `isPureValue`. CLR passes `fun _ -> Effect.opaque` —
+correct and free, since it emits in source order and never reorders. Footprint: one
+shared fold + a one-line oracle per backend. No per-node fields, no serialisation.
+EF6 (persisting summaries onto `.fsi`/metadata) stays deferred until a consumer
+exists — but `Effect` is exactly what EF-Q3 would serialise, so nothing is wasted.
+
 ## Open questions
 
 - **EF-Q1 — Exception model.** EF2a's fork (effects-with-`total` vs. imprecise
