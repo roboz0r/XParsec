@@ -56,7 +56,7 @@ module internal TsManifestMembers =
             }
         )
 
-    let private toExternalMembers
+    let toExternalMembers
         (ctx: TranslateCtx)
         (declKey: SymbolKey)
         (origin: SymbolOrigin)

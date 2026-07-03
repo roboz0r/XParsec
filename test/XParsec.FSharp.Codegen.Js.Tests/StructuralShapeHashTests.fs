@@ -6,11 +6,11 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// Isolation fixture: the provider's `toFrozen` gives an anonymous `Structural` shape a
-// CANONICAL, field-ORDER-INVARIANT identity, still rehydrated as an OPAQUE `FTUnknown`
-// (no member resolution — the shape has no nominal identity yet). Because `FTUnknown`
-// unifies by NAME equality, two field-order-permuted shapes must intern to the SAME
-// frozen scheme.
+// Isolation fixture: the provider's `toFrozen` gives an anonymous OBJECT `Structural`
+// shape a CANONICAL, field-ORDER-INVARIANT nominal identity — a hash-keyed `FTClass`
+// homed under the reserved synthetic namespace — so two field-order-permuted shapes
+// intern to ONE identity and unify. A FIELDLESS structural form has no members to
+// resolve, so it stays an opaque `FTUnknown` keyed by the tsc-printed fallback.
 // The test reaches `toFrozen` through the public provider path: a `Variable` export's
 // scheme IS `toFrozen ctx ty` (`TsManifestProvider`), so a variable typed by a structural
 // shape exposes its frozen identity via `TryLookup`.
@@ -77,54 +77,61 @@ let private schemeOf (name: string) : FrozenType =
     | ValueSome sym -> sym.Scheme
     | ValueNone -> failtestf "fixture variable '%s' did not resolve" name
 
-/// Assert a scheme is an opaque `FTUnknown` and hand back its identity name.
-let private unknownName (name: string) : string =
+/// A canonical identity string for a frozen scheme — the `FTClass` qualified name for
+/// an object shape's erasing nominal, the `FTUnknown` name for a fieldless fallback —
+/// so equality/inequality assertions read uniformly across both representations.
+let private identityOf (name: string) : string =
     match schemeOf name with
-    | FTUnknown n -> n
-    | other -> failtestf "'%s' should freeze to an opaque FTUnknown, got %A" name other
+    | FTClass(key, _) -> "class:" + SymbolKeyOps.qualifiedName key
+    | FTUnknown n -> "unknown:" + n
+    | other -> failtestf "'%s' froze to an unexpected scheme %A" name other
 
 [<Tests>]
 let tests =
     testList
         "StructuralShapeHash"
         [
-            test "field-order-permuted shapes share ONE opaque identity" {
-                Expect.equal (unknownName "pYX") (unknownName "pXY") "{x;y} and {y;x} must intern to the same FTUnknown"
+            test "an object shape freezes to a nominal FTClass, not an opaque FTUnknown" {
+                match schemeOf "pXY" with
+                | FTClass _ -> ()
+                | other -> failtestf "an object shape must freeze to FTClass, got %A" other
+            }
+
+            test "field-order-permuted shapes share ONE nominal identity" {
+                Expect.equal (identityOf "pYX") (identityOf "pXY") "{x;y} and {y;x} must intern to the same identity"
             }
 
             test "a shape with different fields is DISTINCT" {
-                Expect.notEqual (unknownName "pXZ") (unknownName "pXY") "{x;z} must not alias {x;y}"
+                Expect.notEqual (identityOf "pXZ") (identityOf "pXY") "{x;z} must not alias {x;y}"
             }
 
             test "nested structural hashes stably under permutation at every level" {
-                Expect.equal (unknownName "nB") (unknownName "nA") "nested permuted shapes must share one identity"
+                Expect.equal (identityOf "nB") (identityOf "nA") "nested permuted shapes must share one identity"
             }
 
             test "a named-ref field stays a LEAF (by-name), not expanded" {
                 // Resolving at all with `Node` undeclared proves it is not expanded.
                 Expect.equal
-                    (unknownName "refNode2")
-                    (unknownName "refNode")
+                    (identityOf "refNode2")
+                    (identityOf "refNode")
                     "two shapes over the same named ref must be equal"
 
                 Expect.notEqual
-                    (unknownName "refOther")
-                    (unknownName "refNode")
+                    (identityOf "refOther")
+                    (identityOf "refNode")
                     "a different named-ref leaf must yield a different identity"
             }
 
-            test "a permuted shape stays OPAQUE — the canonical hash is its name" {
-                // The identity is the canonical shape-hash, NOT the tsc-printed string:
-                // pXY and pYX carry DIFFERENT printed strings yet one name.
-                Expect.stringStarts
-                    (unknownName "pXY")
-                    "structural:{"
-                    "an object shape's identity is the canonical hash"
+            test "an object shape's nominal name is homed under the reserved synthetic namespace" {
+                // The identity is the canonical shape-hash, homed so it cannot collide with
+                // a real export's qualified name.
+                Expect.stringStarts (identityOf "pXY") "class:@struct." "an object shape homes under @struct"
             }
 
-            test "fieldless structural falls back to the printed string, no collapse" {
-                let a = unknownName "fless1"
-                let b = unknownName "fless2"
+            test "fieldless structural stays an opaque FTUnknown, no collapse" {
+                let a = identityOf "fless1"
+                let b = identityOf "fless2"
+                Expect.stringStarts a "unknown:" "a fieldless structural stays opaque"
                 Expect.notEqual b a "distinct fieldless forms must not collapse to one identity"
                 Expect.stringContains a "() => void" "the fieldless fallback carries the tsc-printed string"
             }

@@ -216,6 +216,76 @@ module TsManifestProvider =
             flatExports
             |> List.choose (fun (nsPath, ex) -> toTypeShape ctx isGlobalPack nsPath ex)
 
+        // Pre-scan EVERY TypeRef reachable from this manifest's exports (variable types,
+        // function/member signatures, member types, heritage) for anonymous OBJECT shapes,
+        // recursing into their fields so nested shapes register too, deduped by canonical
+        // shape-hash. Each unique shape becomes an ERASING nominal in the `types` map: an
+        // interface (data-only, no ctor) whose Property members lower to native
+        // `receiver.field` reads, homed under the reserved synthetic namespace so `.field`
+        // resolves and NOTHING is emitted for the type. Member REGISTRATION is per-manifest
+        // (each provider scans only its own exports); structural IDENTITY (`structuralKey`)
+        // is cross-manifest by construction — see `structuralKey`.
+        let structuralTypes =
+            flatExports
+            |> List.collect (fun (_, ex) -> exportTypeRefs ex)
+            |> List.collect structuralShapesIn
+            |> List.map (fun (printed, fields) -> structuralHash printed fields, fields)
+            |> List.distinctBy fst
+            |> List.map (fun (hash, fields) ->
+                let qn, declKey = structuralKey hash
+
+                let origin: SymbolOrigin =
+                    {
+                        Assembly = Some structuralHome
+                        Namespace = structuralHome
+                        DeclaringType = None
+                    }
+
+                // One Property member per field, through the SAME `toExternalMembers`
+                // Property arm a real interface uses — the field's type freezes via `ctx`
+                // (a nested structural field resolves to its OWN registered shape).
+                let members =
+                    fields
+                    |> List.collect (fun (fname, fty) ->
+                        let mem: Schema.Member =
+                            {
+                                Name = fname
+                                Kind = Schema.MemberKind.Property
+                                Type = Some fty
+                                Signatures = []
+                                Static = false
+                                Optional = false
+                            }
+
+                        toExternalMembers ctx declKey origin 0 true mem
+                    )
+                    |> List.toArray
+
+                qn,
+                ExternalTypeShape.Class
+                    {
+                        Arity = 0
+                        IsInterface = true
+                        Members = members
+                        FrozenInterfaces = [||]
+                        FrozenBaseType = ValueNone
+                        Flags =
+                            { ExternalClassFlags.Default with
+                                // A structural field is an INSTANCE property read through a
+                                // receiver, so it lowers `receiver.field` via the native
+                                // attached path — NOT `ErasedBare`, which holds only static
+                                // members and is an invariant break on an instance receiver.
+                                MemberLowering = MemberLowering.AttachedNative
+                                // Import-free: an anonymous erased shape has no home module
+                                // to import — the type itself emits nothing.
+                                Global = true
+                            }
+                        Origin = origin
+                        // JS is single-faced — no BCL platform spelling to reconcile.
+                        CapabilityFace = ValueNone
+                    }
+            )
+
         // Synthesize one erased grouping type per (nsPath) GROUP of overloaded free
         // functions: its static members are the overloads, expanded with `expandMethod`
         // (the member-overload expansion) so each carries its own argSig `MemberKey`,
@@ -298,7 +368,14 @@ module TsManifestProvider =
                     "synthetic free-function-overload grouping type '%s' collides with a real exported type of the same name; rename the module or the type"
                     qn
 
-        let types = (regularTypes @ syntheticTypes) |> Map.ofList
+        // The structural erasing nominal is homed under the reserved `@struct` namespace,
+        // which a real export's qualified name cannot spell — but keep the same collision
+        // guard as the grouping type rather than trusting that reservation silently.
+        for (qn, _) in structuralTypes do
+            if Set.contains qn regularTypeNames then
+                failwithf "synthetic structural type '%s' collides with a real exported type of the same name" qn
+
+        let types = (regularTypes @ syntheticTypes @ structuralTypes) |> Map.ofList
 
         // Free functions and singleton VARIABLES both resolve by name via `TryLookup`,
         // so they share the one value map (a variable is a value, not an arrow).

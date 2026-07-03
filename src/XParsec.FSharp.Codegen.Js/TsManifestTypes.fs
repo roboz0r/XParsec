@@ -224,9 +224,9 @@ module internal TsManifestTranslate =
     /// FIELDLESS fallback: the extractor emits empty `fields` for a non-object structural
     /// form (function&, branded), which carries NO usable shape — so DON'T collapse all
     /// such forms to one `{}` identity; fall back to the tsc-`printed` string (preserving
-    /// the pre-Wall-3 behaviour for the fieldless case). Only a genuine object shape gets
-    /// the order-invariant `{name:hash;…}` canonicalisation.
-    and private structuralHash (printed: string) (fields: (string * Schema.TypeRef) list) : string =
+    /// the fieldless behaviour). Only a genuine object shape gets the order-invariant
+    /// `{name:hash;…}` canonicalisation.
+    and structuralHash (printed: string) (fields: (string * Schema.TypeRef) list) : string =
         match fields with
         | [] -> "printed:" + printed
         | _ ->
@@ -235,6 +235,88 @@ module internal TsManifestTranslate =
             |> List.map (fun (name, ft) -> name + ":" + shapeHash ft)
             |> String.concat ";"
             |> fun body -> "{" + body + "}"
+
+    /// The reserved synthetic HOME/namespace an anonymous object shape's erasing nominal
+    /// is registered and homed under. A real TS namespace-path segment is a JS identifier
+    /// and a real package/module specifier is an import path — neither can contain `@` or
+    /// the `{ : ; }` a shape-hash carries, so a structural type's qualified name
+    /// (`@struct.{x:number;y:number}`) cannot collide with any real export's qualified name
+    /// by construction. The home is never imported: the shape has no ctor, and its Property
+    /// fields lower to native `receiver.field` reads (`MemberLowering.AttachedNative`), so
+    /// nothing is ever emitted for the type itself.
+    let structuralHome = "@struct"
+
+    /// Mint the erasing-nominal identity of an anonymous object shape from its CANONICAL
+    /// shape-hash (arity 0 — a structural shape is never generic). Used by BOTH the provider
+    /// registration and `toFrozen`'s `Structural` arm, so the frozen `FTClass` identity and
+    /// the `types`-map key AGREE by construction (the same map-key/`TypeKey` alignment `mint`
+    /// gives a declared type: `SymbolKeyOps.qualifiedName` of the returned key equals the
+    /// returned qualified string). The `hash` passed in MUST be `structuralHash printed
+    /// fields` — the interning string — so a field-order-permuted shape and its twin resolve
+    /// to ONE type. IDENTITY is cross-manifest (any manifest freezes the same shape to the
+    /// same key), but member REGISTRATION is per-manifest: each provider pre-scans only its
+    /// OWN exports. A structural value flowing across manifests and accessed only where a
+    /// DIFFERENT manifest registered the members is a known gap, not exercised by current
+    /// fixtures — cross-manifest structural member resolution is deliberately not built here.
+    let structuralKey (hash: string) : string * SymbolKey =
+        mint structuralHome structuralHome hash 0
+
+    /// Every anonymous OBJECT shape (`Structural` with fields) reachable from a `TypeRef`,
+    /// as `(printed, fields)` pairs — RECURSING into each shape's field types so a nested
+    /// `{pt:{x;y}}` yields BOTH levels. Case coverage mirrors `shapeHash`. A `Named` ref is
+    /// a LEAF for hashing, but its type ARGS are still descended (a shape inside
+    /// `Array<{x}>` is a real value whose members get accessed). A FIELDLESS structural
+    /// carries no members, so it is skipped — it stays an opaque `FTUnknown`.
+    let rec structuralShapesIn (t: Schema.TypeRef) : (string * (string * Schema.TypeRef) list) list =
+        match t with
+        | Schema.TypeRef.Named(_, args) -> args |> List.collect structuralShapesIn
+        | Schema.TypeRef.Typar _
+        | Schema.TypeRef.MethodTypar _ -> []
+        | Schema.TypeRef.Fun(args, ret) -> (args |> List.collect structuralShapesIn) @ structuralShapesIn ret
+        | Schema.TypeRef.Tuple items -> items |> List.collect structuralShapesIn
+        | Schema.TypeRef.Union members -> members |> List.collect structuralShapesIn
+        | Schema.TypeRef.Literal _ -> []
+        | Schema.TypeRef.KeyOf t -> structuralShapesIn t
+        | Schema.TypeRef.IndexedAccess(objTy, index) -> structuralShapesIn objTy @ structuralShapesIn index
+        | Schema.TypeRef.Conditional(check, extends, whenTrue, whenFalse) ->
+            [ check; extends; whenTrue; whenFalse ] |> List.collect structuralShapesIn
+        | Schema.TypeRef.Dynamic -> []
+        | Schema.TypeRef.Structural(_, []) -> []
+        | Schema.TypeRef.Structural(printed, fields) ->
+            (printed, fields)
+            :: (fields |> List.collect (fun (_, ft) -> structuralShapesIn ft))
+
+    /// Every `TypeRef` an export directly mentions (member/signature/heritage types), for
+    /// the structural pre-scan. `Namespace` produces none — `flatten` unwraps it to leaf
+    /// exports before this is reached. `Enum` carries only literal values, no `TypeRef`.
+    let exportTypeRefs (ex: Schema.Export) : Schema.TypeRef list =
+        let sigRefs (sg: Schema.Signature) : Schema.TypeRef list =
+            [
+                for p in sg.Params -> p.Type
+                yield sg.Returns
+                for b in sg.TypeParamBounds do
+                    match b with
+                    | Some t -> yield t
+                    | None -> ()
+            ]
+
+        let memberRefs (mem: Schema.Member) : Schema.TypeRef list =
+            [
+                match mem.Type with
+                | Some t -> yield t
+                | None -> ()
+                for sg in mem.Signatures do
+                    yield! sigRefs sg
+            ]
+
+        match ex with
+        | Schema.Export.Variable(_, ty, _, _) -> [ ty ]
+        | Schema.Export.Function(_, sigs, _) -> sigs |> List.collect sigRefs
+        | Schema.Export.Interface(_, _, members, heritage) -> heritage @ (members |> List.collect memberRefs)
+        | Schema.Export.Class(_, _, members, heritage, _) -> heritage @ (members |> List.collect memberRefs)
+        | Schema.Export.TypeAlias(_, _, target) -> [ target ]
+        | Schema.Export.Enum _ -> []
+        | Schema.Export.Namespace _ -> []
 
     // ─── TypeRef → FrozenType (member signature templates) ─────────────────
 
@@ -319,13 +401,18 @@ module internal TsManifestTranslate =
         // TS `any` → the opaque `dynamic` JS intrinsic (no special unifier behaviour;
         // its only capability is the `?` operator). It is `FTConst "dynamic"` everywhere.
         | Schema.TypeRef.Dynamic -> FTConst("dynamic", EqArray.empty)
-        // Identity is the canonical, field-ORDER-INVARIANT shape-hash of `fields`
-        // (`{x;y}` ≡ `{y;x}`), so two permuted anonymous shapes intern to the SAME
-        // `FTUnknown` name and unify — still OPAQUE, with no member resolution (the shape
-        // has no nominal identity yet). The tsc-`printed` string demotes to the
-        // fieldless-fallback identity only (see `structuralHash`); it is no longer the
-        // identity for an object shape.
-        | Schema.TypeRef.Structural(printed, fields) -> FTUnknown("structural:" + structuralHash printed fields)
+        // An anonymous OBJECT shape (`fields` non-empty) freezes to a hash-keyed ERASING
+        // nominal: an `FTClass` homed under the reserved synthetic namespace, whose members
+        // the provider registers (one Property per field) so `.x` resolves and lowers to a
+        // native `receiver.x` read — while NOTHING is emitted for the type (no decl, no
+        // import, no ctor). Identity is the canonical, field-ORDER-INVARIANT shape-hash
+        // (`{x;y}` ≡ `{y;x}`), so two permuted shapes intern to the SAME key and unify. The
+        // FIELDLESS form has no members to resolve, so it stays an OPAQUE `FTUnknown` keyed
+        // by the tsc-`printed` fallback (see `structuralHash`).
+        | Schema.TypeRef.Structural(printed, fields) ->
+            match fields with
+            | [] -> FTUnknown("structural:" + structuralHash printed fields)
+            | _ -> FTClass(structuralKey (structuralHash printed fields) |> snd, EqArray.empty)
 
     let unitFrozen: FrozenType = FTConst("unit", EqArray.empty)
 
