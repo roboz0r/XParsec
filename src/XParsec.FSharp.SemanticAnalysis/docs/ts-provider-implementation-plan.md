@@ -3,11 +3,14 @@
 **Status (2026-07-03).** R5 tranche‑1 SHIPPED (see below). **Walls 1 and 2 now SHIPPED**
 too — but Wall 2 landed via a substantially DIFFERENT design than this doc originally
 sketched (a disciplined opaque `dynamic` type + the `?` operator, NOT an infectious
-`TyDynamic` SemType). Walls 3–5 remain; **Wall 3 is now DESIGNED** (design pass done
-2026-07-03 — see its section) and scoped into four individually-shippable steps. Both
-landed walls followed a design pattern worth carrying into the rest: *real types via JS
-intrinsics + operators/recognizers, not new SemType DU cases with magic unifier
-behaviour.* Wall 3 keeps to it — no new SemType case, no `unify`/`subsumes` change.
+`TyDynamic` SemType). Walls 3–5 remain; **Walls 3 and 4 are now DESIGNED** (design passes
+done 2026-07-03 — see their sections). Wall 3 is scoped into four individually-shippable
+steps; Wall 4 into two. Both landed walls followed a design pattern worth carrying into the
+rest: *real types via JS intrinsics + operators/recognizers, not new SemType DU cases with
+magic unifier behaviour.* Wall 3 keeps to it — no new SemType case, no `unify`/`subsumes`
+change. Wall 4's design pass found most of the wall ALREADY BUILT (the front-end iterable
+recognizer + `for..of` lowering are generic and done); the only new work is the provider
+homing TS `[Symbol.iterator]` → `seq`, plus a tuple destructuring binder.
 
 This doc scopes the tranche of **walls that make real-package consumption faithful**,
 sequenced BEFORE the two breadth destinations — `@types/node` (module-entry at scale) and
@@ -218,32 +221,85 @@ real, resolvable identity.
    unifies with the flat literal + resolves members; `IntersectionErased` golden flips for
    the object case; the non-object case still warns.
 
-### Wall 4 — iteration: TS iterables → JS `for … of` (`Symbol.iterator`)
+### Wall 4 — iteration: TS iterables → JS `for … of` — DESIGNED (2026-07-03)
 
 **Why.** Iterables are pervasive (`Js.Map` entries, node streams, DOM node lists). The
-`Js.Map` gate explicitly descoped iteration; the capability-interface machinery exists but
-is not wired to TS iterables. NOTE: this is the JS-target `for..of` path, DISTINCT from the
-CLR `for..in`/`GetEnumerator` work in [`get-enumerator-gaps.md`](get-enumerator-gaps.md) —
-do not model it on the IL `MoveNext`/`constrained.` enumerator descriptor.
+`Js.Map` gate explicitly descoped iteration. NOTE: this is the JS-target `for..of` path,
+DISTINCT from the CLR `for..in`/`GetEnumerator` work in
+[`get-enumerator-gaps.md`](get-enumerator-gaps.md) — do NOT model it on the IL
+`MoveNext`/`constrained.` enumerator descriptor.
 
-**Goal.** `for x in (m: Js.Map<_,_>)` and any TS `Iterable<T>`/`IterableIterator<T>` lowers
-to a native JS `for (const x of src)`.
+**Goal.** `for x in (s: Js.Set<_>)` / `for (k,v) in (m: Js.Map<_,_>)` and any TS
+`Iterable<T>`/`IterableIterator<T>` lowers to a native JS `for (const … of src)`.
 
-1. Recognise the TS `[Symbol.iterator](): Iterator<T>` member as the JS-target iterable
-   capability (the extractor already carries members — confirm `Symbol.iterator` survives
-   extraction; it may currently drop as a computed/symbol-keyed member).
-2. Front end: resolve `for x in src` against that capability (the JS analog of
-   `Infer.tryForInEnumerator`), taking the element type from the `Iterable<T>` typar /
-   iterator `next()` payload.
-3. EmitJs: lower to `for (const x of src) { … }` — native, no enumerator object.
+**The design (as settled 2026-07-03).** A design pass re-derived this against the code and
+found **most of the wall already exists** — the original three-step sketch (a new
+"JS-target iterable capability" + a "JS analog of `tryForInEnumerator`") was wrong. What is
+already in place:
 
-**Trap.** JS iteration is native `for..of`; there is no `GetEnumerator`/`MoveNext` walk.
-`Symbol.iterator` is a computed member key — the extractor's member enumeration must not
-silently drop symbol-keyed members.
+- **EmitJs `for..of` is DONE.** `EmitJs.fs` (`TExprG.ForIn`, `ForInEnumeratorG.Interface`
+  arm) lowers straight to `JsStatement.ForOf`, driving the source's own `Symbol.iterator`
+  at runtime — no enumerator object.
+- **The front end already recognises external iterables — GENERICALLY.** `tryForInEnumerator`
+  (`InferControlFlow.fs`) falls through to `pickEnumerableElem` over
+  `ExternalSymbols.instantiateInterfaces shape`, matching **any** external class whose
+  interface set contains the `Enumerable` capability (asm-blind by name) and reading the
+  element off its one type arg. Nothing CLR-specific — it just wants the capability IN THE
+  INTERFACE SET. **No new front-end pass is needed** (confirmed with the user).
+- **`Enumerable` is named on JS** (resolved from the `seq\`1` abbrev head,
+  `ExternalSymbols.resolveCapabilities`; the JS `ForInTests` for `seq<int>` pass).
+- **Extraction already carries the signal, FAITHFULLY.** The `[Symbol.iterator]` member
+  survives as `__@iterator@N` (es2015 manifest) with its return type intact
+  (`IterableIterator<[K,V]>` / `ArrayIterator<T>`); `Iterable`/`Iterator` refs are carried
+  as named refs. The feared "symbol-keyed members silently drop" trap is NOT occurring, and
+  extraction is LEFT AS-IS — it reads out as close to the TS types as practicable.
 
-**Test.** Isolation — a Vesper `for x in m` over a `Js.Map` (or a fixture `Iterable`),
-emitted + run under Node, summing entries; remove the iteration descope caveat from the
-`JsMapE2ETests` header when it closes.
+The one real gap: nothing connects "this TS type has `[Symbol.iterator]`" to "it implements
+`seq<T>` with element `T`." That connection is the **PROVIDER's** job — an
+`IExternalSymbolProvider` implementation is backend-owned, so the provider is exactly where
+"understand what an iterator is and tell SemanticAnalysis those types implement `seq`"
+belongs (confirmed with the user). Extraction stays TS-faithful; the provider does the
+homing. Two settled sub-decisions:
+
+- **Element peel:** element `T` comes from the `[Symbol.iterator]` member's return type —
+  the first type arg of whatever iterator type is returned (`Iterator<T>` /
+  `IterableIterator<T>` / `ArrayIterator<T>` / `MapIterator<[K,V]>` → `[K,V]` for `Map`).
+  Exact recognizer shape (name-list vs. structural `*Iterator*` peel) decided at
+  implementation time.
+- **Injected name:** inject the resolved `seq`/`IEnumerable` head directly (the provider
+  already knows Vesper capability contract names via `resolveCapabilities`), NOT the TS
+  `Iterable` spelling.
+
+**Steps — each individually builds green, is isolation-tested, and commits on its own:**
+
+1. **Provider capability injection (F#-only; no extractor/Fable/golden change) — SHIPPED.**
+   In the TS-manifest provider's shape builder (`TsManifestMembers.build`), when a type
+   carries a `[Symbol.iterator]` (`__@iterator@N`) member, `tryIteratorElement` peels the
+   element (first arg of the iterator its signature returns, declaring-typar-baked) and
+   injects `(JsNativeSymbols.enumerableInterfaceName, [| elemT |])` into `FrozenInterfaces`.
+   That name is `qualifiedName ienumerableKey` — the ONE spelling of the erased
+   `IEnumerable\`1` head `CapabilityIds.Enumerable` matches — so it moves in one place if
+   `seq` is ever re-anchored. The EXISTING `pickEnumerableElem` → `tryForInEnumerator` →
+   `EmitJs.ForOf` chain lights up with zero downstream change. **Test (`IterableForInTests`):**
+   a minimal global `Set<T>` (`[Symbol.iterator](): SetIterator<T>`, backed by the real Node
+   `Set`) — `for x in s` type-checks, emits native `for..of` with no import, Node round-trip
+   sums to 6.
+   - *Incidental (NOT this step):* the vendored es2015 `Set` has no extracted `.ctor` (a
+     constructor-interface fusion gap), so the fixture hand-declares a minimal `Set`; and a
+     MODULE-LEVEL `let mutable` written in a loop lowers to `const` (a codegen gap adjacent
+     to Wall 5's closure case) — the fixture accumulates in a function-local mutable instead.
+
+2. **Tuple binder in the `for..of` lowering (the ONE genuine EmitJs change).** `Js.Map`
+   iteration yields `[K,V]` pairs, so `for (k,v) in m` needs a destructuring binder — but
+   `patBinderName` (`EmitJs.fs`) currently rejects non-simple binders. JS supports
+   `for (const [k,v] of m)` natively; extend the ForOf binder to emit array destructuring
+   for a tuple pattern. **Test:** a Vesper `for (k,v) in (m: Js.Map<_,_>)` summing entries,
+   Node round-trip; remove the iteration descope caveat from the `JsMapE2ETests` header when
+   it closes.
+
+**Trap.** JS iteration is native `for..of`; there is no `GetEnumerator`/`MoveNext` walk — do
+not reach for the IL enumerator descriptor. The `__@iterator@N` member is NOT dropped from
+extraction (TS-faithful); it is the provider's input, not noise to scrub.
 
 ### Wall 5 — codegen-correctness residue that bites real callbacks
 
