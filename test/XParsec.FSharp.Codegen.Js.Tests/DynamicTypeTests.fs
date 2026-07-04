@@ -58,6 +58,14 @@ let private dynRuntimeSource =
 export function D_useAny(v) { return "A:" + v; }
 """
 
+/// The WARNING diagnostics from analysing `input` (the implicit-`dynamic`-escape
+/// sweep raises `Severity.Warning`, which `analyseWith` filters out). Errors, if
+/// any, fail the analysis path upstream — these tests all type-check cleanly.
+let private warningsWith (input: string) : Diagnostic list =
+    let lexed, file = parseFile input
+    let tast = Pipeline.analyseSemForSelfHost dynProvider input lexed file
+    tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Warning)
+
 let private emitWithDyn (input: string) : string =
     emitWith
         dynProvider
@@ -164,5 +172,59 @@ let tests =
                     "dynamic-type"
                     [ "dynamic-type.mjs", js; "dynlib.mjs", dynRuntimeSource ]
                     "chain written A:7"
+            }
+
+            // Implicit-escape warning (design: `dynamic-typing-design.md`). A `?`-result
+            // pinned to a concrete type by CONTEXT (the `default : dynamic` never fired)
+            // is an unchecked assertion → a warning. Suppressed ONLY by an ascription
+            // directly on the `?` expression: "name the type at the escape point."
+
+            test "`d?foo + 1` implicitly escapes `dynamic` to int → warns" {
+                let ws =
+                    warningsWith (String.concat "\n" [ "let d = D.mkObj()"; "let m = d?n + 1"; "ignore m"; "" ])
+
+                Expect.isNonEmpty ws "an implicit `dynamic`→int escape must warn"
+
+                Expect.stringContains
+                    (ws |> List.map (fun d -> d.Message) |> String.concat "\n")
+                    "escape from 'dynamic'"
+                    "the warning names the dynamic escape"
+            }
+
+            test "unconstrained `d?foo` stays dynamic → no warning" {
+                // The default fires; nothing escaped, so nothing to warn about.
+                let ws =
+                    warningsWith (String.concat "\n" [ "let d = D.mkObj()"; "let y = d?foo"; "ignore y"; "" ])
+
+                Expect.isEmpty ws (sprintf "a dynamic-valued `?` must not warn: %A" ws)
+            }
+
+            test "a `?`-chain `d?a?b` stays dynamic → no warning" {
+                let ws =
+                    warningsWith (String.concat "\n" [ "let d = D.mkObj()"; "let z = d?foo?bar"; "ignore z"; "" ])
+
+                Expect.isEmpty ws (sprintf "a `?`-chain must not warn: %A" ws)
+            }
+
+            test "an ascription ON the `?` expression `(d?foo : int)` suppresses the warning" {
+                let ws =
+                    warningsWith (String.concat "\n" [ "let d = D.mkObj()"; "let m = (d?n : int) + 1"; "ignore m"; "" ])
+
+                Expect.isEmpty ws (sprintf "`(d?foo : int)` names the type at the escape point → no warn: %A" ws)
+            }
+
+            test "an annotation on the BINDING `let n : int = d?foo` still warns (not on the `?` node)" {
+                // The syntactic rule: only an ascription on the `?` expression itself
+                // suppresses. `let n : int = …` nudges toward `let n = (d?n : int)`.
+                let ws =
+                    warningsWith (String.concat "\n" [ "let d = D.mkObj()"; "let n : int = d?n"; "ignore n"; "" ])
+
+                Expect.isNonEmpty ws "a binding-level annotation does not suppress the escape warning"
+            }
+
+            test "`d?foo <- v` (the setter) is unit, never an escape → no warning" {
+                let ws = warningsWith (String.concat "\n" [ "let d = D.mkObj()"; "d?bar <- 3"; "" ])
+
+                Expect.isEmpty ws (sprintf "a dynamic write is not an escape: %A" ws)
             }
         ]

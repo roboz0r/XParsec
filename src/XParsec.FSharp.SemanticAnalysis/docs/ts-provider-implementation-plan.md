@@ -11,8 +11,8 @@ code itself (module headers + the tests named below), per
   provider (`Codegen.Js.NumberCovariance`). See §G1 for the as-built record; only the
   orthogonal **Step 5** (full provider laziness — a perf/architecture cleanup, no correctness
   dependency) remains, deferrable.
-- **Two small `dynamic` follow-ups** (§G2, §G3) and **one inert residue** (§G4). The two external
-  interface-heritage resolution gaps (§G5) **LANDED 2026-07-04**.
+- **One small `dynamic` follow-up** (§G3) and **one inert residue** (§G4). The implicit-escape
+  warning (§G2) and the two external interface-heritage resolution gaps (§G5) **LANDED 2026-07-04**.
 - **The two breadth destinations** — `@types/node` and `Js.Dom` (§Breadth) — plus the
   **faithful-later graduations** they will pull in (§Faithful-later).
 
@@ -142,12 +142,27 @@ record.
   `configure2(x: number)` ← `int` (family absorption alone). These are the existing
   `StructuralWidenTests` / `NumberFamilyTests`; keep them green across every step.
 
-### G2 — `dynamic` implicit-escape warning — STAGED
+### G2 — `dynamic` implicit-escape warning — LANDED (2026-07-04)
 
-`d?foo + 1` silently escapes `dynamic → int` today. Design (in `dynamic-typing-design.md`):
-warn on an implicit escape, suppressed by `#nowarn` or a direct `(d?foo : int)` ascription.
-Needs tyvar-origin tagging + suppression plumbing. **Decide the syntactic-vs-loose suppression
-fork when building.**
+**As built.** `d?foo + 1` now warns: a `?`-result pinned to a concrete non-`dynamic` type by
+context (the `default : dynamic` never fired) is an unchecked assertion. The canonical record is
+the code + `DynamicTypeTests` ([[feedback_durable_knowledge_in_code]]); this note is a pointer.
+
+- **`inferDynamicLookup`** (`InferApp.fs`) records each `?` site — its `^TResult` var + the `?`
+  node key — into `ctx.DynamicEscapes` (a `DynamicEscapeSite` list; no `TypeVar` field added).
+- **`DynamicEscape.run`** (new pass, slotted after `PlatformTypes` in `Pipeline`) sweeps the sites
+  post-settle: a site whose var `zonk`s to a concrete non-`dynamic` shape → `ctx.Warn`. A still-`dynamic`
+  or still-free var never warns.
+- **Suppression is the syntactic fork** (recommended): only an ascription DIRECTLY on the `?`
+  expression (`(d?foo : int)`) suppresses — `inferTypeAnnotation` records the inner `?` node's key
+  in `ctx.DynamicEscapeSuppressed`. A binding-level `let n : int = d?foo` still warns.
+- **`#nowarn` suppression descoped:** no warning-number infrastructure reaches the semantic
+  diagnostics (`Diagnostic.Code` is `""` everywhere; `WarnDirectives` gate only parse-time
+  warnings). The ascription route is the sole escape until a general semantic-warning-suppression
+  feature lands; this warning would be its first consumer.
+
+Tests: `DynamicTypeTests` (escape warns; unconstrained/chain/setter don't; ascription-on-`?`
+suppresses; binding-level annotation still warns).
 
 ### G3 — `retype` surface — OPEN
 

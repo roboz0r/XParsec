@@ -68,6 +68,11 @@ module Pipeline =
         // in a single backend's emitter. No-op on a target where every primitive has a
         // representation (CLR).
         PlatformTypes.run ctx tast1
+        // Implicit `dynamic`-escape warnings: a `d?foo` whose `^TResult` was pinned to
+        // a concrete type by context (the `default : dynamic` never fired) is an
+        // unchecked assertion. Runs post-settle (the TypeVar graph is stable) over the
+        // sites `inferDynamicLookup` recorded; needs no tree.
+        DynamicEscape.run ctx
         // Snapshot ctx.Diagnostics again so ResolvedTypes findings are visible on
         // TastFile.Diagnostics.
         let tast =

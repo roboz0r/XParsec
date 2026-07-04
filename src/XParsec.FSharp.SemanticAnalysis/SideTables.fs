@@ -1295,6 +1295,14 @@ module PassContextResolution =
             TypeEnclosingModule = Dictionary<_, _>()
         }
 
+/// A `recv?name` dynamic-access site whose `^TResult` var (`Root`) may escape
+/// `dynamic` to a concrete type through context (`d?foo + 1` pins it to `int`).
+/// Recorded by `inferDynamicLookup`; swept post-settle by `DynamicEscape.run`,
+/// which warns when `Root` zonks to a non-`dynamic` shape (the `default : dynamic`
+/// did NOT fire — an unchecked assertion). `Key` is the `?` node's key, used both
+/// to attribute the warning and to match a suppressing `(d?foo : T)` ascription.
+type DynamicEscapeSite = { Root: TypeVar; Key: NodeKey }
+
 /// **Thread-safety:** a `PassContext` is single-threaded — its side tables,
 /// `Diagnostics` channel, and the `TypeVar` graph it owns all mutate in
 /// place and are not safe to access from multiple threads. Parallelism
@@ -1559,6 +1567,17 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// to the default list, a flipped one has its element reconciled. Programs that
     /// declare their own `list` abbrev never register here (they resolve eagerly).
     member val ListLiterals = ResizeArray<TypeVar * SemType>() with get
+
+    /// `recv?name` dynamic-access sites, enqueued by `inferDynamicLookup` and swept
+    /// post-settle by `DynamicEscape.run`. A site whose `Root` zonks to a concrete
+    /// non-`dynamic` type is an implicit escape (the `default : dynamic` did not fire)
+    /// and warns — unless its `Key` is in `DynamicEscapeSuppressed`.
+    member val DynamicEscapes = ResizeArray<DynamicEscapeSite>() with get
+
+    /// `?` node keys whose escape warning is suppressed by an explicit ascription
+    /// directly on the `?` expression (`(d?foo : int)`), recorded by
+    /// `inferTypeAnnotation`. "Name the type at the escape point."
+    member val DynamicEscapeSuppressed = HashSet<NodeKey>() with get
 
     /// Operator-as-value use sites (`(+)` in `Seq.fold (+) …`), enqueued by
     /// `inferIdent` and drained after the walk by `Unification.resolveOperatorValues`

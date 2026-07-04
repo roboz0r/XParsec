@@ -603,7 +603,8 @@ module internal UnificationInferApp =
 
         match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "op_Dynamic" with
         | ValueSome sym ->
-            let resultTy = TyVar(freshTyVar ctx)
+            let resultVar = freshTyVar ctx
+            let resultTy = TyVar resultVar
 
             unify
                 ctx
@@ -611,6 +612,10 @@ module internal UnificationInferApp =
                 (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel)
                 (TyFun(recvTy, TyFun(BuiltinTypes.tyString, resultTy)))
 
+            // Record for the post-settle escape sweep: if context pins `resultVar` to a
+            // concrete non-`dynamic` type the `default : dynamic` never fires — an
+            // unchecked assertion `DynamicEscape.run` warns on (unless ascribed here).
+            ctx.DynamicEscapes.Add { Root = resultVar; Key = key }
             resultTy
         | ValueNone -> errorTy ctx key "dynamic-access operator '?' (op_Dynamic) is not in scope (Vesper.Core missing?)"
 

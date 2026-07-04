@@ -103,7 +103,16 @@ not int-hardcoded) does the rest:
 
 `?<-` is the setter (`x?foo <- v`), in scope for the first cut.
 
-### Implicit escape warns; explicit escape is silent **[DECIDED — STAGED follow-on; not in the first cut]**
+### Implicit escape warns; explicit escape is silent **[LANDED 2026-07-04 — see `DynamicEscape.fs`]**
+
+**As built** (the durable record is `DynamicEscape.fs`'s header + `DynamicTypeTests`): the
+**syntactic** fork shipped — only an ascription directly on the `?` expression (`(d?foo : int)`)
+suppresses; a binding-level `let n : int = d?foo` still warns. Detection is a post-settle sweep of
+`?`-result vars recorded by `inferDynamicLookup` (`ctx.DynamicEscapes`), NOT an `applyDefaults` hook:
+a var that `zonk`s to a concrete non-`dynamic` shape had its `default : dynamic` skipped → warn.
+`#nowarn`-number suppression was **descoped** (no warning-number plumbing reaches semantic
+diagnostics yet). The original design sketch below is retained for context.
+
 
 Target-typing lets `dynamic` escape to a concrete type through *context* — `d?foo + 1`
 forces `^TResult = int` via the arithmetic. That is an **unchecked assertion** (the

@@ -184,6 +184,15 @@ module internal UnificationInferTypeOps =
         | ValueNone ->
             let innerTy = infer ctx inner
             unify ctx key innerTy annTy
+
+            // "Name the type at the escape point": an ascription DIRECTLY on a `?` expression
+            // (`(d?foo : int)`) is an explicit assertion, so it suppresses the implicit-escape
+            // warning `DynamicEscape.run` would otherwise raise. An annotation on the binding
+            // (`let n : int = d?foo`) is NOT on the `?` node and still warns.
+            match inner with
+            | Expr.DynamicLookup _ -> ctx.DynamicEscapeSuppressed.Add(CstKeys.ofExpr inner) |> ignore
+            | _ -> ()
+
             annTy
 
     /// `obj` is the top of every reference hierarchy. `subsumes` doesn't model
