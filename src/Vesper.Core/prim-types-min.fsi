@@ -48,3 +48,25 @@ type Fun<'A, 'B> =
 /// <category>Basic Types</category>
 type Fun<'A, 'B, 'C> =
     abstract member Invoke: a: 'A * b: 'B -> 'C
+
+/// <summary>The flat arity-3 function type: a saturated 3-arg call dispatches in
+/// one <c>Invoke(a,b,c)</c> with no intermediate <c>Fun&lt;'B,'C&gt;</c> /
+/// <c>Fun&lt;'C,'D&gt;</c>. Overloads <c>Fun&lt;'A,'B&gt;</c> by generic arity (CLR
+/// <c>Fun`4</c> vs <c>Fun`2</c>); NOT a subtype of the curried nesting,
+/// flat&lt;-&gt;curried adaptation goes through <c>curryFun</c> / <c>flatten</c> in
+/// core-types.</summary>
+///
+/// <category>Basic Types</category>
+type Fun<'A, 'B, 'C, 'D> =
+    abstract member Invoke: a: 'A * b: 'B * c: 'C -> 'D
+
+/// <summary>The flat arity-4 function type: a saturated 4-arg call dispatches in
+/// one <c>Invoke(a,b,c,d)</c> with no intermediate <c>Fun&lt;'B,'C&gt;</c> /
+/// <c>Fun&lt;'C,'D&gt;</c> / <c>Fun&lt;'D,'E&gt;</c>. Overloads <c>Fun&lt;'A,'B&gt;</c>
+/// by generic arity (CLR <c>Fun`5</c> vs <c>Fun`2</c>); NOT a subtype of the curried
+/// nesting, flat&lt;-&gt;curried adaptation goes through <c>curryFun</c> /
+/// <c>flatten</c> in core-types.</summary>
+///
+/// <category>Basic Types</category>
+type Fun<'A, 'B, 'C, 'D, 'E> =
+    abstract member Invoke: a: 'A * b: 'B * c: 'C * d: 'D -> 'E

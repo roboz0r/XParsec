@@ -17,3 +17,9 @@ type Fun<'A, 'B> =
 
 type Fun<'A, 'B, 'C> =
     abstract member Invoke: a: 'A * b: 'B -> 'C
+
+type Fun<'A, 'B, 'C, 'D> =
+    abstract member Invoke: a: 'A * b: 'B * c: 'C -> 'D
+
+type Fun<'A, 'B, 'C, 'D, 'E> =
+    abstract member Invoke: a: 'A * b: 'B * c: 'C * d: 'D -> 'E
