@@ -109,6 +109,12 @@ module PrintfHoleForm =
     /// lowers via the FSharp.Core reflective path). Parity with F# `printf` under
     /// `InvariantCulture` is the gate for each accepted specifier.
     let tryClassify (p: FormatPlaceholder) : HoleForm voption =
+        // A `*` in either dimension consumes an extra runtime argument the
+        // structured lowering does not yet carry; defer to the cold path.
+        if p.Width = FormatDim.Star || p.Precision = FormatDim.Star then
+            ValueNone
+        else
+
         let flags = p.Flags
         let has (c: char) = flags.IndexOf c >= 0
         let zeroPad = has '0'
@@ -118,8 +124,9 @@ module PrintfHoleForm =
 
         let width =
             match p.Width with
-            | ValueSome w -> Some(int w)
-            | ValueNone -> None
+            | FormatDim.Literal w -> Some(int w)
+            | FormatDim.Absent
+            | FormatDim.Star -> None
 
         // `-` and `0` are inert without a width: there is nothing to justify or
         // pad, so `%-d ≡ %d`, `%0d ≡ %d`, `%-.2f ≡ %.2f`. Dropping them here lets
@@ -152,8 +159,9 @@ module PrintfHoleForm =
 
         let precisionOr (dflt: int) =
             match p.Precision with
-            | ValueSome pr -> int pr
-            | ValueNone -> dflt
+            | FormatDim.Literal pr -> int pr
+            | FormatDim.Absent
+            | FormatDim.Star -> dflt
 
         if p.Type = FormatType.Structured then
             // `%A`: the structural engine renders. `0` flag forces flat (width 0),
@@ -174,8 +182,9 @@ module PrintfHoleForm =
 
             let size =
                 match p.Precision with
-                | ValueSome pr -> Some(int pr)
-                | ValueNone -> None
+                | FormatDim.Literal pr -> Some(int pr)
+                | FormatDim.Absent
+                | FormatDim.Star -> None
 
             ValueSome(HoleForm.PercentA(pw, size))
         elif plusSign || spaceSign then
@@ -258,7 +267,7 @@ module PrintfHoleForm =
             | FormatType.Decimal ->
                 // F# `%M` precision semantics are unusual; zero-pad has no faithful
                 // mapping — defer both.
-                if zeroPad || p.Precision.IsSome then
+                if zeroPad || (p.Precision <> FormatDim.Absent) then
                     ValueNone
                 else
                     field FieldFormat.Verbatim

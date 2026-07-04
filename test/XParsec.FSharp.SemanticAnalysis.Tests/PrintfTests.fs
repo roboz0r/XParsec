@@ -58,9 +58,39 @@ let tests =
                 match Lexing.parseFormatSpecifier "%5.2f" with
                 | ValueSome ph ->
                     Expect.equal ph.Type FormatType.FloatDecimal "type f"
-                    Expect.equal ph.Width (ValueSome(bigint 5)) "width 5"
-                    Expect.equal ph.Precision (ValueSome(bigint 2)) "precision 2"
+                    Expect.equal ph.Width (FormatDim.Literal(bigint 5)) "width 5"
+                    Expect.equal ph.Precision (FormatDim.Literal(bigint 2)) "precision 2"
                 | ValueNone -> failtest "expected a placeholder"
+            }
+
+            test "specifier parser: star width / precision captured" {
+                let dims (s: string) =
+                    match Lexing.parseFormatSpecifier s with
+                    | ValueSome ph -> struct (ph.Width, ph.Precision, ph.Type)
+                    | ValueNone -> failtestf "expected a placeholder: %s" s
+
+                Expect.equal (dims "%*d") (FormatDim.Star, FormatDim.Absent, FormatType.DecimalInt) "%*d"
+                Expect.equal (dims "%.*f") (FormatDim.Absent, FormatDim.Star, FormatType.FloatDecimal) "%.*f"
+                Expect.equal (dims "%*.*f") (FormatDim.Star, FormatDim.Star, FormatType.FloatDecimal) "%*.*f"
+                Expect.equal (dims "%-*d") (FormatDim.Star, FormatDim.Absent, FormatType.DecimalInt) "%-*d"
+                Expect.equal (dims "%0*d") (FormatDim.Star, FormatDim.Absent, FormatType.DecimalInt) "%0*d"
+                Expect.equal (dims "%+*d") (FormatDim.Star, FormatDim.Absent, FormatType.DecimalInt) "%+*d"
+                Expect.equal (dims "%*A") (FormatDim.Star, FormatDim.Absent, FormatType.Structured) "%*A"
+            }
+
+            test "specifier parser: literal / absent dims unchanged" {
+                let dims (s: string) =
+                    match Lexing.parseFormatSpecifier s with
+                    | ValueSome ph -> struct (ph.Width, ph.Precision)
+                    | ValueNone -> failtestf "expected a placeholder: %s" s
+
+                Expect.equal (dims "%d") (FormatDim.Absent, FormatDim.Absent) "%d"
+                Expect.equal (dims "%5d") (FormatDim.Literal(bigint 5), FormatDim.Absent) "%5d"
+                Expect.equal (dims "%5.2f") (FormatDim.Literal(bigint 5), FormatDim.Literal(bigint 2)) "%5.2f"
+            }
+
+            test "specifier parser: bare %* (star, no type letter) is invalid" {
+                Expect.isTrue (Lexing.parseFormatSpecifier "%*").IsNone "%* has no type letter"
             }
 
             test "argType: every integer base types as int" {

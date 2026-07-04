@@ -182,11 +182,18 @@ a `PrintfFormat`-typed value used at the call site defers. Two sub-cases:
 
 A **lexer gap**, not a cold degrade: `Lexing.lFormatPlaceholder` rejects `*` (flags are
 `anyOf "0+- "`, width is `opt pbigint`), yielding `InvalidFormatPlaceholder` → a compile error.
-Teach the `*` width/precision grammar first (a `FormatPlaceholder` that marks width/precision as
-star-consumed), then route it through the **per-hole arg-type seam** already designed for it
-(`PrintfSpec.argType` becoming a hole→arg-types mapping; see `printf-architecture.md`). Independent
-of the FSharp.Core drop (it's a *new feature*, currently an error, not a degrade) — sequence last
-or defer past the sprint.
+Design settled (see `printf-architecture.md` § star-width). Staged:
+1. **Lex** — `Width`/`Precision` become `FormatDim = Absent | Literal | Star`; grammar edit in
+   `lFormatPlaceholder`.
+2. **Type** — `PrintfSpec.argType` → `argTypes : FormatPlaceholder -> SemType list voption`
+   (`[width int; precision int; value]`); arity consumers count per hole. After 1+2, `%*d`
+   *runs correctly* via the cold path.
+3. **Native width-star** — runtime-width `HoleForm` alignment + a `PadLeft`/`PadRight` handler
+   member (preserves F#'s throw on negative width); `%*A` = runtime `widthBudget`.
+4. **Native precision-star** — dedicated handler member; deferrable.
+Independent of the FSharp.Core drop (a *new feature*) — sequence last or defer past the sprint,
+**except**: once stage 2 lands, star holes lean on the cold path, so the capstone (deleting the
+cold recipes) must wait for stages 3–4 or re-error the star forms it can't lower.
 
 ---
 

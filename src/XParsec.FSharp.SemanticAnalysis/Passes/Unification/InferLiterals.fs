@@ -244,6 +244,15 @@ module internal UnificationInferLiterals =
                 | StringPart.VerbatimEscapeQuote _ -> ()
                 | StringPart.FormatSpecifier t ->
                     match Lexing.parseFormatSpecifierView (ctx.ReadableOf t) with
+                    // A `*` width/precision consumes an extra `int` argument
+                    // *preceding* the value, so this projection of one `FormatType`
+                    // per hole would type the call with too few args (a miscompile).
+                    // Fall through to standard inference until this is replaced by
+                    // the per-hole `argTypes` seam that yields the star ints.
+                    | ValueSome placeholder when
+                        placeholder.Width = FormatDim.Star || placeholder.Precision = FormatDim.Star
+                        ->
+                        ok <- false
                     | ValueSome placeholder -> acc.Add placeholder.Type
                     | ValueNone -> ok <- false
                 | StringPart.Expr _

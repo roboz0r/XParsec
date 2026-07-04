@@ -39,26 +39,71 @@ runtime spec-runner over a `static readonly` parsed-spec field. That is supersed
 through the same `EmitFormat.fs` lowering as the happy path. `PrintfFormat` and the runtime
 spec-runner survive only on the **cold** (format-as-value / non-literal) row.
 
-**Star-width holes: planned, currently unmodelled end-to-end.** F# dynamic width/precision —
-`%*d`, `%*.*f`, where `*` consumes the width/precision as an extra argument — is a wanted
-feature, not yet modelled at any layer. `Lexing.lFormatPlaceholder` parses width and precision
-as `opt pbigint` (literal integers only, no `*`), so a `*` fails the placeholder grammar and
-the lexer emits `InvalidFormatPlaceholder` (classified `isStringInvalidText`): the format
-literal never parses, so `%*d` is *today* a **compile error**, not a cold-path degrade — it
-reaches neither the happy path nor the FSharp.Core fallback. (Contrast `%a`/`%t`,
-callback/thunk, which *parse* but aren't typed and so defer to the cold path — a different
-gap.)
+**Star-width holes (`%*d`, `%*.*f`): design settled, not yet implemented.** The `*`
+width/precision consumes the dimension as an extra `int` argument *preceding* the value:
+`sprintf "%*.*f" 12 1 x` applies width, then precision, then the value. Today
+`Lexing.lFormatPlaceholder` parses width and precision as `opt pbigint` (literal integers
+only), so a `*` fails the placeholder grammar and the lexer emits `InvalidFormatPlaceholder`:
+`%*d` is a **compile error**, reaching neither the happy path nor the FSharp.Core fallback.
+(Contrast `%a`/`%t`, which *parse* but aren't typed and so defer cold — a different gap.)
 
-Because star-width is coming, **arity is computed per hole, never as a hole count.** The seam
-is `PrintfSpec.argType : FormatType -> SemType` (one arg type per hole), folded into the
-curried printer type by `appliedTypeOf`. Today every hole yields exactly one arg, so arity =
-hole count and `args.Length = specs.Length + 1` holds — but no lowering should assume
-holes = args. Landing `%*d` turns `argType` into a hole → arg-types mapping (a `StarWidth`
-variant returning width + value, a length-2 hole) threaded from the lexer's
-`FormatPlaceholder` through `PrintfSpec`; every arity consumer that routes through that seam —
-the happy path and the partial-app arity peel
-([printf-partial-app-plan](printf-partial-app-plan.md)) — then absorbs it without a structural
-change.
+Semantics verified against F# (fsi, 2026-07-04):
+- **Arg order** is width, precision, value (`%*.*f` above).
+- **Every flag combines with `*`** — `%-*d`, `%0*d`, `%+*d` all type-check.
+- **A negative runtime width throws** `ArgumentOutOfRangeException` (`totalWidth`, from the
+  underlying `PadLeft`/`PadRight`) — there is **no** C-style negative-width-means-left-justify.
+- **`%*A` is legal**: the star feeds the `%A` print-*width budget* at runtime
+  (`printf "%*A" 1 [1;2;3]` breaks at column 1).
+- **Interpolated strings reject star** (F# emits a misleading FS3371). Under our relaxed
+  lexer the rejection moves to the typing layer, which should emit an *accurate* diagnostic.
+
+The model, per layer:
+- **Lexer**: `FormatPlaceholder.Width`/`.Precision` become a three-state
+  `FormatDim = Absent | Literal of bigint | Star` — not `voption` + a star bool, which
+  admits `Literal ∧ Star`; the shape change deliberately breaks every consumer so each
+  decides what `Star` means for it. The grammar edit is local to `lFormatPlaceholder`, so
+  `parseFormatSpecifierView` inherits it. Once this lexes, `%*d` stops being a compile error.
+- **Typing**: the per-hole seam becomes `PrintfSpec.argTypes : FormatPlaceholder ->
+  SemType list voption` — `[star-width int; star-precision int; value]`, holes that don't
+  type (`%a`/`%t`) still `ValueNone`. With the lexer + this layer alone, `%*d` runs
+  correctly via the cold FSharp.Core path (a degrade, not an error — and *silent*, unlike
+  `%a`/`%t`: a star hole types fine, so it warrants no diagnostic, same as `%+05d` today).
+  The application fold in `tryInferPrintfApp` is already arity-agnostic (it unifies
+  `TyFun` per *arg* against the curried printer type), so mid-hole partials
+  (`printfn "%*d" 5` : `int -> unit`) type correctly with no extra work. Two gates DO bake
+  in holes = args and must be rewritten against the seam: the happy-path marker's
+  `args.Length = specs.Length + 1` becomes `totalArity + 1`, and the partial-app (4a)
+  marker gains an **explicit per-hole-arity-1 predicate on `PrintfSpec`** (star holes are
+  all-concrete, so `hasConcreteArgType` alone would silently admit them to the Fun-K peel —
+  which assumes one arg per hole — the moment `tryClassify` starts accepting star; the
+  named predicate turns that coincidence into a stated invariant, and extending the peel to
+  multi-arg holes becomes a deliberate later decision). Interpolated strings are the one
+  *new* diagnostic: `$"%*d{x}"` (`InferLiteralExpr.inferString`) errors accurately — the
+  star has no argument to consume — instead of F#'s misleading FS3371.
+- **`FormatType` is a field, never a currency.** It earns its keep as the case-collapsed
+  identity of the type letter *inside* `FormatPlaceholder` (the big matches in `tryClassify`
+  / `argType` dispatch on it; `TypeChar` keeps the case) — but no cross-pass signature
+  carries a bare `FormatType list`: star-ness lives on the placeholder, so
+  `InferLiterals.formatSpecifiers` returns `FormatPlaceholder list voption` and
+  `appliedTypeOf` takes placeholders, projecting `.Type` only where the letter is genuinely
+  all that's needed. Consequence: `lowerablePlaceholders` collapses to a fold over
+  `formatSpecifiers`' result (they walk the same parts with the same rejections today, each
+  re-parsing every placeholder — one parse, one walk, and the two can no longer drift).
+- **Lowering**: `HoleForm.Field`'s alignment slot admits a runtime width. Emission must
+  **not** fold the `-` flag into a signed .NET alignment: F#'s throw-on-negative means the
+  handler needs the *raw* width argument plus a left-align flag, padding via
+  `PadLeft`/`PadRight` — which reproduces F#'s exact exception. `%*A` is easy: the star is
+  just a runtime `widthBudget`, and `AppendStructured` already takes it as a parameter.
+  **Star-precision stays cold** at first — precision is baked into the compile-time .NET
+  format string, so dynamic precision needs a dedicated handler member; a legal degrade only
+  until the cold recipes are deleted (the coverage-plan capstone must sequence after it).
+
+Because of star-width, **arity is computed per hole, never as a hole count.** Today every
+hole yields exactly one arg, so arity = hole count and `args.Length = specs.Length + 1`
+holds — but no lowering should assume holes = args: every arity consumer routes through the
+seam above — the happy path and the partial-app arity peel
+([printf-partial-app-plan](printf-partial-app-plan.md)) count `argTypes(p).Length` — and
+absorbs the length-2/3 holes without a structural change.
 
 ## The write-through handler (`formatter.fs`)
 
