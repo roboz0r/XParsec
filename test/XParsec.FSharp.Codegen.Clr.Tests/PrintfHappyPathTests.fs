@@ -768,6 +768,64 @@ let tests =
                 runParity "PHpZeroHex" "printfn \"%08x\" 255" (sprintf "%08x" 255)
             }
 
+            // ---- inert width-less `-`/`0` flags: ignored, plain form (A1a) ----
+            test "`%-d` (left, no width) ignores the flag" {
+                runParity "PHpLeftNoW" "printfn \"%-d\" 42" (sprintf "%-d" 42)
+            }
+
+            test "`%0d` (zero-pad, no width) ignores the flag" {
+                runParity "PHpZeroNoW" "printfn \"%0d\" 42" (sprintf "%0d" 42)
+            }
+
+            test "`%-x` (left, no width) ignores the flag" {
+                runParity "PHpLeftHexNoW" "printfn \"%-x\" 255" (sprintf "%-x" 255)
+            }
+
+            test "`%-u` (left, no width) ignores the flag" {
+                runParity "PHpLeftUnsNoW" "printfn \"%-u\" 42" (sprintf "%-u" 42)
+            }
+
+            test "`%-o` (left, no width) ignores the flag" {
+                runParity "PHpLeftOctNoW" "printfn \"%-o\" 8" (sprintf "%-o" 8)
+            }
+
+            test "`%-s` (left, no width) ignores the flag" {
+                runParity "PHpLeftStrNoW" "printfn \"%-s\" \"hi\"" (sprintf "%-s" "hi")
+            }
+
+            test "`%-.2f` (left, no width) ignores the flag" {
+                runParity "PHpLeftFixNoW" "printfn \"%-.2f\" 3.14159" (sprintf "%-.2f" 3.14159)
+            }
+
+            // ---- left-align wins over zero-pad, non-float (A1a) ----
+            test "`%-05d` left-align beats zero-pad" {
+                runParity "PHpLeftZeroD" "printfn \"%-05d\" 42" (sprintf "%-05d" 42)
+            }
+
+            test "`%-05d` left-align beats zero-pad (negative)" {
+                runParity "PHpLeftZeroDNeg" "printfn \"%-05d\" (0 - 7)" (sprintf "%-05d" -7)
+            }
+
+            test "`%-05x` left-align beats zero-pad (hex)" {
+                runParity "PHpLeftZeroHex" "printfn \"%-05x\" 255" (sprintf "%-05x" 255)
+            }
+
+            test "`%-08o` left-align beats zero-pad (octal)" {
+                runParity "PHpLeftZeroOct" "printfn \"%-08o\" 8" (sprintf "%-08o" 8)
+            }
+
+            test "`%-05u` left-align beats zero-pad (unsigned)" {
+                runParity "PHpLeftZeroUns" "printfn \"%-05u\" 42" (sprintf "%-05u" 42)
+            }
+
+            // Floats keep zero-padding on the RIGHT under left-align — deferred (A2).
+            test "`%-05.2f` (left + zero-pad float) stays on the cold path" {
+                match soleDecl "printfn \"%-05.2f\" 3.14159" with
+                | TDecl.Expression(TExpr.Format _, _) -> failtest "%-05.2f must stay on the cold path"
+                | TDecl.Expression(TExpr.App _, _) -> ()
+                | other -> failtestf "unexpected TAST for %%-05.2f: %A" other
+            }
+
             test "`%c` lowers to a Formatted char hole (no format string)" {
                 match soleDecl "printfn \"%c\" 'a'" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->

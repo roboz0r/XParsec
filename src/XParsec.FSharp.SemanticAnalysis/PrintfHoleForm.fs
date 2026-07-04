@@ -121,6 +121,25 @@ module PrintfHoleForm =
             | ValueSome w -> Some(int w)
             | ValueNone -> None
 
+        // `-` and `0` are inert without a width: there is nothing to justify or
+        // pad, so `%-d ≡ %d`, `%0d ≡ %d`, `%-.2f ≡ %.2f`. Dropping them here lets
+        // the per-type match treat the specifier as its plain form (and keeps every
+        // `zeroPad` branch's `width.Value` read safe — `zeroPad` now implies a width).
+        let hasWidth = width.IsSome
+        let leftAlign = leftAlign && hasWidth
+        let zeroPad = zeroPad && hasWidth
+
+        // Float/decimal forms zero-pad on the *right* under left-align (`%-05.2f`
+        // 3.14159 ⇒ `"3.140"`), an F#-specific subtlety with no faithful structured
+        // mapping — those `leftAlign && zeroPad` cases stay deferred below.
+        let isFloatLike =
+            match p.Type with
+            | FormatType.FloatDecimal
+            | FormatType.FloatExponential
+            | FormatType.FloatCompact
+            | FormatType.Decimal -> true
+            | _ -> false
+
         // The field alignment shared by every non-zero-pad form: the width with a
         // sign (`-` ⇒ left-justify); zero-pad is mutually exclusive with it.
         let alignment =
@@ -144,7 +163,9 @@ module PrintfHoleForm =
             // precision — never the space flag — so `% A` renders identically to
             // `%A`.
             let pw =
-                if zeroPad then
+                // Raw `0` flag: `%0A`/`%05A` force flat regardless of width, so this
+                // reads the un-normalized flag (normalization drops a width-less `0`).
+                if has '0' then
                     PrintWidth.Never
                 else
                     match width with
@@ -175,13 +196,24 @@ module PrintfHoleForm =
                     let prec = if prec <= 0 then 0 else prec
                     ValueSome(HoleForm.Field(FieldFormat.ForcedSign(space, prec), alignment))
                 | _ -> ValueNone
-        elif (leftAlign || zeroPad) && width.IsNone then
-            // `-` / `0` are meaningless without a width.
-            ValueNone
-        elif leftAlign && zeroPad then
-            // Left-align-wins-over-zero-pad is easy to get subtly wrong — defer.
+        elif leftAlign && zeroPad && isFloatLike then
+            // Left-align + zero-pad on a float/decimal zero-pads on the right — no
+            // faithful structured mapping — defer.
             ValueNone
         else
+            // Left-align wins over zero-pad for the non-float forms (`%-05d ≡ %-5d`):
+            // drop the zero-pad and let the negative `alignment` pad with spaces on
+            // the right. (`not leftAlign` ⇒ zero-pad already dropped above.)
+            let zeroPad = zeroPad && not leftAlign
+
+            let alignment =
+                if zeroPad then
+                    None
+                else
+                    match width with
+                    | Some w -> Some(if leftAlign then -w else w)
+                    | None -> None
+
             let field f = ValueSome(HoleForm.Field(f, alignment))
             // Reached only when `zeroPad` ⇒ `width` guaranteed present.
             let zpWidth () = width.Value
