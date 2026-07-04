@@ -56,29 +56,33 @@ Note: the `StructuralEquality/Comparison/Format/Printer` test families are a DIF
 
 ## Outstanding gaps
 
-### G1 — Structural inflow widening (Wall 3's last step) — LANDED (contravariant); one covariant follow-up
+### G1 — Structural inflow widening (Wall 3's last step) — LANDED (2026-07-03)
 
-**Landed (2026-07-03), commits after `dd0d76dc`:** the contravariant half is done and tested —
-`IntrinsicReverseCanon` widened to `Map<string,string list>`; the JS `number` family
-(int/float/float32) admitted at foreign-call argument positions (`Engine.numericFamilyOr`,
-tests `NumberFamilyTests`); a Vesper record admitted into an external `IsInterface` parameter by
-width (`Engine.tryStructuralWiden` + `ExternalMember.IsOptional`, tests `StructuralWidenTests`,
-`StructuralWidenE2ETests` incl. Node round-trip); the extractor retains `number` and Vesper.Core
-carries `type number = float` (`prim-types-number.js.fsi`). The code + those tests are the
-canonical record.
+Both directions are done and tested; the code + named tests are the canonical record. Commits
+after `dd0d76dc`:
+- **Reverse axis shape** — `IExternalSymbolProvider.IntrinsicReverseCanon` widened to
+  `Map<string,string list>` (the `{platform-repr -> canon}` relation is one-to-many on JS:
+  `number -> [int;float;float32]`).
+- **Contravariant widening** — the JS `number` family admitted at foreign-call ARGUMENT positions
+  (`Engine.numericFamilyOr`, off the reverse axis; a genuine `float` param stays strict). Tests
+  `NumberFamilyTests`.
+- **Structural inflow by width** — a Vesper record admitted into an external `IsInterface`
+  parameter, each required member coerced (number members via the family)
+  (`Engine.tryStructuralWiden` + `ExternalMember.IsOptional`). Tests `StructuralWidenTests`,
+  `StructuralWidenE2ETests` (Node round-trip).
+- **Extractor retains `number`** + `Vesper.Core`'s `type number = float` transparent abbreviation
+  (`prim-types-number.js.fsi`); extractor spec goldens + the es2015 pack regenerated (pure
+  float→number flips).
+- **Covariant identity** — a `number` read as a VALUE resolves to `float`
+  (`ExternalSymbols.polarizeNumber`, applied at the `instantiateSignature`/`openSignature`
+  realization chokepoint: return/value covariant → `float`, parameters stay `number` so the arg
+  seam still widens; the structural-width check uses the RAW realiser to keep interface `number`
+  fields widenable). So `let x: float = m.size` and `m.size + 1.0` work again.
 
-**Remaining — covariant `number`-return → `float` (the "return position" piece):** a `number`
-value read from a foreign return/property currently types as the retained `TyConst "number"`,
-which is fine to *read / pass / print* (it is a JS number at runtime — e.g. `JsMapE2E` reads
-`m.size`), but does NOT unify with `float`, so `let x: float = m.size` or `m.size + 1.0`
-regress vs. the old `number → float` extraction. The `type number = float` abbreviation pins the
-identity but is only expanded for WRITTEN type references (`Translate.tryResolveExternalType`),
-not for provider member-signature realization (`instantiateWith`), which is where a return's
-`number` is produced. Closing it means expanding covariant-position `number → float` at the
-realization chokepoint (`ExternalSymbols.instantiateSignatureWith` / `openSignature`: `.Return`
-is covariant, `.Parameters` stay `number` so the arg seam still widens; flip at nested `TyFun`).
-Deferred pending the mechanism decision (realization-chokepoint rewrite vs. a transparent-alias
-`unify` rule).
+The whole feature keeps JS-specific knowledge in `Vesper.Core`'s `.js.fs` intrinsics + the
+provider seam: the family/repr relation is data flowing through `IntrinsicReverseCanon`, the
+`number = float` identity is the declared abbreviation, and the unifier rules name only front-end
+canon identities — Codegen.Js is untouched.
 
 Original design record below (still current):
 
