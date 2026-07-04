@@ -180,20 +180,12 @@ a `PrintfFormat`-typed value used at the call site defers. Two sub-cases:
 
 ### Track F — star-width `%*d`
 
-A **lexer gap**, not a cold degrade: `Lexing.lFormatPlaceholder` rejects `*` (flags are
-`anyOf "0+- "`, width is `opt pbigint`), yielding `InvalidFormatPlaceholder` → a compile error.
-Design settled (see `printf-architecture.md` § star-width). Staged:
-1. **Lex** — `Width`/`Precision` become `FormatDim = Absent | Literal | Star`; grammar edit in
-   `lFormatPlaceholder`.
-2. **Type** — `PrintfSpec.argType` → `argTypes : FormatPlaceholder -> SemType list voption`
-   (`[width int; precision int; value]`); arity consumers count per hole. After 1+2, `%*d`
-   *runs correctly* via the cold path.
-3. **Native width-star** — runtime-width `HoleForm` alignment + a `PadLeft`/`PadRight` handler
-   member (preserves F#'s throw on negative width); `%*A` = runtime `widthBudget`.
-4. **Native precision-star** — dedicated handler member; deferrable.
-Independent of the FSharp.Core drop (a *new feature*) — sequence last or defer past the sprint,
-**except**: once stage 2 lands, star holes lean on the cold path, so the capstone (deleting the
-cold recipes) must wait for stages 3–4 or re-error the star forms it can't lower.
+**DONE** (lex `FormatDim` → typing `argTypes` seam → native width-star → native
+precision-star; design and verified semantics in `printf-architecture.md` § star-width).
+Remaining star **cold residuals**, pinned in `FSharpCoreDepsTests`: zero-pad star
+(`%0*d`, `%0*.Nf`), flagged star-`%A` (`%-*A`/`%+*A`/`%0*A`). The capstone (deleting the
+cold recipes) must lower or re-error these first. `%*%`/`%5%` are *rejected* (accepted
+deviation — F# consumes the width and prints a bare `%`).
 
 ---
 
