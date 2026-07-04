@@ -19,7 +19,7 @@
       "name": "requestCount",
       "type": {
         "k": "named",
-        "name": "float",
+        "name": "number",
         "args": []
       },
       "const": false,

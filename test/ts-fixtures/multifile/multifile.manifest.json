@@ -29,7 +29,7 @@
           ],
           "returns": {
             "k": "named",
-            "name": "float",
+            "name": "number",
             "args": []
           }
         }
@@ -101,7 +101,7 @@
               "params": [],
               "returns": {
                 "k": "named",
-                "name": "float",
+                "name": "number",
                 "args": []
               }
             }

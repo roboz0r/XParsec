@@ -173,7 +173,7 @@
             "args": [
               {
                 "k": "named",
-                "name": "float",
+                "name": "number",
                 "args": []
               }
             ]

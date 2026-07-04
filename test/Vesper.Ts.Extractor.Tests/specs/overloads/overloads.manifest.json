@@ -40,7 +40,7 @@
                   "name": "x",
                   "type": {
                     "k": "named",
-                    "name": "float",
+                    "name": "number",
                     "args": []
                   },
                   "optional": false,
@@ -77,7 +77,7 @@
                   "name": "x",
                   "type": {
                     "k": "named",
-                    "name": "float",
+                    "name": "number",
                     "args": []
                   },
                   "optional": false,
@@ -86,7 +86,7 @@
               ],
               "returns": {
                 "k": "named",
-                "name": "float",
+                "name": "number",
                 "args": []
               }
             },
@@ -97,7 +97,7 @@
                   "name": "x",
                   "type": {
                     "k": "named",
-                    "name": "float",
+                    "name": "number",
                     "args": []
                   },
                   "optional": false,
@@ -107,7 +107,7 @@
                   "name": "y",
                   "type": {
                     "k": "named",
-                    "name": "float",
+                    "name": "number",
                     "args": []
                   },
                   "optional": false,
@@ -116,7 +116,7 @@
               ],
               "returns": {
                 "k": "named",
-                "name": "float",
+                "name": "number",
                 "args": []
               }
             },

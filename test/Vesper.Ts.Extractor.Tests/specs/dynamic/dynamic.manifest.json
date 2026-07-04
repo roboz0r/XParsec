@@ -56,7 +56,7 @@
           "kind": "property",
           "type": {
             "k": "named",
-            "name": "float",
+            "name": "number",
             "args": []
           },
           "signatures": [],
@@ -100,7 +100,7 @@
                 "name": "age",
                 "type": {
                   "k": "named",
-                  "name": "float",
+                  "name": "number",
                   "args": []
                 }
               }

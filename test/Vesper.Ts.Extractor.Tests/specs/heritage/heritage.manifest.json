@@ -71,7 +71,7 @@
           "kind": "property",
           "type": {
             "k": "named",
-            "name": "float",
+            "name": "number",
             "args": []
           },
           "signatures": [],
@@ -152,7 +152,7 @@
           "kind": "property",
           "type": {
             "k": "named",
-            "name": "float",
+            "name": "number",
             "args": []
           },
           "signatures": [],

@@ -38,7 +38,7 @@
                   "params": [],
                   "returns": {
                     "k": "named",
-                    "name": "float",
+                    "name": "number",
                     "args": []
                   }
                 }
@@ -54,7 +54,7 @@
           "name": "tau",
           "type": {
             "k": "named",
-            "name": "float",
+            "name": "number",
             "args": []
           },
           "const": true,
@@ -75,7 +75,7 @@
                       "name": "radians",
                       "type": {
                         "k": "named",
-                        "name": "float",
+                        "name": "number",
                         "args": []
                       },
                       "optional": false,
@@ -84,7 +84,7 @@
                   ],
                   "returns": {
                     "k": "named",
-                    "name": "float",
+                    "name": "number",
                     "args": []
                   }
                 }
@@ -101,7 +101,7 @@
                   "kind": "property",
                   "type": {
                     "k": "named",
-                    "name": "float",
+                    "name": "number",
                     "args": []
                   },
                   "signatures": [],

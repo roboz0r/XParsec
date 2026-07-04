@@ -314,7 +314,7 @@ and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
         | None ->
             match printed with
             | "string" -> Schema.TypeRef.Named("string", [])
-            | "number" -> Schema.TypeRef.Named("float", []) // TS number → Vesper float (policy)
+            | "number" -> Schema.TypeRef.Named("number", []) // TS number token RETAINED: a JS `number` is wider than any single Vesper numeric — the front end widens it to the int/float/float32 family at contravariant/argument positions and treats it as `float` covariantly
             | "boolean" -> Schema.TypeRef.Named("bool", [])
             | "void" -> Schema.TypeRef.Named("unit", [])
             | "null" -> Schema.TypeRef.Named("null", [])

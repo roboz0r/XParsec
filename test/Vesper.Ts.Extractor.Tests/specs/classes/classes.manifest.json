@@ -13,7 +13,7 @@
           "kind": "property",
           "type": {
             "k": "named",
-            "name": "float",
+            "name": "number",
             "args": []
           },
           "signatures": [],
@@ -25,7 +25,7 @@
           "kind": "property",
           "type": {
             "k": "named",
-            "name": "float",
+            "name": "number",
             "args": []
           },
           "signatures": [],
@@ -53,7 +53,7 @@
               ],
               "returns": {
                 "k": "named",
-                "name": "float",
+                "name": "number",
                 "args": []
               }
             }
@@ -84,7 +84,7 @@
           "kind": "property",
           "type": {
             "k": "named",
-            "name": "float",
+            "name": "number",
             "args": []
           },
           "signatures": [],
@@ -103,7 +103,7 @@
                   "name": "x",
                   "type": {
                     "k": "named",
-                    "name": "float",
+                    "name": "number",
                     "args": []
                   },
                   "optional": false,
@@ -123,7 +123,7 @@
                   "name": "x",
                   "type": {
                     "k": "named",
-                    "name": "float",
+                    "name": "number",
                     "args": []
                   },
                   "optional": false,
@@ -133,7 +133,7 @@
                   "name": "y",
                   "type": {
                     "k": "named",
-                    "name": "float",
+                    "name": "number",
                     "args": []
                   },
                   "optional": false,

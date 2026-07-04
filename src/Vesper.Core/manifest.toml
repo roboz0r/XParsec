@@ -67,6 +67,13 @@ files-js = [
     # harvested as BOTH marker and platform face (no base/override split). (`null` is
     # NOT declared here: it is a reserved keyword and already distinct without an entry.)
     "prim-types-undefined.js.fsi",
+    # JS-only transparent abbreviation `type number = float` — the F#-side landing point
+    # for the retained TS `number` token. Pins ONLY the covariant identity (a JS `number`
+    # read as a value is a `float`); the contravariant widening to the int/float/float32
+    # family lives in the unifier. An alias (NOT `extern`, NOT a new numeric type), so no
+    # `.js.fs` companion. Ordered after the base `prim-types-float.fsi` (in `files`) that
+    # its RHS resolves against.
+    "prim-types-number.js.fsi",
     # JS-only opaque `dynamic` intrinsic type — the F#-side landing point for TS `any`,
     # no CLR analog. Harvested (marker + `"any"` platform face) exactly like `undefined`.
     "prim-types-dynamic.js.fsi",

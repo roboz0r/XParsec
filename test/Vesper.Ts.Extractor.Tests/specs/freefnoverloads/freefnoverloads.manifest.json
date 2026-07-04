@@ -34,7 +34,7 @@
               "name": "x",
               "type": {
                 "k": "named",
-                "name": "float",
+                "name": "number",
                 "args": []
               },
               "optional": false,
