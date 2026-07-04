@@ -25,13 +25,40 @@ the same sequence to a template literal. Handlers are CLR-specific; the IR is no
 | Case | Lowering | Status |
 |---|---|---|
 | fully-applied literal | inline `AppendLiteral` / `AppendFormatted<T>` at the call site + flush | **built** |
-| partially-applied literal | stateless/captured `Fun` struct over a static parsed-spec field | deferred → [printf-partial-app-plan](printf-partial-app-plan.md) |
+| partially-applied literal | stateless/captured `Fun` value struct whose `Invoke` is statically unrolled through the same `EmitFormat` lowering as the happy path — no runtime spec, no `PrintfFormat` | deferred → [printf-partial-app-plan](printf-partial-app-plan.md) |
 | format-as-value / non-literal / `%a` `%t` | runtime parse → spec-runner → handler | falls back to FSharp.Core `PrintfModule` |
 
 Anything not on the fully-applied-literal happy path currently routes to FSharp.Core's
 cold printf (`FreezeExpr.fs` leaves the `App printfn` intact). That path is correct
 but allocates the `PrintfFormat` object + closures the happy path avoids; the
 partial-app plan replaces it for the lowerable case.
+
+The partial-app row updated (2026-07-04): the earlier design drove `Invoke` through a
+runtime spec-runner over a `static readonly` parsed-spec field. That is superseded — for a
+*literal* format the spec is a compile-time constant, so `Invoke` is statically unrolled
+through the same `EmitFormat.fs` lowering as the happy path. `PrintfFormat` and the runtime
+spec-runner survive only on the **cold** (format-as-value / non-literal) row.
+
+**Star-width holes: planned, currently unmodelled end-to-end.** F# dynamic width/precision —
+`%*d`, `%*.*f`, where `*` consumes the width/precision as an extra argument — is a wanted
+feature, not yet modelled at any layer. `Lexing.lFormatPlaceholder` parses width and precision
+as `opt pbigint` (literal integers only, no `*`), so a `*` fails the placeholder grammar and
+the lexer emits `InvalidFormatPlaceholder` (classified `isStringInvalidText`): the format
+literal never parses, so `%*d` is *today* a **compile error**, not a cold-path degrade — it
+reaches neither the happy path nor the FSharp.Core fallback. (Contrast `%a`/`%t`,
+callback/thunk, which *parse* but aren't typed and so defer to the cold path — a different
+gap.)
+
+Because star-width is coming, **arity is computed per hole, never as a hole count.** The seam
+is `PrintfSpec.argType : FormatType -> SemType` (one arg type per hole), folded into the
+curried printer type by `appliedTypeOf`. Today every hole yields exactly one arg, so arity =
+hole count and `args.Length = specs.Length + 1` holds — but no lowering should assume
+holes = args. Landing `%*d` turns `argType` into a hole → arg-types mapping (a `StarWidth`
+variant returning width + value, a length-2 hole) threaded from the lexer's
+`FormatPlaceholder` through `PrintfSpec`; every arity consumer that routes through that seam —
+the happy path and the partial-app arity peel
+([printf-partial-app-plan](printf-partial-app-plan.md)) — then absorbs it without a structural
+change.
 
 ## The write-through handler (`formatter.fs`)
 
