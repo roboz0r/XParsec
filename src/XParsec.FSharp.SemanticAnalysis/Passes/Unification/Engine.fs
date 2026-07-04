@@ -34,19 +34,11 @@ module UnificationEngine =
                 | SemanticConstraintKind.Coercion target ->
                     match resolveStep target with
                     | TyClass(tk, targs) ->
-                        let bare = SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tk)
-
                         // `Fun`2`..`Fun`5` share this one qualified name, discriminated
-                        // by type-arg count: arity = length - 1 (peels exactly that many
-                        // curried domains, residual codomain matched whole). Only
-                        // `Fun`2`..`Fun`5` exist ⇒ arity 1..4; anything else is not a
-                        // recognised `Fun` slot.
-                        if bare = funInterfaceQualifiedName then
-                            match targs.Length with
-                            | n when n >= 2 && n <= 5 -> Some(n - 1)
-                            | _ -> None
-                        else
-                            None
+                        // by type-arg count (arity = length - 1, for 2..5 args); anything
+                        // else is not a recognised `Fun` slot. `funSlotArityOfArgs` is the
+                        // single source of that rule (shared with `subsumes`/the drain).
+                        funSlotArityOfArgs (SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tk)) targs.Length
                     | _ -> None
                 | _ -> None
             )
@@ -775,27 +767,14 @@ module UnificationEngine =
                 | SemanticConstraintKind.Coercion target ->
                     match subtypeNominalOf ctx (zonk target), resolveStep linkTarget with
                     | ValueSome(struct (tname, targs)), TyFun(a, b) when
-                        SymbolKeyOps.bareName tname = funInterfaceQualifiedName
-                        && targs.Length >= 2
-                        && targs.Length <= 5
+                        funSlotArityOfArgs (SymbolKeyOps.bareName tname) targs.Length |> Option.isSome
                         ->
-                        let k = targs.Length - 1
-                        // Peel/collect first so a too-short spine grounds nothing: `rev`
-                        // ends [residual; dom_{k-1}; …; dom_0], aligned to `targs` once
-                        // reversed. `resolveStep` unwraps each codomain before the next
-                        // arrow (mirrors the old flat-2 `resolveStep bc`).
-                        let rec peel i (dom: SemType) (cod: SemType) (acc: SemType list) =
-                            let acc = dom :: acc
-
-                            if i = k - 1 then
-                                Some(cod :: acc)
-                            else
-                                match resolveStep cod with
-                                | TyFun(d, c) -> peel (i + 1) d c acc
-                                | _ -> None
-
-                        match peel 0 a b [] with
-                        | Some rev -> List.rev rev |> List.iteri (fun i s -> unify ctx key s targs.[i])
+                        // `peelFunSpine` (shared with `subsumes`) yields the `k+1` types
+                        // aligned to `targs` — a too-short spine grounds NOTHING. The
+                        // check-side and this grounding side peel identically by
+                        // construction.
+                        match peelFunSpine (targs.Length - 1) a b with
+                        | Some tys -> tys |> List.iteri (fun i s -> unify ctx key s targs.[i])
                         | None -> ()
                     | _ -> ()
                 | _ -> ()

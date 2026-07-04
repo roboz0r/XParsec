@@ -122,7 +122,8 @@ module Fixtures =
         box (SemPair(box (SemSome(box 1)), box (SemSome(box 2))))
 
     /// `Some (Pair (1, 2))`
-    let caseSomePair () : obj = box (SemSome(box (SemPair(box 1, box 2))))
+    let caseSomePair () : obj =
+        box (SemSome(box (SemPair(box 1, box 2))))
 
     /// `{ Label = "a"; Inner = { X = 1; Y = "b" } }`
     let boxRecord () : obj =

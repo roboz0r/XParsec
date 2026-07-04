@@ -807,8 +807,7 @@ let compileFixtureFile (asmName: string) (fileName: string) : Assembly =
             References = depDlls
         }
 
-    let source =
-        IO.File.ReadAllText(IO.Path.Combine(__SOURCE_DIRECTORY__, fileName))
+    let source = IO.File.ReadAllText(IO.Path.Combine(__SOURCE_DIRECTORY__, fileName))
 
     let lexed, file = parseFile source
 

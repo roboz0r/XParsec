@@ -286,30 +286,20 @@ module UnificationSubsume =
         // codomain must be `Equal` to `targs.[k]` matched WHOLE (it may itself be a
         // further curried arrow — the printf `n > K` tail — which is NOT peeled).
         // Read-only, not a `unify` — grounding a still-free `Fun`-arg FROM the arrow is
-        // the Engine constraint-drain's job. A spine too short to peel `k` domains does
-        // not match ⇒ `Unrelated`. The caller records the arity-`k` verdict for the
-        // lambda node (`inferApp`), keyed for the value-struct flat-`Invoke` lowering.
+        // the Engine constraint-drain's job (`peelFunSpine` is shared with it so the
+        // check and the grounding peel the SAME shape). A spine too short to peel `k`
+        // domains does not match ⇒ `Unrelated`. The caller records the arity-`k` verdict
+        // for the lambda node (`inferApp`), keyed for the value-struct flat-`Invoke`.
         | TyFun(a, b), (TyClass(tk, targs)) when
-            SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tk) = funInterfaceQualifiedName
-            && targs.Length >= 2
-            && targs.Length <= 5
+            funSlotArityOfArgs (SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tk)) targs.Length
+            |> Option.isSome
             ->
             let k = targs.Length - 1
-            // `resolveStep` unwraps each codomain before matching the next arrow.
-            let rec peel i (dom: SemType) (cod: SemType) =
-                if subsumes ctx dom targs.[i] <> SubsumeOutcome.Equal then
-                    SubsumeOutcome.Unrelated
-                elif i = k - 1 then
-                    if subsumes ctx cod targs.[k] = SubsumeOutcome.Equal then
-                        SubsumeOutcome.Subtype
-                    else
-                        SubsumeOutcome.Unrelated
-                else
-                    match resolveStep cod with
-                    | TyFun(d, c) -> peel (i + 1) d c
-                    | _ -> SubsumeOutcome.Unrelated
 
-            peel 0 a b
+            match peelFunSpine k a b with
+            | Some tys when List.forall2 (fun s t -> subsumes ctx s t = SubsumeOutcome.Equal) tys (EqArray.toList targs) ->
+                SubsumeOutcome.Subtype
+            | _ -> SubsumeOutcome.Unrelated
         // Neither operand is a union: the nominal subtype walk.
         | _ -> subsumesNominal ctx src tgt
 

@@ -617,7 +617,9 @@ let structSeqTests =
                     |> Array.windowed 2
                     |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
 
-                Expect.isTrue hasConstrained "apply3 IL contains a `constrained.` prefix (value-struct typar Fun dispatch)"
+                Expect.isTrue
+                    hasConstrained
+                    "apply3 IL contains a `constrained.` prefix (value-struct typar Fun dispatch)"
 
                 Expect.isFalse
                     (Array.contains 0x8Cuy applyIl)
@@ -696,7 +698,9 @@ let structSeqTests =
                     |> Array.windowed 2
                     |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
 
-                Expect.isTrue hasConstrained "apply4 IL contains a `constrained.` prefix (value-struct typar Fun dispatch)"
+                Expect.isTrue
+                    hasConstrained
+                    "apply4 IL contains a `constrained.` prefix (value-struct typar Fun dispatch)"
 
                 Expect.isFalse
                     (Array.contains 0x8Cuy applyIl)

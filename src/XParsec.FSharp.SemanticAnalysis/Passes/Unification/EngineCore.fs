@@ -363,6 +363,40 @@ module UnificationEngineCore =
     [<Literal>]
     let funInterfaceQualifiedName = "Vesper.Fun"
 
+    /// The flat `FunN` arity a matched `Fun`(k+1)` interface instantiation denotes:
+    /// `Some(genericArity - 1)` when `bareName` is the canonical `Fun` family AND the
+    /// generic arity is 2..5 (⇒ arity 1..4), else `None`. The ONE predicate every
+    /// arrow↔`Fun` recognizer shares (`funSlotArityOf`, `subsumes`, the Engine
+    /// constraint-drain) — keeps the "name-match + 2..5 bound + length - 1" rule
+    /// single-sourced so the sites cannot disagree on what counts as a `Fun` slot.
+    let funSlotArityOfArgs (bareName: string) (genericArity: int) : int option =
+        if bareName = funInterfaceQualifiedName && genericArity >= 2 && genericArity <= 5 then
+            Some(genericArity - 1)
+        else
+            None
+
+    /// Peel `k` domains off an arrow spine `TyFun(a, b)`, returning the `k+1` types
+    /// `[dom0; …; dom_{k-1}; residualCodomain]` aligned to a `Fun`(k+1)`'s type args —
+    /// or `None` if the spine is too short to peel `k` domains. The residual codomain
+    /// is returned WHOLE (a further curried arrow — the printf `n > K` tail — is NOT
+    /// peeled). `resolveStep` unwraps each codomain before the next arrow. SINGLE
+    /// source of the arrow↔`Fun` spine shape shared by `subsumes` (checks each `Equal`)
+    /// and the Engine constraint-drain (`unify`s each): the two MUST peel identically,
+    /// else a green-lit coercion grounds to a different shape than was checked.
+    /// `k >= 1` at every call site (a validated `Fun` slot is arity ≥ 1).
+    let peelFunSpine (k: int) (a: SemType) (b: SemType) : SemType list option =
+        let rec go i (dom: SemType) (cod: SemType) (acc: SemType list) =
+            let acc = dom :: acc
+
+            if i = k - 1 then
+                Some(List.rev (cod :: acc))
+            else
+                match resolveStep cod with
+                | TyFun(d, c) -> go (i + 1) d c acc
+                | _ -> None
+
+        go 0 a b []
+
     // Canonical nominal name for subtype comparison: the type's platform-INVARIANT
     // front-end identity — the `.fsi` name itself (`int`, `exn`), NOT a BCL name.
     // A primitive intrinsic binding (`type exn = (# "System.Exception" #)`,

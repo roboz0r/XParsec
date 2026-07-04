@@ -29,7 +29,9 @@ let private narrow (v: obj) = structuralPrint v 5
 /// builds carry the same `Vesper.Core` interface identity the `%A` engine tests for.
 let private fixtureModule: Lazy<System.Type> =
     lazy
-        (let asm = compileFixtureFile "StructuralFormatFixtures" "StructuralFormatFixtures.fs"
+        (let asm =
+            compileFixtureFile "StructuralFormatFixtures" "StructuralFormatFixtures.fs"
+
          let t = asm.GetType("Vesper.Fixtures", true)
 
          if isNull t then
@@ -232,16 +234,10 @@ let tests =
                         Expect.equal (flat (caseVal "casePair")) "Pair (1, \"a\")" "Pair (1, \"a\")"
                     }
                     test "tuple-arm components are not individually parenthesised" {
-                        Expect.equal
-                            (flat (caseVal "casePairSomes"))
-                            "Pair (Some 1, Some 2)"
-                            "Pair (Some 1, Some 2)"
+                        Expect.equal (flat (caseVal "casePairSomes")) "Pair (Some 1, Some 2)" "Pair (Some 1, Some 2)"
                     }
                     test "an application-shaped tuple case parenthesises as a lone payload" {
-                        Expect.equal
-                            (flat (caseVal "caseSomePair"))
-                            "Some (Pair (1, 2))"
-                            "Some (Pair (1, 2))"
+                        Expect.equal (flat (caseVal "caseSomePair")) "Some (Pair (1, 2))" "Some (Pair (1, 2))"
                     }
                     test "nested record field does not clobber the outer label" {
                         Expect.equal

@@ -111,8 +111,7 @@ type ClrProvider
 
     /// The flat `Vesper.Fun`(len)<tys…>` interface `TypeSpec` a flat value-struct
     /// closure of param-arity `len-1` implements (`tys` = flat params ++ result).
-    member _.FlatFunInterfaceSpecN(tys: FrozenType list) : EntityHandle =
-        recipes.FlatFunInterfaceSpecN(tys)
+    member _.FlatFunInterfaceSpecN(tys: FrozenType list) : EntityHandle = recipes.FlatFunInterfaceSpecN(tys)
 
     /// A `TypeSpec`/`TypeRef` handle for an arbitrary external type. A user class's
     /// `interface IEnumerable<'T>` carries its `'T` arg as a `TyTypar(Declaring, i)`
