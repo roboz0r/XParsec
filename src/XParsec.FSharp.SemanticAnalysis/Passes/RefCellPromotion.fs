@@ -59,8 +59,15 @@ module RefCellPromotion =
 
         for d in decls do
             match d with
-            | TDecl.Let(pat, value, _, _) ->
-                considerPat pat
+            | TDecl.Let(_, value, _, _) ->
+                // Only NESTED `let mutable` binders (reached by `iter` over the value)
+                // are promotion candidates. A top-level binder is deliberately NOT
+                // `considerPat`ed: a module-level mutable is not a heap cell — it is a
+                // static field (CLR) / ambient reassignable `let` (JS), shared across
+                // closures by the backend natively. Promoting it would rewrite its reads
+                // to `.contents` while `rewriteDecl` leaves the declaration bare, reading
+                // `undefined`. Excluding it here is what makes `rewriteDecl`'s "a top-level
+                // binding cannot itself be a promoted cell" hold by construction.
                 TastWalk.iterExpr iter value
             | TDecl.Expression(e, _) -> TastWalk.iterExpr iter e
             | TDecl.Type _ -> ()
@@ -135,10 +142,10 @@ module RefCellPromotion =
     let private rewriteDecl (promote: IReadOnlyDictionary<NodeKey, SemType>) (d: TDecl) : TDecl =
         match d with
         | TDecl.Let(pat, value, isInline, ty) ->
-            // A top-level binding cannot itself be a promoted cell (module-level
-            // mutables don't escape — they live in a static field), so the
-            // pattern's type is unchanged; the rewrite reaches the inner
-            // `let mutable` through the value's expression tree.
+            // A top-level binder is never in `promote` (`collectPromotions` skips it —
+            // module-level mutables are static fields / ambient reassignable lets, not
+            // heap cells), so the pattern's type is unchanged; the rewrite reaches any
+            // inner `let mutable` through the value's expression tree.
             TDecl.Let(pat, rewriteExpr promote value, isInline, ty)
         | TDecl.Expression(e, ty) -> TDecl.Expression(rewriteExpr promote e, ty)
         | TDecl.Type _ -> d

@@ -162,6 +162,36 @@ let tests =
                     "library-mode reassignable top-level binding"
             }
 
+            test "a module-level `let mutable` written from a lambda is observed (no ref-cell promotion)" {
+                // A closure writing a MODULE-level mutable. On the CLR the cell is a
+                // static field (RefCellPromotion deliberately never promotes a top-level
+                // binder); on JS the `let count` binding is captured by reference, so the
+                // lambda's writes are observed with zero boxing. The mutable must stay a
+                // bare reassignable binding — a `.contents` ref cell here would read
+                // `undefined` (bare decl + promoted reads), the pre-fix miscompile.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let mutable count = 0"
+                            "let bump () = count <- count + 1"
+                            "bump ()"
+                            "bump ()"
+                            "bump ()"
+                            "printfn \"%d\" count"
+                        ]
+
+                Expect.isFalse
+                    ((emitJs src).Contains "contents")
+                    "a module-level mutable is not promoted to a `Vesper.Ref` cell — it stays a bare `let`"
+
+                match runJs "toplevel-mutable-closure" src with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "3" "the lambda's three writes to the module-level mutable are observed"
+            }
+
             test "a generic intrinsic (array) is NOT flagged unrepresentable on JS" {
                 // Array shares `platform = None` with `decimal` but has arity >= 1, so
                 // `PlatformTypes` skips the platform-repr check. Any other failure is fine.
