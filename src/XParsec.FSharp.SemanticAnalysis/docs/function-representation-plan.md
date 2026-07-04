@@ -390,27 +390,24 @@ independent of lifetime — RS2), and a `Repr: ClosureRepr` field on
 
 ## Out of scope
 
-- Flat arity beyond 2 (`Fun`4`/`Fun`5`). The flat arity-2 interface **has landed**
-  as `Fun<'A,'B,'C>` (rung-4 M3: a saturated 2-arg lambda dispatches in one
-  `Invoke(a,b)`, no intermediate `Fun<b,c>`). Higher flat arities are **now driven by
-  the printf epic** ([printf-partial-app-plan](printf-partial-app-plan.md)), which caps
-  flat arity at `K = 4` (`Fun`3`/`Fun`4`/`Fun`5` = flat 2/3/4) and — for v1 — represents a
-  spec with more holes than `K` FSharp.Core-style (option A): **one flat-`K` head whose
-  codomain is the ordinary curried `Fun`2` chain** (`Fun<_,_,_,_, (_ -> _ -> unit)>` for 6
-  holes), NOT a greedy flat→flat chain and NOT a cold fallback. This needs the arity-`≤ K`
-  generalization of the closure codegen: the `Emit.Closure` `Param2 voption` → bounded
-  param-list refactor, an arity-`≤ K` `Invoke` signature / interface-spec family, and a
-  closure peel that takes up to `K` binders into the flat head and leaves the rest curried.
-  The `> K` tail residual is a plain curried closure (existing codegen); the greedy flat→flat
-  chain (option B, `Fun<_,_,_,_,Fun<_,_,_>>`) is a deferred non-breaking promotion. The flat
-  interfaces **overload the curried `Fun<'A,'B>` by generic arity** (CLR `Fun`(k+1)` vs
-  `Fun`2`, no interface-inheritance bridge) — realised by emitting native k-arg `Invoke`
-  value-structs, not by inserting the `curryFun`/`flatten` runtime adapters (those exist in
-  `Vesper.Core/core-types` for boundary adaptation, and codegen emits them only for Phase-B
-  within-chunk partial application). The distinct
-  `Fun2` name was folded into arity-overloaded `Fun<,,>` once the project-local class
-  registry became arity-keyed (the former `arity-overloaded-classes-design` epic), which
-  is the prerequisite that makes the `Fun`3`/`Fun`4`/`Fun`5` overloads resolvable.
+- Flat arity beyond 4 (`Fun`6`+`), and the printf-specific consumers of the flat
+  substrate. Flat arity **2/3/4 has landed** — `Fun<'A,'B,'C>`/`Fun<'A,'B,'C,'D>`/
+  `Fun<'A,'B,'C,'D,'E>` (CLR `Fun`3`/`Fun`4`/`Fun`5`), the `K = 4` cap: a saturated `N`-arg
+  lambda (`N ∈ 2..4`) into a `Fun<…>`-bounded slot dispatches in one flat `Invoke(a,b,c[,d])`,
+  no intermediate arrows. The arity-`≤ K` closure codegen is the delivered mechanism — the
+  `Emit.Closure` `Param2 voption` → `ExtraParams` list refactor, the `InvokeSignatureN` /
+  `FlatFunInterfaceSpecN` arity-parametric encoders, `ClrEnv.flatFunEntity`, and the closure
+  peel that takes up to `K` binders into the flat head. The flat interfaces **overload the
+  curried `Fun<'A,'B>` by generic arity** (CLR `Fun`(k+1)` vs `Fun`2`, no interface-inheritance
+  bridge) — native k-arg `Invoke` value-structs, not the `curryFun`/`flatten` runtime adapters
+  (those exist in `Vesper.Core/core-types` for boundary adaptation and are emitted only for
+  Phase-B within-chunk partial application). Resolvable because the project-local class registry
+  is arity-keyed (the former `arity-overloaded-classes-design` epic).
+  Still driven by the printf epic ([printf-partial-app-plan](printf-partial-app-plan.md)): the
+  printf **gate** that mints these structs from an under-applied literal (step 4), and the
+  `n > K` **curried-residual codegen** — a flat-`K` head `Invoke` that captures its args and
+  returns a curried closure for the tail (option A; step 5, greenfield). The greedy flat→flat
+  chain (option B, `Fun<_,_,_,_,Fun<_,_,_>>`) is a deferred non-breaking promotion.
 - Optimised currying / `OptimizedClosures.FSharpFunc` parity. v1's
   Fun-constraint mode subsumes the same wins where it applies; the
   BCL `OptimizedClosures` shim is a compat concern, not a perf one,
