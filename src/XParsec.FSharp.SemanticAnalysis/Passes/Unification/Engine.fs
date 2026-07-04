@@ -231,6 +231,27 @@ module UnificationEngine =
         | ValueSome folded -> Some folded
         | ValueNone -> None
 
+    /// The JS `number`-family CONTRAVARIANT widening. A foreign parameter whose canon
+    /// is a *platform-repr shared by several primitives* (JS `number` <- int/float/
+    /// float32) admits any member of that family at the argument position. Returns the
+    /// family as a `TyOr` when `ty` is such a multi-canon repr key, else `ValueNone` —
+    /// the overwhelmingly common single-canon case (a genuine `float`/`int` canon is
+    /// NOT a platform-repr key, so it never widens; `boolean`/`undefined` are single-
+    /// member and gate out by length). Purely data-driven off the reverse intrinsic
+    /// axis, so it names no concrete type: the int/float/float32 = `number` relation
+    /// lives entirely in `Vesper.Core`'s `.js.fs` intrinsic bindings, flowing here via
+    /// the provider ([[feedback_codegen_js_owns_assignability]]). Confined to the
+    /// argument-coercion seams below (`unifyArgCoerce` / `tryCoerceUpcast`) — never a
+    /// general `unify`/`subsumes` edge, so nothing widens outside a foreign-call arg.
+    let private numericFamilyOr (ctx: PassContext) (ty: SemType) : SemType voption =
+        match resolveStep ty with
+        | TyConst(name, args) when args.Length = 0 ->
+            match ctx.IntrinsicReverseCanon.Value.TryGetValue name with
+            | true, (_ :: _ :: _ as canons) ->
+                ValueSome(SemType.MkUnion(seq { for c in canons -> TyConst(c, EqArray.empty) }))
+            | _ -> ValueNone
+        | _ -> ValueNone
+
     let rec unify (ctx: PassContext) (key: NodeKey) (a: SemType) (b: SemType) =
         let a = resolveStep a
         let b = resolveStep b
@@ -390,7 +411,13 @@ module UnificationEngine =
                 // nested in union members (`foldMemberCarried`), so no pre-fold here. A
                 // genuine non-member argument still falls through to `unify` and errors.
                 | TyOr _ when subsumes ctx a b <> SubsumeOutcome.Unrelated -> ()
-                | _ -> unify ctx key a b
+                // A foreign `number`-family parameter admits any member of its family
+                // (int/float/float32) with the same no-pin discipline — the family is a
+                // synthetic `TyOr` off the reverse intrinsic axis (`numericFamilyOr`).
+                | _ ->
+                    match numericFamilyOr ctx b with
+                    | ValueSome fam when subsumes ctx a fam <> SubsumeOutcome.Unrelated -> ()
+                    | _ -> unify ctx key a b
 
     /// Unify an *applied callable* shape against a resolved member signature,
     /// coercing each argument position rather than unifying it. `actual` is the
@@ -1029,16 +1056,23 @@ module UnificationEngine =
             | TyOr _ -> subsumes ctx src tgt <> SubsumeOutcome.Unrelated
             | _ ->
 
-                match subtypeNominalOf ctx tgt with
-                | ValueNone -> false
-                | ValueSome(struct (tname, targs)) ->
-                    match tryUpcastWitness ctx src tname with
-                    | ValueSome sargs when sargs.Length = targs.Length ->
-                        for i in 0 .. targs.Length - 1 do
-                            unify ctx key sargs.[i] targs.[i]
+                // A foreign `number`-family parameter (int/float/float32 share JS repr
+                // `number`) admits any family member at the eager application seam, same
+                // no-pin discipline as the `TyOr`/`obj` arms. Off the reverse intrinsic axis.
+                match numericFamilyOr ctx tgt with
+                | ValueSome fam -> subsumes ctx src fam <> SubsumeOutcome.Unrelated
+                | ValueNone ->
 
-                        true
-                    | _ -> false
+                    match subtypeNominalOf ctx tgt with
+                    | ValueNone -> false
+                    | ValueSome(struct (tname, targs)) ->
+                        match tryUpcastWitness ctx src tname with
+                        | ValueSome sargs when sargs.Length = targs.Length ->
+                            for i in 0 .. targs.Length - 1 do
+                                unify ctx key sargs.[i] targs.[i]
+
+                            true
+                        | _ -> false
 
     /// Unify an *argument* against its expected parameter type, admitting the
     /// implicit class→interface / class→base upcast F# inserts at a coercion
