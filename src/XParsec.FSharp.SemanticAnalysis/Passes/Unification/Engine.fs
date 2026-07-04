@@ -748,7 +748,7 @@ module UnificationEngine =
                 // of leaking `?ungrounded-operator`. `subsumes` itself stays read-only
                 // (it only *checks* invariant-equality); this is the one place the
                 // grounding `unify` lives. Arity-1 `Fun`2<a,b>` peels one arrow; flat-2
-                // `Fun2`3<a,b,c>` peels two (curried codomain). Non-`Fun` coercions and
+                // `Fun`3<a,b,c>` peels two (curried codomain). Non-`Fun` coercions and
                 // a non-arrow `linkTarget` are untouched.
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target ->

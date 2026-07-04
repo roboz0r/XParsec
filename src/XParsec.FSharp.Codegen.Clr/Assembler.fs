@@ -863,7 +863,7 @@ type internal Assembler
 
             // `Fun\`2<param, result>` interface `TypeSpec` — closure ambient
             // still installed, so free `TyVar`s encode to `!i`. A flat-2 (`Fun2`)
-            // value-struct closure implements `Fun2`3<a,b,c>` instead.
+            // value-struct closure implements `Fun`3<a,b,c>` instead.
             let ifaceSpec =
                 match c.Param2 with
                 | ValueSome(_, p2ty, _) -> provider.Fun2InterfaceSpec(c.ParamTy, p2ty, c.ResultTy)

@@ -181,6 +181,30 @@ module internal FreezeResolve =
             | true, info -> pick info.Key info.Members
             | false, _ -> ValueNone
 
+    /// Key-based sibling of `tryClassMember`: resolves the declaring class / union
+    /// by its arity-qualified `SymbolKey` (`tryClassByKey`/`tryUnionByKey`, which
+    /// read the key's ``Name`arity`` verbatim), not the bare simple name. An
+    /// arity-overloaded receiver (`Fun`2`/`Fun`3`) has its bare-name alias withdrawn,
+    /// so a `simpleName`-keyed lookup would miss and the call would mis-lower to a
+    /// `Vesper.Fun::Invoke` function application. Callers holding the receiver's
+    /// `TyClass`/`TyUnion` key must route through here.
+    let private tryClassMemberByKey
+        (ctx: PassContext)
+        (typeKey: SymbolKey)
+        (memberName: string)
+        : (SymbolKey * TypeMemberInfo) voption =
+        let pick (key: SymbolKey) (members: TypeMemberInfo[]) =
+            match members |> Array.tryFind (fun m -> m.Name = memberName) with
+            | Some m -> ValueSome(key, m)
+            | None -> ValueNone
+
+        match TypeRegistry.tryClassByKey ctx.Types typeKey with
+        | ValueSome info -> pick info.Key info.Members
+        | ValueNone ->
+            match TypeRegistry.tryUnionByKey ctx.Types typeKey with
+            | ValueSome info -> pick info.Key info.Members
+            | ValueNone -> ValueNone
+
     // --- Implicit value→`obj` upcast ----------------------------------------
     //
     // The front end accepts a value / open typar flowing into an `obj` parameter
@@ -294,7 +318,7 @@ module internal FreezeResolve =
     /// `declKey.memberName`; empty when the member is unresolved (the call still
     /// emits — just unwrapped, exactly as before this plan).
     let memberParamTys (ctx: PassContext) (declKey: SymbolKey) (memberName: string) : SemType list =
-        match tryClassMember ctx (SymbolKeyOps.simpleName declKey) memberName with
+        match tryClassMemberByKey ctx declKey memberName with
         | ValueSome(_, m) -> flatMemberParams m.Type
         | ValueNone -> []
 
@@ -438,10 +462,13 @@ module internal FreezeResolve =
                     match Unification.zonk (TyVar tv) with
                     | TyClass(typeKey, _)
                     | TyUnion(typeKey, _) ->
-                        let typeName = SymbolKeyOps.simpleName typeKey
                         let memberName = ctx.NameOf li.Idents.[1]
 
-                        match tryClassMember ctx typeName memberName with
+                        // Resolve by the arity-qualified key, not the bare simple name:
+                        // an arity-overloaded receiver (`Fun`2`/`Fun`3`) has its bare
+                        // alias withdrawn, so a bare lookup would miss and `f.Invoke(a,b)`
+                        // would mis-lower to a `Vesper.Fun::Invoke` function application.
+                        match tryClassMemberByKey ctx typeKey memberName with
                         | ValueSome(_, m) -> ValueSome(rb.BindingSite, Unification.zonk (TyVar tv), m)
                         | ValueNone -> ValueNone
                     | _ -> ValueNone
@@ -807,7 +834,7 @@ module internal FreezeResolve =
             match Unification.zonk (typeOfKey ctx (CstKeys.ofExpr r)) with
             | TyClass(typeKey, _)
             | TyUnion(typeKey, _) ->
-                match tryClassMember ctx (SymbolKeyOps.simpleName typeKey) memberName with
+                match tryClassMemberByKey ctx typeKey memberName with
                 | ValueSome(_, m) when m.Kind = ClassMemberKind.Method -> ValueSome(r, typeKey, memberName)
                 | _ -> ValueNone
             | _ -> ValueNone
@@ -863,7 +890,7 @@ module internal FreezeResolve =
                     | TyUnion(typeKey, _) ->
                         let memberName = ctx.NameOf li.Idents.[n - 1]
 
-                        match tryClassMember ctx (SymbolKeyOps.simpleName typeKey) memberName with
+                        match tryClassMemberByKey ctx typeKey memberName with
                         | ValueSome(_, m) when m.Kind = ClassMemberKind.Method ->
                             let prefixLi =
                                 {

@@ -38,9 +38,9 @@ let chainedReceiverTests =
                             // ctor-captured field of curried type; the impl body is the
                             // chain `f.Invoke(a).Invoke(b)` with declared return `int`.
                             "type FlattenedT(f: Fun<int, Fun<int, int>>) ="
-                            "    interface Fun2<int, int, int> with"
+                            "    interface Fun<int, int, int> with"
                             "        member _.Invoke(a: int, b: int) : int = f.Invoke(a).Invoke(b)"
-                            "let r = (FlattenedT(AddCurried() :> Fun<int, Fun<int, int>>) :> Fun2<int, int, int>).Invoke(20, 22)"
+                            "let r = (FlattenedT(AddCurried() :> Fun<int, Fun<int, int>>) :> Fun<int, int, int>).Invoke(20, 22)"
                             "printfn \"%d\" r"
                         ]
 

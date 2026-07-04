@@ -51,49 +51,64 @@ generic typar, in which case the call goes through the Fun constraint,
 or (b) a concrete value, in which case the call goes through the
 chosen impl directly.
 
-## First-pass shape: Vesper-native `Fun`
+## Landed shape: value-struct in the constrained slot, heap elsewhere
 
-Closures emit as **reference-type subclasses of `Vesper.Fun<'A, 'B>`**, a
-Vesper-native interface declared in
-[Vesper.Core](../../Vesper.Core/README.md). No
-`Microsoft.FSharp.Core.FSharpFunc` dependency — Vesper.Core ships its
-own arrow representation, and the broader trajectory is to remove
-`FSharp.Core` references entirely.
+Closures implement **`Vesper.Fun<'A, 'B>`** (curried, `Invoke(arg)`) or
+**`Vesper.Fun<'A, 'B, 'C>`** (flat arity-2, `Invoke(a, b)` — the two are one name
+overloaded by generic arity, CLR `Fun`2`/`Fun`3`) — Vesper-native
+interfaces in the [minimum-requirements `.fsi`](fsi-target-brainstorm.md),
+load-bearing for every function call in IL so not opt-in. No
+`Microsoft.FSharp.Core.FSharpFunc` dependency: Vesper.Core ships its own arrow
+representation and the trajectory is to remove `FSharp.Core` entirely. Cross-assembly
+interop with `fsc`-compiled DLLs is the only remaining FSharpFunc concern, handled
+separately by [`fsharp-compat-plan`](fsharp-compat-plan.md).
 
-The `Fun<'A, 'B>` interface itself lives in the
-[minimum-requirements `.fsi`](fsi-target-brainstorm.md) — it's
-load-bearing for every function call in IL, can't be opt-in.
+The original plan called for reference-type closures in v1 with the struct shape
+deferred "until generics work correctly end-to-end." That has been **superseded** —
+the zero-alloc value-struct shape landed (rung-4). There are now two representations,
+chosen by where the closure lands:
 
-### Why reference type for v1
+- **Zero-alloc value-struct** — a source lambda flowing into a **constrained
+  `'TF :> Fun<a,b>` / `'TF :> Fun<a,b,c>` method-typar slot** lowers to a readonly
+  `System.ValueType` struct: captureless → `initobj` (M1); capturing → captures stored
+  by value into struct fields via a value-type ctor (M2), a mutable capture promoted to
+  a heap ref-cell captured by value; a saturated 2-arg lambda → a flat `Fun<a,b,c>` struct
+  with one `Invoke(a,b)` (M3). Dispatch is `constrained. !TF callvirt` — JIT
+  devirtualises `Invoke`, **no box, no heap**. The trigger is a node-keyed *fun-arity
+  verdict* (`FunVerdict`, recorded at the application site by
+  `Passes/Unification/InferApp.fs`, read by `EmitClosures.collectStackLambdaArgs`); the
+  closure is given a synthetic project-local value-type `FrozenType`
+  (`RegisterStackClosureValueType`) so the call site can instantiate `!TF` with the
+  struct type. **Gated to anonymous, monomorphic** lambdas on such a slot — the narrow
+  blast radius the design chose.
+- **Reference-type heap closure** — everything else (stored as a concrete
+  `Fun<_,_>`-typed value, returned, passed to a non-generic param, or generic). A
+  non-capturing monomorphic heap closure is cached as a **static-readonly singleton**
+  (`ldsfld`, one alloc per closure type — fsc's no-capture caching); capturing and
+  generic closures `newobj` per construction.
 
-A reference-type closure base mirrors the existing IL story for
-"function values" without needing struct-generic typar dance or
-`allows ref struct` constraints. It's the path of least resistance to
-correct semantics; per-impl perf shape is a follow-up.
+The `Vesper.Seq` `map`/`fold` flip proves the value-struct pipeline end-to-end: `map`
+rides `'TFunc :> Fun<'T,'U>`, `fold` rides `'TFunc :> Fun<'State,'T,'State>`, and the
+hot loop dispatches `constrained.` with no box.
 
-The struct-closure shape (no allocation, JIT devirtualisation of
-`Invoke` via constrained-call) is **deferred until generics work
-correctly end-to-end** — see §Generic closures for the current
-correctness gap. Tactically choosing struct or class per local `Fun`
-implementation is on the table once that lands. The .NET 9 `allows ref
-struct` story is later still — see §Region / ref-struct extension.
+### Not yet landed
 
-An earlier draft of this plan used `FSharpFunc<_,_>`-implements-`Fun` as
-a transitional bridge (own a copy in the lib's CLR target, or wrap the
-BCL one). That bridge is **obsolete**: Vesper.Core ships its own
-`Fun<_,_>` and closures inherit from it directly, no FSharpFunc in
-sight. Cross-assembly interop with `fsc`-compiled DLLs is the only
-remaining concern, handled separately by
-[`fsharp-compat-plan`](fsharp-compat-plan.md).
+The **general** lambda→value-struct lowering — emitting *every* escape-free
+(`ClosureRepr.Stack`) lambda as a value-struct regardless of whether it lands on a
+constrained slot, plus canonicalisation and `curryFun`/`flatten` adapter insertion at
+the boundaries — is the remaining pass. Today value-structs are reached only through
+the constrained-slot path above; a closure stored or passed as a plain `Fun<_,_>`
+interface value still heaps. The .NET 9 `allows ref struct` story is later still — see
+§Region / ref-struct extension.
 
 ## What this does to the canonical sample
 
-> Note: the lowering below shows the **perf-mature shape** — struct
-> closures, constrained calls, JIT devirt. v1 emits reference-type
-> closures (per §First-pass shape), so the per-iteration cost still
-> includes a `callvirt` on `Invoke`. Struct-impl synthesis per local
-> `Fun` lands as a follow-up pass once generic closures
-> (§Generic closures) are working correctly.
+> Note: the lowering below is the **value-struct shape** — constrained calls, JIT
+> devirt, no box. For a source lambda or operator flowing into `fold`'s constrained
+> `'TFunc :> Fun<_,_,_>` slot this is the **landed** shape (rung-4; the `Vesper.Seq`
+> `map`/`fold` flip proves the zero-alloc pipeline end-to-end). A closure that instead
+> escapes into a plain `Fun<_,_>` interface value still takes the reference-type heap
+> path with a `callvirt` on `Invoke` — see §Landed shape.
 
 ```fsharp
 let inline sum xs = List.fold (+) 0 xs
@@ -178,10 +193,11 @@ v1 ships (3). (1) comes with `inline`. (2) comes with regions.
 
 A closure declared inside a generic static method observes the
 enclosing method's typars in its captures, its parameter type, or its
-result type. Each `fun …` in the source emits a sealed
-`TypeDefinition` (§First-pass shape); that type must encode its
-capture-field signatures, its ctor, and its `Invoke` against typars
-the enclosing method introduced.
+result type. Each `fun …` in the source emits a sealed **reference-type**
+`TypeDefinition`; that type must encode its capture-field signatures, its
+ctor, and its `Invoke` against typars the enclosing method introduced. The
+value-struct shape (§Landed shape) is **monomorphic-only** (`Typars = 0`
+gate), so a generic closure always takes the heap path.
 
 The design is the same machinery generic unions and generic records
 already use: the closure becomes its **own generic `TypeDefinition`**
@@ -233,9 +249,9 @@ already proven for unions and records.
 ### Scope
 
 - **Closure-in-closure with a deeper typar context** is in scope and
-  landed — each closure carries the transitive typar set it observes
-  (`Closure.Typars` is inherited verbatim by reference, pinned by
-  `ReferenceEquals` in the C1 tests). No additional design.
+  landed — each closure carries the count of the transitive typar set it
+  observes (`Closure.Typars: int`, with `DeclaringTypars: int` splitting the
+  enclosing-class prefix from the method-axis suffix). No additional design.
 - **Sibling closures in the same generic static fn's scope** are in
   scope and landed — `mkPair`'s pattern (three closures inheriting one
   typar each, see `CapturedMutableTests`) verifies all three emit as
@@ -245,24 +261,25 @@ already proven for unions and records.
 
 The synthesis is implemented end-to-end against the C1 / C2 / C3 plan:
 
-- **C1 (TAST + discovery).** `Emit.Closure` carries `Typars: TypeVar
-  list`; `Emit.discoverClosures` threads `currentTypars` along the
-  walker. A closure inside a generic static fn inherits that fn's
-  typars; a closure resident in `Main` / a top-level value let / a
-  monomorphic static fn carries `[]`; inner closures inherit the
-  parent's set verbatim. `Emit.staticFnTypars` is the seed.
+- **C1 (TAST + discovery).** `Emit.Closure` carries `Typars: int` (the count
+  of enclosing typars — the §9 rework reduced the earlier `TypeVar list` to a
+  count); `Emit.discoverClosures` threads `currentTypars` along the walker. A
+  closure inside a generic static fn inherits that fn's typar count; a closure
+  resident in `Main` / a top-level value let / a monomorphic static fn carries
+  `0`; inner closures inherit the parent's count. `Emit.staticFnTypars` is the seed.
 - **C2 (provider).** `ClosureMember` DU (`Ctor | CaptureField i |
   Invoke`) on `ICodegenProvider`. `ClrProvider` carries a third
   ambient (`closureTyparRoots` + `closureTyparLeaf`) chained into
   `ambientTyparLeaf = methodTyparLeaf || typeTyparLeaf ||
   closureTyparLeaf`. Public surface: `RegisterClosure`,
-  `GenericClosureTypeSpec`, `GenericClosureMemberRef`,
-  `GenericCaptureFieldSignature`, `SetClosureTypars` /
-  `ClearClosureTypars`.
-- **C3 (codegen).** `Codegen.fs`'s closure loop predicts each
+  `GenericClosureTypeSpec`, `GenericClosureMemberRef`, and
+  `EnterClosureTyparScope` / `ExitClosureTyparScope` (capture-field
+  signatures ride `GenericClosureMemberRef` + `ClosureMember.CaptureField`,
+  not a separate `GenericCaptureFieldSignature`).
+- **C3 (codegen).** The closure loop predicts each
   generic closure's `TypeDefinition` handle (row `2 + interfaceCount
   + unionCount + recordCount + i`), registers it with the provider,
-  installs `SetClosureTypars` around field / ctor / Invoke /
+  installs `EnterClosureTyparScope` around field / ctor / Invoke /
   `FunInterfaceSpec` emissions, populates `captureFields` with
   `MemberRef`s on the closure's self-`TypeSpec`, adds `GenericParam`
   rows to the shared sort buffer, and lets `Emit.fs`'s `TExpr.Lambda`
@@ -373,9 +390,18 @@ independent of lifetime — RS2), and a `Repr: ClosureRepr` field on
 
 ## Out of scope
 
-- Higher-arity `Fun<...>` overloads as a perf hack (avoiding curried
-  `Fun<a, Fun<b, c>>`). v1 emits curried chains; flattening is a
-  follow-up codegen opt.
+- Flat arity beyond 2 (`Fun`4`/`Fun`5`…`). The flat arity-2 interface **has landed**
+  as `Fun<'A,'B,'C>` (rung-4 M3: a saturated 2-arg lambda dispatches in one
+  `Invoke(a,b)`, no intermediate `Fun<b,c>`); higher arities stay curried chains until
+  a driver needs them (e.g. multi-hole printf partial application,
+  [printf-partial-app-plan](printf-partial-app-plan.md)). The flat `Fun<'A,'B,'C>`
+  **overloads the curried `Fun<'A,'B>` by generic arity** (CLR `Fun`3` vs `Fun`2`, no
+  interface-inheritance bridge) — realised by emitting a native 2-arg `Invoke`
+  value-struct, not by inserting the `curryFun`/`flatten` runtime adapters (those exist
+  in `Vesper.Core/core-types` for boundary adaptation but codegen does not emit them
+  yet). The distinct `Fun2` name was folded into arity-overloaded `Fun<,,>` once the
+  project-local class registry became arity-keyed (the former
+  `arity-overloaded-classes-design` epic).
 - Optimised currying / `OptimizedClosures.FSharpFunc` parity. v1's
   Fun-constraint mode subsumes the same wins where it applies; the
   BCL `OptimizedClosures` shim is a compat concern, not a perf one,

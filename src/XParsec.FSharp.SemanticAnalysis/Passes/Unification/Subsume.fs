@@ -299,7 +299,7 @@ module UnificationSubsume =
                 SubsumeOutcome.Unrelated
         // The FLAT-2 arrow↔`Fun2` correspondence: a CURRIED arrow
         // `TyFun(a, TyFun(b,c))` IS a subtype of the canonical
-        // `Vesper.Fun2`3<a,b,c>` interface — a saturated 2-arg slot. Sibling of the
+        // `Vesper.Fun`3<a,b,c>` interface — a saturated 2-arg slot. Sibling of the
         // arity-1 `Vesper.Fun` arm above (`Fun2` does NOT inherit `Fun`,
         // so the two arms are independent). Same read-only, invariant-arg discipline:
         // the two arrow domains and the final codomain must each be `Equal` to the

@@ -254,17 +254,25 @@ module VesperLibTypeTranslate =
             match (if isQualified then inAmbient name else None) with
             | Some k -> Ok k
             | None ->
-                match ctx.Types.TryGetValue short with
                 // Short-name index hit — only for a *bare* name. A *qualified* name
                 // (`System.Collections.Generic.List`) must NOT collapse onto a local
                 // type sharing the last segment (`List`, the cons-list union): the
                 // written qualifier names a different type the index can't speak for.
                 // It falls through to the open-prefix / ambient resolution below, and
                 // failing that to `Error` (a `TyUnknown` leaf) — never the local short.
-                | true, (_, compiled) when not isQualified ->
-                    // Arity disagreement is tolerated; the recorded compiled name still
-                    // beats a placeholder.
-                    Ok compiled
+                let shortHit =
+                    match ctx.Types.TryGetValue short with
+                    | true, v when not isQualified -> ValueSome v
+                    | _ -> ValueNone
+
+                match shortHit with
+                // An EXACT (short-name, arity) hit wins immediately. The recorded arity
+                // matters once a short name is arity-overloaded (`Fun`2`/`Fun`3`): a
+                // disagreeing hit must NOT be taken blindly — fall through to the
+                // arity-aware open-prefix resolution (`forms` probes ``name`arity`` first),
+                // and accept the disagreeing short hit only as a last resort (still
+                // beating a placeholder for a genuine cross-file arity mismatch).
+                | ValueSome(recArity, compiled) when recArity = arity -> Ok compiled
                 | _ ->
                     let mutable hit = ValueNone
 
@@ -281,7 +289,10 @@ module VesperLibTypeTranslate =
 
                     match hit with
                     | ValueSome c -> Ok c
-                    | ValueNone -> Error(sprintf "Unresolved type name '%s'" name)
+                    | ValueNone ->
+                        match shortHit with
+                        | ValueSome(_, compiled) -> Ok compiled
+                        | ValueNone -> Error(sprintf "Unresolved type name '%s'" name)
 
     let isPrimitiveName (s: string) =
         // Numeric core shared via `RuntimeNames.numericTypeNames`; the non-numeric

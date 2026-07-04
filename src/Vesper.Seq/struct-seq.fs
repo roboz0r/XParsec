@@ -21,7 +21,7 @@ namespace Vesper.Collections
 //
 // RUNG 4 — the functional arguments are carried as EXPLICIT CONSTRAINED TYPARS,
 // not reference-type closures: `map` rides `'TFunc :> Fun<'T, 'U>` (single-arg)
-// and `fold` rides `'TFunc :> Fun2<'State, 'T, 'State>` (flat arity-2). The struct
+// and `fold` rides `'TFunc :> Fun<'State, 'T, 'State>` (flat arity-2). The struct
 // closure is a `val F: 'TFunc` field / parameter, and each application lowers to
 // `constrained. !TFunc callvirt` — no heap, no box, JIT-devirtualizable — the same
 // by-value threading the library already does for its `'S` / `'E` enumerator
@@ -137,7 +137,7 @@ module StructSeq =
         MapSeq<'S, 'E, 'TFunc, 'T, 'U>(source, f)
 
     let fold
-        (f: 'TFunc when 'TFunc :> Fun2<'State, 'T, 'State>)
+        (f: 'TFunc when 'TFunc :> Fun<'State, 'T, 'State>)
         (seed: 'State)
         (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>)
         : 'State =

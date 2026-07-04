@@ -109,7 +109,7 @@ type ClrProvider
 
     member _.FunInterfaceSpec(a: FrozenType, b: FrozenType) : EntityHandle = recipes.FunInterfaceSpec(a, b)
 
-    /// The flat `Vesper.Fun2`3<a,b,c>` interface `TypeSpec` a flat-2
+    /// The flat `Vesper.Fun`3<a,b,c>` interface `TypeSpec` a flat-2
     /// value-struct closure implements.
     member _.Fun2InterfaceSpec(a: FrozenType, b: FrozenType, c: FrozenType) : EntityHandle =
         recipes.Fun2InterfaceSpec(a, b, c)

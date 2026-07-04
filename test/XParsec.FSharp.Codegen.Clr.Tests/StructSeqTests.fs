@@ -457,11 +457,11 @@ let structSeqTests =
             }
 
             // A SATURATED 2-arg SOURCE lambda (`fun x y -> x + y`)
-            // fed into a constrained `'TF :> Fun2<int,int,int>` slot lowers to a
+            // fed into a constrained `'TF :> Fun<int,int,int>` slot lowers to a
             // zero-alloc VALUE-STRUCT closure with a single FLAT `Invoke(a,b)` (the
             // peeled curried body), dispatched `constrained.` with NO box — the
             // arity-2 analog of the single-arg case. Proves (a) the new
-            // `subsumes(TyFun(a,TyFun(b,c)), Fun2`3<a,b,c>)` arm, (b) the node-keyed
+            // `subsumes(TyFun(a,TyFun(b,c)), Fun`3<a,b,c>)` arm, (b) the node-keyed
             // `Fun`-arity verdict threaded like `ClosureReprs`, (c) the 2-param flat
             // `Invoke` emission.
             test "a saturated 2-arg source lambda lowers to a no-box flat-Invoke value-struct" {
@@ -469,7 +469,7 @@ let structSeqTests =
                     String.concat
                         "\n"
                         [
-                            "let apply2 (f: 'TF when 'TF :> Fun2<int, int, int>) (a: int) (b: int) : int = f.Invoke(a, b)"
+                            "let apply2 (f: 'TF when 'TF :> Fun<int, int, int>) (a: int) (b: int) : int = f.Invoke(a, b)"
                             "printfn \"%d\" (apply2 (fun x y -> x + y) 20 22)"
                         ]
 
@@ -537,7 +537,7 @@ let structSeqTests =
 
                 Expect.isTrue
                     hasConstrained
-                    "apply2 IL contains a `constrained.` prefix (value-struct typar Fun2 dispatch)"
+                    "apply2 IL contains a `constrained.` prefix (value-struct typar Fun dispatch)"
 
                 Expect.isFalse
                     (Array.contains 0x8Cuy applyIl)
@@ -1365,8 +1365,8 @@ let structSeqTests =
                     "fold threads state through the closure over a generic struct seq"
             }
 
-            // Fun2 wall: the flat arity-2 fn type + its flat<->curried adapters
-            // (`Fun2<'A,'B,'C>` / `Curried` / `flatten` in Vesper.Core) must not
+            // Fun wall: the flat arity-2 fn type + its flat<->curried adapters
+            // (`Fun<'A,'B,'C>` / `Curried` / `flatten` in Vesper.Core) must not
             // just BUILD but RUN end-to-end. This exercises (1) a `[<Struct>]`
             // implementing the 2-arg interface and a saturated `Invoke(a,b)`
             // dispatch, (2) `curryFun`'s `:> Fun<_,_>` upcast over the `Curried`
@@ -1374,7 +1374,7 @@ let structSeqTests =
             // forcing a genuinely curried `Fun<int, Fun<int,int>>` (built from two
             // project-local classes) into a flat slot whose `Invoke(a,b)` walks the
             // curried chain `f.Invoke(a).Invoke(b)`.
-            test "Fun2 flat dispatch + curryFun/flatten adapters round-trip" {
+            test "Fun flat dispatch + curryFun/flatten adapters round-trip" {
                 let src =
                     String.concat
                         "\n"
@@ -1387,7 +1387,7 @@ let structSeqTests =
                             "type Add2 ="
                             "    val Z : int"
                             "    new(z: int) = { Z = z }"
-                            "    interface Fun2<int, int, int> with"
+                            "    interface Fun<int, int, int> with"
                             "        member this.Invoke(a: int, b: int) : int = a + b + this.Z"
                             // a genuinely curried value: AddB captures `a`, returns b -> a+b
                             "type AddB(a: int) ="
@@ -1396,13 +1396,13 @@ let structSeqTests =
                             "type AddCurried() ="
                             "    interface Fun<int, Fun<int, int>> with"
                             "        member this.Invoke(a: int) : Fun<int, int> = AddB(a) :> Fun<int, int>"
-                            "let flat = (Add2(0) :> Fun2<int, int, int>).Invoke(20, 22)"
-                            "let curried = ((curryFun (Add2(0) :> Fun2<int, int, int>) 20) :> Fun<int, int>).Invoke(22)"
+                            "let flat = (Add2(0) :> Fun<int, int, int>).Invoke(20, 22)"
+                            "let curried = ((curryFun (Add2(0) :> Fun<int, int, int>) 20) :> Fun<int, int>).Invoke(22)"
                             "let flattened = (flatten (AddCurried() :> Fun<int, Fun<int, int>>)).Invoke(20, 22)"
                             "printfn \"%d %d %d\" flat curried flattened"
                         ]
 
-                let tast, artifact = compileSource "Fun2Adapters" src
+                let tast, artifact = compileSource "FunAdapters" src
                 let bytes = Codegen.toBytes artifact
                 Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
                 let exitCode, output = runEntryPoint bytes
@@ -1417,11 +1417,11 @@ let structSeqTests =
             // The WHOLE struct-seq pipeline dispatched via
             // constrained struct-closure typars — the `src/Vesper.Seq/struct-seq`
             // flip in miniature. Hand-written struct closures (an `AddN : Fun<int,int>`
-            // for `map` and a `SumAcc : Fun2<int,int,int>` for `fold`) drive
+            // for `map` and a `SumAcc : Fun<int,int,int>` for `fold`) drive
             // `ofArray |> map |> fold`. `map`'s `MapEnumerator.Current` dispatches
             // `this.F.Invoke(this.Source.Current)` through the `'TFunc :> Fun<int,int>`
             // field (`constrained. !TFunc callvirt`); `fold` dispatches
-            // `f.Invoke(state, y)` through the `'TFunc :> Fun2<int,int,int>` PARAMETER
+            // `f.Invoke(state, y)` through the `'TFunc :> Fun<int,int,int>` PARAMETER
             // in ONE flat 2-arg constrained call. The hot fold loop is asserted
             // non-allocating: a `constrained.` prefix present, no `box`.
             //
@@ -1483,12 +1483,12 @@ let structSeqTests =
                             "type SumAcc ="
                             "    val Z : int"
                             "    new(z: int) = { Z = z }"
-                            "    interface Fun2<int, int, int> with"
+                            "    interface Fun<int, int, int> with"
                             "        member this.Invoke(state: int, y: int) : int = state + y + this.Z"
                             "let ofArray (arr: 'T[]) : ArraySeq<'T> = ArraySeq<'T>(arr)"
                             "let map (f: 'TFunc when 'TFunc :> Fun<'T, 'U>) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : MapSeq<'S, 'E, 'TFunc, 'T, 'U> ="
                             "    MapSeq<'S, 'E, 'TFunc, 'T, 'U>(source, f)"
-                            "let fold (f: 'TFunc when 'TFunc :> Fun2<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
+                            "let fold (f: 'TFunc when 'TFunc :> Fun<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
                             "    let mutable state = seed"
                             "    for y in source do"
                             "        state <- f.Invoke(state, y)"
@@ -1525,7 +1525,7 @@ let structSeqTests =
                 Expect.isFalse (Array.contains 0x8Cuy curIl) "MapEnumerator.Current IL contains no `box`"
 
                 // The fold loop drives `f.Invoke(state, y)` via `constrained. !TFunc
-                // callvirt Fun2::Invoke` — the hot accumulator, also non-allocating.
+                // callvirt Fun::Invoke` — the hot accumulator, also non-allocating.
                 // Several free top-level fns land on "Program" as `fn$<n>`; pick the
                 // one whose body carries a `constrained.` prefix (the fold loop) and
                 // assert it has no `box`.
@@ -1539,7 +1539,7 @@ let structSeqTests =
 
                 Expect.isNonEmpty
                     programFoldIl
-                    "a top-level fn$ (the fold loop) contains a `constrained.` prefix (Fun2 typar dispatch)"
+                    "a top-level fn$ (the fold loop) contains a `constrained.` prefix (Fun typar dispatch)"
 
                 Expect.isFalse
                     (programFoldIl |> Array.exists (Array.contains 0x8Cuy))
@@ -1636,7 +1636,7 @@ let structSeqTests =
             // map |> fold` pipeline as the proof above, but the two hand-written
             // struct closures (`AddN`/`SumAcc`) are replaced by SOURCE lambdas —
             // `map (fun x -> x + 1)` (a saturated 1-arg `Fun` slot, verdict
-            // arity 1) and `fold (fun acc x -> acc + x)` (a saturated 2-arg `Fun2`
+            // arity 1) and `fold (fun acc x -> acc + x)` (a saturated 2-arg `Fun`
             // slot, verdict arity 2). Proves the whole epic composes: the node-keyed
             // verdict fires per application site regardless of how the combinators nest,
             // and BOTH lambdas lower to zero-alloc value-struct closures with no box;
@@ -1702,7 +1702,7 @@ let structSeqTests =
                             "let ofArray (arr: 'T[]) : ArraySeq<'T> = ArraySeq<'T>(arr)"
                             "let map (f: 'TFunc when 'TFunc :> Fun<'T, 'U>) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : MapSeq<'S, 'E, 'TFunc, 'T, 'U> ="
                             "    MapSeq<'S, 'E, 'TFunc, 'T, 'U>(source, f)"
-                            "let fold (f: 'TFunc when 'TFunc :> Fun2<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
+                            "let fold (f: 'TFunc when 'TFunc :> Fun<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
                             "    let mutable state = seed"
                             "    for y in source do"
                             "        state <- f.Invoke(state, y)"
@@ -1808,7 +1808,7 @@ let structSeqTests =
                             "let ofArray (arr: 'T[]) : ArraySeq<'T> = ArraySeq<'T>(arr)"
                             "let map (f: 'TFunc when 'TFunc :> Fun<'T, 'U>) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : MapSeq<'S, 'E, 'TFunc, 'T, 'U> ="
                             "    MapSeq<'S, 'E, 'TFunc, 'T, 'U>(source, f)"
-                            "let fold (f: 'TFunc when 'TFunc :> Fun2<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
+                            "let fold (f: 'TFunc when 'TFunc :> Fun<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
                             "    let mutable state = seed"
                             "    for y in source do"
                             "        state <- f.Invoke(state, y)"
@@ -1861,12 +1861,12 @@ let structSeqTests =
 
             // External-head sibling of the project-local `apply2` test:
             // the SAME node-keyed verdict mechanism must lower a SOURCE lambda
-            // fed into `fold`'s `'TFunc :> Fun2<'State,'T,'State>` parameter — the
+            // fed into `fold`'s `'TFunc :> Fun<'State,'T,'State>` parameter — the
             // combinator here stands in for the eventual external `StructSeq.fold`.
             // No `collectStackLambdaArgs` extension is needed for the head: the verdict
             // is recorded at the application site by `subsumes`' caller regardless of
             // whether the head is project-local or external.
-            test "a SOURCE lambda through fold's Fun2 slot lowers to a no-box value-struct" {
+            test "a SOURCE lambda through fold's Fun slot lowers to a no-box value-struct" {
                 let src =
                     String.concat
                         "\n"
@@ -1893,7 +1893,7 @@ let structSeqTests =
                             "    interface IStructSeq<'T, ArrayEnumerator<'T>> with"
                             "        member this.GetEnumerator() : ArrayEnumerator<'T> = ArrayEnumerator<'T>(this.Arr)"
                             "let ofArray (arr: 'T[]) : ArraySeq<'T> = ArraySeq<'T>(arr)"
-                            "let fold (f: 'TFunc when 'TFunc :> Fun2<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
+                            "let fold (f: 'TFunc when 'TFunc :> Fun<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
                             "    let mutable state = seed"
                             "    for y in source do"
                             "        state <- f.Invoke(state, y)"
@@ -1978,7 +1978,7 @@ let structSeqTests =
                             "let ofArray (arr: 'T[]) : ArraySeq<'T> = ArraySeq<'T>(arr)"
                             "let map (f: 'TFunc when 'TFunc :> Fun<'T, 'U>) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : MapSeq<'S, 'E, 'TFunc, 'T, 'U> ="
                             "    MapSeq<'S, 'E, 'TFunc, 'T, 'U>(source, f)"
-                            "let fold (f: 'TFunc when 'TFunc :> Fun2<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
+                            "let fold (f: 'TFunc when 'TFunc :> Fun<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
                             "    let mutable state = seed"
                             "    for y in source do"
                             "        state <- f.Invoke(state, y)"
@@ -2058,7 +2058,7 @@ let structSeqTests =
                             "let ofArray (arr: 'T[]) : ArraySeq<'T> = ArraySeq<'T>(arr)"
                             "let map (f: 'TFunc when 'TFunc :> Fun<'T, 'U>) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : MapSeq<'S, 'E, 'TFunc, 'T, 'U> ="
                             "    MapSeq<'S, 'E, 'TFunc, 'T, 'U>(source, f)"
-                            "let fold (f: 'TFunc when 'TFunc :> Fun2<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
+                            "let fold (f: 'TFunc when 'TFunc :> Fun<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
                             "    let mutable state = seed"
                             "    for y in source do"
                             "        state <- f.Invoke(state, y)"

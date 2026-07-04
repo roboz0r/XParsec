@@ -335,7 +335,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         encodeType (g.AddArgument()) b
         toEntity (ctx.TypeSpec tsB)
 
-    /// `Vesper.Fun2`3<a,b,c>` as a `TypeSpec` — the FLAT 2-arg interface a flat-2
+    /// `Vesper.Fun`3<a,b,c>` as a `TypeSpec` — the FLAT 2-arg interface a flat-2
     /// value-struct closure implements. Sibling of `funInterfaceSpec`.
     let fun2InterfaceSpec (a: FrozenType) (b: FrozenType) (c: FrozenType) : EntityHandle =
         let tsB = BlobBuilder()

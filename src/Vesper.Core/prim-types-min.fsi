@@ -40,11 +40,11 @@ type Fun<'A, 'B> =
     abstract member Invoke: arg: 'A -> 'B
 
 /// <summary>The flat arity-2 function type: a saturated 2-arg call dispatches in
-/// one <c>Invoke(a,b)</c> with no intermediate <c>Fun&lt;'B,'C&gt;</c>. A distinct
-/// nominal type, NOT a subtype of <c>Fun&lt;'A, Fun&lt;'B,'C&gt;&gt;</c>;
-/// flat&lt;-&gt;curried adaptation goes through <c>curryFun</c> / <c>flatten</c> in
-/// core-types.</summary>
+/// one <c>Invoke(a,b)</c> with no intermediate <c>Fun&lt;'B,'C&gt;</c>. Overloads
+/// <c>Fun&lt;'A,'B&gt;</c> by generic arity (CLR <c>Fun`3</c> vs <c>Fun`2</c>); NOT a
+/// subtype of <c>Fun&lt;'A, Fun&lt;'B,'C&gt;&gt;</c>, flat&lt;-&gt;curried adaptation
+/// goes through <c>curryFun</c> / <c>flatten</c> in core-types.</summary>
 ///
 /// <category>Basic Types</category>
-type Fun2<'A, 'B, 'C> =
+type Fun<'A, 'B, 'C> =
     abstract member Invoke: a: 'A * b: 'B -> 'C

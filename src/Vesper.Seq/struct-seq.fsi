@@ -14,7 +14,7 @@ namespace Vesper.Collections
 //
 // RUNG 4 — the functional arguments are carried as EXPLICIT CONSTRAINED TYPARS,
 // not reference-type `Vesper.Fun` values: `map` rides `'TFunc :> Fun<'T, 'U>` and
-// `fold` rides `'TFunc :> Fun2<'State, 'T, 'State>` (the flat arity-2 interface, a
+// `fold` rides `'TFunc :> Fun<'State, 'T, 'State>` (the flat arity-2 interface, a
 // single constrained 2-arg `Invoke`). Each application lowers to `constrained.
 // !TFunc callvirt` (no heap, JIT-devirtualizable) — exactly how the library
 // already threads its explicit `'S` / `'E` enumerator typars. A struct closure
@@ -96,7 +96,7 @@ module StructSeq =
                 when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>
 
     /// `fold f seed source` threads `seed` through the sequence, applying the flat
-    /// arity-2 struct closure `'TFunc :> Fun2<'State, 'T, 'State>` to the running
+    /// arity-2 struct closure `'TFunc :> Fun<'State, 'T, 'State>` to the running
     /// state and each element in a single constrained 2-arg `Invoke`. The
     /// consuming terminal.
     val fold:
@@ -106,4 +106,4 @@ module StructSeq =
             'State
                 when 'S :> IStructSeq<'T, 'E>
                 and 'E :> IStructEnumerator<'T>
-                and 'TFunc :> Fun2<'State, 'T, 'State>
+                and 'TFunc :> Fun<'State, 'T, 'State>

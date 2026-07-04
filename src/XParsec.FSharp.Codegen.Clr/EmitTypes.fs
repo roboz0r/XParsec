@@ -65,7 +65,7 @@ module EmitTypes =
             IsValueStruct: bool
             /// The FLAT `FunN` arity this closure implements. `1` (the
             /// default / arity-1 path) is the single-arg `Vesper.Fun<P,R>` interface
-            /// with `Invoke(P):R`. `2` is the flat `Vesper.Fun2<P1,P2,R>` interface
+            /// with `Invoke(P):R`. `2` is the flat `Vesper.Fun`3<P1,P2,R>` interface
             /// with one flat `Invoke(P1,P2):R` — the curried 2-arg source lambda
             /// `fun x y -> …` peeled so the inner arrow is NOT a separate closure.
             /// Driven by the node-keyed verdict (`TastFile.FunVerdicts`); only a

@@ -26,11 +26,19 @@ Vesper handler. The happy-path gate (`Passes/Unification/InferApp.fs`,
   string. `Invoke` drives it through the same P1 handler (`formatter.fs`) — no
   reparse, no box. **This is the one place `PrintfFormat` survives** — demoted to the
   static-field / cold representation, never on the happy path.
-- **Multi-hole currying:** `printfn "%d %s"` partially applied is a chain — an outer
-  `Fun<int, Fun<string, unit>>` whose `Invoke(n)` yields an inner `Fun<string, unit>`
-  **capturing `n`** plus the shared static spec; the final `Invoke` runs spec →
-  handler. Intermediate stages capture bound args (not stateless), still value structs
-  where they don't escape.
+- **Multi-hole: land flat, curry only on demand.** `printfn "%d %s"` fully unapplied
+  is a *flat* value struct `Fun<int, string, unit>` (the flat arity-2 interface,
+  overloading curried `Fun<_,_>` by generic arity; stateless ⇒ still just the shared
+  static spec field). Applying one arg does **not** build a nested `Fun<int, Fun<string,
+  unit>>` chain — it produces a `Curried<int, string, unit>` residual `Fun<string,
+  unit>` **capturing `n`** plus the spec, reusing the exact `Curried`/flat-`Fun` adapter
+  machinery already in `Vesper.Core/core-types`. The final saturated `Invoke` runs spec
+  → handler. An *n*-hole spec needs the flat `Fun`*(n+1)* + its `Curried`*n*; today only
+  the flat `Fun`3`/`Curried` (arity 2) exist, so this is the driver to introduce
+  `Fun`4`/`Fun`5`… and
+  their curried residuals — a mechanical extension of the landed arity-2 template, not a
+  new design. Only the on-demand residual captures (is stateless-less); the unapplied
+  and saturated forms stay stateless value structs where they don't escape.
 - **Escape caveat:** zero-alloc only while `p` flows into `Fun`-bounded generic
   positions or is invoked directly; an interface-typed `Fun<int, unit>` slot boxes it
   — it inherits whatever the `Fun` escape analysis decides.
@@ -39,17 +47,29 @@ Vesper handler. The happy-path gate (`Passes/Unification/InferApp.fs`,
 
 - **The gate.** `tryInferPrintfApp` gains a *lowerable partial application* case: a
   literal format, under-applied, with lowerable placeholders, diverted to the
-  value-struct lowering instead of falling through to FSharp.Core.
+  value-struct lowering instead of falling through to FSharp.Core. **Scope: `printf`
+  only for now** — same `idx = 0` restriction as the happy path. The rest of the family
+  (`fprintf`/`sprintf`/`eprintf`, and the `idx ≠ 0` writer/builder sinks) stays on the
+  FSharp.Core path; review the whole family for partial application once `printf` lands.
 - **The spec-runner.** `Invoke` calls a runtime spec-runner that walks the parsed
   spec and drives the P1 handler. This is the **same** engine the cold path
   (format-as-value / non-literal) needs, so building it here also gives the cold path
-  a Vesper runner and removes another FSharp.Core dependency.
+  a Vesper runner and removes another FSharp.Core dependency. **The `Invoke` body is
+  emitted through the same lowering as `EmitFormat.fs`**, so the `printfn` trailing
+  `"\n"` and the `Flush`-vs-`ToStringAndClear` sink choice fall out of the generated
+  closure for free — the spec-runner doesn't re-derive them, and byte-for-byte parity
+  is the same guarantee the happy path already carries.
 
 ## Dependencies
 
-- The `Fun` value struct + escape analysis
-  ([function-representation-plan](function-representation-plan.md)) — the
-  representation these structs ride on. This is the gating prerequisite.
+- The `Fun` value-struct representation + escape analysis — what these structs ride
+  on. `Vesper.Core/core-types` already ships the flat `Fun<'A,'B,'C>` interface (CLR
+  `Fun`3`, overloading curried `Fun`2` by generic arity) and the `Curried`/`Flattened`
+  adapters this plan builds on; the gating prerequisite is value-struct (stateless /
+  captured) closures over those, plus the higher `Fun`4`/`Fun`5`… arities the
+  multi-hole case needs. See [function-representation-plan](function-representation-plan.md)
+  for the landed closure representation; the code (`core-types.fsi`,
+  `prim-types-min.fsi`) is the source of truth.
 - The parsed-spec representation already exists: `PrintfSpec.fs` produces the
   typed-hole sequence; the static field holds it (or a lowered form of it).
 
@@ -57,7 +77,12 @@ Vesper handler. The happy-path gate (`Passes/Unification/InferApp.fs`,
 
 - `let p = printfn "%d" in p 3` prints `3` with **no heap allocation** on the
   construct/invoke path where `p` does not escape.
-- Multi-hole currying (`printfn "%d %s"`, applied one arg at a time) works.
-- Byte-for-byte parity with FSharp.Core's output across the spec matrix.
+- Multi-hole (`printfn "%d %s"`) lands flat as `Fun<_,_,_>`; applying one arg at a time works
+  via the `Curried` residual, and the *n*-hole form works once `Fun`*n*/`Curried`*n*
+  exist.
+- Byte-for-byte parity with FSharp.Core's output across the spec matrix — including the
+  `printfn` trailing newline, which comes from sharing the `EmitFormat` lowering.
 - The cold-path spec-runner and the partial-application `Invoke` share one engine and
   one handler.
+- **Scope: `printf` only.** The rest of the family is a follow-up review, not this
+  landing.
