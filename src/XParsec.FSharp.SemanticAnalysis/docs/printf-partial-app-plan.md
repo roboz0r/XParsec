@@ -219,20 +219,24 @@ through to FSharp.Core.
   Getting the *whole* printf family lowered natively so the compiler can drop its FSharp.Core
   dependency is the near-term goal; the value-struct optimization (former 4b) is deferred behind
   that breadth. Revised order:
-    - **4a — Vesper-native *heap* closure (correctness baseline, nearly free).** Synthesise a
-      Vesper closure `fun h1 … hn -> Format(sink, …)` for the fully-unapplied lowerable partial
-      and let the *existing heap* closure path emit it (a `let`-bound lambda is already
-      heap by `discoverClosures`' `selfKey` rule; `Invoke` body = the `EmitFormat` static
-      unroll). Drops the FSharp.Core `PrintfModule`/`PrintfFormat` path for these — strictly
-      fewer allocations, no `PrintfFormat` object, native — while dispatch rides the **existing**
-      curried-closure `Fun`2`::Invoke` machinery (`emitInvoke`), so **no new representation
-      analysis**. Not yet zero-alloc (one closure object), but correct. Gate + Freeze synthesis +
-      arity 1..K.
-    - **4b — family/sink breadth (the priority; drop FSharp.Core).** `eprintf*` / `sprintf`
-      sinks, `fprintf` (`idx ≠ 0`) and its writer sink, `n > K` arities, and any remaining
-      lowerable partial shapes — everything needed so no lowerable printf falls back to
-      FSharp.Core's cold path. Also the whole-family review the plan calls for. Still on the heap
-      closure representation (correctness/coverage, not allocation).
+    - **4a — Vesper-native *heap* closure (correctness baseline, nearly free). LANDED
+      (2026-07-04).** Synthesised a Vesper closure `fun h1 … hn -> Format(sink, …)` for the
+      fully-unapplied lowerable partial, emitted on the *existing heap* closure path (a
+      `let`-bound lambda is already heap by `discoverClosures`' `selfKey` rule; `Invoke` body =
+      the `EmitFormat` static unroll), dispatched via the existing curried-closure
+      `Fun`2`::Invoke` machinery (`emitInvoke`) — **no new representation analysis**. Drops the
+      FSharp.Core `PrintfModule`/`PrintfFormat` path for these. Code: `PrintfSpec.hasConcreteArgType`,
+      `SideTables.PrintfPartial`, the `InferApp.tryInferPrintfApp` under-applied marker,
+      `FreezeExpr.translatePrintfPartial`; tests in `PrintfPartialTests.fs`. Not zero-alloc (one
+      closure object); that is 4c.
+    - **4b — native breadth (its own sprint): close every remaining FSharp.Core cold-printf
+      degradation.** Moved to **[printf-specifier-coverage-plan](printf-specifier-coverage-plan.md)**
+      (a verified degradation inventory + tracks A–F + the `rm FSharp.Core.dll` capstone). It is
+      the near-term priority and is independent of the value-struct representation work below —
+      it stays on the heap-closure lowering throughout (coverage, not allocation). Decisions
+      locked there (2026-07-04): close the whole hard tail (`%a`/`%t`, arbitrary `%A`,
+      format-as-value); FSharp.Core-owned `%A` args ToString-degrade on the native engine rather
+      than route cold.
     - **4c — zero-alloc value struct (deferred optimization; the representation work).**
       Re-represent the non-escaping partial as `default(S)` and dispatch `p h1…hn` as a direct
       flat `S.Invoke`, boxing to the `Fun<…>` interface only where it escapes into an arrow-typed
