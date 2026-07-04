@@ -1,20 +1,21 @@
 module XParsec.FSharp.Codegen.Clr.Tests.StructuralFormatTests
 
 open Expecto
-open Vesper
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The `%A` layout engine in isolation — no compiler. Hand-written
-// `IStructuralFormattable` impls (compiled by fsc here) drive the layout engine,
-// the same declarative sink the backend synthesises against. The oracle is the
-// spec (copy-pasteable Vesper source), not F#'s `sprintf "%A"` — we deliberately
-// diverge.
+// `IStructuralFormattable` impls drive the layout engine, the same declarative sink
+// the backend synthesises against. The oracle is the spec (copy-pasteable Vesper
+// source), not F#'s `sprintf "%A"` — we deliberately diverge.
 //
 // These drive the **Vesper-compiled** `StructuralPrinter` (`structural-printer.fs`)
 // via reflection (`structuralPrint` / `structuralPrintSized` in `TestHelpers`) — the
 // real backend-emitted engine, loaded from the `buildPackage`-produced
-// `Vesper.Printf.dll`. The `Sem*` `IStructuralFormattable` impls still bind the Core
-// interfaces at compile time; only the engine entry point is the self-hosted one.
+// `Vesper.Printf.dll`. The `Sem*` `IStructuralFormattable` impls own the Core-bound
+// `%A` interfaces, so they can no longer be fsc-compiled: they live in the
+// runtime-compiled `StructuralFormatFixtures.fs` disk fixture, compiled through the
+// backend against Vesper.Core and loaded so its `Sem*` values (built by nullary
+// `Vesper.Fixtures` functions) meet the engine's sink on ONE `Vesper.Core` identity.
 
 /// `structuralPrint v 80` — the default 80-column budget (most values stay flat).
 let private flat (v: obj) = structuralPrint v 80
@@ -22,77 +23,40 @@ let private flat (v: obj) = structuralPrint v 80
 /// Force breaking with a tiny budget.
 let private narrow (v: obj) = structuralPrint v 5
 
-// ---- the semantic protocol (BeginRecord/Field/BeginCase/Child) ----
-// These hand-written impls drive the sink's semantic members directly — the only
-// recursion vocabulary a `Format` body has (the layout-op recursion entries were
-// retired in Phase C). The sink reconstructs the `{ F = ·; G = · }` / `Case ·` forms.
+/// The runtime-compiled `StructuralFormatFixtures.fs`, holding the `Sem*`
+/// `IStructuralFormattable` types + the nullary `Vesper.Fixtures` value builders.
+/// Compiled + loaded once through the backend (Vesper.Core-bound), so the values it
+/// builds carry the same `Vesper.Core` interface identity the `%A` engine tests for.
+let private fixtureModule: Lazy<System.Type> =
+    lazy
+        (let asm = compileFixtureFile "StructuralFormatFixtures" "StructuralFormatFixtures.fs"
+         let t = asm.GetType("Vesper.Fixtures", true)
 
-// A record driven semantically: `Field name` marks each label, `Child` supplies
-// the value. The sink owns the `{ … }` / `+2` hang policy.
-type SemPoint =
-    {
-        PX: int
-        PY: string
-    }
+         if isNull t then
+             failwith "StructuralFormatFixtures.fs did not emit Vesper.Fixtures"
 
-    interface IStructuralFormattable with
-        member this.Format(sink: IFormatSink) =
-            sink.BeginRecord()
-            sink.Field("X")
-            sink.Child(box this.PX)
-            sink.Field("Y")
-            sink.Child(box this.PY)
-            sink.EndRecord()
+         t)
 
-// An option-shaped DU driven semantically: `BeginCase name; (Child payload); EndCase`.
-// The sink decides nullary vs single-payload and the single-payload parenthesisation
-// (`Some (Some 3)` but not `Some 3` / `Some None`) from the observed child count + the
-// application-shaped mark.
-type SemOpt =
-    | SemNone
-    | SemSome of obj
+/// Reflect + invoke a nullary `Vesper.Fixtures` builder, returning its `obj` value —
+/// a lone `unit` param is erased by the backend, so it is a zero-arg static method.
+let private caseVal (name: string) : obj =
+    let m = fixtureModule.Value.GetMethod name
 
-    interface IStructuralFormattable with
-        member this.Format(sink: IFormatSink) =
-            match this with
-            | SemNone ->
-                sink.BeginCase("None")
-                sink.EndCase()
-            | SemSome v ->
-                sink.BeginCase("Some")
-                sink.Child(v)
-                sink.EndCase()
+    if isNull m then
+        failwithf "Vesper.Fixtures has no %s builder" name
 
-// A record whose second field is itself a `Child` — exercises the pending-label
-// invariant: the outer `Inner = ` label must be emitted before recursing, so the
-// nested record's first `Field` cannot clobber it.
-type SemBox =
-    {
-        BLabel: string
-        BInner: obj
-    }
+    m.Invoke(null, [||])
 
-    interface IStructuralFormattable with
-        member this.Format(sink: IFormatSink) =
-            sink.BeginRecord()
-            sink.Field("Label")
-            sink.Child(box this.BLabel)
-            sink.Field("Inner")
-            sink.Child(this.BInner)
-            sink.EndRecord()
+/// Build `Some payload` around an F#-side `obj` via the `someOf` fixture builder — for
+/// a payload the Vesper fixture cannot construct natively (an FSharp.Core `list`, whose
+/// `IEnumerable` shape the engine renders as `[1; 2]`).
+let private someVal (payload: obj) : obj =
+    let m = fixtureModule.Value.GetMethod "someOf"
 
-// A two-payload case, to exercise the tuple arm `Pair (a, b)`.
-type SemPair =
-    | SemPair of obj * obj
+    if isNull m then
+        failwith "Vesper.Fixtures has no someOf builder"
 
-    interface IStructuralFormattable with
-        member this.Format(sink: IFormatSink) =
-            match this with
-            | SemPair(a, b) ->
-                sink.BeginCase("Pair")
-                sink.Child(a)
-                sink.Child(b)
-                sink.EndCase()
+    m.Invoke(null, [| payload |])
 
 [<Tests>]
 let tests =
@@ -231,63 +195,57 @@ let tests =
                 "semantic protocol"
                 [
                     test "record renders like the layout ops" {
-                        Expect.equal (flat (box { PX = 1; PY = "a" })) "{ X = 1; Y = \"a\" }" "{ X = 1; Y = \"a\" }"
+                        Expect.equal (flat (caseVal "pointRecord")) "{ X = 1; Y = \"a\" }" "{ X = 1; Y = \"a\" }"
                     }
                     test "record breaks under the budget" {
                         Expect.equal
-                            (narrow (box { PX = 1; PY = "a" }))
+                            (narrow (caseVal "pointRecord"))
                             "{ X = 1;\n  Y = \"a\" }"
                             "record breaks under the budget"
                     }
-                    test "nullary case is a bare identifier" { Expect.equal (flat (box SemNone)) "None" "None" }
+                    test "nullary case is a bare identifier" { Expect.equal (flat (caseVal "caseNone")) "None" "None" }
                     test "single atom payload does not parenthesise" {
-                        Expect.equal (flat (box (SemSome(box 3)))) "Some 3" "Some 3"
+                        Expect.equal (flat (caseVal "caseSome3")) "Some 3" "Some 3"
                     }
                     test "single negative-literal payload does not parenthesise" {
                         Expect.equal
-                            (flat (box (SemSome(box -3))))
+                            (flat (caseVal "caseSomeNeg3"))
                             "Some -3"
                             "Some -3 (adjacent minus lexes as a literal)"
                     }
                     test "single case payload parenthesises (application-shaped)" {
-                        Expect.equal (flat (box (SemSome(box (SemSome(box 3)))))) "Some (Some 3)" "Some (Some 3)"
+                        Expect.equal (flat (caseVal "caseSomeSome3")) "Some (Some 3)" "Some (Some 3)"
                     }
                     test "single nullary-case payload does not parenthesise" {
-                        Expect.equal (flat (box (SemSome(box SemNone)))) "Some None" "Some None"
+                        Expect.equal (flat (caseVal "caseSomeNone")) "Some None" "Some None"
                     }
                     test "single list payload does not parenthesise" {
-                        Expect.equal (flat (box (SemSome(box [ 1; 2 ])))) "Some [1; 2]" "Some [1; 2]"
+                        Expect.equal (flat (someVal (box [ 1; 2 ]))) "Some [1; 2]" "Some [1; 2]"
                     }
                     test "single record payload does not parenthesise" {
                         Expect.equal
-                            (flat (box (SemSome(box { PX = 1; PY = "a" }))))
+                            (flat (caseVal "caseSomePoint"))
                             "Some { X = 1; Y = \"a\" }"
                             "Some { X = 1; Y = \"a\" }"
                     }
                     test "two-field payload renders as a tuple" {
-                        Expect.equal (flat (box (SemPair(box 1, box "a")))) "Pair (1, \"a\")" "Pair (1, \"a\")"
+                        Expect.equal (flat (caseVal "casePair")) "Pair (1, \"a\")" "Pair (1, \"a\")"
                     }
                     test "tuple-arm components are not individually parenthesised" {
                         Expect.equal
-                            (flat (box (SemPair(box (SemSome(box 1)), box (SemSome(box 2))))))
+                            (flat (caseVal "casePairSomes"))
                             "Pair (Some 1, Some 2)"
                             "Pair (Some 1, Some 2)"
                     }
                     test "an application-shaped tuple case parenthesises as a lone payload" {
                         Expect.equal
-                            (flat (box (SemSome(box (SemPair(box 1, box 2))))))
+                            (flat (caseVal "caseSomePair"))
                             "Some (Pair (1, 2))"
                             "Some (Pair (1, 2))"
                     }
                     test "nested record field does not clobber the outer label" {
                         Expect.equal
-                            (flat (
-                                box
-                                    {
-                                        BLabel = "a"
-                                        BInner = box { PX = 1; PY = "b" }
-                                    }
-                            ))
+                            (flat (caseVal "boxRecord"))
                             "{ Label = \"a\"; Inner = { X = 1; Y = \"b\" } }"
                             "outer Inner = label survives the nested record's first Field"
                     }

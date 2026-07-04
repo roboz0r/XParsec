@@ -774,6 +774,65 @@ let compileStructuralEngine (asmName: string) (source: string) : Func<obj, int, 
 
     m.CreateDelegate(typeof<Func<obj, int, int, string>>) :?> Func<obj, int, int, string>
 
+/// Compile a `<None Include>` Vesper source FILE (read from disk, `fileName` relative
+/// to this test project directory) through this repo's backend against the
+/// Vesper.Core / Vesper.List / Vesper.Comparison contract, load it into its own
+/// long-lived (non-collectible) ALC, and return the loaded `Assembly` — so the
+/// fixture's `obj`-returning nullary functions can be reflected + invoked. The
+/// fixture binds the Core-owned `%A` interfaces (`IStructuralFormattable` /
+/// `IFormatSink`) and the Vesper cons-list, so `Vesper.Core` / `Vesper.List` are
+/// forced into the Default ALC first (exactly as `compileStructuralEngine` does) and
+/// the fixture's simple-name references to them resolve through the fall-through — the
+/// same value-identity unification the Vesper-compiled `%A` engine relies on, so a
+/// fixture value's `IStructuralFormattable` impl and the engine's sink meet on ONE
+/// `Vesper.Core`. Front end: `analyseForSelfHost`, so a bare `[]` / `::` is the Vesper
+/// cons-list (rendered `[…]` by the engine's `IEnumerable` arm), matching a package build.
+let compileFixtureFile (asmName: string) (fileName: string) : Assembly =
+    vesperCoreDll.Value |> ignore
+    vesperListDll.Value |> ignore
+
+    let deps = [ "Vesper.Core"; "Vesper.List"; "Vesper.Comparison" ]
+
+    let depDlls =
+        deps |> List.choose (fun d -> ((buildPackage d).Value |> snd).OutputPath)
+
+    let provider = ClrSymbolProviders.buildContract (deps |> List.map srcManifest)
+
+    let outDir = tmpDir (sprintf "fixture-%s" asmName)
+    let outPath = IO.Path.Combine(outDir, asmName + ".dll")
+
+    let project =
+        { ProjectInfo.library asmName with
+            OutputPath = Some outPath
+            References = depDlls
+        }
+
+    let source =
+        IO.File.ReadAllText(IO.Path.Combine(__SOURCE_DIRECTORY__, fileName))
+
+    let lexed, file = parseFile source
+
+    let tast =
+        Pipeline.analyseForSelfHost project.AssemblyName provider source lexed file
+
+    let errs = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+    if not (List.isEmpty errs) then
+        failwithf
+            "compileFixtureFile %s: %d analysis error(s):\n%s"
+            asmName
+            (List.length errs)
+            (errs |> List.map (fun d -> d.Message) |> String.concat "\n")
+
+    let artifact = Codegen.compile provider project tast
+    Codegen.materialise artifact
+
+    let alc =
+        AssemblyLoadContext(sprintf "xparsec-fixture-%s" asmName, isCollectible = false)
+
+    use ms = new IO.MemoryStream(IO.File.ReadAllBytes outPath)
+    alc.LoadFromStream ms
+
 // ---- Layer 1 behavioral corpus helpers --------------------------------------
 // The one-liners the suite was missing:
 // the dominant assertion — "run this source, get this stdout, exit 0" — had no

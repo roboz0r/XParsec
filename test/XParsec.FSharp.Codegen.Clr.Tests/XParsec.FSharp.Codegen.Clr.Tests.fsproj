@@ -7,9 +7,11 @@
     <GenerateProgramFile>false</GenerateProgramFile>
   </PropertyGroup>
   <ItemGroup>
-    <!-- The frozen pre-buffer `%A` engine, read as text + compiled through Codegen.Clr
-         by `StructuralFormatBench` (the bench-structural entry); NOT fsc-compiled. -->
-    <None Include="StructuralFormatBaseline.fs" />
+    <!-- Hand-written `IStructuralFormattable` fixtures for `StructuralFormatTests.fs`,
+         read as text + compiled fresh through Codegen.Clr against Vesper.Core at test
+         time (`TestHelpers.compileFixtureFile`); NOT fsc-compiled, so nothing fsc
+         builds depends on a committed `Vesper.Core.dll`. -->
+    <None Include="StructuralFormatFixtures.fs" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="TestHelpers.fs" />
@@ -75,7 +77,6 @@
     <Compile Include="TypeTestAsBinderTests.fs" />
     <Compile Include="StructuralFormatTests.fs" />
     <Compile Include="PrintfSpecTests.fs" />
-    <Compile Include="StructuralFormatBench.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
@@ -88,18 +89,5 @@
     <ProjectReference Include="..\..\src\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />
     <ProjectReference Include="..\..\src\XParsec.FSharp.Codegen.Common\XParsec.FSharp.Codegen.Common.fsproj" />
     <ProjectReference Include="..\..\src\XParsec.FSharp.Codegen.Clr\XParsec.FSharp.Codegen.Clr.fsproj" />
-  </ItemGroup>
-  <!--
-    `StructuralFormatTests.fs` hand-writes `IFormatSink` / `IStructuralFormattable`
-    impls; those interfaces are owned by `Vesper.Core`, so fsc needs the committed
-    reference copy on its `-r` line (assembly references
-    don't flow transitively through ProjectReferences). It is non-strong-named, so
-    the loader unifies it with the backend-compiled `Vesper.Core` the in-process
-    fixtures load into the Default ALC.
-  -->
-  <ItemGroup>
-    <Reference Include="Vesper.Core">
-      <HintPath>..\..\src\Vesper.Printf\refs\Vesper.Core.dll</HintPath>
-    </Reference>
   </ItemGroup>
 </Project>

@@ -94,66 +94,6 @@ let tests =
                     (sprintf "Vesper.Core.dll must not reference FSharp.Core (refs: %A)" refs)
             }
 
-            // The `%A` structural-format interfaces (`IFormatSink` /
-            // `IStructuralFormattable`) are Core-owned. This test project's
-            // `StructuralFormatTests.fs` hand-writes `IFormatSink` impls, so fsc needs
-            // `Vesper.Core` on its `-r` line — supplied by the committed copy
-            // `src/Vesper.Printf/refs/Vesper.Core.dll` (assembly references don't flow
-            // transitively through ProjectReferences). This guard keeps that copy in
-            // sync with the Vesper source: it verifies surface parity with the freshly
-            // backend-compiled `Vesper.Core.dll` and that the copy carries no
-            // `Vesper.Printf` reference (which would be a Vesper.Core→Vesper.Printf
-            // dependency cycle). Regenerate after editing `structural-format.fs` by
-            // running this suite with `REGEN_VESPER_CORE_REF=1`.
-            test "the committed Vesper.Core reference copy is in sync" {
-                let committedPath =
-                    IO.Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src", "Vesper.Printf", "refs", "Vesper.Core.dll")
-
-                if Environment.GetEnvironmentVariable "REGEN_VESPER_CORE_REF" = "1" then
-                    IO.Directory.CreateDirectory(IO.Path.GetDirectoryName committedPath) |> ignore
-                    IO.File.Copy(vesperCoreDll.Value, committedPath, true)
-
-                Expect.isTrue (IO.File.Exists committedPath) "the committed Vesper.Core.dll reference exists"
-
-                let committedAsm =
-                    AssemblyLoadContext("ref-check", isCollectible = true).LoadFromAssemblyPath committedPath
-
-                Expect.equal (committedAsm.GetName().Name) "Vesper.Core" "the committed reference is named Vesper.Core"
-
-                // A stale copy carrying a Vesper.Printf reference would be a
-                // Vesper.Core→Vesper.Printf dependency cycle.
-                let refs = committedAsm.GetReferencedAssemblies() |> Array.map (fun a -> a.Name)
-
-                Expect.isFalse
-                    (Array.contains "Vesper.Printf" refs)
-                    (sprintf "the committed Vesper.Core does not reference Vesper.Printf (refs: %A)" refs)
-
-                // Surface parity with the backend-compiled assembly, so the
-                // synthesised `Format` member refs bind against the committed copy.
-                let fresh = AssemblyLoadContext.Default.LoadFromAssemblyPath vesperCoreDll.Value
-
-                let surface (asm: Assembly) (tn: string) : string list =
-                    let t = asm.GetType tn
-                    Expect.isNotNull t (sprintf "%s present" tn)
-
-                    [
-                        for m in t.GetMethods() ->
-                            let ps =
-                                m.GetParameters()
-                                |> Array.map (fun p -> p.ParameterType.FullName)
-                                |> String.concat ","
-
-                            sprintf "%s(%s):%s" m.Name ps m.ReturnType.FullName
-                    ]
-                    |> List.sort
-
-                for tn in [ "Vesper.IFormatSink"; "Vesper.IStructuralFormattable" ] do
-                    Expect.equal
-                        (surface committedAsm tn)
-                        (surface fresh tn)
-                        (sprintf "committed and backend-compiled %s surfaces match" tn)
-            }
-
             // An abstract method declaring its *own* generic parameters.
             // `GenericParam` rows must be globally sorted by `CodedIndex.TypeOrMethodDef`
             // — the method's `'B` (a MethodDef owner) sorts *before* the type's `'A`
