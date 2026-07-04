@@ -56,7 +56,33 @@ Note: the `StructuralEquality/Comparison/Format/Printer` test families are a DIF
 
 ## Outstanding gaps
 
-### G1 — Structural inflow widening (Wall 3's last step) — DESIGN SETTLED (2026-07-03)
+### G1 — Structural inflow widening (Wall 3's last step) — LANDED (contravariant); one covariant follow-up
+
+**Landed (2026-07-03), commits after `dd0d76dc`:** the contravariant half is done and tested —
+`IntrinsicReverseCanon` widened to `Map<string,string list>`; the JS `number` family
+(int/float/float32) admitted at foreign-call argument positions (`Engine.numericFamilyOr`,
+tests `NumberFamilyTests`); a Vesper record admitted into an external `IsInterface` parameter by
+width (`Engine.tryStructuralWiden` + `ExternalMember.IsOptional`, tests `StructuralWidenTests`,
+`StructuralWidenE2ETests` incl. Node round-trip); the extractor retains `number` and Vesper.Core
+carries `type number = float` (`prim-types-number.js.fsi`). The code + those tests are the
+canonical record.
+
+**Remaining — covariant `number`-return → `float` (the "return position" piece):** a `number`
+value read from a foreign return/property currently types as the retained `TyConst "number"`,
+which is fine to *read / pass / print* (it is a JS number at runtime — e.g. `JsMapE2E` reads
+`m.size`), but does NOT unify with `float`, so `let x: float = m.size` or `m.size + 1.0`
+regress vs. the old `number → float` extraction. The `type number = float` abbreviation pins the
+identity but is only expanded for WRITTEN type references (`Translate.tryResolveExternalType`),
+not for provider member-signature realization (`instantiateWith`), which is where a return's
+`number` is produced. Closing it means expanding covariant-position `number → float` at the
+realization chokepoint (`ExternalSymbols.instantiateSignatureWith` / `openSignature`: `.Return`
+is covariant, `.Parameters` stay `number` so the arg seam still widens; flip at nested `TyFun`).
+Deferred pending the mechanism decision (realization-chokepoint rewrite vs. a transparent-alias
+`unify` rule).
+
+Original design record below (still current):
+
+### G1 — design
 
 The one unbuilt Wall 3 step. **Outflow is done** (a TS fn returning `{x,y}` resolves members
 through the erasing nominal above). **Inflow** — passing a Vesper record/class *into* a foreign
