@@ -17,7 +17,8 @@ module UnificationEngine =
 
     /// The flat `FunN` arity a parameter slot constrains its argument to,
     /// or `ValueNone` for an ordinary (non-`Fun`-bounded) parameter. A combinator
-    /// param `'TF :> Fun<a,b>` is arity 1; `'TF :> Fun<a,b,c>` is arity 2. The
+    /// param `'TF :> Fun<a,b>` is arity 1, `'TF :> Fun<a,b,c>` arity 2, up through
+    /// `'TF :> Fun<a,b,c,d,e>` arity 4 (arity = type-arg count - 1, for 2..5 args). The
     /// `subsumes` arm decides the arrow↔`FunN` correspondence; this reads the SAME
     /// nominal bound so `inferApp` can record the verdict against the lambda
     /// argument's node (the value-struct flat-`Invoke` lowering reads it at codegen).
@@ -35,12 +36,14 @@ module UnificationEngine =
                     | TyClass(tk, targs) ->
                         let bare = SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tk)
 
-                        // `Fun`2`/`Fun`3` share this one qualified name, discriminated by
-                        // type-arg count (2 curried ⇒ arity 1, 3 flat ⇒ arity 2).
+                        // `Fun`2`..`Fun`5` share this one qualified name, discriminated
+                        // by type-arg count: arity = length - 1 (peels exactly that many
+                        // curried domains, residual codomain matched whole). Only
+                        // `Fun`2`..`Fun`5` exist ⇒ arity 1..4; anything else is not a
+                        // recognised `Fun` slot.
                         if bare = funInterfaceQualifiedName then
                             match targs.Length with
-                            | 2 -> Some 1
-                            | 3 -> Some 2
+                            | n when n >= 2 && n <= 5 -> Some(n - 1)
                             | _ -> None
                         else
                             None
@@ -755,33 +758,45 @@ module UnificationEngine =
                     | _ -> ()
                 | _ -> ()
 
-                // The INVERSE direction for the arrow↔`Fun`2`/`Fun`3` correspondence:
+                // The INVERSE direction for the arrow↔`Fun`2`..`Fun`5` correspondence:
                 // a source lambda whose arrow has STILL-FREE
                 // domains (`fun x y -> x + y` — no literal pins `x`/`y`) coerced into a
                 // GROUND constrained slot (`'TF :> Fun<int,int,int>`) must ground from
                 // the slot's args, so the lambda body's SRTP operators resolve instead
                 // of leaking `?ungrounded-operator`. `subsumes` itself stays read-only
                 // (it only *checks* invariant-equality); this is the one place the
-                // grounding `unify` lives. Arity-1 `Fun`2<a,b>` peels one arrow; flat-2
-                // `Fun`3<a,b,c>` peels two (curried codomain). Non-`Fun` coercions and
-                // a non-arrow `linkTarget` are untouched.
+                // grounding `unify` lives. Arity-parametric (1..4): peel exactly
+                // `targs.Length - 1` arrow domains, `unify` each with the slot's ground
+                // arg, then `unify` the residual codomain with the last arg (matched
+                // whole — a `n > K` printf tail stays curried, not peeled). A spine too
+                // short to peel `k` domains grounds NOTHING. Non-`Fun` coercions and a
+                // non-arrow `linkTarget` are untouched.
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target ->
                     match subtypeNominalOf ctx (zonk target), resolveStep linkTarget with
                     | ValueSome(struct (tname, targs)), TyFun(a, b) when
-                        SymbolKeyOps.bareName tname = funInterfaceQualifiedName && targs.Length = 2
+                        SymbolKeyOps.bareName tname = funInterfaceQualifiedName
+                        && targs.Length >= 2
+                        && targs.Length <= 5
                         ->
-                        unify ctx key a targs.[0]
-                        unify ctx key b targs.[1]
-                    | ValueSome(struct (tname, targs)), TyFun(a, bc) when
-                        SymbolKeyOps.bareName tname = funInterfaceQualifiedName && targs.Length = 3
-                        ->
-                        match resolveStep bc with
-                        | TyFun(b, c) ->
-                            unify ctx key a targs.[0]
-                            unify ctx key b targs.[1]
-                            unify ctx key c targs.[2]
-                        | _ -> ()
+                        let k = targs.Length - 1
+                        // Peel/collect first so a too-short spine grounds nothing: `rev`
+                        // ends [residual; dom_{k-1}; …; dom_0], aligned to `targs` once
+                        // reversed. `resolveStep` unwraps each codomain before the next
+                        // arrow (mirrors the old flat-2 `resolveStep bc`).
+                        let rec peel i (dom: SemType) (cod: SemType) (acc: SemType list) =
+                            let acc = dom :: acc
+
+                            if i = k - 1 then
+                                Some(cod :: acc)
+                            else
+                                match resolveStep cod with
+                                | TyFun(d, c) -> peel (i + 1) d c acc
+                                | _ -> None
+
+                        match peel 0 a b [] with
+                        | Some rev -> List.rev rev |> List.iteri (fun i s -> unify ctx key s targs.[i])
+                        | None -> ()
                     | _ -> ()
                 | _ -> ()
 

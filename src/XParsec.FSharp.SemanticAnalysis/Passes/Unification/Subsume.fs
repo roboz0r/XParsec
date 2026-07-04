@@ -276,47 +276,40 @@ module UnificationSubsume =
         // inward path is the syntactic-constant consultation at the external-arg seam.
         | TyLiteral v, TyConst(n, _) when n = v.BaseName -> SubsumeOutcome.Subtype
         // The arrow↔`Fun` correspondence: a structural arrow
-        // `TyFun(a,b)` IS a subtype of the canonical `Vesper.Fun`2<a,b>` interface.
-        // This is the ONE place the two layers meet — the unifier keeps seeing
-        // `TyFun` as the structural arrow everywhere else (function-representation
-        // §"Two layers"); only a `'TF :> Fun<…>` constrained-typar slot discharges
-        // through here. Args are invariant (same rule as `subsumesNominal`): the
-        // arrow's domain/codomain must each be `Equal` to the `Fun`'s type args. This
-        // is a read-only check, not a `unify` — grounding a still-free `Fun`-arg FROM
-        // the arrow is deferred, not yet exercised. Arity-1 `Fun`2`
-        // — a curried `TyFun(a, TyFun(b,c))` against `Fun`2` falls out naturally
-        // (codomain = the inner arrow), with no flat-`Fun`3` special-casing.
+        // `TyFun(a, …)` IS a subtype of the canonical `Vesper.Fun`(k+1)<a1..ak, r>`
+        // interface. This is the ONE place the two layers meet — the unifier keeps
+        // seeing `TyFun` as the structural arrow everywhere else (function-
+        // representation §"Two layers"); only a `'TF :> Fun<…>` constrained-typar slot
+        // discharges through here. Arity-parametric (1..4): peel exactly `k =
+        // targs.Length - 1` domains off the arrow spine, each invariant-`Equal` (same
+        // rule as `subsumesNominal`) to the matching `Fun` type arg; the residual
+        // codomain must be `Equal` to `targs.[k]` matched WHOLE (it may itself be a
+        // further curried arrow — the printf `n > K` tail — which is NOT peeled).
+        // Read-only, not a `unify` — grounding a still-free `Fun`-arg FROM the arrow is
+        // the Engine constraint-drain's job. A spine too short to peel `k` domains does
+        // not match ⇒ `Unrelated`. The caller records the arity-`k` verdict for the
+        // lambda node (`inferApp`), keyed for the value-struct flat-`Invoke` lowering.
         | TyFun(a, b), (TyClass(tk, targs)) when
             SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tk) = funInterfaceQualifiedName
-            && targs.Length = 2
+            && targs.Length >= 2
+            && targs.Length <= 5
             ->
-            if
-                subsumes ctx a targs.[0] = SubsumeOutcome.Equal
-                && subsumes ctx b targs.[1] = SubsumeOutcome.Equal
-            then
-                SubsumeOutcome.Subtype
-            else
-                SubsumeOutcome.Unrelated
-        // The FLAT-2 arrow↔`Fun`3` correspondence: a CURRIED arrow
-        // `TyFun(a, TyFun(b,c))` IS a subtype of the canonical
-        // `Vesper.Fun`3<a,b,c>` interface — a saturated 2-arg slot. Sibling of the
-        // arity-1 `Vesper.Fun`2` arm above (`Fun`3` does NOT inherit `Fun`2`,
-        // so the two arms are independent). Same read-only, invariant-arg discipline:
-        // the two arrow domains and the final codomain must each be `Equal` to the
-        // `Fun`3`'s three type args. The caller records the arity-2 verdict for the
-        // lambda node (`inferApp`), keyed for the value-struct flat-`Invoke` lowering.
-        | TyFun(a, TyFun(b, c)), (TyClass(tk, targs)) when
-            SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tk) = funInterfaceQualifiedName
-            && targs.Length = 3
-            ->
-            if
-                subsumes ctx a targs.[0] = SubsumeOutcome.Equal
-                && subsumes ctx b targs.[1] = SubsumeOutcome.Equal
-                && subsumes ctx c targs.[2] = SubsumeOutcome.Equal
-            then
-                SubsumeOutcome.Subtype
-            else
-                SubsumeOutcome.Unrelated
+            let k = targs.Length - 1
+            // `resolveStep` unwraps each codomain before matching the next arrow.
+            let rec peel i (dom: SemType) (cod: SemType) =
+                if subsumes ctx dom targs.[i] <> SubsumeOutcome.Equal then
+                    SubsumeOutcome.Unrelated
+                elif i = k - 1 then
+                    if subsumes ctx cod targs.[k] = SubsumeOutcome.Equal then
+                        SubsumeOutcome.Subtype
+                    else
+                        SubsumeOutcome.Unrelated
+                else
+                    match resolveStep cod with
+                    | TyFun(d, c) -> peel (i + 1) d c
+                    | _ -> SubsumeOutcome.Unrelated
+
+            peel 0 a b
         // Neither operand is a union: the nominal subtype walk.
         | _ -> subsumesNominal ctx src tgt
 

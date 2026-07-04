@@ -354,10 +354,11 @@ module UnificationEngineCore =
 
     /// The bare (arity-suffix-stripped) qualified name of the canonical function
     /// interface family the codegen contract `SemType.TyFun` lowers to. The curried
-    /// arity-1 `Vesper.Fun`2<'A,'B>` and the flat arity-2 `Vesper.Fun`3<'A,'B,'C>`
-    /// overload this ONE qualified name by generic arity, so every recognizer site
-    /// matches this name AND discriminates on `targs.Length` (2 curried vs 3 flat) —
-    /// the name alone never tells the two apart. `subsumes` consults this for the
+    /// arity-1 `Vesper.Fun`2<'A,'B>` through the flat arity-4
+    /// `Vesper.Fun`5<'A,'B,'C,'D,'E>` overload this ONE qualified name by generic
+    /// arity, so every recognizer site matches this name AND discriminates on
+    /// `targs.Length` (arity = length - 1, for 2..5 args) — the name alone never tells
+    /// them apart. `subsumes` consults this for the
     /// arrow→`Fun` discharge rules; the unifier otherwise keeps `TyFun` structural.
     [<Literal>]
     let funInterfaceQualifiedName = "Vesper.Fun"
