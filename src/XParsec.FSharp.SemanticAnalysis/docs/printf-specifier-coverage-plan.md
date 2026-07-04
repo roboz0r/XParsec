@@ -54,28 +54,55 @@ below are verified against the current source; line numbers drift — grep the n
 
 ### Track A — specifier-form totality (the "peel each kind" core)
 
-Make `PrintfHoleForm.tryClassify` (`PrintfHoleForm.fs:111-236`) **total over every lowerable
+Make `PrintfHoleForm.tryClassify` (`PrintfHoleForm.fs`) **total over every lowerable
 flag/width/precision form**, and extend its CLR projection `ClrHoleFormat.toDotNetFormat`
-correspondingly. Every `ValueNone` arm below currently fails `lowerablePlaceholders`
-(`InferLiterals.fs:261`), sending the *whole format* cold. Peel them in this order:
+correspondingly. Every `ValueNone` arm currently fails `lowerablePlaceholders`
+(`InferLiterals.fs`), sending the *whole format* cold.
 
-- **A0 — `% A` space flag** (`PrintfHoleForm.fs:143-144`). `%A` with the space flag returns
-  `ValueNone`; `%+A`/`%-A`/`%0A`/`%NA` already classify. The space is a no-op for the structural
-  engine — admit it (drop the `if spaceSign then ValueNone` guard in the `Structured` arm).
-  *The single narrowest pure-cold pin.* Flips `FSharpCoreDepsTests` `% A` → `isEmpty` and
-  `PrintfHappyPathTests` `% A` (`:470`) → `Format`.
-- **A1 — no-op flag/zero-pad forms.** Forms where the flag is meaningless or trivially
-  expressible, currently deferred out of caution: `%-d`/`%-05d` (left-align, `:178-183`), `%05u`
-  (`:219`), `%08o` (`:220-224`), `%05b` (`:225`), `%05s`/`%05c`/`%05O` (`:190-192`). For each,
-  decide the faithful mapping (most are "width ignored" or "pad the stringified value") and emit a
-  `FieldFormat` + alignment, extending `ClrHoleFormat.toDotNetFormat` to project it. One
-  `PrintfHappyPathTests` case per form flips App→Format.
-- **A2 — byte-exact sign/zero-pad float forms.** The genuinely fiddly parity cases, each its own
-  `FieldFormat` extension + section-format construction in `ClrHoleFormat`: forced-sign on
-  non-`%d`/`%f` (`%+g`/`% g`/`%+e`, `:171-177` `_ -> ValueNone`), sign+zero-pad (`%+05d`,
-  `:163-164`), `%08e`/`%010g` (exponential/compact zero-pad, `:209-218`), `%.2M` (decimal
-  precision, `:226-232`). Drive each against the test process's own `sprintf` for byte parity
-  (`PrintfHappyPathTests.runParity`); the pinned cold tests (`:331,338,345,352,359,366,745`) flip.
+**Method (use it for every remaining A-form): oracle-first.** Real F# is the parity spec, and it
+also decides which flag/width/type *combinations the F# compiler even accepts* (many are FS0741
+compile errors, not lowerable forms). Before coding a batch, confirm the exact bytes with
+`dotnet fsi` — the working oracle script is **`tmp/printf_a1.fsx`** (extend it, re-run
+`dotnet fsi tmp/printf_a1.fsx`). This already corrected one wrong in-code invariant (below) and
+found several F#-rejected forms. Then flip each `PrintfHappyPathTests` cold assertion to a
+`Format` node + a `runParity` check against the oracle bytes.
+
+- **A0 — `% A` space flag. LANDED (`ae6e424e`).** Admitted the space flag in the `%A` arm (a
+  no-op — `GenericToString` never consults it). Repointed the cold-recipe guard tests to `%08e`.
+- **A1a — inert-flag & left-wins forms. LANDED (`16b69e2f`).** Two classifier-only classes (map
+  to already-working shapes, no runtime change): (i) a width-less `-`/`0` flag is inert
+  (`%-d ≡ %d`, `%-.2f ≡ %.2f`) — implemented by normalising `leftAlign`/`zeroPad` to `&& hasWidth`
+  so the flag disappears (and every `width.Value` read is then safe); (ii) left-align wins over
+  zero-pad for **non-float** types (`%-05d ≡ %-5d`, spaces on the right). The `%A` arm reads the
+  **raw** `0` flag (`%0A`/`%05A` force flat regardless of width). F#-**rejected** (not targets):
+  `%05s`/`%05b`/`%05c`/`%0s` (FS0741, `0` unsupported on non-numeric).
+- **A1b — zero-pad on unsigned / octal. NEXT (real formatting; touches the runtime handler).**
+  Oracle (pinned in `tmp/printf_a1.fsx`): `%05u` 42 → `00042`, `%05u` -1 → `4294967295` (10 digits,
+  overflows width ⇒ no pad); `%08o` 8 → `00000010`, `%08o` -1 → `37777777777`. **This corrects an
+  in-code invariant:** `FieldFormat.IntRadix`'s doc says "`%o` never zero-pads — always None" and
+  the classifier defers `%08o`, but F# **does** zero-pad octal. Work items:
+    1. **Front end:** in `tryClassify`, admit `zeroPad` for `UnsignedDecimalInt` (`%u`) and
+       `UnsignedOctal` (`%o`) — today `:219`/`:220-224` return `ValueNone`. Carry the zero-pad
+       width: extend `FieldFormat.Unsigned` to `Unsigned of zeroPad: int option` and
+       `IntRadix(radix, zeroPad)` already has the slot — just stop forcing `None` for octal.
+    2. **CLR projection:** `Codegen.Clr/ClrHoleFormat.toDotNetFormat` — map the zero-pad width onto
+       the handler args (mirror how `%05x`/`%05d` already project: hex uses `IntRadix` zeroPad, dec
+       uses `DecimalZeroPad`/`HoleKind.ZeroPaddedFloat`-style width-in-alignment-slot).
+    3. **Runtime handler (`Vesper.Printf/formatter.fs`, Vesper-compiled):** `AppendUnsigned` /
+       `AppendOctal` (`HoleKind.Unsigned` / `HoleKind.Octal`) need a zero-pad width parameter, or a
+       dedicated `AppendZeroPadded*` member. **Model it on the existing `AppendZeroPaddedFloat`**
+       (the `%0w.pf` handler) — same "zero-pad *after any sign* to a total field of `width`"
+       shape. Note the overflow case (`%05u` -1 ⇒ 10 digits, no truncation, no pad).
+    4. Tests: `runParity` for each oracle form; no cold assertion currently pins `%05u`/`%08o`
+       specifically (they fell under the generic defer), so add fresh `Format`-shape + parity tests.
+- **A2 — byte-exact sign/zero-pad float forms (deferred; hardest parity).** Each its own
+  `FieldFormat` + section-format construction in `ClrHoleFormat`, oracle-verified: forced-sign on
+  non-`%d`/`%f` (`%+g`/`% g`/`%+e`, `:171-177`), sign+zero-pad (`%+05d`, `:163-164`), `%08e`/`%010g`
+  (`:209-218`), `%.2M` (`:226-232`), **and the float left+zero case A1a deferred** (`%-05.2f`
+  3.14159 → `3.140` — F# zero-pads floats on the *right* under left-align; `tryClassify` keeps
+  `leftAlign && zeroPad && isFloatLike → ValueNone`). The pinned cold tests
+  (`PrintfHappyPathTests` `%010g`/`%+g`/`% g`/`%+05d`/`%+e`/`%08e`/`%.2M`, and the `%-05.2f` guard
+  A1a added) flip as each lands.
 
 ### Track B — sink breadth (`fprintf`/`fprintfn`, then `bprintf`)
 
@@ -181,12 +208,26 @@ pins exactly this. A *full* `rm FSharp.Core.dll` also needs list/option to resol
 types (the self-host posture, `ctx.DefaultListIsVesper`) — track separately; this sprint's success
 is measured by *printf* pinning nothing, not by the whole program being FSharp.Core-free.
 
-## Ordering summary
+## Ordering summary & status (updated 2026-07-04)
 
-A0 (`% A`, one-line win) → B1 (`fprintf`) → A1 (no-op forms) → C1/C2 (`%A` gate relax; big
-coverage jump) → A2 (byte-exact float forms) → B2 (`bprintf`) → D (`%a`/`%t`, design pass first)
-→ E1 (const-literal format) → E2 (runtime runner; heaviest) → capstone. F (`%*d`) is a feature,
-sequenced independently.
+**Landed:** A0 (`% A`, `ae6e424e`) → B1 (`fprintf`/`fprintfn`, `0c11484b`) + writer-slot `TyClass`
+cleanup (`9498ad84`) → A1a (inert-flag / left-wins forms, `16b69e2f`). All on branch
+`semantic-analysis`; suites green at each (CLR 1137 / JS 252 / semantic 700).
+
+**RESUME HERE → A1b** (zero-pad on `%u`/`%o`) — fully spec'd in Track A above; oracle bytes in
+`tmp/printf_a1.fsx`. First A-form that touches the runtime handler (`Vesper.Printf/formatter.fs`),
+so build+run the FULL CLR suite. The maintainer chose to keep A1's *specifier-forms* order rather
+than jump to Track C.
+
+**Then:** A2 (byte-exact float forms) → C1/C2 (`%A` gate relax; big coverage jump) → B2 (`bprintf`)
+→ D (`%a`/`%t`, design pass first — sink ABI) → E1 (const-literal format) → E2 (runtime runner;
+heaviest) → capstone. F (`%*d`) is a separable feature.
+
+**Working method (established this sprint):** oracle-first — confirm exact bytes and F#-acceptance
+with `dotnet fsi tmp/printf_a1.fsx` before coding a batch; one subagent per step implementing +
+flipping/adding tests (NOT committing); maintainer reviews the diff, runs the full suites, and
+commits with a short message. Surface design questions (next real one: Track D's sink ABI) before
+coding them.
 
 ## Testing
 
