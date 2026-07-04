@@ -138,25 +138,25 @@ module PrintfHoleForm =
 
         if p.Type = FormatType.Structured then
             // `%A`: the structural engine renders. `0` flag forces flat (width 0),
-            // taking precedence over an explicit width (F# `printf.fs:947`). `%+A`
-            // / `%-A` are no-ops (admitted); only `% A` stays deferred.
-            if spaceSign then
-                ValueNone
-            else
-                let pw =
-                    if zeroPad then
-                        PrintWidth.Never
-                    else
-                        match width with
-                        | Some n -> PrintWidth.Cols n
-                        | None -> PrintWidth.Default
+            // taking precedence over an explicit width (F# `printf.fs:947`). The
+            // sign flags `+`/`-`/` ` are all no-ops here: `GenericToString`
+            // (`printf.fs:1085`) consults only plus, zero-pad, width, and
+            // precision — never the space flag — so `% A` renders identically to
+            // `%A`.
+            let pw =
+                if zeroPad then
+                    PrintWidth.Never
+                else
+                    match width with
+                    | Some n -> PrintWidth.Cols n
+                    | None -> PrintWidth.Default
 
-                let size =
-                    match p.Precision with
-                    | ValueSome pr -> Some(int pr)
-                    | ValueNone -> None
+            let size =
+                match p.Precision with
+                | ValueSome pr -> Some(int pr)
+                | ValueNone -> None
 
-                ValueSome(HoleForm.PercentA(pw, size))
+            ValueSome(HoleForm.PercentA(pw, size))
         elif plusSign || spaceSign then
             // Forced-sign: only the signed decimal-integer and fixed-point-float
             // forms section-format faithfully; sign+zero-pad stays cold.

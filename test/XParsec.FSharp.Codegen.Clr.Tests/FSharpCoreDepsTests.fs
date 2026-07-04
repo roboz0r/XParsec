@@ -41,13 +41,14 @@ let tests =
                     (sprintf "no FSharp.Core AssemblyRef row in the executable (refs: %A)" refs)
             }
 
-            test "`printfn \"% A\"` (cold path) pins PrintfModule + PrintfFormat" {
-                // The space flag `% A` rides the FSharp.Core cold path; a plain `%A`
-                // (and the `%.NA` / `%+A` / `%-A` flag forms) lower to the structural
-                // engine. `% A` is the pin that proves the cold recipes still work.
-                let _, artifact = compileSource "DepsColdPrintf" "printfn \"% A\" 42"
+            test "`printfn \"%08e\"` (cold path) pins PrintfModule + PrintfFormat" {
+                // Zero-pad exponential `%08e` has no faithful section-format mapping,
+                // so it rides the FSharp.Core cold path; happy-path forms lower to the
+                // structural engine. `%08e` is the pin that proves the cold recipes
+                // still work.
+                let _, artifact = compileSource "DepsColdPrintf" "printfn \"%08e\" 1234.5"
                 let deps = artifact.FSharpCoreDependencies
-                Expect.isNonEmpty deps "the % A cold path depends on FSharp.Core"
+                Expect.isNonEmpty deps "the %08e cold path depends on FSharp.Core"
 
                 Expect.contains
                     deps
@@ -55,6 +56,20 @@ let tests =
                     "the cold path calls PrintFormatLine"
 
                 Expect.contains deps "Microsoft.FSharp.Core.PrintfFormat`4 (.ctor)" "and constructs a PrintfFormat"
+            }
+
+            // `% A` (the space flag on `%A`) used to ride the cold path; it now lowers
+            // on the structural engine like plain `%A` (the space flag is a pure no-op
+            // for `%A`), so it pins no FSharp.Core construct.
+            test "`printfn \"% A\"` lowers on the engine (cold path cut)" {
+                let _, artifact = compileSource "DepsSpaceA" "printfn \"% A\" 42"
+                let deps = artifact.FSharpCoreDependencies
+
+                Expect.isFalse
+                    (deps |> Seq.contains "Microsoft.FSharp.Core.PrintfModule.PrintFormatLine")
+                    "% A does NOT take the PrintFormatLine cold path"
+
+                Expect.isEmpty deps (sprintf "%% A is pure Vesper — no FSharp.Core dependency (%A)" deps)
             }
 
             // A project-local record / DU carries a synthesised

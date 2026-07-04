@@ -467,17 +467,22 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            test "`% A` (space flag) stays on the cold path" {
+            test "`% A` (space flag) lowers as plain `%A` (no-op, matching F#)" {
                 match soleDecl "printfn \"% A\" 42" with
-                | TDecl.Expression(TExpr.Format _, _) -> failtest "% A must stay on the cold path"
-                | TDecl.Expression(TExpr.App _, _) -> ()
-                | other -> failtestf "unexpected TAST for %% A: %A" other
+                | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal (kindOf hole) PrintfSpec.HoleKind.Structured "% A is Structured"
+                        Expect.equal (alignmentOf hole) None "the space flag is ignored (no budget)"
+                        Expect.equal (formatOf hole) None "no size budget"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
             }
 
             // The bare `analyse` harness has no assembly name (home = `None`), so a
             // record there is treated external (cold path); `compileSource` (named
             // assembly) lowers it on the engine. The runtime tests below prove that
-            // end-to-end. Only `% A` stays cold.
+            // end-to-end.
 
             test "`printfn \"%s\"` prints the string" { runPrints "PHpString" "printfn \"%s\" \"world\"" "world" }
 
@@ -515,6 +520,19 @@ let tests =
 
             test "`%A` of a string prints the quoted, escapable literal" {
                 runPrints "PHpStructStr" "printfn \"%A\" \"hi\"" "\"hi\""
+            }
+
+            // `% A` (space flag) is a pure no-op for `%A`: `GenericToString`
+            // (`printf.fs:1085`) never consults the space flag, so output is
+            // byte-identical to `%A`. (Note real F#'s *compiler* rejects `% A` at
+            // parse time — FS0741 — so `sprintf "% A"` can't be the oracle; XParsec
+            // admits it and lowers it as `%A`, whose output the value fixes here.)
+            test "`% A` of an int prints the bare value (like `%A`)" {
+                runParity "PHpStructSpaceInt" "printfn \"% A\" 42" (sprintf "%A" 42)
+            }
+
+            test "`% A` of a list prints the copy-pasteable literal (like `%A`)" {
+                runParity "PHpStructSpaceList" "printfn \"% A\" [ 1; 2; 3 ]" (sprintf "%A" [ 1; 2; 3 ])
             }
 
             test "`%0A` of a list prints flat (fits the budget either way)" {
