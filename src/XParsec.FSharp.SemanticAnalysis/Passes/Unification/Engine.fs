@@ -93,14 +93,19 @@ module UnificationEngine =
         | ValueSome(NominalKind.Record, key, args) ->
             let name = SymbolKeyOps.simpleName key
 
-            match ctx.Types.Record.TryGetValue name with
-            | true, info ->
+            // Resolve by the arity-qualified key: an arity-overloaded record
+            // (`Point`2`/`Point`3`) has no bare alias. `name` still labels the DotSource.
+            match TypeRegistry.tryRecordByKey ctx.Types key with
+            | ValueSome info ->
                 DotSource.Resolved(name, "field", mkNamedTypeSubst info.TypeParams args, fieldLookup info.Fields)
-            | false, _ -> DotSource.UnknownType(name, "record")
+            | ValueNone -> DotSource.UnknownType(name, "record")
         | ValueSome(NominalKind.Class, key, args) ->
             let name = SymbolKeyOps.simpleName key
 
-            if ctx.Types.Class.ContainsKey name then
+            // Membership by (name, arity): an arity-overloaded local class (`Fun`2`/
+            // `Fun`3`) has no bare alias, so a bare `ContainsKey` would misclassify it
+            // as external. `name` still feeds the arity-aware `ClassChain` walk.
+            if TypeRegistry.containsClass ctx.Types name args.Length then
                 DotSource.ClassChain(name, args)
             else
                 // Not project-local — an external (BCL/contract) class or interface

@@ -403,15 +403,18 @@ module internal UnificationTranslate =
                 checkArity (info.TypeParams.Length)
                 expandAbbreviation ctx diagKey info translatedArgs
             | false, _ ->
-                match ctx.Types.Record.TryGetValue name with
-                | true, info ->
-                    checkArity (info.TypeParams.Length)
-                    TyRecord(info.Key, translatedArgs)
-                | false, _ ->
-                    // Union then class, as sibling links: each is "arity-key, else
-                    // bare alias" (`resolveLocalGeneric`). A union additionally stamps
-                    // the resolved use site; a class does not.
-                    let local =
+                // Record, union, then class, as sibling links: each is "arity-key,
+                // else bare alias" (`resolveLocalGeneric`), so an arity-overloaded
+                // name (`Point`2`/`Point`3`, whose bare alias is withdrawn) resolves to
+                // the right arity. A union additionally stamps the resolved use site;
+                // record and class do not.
+                let local =
+                    resolveLocalGeneric
+                        (fun () -> TypeRegistry.tryRecordArity ctx.Types name argCount)
+                        (bareNameIn ctx.Types.Record)
+                        (fun i -> i.TypeParams.Length)
+                        (fun info -> TyRecord(info.Key, translatedArgs))
+                    |> ValueOption.orElseWith (fun () ->
                         resolveLocalGeneric
                             (fun () -> TypeRegistry.tryUnion ctx.Types name argCount)
                             (bareNameIn ctx.Types.Union)
@@ -420,23 +423,24 @@ module internal UnificationTranslate =
                                 ctx.Resolution.ResolvedType.Set(diagKey, info.Key)
                                 TyUnion(info.Key, translatedArgs)
                             )
-                        |> ValueOption.orElseWith (fun () ->
-                            resolveLocalGeneric
-                                (fun () -> TypeRegistry.tryClassArity ctx.Types name argCount)
-                                (bareNameIn ctx.Types.Class)
-                                (fun i -> i.TypeParams.Length)
-                                (fun info -> TyClass(info.Key, translatedArgs))
-                        )
+                    )
+                    |> ValueOption.orElseWith (fun () ->
+                        resolveLocalGeneric
+                            (fun () -> TypeRegistry.tryClassArity ctx.Types name argCount)
+                            (bareNameIn ctx.Types.Class)
+                            (fun i -> i.TypeParams.Length)
+                            (fun info -> TyClass(info.Key, translatedArgs))
+                    )
 
-                    match local with
+                match local with
+                | ValueSome ty -> ty
+                | ValueNone ->
+                    match tryResolveExternalType ctx name translatedArgs with
                     | ValueSome ty -> ty
                     | ValueNone ->
-                        match tryResolveExternalType ctx name translatedArgs with
-                        | ValueSome ty -> ty
-                        | ValueNone ->
-                            // Unknown name with type args — opaque TyConst, args
-                            // ignored (matches the bare-name arm).
-                            TyConst(name, EqArray.empty)
+                        // Unknown name with type args — opaque TyConst, args
+                        // ignored (matches the bare-name arm).
+                        TyConst(name, EqArray.empty)
 
     /// Resolve a named/generic type reference that missed every project-local
     /// registry against the external provider — the type-annotation analogue of

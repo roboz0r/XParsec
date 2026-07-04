@@ -1288,11 +1288,23 @@ module Elaborate =
         (ctx: PassContext)
         (ns: string option)
         (name: string)
+        (declKey: NodeKey voption)
         (ext: TypeExtensionElements<SyntaxToken> voption)
         : (TDecl * (TypeVar * SemType) list) option =
-        match ctx.Types.Record.TryGetValue name with
-        | false, _ -> None
-        | true, info ->
+        // Resolve the record by the `SymbolKey` `NameResolution` stamped at the decl
+        // site (`tryRecordByKey`), not the bare name — an arity-overloaded record
+        // (`Point`2`/`Point`3`) has its bare alias withdrawn. Mirrors `tryUnionType`.
+        let resolved =
+            match declKey with
+            | ValueSome k ->
+                match ctx.Resolution.ResolvedType.TryGetValue k with
+                | ValueSome key -> TypeRegistry.tryRecordByKey ctx.Types key
+                | ValueNone -> ValueNone
+            | ValueNone -> ValueNone
+
+        match resolved with
+        | ValueNone -> None
+        | ValueSome info ->
             let markers = mkDeclTyparEnv info.TypeParams
             // The decl's freeze env (declaring typars + any member method typars),
             // collected here at the single index-minting point; mirrors `tryUnionType`.
@@ -1594,7 +1606,8 @@ module Elaborate =
                 body.elements
         | TypeDefn.Union(typeName = tn; extensions = ext) ->
             tryUnionType ctx ns (typeNameSimple ctx tn) (typeNameDeclKey ctx tn) ext
-        | TypeDefn.Record(typeName = tn; extensions = ext) -> tryRecordType ctx ns (typeNameSimple ctx tn) ext
+        | TypeDefn.Record(typeName = tn; extensions = ext) ->
+            tryRecordType ctx ns (typeNameSimple ctx tn) (typeNameDeclKey ctx tn) ext
         | TypeDefn.Enum(typeName = tn; cases = cases) -> tryEnumType ctx ns (typeNameSimple ctx tn) cases
         | _ -> None
 

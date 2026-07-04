@@ -35,6 +35,35 @@ let monoTests =
                 Expect.equal (output.Trim()) "7" "p.X returns the field value the literal stored"
             }
 
+            // Arity-overloaded records: `Point`2` and `Point`3` coexist as one name
+            // (F# allows `(name, arity)`-distinct types, like `Choice`2`…`Choice`7`).
+            // Exercises the record arity-keyed registry (no "Duplicate type definition"),
+            // body-fill by arity, construction disambiguated by field set, and
+            // field-get via the arity-qualified `TyRecord` key.
+            test "two arity-overloaded records coexist; each constructs + field-reads (prints 20 / 39)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Point<'X, 'Y> = { X: 'X; Y: 'Y }"
+                            "type Point<'X, 'Y, 'Z> = { X: 'X; Y: 'Y; Z: 'Z }"
+                            "let a = { X = 10; Y = 20 }"
+                            "let b = { X = 1; Y = 2; Z = 39 }"
+                            "printfn \"%d\" a.Y"
+                            "printfn \"%d\" b.Z"
+                        ]
+
+                let tast, artifact = compileSource "RecArityOverload" src
+                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "20\n39"
+                    "a : Point`2 reads Y=20; b : Point`3 reads Z=39 — resolved to the right arity"
+            }
+
             test "field-set on a mutable field updates in place (prints 42)" {
                 let src =
                     String.concat

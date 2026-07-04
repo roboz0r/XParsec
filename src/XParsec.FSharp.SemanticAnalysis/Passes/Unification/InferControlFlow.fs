@@ -540,7 +540,10 @@ module internal UnificationInferControlFlow =
                     | TyClass(ifaceKey, ifaceArgs) ->
                         let ifaceName = SymbolKeyOps.simpleName ifaceKey
 
-                        match TypeRegistry.tryClass ctx.Types ifaceName with
+                        // Resolve by the arity-qualified key, not the bare name: an
+                        // arity-overloaded interface (`Fun`2`/`Fun`3`) has no bare alias.
+                        // `ifaceName` is still threaded to the arity-aware chain walk below.
+                        match TypeRegistry.tryClassByKey ctx.Types ifaceKey with
                         | ValueSome info when info.IsInterface ->
                             match
                                 tryClassChainMember ctx ifaceName ifaceArgs "MoveNext",
@@ -581,7 +584,10 @@ module internal UnificationInferControlFlow =
                     | TyClass(ifaceKey, ifaceArgs) ->
                         let ifaceName = SymbolKeyOps.simpleName ifaceKey
 
-                        match TypeRegistry.tryClass ctx.Types ifaceName with
+                        // Resolve by the arity-qualified key, not the bare name: an
+                        // arity-overloaded interface (`Fun`2`/`Fun`3`) has no bare alias.
+                        // `ifaceName` is still threaded to the arity-aware chain walk below.
+                        match TypeRegistry.tryClassByKey ctx.Types ifaceKey with
                         | ValueSome info when info.IsInterface ->
                             match tryClassChainMember ctx ifaceName ifaceArgs "GetEnumerator" with
                             | ValueSome mty ->

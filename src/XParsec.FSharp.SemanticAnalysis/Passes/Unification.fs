@@ -64,11 +64,17 @@ module Unification =
         | ModuleElem.Type defs ->
             for td in defs do
                 match td with
-                | TypeDefn.Record(typeName = TypeName(ident = nameLi); fields = fields) when nameLi.Idents.Length = 1 ->
+                | TypeDefn.Record(typeName = (TypeName(ident = nameLi) as tn); fields = fields) when
+                    nameLi.Idents.Length = 1
+                    ->
                     let name = ctx.NameOf nameLi.Idents.[0]
+                    // Resolve THIS decl's own record by (name, arity): an arity-overloaded
+                    // record (`Point`2`/`Point`3`) has its bare alias withdrawn, so a bare
+                    // read would miss both and leave their field TyVars unlinked.
+                    let arity = NameResolutionTypeRegistration.arityOfTypeName ctx tn
 
-                    match ctx.Types.Record.TryGetValue name with
-                    | true, info ->
+                    match TypeRegistry.tryRecordArity ctx.Types name arity with
+                    | ValueSome info ->
                         let savedScope = ctx.Resolution.TyparScope
                         let savedStrict = ctx.Resolution.TyparScopeStrict
                         ctx.Resolution.TyparScope <- scopeOfTypeParams info.TypeParams
@@ -95,7 +101,7 @@ module Unification =
                         finally
                             ctx.Resolution.TyparScope <- savedScope
                             ctx.Resolution.TyparScopeStrict <- savedStrict
-                    | false, _ -> ()
+                    | ValueNone -> ()
                 | _ -> ()
         | _ -> ()
 
@@ -1284,6 +1290,10 @@ module Unification =
         // The static-operator member declared on a project-local nominal named
         // `typeName` — the declaring type's `Key`. Mirrors `FreezeExpr.tryClassMember`
         // but returns only what the verdict needs (Freeze re-forms the member key).
+        // NOTE: bare-name keyed. Safe today because the only arity-overloaded type
+        // (`Fun`2`/`Fun`3`) is an interface with no static operators; a future
+        // arity-overloaded class carrying static ops would need `typeName` replaced by
+        // the receiver's arity-qualified key (mirror `Freeze.tryClassMemberByKey`).
         let tryOwnStaticOp (typeName: string) (opName: string) : SymbolKey voption =
             let pick (key: SymbolKey) (members: TypeMemberInfo[]) =
                 if members |> Array.exists (fun m -> m.Name = opName && m.IsStatic) then
