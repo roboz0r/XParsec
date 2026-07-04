@@ -1247,6 +1247,15 @@ module internal FreezeExpr =
             | ValueSome s -> s
             | ValueNone -> failwithf "Freeze.translatePrintfFormat: no PrintfApp marker at %O" key
 
+        // The format argument's positional index, recovered from the sink kind:
+        // `fprintf`/`fprintfn` (writer sink) put a `TextWriter` at arg 0 and the
+        // format at arg 1; every other family has the format at arg 0. Kept in
+        // lockstep with `PrintfSpec.Family.FormatArgIndex` (the gate's `idx`).
+        let idx =
+            match sink with
+            | PrintfSpec.PrintfSink.Writer _ -> 1
+            | _ -> 0
+
         // This compilation's target assembly as a home-assembly `option` — a
         // project-local nominal key's home (so a `%A` of a locally-declared record /
         // DU lowers on the engine; an external one stays cold). `None` (front-end /
@@ -1254,7 +1263,7 @@ module internal FreezeExpr =
         let localAsm = SymbolKeyOps.asmOf ctx.AssemblyName
 
         let parts =
-            match args.[0] with
+            match args.[idx] with
             | Expr.String(parts = parts) -> parts
             | other -> failwithf "Freeze.translatePrintfFormat: format arg is not a string literal: %A" other
 
@@ -1266,8 +1275,8 @@ module internal FreezeExpr =
                 segments.Add(FormatSeg.Lit(litRun.ToString()))
                 litRun.Clear() |> ignore
 
-        // Holes consume the trailing args (the format is arg 0) in spec order.
-        let mutable holeIdx = 1
+        // Holes consume the trailing args (the format is `args.[idx]`) in spec order.
+        let mutable holeIdx = idx + 1
         // Set when a `%A` hole's argument type isn't faithful on the step-2 engine
         // (a record / DU / unknown). Forces the whole format onto the cold path.
         let mutable cold = false
@@ -1351,6 +1360,9 @@ module internal FreezeExpr =
                 | PrintfSpec.PrintfSink.StdOut nl -> FormatSink.ToStdOut nl
                 | PrintfSpec.PrintfSink.StdErr nl -> FormatSink.ToStdErr nl
                 | PrintfSpec.PrintfSink.StringResult -> FormatSink.ToString
+                // The writer expression is the leading arg 0 (the format is arg 1);
+                // `newline` threads `fprintfn`'s trailing `\n` into `EmitFormat`.
+                | PrintfSpec.PrintfSink.Writer nl -> FormatSink.ToWriter(translateExpr ctx args.[0], nl)
 
             ValueSome(TExpr.Format(formatSink, EqArray.ofSeq segments, ty, tok))
 
@@ -1458,6 +1470,11 @@ module internal FreezeExpr =
             | PrintfSpec.PrintfSink.StdOut nl -> FormatSink.ToStdOut nl
             | PrintfSpec.PrintfSink.StdErr nl -> FormatSink.ToStdErr nl
             | PrintfSpec.PrintfSink.StringResult -> FormatSink.ToString
+            // The 4a partial gate is `idx = 0`, so a writer sink (`fprintf`
+            // partial, `idx = 1`) never reaches this path — those stay cold.
+            | PrintfSpec.PrintfSink.Writer _ ->
+                failwith
+                    "Freeze.translatePrintfPartial: writer sink is not a partial-lowering shape (marker invariant broken)"
 
         // `runningTy` is now the tail; the `Format` node returns it.
         let mutable body = TExpr.Format(formatSink, EqArray.ofSeq segments, runningTy, tok)

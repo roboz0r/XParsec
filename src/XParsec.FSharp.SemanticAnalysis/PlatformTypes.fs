@@ -77,7 +77,7 @@ module PlatformTypes =
                     match e with
                     | TExpr.Format(sink, segments, _, _) ->
                         match sink with
-                        | FormatSink.ToWriter w
+                        | FormatSink.ToWriter(w, _)
                         | FormatSink.ToBuilder w -> TastWalk.iterExpr it w
                         | FormatSink.ToStdOut _
                         | FormatSink.ToStdErr _

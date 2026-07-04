@@ -51,7 +51,7 @@ module EmitFormat =
         | FormatSinkG.ToStdErr _ ->
             b.Add(ILInstr.Call(fh.ConsoleError, 0, 1))
             b.Add(ILInstr.Call(fh.CtorWriter, 4, 0))
-        | FormatSinkG.ToWriter w ->
+        | FormatSinkG.ToWriter(w, _) ->
             buildExpr env b w
             b.Add(ILInstr.Call(fh.CtorWriter, 4, 0))
         | FormatSinkG.ToBuilder _ -> failwith "Emit: bprintf (ToBuilder) is not yet supported"
@@ -175,7 +175,14 @@ module EmitFormat =
             b.Add(ILInstr.Ldloca slot)
             b.Add(ILInstr.Call(fh.Flush, 1, 0))
             EmitTypes.buildUnitValue env b
-        | FormatSinkG.ToWriter _ ->
+        | FormatSinkG.ToWriter(_, nl) ->
+            // `fprintfn` appends the trailing `\n` before flushing, exactly as the
+            // `ToStdOut`/`ToStdErr nl` sinks do; `fprintf` (`nl = false`) does not.
+            if nl then
+                b.Add(ILInstr.Ldloca slot)
+                b.Add(ILInstr.Ldstr(env.Ctx.UserString "\n"))
+                b.Add(ILInstr.Call(fh.AppendLiteral, 2, 0))
+
             b.Add(ILInstr.Ldloca slot)
             b.Add(ILInstr.Call(fh.Flush, 1, 0))
             EmitTypes.buildUnitValue env b

@@ -465,7 +465,7 @@ type private Renderer() =
                 match sink with
                 | FormatSink.ToStdOut nl -> if nl then "stdoutln" else "stdout"
                 | FormatSink.ToStdErr nl -> if nl then "stderrln" else "stderr"
-                | FormatSink.ToWriter _ -> "writer"
+                | FormatSink.ToWriter(_, nl) -> if nl then "writerln" else "writer"
                 | FormatSink.ToBuilder _ -> "builder"
                 | FormatSink.ToString -> "string"
 

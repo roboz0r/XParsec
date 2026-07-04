@@ -482,7 +482,7 @@ module Regions =
             RegionId.Unknown
         | TExpr.Format(sink, segs, _, _) ->
             (match sink with
-             | FormatSink.ToWriter w
+             | FormatSink.ToWriter(w, _)
              | FormatSink.ToBuilder w -> inferRegion s ctx w |> ignore
              | FormatSink.ToStdOut _
              | FormatSink.ToStdErr _

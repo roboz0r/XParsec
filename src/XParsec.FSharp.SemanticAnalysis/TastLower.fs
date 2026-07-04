@@ -290,7 +290,7 @@ module TastLower =
         | TExprG.Format(sink, segs, t, tk) ->
             let sink =
                 match sink with
-                | FormatSinkG.ToWriter w -> FormatSinkG.ToWriter(f w)
+                | FormatSinkG.ToWriter(w, nl) -> FormatSinkG.ToWriter(f w, nl)
                 | FormatSinkG.ToBuilder w -> FormatSinkG.ToBuilder(f w)
                 | other -> other
 

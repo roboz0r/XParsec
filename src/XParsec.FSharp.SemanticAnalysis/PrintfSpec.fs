@@ -62,11 +62,18 @@ module PrintfSpec =
         | StdOut of newline: bool
         | StdErr of newline: bool
         | StringResult
+        /// `fprintf` / `fprintfn` — a `TextWriter` leading argument (arg 0, the
+        /// format at arg 1). `newline` records the trailing `\n` (`fprintfn`
+        /// sets it). Freeze reads the writer sink kind to recover the format arg
+        /// index (writer ⇒ 1, else 0).
+        | Writer of newline: bool
 
-    /// P1 happy-path families only — all with the format at arg 0. `fprintf` /
-    /// `bprintf` and every other name return `ValueNone`, keeping the existing
-    /// FSharp.Core path. Keyed on the last `.`-segment so `Printf.printfn` and
-    /// bare `printfn` both hit (mirrors `tryFamily`).
+    /// Sink for a natively-lowered printf family member. The console/string
+    /// families put the format at arg 0; `fprintf`/`fprintfn` (`Writer`) put a
+    /// `TextWriter` at arg 0 and the format at arg 1. `bprintf` and every other
+    /// name return `ValueNone`, keeping the existing FSharp.Core path. Keyed on
+    /// the last `.`-segment so `Printf.printfn` and bare `printfn` both hit
+    /// (mirrors `tryFamily`).
     let sinkOf (name: string) : PrintfSink voption =
         let short =
             let dot = name.LastIndexOf '.'
@@ -77,6 +84,8 @@ module PrintfSpec =
         | "printfn" -> ValueSome(PrintfSink.StdOut true)
         | "eprintf" -> ValueSome(PrintfSink.StdErr false)
         | "eprintfn" -> ValueSome(PrintfSink.StdErr true)
+        | "fprintf" -> ValueSome(PrintfSink.Writer false)
+        | "fprintfn" -> ValueSome(PrintfSink.Writer true)
         | "sprintf" -> ValueSome PrintfSink.StringResult
         | _ -> ValueNone
 

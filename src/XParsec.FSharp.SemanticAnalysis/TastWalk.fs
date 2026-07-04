@@ -289,7 +289,7 @@ module TastWalk =
             | TExpr.Format(sink, segs, ty, tok) ->
                 let sink =
                     match sink with
-                    | FormatSink.ToWriter w -> FormatSink.ToWriter(pe w)
+                    | FormatSink.ToWriter(w, nl) -> FormatSink.ToWriter(pe w, nl)
                     | FormatSink.ToBuilder w -> FormatSink.ToBuilder(pe w)
                     | FormatSink.ToStdOut _
                     | FormatSink.ToStdErr _
@@ -475,7 +475,7 @@ module TastWalk =
             | TExpr.ExternalMember(r, _, _, _, _, _) -> r |> ValueOption.iter walk
             | TExpr.Format(sink, segs, _, _) ->
                 match sink with
-                | FormatSink.ToWriter w
+                | FormatSink.ToWriter(w, _)
                 | FormatSink.ToBuilder w -> walk w
                 | FormatSink.ToStdOut _
                 | FormatSink.ToStdErr _

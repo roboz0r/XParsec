@@ -167,6 +167,38 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
+            test "fully-applied fprintf lowers to a writer-sink Format (native, not cold)" {
+                // The format is arg 1 (arg 0 is the writer); a fully-applied
+                // lowerable `fprintf` now mints a `TExpr.Format` with a
+                // `ToWriter` sink rather than falling to the FSharp.Core path.
+                let tast = analyse "let f (w: System.IO.TextWriter) = fprintf w \"%d\" 42"
+
+                match lastDeclValue tast with
+                | TExpr.Lambda(_, body, _, _) ->
+                    match body with
+                    | TExpr.Format(FormatSink.ToWriter(_, false), segs, ty, _) ->
+                        Expect.equal ty tyUnit "fprintf result is unit"
+
+                        match EqArray.toList segs with
+                        | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Int 42, _, _)) ] ->
+                            Expect.equal hole.Ty tyInt "the %d hole types as int"
+                        | other -> failtestf "unexpected Format segments: %A" other
+                    | other -> failtestf "expected a ToWriter Format body, got: %A" other
+                | other -> failtestf "expected a lambda, got: %A" other
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "fully-applied fprintfn lowers to a newline writer-sink Format" {
+                let tast = analyse "let f (w: System.IO.TextWriter) = fprintfn w \"%d\" 42"
+
+                match lastDeclValue tast with
+                | TExpr.Lambda(_, TExpr.Format(FormatSink.ToWriter(_, true), _, _, _), _, _) -> ()
+                | other -> failtestf "expected a newline ToWriter Format body, got: %A" other
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
             test "v1 does not type %a — it falls through (and surfaces a diagnostic)" {
                 // %a needs a callback printer; not modelled in v1, so the
                 // special-case defers and the literal can't match PrintfFormat.

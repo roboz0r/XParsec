@@ -131,7 +131,7 @@ module TastConvert =
         match s with
         | FormatSinkG.ToStdOut nl -> FormatSinkG.ToStdOut nl
         | FormatSinkG.ToStdErr nl -> FormatSinkG.ToStdErr nl
-        | FormatSinkG.ToWriter w -> FormatSinkG.ToWriter(expr f w)
+        | FormatSinkG.ToWriter(w, nl) -> FormatSinkG.ToWriter(expr f w, nl)
         | FormatSinkG.ToBuilder w -> FormatSinkG.ToBuilder(expr f w)
         | FormatSinkG.ToString -> FormatSinkG.ToString
 

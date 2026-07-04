@@ -312,19 +312,50 @@ module internal UnificationInferApp =
                                         else
                                             infer ctx a
 
-                                    let resultTy = TyVar(freshTyVar ctx)
-                                    unify ctx key currTy (TyFun(argTy, resultTy))
-                                    currTy <- resultTy
+                                    match resolveStep currTy with
+                                    | TyFun(dom, cod) ->
+                                        if i < idx then
+                                            // A LEADING argument (the `fprintf`/`fprintfn` writer).
+                                            // Its provider-resolved type is a
+                                            // `TyClass(System.IO.TextWriter)`, while the family's
+                                            // slot is a by-name `TyConst(System.IO.TextWriter)`;
+                                            // core `unify` reconciles neither nominal form with the
+                                            // other, so a real writer (`System.Console.Out`) would
+                                            // spuriously mismatch. Admit a `canonName`-equal /
+                                            // subtype writer via the read-only `subsumes`, and only
+                                            // `unify` (surfacing a genuine mismatch) when the arg is
+                                            // unrelated to the slot.
+                                            if subsumes ctx argTy dom = SubsumeOutcome.Unrelated then
+                                                unify ctx key argTy dom
+                                        else
+                                            unify ctx key argTy dom
+
+                                        currTy <- cod
+                                    | _ ->
+                                        let resultTy = TyVar(freshTyVar ctx)
+                                        unify ctx key currTy (TyFun(argTy, resultTy))
+                                        currTy <- resultTy
 
                                 // P1 happy-path lowering marker: fully-applied literal call, a
-                                // StdOut/StdErr/StringResult sink, and every specifier lowerable
-                                // → Freeze mints a `TExpr.Format`. Otherwise the FSharp.Core path
-                                // stands (additive — `%A`, partial application, etc. unaffected).
+                                // lowerable sink, and every specifier lowerable → Freeze mints a
+                                // `TExpr.Format`. Full application is `idx` leading args + the
+                                // format + one arg per hole (`specs.Length + idx + 1`). The
+                                // console/string sinks put the format at arg 0 (`idx = 0`);
+                                // `fprintf`/`fprintfn` (`Writer`) put a `TextWriter` at arg 0 and
+                                // the format at arg 1 (`idx = 1`), threaded into the `Format` node
+                                // as `FormatSink.ToWriter`. Otherwise the FSharp.Core path stands
+                                // (additive — `%A`, partial application, etc. unaffected).
                                 match PrintfSpec.sinkOf (qualifiedNameOf ctx fn) with
                                 | ValueSome sink when
-                                    idx = 0
-                                    && args.Length = specs.Length + 1
+                                    args.Length = specs.Length + idx + 1
                                     && lowerablePlaceholders ctx args.[idx]
+                                    && (idx = 0
+                                        || (idx = 1
+                                            && (
+                                                match sink with
+                                                | PrintfSpec.PrintfSink.Writer _ -> true
+                                                | _ -> false
+                                            )))
                                     ->
                                     ctx.PrintfApp.Set(key, sink)
                                 // 4a partial-application marker: a *fully-unapplied* lowerable

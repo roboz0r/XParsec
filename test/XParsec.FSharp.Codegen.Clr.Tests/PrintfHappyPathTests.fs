@@ -510,6 +510,39 @@ let tests =
                 runPrints "PHpSprintf" "printfn \"%s\" (sprintf \"%d!\" 42)" "42!"
             }
 
+            // `fprintf`/`fprintfn` to a real `TextWriter` (`System.Console.Out`,
+            // redirected to the capture writer by the harness). The writer is arg 0,
+            // the format arg 1 — a `ToWriter` sink, not the FSharp.Core cold path.
+            test "fully-applied `fprintf` lowers to a writer-sink Format" {
+                match soleDecl "fprintf System.Console.Out \"%d\" 42" with
+                | TDecl.Expression(TExpr.Format(FormatSink.ToWriter(_, false), segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal (kindOf hole) PrintfSpec.HoleKind.Formatted "%d → Formatted"
+                    | other -> failtestf "unexpected Format segments: %A" other
+                | other -> failtestf "expected a ToWriter Format node, got: %A" other
+            }
+
+            test "`fprintf System.Console.Out \"%d\" 42` writes 42 (no newline)" {
+                let exitCode, output =
+                    withPrintfAlc (fun alc -> runDriverInAlc alc "fprintf System.Console.Out \"%d\" 42")
+
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal output "42" "fprintf writes the value with no trailing newline"
+            }
+
+            test "`fprintfn System.Console.Out \"%d\" 42` writes 42 and a trailing newline" {
+                let exitCode, output =
+                    withPrintfAlc (fun alc -> runDriverInAlc alc "fprintfn System.Console.Out \"%d\" 42")
+
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal output "42\n" "fprintfn appends a trailing newline"
+            }
+
+            test "multi-hole `fprintf` writes both holes in order" {
+                runPrints "PHpFWriterMulti" "fprintf System.Console.Out \"%d and %s\" 7 \"x\"" "7 and x"
+            }
+
             // `%A` runtime oracle is the structural spec (copy-pasteable source), not
             // `sprintf "%A"`; small values coincide with F#.
             test "`%A` of a list prints the copy-pasteable literal (slice 4)" {
