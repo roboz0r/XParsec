@@ -79,18 +79,36 @@ correspondingly. Every `ValueNone` arm below currently fails `lowerablePlacehold
 
 ### Track B — sink breadth (`fprintf`/`fprintfn`, then `bprintf`)
 
-- **B1 — `fprintf`/`fprintfn`.** They type-check (`PrintfSpec.families` has them, `idx = 1`,
-  `TextWriter` sink) but `sinkOf` (`PrintfSpec.fs:70`) returns `ValueNone` and the gate's
-  `idx = 0` guards (`InferApp.fs:325, 339`) exclude them, so they are **always cold**. Add a
-  writer case to `PrintfSink` + `sinkOf`, and relax the `idx = 0` guards to thread arg 0 (the
-  `TextWriter`) into the `Format` node as `FormatSink.ToWriter` — `EmitFormat` already emits that
-  sink (`EmitFormat.fs:54-56`). Freeze's `translatePrintfFormat`/`translatePrintfPartial` must
-  take the format from `args.[idx]` (idx = 1) and treat arg 0 as the sink expression. Flips
-  `PrintfTests.fs:159`.
+**Cross-target decision (maintainer, 2026-07-04): the explicit-writer families keep their BCL
+surface types on CLR; JS support is deferred until demanded.** The abstract sinks
+(`printf`/`eprintf`/`sprintf` → `ToStdOut`/`ToStdErr`/`ToString`) are already platform-agnostic;
+only `fprintf`/`bprintf` name a BCL type at the surface, and those are inherently .NET-interop
+features. So `fprintf : System.IO.TextWriter -> …` stays TextWriter on CLR (F# source-compat,
+zero-overhead — the `Formatter` already flushes to a `TextWriter`); **no** platform-agnostic
+Vesper sink type is introduced speculatively. A JS `fprintf`-to-a-writer, when a real use case
+demands it, gets a minimal `ITextSink` (`Write(ReadOnlySpan<char>)`) implemented natively on JS —
+introduced *then*, not now (routing CLR `fprintf` through a Vesper sink now would cost a
+`TextWriter → sink` adapter alloc for an unused JS capability).
+
+- **B1 — `fprintf`/`fprintfn`. LANDED (2026-07-04).** Writer `PrintfSink` + `sinkOf`, `newline`
+  field on `FormatSinkG.ToWriter`, gate marks `idx = 1` writer sinks, Freeze threads the writer
+  expr + trailing newline into a `ToWriter` `Format` node. (Fully-applied only; `fprintf`
+  *partials* stay cold, 4a gate is `idx = 0`.)
+  - **Follow-up cleanup (do next): kill the `TyConst(TextWriter)` writer-slot hack.** The family's
+    writer slot is a by-name `TyConst("System.IO.TextWriter")` (`PrintfSpec.fs`), a stale hack
+    from before the provider returned a `TyClass`. A real writer (`System.Console.Out`) resolves
+    to `TyClass(TextWriter)`, and core `unify` compares `TyClass` by key equality
+    (`Engine.fs:261`), so the two didn't reconcile — B1 papered over it with a `subsumes`
+    reconciliation in the gate. The proper fix: resolve the writer slot to `TyClass(TextWriter)`
+    through the *same* provider (`ctx.Provider.TryLookupType "System.IO.TextWriter"` →
+    `externalTypeKey`, the path `Console.Out`'s type took, `Scope.fs:57`) so keys match and plain
+    `unify` works; then delete the gate's leading-arg `subsumes` special-case.
 - **B2 — `bprintf`.** Not in `PrintfSpec.families` at all → doesn't even type via the printf
   rule. Add a `Family` entry (`idx = 1`, StringBuilder leading arg) + a `FormatSink.ToBuilder`
   emission (`EmitFormat.fs:57` currently `failwith`s on `ToBuilder`) driving the handler's
-  `StringBuilder` sink. Larger than B1 — new sink end-to-end.
+  `StringBuilder` sink. Larger than B1 — new sink end-to-end. **JS note:** when a JS `bprintf`
+  lands, the `StringBuilder` shim can likely be a thin wrapper over a single growable string
+  field (JS engines optimise string concatenation via ropes), rather than CLR's chunked buffer.
 
 ### Track C — `%A` breadth (relax the gate; the runtime is already total)
 
