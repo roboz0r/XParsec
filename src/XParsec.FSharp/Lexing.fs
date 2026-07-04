@@ -150,11 +150,19 @@ type FormatType =
     | FormatFunction
     | Text
 
+/// One dimension slot (width or precision) of a `%[flags][width][.precision][type]`
+/// placeholder. `Star` = `*`: the dimension is consumed as an extra printf argument.
+[<RequireQualifiedAccess>]
+type FormatDim =
+    | Absent
+    | Literal of bigint
+    | Star
+
 type FormatPlaceholder =
     {
         Flags: string
-        Width: bigint voption
-        Precision: bigint voption
+        Width: FormatDim
+        Precision: FormatDim
         Type: FormatType
         /// The raw type letter (`'x'` vs `'X'`, `'e'` vs `'E'`, …). `Type`
         /// collapses the case-bearing specifiers, so the literal letter is kept
@@ -2492,11 +2500,16 @@ module Lexing =
         let lFormatPlaceholder
             (reader: Reader<char, 'State, ReadableString>)
             : ParseResult<FormatPlaceholder, char, 'State> =
+            // One width/precision dimension: `*` (consumed as an extra printf
+            // argument) or a literal integer. Kept here so `parseFormatSpecifierView`
+            // inherits the grammar.
+            let pDim = (pchar '*' >>% FormatDim.Star) <|> (pbigint |>> FormatDim.Literal)
+
             let p =
                 parser {
                     let! flags = manyChars (anyOf "0+- ")
-                    let! width = opt pbigint
-                    let! precision = opt (pchar '.' >>. pbigint)
+                    let! width = pDim <|> preturn FormatDim.Absent
+                    let! precision = (pchar '.' >>. pDim) <|> preturn FormatDim.Absent
                     let! struct (typeKind, typeChar) = pFormatType
 
                     return

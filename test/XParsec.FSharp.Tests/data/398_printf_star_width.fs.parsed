@@ -1,0 +1,110 @@
+AnonymousModule:
+Sequential:
+  App:
+    Func:
+      Ident              'printfn'         Identifier          tok=   0  pos=   0
+    Args:
+      StringLiteral      '"'               StringOpen          tok=   2  pos=   8
+      Parts:
+        FormatSpec       '%*d'             FormatPlaceholder   tok=   3  pos=   9
+                         '"'               StringClose         tok=   4  pos=  12
+      Const              '5'               NumInt32            tok=   6  pos=  14
+      Const              '42'              NumInt32            tok=   8  pos=  16
+  App:
+    Func:
+      Ident              'printf'          Identifier          tok=  10  pos=  19
+    Args:
+      StringLiteral      '"'               StringOpen          tok=  12  pos=  26
+      Parts:
+        FormatSpec       '%-*d'            FormatPlaceholder   tok=  13  pos=  27
+                         '"'               StringClose         tok=  14  pos=  31
+      Const              '5'               NumInt32            tok=  16  pos=  33
+      Const              '42'              NumInt32            tok=  18  pos=  35
+  App:
+    Func:
+      Ident              'printfn'         Identifier          tok=  20  pos=  38
+    Args:
+      StringLiteral      '"'               StringOpen          tok=  22  pos=  46
+      Parts:
+        FormatSpec       '%0*d'            FormatPlaceholder   tok=  23  pos=  47
+                         '"'               StringClose         tok=  24  pos=  51
+      Const              '5'               NumInt32            tok=  26  pos=  53
+      Const              '42'              NumInt32            tok=  28  pos=  55
+  App:
+    Func:
+      Ident              'printfn'         Identifier          tok=  30  pos=  58
+    Args:
+      StringLiteral      '"'               StringOpen          tok=  32  pos=  66
+      Parts:
+        FormatSpec       '%+*d'            FormatPlaceholder   tok=  33  pos=  67
+                         '"'               StringClose         tok=  34  pos=  71
+      Const              '5'               NumInt32            tok=  36  pos=  73
+      Const              '42'              NumInt32            tok=  38  pos=  75
+  App:
+    Func:
+      Ident              'printfn'         Identifier          tok=  40  pos=  78
+    Args:
+      StringLiteral      '"'               StringOpen          tok=  42  pos=  86
+      Parts:
+        FormatSpec       '%.*f'            FormatPlaceholder   tok=  43  pos=  87
+                         '"'               StringClose         tok=  44  pos=  91
+      Const              '1'               NumInt32            tok=  46  pos=  93
+      Const              '123.456'         NumIEEE64           tok=  48  pos=  95
+  App:
+    Func:
+      Ident              'printfn'         Identifier          tok=  50  pos= 103
+    Args:
+      StringLiteral      '"'               StringOpen          tok=  52  pos= 111
+      Parts:
+        FormatSpec       '%*.*f'           FormatPlaceholder   tok=  53  pos= 112
+                         '"'               StringClose         tok=  54  pos= 117
+      Const              '12'              NumInt32            tok=  56  pos= 119
+      Const              '1'               NumInt32            tok=  58  pos= 122
+      Const              '123.456'         NumIEEE64           tok=  60  pos= 124
+  App:
+    Func:
+      Ident              'printfn'         Identifier          tok=  62  pos= 132
+    Args:
+      StringLiteral      '"'               StringOpen          tok=  64  pos= 140
+      Parts:
+        FormatSpec       '%*A'             FormatPlaceholder   tok=  65  pos= 141
+                         '"'               StringClose         tok=  66  pos= 144
+      Const              '1'               NumInt32            tok=  68  pos= 146
+      List               '['               KWLBracket          tok=  70  pos= 148
+        Sequential:
+          Const          '1'               NumInt32            tok=  72  pos= 150
+          Const          '2'               NumInt32            tok=  75  pos= 153
+          Const          '3'               NumInt32            tok=  78  pos= 156
+                         ']'               KWRBracket          tok=  80  pos= 158
+FunctionOrValue:
+  let                    'let'             KWLet               tok=  82  pos= 160
+    Pat.NamedSimple      'g'               Identifier          tok=  84  pos= 164
+    Pats:
+      ParenBlock         '('               KWLParen            tok=  86  pos= 166
+                         ')'               KWRParen            tok=  87  pos= 167
+    =                    '='               OpEquality          tok=  89  pos= 169
+      App:
+        Func:
+          Ident          'printf'          Identifier          tok=  91  pos= 171
+        Args:
+          StringLiteral  '"'               StringOpen          tok=  93  pos= 178
+          Parts:
+            FormatSpec   '%*d'             FormatPlaceholder   tok=  94  pos= 179
+                         '"'               StringClose         tok=  95  pos= 182
+FunctionOrValue:
+  let                    'let'             KWLet               tok=  97  pos= 184
+    Pat.NamedSimple      's'               Identifier          tok=  99  pos= 188
+    =                    '='               OpEquality          tok= 101  pos= 190
+      App:
+        Func:
+          Ident          'sprintf'         Identifier          tok= 103  pos= 192
+        Args:
+          StringLiteral  '"'               StringOpen          tok= 105  pos= 200
+          Parts:
+            FormatSpec   '%*s'             FormatPlaceholder   tok= 106  pos= 201
+                         '"'               StringClose         tok= 107  pos= 204
+          Const          '10'              NumInt32            tok= 109  pos= 206
+          StringLiteral  '"'               StringOpen          tok= 111  pos= 209
+          Parts:
+            Text         'hi'              StringFragment      tok= 112  pos= 210
+                         '"'               StringClose         tok= 113  pos= 212
