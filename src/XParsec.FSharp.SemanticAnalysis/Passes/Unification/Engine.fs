@@ -35,10 +35,13 @@ module UnificationEngine =
                     | TyClass(tk, targs) ->
                         let bare = SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tk)
 
-                        if bare = funInterfaceQualifiedName && targs.Length = 2 then
-                            Some 1
-                        elif bare = funInterfaceQualifiedName && targs.Length = 3 then
-                            Some 2
+                        // `Fun`2`/`Fun`3` share this one qualified name, discriminated by
+                        // type-arg count (2 curried ⇒ arity 1, 3 flat ⇒ arity 2).
+                        if bare = funInterfaceQualifiedName then
+                            match targs.Length with
+                            | 2 -> Some 1
+                            | 3 -> Some 2
+                            | _ -> None
                         else
                             None
                     | _ -> None
@@ -78,8 +81,10 @@ module UnificationEngine =
         /// A project-local class: member lookup walks the inheritance chain, so
         /// it can't be expressed as the single `subst` + `lookup` pair the
         /// `Resolved` shape carries. The drain defers to `tryClassChainMember`,
-        /// which threads the substitution up the chain per parent.
-        | ClassChain of name: string * args: EqArray<SemType>
+        /// which threads the substitution up the chain per parent. Carries the
+        /// class's `SymbolKey` (arity included) so the walk keys per-arity; a bare
+        /// name is derived only for the not-found diagnostic.
+        | ClassChain of key: SymbolKey * args: EqArray<SemType>
         /// An *external* class/interface (not in `ctx.Types.Class`): a deferred
         /// dot-access whose receiver TyVar resolved to a BCL/contract nominal
         /// (`System.Collections.IEqualityComparer`). The drain resolves the
@@ -100,21 +105,23 @@ module UnificationEngine =
                 DotSource.Resolved(name, "field", mkNamedTypeSubst info.TypeParams args, fieldLookup info.Fields)
             | ValueNone -> DotSource.UnknownType(name, "record")
         | ValueSome(NominalKind.Class, key, args) ->
-            let name = SymbolKeyOps.simpleName key
-
-            // Membership by (name, arity): an arity-overloaded local class (`Fun`2`/
-            // `Fun`3`) has no bare alias, so a bare `ContainsKey` would misclassify it
-            // as external. `name` still feeds the arity-aware `ClassChain` walk.
-            if TypeRegistry.containsClass ctx.Types name args.Length then
-                DotSource.ClassChain(name, args)
+            // Membership by the class's key (arity included): an arity-overloaded
+            // local class (`Fun`2`/`Fun`3`) has no bare alias, so a bare `ContainsKey`
+            // would misclassify it as external. The key rides the `ClassChain` walk.
+            if TypeRegistry.containsClassKey ctx.Types key then
+                DotSource.ClassChain(key, args)
             else
                 // Not project-local — an external (BCL/contract) class or interface
                 // whose member resolves through the provider by its qualified name.
                 DotSource.ExternalClass(SymbolKeyOps.qualifiedName key, args)
         | ValueSome(NominalKind.Union, key, args) ->
+            // Resolve by the arity-qualified key (mirror the record arm): an
+            // arity-overloaded union (`Choice`2`/`Choice`3`) has no bare alias.
+            // `name` is display-only — the `Resolved` label and the `UnknownType`
+            // diagnostic.
             let name = SymbolKeyOps.simpleName key
 
-            match TypeRegistry.tryUnion ctx.Types name args.Length with
+            match TypeRegistry.tryUnionByKey ctx.Types key with
             | ValueSome info ->
                 DotSource.Resolved(
                     name,
@@ -437,7 +444,7 @@ module UnificationEngine =
                     match lookup d.MemberName with
                     | ValueSome ty -> unify ctx d.UseKey (TyVar d.ResultTv) (substituteWith subst ty)
                     | ValueNone -> ctx.Error(d.UseKey, sprintf "Type '%s' has no %s '%s'" name memberNoun d.MemberName)
-            | DotSource.ClassChain(name, args) ->
+            | DotSource.ClassChain(key, args) ->
                 // `tryClassChainMember` already returns the type instantiated
                 // against `args` (and any parent typar substitution), so no
                 // further `substituteWith` is needed here.
@@ -445,10 +452,13 @@ module UnificationEngine =
                 root.PendingDotAccess <- []
 
                 for d in pending do
-                    match tryClassChainMember ctx name args d.MemberName with
+                    match tryClassChainMember ctx key args d.MemberName with
                     | ValueSome ty -> unify ctx d.UseKey (TyVar d.ResultTv) ty
                     | ValueNone ->
-                        ctx.Error(d.UseKey, sprintf "Type '%s' has no instance member '%s'" name d.MemberName)
+                        ctx.Error(
+                            d.UseKey,
+                            sprintf "Type '%s' has no instance member '%s'" (SymbolKeyOps.simpleName key) d.MemberName
+                        )
             | DotSource.ExternalClass(qualName, args) ->
                 // Deferred mirror of `resolveFieldStep`'s external arm: the receiver
                 // TyVar resolved to a BCL/contract class or interface (e.g. the

@@ -851,6 +851,58 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
+            test "instance member on arity-overloaded class resolves per arity" {
+                // `Box`1`/`Box`2` overload one short name by arity; the bare alias is
+                // withdrawn. `walkClassBodies` must resolve each class by its arity-key
+                // to name-resolve its member bodies — a bare-name miss would skip BOTH
+                // classes' bodies, leaving `this`/ctor params unbound so the member type
+                // decouples from the class typar (`.Peek` would type as a free var).
+                // `.Peek` returns the last typar, so the two arities yield distinct types.
+                let input =
+                    "type Box<'a>(v: 'a) =\n    member this.Peek = v\n"
+                    + "type Box<'a, 'b>(x: 'a, y: 'b) =\n    member this.Peek = y\n"
+                    + "let f (one: Box<int>) =\n    let a = one.Peek\n    a\n"
+                    + "let g (two: Box<bool, string>) =\n    let b = two.Peek\n    b"
+
+                let ctx = analyse input
+                let aKey = NodeKey.ofSource (input.IndexOf "a = one.Peek") NodeKind.PatIdent
+                let bKey = NodeKey.ofSource (input.IndexOf "b = two.Peek") NodeKind.PatIdent
+                Expect.equal (typeOf ctx aKey) BuiltinTypes.tyInt "a : int — Box`1.Peek is the 'a"
+                Expect.equal (typeOf ctx bKey) BuiltinTypes.tyString "b : string — Box`2.Peek is the 'b"
+                Expect.isEmpty ctx.Diagnostics (sprintf "no diagnostics — both arities resolve: %A" ctx.Diagnostics)
+            }
+
+            test "typar-interface member walk resolves per generic arity" {
+                // `IBox`1` and `IBox`2` overload one short name by arity; the bare
+                // alias is withdrawn. A typar constrained to a specific arity
+                // (`'S :> IBox<int>`) must resolve `.Peek()` through the arity-keyed
+                // interface, not a bare-name strip. `Peek` returns the LAST typar on
+                // each, so per-arity resolution yields distinct results — an
+                // arity-blind walk would collapse them.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type IBox<'a> ="
+                            "    abstract member Peek : unit -> 'a"
+                            "type IBox<'a, 'b> ="
+                            "    abstract member Peek : unit -> 'b"
+                            "let f (x: 'S when 'S :> IBox<int>) ="
+                            "    let a = x.Peek()"
+                            "    a"
+                            "let g (y: 'S when 'S :> IBox<bool, string>) ="
+                            "    let b = y.Peek()"
+                            "    b"
+                        ]
+
+                let ctx = analyse src
+                let aKey = NodeKey.ofSource (src.IndexOf "a = x.Peek()") NodeKind.PatIdent
+                let bKey = NodeKey.ofSource (src.IndexOf "b = y.Peek()") NodeKind.PatIdent
+                Expect.equal (typeOf ctx aKey) BuiltinTypes.tyInt "a : int — IBox`1.Peek is the 'a"
+                Expect.equal (typeOf ctx bKey) BuiltinTypes.tyString "b : string — IBox`2.Peek is the 'b"
+                Expect.isEmpty ctx.Diagnostics (sprintf "no diagnostics — both arities resolve: %A" ctx.Diagnostics)
+            }
+
             // --- Phase 2 / B-4: `:>` / `:?` / `:?>` arms (Step 2.4) ---
 
             test "`:>` upcast to declared base types as the base" {
@@ -861,6 +913,37 @@ let tests =
                 let patKey = NodeKey.ofSource (input.IndexOf "s = ") NodeKind.PatIdent
                 Expect.equal (typeOf ctx patKey) (TyClass("B", EqArray.empty)) "s : B"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics — D <: B"
+            }
+
+            test "`:>` upcast resolves interfaces of an arity-overloaded local host" {
+                // `Base`1`/`Base`2` overload one short name by arity; the bare alias is
+                // withdrawn. Upcasting a `Base<int, string>` value to the interface it
+                // declares drives the subtype walk (`tryUpcastWitness` →
+                // `subtypeInterfacesOf`) onto the arity-2 host. Resolving its
+                // `interface … with` impls must key on the receiver's `SymbolKey`, not a
+                // bare-name strip — a bare read misses the withdrawn alias, finds no
+                // witness, and diagnoses a spurious upcast failure.
+                let input =
+                    String.concat
+                        "\n"
+                        [
+                            "type I ="
+                            "    abstract member Tag : int"
+                            "type Base<'a>(v: 'a) ="
+                            "    interface I with"
+                            "        member this.Tag = 1"
+                            "type Base<'a, 'b>(x: 'a, y: 'b) ="
+                            "    interface I with"
+                            "        member this.Tag = 2"
+                            "let f (b: Base<int, string>) ="
+                            "    let i = b :> I"
+                            "    i"
+                        ]
+
+                let ctx = analyse input
+                let patKey = NodeKey.ofSource (input.IndexOf "i = b :> I") NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyClass("I", EqArray.empty)) "i : I — Base`2 <: I resolves per arity"
+                Expect.isEmpty ctx.Diagnostics (sprintf "no diagnostics — Base`2 declares I: %A" ctx.Diagnostics)
             }
 
             test "`:>` upcast between unrelated types diagnoses" {

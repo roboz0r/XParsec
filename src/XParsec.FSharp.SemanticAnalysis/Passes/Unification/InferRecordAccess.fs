@@ -206,15 +206,12 @@ module internal UnificationInferRecordAccess =
                 | SemanticConstraintKind.Coercion target ->
                     match resolveStep target with
                     | TyClass(ifaceKey, ifaceArgs) ->
-                        let ifaceName = SymbolKeyOps.simpleName ifaceKey
-
-                        // Resolve by the arity-qualified key, not the bare name: an
+                        // Resolve by the interface's key, not a bare name: an
                         // arity-overloaded interface (`Fun`2`/`Fun`3`) has no bare alias, so a
                         // bare read would miss a `'T :> Fun<…>` bound's local interface.
-                        // `ifaceName` is still threaded to the arity-aware chain walk below.
                         match TypeRegistry.tryClassByKey ctx.Types ifaceKey with
                         | ValueSome info when info.IsInterface ->
-                            match tryClassChainMember ctx ifaceName ifaceArgs memberName with
+                            match tryClassChainMember ctx ifaceKey ifaceArgs memberName with
                             | ValueSome mty ->
                                 ctx.Resolution.TyparInterfaceCall.Set(diagKey, (ifaceKey, ifaceArgs))
                                 ValueSome mty
@@ -249,21 +246,18 @@ module internal UnificationInferRecordAccess =
                 | None -> errorTy ctx diagKey (sprintf "Type '%s' has no field '%s'" info.Name memberName)
             | ValueNone -> errorTy ctx diagKey (sprintf "Unknown record type '%s'" (SymbolKeyOps.simpleName recKey))
         | TyClass(clsKey, args) ->
-            // Local lookup by the bare simple name; the external provider by the
-            // qualified compiled name (an external `TyClass` carries a qualified key).
-            let clsSimple = SymbolKeyOps.simpleName clsKey
-
             // Resolve by the (arity-qualified) key, not the bare name: an
             // arity-overloaded receiver (`Fun\`2`/`Fun\`3`) has no bare alias, so a
-            // bare read would miss. `clsSimple` is still threaded downstream for the
-            // arity-aware chain walk and diagnostics.
+            // bare read would miss. `clsSimple` survives only for the diagnostic path.
+            let clsSimple = SymbolKeyOps.simpleName clsKey
+
             match TypeRegistry.tryClassByKey ctx.Types clsKey with
             | ValueSome info ->
                 // Walk the inheritance chain (derived members shadow inherited).
                 // On a total miss, fall back to the single-class diagnostic so
                 // the static-access hint still references the receiver's own
                 // class rather than some ancestor.
-                match tryClassChainMember ctx clsSimple args memberName with
+                match tryClassChainMember ctx clsKey args memberName with
                 | ValueSome ty -> ty
                 | ValueNone ->
                     // An explicit `val x: T` instance field read (struct enumerator

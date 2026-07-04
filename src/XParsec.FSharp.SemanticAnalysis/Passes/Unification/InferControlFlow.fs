@@ -538,16 +538,13 @@ module internal UnificationInferControlFlow =
                 | SemanticConstraintKind.Coercion target ->
                     match resolveStep target with
                     | TyClass(ifaceKey, ifaceArgs) ->
-                        let ifaceName = SymbolKeyOps.simpleName ifaceKey
-
-                        // Resolve by the arity-qualified key, not the bare name: an
+                        // Resolve by the interface's key, not a bare name: an
                         // arity-overloaded interface (`Fun`2`/`Fun`3`) has no bare alias.
-                        // `ifaceName` is still threaded to the arity-aware chain walk below.
                         match TypeRegistry.tryClassByKey ctx.Types ifaceKey with
                         | ValueSome info when info.IsInterface ->
                             match
-                                tryClassChainMember ctx ifaceName ifaceArgs "MoveNext",
-                                tryClassChainMember ctx ifaceName ifaceArgs "Current"
+                                tryClassChainMember ctx ifaceKey ifaceArgs "MoveNext",
+                                tryClassChainMember ctx ifaceKey ifaceArgs "Current"
                             with
                             | ValueSome mnTy, ValueSome curTy ->
                                 match zonk mnTy with
@@ -582,14 +579,11 @@ module internal UnificationInferControlFlow =
                 | SemanticConstraintKind.Coercion target ->
                     match resolveStep target with
                     | TyClass(ifaceKey, ifaceArgs) ->
-                        let ifaceName = SymbolKeyOps.simpleName ifaceKey
-
-                        // Resolve by the arity-qualified key, not the bare name: an
+                        // Resolve by the interface's key, not a bare name: an
                         // arity-overloaded interface (`Fun`2`/`Fun`3`) has no bare alias.
-                        // `ifaceName` is still threaded to the arity-aware chain walk below.
                         match TypeRegistry.tryClassByKey ctx.Types ifaceKey with
                         | ValueSome info when info.IsInterface ->
-                            match tryClassChainMember ctx ifaceName ifaceArgs "GetEnumerator" with
+                            match tryClassChainMember ctx ifaceKey ifaceArgs "GetEnumerator" with
                             | ValueSome mty ->
                                 match zonk mty with
                                 | TyFun(_, enumTy) ->

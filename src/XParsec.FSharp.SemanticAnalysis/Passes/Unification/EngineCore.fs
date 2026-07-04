@@ -304,23 +304,24 @@ module UnificationEngineCore =
 
     let tryClassChainMemberDecl
         (ctx: PassContext)
-        (clsName: string)
+        (clsKey: SymbolKey)
         (args: EqArray<SemType>)
         (memberName: string)
         : ChainMember voption =
-        let seen = HashSet<string>()
+        // Cycle guard keyed on the type's `SymbolKey` identity (arity included), not a
+        // reconstructed `name\`arity` string, so a self-inheriting arity overload
+        // (`Foo\`2` : `Foo\`3`) can't collide.
+        let seen = HashSet<SymbolKey>()
 
-        // Resolve by the arity-key (`name\`args.Length`), not the bare short name,
-        // so an arity-overloaded class (`Fun\`2` vs `Fun\`3`, whose bare alias is
-        // withdrawn) walks the correct chain. The receiver's type-arg count IS the
-        // arity, so it is always in hand here.
-        let rec walk (clsName: string) (args: EqArray<SemType>) : ChainMember voption =
-            let arityKey = SymbolKeyOps.arityName clsName args.Length
-
-            if not (seen.Add arityKey) then
+        // Resolve by the `SymbolKey` the receiver carries, never a bare-name strip:
+        // an arity-overloaded class (`Fun\`2` vs `Fun\`3`, whose bare alias is
+        // withdrawn) walks the correct chain, and the base-type recursion passes the
+        // parent's key straight through with no arity round-trip.
+        let rec walk (clsKey: SymbolKey) (args: EqArray<SemType>) : ChainMember voption =
+            if not (seen.Add clsKey) then
                 ValueNone
             else
-                match TypeRegistry.tryClassArity ctx.Types clsName args.Length with
+                match TypeRegistry.tryClassByKey ctx.Types clsKey with
                 | ValueSome info ->
                     match info.Members |> Array.tryFind (fun m -> m.Name = memberName && not m.IsStatic) with
                     | Some m ->
@@ -334,20 +335,20 @@ module UnificationEngineCore =
                         match info.BaseType with
                         | ValueSome parentTy ->
                             match resolveStep (instantiateMember (info.TypeParams, args) parentTy) with
-                            | TyClass(parentKey, parentArgs) -> walk (SymbolKeyOps.simpleName parentKey) parentArgs
+                            | TyClass(parentKey, parentArgs) -> walk parentKey parentArgs
                             | _ -> ValueNone
                         | ValueNone -> ValueNone
                 | ValueNone -> ValueNone
 
-        walk clsName args
+        walk clsKey args
 
     let tryClassChainMember
         (ctx: PassContext)
-        (clsName: string)
+        (clsKey: SymbolKey)
         (args: EqArray<SemType>)
         (memberName: string)
         : SemType voption =
-        match tryClassChainMemberDecl ctx clsName args memberName with
+        match tryClassChainMemberDecl ctx clsKey args memberName with
         | ValueSome cm -> ValueSome cm.MemberTy
         | ValueNone -> ValueNone
 
@@ -477,42 +478,63 @@ module UnificationEngineCore =
         | TyClass(n, args) -> ValueSome(struct (canonName ctx (SymbolKeyOps.qualifiedName n), args))
         // A named DU enters the nominal subtype walk too, so its declared
         // `interface … with` impls (surfaced by `subtypeInterfacesOf` via
-        // `tryInterfaceImplHost`) admit `(u :> ISomeIface)` exactly like a class's.
+        // `tryInterfaceImplHostByKey`) admit `(u :> ISomeIface)` exactly like a class's.
         // (Anonymous `TyOr` unions resolve structurally in `subsumes`, never here.)
         | TyUnion(n, args) -> ValueSome(struct (canonName ctx (SymbolKeyOps.qualifiedName n), args))
         // A named record enters the nominal subtype walk too, so its declared
         // `interface … with` impls (surfaced by `subtypeInterfacesOf` via
-        // `tryInterfaceImplHost`) admit `(r :> ISomeIface)` exactly like a class's.
+        // `tryInterfaceImplHostByKey`) admit `(r :> ISomeIface)` exactly like a class's.
         | TyRecord(n, args) -> ValueSome(struct (canonName ctx (SymbolKeyOps.qualifiedName n), args))
         | TyConst(n, args) -> ValueSome(struct (canonName ctx n, args))
         | _ -> ValueNone
 
-    // The instantiated declared base of nominal `(name, args)`: the
-    // project-local class table first, then the external provider.
+    // The project-local registry key of a nominal `SemType` (`TyClass` / `TyUnion` /
+    // `TyRecord`), or `ValueNone` for a `TyConst` / non-nominal. The subtype walk
+    // resolves a local base / interface-impl host by this arity-qualified key rather
+    // than a bare-name strip of the qualified canonical name: an arity-overloaded
+    // local type (`Box`1`/`Box`2`) has its bare alias withdrawn, so a `shortName`
+    // lookup would miss it and mis-route to the provider (mirrors `tryExternalReceiver`,
+    // whose external test is likewise `(tryClassByKey key).IsNone`).
+    let private nominalKeyOf (ty: SemType) : SymbolKey voption =
+        match resolveStep ty with
+        | TyClass(k, _)
+        | TyUnion(k, _)
+        | TyRecord(k, _) -> ValueSome k
+        | _ -> ValueNone
+
+    // The instantiated declared base of the nominal the walk is expanding: the
+    // project-local class table first (by `localKey`, the receiver's own arity-key),
+    // then the external provider (by the qualified `name`).
     // `ExternalTypeShape.Class.BaseType` carries the BCL `inherit` chain
     // (`InvalidOperationException :> Exception :> …`), written over the
     // declaring type's typars, so we apply the receiver's `args`, exactly
     // like the user-class `instantiateMember` path. Both reads are pure —
-    // `ctx.Types.Class` is a plain lookup and `TryLookupType` is
+    // `tryClassByKey` is a plain lookup and `TryLookupType` is
     // contractually thread-safe and side-effect free — so `subsumes` stays
     // the read-only query the `:?` coercion site and the constraint checker
     // rely on (no undo trace).
-    let private subtypeParentOf (ctx: PassContext) (name: string) (args: EqArray<SemType>) : SemType voption =
+    let private subtypeParentOf
+        (ctx: PassContext)
+        (localKey: SymbolKey voption)
+        (name: string)
+        (args: EqArray<SemType>)
+        : SemType voption =
         // `name` is the qualified canonical name `subtypeNominalOf` surfaces (so it
-        // feeds `canonName`'s repr map); the project-local class table is keyed by the
-        // bare simple segment, the provider by the qualified name. Re-derive the
-        // simple segment through the shared `shortName` rule rather than a
-        // hand-rolled last-`.` split — `shortName` also strips the `` `N `` arity
-        // suffix the qualified name retains, so a generic local class
-        // (`MyNs.Box`1`) resolves to its bare table key (`Box`) instead of missing.
-        let simple = SymbolKeyOps.shortName name
+        // feeds `canonName`'s repr map and the provider lookup). `localKey` is the same
+        // nominal's registry key when it came from a `TyClass`/`TyUnion`/`TyRecord`;
+        // the local class table is keyed by that arity-qualified key, the provider by
+        // the qualified name.
+        let localInfo =
+            match localKey with
+            | ValueSome k -> TypeRegistry.tryClassByKey ctx.Types k
+            | ValueNone -> ValueNone
 
-        match ctx.Types.Class.TryGetValue simple with
-        | true, info ->
+        match localInfo with
+        | ValueSome info ->
             match info.BaseType with
             | ValueSome parentTy -> ValueSome(instantiateMember (info.TypeParams, args) parentTy)
             | ValueNone -> ValueNone
-        | false, _ ->
+        | ValueNone ->
             match ctx.Provider.TryLookupType name with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 ExternalSymbols.instantiateBaseType shape (args.AsSpan().ToArray())
@@ -528,14 +550,20 @@ module UnificationEngineCore =
     // metadata `GetInterfaces()`). Same purity contract as `subtypeParentOf`.
     let private subtypeInterfacesOf
         (ctx: PassContext)
+        (localKey: SymbolKey voption)
         (name: string)
         (args: EqArray<SemType>)
         : struct (string * EqArray<SemType>) list =
-        let simple = SymbolKeyOps.shortName name
-
         // A class, union, *or* record may declare `interface … with` impls; the subtype
-        // walk treats every kind's interface list identically.
-        match TypeRegistry.tryInterfaceImplHost ctx.Types simple with
+        // walk treats every kind's interface list identically. Resolve the local host by
+        // its arity-key (`localKey`, the receiver's own registry key), falling back to
+        // the external provider by qualified `name`.
+        let localHost =
+            match localKey with
+            | ValueSome k -> TypeRegistry.tryInterfaceImplHostByKey ctx.Types k
+            | ValueNone -> ValueNone
+
+        match localHost with
         | ValueSome info ->
             [
                 for impl in info.InterfaceImpls do
@@ -575,14 +603,20 @@ module UnificationEngineCore =
                 elif not (seen.Add s) then
                     ValueNone
                 else
+                    // `s`/`sa` are the qualified canonical name + args (the walk's
+                    // comparison currency, unifying `TyConst`/external/local into one
+                    // space); `localKey` is the same nominal's registry key so the local
+                    // base / interface-impl lookups resolve per-arity, not by bare name.
+                    let localKey = nominalKeyOf cur
+
                     let viaIface =
-                        subtypeInterfacesOf ctx s sa
+                        subtypeInterfacesOf ctx localKey s sa
                         |> List.tryPick (fun (struct (iname, ia)) -> if iname = tgtName then Some ia else None)
 
                     match viaIface with
                     | Some ia -> ValueSome ia
                     | None ->
-                        match subtypeParentOf ctx s sa with
+                        match subtypeParentOf ctx localKey s sa with
                         | ValueSome parentInstance -> walk seen parentInstance
                         | ValueNone -> ValueNone
 

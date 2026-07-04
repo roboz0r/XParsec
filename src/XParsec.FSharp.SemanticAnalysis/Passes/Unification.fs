@@ -1156,9 +1156,14 @@ module Unification =
                     let (TypeName(ident = nameLi)) = d.TypeName
 
                     if nameLi.Idents.Length = 1 then
-                        match ctx.Types.Class.TryGetValue(ctx.NameOf nameLi.Idents.[0]) with
-                        | true, info -> resolveInterfaceImpls ctx (info :> IInterfaceImplHost)
-                        | false, _ -> ()
+                        // Resolve by arity-key: an overloaded `Foo\`1`/`Foo\`2` host has
+                        // no bare alias, so a bare-name lookup would skip its interface
+                        // impls. Mirrors `fillClassMembers` / `walkClassBodies`.
+                        let arity = NameResolutionTypeRegistration.arityOfTypeName ctx d.TypeName
+
+                        match TypeRegistry.tryClassArity ctx.Types (ctx.NameOf nameLi.Idents.[0]) arity with
+                        | ValueSome info -> resolveInterfaceImpls ctx (info :> IInterfaceImplHost)
+                        | ValueNone -> ()
                 | ValueNone ->
                     // A union or record may also declare `interface … with` blocks;
                     // resolve them up front on the same path so a `:>` / coercion site

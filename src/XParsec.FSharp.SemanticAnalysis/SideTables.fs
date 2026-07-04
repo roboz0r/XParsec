@@ -931,33 +931,22 @@ module TypeRegistry =
     /// `tryUnionByKey`. See `tryByTypeKey`.
     let tryClassByKey (types: PassContextTypes) (key: SymbolKey) : ClassTypeInfo voption = tryByTypeKey types.Class key
 
+    /// True iff a class is registered under this `SymbolKey`'s arity-qualified name —
+    /// the key-based membership gate (the `tryClassByKey`-shaped mirror of
+    /// `containsClass`). A caller holding a `TyClass` key uses this so an
+    /// arity-overloaded class (whose bare alias is withdrawn) isn't misclassified as
+    /// external.
+    let containsClassKey (types: PassContextTypes) (key: SymbolKey) : bool = (tryByTypeKey types.Class key).IsSome
+
     /// Resolve a nominal type that may carry `interface … with` impls — a class,
-    /// union, *or* record — by bare short name, surfaced as the shared
+    /// union, *or* record — by its arity-qualified `SymbolKey` (via `tryByTypeKey`,
+    /// which reads the key's ``name`arity`` verbatim), surfaced as the shared
     /// `IInterfaceImplHost`. The `subsumes` interface-admission walk uses this so a
     /// union's/record's declared interfaces participate in subtyping exactly like a
-    /// class's. Classes win a name collision (they always have for the bare-alias reads).
-    /// Bare-name keyed — the recognition-only sibling of `tryInterfaceImplHostByKey`.
-    /// An arity-overloaded *host* (a `Foo`2`/`Foo`3` both carrying `interface … with`
-    /// impls) has its bare alias withdrawn and would MISS here, so a caller holding
-    /// the host's `SymbolKey` must route through `tryInterfaceImplHostByKey` instead.
-    let tryInterfaceImplHost (types: PassContextTypes) (name: string) : IInterfaceImplHost voption =
-        match types.Class.TryGetValue name with
-        | true, info -> ValueSome(info :> IInterfaceImplHost)
-        | false, _ ->
-            match types.Union.TryGetValue name with
-            | true, info -> ValueSome(info :> IInterfaceImplHost)
-            | false, _ ->
-                match types.Record.TryGetValue name with
-                | true, info -> ValueSome(info :> IInterfaceImplHost)
-                | false, _ -> ValueNone
-
-    /// Resolve an `interface … with` host by its arity-qualified `SymbolKey` (via
-    /// `tryByTypeKey`, which reads the key's ``name`arity`` verbatim), not the bare
-    /// simple name — the key-based sibling of `tryInterfaceImplHost`. An
-    /// arity-overloaded host (`Foo`2`/`Foo`3`) has no bare alias, so a caller holding
-    /// a `TyClass`/`TyUnion`/`TyRecord` key must route through here or it would miss
-    /// the local host and mis-classify the type as external. Class → union → record,
-    /// matching the bare-name sibling.
+    /// class's. Class → union → record, so a class wins a name collision (as the
+    /// bare-alias reads always have). Key-based (not bare short name): an
+    /// arity-overloaded host (`Foo`2`/`Foo`3`) has its bare alias withdrawn, so a
+    /// bare lookup would miss the local host and mis-classify the type as external.
     let tryInterfaceImplHostByKey (types: PassContextTypes) (key: SymbolKey) : IInterfaceImplHost voption =
         match tryByTypeKey types.Class key with
         | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
@@ -973,8 +962,9 @@ module TypeRegistry =
     /// `IInterfaceImplHost`. The union/record analogue of the class `tryClassLikeDecl`
     /// path: the three host-body passes route their
     /// `TypeDefnPatterns.tryUnionOrRecordHostDecl` match through this one lookup, so they
-    /// share the bare-name convention (the same `tryInterfaceImplHost` / `subsumes` use)
-    /// instead of skewing against the arity-key. Classes are excluded — they fill and
+    /// share one bare-name convention instead of skewing against the arity-key. (The
+    /// subtype walk resolves the same hosts by `SymbolKey` via `tryInterfaceImplHostByKey`.)
+    /// Classes are excluded — they fill and
     /// resolve through their own richer path (`fillClassMembers` / `walkClassBodies`), so
     /// admitting one here would double-fill.
     let tryUnionOrRecordHost (types: PassContextTypes) (name: string) : IInterfaceImplHost voption =

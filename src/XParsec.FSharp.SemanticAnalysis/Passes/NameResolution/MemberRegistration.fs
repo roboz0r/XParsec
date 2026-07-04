@@ -848,13 +848,16 @@ module NameResolutionMemberRegistration =
         for kv in ctx.Types.Class do
             let start = kv.Value
 
-            let rec walk (visited: Set<string>) (info: ClassTypeInfo) =
+            // Compare on the class's `SymbolKey` (arity included), not its bare name,
+            // so an arity-overloaded self-reference (`Foo\`2` : `Foo\`3`) isn't falsely
+            // flagged as a cycle.
+            let visited = System.Collections.Generic.HashSet<SymbolKey>()
+            visited.Add start.Key |> ignore
+
+            let rec walk (info: ClassTypeInfo) =
                 match info.BaseType with
                 | ValueSome(TyClass(parentKey, _)) ->
-                    // Project the parent class's bare registry name off its key.
-                    let parentName = SymbolKeyOps.simpleName parentKey
-
-                    if parentName = start.Name then
+                    if parentKey = start.Key then
                         ctx.Diagnostics.Add
                             {
                                 Key = start.DeclKey
@@ -864,17 +867,17 @@ module NameResolutionMemberRegistration =
                             }
 
                         start.BaseType <- ValueNone
-                    elif visited.Contains parentName then
+                    elif not (visited.Add parentKey) then
                         // A cycle that doesn't pass back through `start`; it is
                         // diagnosed when iteration reaches a class on that cycle.
                         ()
                     else
-                        match ctx.Types.Class.TryGetValue parentName with
-                        | true, parentInfo -> walk (Set.add parentName visited) parentInfo
-                        | false, _ -> ()
+                        match TypeRegistry.tryClassByKey ctx.Types parentKey with
+                        | ValueSome parentInfo -> walk parentInfo
+                        | ValueNone -> ()
                 | _ -> ()
 
-            walk (Set.singleton start.Name) start
+            walk start
 
     /// Stamp augmentation members + `interface … with` impls onto an already-registered
     /// union or record. Must run after the type itself is registered; reads its

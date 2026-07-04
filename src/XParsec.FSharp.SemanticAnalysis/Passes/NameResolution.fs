@@ -304,13 +304,25 @@ module NameResolution =
         (walker: CstWalk.ExprWalker<Scope list>)
         (m: ModuleElem<SyntaxToken>)
         : unit =
+        // Resolve the class-like decl to its registered `ClassTypeInfo` (paired with
+        // the decl body). Keys by the arity-`SymbolKey`, not the bare name: an
+        // overloaded `Box\`1`/`Box\`2` has no bare alias, and a bare-name miss would
+        // skip BOTH classes' member bodies (their `this`/ctor params never enter
+        // scope). Mirrors `fillClassMembers`.
         let bodyOf (td: TypeDefn<SyntaxToken>) =
             match TypeDefnPatterns.tryClassLikeDecl td with
             | ValueSome d ->
                 let (TypeName(ident = nameLi)) = d.TypeName
 
                 if nameLi.Idents.Length = 1 then
-                    ValueSome(ctx.NameOf nameLi.Idents.[0], d.Body)
+                    match
+                        TypeRegistry.tryClassArity
+                            ctx.Types
+                            (ctx.NameOf nameLi.Idents.[0])
+                            (arityOfTypeName ctx d.TypeName)
+                    with
+                    | ValueSome info -> ValueSome(info, d.Body)
+                    | ValueNone -> ValueNone
                 else
                     ValueNone
             | ValueNone -> ValueNone
@@ -319,33 +331,30 @@ module NameResolution =
         | ModuleElem.Type defs ->
             for td in defs do
                 match bodyOf td with
-                | ValueSome(name, body) ->
-                    match ctx.Types.Class.TryGetValue name with
-                    | true, info ->
-                        walkTypeBodies
-                            ctx
-                            walker
-                            {
-                                ThisName = info.ThisName
-                                ThisKey = info.ThisKey
-                                BaseKey =
-                                    match info.BaseType with
-                                    | ValueSome _ -> ValueSome info.BaseKey
-                                    | ValueNone -> ValueNone
-                                CtorParams = info.CtorParams
-                                StaticLets = info.StaticLets
-                                SecondaryCtors = info.SecondaryCtors
-                                InheritsExpr =
-                                    // Walk the primary base-ctor args only when
-                                    // `registerInheritedSlots` resolved the parent
-                                    // (otherwise it already diagnosed the clause).
-                                    match info.BaseType, body.inherits with
-                                    | ValueSome _, ValueSome(ClassInheritsDecl(expr = e)) -> e
-                                    | _ -> ValueNone
-                                EnclosingModuleMembers = enclosingModuleMembers ctx name
-                                Elements = body.elements
-                            }
-                    | false, _ -> ()
+                | ValueSome(info, body) ->
+                    walkTypeBodies
+                        ctx
+                        walker
+                        {
+                            ThisName = info.ThisName
+                            ThisKey = info.ThisKey
+                            BaseKey =
+                                match info.BaseType with
+                                | ValueSome _ -> ValueSome info.BaseKey
+                                | ValueNone -> ValueNone
+                            CtorParams = info.CtorParams
+                            StaticLets = info.StaticLets
+                            SecondaryCtors = info.SecondaryCtors
+                            InheritsExpr =
+                                // Walk the primary base-ctor args only when
+                                // `registerInheritedSlots` resolved the parent
+                                // (otherwise it already diagnosed the clause).
+                                match info.BaseType, body.inherits with
+                                | ValueSome _, ValueSome(ClassInheritsDecl(expr = e)) -> e
+                                | _ -> ValueNone
+                            EnclosingModuleMembers = enclosingModuleMembers ctx info.Name
+                            Elements = body.elements
+                        }
                 | ValueNone -> ()
         | _ -> ()
 

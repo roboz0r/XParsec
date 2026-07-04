@@ -789,7 +789,7 @@ module internal FreezeResolve =
                 // to `FieldGet` only when no ancestor declares it — a genuine ctor-param
                 // / `val` field access. (The own-class case is the `isMember` arm
                 // above, so the walk only ever resolves a strict ancestor here.)
-                match Unification.tryClassChainMemberDecl ctx (SymbolKeyOps.simpleName clsKey) args segName with
+                match Unification.tryClassChainMemberDecl ctx clsKey args segName with
                 | ValueSome cm ->
                     let key =
                         LocalSymbolKey.ofMember (nominalDeclKey cm.DeclaringTy) segName 0 MemberKind.Property
