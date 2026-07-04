@@ -227,4 +227,26 @@ let tests =
 
                 Expect.isEmpty ws (sprintf "a dynamic write is not an escape: %A" ws)
             }
+
+            // `retype` — the general erasing reinterpret — is public but lives in the
+            // NON-auto-opened `Vesper.Unsafe` (G3): reachable only via an explicit
+            // `open Vesper.Unsafe`, so the unchecked cast is never ambiently in scope.
+
+            test "`retype` is reachable through `open Vesper.Unsafe`" {
+                let errs =
+                    analyseWith
+                        dynProvider
+                        (String.concat "\n" [ "open Vesper.Unsafe"; "let s : string = retype 7"; "ignore s"; "" ])
+
+                Expect.isEmpty errs (sprintf "`open Vesper.Unsafe` should bring `retype` into scope: %A" errs)
+            }
+
+            test "`retype` is NOT ambient — bare `retype` without the `open` does not resolve" {
+                // Proves the restriction: `retype` left the auto-opened `DynamicOperators`,
+                // so an unqualified use with no `open Vesper.Unsafe` is unresolved.
+                let errs =
+                    analyseWith dynProvider (String.concat "\n" [ "let s : string = retype 7"; "ignore s"; "" ])
+
+                Expect.isNonEmpty errs "bare `retype` must not resolve without `open Vesper.Unsafe`"
+            }
         ]

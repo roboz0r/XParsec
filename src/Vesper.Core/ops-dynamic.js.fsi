@@ -5,9 +5,9 @@ namespace Vesper
 // JS-only (`files-js`); the inline bodies live in `ops-dynamic.js.fs`
 // (`inline-bodies-js`) as `$0[$1]` computed-member templates.
 //
-//   retype  — the general erasing reinterpret (`(# "" x : ^U #)`): emits the value
-//             unchanged and re-types it. Inherently unsafe (no runtime check) — the
-//             escape valve, and the primitive `dynamic` / whole-value exit build on.
+//   retype  — the general erasing reinterpret (`(# "" x : ^U #)`). Inherently unsafe
+//             (no runtime check); NOT auto-opened — it lives in `module Unsafe`, so a
+//             user must `open Vesper.Unsafe` to reach it. `dynamic` builds on it.
 //   dynamic — enter `dynamic` from any value (`retype` at a fixed result type). `x`
 //             alone never flows in silently; you say `dynamic x`.
 //   (?)     — member access on a `dynamic` receiver, target-typed. Unconstrained it
@@ -16,14 +16,22 @@ namespace Vesper
 //             fires — the principled escape back to static. STRICT `dynamic` receiver.
 //   (?<-)   — the setter (`x?foo <- v`).
 
-[<AutoOpen>]
-module DynamicOperators =
+/// <summary>Unsafe FFI escape hatches. Deliberately NOT <c>[&lt;AutoOpen&gt;]</c>:
+/// reaching in takes an explicit <c>open Vesper.Unsafe</c> (or a qualified
+/// <c>Unsafe.retype</c>), so the unchecked cast is never ambiently in scope — the
+/// <c>open</c> is the marker. The disciplined <c>dynamic</c>/<c>?</c> face
+/// (auto-opened below) is the common path; drop to <c>Unsafe</c> only for raw
+/// interop.</summary>
+module Unsafe =
 
     /// <summary>The general erasing reinterpret — emits its operand unchanged and
     /// re-types it <c>^U</c> (the <c>: ^U</c> annotation is the reinterpret target).
     /// Inherently unsafe (no runtime check); the escape valve, not the common
-    /// path. Whole-value exit from <c>dynamic</c> is <c>retype d : 'T</c>.</summary>
+    /// path. Whole-value exit from <c>dynamic</c> is <c>Unsafe.retype d : 'T</c>.</summary>
     val inline retype: x: ^T -> ^U
+
+[<AutoOpen>]
+module DynamicOperators =
 
     /// <summary>Enter <c>dynamic</c> — the same JS value, retyped to <c>dynamic</c>.
     /// Shares the type's name (as <c>int</c>/<c>string</c>/<c>box</c> do). A value

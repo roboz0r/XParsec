@@ -13,15 +13,19 @@ namespace Vesper
 // `$0[$1]` / `$0[$1] = $2` (bracket access works for any member name, including ones
 // that are not valid JS identifiers).
 
-[<AutoOpen>]
-module DynamicOperators =
+/// Unsafe FFI escape hatches — NOT auto-opened (see the `.fsi`): `open Vesper.Unsafe`
+/// to reach `retype`.
+module Unsafe =
 
     /// General erasing reinterpret — the identity cast (`(# "" x : ^U #)` emits `x`
     /// unchanged, re-typed `^U`). The primitive `dynamic`/whole-value exit build on.
     let inline retype (x: ^T) : ^U = (# "" x : ^U #)
 
+[<AutoOpen>]
+module DynamicOperators =
+
     /// Enter `dynamic` — `retype` at the fixed result type `dynamic` (same JS value).
-    let inline dynamic (value: ^T) : dynamic = retype value
+    let inline dynamic (value: ^T) : dynamic = Unsafe.retype value
 
     /// `x?foo` → the computed member read `x["foo"]`.
     let inline (?) (target: dynamic) (name: string) : ^TResult = (# "$0[$1]" target name : ^TResult #)

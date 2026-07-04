@@ -76,9 +76,10 @@ let inline dynamic (value: ^T) : dynamic = retype value   // (# "" value : dynam
   earlier open question; `retype` is the general cast, so no bespoke `undynamic` needed).
 
 **[VERIFY at impl: the `(# "" x : 'U #)` identity-intrinsic lowering is honoured on the
-JS backend — it should emit the operand verbatim.]** **[OPEN: is `retype` public
-`[<AutoOpen>]` surface (a general unsafe cast, as FFI-heavy JS code may want) or
-internal, with only `dynamic`/`?` exposed? FSharp.Core keeps `retype` internal.]**
+JS backend — it should emit the operand verbatim.]** **[DECIDED (G3, landed
+2026-07-04): `retype` is PUBLIC but in a NON-`[<AutoOpen>]` `module Vesper.Unsafe` —
+reachable via an explicit `open Vesper.Unsafe`, never ambient. Keeps the FFI escape
+hatch without an unchecked cast in every program's default scope.]**
 
 ## The operators: `?` and `?<-`, SRTP with a `dynamic` default
 
@@ -224,10 +225,10 @@ All uncommitted. Keep as reference, then unwind:
 
 1. **[DECIDED]** `(?)` receiver — **`dynamic` (strict)**. You cannot `?`-probe a
    statically-typed value; you must first *be* in `dynamic`.
-2. **[OPEN]** `retype` surface — public `[<AutoOpen>]` (a general unsafe reinterpret,
-   which FFI-heavy JS code may want) vs internal-only with `dynamic`/`?` as the public
-   face (FSharp.Core keeps `retype` internal). Whole-value `dynamic -> 'T` exit is
-   settled: it is `retype d : 'T`.
+2. **[DECIDED — G3, landed 2026-07-04]** `retype` surface — PUBLIC but in a
+   NON-`[<AutoOpen>]` `module Vesper.Unsafe`, reached via an explicit `open Vesper.Unsafe`
+   (the middle ground between ambient `[<AutoOpen>]` and FSharp.Core's internal-only).
+   Whole-value `dynamic -> 'T` exit is `Unsafe.retype d : 'T`.
 3. **[OPEN]** Does the inline machinery accept a statically-resolved `^TResult` whose
    *only* constraint is `default` (every existing SRTP typar also carries a member
    trait)? And does a 3-arg assignment template `$0[$1] = $2` lower correctly? Both are
