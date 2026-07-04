@@ -820,12 +820,14 @@ type internal Assembler
                 }
             )
 
-            // A flat-2 (`Fun`3`) closure's `Invoke` is `Invoke(a, b) : c`;
-            // arity-1 keeps the single-arg `Invoke(a) : b`.
+            // A flat (`Fun`(N+1)`) closure's `Invoke` takes all `FunArity` flat
+            // params (`Invoke(arg0, …, arg{N-1}) : result`); arity-1 reduces to the
+            // single-arg `Invoke(arg0) : result`. `InvokeSignatureN` yields bytes
+            // identical to the old per-arity encoders for arity 1/2.
             let invokeSignature, invokeParamNames =
-                match c.Param2 with
-                | ValueSome(_, p2ty, _) -> provider.InvokeSignature2(c.ParamTy, p2ty, c.ResultTy), [ "arg0"; "arg1" ]
-                | ValueNone -> provider.InvokeSignature(c.ParamTy, c.ResultTy), [ "arg0" ]
+                let paramTys = c.ParamTy :: (c.ExtraParams |> List.map (fun (_, ty, _) -> ty))
+                let names = [ for i in 0 .. c.FunArity - 1 -> sprintf "arg%d" i ]
+                provider.InvokeSignatureN(paramTys, c.ResultTy), names
 
             this.AddPrepared(
                 MethodKey.ClosureInvoke c.Name,
@@ -862,12 +864,18 @@ type internal Assembler
                 )
 
             // `Fun\`2<param, result>` interface `TypeSpec` — closure ambient
-            // still installed, so free `TyVar`s encode to `!i`. A flat-2 (arity-2)
-            // value-struct closure implements `Fun`3<a,b,c>` instead.
+            // still installed, so free `TyVar`s encode to `!i`. A flat (arity ≥2)
+            // value-struct closure implements the wider `Fun`(N+1)<a,…,result>`
+            // instead (`Fun`3`/`Fun`4`/`Fun`5`).
             let ifaceSpec =
-                match c.Param2 with
-                | ValueSome(_, p2ty, _) -> provider.FlatFunInterfaceSpec(c.ParamTy, p2ty, c.ResultTy)
-                | ValueNone -> provider.FunInterfaceSpec(c.ParamTy, c.ResultTy)
+                match c.FunArity with
+                | 1 -> provider.FunInterfaceSpec(c.ParamTy, c.ResultTy)
+                | _ ->
+                    let tys =
+                        (c.ParamTy :: (c.ExtraParams |> List.map (fun (_, ty, _) -> ty)))
+                        @ [ c.ResultTy ]
+
+                    provider.FlatFunInterfaceSpecN(tys)
 
             if isGenericClosure then
                 let closureHandle = toEntity (layoutHandles.TypeDefOf(TypeKey.Closure c.Name))

@@ -740,33 +740,22 @@ type internal ClrEncoder(env: ClrEnv) =
 
         s
 
-    /// `instance b Invoke(a)` — the closure's concrete `Invoke` override signature.
-    member _.InvokeSignature(a: FrozenType, b: FrozenType) : BlobBuilder =
+    /// `instance resultTy Invoke(paramTys…)` — the closure's concrete flat `Invoke`
+    /// override signature: one concrete parameter per `paramTys` entry (arity
+    /// `List.length paramTys`, `1..4`), returning `resultTy`. The single Invoke-sig
+    /// encoder for every closure arity — curried arity-1 (`Fun`2`, one param) through
+    /// flat arity-4 (`Fun`5`, four params).
+    member _.InvokeSignatureN(paramTys: FrozenType list, resultTy: FrozenType) : BlobBuilder =
         let msig = BlobBuilder()
 
         BlobEncoder(msig)
             .MethodSignature(isInstanceMethod = true)
             .Parameters(
-                1,
-                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (b)),
-                (fun (pars: ParametersEncoder) -> encodeType (pars.AddParameter().Type()) (a))
-            )
-
-        msig
-
-    /// `instance c Invoke(a, b)` — a FLAT 2-arg (`Fun`3`) closure's `Invoke`
-    /// override signature. The arity-2 sibling of `InvokeSignature`.
-    member _.InvokeSignature2(a: FrozenType, b: FrozenType, c: FrozenType) : BlobBuilder =
-        let msig = BlobBuilder()
-
-        BlobEncoder(msig)
-            .MethodSignature(isInstanceMethod = true)
-            .Parameters(
-                2,
-                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (c)),
+                List.length paramTys,
+                (fun (ret: ReturnTypeEncoder) -> encodeType (ret.Type()) (resultTy)),
                 (fun (pars: ParametersEncoder) ->
-                    encodeType (pars.AddParameter().Type()) (a)
-                    encodeType (pars.AddParameter().Type()) (b)
+                    for pty in paramTys do
+                        encodeType (pars.AddParameter().Type()) (pty)
                 )
             )
 

@@ -154,6 +154,23 @@ type internal ClrEnv
     // (the curried `Fun`2`) — same `Vesper.Fun` name, overloaded by generic arity.
     let eFlatFun = lazy (toEntity (ctx.TypeRef(vesperCoreRef.Value, "Vesper", "Fun`3")))
 
+    // The wider FLAT function interfaces a flat arity-3 / arity-4 value-struct
+    // closure implements: `Vesper.Fun`4<a,b,c,r>` (one `Invoke(a,b,c):r`) and
+    // `Vesper.Fun`5<a,b,c,d,r>` (one `Invoke(a,b,c,d):r`). Same `Vesper.Fun`
+    // name, overloaded by generic arity — siblings of `eFlatFun` (`Fun`3`).
+    let eFun4 = lazy (toEntity (ctx.TypeRef(vesperCoreRef.Value, "Vesper", "Fun`4")))
+    let eFun5 = lazy (toEntity (ctx.TypeRef(vesperCoreRef.Value, "Vesper", "Fun`5")))
+
+    // Select the flat function interface entity by GENERIC arity (its number of
+    // type arguments = flat param count + 1): `3`⇒`Fun`3`, `4`⇒`Fun`4`,
+    // `5`⇒`Fun`5`. A flat closure of param-arity N implements `Fun`(N+1)`.
+    let flatFunEntity (genericArity: int) =
+        match genericArity with
+        | 3 -> eFlatFun
+        | 4 -> eFun4
+        | 5 -> eFun5
+        | n -> failwithf "ClrEnv: no flat Fun interface for generic arity %d" n
+
     // Deliberately NO fallback to `vesperCoreRef`: that would re-merge the list into Core's ref
     // surface and mint a wrong `Vesper.Core::List`1` while every test still passed.
     let vesperListRef =
@@ -547,6 +564,7 @@ type internal ClrEnv
     member _.VesperCoreRef = vesperCoreRef
     member _.EFun2 = eFun2
     member _.EFlatFun = eFlatFun
+    member _.FlatFunEntity(genericArity: int) = flatFunEntity genericArity
     member _.VesperListRef = vesperListRef
     member _.EFSharpList1 = eFSharpList1
     member _.EVesperList1 = eVesperList1

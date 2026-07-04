@@ -784,19 +784,31 @@ module EmitClosures =
                 1
 
         let rec go (currentTypars: int) (declaringOffset: int) (selfKey: NodeKey voption) (e: Frozen.TExpr) =
-            // A FLAT-2 (`Fun`3`) value-struct lambda peels its inner `Lambda` into the
-            // SAME closure's second parameter (one flat `Invoke(a,b)`), so the inner
-            // lambda is NOT walked as an independent closure — recurse into the inner
-            // BODY instead. Every other node walks children first (leaves-first).
-            let flat2 =
-                match e with
-                | TExprG.Lambda(_, TExprG.Lambda(_, inner, _, _), _, _) when
-                    valueStructArity currentTypars selfKey e = 2
-                    ->
-                    ValueSome inner
-                | _ -> ValueNone
+            // A FLAT (`Fun`(arity+1)`) value-struct lambda of arity `2..4` peels its
+            // `arity - 1` inner `Lambda` levels into the SAME closure's extra
+            // parameters (one flat `Invoke(a,b,…)`), so those inner lambdas are NOT
+            // walked as independent closures — recurse into the DEEPEST body instead.
+            // Every other node walks children first (leaves-first).
+            let flatInner =
+                let arity = valueStructArity currentTypars selfKey e
 
-            (match e, flat2 with
+                if arity >= 2 then
+                    // Unwrap all `arity` nested `Lambda` levels down to the DEEPEST
+                    // body; if the shape isn't that saturated nesting, fall through
+                    // (`ValueNone`) and this node walks its children normally.
+                    let rec peel n (cur: Frozen.TExpr) =
+                        if n = 0 then
+                            ValueSome cur
+                        else
+                            match cur with
+                            | TExprG.Lambda(_, body, _, _) -> peel (n - 1) body
+                            | _ -> ValueNone
+
+                    peel arity e
+                else
+                    ValueNone
+
+            (match e, flatInner with
              | _, ValueSome inner -> go currentTypars declaringOffset ValueNone inner
              | TExprG.Let(TPatG.NamedSimple(k, _, _), (TExprG.Lambda _ as v), body, _, _), _ ->
                  go currentTypars declaringOffset (ValueSome k) v
@@ -810,27 +822,40 @@ module EmitClosures =
                 (body: Frozen.TExpr)
                 (lamTy: FrozenType)
                 =
-                // A flat-2 (`Fun`3`) value-struct closure peels the inner
-                // `Lambda` — its second parameter + the real (inner) body + the inner
-                // arrow's codomain. Arity-1 keeps the curried `ResultTy = codomain`.
+                // A flat (`Fun`(arity+1)`) value-struct closure of arity `2..4` peels
+                // its `arity - 1` inner `NamedSimple` lambdas — each contributes one
+                // extra flat param, walking `body`/`resultTy` down to the innermost body
+                // and its codomain (one `FTFun(_, r)` unwrapped per level). Arity-1 keeps
+                // the curried `ResultTy = codomain`. A shape that isn't the expected
+                // saturated nesting falls back to arity-1.
                 let arity = valueStructArity currentTypars selfKey e
 
-                let funArity, param2, body, resultTy =
-                    match arity, body with
-                    | 2, TExprG.Lambda((TPatG.NamedSimple(p2, p2ty, _) as p2pat), innerBody, innerLamTy, _) ->
-                        let innerResult =
-                            match innerLamTy with
-                            | FTFun(_, r) -> r
-                            | _ -> failwithf "Emit: flat-2 closure inner type is not a function: %A" innerLamTy
+                let peeled =
+                    let rec loop n extrasRev (curBody: Frozen.TExpr) (curTy: FrozenType) =
+                        match curTy with
+                        | FTFun(_, r) ->
+                            if n = 0 then
+                                ValueSome(List.rev extrasRev, curBody, r)
+                            else
+                                match curBody with
+                                | TExprG.Lambda((TPatG.NamedSimple(pk, pkty, _) as ppat), innerBody, innerLamTy, _) ->
+                                    loop (n - 1) ((pk, pkty, ppat) :: extrasRev) innerBody innerLamTy
+                                | _ -> ValueNone
+                        | _ -> ValueNone
 
-                        2, ValueSome(p2, p2ty, p2pat), innerBody, innerResult
+                    loop (arity - 1) [] body lamTy
+
+                let funArity, extraParams, body, resultTy =
+                    match peeled with
+                    | ValueSome(extras, innerBody, r) when arity >= 2 && not (List.isEmpty extras) ->
+                        arity, extras, innerBody, r
                     | _ ->
                         let resultTy =
                             match lamTy with
                             | FTFun(_, r) -> r
                             | _ -> failwithf "Emit: closure type is not a function: %A" lamTy
 
-                        1, ValueNone, body, resultTy
+                        1, [], body, resultTy
 
                 // Keyed by the closure's binder (`let f = …`). An anonymous lambda
                 // (no `SelfKey`) or a binder the snapshot didn't reach defaults to
@@ -849,12 +874,11 @@ module EmitClosures =
 
                 // Bind every leaf each param pattern introduces (a tuple's element
                 // bindings), not the placeholder `ParamKey` — those leaves are
-                // parameters, never captures. A flat-2 closure binds BOTH params
-                // (the peeled inner `Lambda`'s binder too), against the inner body.
+                // parameters, never captures. A flat closure binds ALL its params
+                // (the peeled inner `Lambda`s' binders too), against the inner body.
                 let paramBound =
-                    match param2 with
-                    | ValueSome(_, _, p2pat) -> patKeys paramPat @ patKeys p2pat
-                    | ValueNone -> patKeys paramPat
+                    patKeys paramPat
+                    @ (extraParams |> List.collect (fun (_, _, ppat) -> patKeys ppat))
 
                 let captures = freeVars nonCaptured paramBound selfKey body
 
@@ -887,7 +911,7 @@ module EmitClosures =
                         Repr = repr
                         IsValueStruct = isValueStruct
                         FunArity = funArity
-                        Param2 = param2
+                        ExtraParams = extraParams
                     }
 
                 counter <- counter + 1

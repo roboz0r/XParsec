@@ -335,15 +335,20 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         encodeType (g.AddArgument()) b
         toEntity (ctx.TypeSpec tsB)
 
-    /// `Vesper.Fun`3<a,b,c>` as a `TypeSpec` — the FLAT 2-arg interface a flat-2
-    /// value-struct closure implements. Sibling of `funInterfaceSpec`.
-    let flatFunInterfaceSpec (a: FrozenType) (b: FrozenType) (c: FrozenType) : EntityHandle =
+    /// `Vesper.Fun`(len)<tys…>` as a `TypeSpec` — the FLAT interface a flat
+    /// value-struct closure of param-arity `len-1` implements (sibling of the curried
+    /// `funInterfaceSpec`). `tys` is the full type-arg list (the flat params followed
+    /// by the result), so `len` picks the `Fun`(len)` entity (`3`⇒`Fun`3`,
+    /// `4`⇒`Fun`4`, `5`⇒`Fun`5`).
+    let flatFunInterfaceSpecN (tys: FrozenType list) : EntityHandle =
+        let len = List.length tys
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
-        let g = te.GenericInstantiation(eFlatFun.Value, 3, false)
-        encodeType (g.AddArgument()) a
-        encodeType (g.AddArgument()) b
-        encodeType (g.AddArgument()) c
+        let g = te.GenericInstantiation((env.FlatFunEntity len).Value, len, false)
+
+        for ty in tys do
+            encodeType (g.AddArgument()) ty
+
         toEntity (ctx.TypeSpec tsB)
 
     /// `List.fold folder state xs` over the *Vesper* list — a `call` to `fold` compiled into
@@ -1016,7 +1021,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     member _.EmitVesperListTagField elem = emitVesperListTagField elem
     member _.EmitVesperListConsField(elem, fieldIndex) = emitVesperListConsField elem fieldIndex
     member _.FunInterfaceSpec(a, b) = funInterfaceSpec a b
-    member _.FlatFunInterfaceSpec(a, b, c) = flatFunInterfaceSpec a b c
+    member _.FlatFunInterfaceSpecN(tys) = flatFunInterfaceSpecN tys
     member _.EmitFold fnTy = emitFold fnTy
     member _.EmitExternalCall(declFullName, name, fnTy) = emitExternalCall declFullName name fnTy
     member _.BuildFormatHandles() = buildFormatHandles ()

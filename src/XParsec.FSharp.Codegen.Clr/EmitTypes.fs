@@ -63,19 +63,20 @@ module EmitTypes =
             /// not sufficient, so this is the single source of truth for the struct
             /// path.
             IsValueStruct: bool
-            /// The FLAT `FunN` arity this closure implements. `1` (the
+            /// The FLAT `FunN` arity this closure implements (`1..4`). `1` (the
             /// default / arity-1 path) is the single-arg `Vesper.Fun<P,R>` interface
             /// with `Invoke(P):R`. `2` is the flat `Vesper.Fun`3<P1,P2,R>` interface
-            /// with one flat `Invoke(P1,P2):R` — the curried 2-arg source lambda
-            /// `fun x y -> …` peeled so the inner arrow is NOT a separate closure.
-            /// Driven by the node-keyed verdict (`TastFile.FunVerdicts`); only a
-            /// value-struct closure (`IsValueStruct`) is ever arity > 1 today.
+            /// with one flat `Invoke(P1,P2):R`; `3`⇒`Fun`4`, `4`⇒`Fun`5` — the curried
+            /// N-arg source lambda `fun x y … -> …` peeled so the inner arrows are NOT
+            /// separate closures. Always `1 + List.length ExtraParams`. Driven by the
+            /// node-keyed verdict (`TastFile.FunVerdicts`); only a value-struct closure
+            /// (`IsValueStruct`) is ever arity > 1 today.
             FunArity: int
-            /// The SECOND flat parameter for an arity-2 (`Fun`3`) closure: its binder
-            /// key, type, and pattern (peeled from the inner `Lambda`). `ValueNone`
-            /// for the arity-1 path. The closure's `Invoke` binds `Param2` to
-            /// `ldarg.2`.
-            Param2: (NodeKey * FrozenType * Frozen.TPat) voption
+            /// The EXTRA flat parameters beyond the first, in flat order (each: binder
+            /// key, type, pattern — peeled from a successive inner `Lambda`). Empty for
+            /// the arity-1 path; length `FunArity - 1` (so `1..3` for flat arity `2..4`).
+            /// The closure's `Invoke` binds extra param `i` (0-based) to `ldarg.(2+i)`.
+            ExtraParams: (NodeKey * FrozenType * Frozen.TPat) list
         }
 
     /// A non-capturing (`Captures` empty), monomorphic (`Typars = 0`) closure is

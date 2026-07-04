@@ -544,6 +544,165 @@ let structSeqTests =
                     "apply2 IL contains no `box` (non-allocating flat-2 value-struct dispatch)"
             }
 
+            // The arity-3 analog: a saturated 3-arg source lambda `fun x y z -> …`
+            // fed into a constrained `'TF :> Fun<int,int,int,int>` slot lowers to a
+            // zero-alloc VALUE-STRUCT closure with a single FLAT `Invoke(a,b,c)` (both
+            // inner arrows peeled, NO nested inner closures), dispatched with NO box.
+            // Exercises the arity-parametric peel/encoder/interface-spec path emitting
+            // `Vesper.Fun`4<a,b,c,r>`.
+            test "a saturated 3-arg source lambda lowers to a no-box flat-Invoke value-struct" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let apply3 (f: 'TF when 'TF :> Fun<int, int, int, int>) (a: int) (b: int) (c: int) : int = f.Invoke(a, b, c)"
+                            "printfn \"%d\" (apply3 (fun x y z -> x + y + z) 20 22 24)"
+                        ]
+
+                let tast, artifact = compileSource "StepCM3Flat3ValueStruct" src
+                Expect.isEmpty tast.Diagnostics (sprintf "arity-3 front-end diagnostics: %A" tast.Diagnostics)
+
+                let bytes = Codegen.toBytes artifact
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "66" "apply3 (fun x y z -> x+y+z) 20 22 24 = 66"
+
+                // (1) The synthesised closure is a VALUE TYPE — base `System.ValueType`.
+                let closureBase = peTypeBaseTypeName bytes (fun n -> n.StartsWith "<closure>$")
+
+                Expect.equal
+                    closureBase
+                    (ValueSome "System.ValueType")
+                    "the 3-arg closure is a value type (base System.ValueType)"
+
+                // (2) Its `Invoke` is FLAT 3-arg and there is exactly ONE closure type
+                // (both inner arrows peeled — no nested inner closures).
+                use peReader = openPe bytes
+                let md = peReader.GetMetadataReader()
+
+                let closureTds =
+                    md.TypeDefinitions
+                    |> Seq.filter (fun h ->
+                        let td = md.GetTypeDefinition h
+                        (md.GetString td.Name).StartsWith "<closure>$"
+                    )
+                    |> Seq.toList
+
+                Expect.equal (List.length closureTds) 1 "exactly one closure type (no nested inner closures)"
+
+                let invokeParamCount =
+                    let td = md.GetTypeDefinition closureTds.[0]
+
+                    td.GetMethods()
+                    |> Seq.pick (fun mh ->
+                        let m = md.GetMethodDefinition mh
+
+                        if md.GetString m.Name = "Invoke" then
+                            Some(m.GetParameters() |> Seq.length)
+                        else
+                            None
+                    )
+
+                Expect.equal invokeParamCount 3 "the value-struct closure's Invoke is flat 3-arg"
+
+                // (3) Construction is by-value (no `newobj`).
+                let mainIl = peMethodIlWhere bytes "Program" (fun n -> n = "Main")
+                Expect.isFalse (Array.contains 0x73uy mainIl) "Main does NOT newobj the value-struct closure (0x73)"
+
+                // (4) `apply3`'s body dispatches via `constrained.` (0xFE 0x16) with NO box.
+                let applyIl = peMethodIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+
+                let hasConstrained =
+                    applyIl
+                    |> Array.windowed 2
+                    |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+
+                Expect.isTrue hasConstrained "apply3 IL contains a `constrained.` prefix (value-struct typar Fun dispatch)"
+
+                Expect.isFalse
+                    (Array.contains 0x8Cuy applyIl)
+                    "apply3 IL contains no `box` (non-allocating flat-3 value-struct dispatch)"
+            }
+
+            // The arity-4 analog: a saturated 4-arg source lambda `fun w x y z -> …`
+            // fed into a constrained `'TF :> Fun<int,int,int,int,int>` slot lowers to a
+            // zero-alloc VALUE-STRUCT closure with a single FLAT `Invoke(a,b,c,d)` (all
+            // three inner arrows peeled, NO nested inner closures), NO box. Emits
+            // `Vesper.Fun`5<a,b,c,d,r>` — the widest flat function value-struct.
+            test "a saturated 4-arg source lambda lowers to a no-box flat-Invoke value-struct" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "let apply4 (f: 'TF when 'TF :> Fun<int, int, int, int, int>) (a: int) (b: int) (c: int) (d: int) : int = f.Invoke(a, b, c, d)"
+                            "printfn \"%d\" (apply4 (fun w x y z -> w + x + y + z) 10 20 30 40)"
+                        ]
+
+                let tast, artifact = compileSource "StepCM3Flat4ValueStruct" src
+                Expect.isEmpty tast.Diagnostics (sprintf "arity-4 front-end diagnostics: %A" tast.Diagnostics)
+
+                let bytes = Codegen.toBytes artifact
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "100" "apply4 (fun w x y z -> w+x+y+z) 10 20 30 40 = 100"
+
+                // (1) The synthesised closure is a VALUE TYPE — base `System.ValueType`.
+                let closureBase = peTypeBaseTypeName bytes (fun n -> n.StartsWith "<closure>$")
+
+                Expect.equal
+                    closureBase
+                    (ValueSome "System.ValueType")
+                    "the 4-arg closure is a value type (base System.ValueType)"
+
+                // (2) Its `Invoke` is FLAT 4-arg and there is exactly ONE closure type
+                // (all inner arrows peeled — no nested inner closures).
+                use peReader = openPe bytes
+                let md = peReader.GetMetadataReader()
+
+                let closureTds =
+                    md.TypeDefinitions
+                    |> Seq.filter (fun h ->
+                        let td = md.GetTypeDefinition h
+                        (md.GetString td.Name).StartsWith "<closure>$"
+                    )
+                    |> Seq.toList
+
+                Expect.equal (List.length closureTds) 1 "exactly one closure type (no nested inner closures)"
+
+                let invokeParamCount =
+                    let td = md.GetTypeDefinition closureTds.[0]
+
+                    td.GetMethods()
+                    |> Seq.pick (fun mh ->
+                        let m = md.GetMethodDefinition mh
+
+                        if md.GetString m.Name = "Invoke" then
+                            Some(m.GetParameters() |> Seq.length)
+                        else
+                            None
+                    )
+
+                Expect.equal invokeParamCount 4 "the value-struct closure's Invoke is flat 4-arg"
+
+                // (3) Construction is by-value (no `newobj`).
+                let mainIl = peMethodIlWhere bytes "Program" (fun n -> n = "Main")
+                Expect.isFalse (Array.contains 0x73uy mainIl) "Main does NOT newobj the value-struct closure (0x73)"
+
+                // (4) `apply4`'s body dispatches via `constrained.` (0xFE 0x16) with NO box.
+                let applyIl = peMethodIlWhere bytes "Program" (fun n -> n.StartsWith "fn$")
+
+                let hasConstrained =
+                    applyIl
+                    |> Array.windowed 2
+                    |> Array.exists (fun w -> w.[0] = 0xFEuy && w.[1] = 0x16uy)
+
+                Expect.isTrue hasConstrained "apply4 IL contains a `constrained.` prefix (value-struct typar Fun dispatch)"
+
+                Expect.isFalse
+                    (Array.contains 0x8Cuy applyIl)
+                    "apply4 IL contains no `box` (non-allocating flat-4 value-struct dispatch)"
+            }
+
             // A generic struct whose FIELD is a function typar
             // `'TFunc :> Fun<'T,'U>` (the EXTERNAL Vesper.Fun interface instantiated at
             // the struct's OWN typars `'T`/`'U`), applied via `this.F.Invoke(x)` in a
