@@ -278,6 +278,19 @@ module internal UnificationInferApp =
                 match PrintfSpec.tryFamily (qualifiedNameOf ctx fn) with
                 | ValueNone -> ValueNone
                 | ValueSome fam ->
+                    // Resolve the writer slot to the provider's `TyClass(TextWriter)`
+                    // through the SAME path a real writer arg (`System.Console.Out`)
+                    // took (`NameResolutionScope.tryResolveExternalTypeKey`, arity 0),
+                    // so both carry the identical `TypeKey` and a leading writer arg
+                    // unifies with the slot directly. A provider that doesn't surface
+                    // `System.IO.TextWriter` keeps the by-name `TyConst` slot (no
+                    // regression; in practice the resolving provider is the same one
+                    // that types `Console.Out`).
+                    let fam =
+                        match NameResolutionScope.tryResolveExternalTypeKey ctx RuntimeNames.textWriterTypeName 0 with
+                        | ValueSome writerKey -> PrintfSpec.substituteWriter (TyClass(writerKey, EqArray.empty)) fam
+                        | ValueNone -> fam
+
                     let idx = fam.FormatArgIndex
 
                     if args.Length <= idx then
@@ -314,22 +327,11 @@ module internal UnificationInferApp =
 
                                     match resolveStep currTy with
                                     | TyFun(dom, cod) ->
-                                        if i < idx then
-                                            // A LEADING argument (the `fprintf`/`fprintfn` writer).
-                                            // Its provider-resolved type is a
-                                            // `TyClass(System.IO.TextWriter)`, while the family's
-                                            // slot is a by-name `TyConst(System.IO.TextWriter)`;
-                                            // core `unify` reconciles neither nominal form with the
-                                            // other, so a real writer (`System.Console.Out`) would
-                                            // spuriously mismatch. Admit a `canonName`-equal /
-                                            // subtype writer via the read-only `subsumes`, and only
-                                            // `unify` (surfacing a genuine mismatch) when the arg is
-                                            // unrelated to the slot.
-                                            if subsumes ctx argTy dom = SubsumeOutcome.Unrelated then
-                                                unify ctx key argTy dom
-                                        else
-                                            unify ctx key argTy dom
-
+                                        // Uniform over every arg, leading writer included: the
+                                        // writer slot is now the provider-resolved
+                                        // `TyClass(TextWriter)`, so a real writer arg unifies with
+                                        // it directly.
+                                        unify ctx key argTy dom
                                         currTy <- cod
                                     | _ ->
                                         let resultTy = TyVar(freshTyVar ctx)

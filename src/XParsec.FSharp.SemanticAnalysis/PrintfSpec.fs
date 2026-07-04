@@ -229,6 +229,23 @@ module PrintfSpec =
         | Some f -> ValueSome f
         | None -> ValueNone
 
+    /// Rewrite the family's writer slot — the by-name `TyConst(System.IO.TextWriter)`
+    /// placeholder (`State`, and the `LeadingArgTypes` writer of `fprintf`/`fprintfn`)
+    /// — to `writerTy`. The gate passes the provider-resolved `TyClass(TextWriter)`
+    /// (the SAME `TypeKey` a real `Console.Out` argument carries), so a leading writer
+    /// arg reconciles with the slot under plain `unify` (core `unify` compares
+    /// `TyClass` by key equality, and never a `TyClass` against a `TyConst`). Kept
+    /// here — and provider-free — so `PrintfSpec` stays a pure SemType module: the
+    /// gate owns the `ctx.Provider` resolution and hands in the resolved type.
+    let substituteWriter (writerTy: SemType) (fam: Family) : Family =
+        let sub (t: SemType) =
+            if t = tyTextWriter then writerTy else t
+
+        { fam with
+            State = sub fam.State
+            LeadingArgTypes = fam.LeadingArgTypes |> List.map sub
+        }
+
     let formatType (printer: SemType) (fam: Family) : SemType =
         TyClass(RuntimeNames.printfFormatKey, EqArray.ofList [ printer; fam.State; fam.Residue; fam.Result ])
 
