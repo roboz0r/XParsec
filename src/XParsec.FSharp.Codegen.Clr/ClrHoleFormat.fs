@@ -26,6 +26,15 @@ module ClrHoleFormat =
     /// `Const` (the `AppendZeroPaddedFloat` ABI). A `Star` never reaches the
     /// zero-pad forms — `tryClassify` defers `%0*d`.
     let toDotNetFormat (fmt: FieldFormat) (alignment: Alignment) : PrintfSpec.HoleKind * string option * Alignment =
+        // A static .NET format string can only be built from a compile-time precision.
+        // `Prec.Star` (`%.*f`, …) has no digits to embed — it routes through the
+        // dynamic-precision handler member in `EmitFormat`, never here.
+        let constPrec (p: Prec) : int =
+            match p with
+            | Prec.Const n -> n
+            | Prec.Star ->
+                failwith "ClrHoleFormat: star precision reached the static .NET-format projection (invariant broken)"
+
         match fmt with
         | FieldFormat.Verbatim -> PrintfSpec.HoleKind.Formatted, None, alignment
         | FieldFormat.DecimalZeroPad w -> PrintfSpec.HoleKind.Formatted, Some("D" + string w), Alignment.None
@@ -44,14 +53,15 @@ module ClrHoleFormat =
                 | None -> PrintfSpec.HoleKind.Formatted, Some "B", alignment
         | FieldFormat.Unsigned -> PrintfSpec.HoleKind.Unsigned, None, alignment
         | FieldFormat.Bool -> PrintfSpec.HoleKind.BoolText, None, alignment
-        | FieldFormat.Fixed prec -> PrintfSpec.HoleKind.Formatted, Some("F" + string prec), alignment
+        | FieldFormat.Fixed prec -> PrintfSpec.HoleKind.Formatted, Some("F" + string (constPrec prec)), alignment
         | FieldFormat.FixedZeroPad(prec, w) ->
             PrintfSpec.HoleKind.ZeroPaddedFloat, Some("F" + string prec), Alignment.Const w
         | FieldFormat.Exponential(prec, upper) ->
-            PrintfSpec.HoleKind.Formatted, Some((if upper then "E" else "e") + string prec), alignment
+            PrintfSpec.HoleKind.Formatted, Some((if upper then "E" else "e") + string (constPrec prec)), alignment
         | FieldFormat.Compact(prec, upper) ->
-            PrintfSpec.HoleKind.Formatted, Some((if upper then "G" else "g") + string prec), alignment
+            PrintfSpec.HoleKind.Formatted, Some((if upper then "G" else "g") + string (constPrec prec)), alignment
         | FieldFormat.ForcedSign(space, prec) ->
+            let prec = constPrec prec
             let sign = if space then " " else "+"
             let body = if prec <= 0 then "0" else "0." + System.String('0', prec)
             PrintfSpec.HoleKind.Formatted, Some(sign + body + ";-" + body), alignment

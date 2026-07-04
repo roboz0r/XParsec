@@ -42,9 +42,9 @@ spec-runner survive only on the **cold** (format-as-value / non-literal) row.
 **Star-width holes (`%*d`, `%*.*f`).** The `*` width/precision consumes the dimension as an
 extra `int` argument *preceding* the value: `sprintf "%*.*f" 12 1 x` applies width, then
 precision, then the value. Lexing (`FormatDim`), the typing seam (`argTypes`), and native
-lowering of the width-star forms below are **implemented**; star-*precision* is designed
-(see the Star-precision bullet) but still rides the cold path, as do the tracked residuals
-(`%0*d`, flagged star-`%A`).
+lowering of **both** the width-star and precision-star forms below are **implemented** (the
+width-carrying `StarWidthHole` generalised to the one dynamic-hole record `DynHole`); the
+tracked residuals (`%0*d`, `%0*.Nf`, flagged star-`%A`, `% A`) still ride the cold path.
 
 Semantics verified against F# (fsi, 2026-07-04):
 - **Arg order** is width, precision, value (`%*.*f` above).
@@ -115,14 +115,18 @@ The model, per layer:
   - JS backend: pads via `padStart`/`padEnd` with the equivalent negative-width guard;
     the thrown error's *type* diverges from the CLR (documented, like the `%e`/`%g`
     approximations) but throws-vs-pads agrees.
-- **Star-precision** (design settled against `XParsec.FSharp.Lib/Printf/printf.fs`; not yet
-  implemented — the cold path remains correct meanwhile):
+- **Star-precision** (settled against `XParsec.FSharp.Lib/Printf/printf.fs`; **implemented**):
   - FSharp.Core builds the .NET format string *per call*
-    (`getFormatForFloat ch prec = ch.ToString() + prec.ToString()`, `printf.fs:606`) — an
-    allocation the native handler avoids: a dedicated dynamic-precision member builds the
-    format in a `stackalloc` span and renders via `ISpanFormattable.TryFormat`. Build it
-    from the **source type char + raw digits**, exactly mirroring `getFormatForFloat`:
-    byte parity with FSharp.Core's quirks then emerges for free (see next).
+    (`getFormatForFloat ch prec = ch.ToString() + prec.ToString()`, `printf.fs:606`). The
+    native handler's dynamic-precision members (`Formatter.AppendDynamicPrecisionFloat` /
+    `AppendDynamicPrecisionSignedFloat`) build the same string from the **source type char +
+    raw digits** and render through the existing `IFormattable.ToString(format, provider)`
+    path (the `AppendZeroPaddedFloat` precedent), so byte parity with FSharp.Core's quirks
+    emerges for free (see next). (Deviation from the earlier `stackalloc` +
+    `ISpanFormattable.TryFormat` sketch: the Vesper-compiled runtime has no precedent for
+    `Span`-from-pointer / `TryFormat`, and the `ToString` path is already the proven
+    byte-parity one; the small format-string allocation matches what the handler and the
+    port already do.)
   - **Clamp asymmetry is load-bearing, verified in fsi (2026-07-04)**:
     `normalizePrecision` (clamp 0..99, `printf.fs:608`) is applied on the
     width=\*+prec=\* path (`:632`) but NOT the prec=\*-only paths (`:649-657`). So

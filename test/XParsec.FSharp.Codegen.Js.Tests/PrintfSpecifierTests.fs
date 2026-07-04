@@ -186,4 +186,46 @@ let tests =
                     "(w) =>"
                     "the star width is bound in a `w`-parameter arrow, evaluated before the value"
             }
+
+            // Star *precision* (`%.*f`): the runtime precision is bound to `p` and fed to
+            // `toFixed`; a `%*.*f` binds `w` (outer) then `p` (inner) so JS evaluates
+            // width, then precision, then the value — F#'s curried order. The fixed-point
+            // form (`%.*f`) matches F# byte-for-byte; the scientific/compact forms
+            // (`%.*e`/`%.*g`) inherit the existing `toExponential`/`toPrecision`
+            // approximation caveat.
+            test "star precision (`%.*f`/`%*.*f`) matches F# value output" {
+                runsLines
+                    "starprec"
+                    (String.concat
+                        "\n"
+                        [
+                            "printfn \"[%.*f]\" 2 3.14159"
+                            "printfn \"[%*.*f]\" 8 2 3.14159"
+                            "printfn \"[%.*f]\" 0 3.14159"
+                        ])
+                    [ "[3.14]"; "[    3.14]"; "[3]" ]
+            }
+
+            test "`%.*f` binds the runtime precision in a `p`-parameter arrow" {
+                Expect.stringContains
+                    (emitJs "printfn \"%.*f\" 2 3.14159")
+                    "(p) =>"
+                    "the star precision is bound in a `p`-parameter arrow"
+            }
+
+            test "`%*.*f` binds width then precision (both dims)" {
+                let js = emitJs "printfn \"%*.*f\" 8 2 3.14159"
+                Expect.stringContains js "(w) =>" "the width is bound"
+                Expect.stringContains js "(p) =>" "the precision is bound"
+                // The two-star path clamps the precision to 0..99 (structural mirror of
+                // the CLR `normalizePrecision` asymmetry).
+                Expect.stringContains js "Math.min(99" "the two-star path clamps precision to 0..99"
+            }
+
+            test "`%.*A` feeds the runtime size budget to structuralFormat" {
+                Expect.stringContains
+                    (emitJs "printfn \"%.*A\" 2 [1; 2; 3]")
+                    "(p) =>"
+                    "the star size is bound in a `p`-parameter arrow"
+            }
         ]

@@ -60,6 +60,22 @@ type Formatter =
     /// reflection-free structural engine rather than an <c>IFormattable</c> call.
     member AppendStructured: value: 'T * width: int * size: int -> unit
 
+    /// Append a float hole with a <c>runtime</c> precision (<c>%.*f</c>/<c>%*.*f</c>/
+    /// <c>%.*e</c>/<c>%.*g</c>), justified in a field of <c>alignment</c> chars
+    /// (negative ⇒ left-justify; 0 ⇒ none). The .NET format string is built as
+    /// FSharp.Core's <c>getFormatForFloat</c> (<c>typeChar.ToString() +
+    /// precision.ToString()</c>), so a garbage precision reproduces the .NET
+    /// custom-format fallback byte-for-byte. <c>typeChar</c> is the source type letter
+    /// (<c>'f'</c>/<c>'e'</c>/<c>'E'</c>/<c>'g'</c>/<c>'G'</c>).
+    member AppendDynamicPrecisionFloat: value: float * typeChar: char * precision: int * alignment: int -> unit
+
+    /// As <c>AppendDynamicPrecisionFloat</c> for a forced-sign float
+    /// (<c>%+.*f</c>/<c>% .*f</c>): a non-negative number gets a leading <c>+</c> (or
+    /// <c> </c> when <c>space</c>) before justification. Dedicated because the
+    /// compile-time section-format lowering can't take a runtime precision.
+    member AppendDynamicPrecisionSignedFloat:
+        value: float * typeChar: char * precision: int * alignment: int * space: bool -> unit
+
     /// Guard a `%*d`-style runtime field width. F#'s <c>PadLeft</c>/<c>PadRight</c>
     /// throw <c>ArgumentOutOfRangeException</c> (<c>ParamName = "totalWidth"</c>) on a
     /// negative width, so this throws identically (the parity bar is the exception
@@ -74,6 +90,12 @@ type Formatter =
     /// (never breaking) rather than throwing, so a negative budget clamps to <c>0</c>
     /// (the <c>%0A</c> flat mode); a non-negative budget is returned unchanged.
     static member ClampWidth: width: int -> int
+
+    /// Clamp a runtime precision to <c>0..99</c> (F#'s <c>normalizePrecision</c>).
+    /// Applied by the emitter ONLY on the width=*+prec=* path; the prec=*-only paths
+    /// keep the raw precision (the load-bearing asymmetry at <c>printf.fs:632</c> vs
+    /// <c>:649-657</c>).
+    static member NormalizePrecision: precision: int -> int
 
     /// Flush buffered text to the write-through sink and release the buffer.
     member Flush: unit -> unit

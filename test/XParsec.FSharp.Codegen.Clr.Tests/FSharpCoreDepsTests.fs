@@ -103,15 +103,47 @@ let tests =
                     "bare %*A does NOT take the PrintFormatLine cold path"
             }
 
-            // The star residuals that stay cold this stage: star *precision* (`%.*f`,
-            // `%*.*f`), the star zero-pad width (`%0*d`), and the *flagged* star-`%A`
-            // forms (`%-*A` etc). Each still constructs a `PrintfFormat` and calls
-            // `PrintFormatLine` — the pins that keep the remaining cold surface tracked.
-            test "star residuals (`%.*f`, `%*.*f`, `%0*d`, `%-*A`) ride the FSharp.Core cold path" {
+            // Star *precision* now lowers natively: the float forms build the .NET format
+            // string in-handler from the runtime precision — so the whole program pins no
+            // FSharp.Core construct.
+            test "star precision (`%.*f`, `%*.*f`, `%.*e`, `%.*g`, `%+.*f`) lowers natively — no FSharp.Core" {
+                let native =
+                    [
+                        "DepsPrecF", "printfn \"%.*f\" 2 3.5"
+                        "DepsPrecWF", "printfn \"%*.*f\" 8 2 3.5"
+                        "DepsPrecE", "printfn \"%.*e\" 3 31415.9"
+                        "DepsPrecG", "printfn \"%.*g\" 4 31415.9"
+                        "DepsPrecPlus", "printfn \"%+.*f\" 3 3.14159"
+                    ]
+
+                for name, src in native do
+                    let _, artifact = compileSource name src
+
+                    Expect.isEmpty
+                        artifact.FSharpCoreDependencies
+                        (sprintf "%s lowers natively — no FSharp.Core (%A)" src artifact.FSharpCoreDependencies)
+            }
+
+            // `%.*A` feeds the runtime `PrintSize` budget to the structural engine
+            // (`AppendStructured`), not the cold path. The list *literal* argument still
+            // pins `FSharpList`, so assert the discriminator — no `PrintFormatLine` — as
+            // the bare `%*A` test does, rather than a fully-empty use-set.
+            test "`%.*A` (star precision) lowers on the structural engine — no cold path" {
+                let _, artifact = compileSource "DepsPrecA" "printfn \"%.*A\" 2 [1; 2; 3]"
+
+                Expect.isFalse
+                    (artifact.FSharpCoreDependencies
+                     |> Seq.contains "Microsoft.FSharp.Core.PrintfModule.PrintFormatLine")
+                    "star-precision %.*A does NOT take the PrintFormatLine cold path"
+            }
+
+            // The star residuals that stay cold this stage: the star zero-pad width
+            // (`%0*d`) and the *flagged* star-`%A` forms (`%-*A` etc). Each still
+            // constructs a `PrintfFormat` and calls `PrintFormatLine` — the pins that keep
+            // the remaining cold surface tracked.
+            test "star residuals (`%0*d`, `%-*A`) ride the FSharp.Core cold path" {
                 let residuals =
                     [
-                        "DepsStarPrec", "printfn \"%.*f\" 2 3.5"
-                        "DepsStarWidthPrec", "printfn \"%*.*f\" 8 2 3.5"
                         "DepsStarZeroPad", "printfn \"%0*d\" 5 42"
                         "DepsStarLeftA", "printfn \"%-*A\" 1 [1; 2; 3]"
                     ]

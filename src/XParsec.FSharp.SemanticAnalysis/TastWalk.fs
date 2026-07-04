@@ -301,8 +301,14 @@ module TastWalk =
                         match seg with
                         | FormatSeg.Lit _ -> seg
                         | FormatSeg.Hole(h, a) -> FormatSeg.Hole({ h with Ty = f h.Ty }, pe a)
-                        | FormatSeg.StarWidthHole(w, h, v) ->
-                            FormatSeg.StarWidthHole(pe w, { h with Ty = f h.Ty }, pe v)
+                        | FormatSeg.DynHole d ->
+                            FormatSeg.DynHole
+                                { d with
+                                    Width = ValueOption.map pe d.Width
+                                    Precision = ValueOption.map pe d.Precision
+                                    Spec = { d.Spec with Ty = f d.Spec.Ty }
+                                    Value = pe d.Value
+                                }
                     )
 
                 TExpr.Format(sink, segs, f ty, tok)
@@ -487,9 +493,10 @@ module TastWalk =
                     match seg with
                     | FormatSeg.Lit _ -> ()
                     | FormatSeg.Hole(_, a) -> walk a
-                    | FormatSeg.StarWidthHole(w, _, v) ->
-                        walk w
-                        walk v
+                    | FormatSeg.DynHole d ->
+                        ValueOption.iter walk d.Width
+                        ValueOption.iter walk d.Precision
+                        walk d.Value
             // Default walk skips constraints (no expr children) — the
             // constraint typars are the binding's own quantified typars,
             // already known to passes that care (ResolvedTypes adds them to

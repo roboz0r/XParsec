@@ -36,8 +36,9 @@ let private triple (hole: HoleSpecG<'ty, 'tok>) : PrintfSpec.HoleKind * string o
 
         let sizeSlot =
             match size with
-            | Some n -> Some(string n)
-            | None -> None
+            | PrintfHoleForm.PrintSize.Default -> None
+            | PrintfHoleForm.PrintSize.Cols n -> Some(string n)
+            | PrintfHoleForm.PrintSize.Star -> None
 
         PrintfSpec.HoleKind.Structured, sizeSlot, widthSlot
 
@@ -1139,19 +1140,22 @@ let tests =
             // structural print-width budget. Parity oracle IS the test process's own
             // `sprintf`. Star *precision* / `%0*d` / flagged `%*A` stay cold residuals.
 
-            test "`%*d` freezes to a Format node with a StarWidthHole segment" {
+            test "`%*d` freezes to a Format node with a DynHole (width only) segment" {
                 match soleDecl "printfn \"%*d\" 5 42" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ->
                     match EqArray.toList segs with
-                    | [ FormatSeg.StarWidthHole(TExpr.Const(TConstValue.Int 5, _, _),
-                                                hole,
-                                                TExpr.Const(TConstValue.Int 42, _, _)) ] ->
-                        match hole.Source with
-                        | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.Verbatim,
-                                                                                  PrintfHoleForm.Alignment.Star false)) ->
-                            ()
-                        | other -> failtestf "expected a Verbatim / Star(false) field, got: %A" other
-                    | other -> failtestf "expected one StarWidthHole (width 5, value 42), got: %A" other
+                    | [ FormatSeg.DynHole d ] ->
+                        match d.Width, d.Precision, d.Value with
+                        | ValueSome(TExpr.Const(TConstValue.Int 5, _, _)),
+                          ValueNone,
+                          TExpr.Const(TConstValue.Int 42, _, _) ->
+                            match d.Spec.Source with
+                            | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.Verbatim,
+                                                                                      PrintfHoleForm.Alignment.Star false)) ->
+                                ()
+                            | other -> failtestf "expected a Verbatim / Star(false) field, got: %A" other
+                        | other -> failtestf "expected width 5, no precision, value 42, got: %A" other
+                    | other -> failtestf "expected one DynHole, got: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
@@ -1159,25 +1163,82 @@ let tests =
                 match soleDecl "printfn \"%-*d\" 5 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match EqArray.toList segs with
-                    | [ FormatSeg.StarWidthHole(_, hole, _) ] ->
-                        match hole.Source with
+                    | [ FormatSeg.DynHole d ] ->
+                        match d.Spec.Source with
                         | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(_, PrintfHoleForm.Alignment.Star true)) ->
                             ()
                         | other -> failtestf "expected Star(true), got: %A" other
-                    | other -> failtestf "expected one StarWidthHole, got: %A" other
+                    | other -> failtestf "expected one DynHole, got: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            test "`%*A` freezes to a StarWidthHole over a PercentA(Star) spec" {
+            test "`%*A` freezes to a DynHole over a PercentA(Star) spec" {
                 match soleDecl "printfn \"%*A\" 1 [1; 2; 3]" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match EqArray.toList segs with
-                    | [ FormatSeg.StarWidthHole(_, hole, _) ] ->
-                        match hole.Source with
-                        | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.PercentA(PrintfHoleForm.PrintWidth.Star, _)) ->
+                    | [ FormatSeg.DynHole d ] ->
+                        match d.Width, d.Precision, d.Spec.Source with
+                        | ValueSome _,
+                          ValueNone,
+                          HoleSpecSource.Classified(PrintfHoleForm.HoleForm.PercentA(PrintfHoleForm.PrintWidth.Star, _)) ->
                             ()
-                        | other -> failtestf "expected PercentA(Star), got: %A" other
-                    | other -> failtestf "expected one StarWidthHole, got: %A" other
+                        | other -> failtestf "expected width-only DynHole over PercentA(Star), got: %A" other
+                    | other -> failtestf "expected one DynHole, got: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            // ---- Star precision (`%.*f`, `%*.*f`, `%.*e`, `%.*g`, `%+.*f`, `%.*A`) ----
+            // A star *precision* consumes a leading runtime `int` (after any star width,
+            // before the value). The float forms build the .NET format string in-handler
+            // from the source type char + the runtime precision, reproducing FSharp.Core's
+            // custom-format fallback for garbage precisions; the two-star path clamps to
+            // 0..99 (the prec-only path uses the raw precision — a load-bearing asymmetry).
+            // `%.*A` feeds the runtime size (`PrintSize`) budget. Oracle IS the process's
+            // own `sprintf`. `%0*.Nf` / flagged star-`%A` stay cold residuals.
+
+            test "`%.*f` freezes to a DynHole (precision only) over Fixed(Star)" {
+                match soleDecl "printfn \"%.*f\" 3 3.14" with
+                | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.DynHole d ] ->
+                        match d.Width, d.Precision, d.Spec.Source with
+                        | ValueNone,
+                          ValueSome(TExpr.Const(TConstValue.Int 3, _, _)),
+                          HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.Fixed PrintfHoleForm.Prec.Star,
+                                                                                  PrintfHoleForm.Alignment.None)) -> ()
+                        | other -> failtestf "expected precision-only DynHole over Fixed(Star), got: %A" other
+                    | other -> failtestf "expected one DynHole, got: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            test "`%*.*f` freezes to a DynHole with both width and precision" {
+                match soleDecl "printfn \"%*.*f\" 8 3 3.14" with
+                | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.DynHole d ] ->
+                        match d.Width, d.Precision, d.Spec.Source with
+                        | ValueSome(TExpr.Const(TConstValue.Int 8, _, _)),
+                          ValueSome(TExpr.Const(TConstValue.Int 3, _, _)),
+                          HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.Fixed PrintfHoleForm.Prec.Star,
+                                                                                  PrintfHoleForm.Alignment.Star false)) ->
+                            ()
+                        | other -> failtestf "expected both-dim DynHole over Fixed(Star)/Star, got: %A" other
+                    | other -> failtestf "expected one DynHole, got: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            test "`%.*A` freezes to a DynHole (precision only) over PercentA(_, Star)" {
+                match soleDecl "printfn \"%.*A\" 2 [1; 2; 3]" with
+                | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.DynHole d ] ->
+                        match d.Width, d.Precision, d.Spec.Source with
+                        | ValueNone,
+                          ValueSome _,
+                          HoleSpecSource.Classified(PrintfHoleForm.HoleForm.PercentA(_, PrintfHoleForm.PrintSize.Star)) ->
+                            ()
+                        | other -> failtestf "expected precision-only DynHole over PercentA(_, Star), got: %A" other
+                    | other -> failtestf "expected one DynHole, got: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
@@ -1272,16 +1333,88 @@ let tests =
                 runParity "PHpStarANeg" "printfn \"%*A\" (0 - 1) [1; 2; 3]" (sprintf "%*A" -1 [ 1; 2; 3 ])
             }
 
-            // Cold residuals still run correctly (via the FSharp.Core path); parity is
-            // path-agnostic, so the oracle still holds.
-            test "`%*.*f` (star width + star precision) stays correct on the cold path" {
-                runParity "PHpStarWP" "printfn \"%*.*f\" 12 1 123.456" (sprintf "%*.*f" 12 1 123.456)
+            // Star precision, native. Oracle IS the process's own `sprintf`.
+            test "`%.*f` renders a runtime precision" {
+                runParity "PHpPrecF" "printfn \"%.*f\" 2 3.14159" (sprintf "%.*f" 2 3.14159)
             }
 
-            test "`%.*f` (star precision) stays correct on the cold path" {
-                runParity "PHpStarPrec" "printfn \"%.*f\" 2 3.14159" (sprintf "%.*f" 2 3.14159)
+            test "`%*.*f` renders a runtime width and precision" {
+                runParity "PHpPrecWF" "printfn \"%*.*f\" 12 1 123.456" (sprintf "%*.*f" 12 1 123.456)
             }
 
+            test "`%.*e` renders a runtime precision (scientific)" {
+                runParity "PHpPrecE" "printfn \"%.*e\" 3 31415.9" (sprintf "%.*e" 3 31415.9)
+            }
+
+            test "`%.*E` renders a runtime precision (upper scientific)" {
+                runParity "PHpPrecEU" "printfn \"%.*E\" 3 31415.9" (sprintf "%.*E" 3 31415.9)
+            }
+
+            test "`%.*g` renders a runtime precision (compact)" {
+                runParity "PHpPrecG" "printfn \"%.*g\" 4 31415.9" (sprintf "%.*g" 4 31415.9)
+            }
+
+            test "`%+.*f` forces a sign around a runtime precision" {
+                runParity "PHpPrecPlus" "printfn \"%+.*f\" 3 3.14159" (sprintf "%+.*f" 3 3.14159)
+            }
+
+            test "`%+.*f` keeps a negative value's own sign" {
+                runParity "PHpPrecPlusNeg" "printfn \"%+.*f\" 3 (0.0 - 3.14159)" (sprintf "%+.*f" 3 -3.14159)
+            }
+
+            test "`%+*.*f` forces a sign inside a runtime width and precision" {
+                runParity "PHpPrecWPlus" "printfn \"%+*.*f\" 12 2 3.14159" (sprintf "%+*.*f" 12 2 3.14159)
+            }
+
+            test "`%.*A` feeds the runtime structural size budget" {
+                // A tight size budget elides nodes as `...`; the value has more nodes than
+                // the budget, so the output must contain the ellipsis (behavioural, like
+                // the `%*A` width tests — the multi-line regime diverges by design).
+                let _, output =
+                    withPrintfAlc (fun alc -> runDriverInAlc alc "printfn \"%.*A\" 1 [1; 2; 3; 4; 5]")
+
+                Expect.isTrue
+                    (output.Contains "...")
+                    (sprintf "a size-1 budget elides later nodes as ... (got: %A)" output)
+            }
+
+            test "`%.*A` with a generous size budget matches F#" {
+                runParity "PHpPrecAWide" "printfn \"%.*A\" 100 [1; 2; 3]" (sprintf "%.*A" 100 [ 1; 2; 3 ])
+            }
+
+            // The load-bearing clamp asymmetry (`printf.fs:632` vs `:649-657`), verified in
+            // fsi: the two-star path clamps the precision to 0..99, the prec-only path uses
+            // it raw (falling back to .NET custom-format interpretation for garbage).
+            test "QUIRK: `%.*f` with precision -1 echoes the custom-format literal \"f-1\"" {
+                runParity "PHpQuirkNeg" "printfn \"%.*f\" (0 - 1) 3.14" (sprintf "%.*f" -1 3.14)
+            }
+
+            test "QUIRK: `%*.*f` with precision -1 clamps to 0 (width 1 ⇒ \"3\")" {
+                runParity "PHpQuirkWNeg" "printfn \"%*.*f\" 1 (0 - 1) 3.14" (sprintf "%*.*f" 1 -1 3.14)
+            }
+
+            test "QUIRK: `%.*f` precision 105 renders 105 fraction digits (raw)" {
+                runParity "PHpQuirk105" "printfn \"%.*f\" 105 3.14" (sprintf "%.*f" 105 3.14)
+            }
+
+            test "QUIRK: `%*.*f` precision 105 clamps to 99 digits" {
+                runParity "PHpQuirkW105" "printfn \"%*.*f\" 1 105 3.14" (sprintf "%*.*f" 1 105 3.14)
+            }
+
+            // Evaluation order for the dynamic dims: F# evaluates width, then precision,
+            // then the value (curried application order). Each thunk prints a marker, so
+            // the emitted spill order must produce `WPV` before the formatted result.
+            test "`%*.*f` evaluates width, then precision, then value" {
+                let src =
+                    "let w () =\n    printf \"W\"\n    8\n"
+                    + "let p () =\n    printf \"P\"\n    2\n"
+                    + "let v () =\n    printf \"V\"\n    3.14159\n"
+                    + "printfn \"%*.*f\" (w ()) (p ()) (v ())"
+
+                runPrints "PHpPrecOrder" src ("WPV" + sprintf "%*.*f" 8 2 3.14159)
+            }
+
+            // Cold residual (still correct via the FSharp.Core path; parity is path-agnostic).
             test "`%0*d` (star zero-pad) stays correct on the cold path" {
                 runParity "PHpStarZero" "printfn \"%0*d\" 5 42" (sprintf "%0*d" 5 42)
             }

@@ -408,13 +408,29 @@ and [<RequireQualifiedAccess>] FormatSinkG<'ty, 'tok> =
 and [<RequireQualifiedAccess>] FormatSegG<'ty, 'tok> =
     | Lit of string
     | Hole of HoleSpecG<'ty, 'tok> * TExprG<'ty, 'tok>
-    /// A star-width hole (`%*d`, `%-*d`, `%+*d`, `%*A`): the width `int` is a
-    /// runtime argument the curried application evaluates *before* the value, so it
-    /// rides here as `width` (first, mirroring source arg order) alongside the
-    /// hole's `spec` and its `value`. Invariant: `spec.Source` classifies to an
-    /// `Alignment.Star` (padding forms) or `PrintWidth.Star` (`%*A`), constructed
-    /// from the same placeholder as `width` — consumers may assume they agree.
-    | StarWidthHole of width: TExprG<'ty, 'tok> * spec: HoleSpecG<'ty, 'tok> * value: TExprG<'ty, 'tok>
+    /// A hole with one or both dimensions supplied as runtime arguments — star width
+    /// (`%*d`, `%-*d`, `%*A`) and/or star precision (`%.*f`, `%*.*f`, `%.*e`, `%.*g`,
+    /// `%+.*f`, `%.*A`). The curried application evaluates the dimension args *before*
+    /// the value, in source order (width, then precision), so they ride here as
+    /// `Width`/`Precision` (each present iff its dimension is a star; at least one is).
+    /// Invariant: `Spec.Source` classifies to a form whose `Alignment.Star` /
+    /// `PrintWidth.Star` (width) and `Prec.Star` / `PrintSize.Star` (precision) agree
+    /// with which of `Width`/`Precision` are present — all constructed from the same
+    /// placeholder.
+    | DynHole of DynFormatHoleG<'ty, 'tok>
+
+/// A `FormatSegG.DynHole` payload: the hole's spec + value, plus whichever
+/// dimension args the curried application supplies at runtime. `Width` is present
+/// iff the width is a star (`%*…`), `Precision` iff the precision is a star
+/// (`%.*…`); at least one is present (a plain hole stays `FormatSegG.Hole`). Fields
+/// are named (not a wide tuple) so consumers read `Width`/`Precision` by intent.
+and DynFormatHoleG<'ty, 'tok> =
+    {
+        Width: TExprG<'ty, 'tok> voption
+        Precision: TExprG<'ty, 'tok> voption
+        Spec: HoleSpecG<'ty, 'tok>
+        Value: TExprG<'ty, 'tok>
+    }
 
 /// One clause of a `TExpr.StaticOptimization`. `Constraints` is the `and`-joined
 /// list (all must hold; declared in `SemanticInfo.fs` so the side table can carry
@@ -903,6 +919,7 @@ type TExpr = TExprG<SemType, SyntaxToken>
 type TMatchArm = TMatchArmG<SemType, SyntaxToken>
 type FormatSink = FormatSinkG<SemType, SyntaxToken>
 type FormatSeg = FormatSegG<SemType, SyntaxToken>
+type DynFormatHole = DynFormatHoleG<SemType, SyntaxToken>
 type TStaticOptClause = TStaticOptClauseG<SemType, SyntaxToken>
 type TDecl = TDeclG<SemType, SyntaxToken>
 type TTypeDecl = TTypeDeclG<SemType, SyntaxToken>
@@ -929,6 +946,7 @@ module Frozen =
     type TMatchArm = TMatchArmG<FrozenType, SyntaxToken>
     type FormatSink = FormatSinkG<FrozenType, SyntaxToken>
     type FormatSeg = FormatSegG<FrozenType, SyntaxToken>
+    type DynFormatHole = DynFormatHoleG<FrozenType, SyntaxToken>
     type TStaticOptClause = TStaticOptClauseG<FrozenType, SyntaxToken>
     type TDecl = TDeclG<FrozenType, SyntaxToken>
     type TTypeDecl = TTypeDeclG<FrozenType, SyntaxToken>

@@ -39,7 +39,7 @@ module EmitFormat =
             match seg with
             | FormatSegG.Lit s -> litLen <- litLen + s.Length
             | FormatSegG.Hole _
-            | FormatSegG.StarWidthHole _ -> holeCount <- holeCount + 1
+            | FormatSegG.DynHole _ -> holeCount <- holeCount + 1
 
         // Construct in place: `ldloca h; ldc litLen; ldc holeCount; <sink?>; call .ctor`.
         b.Add(ILInstr.Ldloca slot)
@@ -59,12 +59,31 @@ module EmitFormat =
             b.Add(ILInstr.Call(fh.CtorWriter, 4, 0))
         | FormatSinkG.ToBuilder _ -> failwith "Emit: bprintf (ToBuilder) is not yet supported"
 
-        // Emit one hole's handler call. `starWidthLocal = Some slot` for a star hole
-        // (`%*d`/`%*A`): the runtime width has already been guarded (padding) or
-        // clamped (`%A`) and spilled to that int local *before* the value expression
-        // (curried evaluation order), so the alignment / width-budget operand loads
-        // the local instead of a compile-time constant. `None` for an ordinary hole.
-        let emitHole (hole: Frozen.HoleSpec) (arg: Frozen.TExpr) (starWidthLocal: int option) =
+        // A float field form whose precision is a runtime star (`%.*f`/`%.*e`/`%.*g`/
+        // `%+.*f`): the source type letter + whether it is forced-sign (`Some space`).
+        // Any other form (static precision, or non-float) returns `None` and lowers via
+        // the static `toDotNetFormat` projection instead.
+        let dynFloatOf (fmt: FieldFormat) : (char * bool option) option =
+            match fmt with
+            | FieldFormat.Fixed Prec.Star -> Some('f', None)
+            | FieldFormat.Exponential(Prec.Star, upper) -> Some((if upper then 'E' else 'e'), None)
+            | FieldFormat.Compact(Prec.Star, upper) -> Some((if upper then 'G' else 'g'), None)
+            | FieldFormat.ForcedSign(space, Prec.Star) -> Some('f', Some space)
+            | _ -> None
+
+        // Emit one hole's handler call. `starWidthLocal`/`starPrecLocal = Some slot` for
+        // a hole whose width (`%*d`/`%*A`) / precision (`%.*f`/`%.*A`) is a runtime star:
+        // the value has already been guarded/clamped/normalized and spilled to that int
+        // local *before* the value expression (curried evaluation order: width, then
+        // precision, then value), so the alignment / width-budget / precision operand
+        // loads the local instead of a compile-time constant. `None` for a dim that is
+        // static (or a plain hole).
+        let emitHole
+            (hole: Frozen.HoleSpec)
+            (arg: Frozen.TExpr)
+            (starWidthLocal: int option)
+            (starPrecLocal: int option)
+            =
             // Push the alignment operand for an `Alignment`, returning whether one was
             // pushed. `Star` loads the pre-spilled width local; `Const` a literal;
             // `None` pushes `dflt` when the member always takes an operand (the
@@ -92,7 +111,7 @@ module EmitFormat =
             // `%*A` (`PrintWidth.Star`) — loads the clamped runtime width local; the
             // size budget resolves F#'s `PrintSize` node count (`%.NA`, default 10000).
             // The generic member boxes the value C#-side, so no explicit box in the IL.
-            let percentA (width: PrintWidth) (size: int option) =
+            let percentA (width: PrintWidth) (size: PrintSize) =
                 b.Add(ILInstr.Ldloca slot)
                 buildExpr env b arg
 
@@ -103,8 +122,31 @@ module EmitFormat =
                     | Some s -> b.Add(ILInstr.Ldloc s)
                     | None -> failwith "Emit: %*A without a spilled width local (invariant broken)"
 
-                b.Add(ILInstr.LdcI4(percentASize size))
+                match percentASize size with
+                | ValueSome sz -> b.Add(ILInstr.LdcI4 sz)
+                | ValueNone ->
+                    match starPrecLocal with
+                    | Some p -> b.Add(ILInstr.Ldloc p)
+                    | None -> failwith "Emit: %.*A without a spilled precision local (invariant broken)"
+
                 b.Add(ILInstr.Call(fh.AppendStructured hole.Ty, 4, 0))
+
+            // A float field form with a *runtime* precision (`%.*f`/`%.*e`/`%.*g`/
+            // `%+.*f`): push (value, typeChar, precision-local, alignment[, space]) and
+            // call the dynamic-precision member. `alignment` is the width slot — a
+            // `Star` loads the spilled width local, a `Const` a literal, `None` 0.
+            let dynamicFloat (typeChar: char) (signedSpace: bool option) (align: Alignment) (precLocal: int) =
+                b.Add(ILInstr.Ldloca slot)
+                buildExpr env b arg
+                b.Add(ILInstr.LdcI4(int typeChar))
+                b.Add(ILInstr.Ldloc precLocal)
+                pushAlign align (Some 0) |> ignore
+
+                match signedSpace with
+                | Option.None -> b.Add(ILInstr.Call(fh.AppendDynamicPrecisionFloat, 5, 0))
+                | Option.Some space ->
+                    b.Add(ILInstr.LdcI4(if space then 1 else 0))
+                    b.Add(ILInstr.Call(fh.AppendDynamicPrecisionSignedFloat, 6, 0))
 
             // A non-`%A` hole, emitted from its projected
             // `(HoleKind, .NET-format, Alignment)` triple.
@@ -180,8 +222,13 @@ module EmitFormat =
                 field PrintfSpec.HoleKind.Formatted fmt Alignment.None
             | HoleSpecSource.Classified(HoleForm.PercentA(width, size)) -> percentA width size
             | HoleSpecSource.Classified(HoleForm.Field(fmt, alignment)) ->
-                let kind, format, align = ClrHoleFormat.toDotNetFormat fmt alignment
-                field kind format align
+                match dynFloatOf fmt, starPrecLocal with
+                | Some(typeChar, signedSpace), Some precLocal -> dynamicFloat typeChar signedSpace alignment precLocal
+                | Some _, None ->
+                    failwith "Emit: runtime-precision float field without a spilled precision local (invariant broken)"
+                | Option.None, _ ->
+                    let kind, format, align = ClrHoleFormat.toDotNetFormat fmt alignment
+                    field kind format align
 
         for seg in segments do
             match seg with
@@ -189,34 +236,65 @@ module EmitFormat =
                 b.Add(ILInstr.Ldloca slot)
                 b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
                 b.Add(ILInstr.Call(fh.AppendLiteral, 2, 0))
-            | FormatSegG.Hole(hole, arg) -> emitHole hole arg None
-            | FormatSegG.StarWidthHole(widthExpr, hole, valueArg) ->
-                // Curried application evaluates the width arg *before* the value, but
-                // the handler members take the width in the alignment slot *after* the
-                // value — so spill the guarded/clamped width to a local first, then emit
-                // the value expression. (Invariant: `hole.Source`'s star classification
-                // and `widthExpr` were built from the same placeholder.)
-                let wLocal = b.Local(FTConst("int", EqArray.empty))
-                buildExpr env b widthExpr
+            | FormatSegG.Hole(hole, arg) -> emitHole hole arg None None
+            | FormatSegG.DynHole d ->
+                // Curried application evaluates the dimension args *before* the value,
+                // but the handler members take them *after* the value — so spill each
+                // present dim (width first, then precision) to a local, then emit the
+                // value. (Invariant: `d.Spec.Source`'s star classification agrees with
+                // which of `d.Width`/`d.Precision` are present — same placeholder.)
+                let wLocal =
+                    match d.Width with
+                    | ValueNone -> None
+                    | ValueSome widthExpr ->
+                        let l = b.Local(FTConst("int", EqArray.empty))
+                        buildExpr env b widthExpr
 
-                match hole.Source with
-                | HoleSpecSource.Classified(HoleForm.Field(_, Alignment.Star leftJustify)) ->
-                    // Padding forms: F# throws on a negative width. Guard, then negate
-                    // *after* the guard for a `-`-flag left-justify (the members read a
-                    // negative alignment as left-justify), so a negative width still
-                    // throws rather than silently right-justifying.
-                    b.Add(ILInstr.Call(fh.GuardTotalWidth, 1, 1))
+                        match d.Spec.Source with
+                        | HoleSpecSource.Classified(HoleForm.Field(_, Alignment.Star leftJustify)) ->
+                            // Padding forms: F# throws on a negative width. Guard, then
+                            // negate *after* the guard for a `-`-flag left-justify (the
+                            // members read a negative alignment as left-justify), so a
+                            // negative width still throws rather than right-justifying.
+                            b.Add(ILInstr.Call(fh.GuardTotalWidth, 1, 1))
 
-                    if leftJustify then
-                        b.Add(ILInstr.Un ILOpCode.Neg)
-                | HoleSpecSource.Classified(HoleForm.PercentA(PrintWidth.Star, _)) ->
-                    // `%*A`: a negative budget renders flat (F# does not throw), so clamp
-                    // to 0 rather than guard-throwing.
-                    b.Add(ILInstr.Call(fh.ClampWidth, 1, 1))
-                | _ -> failwith "Emit: StarWidthHole without a star-carrying spec (invariant broken)"
+                            if leftJustify then
+                                b.Add(ILInstr.Un ILOpCode.Neg)
+                        | HoleSpecSource.Classified(HoleForm.PercentA(PrintWidth.Star, _)) ->
+                            // `%*A`: a negative budget renders flat (F# does not throw),
+                            // so clamp to 0 rather than guard-throwing.
+                            b.Add(ILInstr.Call(fh.ClampWidth, 1, 1))
+                        | _ -> failwith "Emit: DynHole star width without a star-carrying spec (invariant broken)"
 
-                b.Add(ILInstr.Stloc wLocal)
-                emitHole hole valueArg (Some wLocal)
+                        b.Add(ILInstr.Stloc l)
+                        Some l
+
+                let pLocal =
+                    match d.Precision with
+                    | ValueNone -> None
+                    | ValueSome precExpr ->
+                        let l = b.Local(FTConst("int", EqArray.empty))
+                        buildExpr env b precExpr
+
+                        // `normalizePrecision` (clamp 0..99) applies ONLY on the
+                        // width=*+prec=* path for a *float* form (`printf.fs:632`); the
+                        // prec=*-only paths keep the raw precision (`:649-657`), and `%A`
+                        // sets `PrintSize` raw regardless (`:1114`). So normalize iff both
+                        // dims are star AND the hole is a dynamic-precision float field.
+                        let bothStars = d.Width.IsSome
+
+                        let isFloatField =
+                            match d.Spec.Source with
+                            | HoleSpecSource.Classified(HoleForm.Field(fmt, _)) -> (dynFloatOf fmt).IsSome
+                            | _ -> false
+
+                        if bothStars && isFloatField then
+                            b.Add(ILInstr.Call(fh.NormalizePrecision, 1, 1))
+
+                        b.Add(ILInstr.Stloc l)
+                        Some l
+
+                emitHole d.Spec d.Value wLocal pLocal
 
         match sink with
         | FormatSinkG.ToString ->

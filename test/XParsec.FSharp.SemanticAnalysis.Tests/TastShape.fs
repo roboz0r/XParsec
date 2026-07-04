@@ -488,11 +488,24 @@ type private Renderer() =
                     push "{"
                     this.Expr arg
                     push "}"
-                | FormatSeg.StarWidthHole(width, _, value) ->
+                | FormatSeg.DynHole d ->
                     push "{"
-                    this.Expr width
-                    push ":*:"
-                    this.Expr value
+
+                    d.Width
+                    |> ValueOption.iter (fun w ->
+                        push "*="
+                        this.Expr w
+                        push " "
+                    )
+
+                    d.Precision
+                    |> ValueOption.iter (fun p ->
+                        push ".*="
+                        this.Expr p
+                        push " "
+                    )
+
+                    this.Expr d.Value
                     push "}"
             )
 

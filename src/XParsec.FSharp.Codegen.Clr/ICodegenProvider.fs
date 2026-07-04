@@ -211,6 +211,14 @@ type FormatHandles =
         AppendUnsigned: EntityHandle
         /// `%0w.pf`: zero-pad after the sign — .NET has no float format that does this.
         AppendZeroPaddedFloat: EntityHandle
+        /// `%.*f`/`%*.*f`/`%.*e`/`%.*g`: runtime precision. Signature
+        /// `(value: float, typeChar: char, precision: int, alignment: int)` — builds
+        /// the .NET format string in-handler from `typeChar` + `precision`.
+        AppendDynamicPrecisionFloat: EntityHandle
+        /// `%+.*f`/`% .*f`/`%+*.*f`: runtime-precision forced-sign float. Signature
+        /// `(value: float, typeChar: char, precision: int, alignment: int, space: bool)`
+        /// — composes the sign in-handler (the section-format lowering is compile-time).
+        AppendDynamicPrecisionSignedFloat: EntityHandle
         /// `%A`: instantiates the generic `AppendStructured<T = ty>` (like
         /// `AppendFormatted`) for the structural-format engine. Signature
         /// `(value: T, width: int, size: int)` — the print-width budget and the
@@ -225,6 +233,10 @@ type FormatHandles =
         /// negative → 0 (flat), identity otherwise. `%A` renders a negative width
         /// flat rather than throwing, so it clamps instead of guarding.
         ClampWidth: EntityHandle
+        /// `%*.*f`/`%*.*e`/… two-star precision clamp, `static int32
+        /// NormalizePrecision(int32)` (0..99). Applied by the emitter only when a hole
+        /// has BOTH star dims (the `printf.fs:632` asymmetry).
+        NormalizePrecision: EntityHandle
     }
 
 /// The `Vesper.IFormatSink` member refs the synthesised `IStructuralFormattable.Format`

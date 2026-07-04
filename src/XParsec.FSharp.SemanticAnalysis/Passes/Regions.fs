@@ -492,9 +492,10 @@ module Regions =
                 match seg with
                 | FormatSeg.Lit _ -> ()
                 | FormatSeg.Hole(_, a) -> inferRegion s ctx a |> ignore
-                | FormatSeg.StarWidthHole(w, _, v) ->
-                    inferRegion s ctx w |> ignore
-                    inferRegion s ctx v |> ignore
+                | FormatSeg.DynHole d ->
+                    d.Width |> ValueOption.iter (fun w -> inferRegion s ctx w |> ignore)
+                    d.Precision |> ValueOption.iter (fun pr -> inferRegion s ctx pr |> ignore)
+                    inferRegion s ctx d.Value |> ignore
 
             RegionId.Unknown
         | TExpr.ILIntrinsic(_, _, args, _, _) ->

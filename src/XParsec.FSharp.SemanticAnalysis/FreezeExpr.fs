@@ -1315,16 +1315,24 @@ module internal FreezeExpr =
                     | ValueNone ->
                         failwith "Freeze.translatePrintfFormat: unsupported specifier (marker invariant broken)"
 
-                // A star *width* (`%*d`, `%-*d`, `%*A`) consumes a leading `int` arg,
-                // evaluated before the value in curried application order. The
-                // happy-path marker guarantees full application (`totalArity`), so the
-                // indices line up; star *precision* never reaches here (it doesn't
-                // classify, so the call was left unmarked). Walk args by per-hole arity.
+                // A star *width* (`%*d`, `%*A`) then a star *precision* (`%.*f`, `%.*e`,
+                // `%.*A`) each consume a leading `int` arg, evaluated before the value in
+                // curried application order (width first, then precision — the source arg
+                // order). The happy-path marker guarantees full application
+                // (`totalArity`), so the indices line up. Walk args by per-hole arity.
                 let widthExpr =
                     if placeholder.Width = FormatDim.Star then
                         let w = translateExpr ctx args.[holeIdx]
                         holeIdx <- holeIdx + 1
                         ValueSome w
+                    else
+                        ValueNone
+
+                let precisionExpr =
+                    if placeholder.Precision = FormatDim.Star then
+                        let pr = translateExpr ctx args.[holeIdx]
+                        holeIdx <- holeIdx + 1
+                        ValueSome pr
                     else
                         ValueNone
 
@@ -1355,9 +1363,18 @@ module internal FreezeExpr =
                         Tok = t
                     }
 
-                match widthExpr with
-                | ValueSome w -> segments.Add(FormatSeg.StarWidthHole(w, spec, argT))
-                | ValueNone -> segments.Add(FormatSeg.Hole(spec, argT))
+                match widthExpr, precisionExpr with
+                | ValueNone, ValueNone -> segments.Add(FormatSeg.Hole(spec, argT))
+                | _ ->
+                    segments.Add(
+                        FormatSeg.DynHole
+                            {
+                                Width = widthExpr
+                                Precision = precisionExpr
+                                Spec = spec
+                                Value = argT
+                            }
+                    )
             | StringPart.Expr _
             | StringPart.OrphanFormatSpecifier _
             | StringPart.InvalidText _ ->

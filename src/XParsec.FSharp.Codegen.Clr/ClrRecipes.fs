@@ -726,6 +726,47 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
             toEntity (ctx.MemberRef(eFormatter.Value, "AppendZeroPaddedFloat", s))
 
+        // `instance void AppendDynamicPrecisionFloat(float64, char, int32, int32)` —
+        // `%.*f`/`%*.*f`/`%.*e`/`%.*g` (value, type letter, runtime precision, field width).
+        let appendDynamicPrecisionFloat =
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = true)
+                .Parameters(
+                    4,
+                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                    (fun (pars: ParametersEncoder) ->
+                        pars.AddParameter().Type().Double()
+                        pars.AddParameter().Type().Char()
+                        pars.AddParameter().Type().Int32()
+                        pars.AddParameter().Type().Int32()
+                    )
+                )
+
+            toEntity (ctx.MemberRef(eFormatter.Value, "AppendDynamicPrecisionFloat", s))
+
+        // `instance void AppendDynamicPrecisionSignedFloat(float64, char, int32, int32, bool)`
+        // — `%+.*f`/`% .*f`/`%+*.*f` (value, 'f', runtime precision, field width, space flag).
+        let appendDynamicPrecisionSignedFloat =
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = true)
+                .Parameters(
+                    5,
+                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                    (fun (pars: ParametersEncoder) ->
+                        pars.AddParameter().Type().Double()
+                        pars.AddParameter().Type().Char()
+                        pars.AddParameter().Type().Int32()
+                        pars.AddParameter().Type().Int32()
+                        pars.AddParameter().Type().Boolean()
+                    )
+                )
+
+            toEntity (ctx.MemberRef(eFormatter.Value, "AppendDynamicPrecisionSignedFloat", s))
+
         let consoleGetter (name: string) : EntityHandle =
             let s = BlobBuilder()
 
@@ -820,9 +861,12 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             AppendOctal = appendOctal
             AppendUnsigned = appendUnsigned
             AppendZeroPaddedFloat = appendZeroPaddedFloat
+            AppendDynamicPrecisionFloat = appendDynamicPrecisionFloat
+            AppendDynamicPrecisionSignedFloat = appendDynamicPrecisionSignedFloat
             AppendStructured = appendStructured
             GuardTotalWidth = staticIntToInt "GuardTotalWidth"
             ClampWidth = staticIntToInt "ClampWidth"
+            NormalizePrecision = staticIntToInt "NormalizePrecision"
         }
 
     let eFormatSink = env.EFormatSink

@@ -180,6 +180,53 @@ type Formatter =
     member this.AppendStructured(value: 'T, width: int, size: int) =
         this.AppendLiteral(StructuralPrinter.Print(value, width, size))
 
+    /// Writes a float hole with a *runtime* precision (`%.*f`/`%*.*f`/`%.*e`/`%.*g`),
+    /// justified in a field of `alignment` chars (negative ⇒ left-justify; 0 ⇒ none).
+    /// Builds the .NET format string exactly as FSharp.Core's `getFormatForFloat`
+    /// (`printf.fs:606`) — `typeChar.ToString() + precision.ToString()` — so a garbage
+    /// precision reproduces the .NET *custom*-format fallback byte-for-byte (e.g.
+    /// `%.*f -1` ⇒ `"f-1"`). `typeChar` is the SOURCE type letter (`'f'`/`'e'`/`'E'`/
+    /// `'g'`/`'G'`) so the fallback's case matches. The two-star clamp
+    /// (`normalizePrecision`, `printf.fs:632`) is applied by the emitter, not here —
+    /// the asymmetry against the prec-star-only paths (`:649-657`) is load-bearing.
+    member this.AppendDynamicPrecisionFloat(value: float, typeChar: char, precision: int, alignment: int) =
+        this.AppendFormatted(value, alignment, typeChar.ToString() + precision.ToString())
+
+    /// As `AppendDynamicPrecisionFloat`, but for a forced-sign float (`%+.*f`/`% .*f`/
+    /// `%+*.*f`): a non-negative number gets a leading `+` (or ` ` when `space`) before
+    /// justification, mirroring FSharp.Core's `noJustificationCore` /
+    /// `rightJustifyWithSpaceAsPadChar` (`printf.fs:801`/`:771`). The compile-time
+    /// section-format lowering (`ClrHoleFormat`, `"+0.000;-0.000"`) can't take a runtime
+    /// precision, so the sign is composed here.
+    member this.AppendDynamicPrecisionSignedFloat
+        (value: float, typeChar: char, precision: int, alignment: int, space: bool)
+        =
+        let fmt = typeChar.ToString() + precision.ToString()
+
+        let str =
+            match box value with
+            | :? IFormattable as f -> f.ToString(fmt, provider)
+            | _ -> value.ToString()
+
+        // NaN / ±∞ are not numbers (`isNumber`, `printf.fs:966`): no sign prefix. A
+        // negative value already carries its own `-`; detect it from the formatted text's
+        // leading `-` (the `>=` operator is int-only here, and this is what
+        // `AppendZeroPaddedFloat` / the JS backend already do for sign detection).
+        let isNumber = not (Double.IsNaN value) && not (Double.IsInfinity value)
+        let isNegative = str.Length > 0 && str.[0] = '-'
+
+        let prefixed =
+            if isNumber && not isNegative then
+                (if space then " " else "+") + str
+            else
+                str
+
+        let startingPos = this.Pos
+        this.AppendLiteral(prefixed)
+
+        if alignment <> 0 then
+            this.AppendOrInsertAlignmentIfNeeded(startingPos, alignment)
+
     /// Guards a `%*d`-style runtime field width: throws
     /// `ArgumentOutOfRangeException("totalWidth")` on a negative width — the same
     /// exception type + `ParamName` F#'s `PadLeft`/`PadRight` throw — and returns a
@@ -194,6 +241,15 @@ type Formatter =
     /// Clamps a `%*A` runtime column budget to `0` on a negative width — F# renders
     /// a negative `%A` width flat (never breaking) rather than throwing.
     static member ClampWidth(width: int) : int = if width < 0 then 0 else width
+
+    /// Clamps a runtime precision to `0..99` — F#'s `normalizePrecision`
+    /// (`printf.fs:608`). Applied ONLY on the width=*+prec=* path (`printf.fs:632`);
+    /// the prec=*-only paths use the raw precision (`:649-657`), so the emitter calls
+    /// this only when a hole has BOTH star dimensions.
+    static member NormalizePrecision(precision: int) : int =
+        if precision < 0 then 0
+        elif precision > 99 then 99
+        else precision
 
     /// Flushes buffered text to the write-through sink and releases the buffer.
     member this.Flush() =
