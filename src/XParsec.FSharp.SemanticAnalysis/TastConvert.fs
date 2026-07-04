@@ -139,6 +139,7 @@ module TastConvert =
         match seg with
         | FormatSegG.Lit lit -> FormatSegG.Lit lit
         | FormatSegG.Hole(h, a) -> FormatSegG.Hole(hole f h, expr f a)
+        | FormatSegG.StarWidthHole(w, h, v) -> FormatSegG.StarWidthHole(expr f w, hole f h, expr f v)
 
     and clause (f: 'a -> 'b) (c: TStaticOptClauseG<'a, 'tok>) : TStaticOptClauseG<'b, 'tok> =
         {

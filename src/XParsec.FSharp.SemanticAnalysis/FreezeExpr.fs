@@ -1315,6 +1315,19 @@ module internal FreezeExpr =
                     | ValueNone ->
                         failwith "Freeze.translatePrintfFormat: unsupported specifier (marker invariant broken)"
 
+                // A star *width* (`%*d`, `%-*d`, `%*A`) consumes a leading `int` arg,
+                // evaluated before the value in curried application order. The
+                // happy-path marker guarantees full application (`totalArity`), so the
+                // indices line up; star *precision* never reaches here (it doesn't
+                // classify, so the call was left unmarked). Walk args by per-hole arity.
+                let widthExpr =
+                    if placeholder.Width = FormatDim.Star then
+                        let w = translateExpr ctx args.[holeIdx]
+                        holeIdx <- holeIdx + 1
+                        ValueSome w
+                    else
+                        ValueNone
+
                 let argExpr = args.[holeIdx]
                 holeIdx <- holeIdx + 1
                 let argT = translateExpr ctx argExpr
@@ -1335,16 +1348,16 @@ module internal FreezeExpr =
                 then
                     cold <- true
 
-                segments.Add(
-                    FormatSeg.Hole(
-                        {
-                            Ty = holeTy
-                            Source = HoleSpecSource.Classified holeForm
-                            Tok = t
-                        },
-                        argT
-                    )
-                )
+                let spec =
+                    {
+                        Ty = holeTy
+                        Source = HoleSpecSource.Classified holeForm
+                        Tok = t
+                    }
+
+                match widthExpr with
+                | ValueSome w -> segments.Add(FormatSeg.StarWidthHole(w, spec, argT))
+                | ValueNone -> segments.Add(FormatSeg.Hole(spec, argT))
             | StringPart.Expr _
             | StringPart.OrphanFormatSpecifier _
             | StringPart.InvalidText _ ->

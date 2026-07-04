@@ -157,4 +157,33 @@ let tests =
                         "[1.23e+3]"
                     ]
             }
+
+            // Star *width* (`%*d`): the runtime width is bound to `w` (evaluated before
+            // the value, preserving F#'s curried order) and padded via `padStart` /
+            // `padEnd`; the negative-width guard throws (a JS-native error type, an
+            // accepted divergence from the CLR `ArgumentOutOfRangeException`). Padding
+            // forms match F#'s value output byte-for-byte.
+            test "star width (`%*d`/`%-*d`/`%*s`/`%*x`) matches F# value output" {
+                runsLines
+                    "starwidth"
+                    (String.concat
+                        "\n"
+                        [
+                            "printfn \"[%*d]\" 5 42"
+                            "printfn \"[%-*d]\" 5 42"
+                            "printfn \"[%*s]\" 6 \"hi\""
+                            "printfn \"[%*x]\" 6 255"
+                            "printfn \"[%*d]\" 2 12345"
+                        ])
+                    [ "[   42]"; "[42   ]"; "[    hi]"; "[    ff]"; "[12345]" ]
+            }
+
+            // The width argument is bound in an arrow whose parameter is `w`, evaluated
+            // before the value — the JS mirror of the CLR width-spill.
+            test "`%*d` binds the runtime width before the value" {
+                Expect.stringContains
+                    (emitJs "printfn \"%*d\" 5 42")
+                    "(w) =>"
+                    "the star width is bound in a `w`-parameter arrow, evaluated before the value"
+            }
         ]

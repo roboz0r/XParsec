@@ -96,6 +96,10 @@ module ResolvedTypes =
                             | FormatSeg.Hole(hole, arg) ->
                                 addFreeRoots allowed acc hole.Ty
                                 TastWalk.iterExpr it arg
+                            | FormatSeg.StarWidthHole(width, hole, value) ->
+                                addFreeRoots allowed acc hole.Ty
+                                TastWalk.iterExpr it width
+                                TastWalk.iterExpr it value
 
                         false
                     | _ -> true

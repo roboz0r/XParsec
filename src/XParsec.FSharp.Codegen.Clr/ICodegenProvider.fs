@@ -216,6 +216,15 @@ type FormatHandles =
         /// `(value: T, width: int, size: int)` — the print-width budget and the
         /// print-size (`PrintSize`) budget.
         AppendStructured: FrozenType -> EntityHandle
+        /// `%*d`/`%-*d` runtime width guard, `static int32 GuardTotalWidth(int32)` —
+        /// throws `ArgumentOutOfRangeException("totalWidth")` on a negative width
+        /// (F# `PadLeft` parity), identity otherwise. The star-width lowering spills
+        /// the guarded (then, for `-`, negated) result to a local before the value.
+        GuardTotalWidth: EntityHandle
+        /// `%*A` runtime column-budget clamp, `static int32 ClampWidth(int32)` —
+        /// negative → 0 (flat), identity otherwise. `%A` renders a negative width
+        /// flat rather than throwing, so it clamps instead of guarding.
+        ClampWidth: EntityHandle
     }
 
 /// The `Vesper.IFormatSink` member refs the synthesised `IStructuralFormattable.Format`

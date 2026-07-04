@@ -300,6 +300,7 @@ module TastLower =
                     match seg with
                     | FormatSegG.Lit _ -> seg
                     | FormatSegG.Hole(h, a) -> FormatSegG.Hole(h, f a)
+                    | FormatSegG.StarWidthHole(w, h, v) -> FormatSegG.StarWidthHole(f w, h, f v)
                 )
 
             TExprG.Format(sink, segs, t, tk)

@@ -89,6 +89,10 @@ module PlatformTypes =
                             | FormatSeg.Hole(hole, arg) ->
                                 addUnrepresentable ctx acc hole.Ty
                                 TastWalk.iterExpr it arg
+                            | FormatSeg.StarWidthHole(width, hole, value) ->
+                                addUnrepresentable ctx acc hole.Ty
+                                TastWalk.iterExpr it width
+                                TastWalk.iterExpr it value
 
                         false
                     | _ -> true

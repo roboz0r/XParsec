@@ -60,6 +60,21 @@ type Formatter =
     /// reflection-free structural engine rather than an <c>IFormattable</c> call.
     member AppendStructured: value: 'T * width: int * size: int -> unit
 
+    /// Guard a `%*d`-style runtime field width. F#'s <c>PadLeft</c>/<c>PadRight</c>
+    /// throw <c>ArgumentOutOfRangeException</c> (<c>ParamName = "totalWidth"</c>) on a
+    /// negative width, so this throws identically (the parity bar is the exception
+    /// type + <c>ParamName</c>, not the message) and returns a non-negative width
+    /// unchanged. Static so the backend can guard the width — spilled to a local
+    /// ahead of the value, per curried evaluation order — before the value is built.
+    /// A left-justify (`%-*d`) negates the *guarded* result, so a negative width
+    /// still throws rather than silently right-justifying.
+    static member GuardTotalWidth: totalWidth: int -> int
+
+    /// Clamp a `%*A` runtime column budget. F# renders a negative `%A` width flat
+    /// (never breaking) rather than throwing, so a negative budget clamps to <c>0</c>
+    /// (the <c>%0A</c> flat mode); a non-negative budget is returned unchanged.
+    static member ClampWidth: width: int -> int
+
     /// Flush buffered text to the write-through sink and release the buffer.
     member Flush: unit -> unit
 

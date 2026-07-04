@@ -488,6 +488,12 @@ type private Renderer() =
                     push "{"
                     this.Expr arg
                     push "}"
+                | FormatSeg.StarWidthHole(width, _, value) ->
+                    push "{"
+                    this.Expr width
+                    push ":*:"
+                    this.Expr value
+                    push "}"
             )
 
             push "]"

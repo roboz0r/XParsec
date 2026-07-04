@@ -81,20 +81,55 @@ let tests =
                 Expect.isEmpty deps (sprintf "%% A is pure Vesper — no FSharp.Core dependency (%A)" deps)
             }
 
-            test "`printfn \"%*d\"` (star width) rides the FSharp.Core cold path" {
-                // Star width/precision defers lowering (the native handler is the
-                // tracked residual), so a star format still constructs a `PrintfFormat`
-                // and calls `PrintFormatLine`. Non-empty deps is the cold-path pin.
+            test "`printfn \"%*d\"` (star width) lowers natively — no FSharp.Core" {
+                // Star *width* now lowers to the `Vesper.Formatter` handler (the guarded
+                // runtime width feeds the signed-alignment members), so the whole program
+                // references no FSharp.Core construct.
                 let _, artifact = compileSource "DepsStarPrintf" "printfn \"%*d\" 5 42"
-                let deps = artifact.FSharpCoreDependencies
-                Expect.isNonEmpty deps "the star-width cold path depends on FSharp.Core"
 
-                Expect.contains
-                    deps
-                    "Microsoft.FSharp.Core.PrintfModule.PrintFormatLine"
-                    "the cold path calls PrintFormatLine"
+                Expect.isEmpty
+                    artifact.FSharpCoreDependencies
+                    (sprintf "native star-width printf pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
+            }
 
-                Expect.contains deps "Microsoft.FSharp.Core.PrintfFormat`4 (.ctor)" "and constructs a PrintfFormat"
+            test "`printfn \"%*A\"` (bare star width) lowers natively — no FSharp.Core" {
+                // Bare `%*A` takes the runtime column budget on the structural engine
+                // (`AppendStructured`), so no FSharp.Core cold path.
+                let _, artifact = compileSource "DepsStarA" "printfn \"%*A\" 1 [1; 2; 3]"
+
+                Expect.isFalse
+                    (artifact.FSharpCoreDependencies
+                     |> Seq.contains "Microsoft.FSharp.Core.PrintfModule.PrintFormatLine")
+                    "bare %*A does NOT take the PrintFormatLine cold path"
+            }
+
+            // The star residuals that stay cold this stage: star *precision* (`%.*f`,
+            // `%*.*f`), the star zero-pad width (`%0*d`), and the *flagged* star-`%A`
+            // forms (`%-*A` etc). Each still constructs a `PrintfFormat` and calls
+            // `PrintFormatLine` — the pins that keep the remaining cold surface tracked.
+            test "star residuals (`%.*f`, `%*.*f`, `%0*d`, `%-*A`) ride the FSharp.Core cold path" {
+                let residuals =
+                    [
+                        "DepsStarPrec", "printfn \"%.*f\" 2 3.5"
+                        "DepsStarWidthPrec", "printfn \"%*.*f\" 8 2 3.5"
+                        "DepsStarZeroPad", "printfn \"%0*d\" 5 42"
+                        "DepsStarLeftA", "printfn \"%-*A\" 1 [1; 2; 3]"
+                    ]
+
+                for name, src in residuals do
+                    let _, artifact = compileSource name src
+                    let deps = artifact.FSharpCoreDependencies
+                    Expect.isNonEmpty deps (sprintf "%s stays on the cold path" src)
+
+                    Expect.contains
+                        deps
+                        "Microsoft.FSharp.Core.PrintfModule.PrintFormatLine"
+                        (sprintf "%s calls PrintFormatLine" src)
+
+                    Expect.contains
+                        deps
+                        "Microsoft.FSharp.Core.PrintfFormat`4 (.ctor)"
+                        (sprintf "%s constructs a PrintfFormat" src)
             }
 
             // A project-local record / DU carries a synthesised

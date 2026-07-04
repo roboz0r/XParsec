@@ -11,16 +11,28 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // `ClrHoleFormat.toDotNetFormat`, so these per-specifier projection assertions keep
 // pinning the CLR emission shape. `%A` reproduces the slot punning the old triple
 // carried (width in the alignment slot, size as a decimal string in the format slot).
+// The alignment slot is an `Alignment` now; project it back to the legacy signed
+// `int option` these assertions were written against (`Star` — a runtime `%*d`
+// width — has no static value, so `None`).
+let private alignToOpt (a: PrintfHoleForm.Alignment) : int option =
+    match a with
+    | PrintfHoleForm.Alignment.None -> None
+    | PrintfHoleForm.Alignment.Const n -> Some n
+    | PrintfHoleForm.Alignment.Star _ -> None
+
 let private triple (hole: HoleSpecG<'ty, 'tok>) : PrintfSpec.HoleKind * string option * int option =
     match hole.Source with
     | HoleSpecSource.RawFormat fmt -> PrintfSpec.HoleKind.Formatted, fmt, None
-    | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(fmt, align)) -> ClrHoleFormat.toDotNetFormat fmt align
+    | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(fmt, align)) ->
+        let k, f, a = ClrHoleFormat.toDotNetFormat fmt align
+        k, f, alignToOpt a
     | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.PercentA(width, size)) ->
         let widthSlot =
             match width with
             | PrintfHoleForm.PrintWidth.Default -> None
             | PrintfHoleForm.PrintWidth.Never -> Some 0
             | PrintfHoleForm.PrintWidth.Cols n -> Some n
+            | PrintfHoleForm.PrintWidth.Star -> None
 
         let sizeSlot =
             match size with
@@ -75,11 +87,13 @@ let private runParity (name: string) (src: string) (expected: string) =
     Expect.equal exitCode 0 (sprintf "Main returns 0 for: %s" src)
     Expect.equal (output.TrimEnd('\r', '\n')) expected (sprintf "%s == F# parity" src)
 
-/// Full name of the deepest exception the compiled driver's entry point throws
-/// (or `None` if it returns normally). The asserting run helpers turn a throw into
-/// a test failure, so a run that must OBSERVE F#'s throw (a negative star width,
-/// which `PadLeft` rejects with `ArgumentOutOfRangeException`) invokes directly.
-let private entryPointThrew (src: string) : string option =
+/// The deepest exception the compiled driver's entry point throws, as its type's
+/// full name paired with its `ParamName` (for an `ArgumentException`), or `None`
+/// when it returns normally. The asserting run helpers turn a throw into a test
+/// failure, so a run that must OBSERVE F#'s throw (a negative star width, which
+/// `PadLeft` rejects with `ArgumentOutOfRangeException("totalWidth")`) invokes
+/// directly. The `ParamName` is the native path's parity bar with F#.
+let private entryPointThrew (src: string) : (string * string option) option =
     withPrintfAlc (fun alc ->
         let _, artifact = compileSource "PHpStarThrow" src
         use ms = new System.IO.MemoryStream(Codegen.toBytes artifact)
@@ -96,7 +110,14 @@ let private entryPointThrew (src: string) : string option =
                 else
                     deepest ex.InnerException
 
-            Some((deepest e.InnerException).GetType().FullName)
+            let ex = deepest e.InnerException
+
+            let paramName =
+                match ex with
+                | :? System.ArgumentException as ae -> Option.ofObj ae.ParamName
+                | _ -> None
+
+            Some(ex.GetType().FullName, paramName)
     )
 
 [<Tests>]
@@ -1111,48 +1132,177 @@ let tests =
                     (sprintf "%s" (sprintf "%s" $"v={9}"))
             }
 
-            // ---- Star width / precision (`%*d`, `%*.*f`) ----
-            // Runtime dimensions consume a leading `int` per star (width before
-            // precision). Lowering still defers star, so these ride the FSharp.Core
-            // cold path — the oracle IS the test process's own `sprintf`.
+            // ---- Star width (`%*d`, `%-*d`, `%*A`): native lowering ----
+            // A star *width* consumes a leading runtime `int` (evaluated before the
+            // value); the padding forms feed it — guarded, then negated for `-` — to
+            // the signed-alignment handler members, and `%*A` feeds it (clamped) as the
+            // structural print-width budget. Parity oracle IS the test process's own
+            // `sprintf`. Star *precision* / `%0*d` / flagged `%*A` stay cold residuals.
 
-            test "`%*d` takes a runtime width and right-justifies (cold path)" {
+            test "`%*d` freezes to a Format node with a StarWidthHole segment" {
+                match soleDecl "printfn \"%*d\" 5 42" with
+                | TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.StarWidthHole(TExpr.Const(TConstValue.Int 5, _, _),
+                                                hole,
+                                                TExpr.Const(TConstValue.Int 42, _, _)) ] ->
+                        match hole.Source with
+                        | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.Verbatim,
+                                                                                  PrintfHoleForm.Alignment.Star false)) ->
+                            ()
+                        | other -> failtestf "expected a Verbatim / Star(false) field, got: %A" other
+                    | other -> failtestf "expected one StarWidthHole (width 5, value 42), got: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            test "`%-*d` carries the `-` flag as Star(leftJustify = true)" {
+                match soleDecl "printfn \"%-*d\" 5 42" with
+                | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.StarWidthHole(_, hole, _) ] ->
+                        match hole.Source with
+                        | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(_, PrintfHoleForm.Alignment.Star true)) ->
+                            ()
+                        | other -> failtestf "expected Star(true), got: %A" other
+                    | other -> failtestf "expected one StarWidthHole, got: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            test "`%*A` freezes to a StarWidthHole over a PercentA(Star) spec" {
+                match soleDecl "printfn \"%*A\" 1 [1; 2; 3]" with
+                | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.StarWidthHole(_, hole, _) ] ->
+                        match hole.Source with
+                        | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.PercentA(PrintfHoleForm.PrintWidth.Star, _)) ->
+                            ()
+                        | other -> failtestf "expected PercentA(Star), got: %A" other
+                    | other -> failtestf "expected one StarWidthHole, got: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            // Padding forms — every specifier a star width lands on. The oracle pins
+            // byte-for-byte parity with F#, native.
+            test "`%*d` right-justifies to a runtime width" {
                 runParity "PHpStarD" "printfn \"%*d\" 5 42" (sprintf "%*d" 5 42)
             }
 
-            test "`%*d` runtime width matches the literal `%5d`" {
-                // Pins the observable value the brief calls out: three leading spaces.
-                runParity "PHpStarDPin" "printfn \"%*d\" 5 42" "   42"
-            }
-
-            test "`%*.*f` takes a runtime width then precision then the value" {
-                runParity "PHpStarWP" "printfn \"%*.*f\" 12 1 123.456" (sprintf "%*.*f" 12 1 123.456)
-            }
-
-            test "`%-*d` (left-align) combines the `-` flag with a star width" {
+            test "`%-*d` left-justifies to a runtime width" {
                 runParity "PHpStarLeft" "printfn \"%-*d\" 5 42" (sprintf "%-*d" 5 42)
             }
 
-            test "`%0*d` (zero-pad) combines the `0` flag with a star width" {
-                runParity "PHpStarZero" "printfn \"%0*d\" 5 42" (sprintf "%0*d" 5 42)
+            test "`%+*d` forces a sign inside a runtime width" {
+                runParity "PHpStarPlus" "printfn \"%+*d\" 5 42" (sprintf "%+*d" 5 42)
             }
 
-            test "`%*s` takes a runtime width for a string" {
+            test "`% *d` forces a leading space inside a runtime width" {
+                runParity "PHpStarSpace" "printfn \"% *d\" 5 42" (sprintf "% *d" 5 42)
+            }
+
+            test "`%*s` right-justifies a string to a runtime width" {
                 runParity "PHpStarS" "printfn \"%*s\" 6 \"hi\"" (sprintf "%*s" 6 "hi")
             }
 
-            test "`%*A` feeds the star as the structural print-width budget" {
-                runParity "PHpStarA" "printfn \"%*A\" 5 42" (sprintf "%*A" 5 42)
+            test "`%*c` right-justifies a char to a runtime width" {
+                runParity "PHpStarC" "printfn \"%*c\" 4 'a'" (sprintf "%*c" 4 'a')
             }
 
-            test "`%.*f` takes a runtime precision (no width)" {
+            test "`%*u` right-justifies unsigned to a runtime width" {
+                runParity "PHpStarU" "printfn \"%*u\" 6 42" (sprintf "%*u" 6 42)
+            }
+
+            test "`%*x` right-justifies hex to a runtime width" {
+                runParity "PHpStarX" "printfn \"%*x\" 6 255" (sprintf "%*x" 6 255)
+            }
+
+            test "`%*o` right-justifies octal to a runtime width" {
+                runParity "PHpStarO" "printfn \"%*o\" 6 8" (sprintf "%*o" 6 8)
+            }
+
+            test "`%*B` right-justifies binary to a runtime width" {
+                runParity "PHpStarB" "printfn \"%*B\" 8 5" (sprintf "%*B" 8 5)
+            }
+
+            test "`%*b` right-justifies a bool to a runtime width" {
+                runParity "PHpStarBool" "printfn \"%*b\" 8 true" (sprintf "%*b" 8 true)
+            }
+
+            test "`%*f` right-justifies a float to a runtime width" {
+                runParity "PHpStarF" "printfn \"%*f\" 12 3.14159" (sprintf "%*f" 12 3.14159)
+            }
+
+            test "`%*.2f` combines a star width with a literal precision" {
+                runParity "PHpStarFP" "printfn \"%*.2f\" 10 3.14159" (sprintf "%*.2f" 10 3.14159)
+            }
+
+            // Width edge cases: wider-than-value (pad), narrower-than-value (no pad),
+            // and width 0 (no pad).
+            test "`%*d` with a width smaller than the value does not truncate" {
+                runParity "PHpStarNarrow" "printfn \"%*d\" 2 12345" (sprintf "%*d" 2 12345)
+            }
+
+            test "`%*d` with width 0 pads nothing" {
+                runParity "PHpStarZeroW" "printfn \"%*d\" 0 42" (sprintf "%*d" 0 42)
+            }
+
+            test "`%-*s` with a width smaller than the value does not truncate" {
+                runParity "PHpStarLeftNarrow" "printfn \"%-*s\" 2 \"hello\"" (sprintf "%-*s" 2 "hello")
+            }
+
+            // `%*A`: the star feeds the structural print-width budget. A tight budget
+            // forces per-element breaks; a wide one keeps it on one line; a negative
+            // budget renders flat (F# clamps rather than throwing).
+            test "`%*A` with a tight width forces the list to break across lines" {
+                // The structural engine's multi-line break regime diverges from F#'s by
+                // design (only flat/small values are byte-identical), so the star-budget
+                // effect is asserted behaviourally: a width-1 budget on a 3-element list
+                // must span lines, whereas the wide-width run (below) stays flat.
+                let _, output =
+                    withPrintfAlc (fun alc -> runDriverInAlc alc "printfn \"%*A\" 1 [1; 2; 3]")
+
+                let body = output.TrimEnd('\r', '\n')
+                Expect.isTrue (body.Contains '\n') (sprintf "width 1 breaks the list across lines (got: %A)" body)
+            }
+
+            test "`%*A` with a wide width stays flat and matches F#" {
+                runParity "PHpStarAWide" "printfn \"%*A\" 80 [1; 2; 3]" (sprintf "%*A" 80 [ 1; 2; 3 ])
+            }
+
+            test "`%*A` with a negative width renders flat without throwing" {
+                runParity "PHpStarANeg" "printfn \"%*A\" (0 - 1) [1; 2; 3]" (sprintf "%*A" -1 [ 1; 2; 3 ])
+            }
+
+            // Cold residuals still run correctly (via the FSharp.Core path); parity is
+            // path-agnostic, so the oracle still holds.
+            test "`%*.*f` (star width + star precision) stays correct on the cold path" {
+                runParity "PHpStarWP" "printfn \"%*.*f\" 12 1 123.456" (sprintf "%*.*f" 12 1 123.456)
+            }
+
+            test "`%.*f` (star precision) stays correct on the cold path" {
                 runParity "PHpStarPrec" "printfn \"%.*f\" 2 3.14159" (sprintf "%.*f" 2 3.14159)
             }
 
-            test "a negative star width throws ArgumentOutOfRangeException (matches F#)" {
+            test "`%0*d` (star zero-pad) stays correct on the cold path" {
+                runParity "PHpStarZero" "printfn \"%0*d\" 5 42" (sprintf "%0*d" 5 42)
+            }
+
+            // The regression test for the width-before-value spill: both the width and
+            // the value expression print a marker before returning. F# evaluates the
+            // width argument first (curried application order), so `W` must precede `V`;
+            // pushing the width inline (after the value) would flip them.
+            test "`%*d` evaluates the width argument before the value" {
+                let src =
+                    "let w () =\n    printf \"W\"\n    5\n"
+                    + "let v () =\n    printf \"V\"\n    42\n"
+                    + "printfn \"%*d\" (w ()) (v ())"
+
+                runPrints "PHpStarOrder" src ("WV" + sprintf "%*d" 5 42)
+            }
+
+            test "a negative star width throws ArgumentOutOfRangeException(\"totalWidth\"), matching F#" {
                 Expect.equal
                     (entryPointThrew "printfn \"%*d\" (0 - 5) 42")
-                    (Some "System.ArgumentOutOfRangeException")
-                    "F#'s throw-on-negative-width is reproduced on the cold path"
+                    (Some("System.ArgumentOutOfRangeException", Some "totalWidth"))
+                    "native negative-width throw matches F#'s exception type + ParamName"
             }
         ]

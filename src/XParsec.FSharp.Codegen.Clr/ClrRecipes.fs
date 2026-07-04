@@ -792,6 +792,20 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             encodeType (specEnc.AddArgument()) ty
             toEntity (ctx.MethodSpec(toEntity memberRef, inst))
 
+        // `static int32 M(int32)` — the star-width guard / clamp helpers.
+        let staticIntToInt (name: string) : EntityHandle =
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = false)
+                .Parameters(
+                    1,
+                    (fun (ret: ReturnTypeEncoder) -> ret.Type().Int32()),
+                    (fun (pars: ParametersEncoder) -> pars.AddParameter().Type().Int32())
+                )
+
+            toEntity (ctx.MemberRef(eFormatter.Value, name, s))
+
         {
             HandlerLocal = FTConst(formatterTypeName, EqArray.empty)
             CtorWriter = ctorWriter
@@ -807,6 +821,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             AppendUnsigned = appendUnsigned
             AppendZeroPaddedFloat = appendZeroPaddedFloat
             AppendStructured = appendStructured
+            GuardTotalWidth = staticIntToInt "GuardTotalWidth"
+            ClampWidth = staticIntToInt "ClampWidth"
         }
 
     let eFormatSink = env.EFormatSink

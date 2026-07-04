@@ -385,7 +385,10 @@ let tests =
                         | HoleSpecSource.Classified hf ->
                             Expect.equal
                                 hf
-                                (PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.Verbatim, None))
+                                (PrintfHoleForm.HoleForm.Field(
+                                    PrintfHoleForm.FieldFormat.Verbatim,
+                                    PrintfHoleForm.Alignment.None
+                                ))
                                 "%d → verbatim field, no alignment"
                         | other -> failtestf "expected a Classified source for %%d, got: %A" other
                     | other -> failtestf "unexpected Format segments: %A" other

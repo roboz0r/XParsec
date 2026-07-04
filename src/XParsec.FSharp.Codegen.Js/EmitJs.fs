@@ -850,7 +850,8 @@ module EmitJs =
     and private buildFormatArg (ctx: WalkCtx) (segments: EqArray<Frozen.FormatSeg>) : JsExpr =
         match EqArray.toList segments with
         | [ FormatSegG.Lit s ] -> JsExpr.Literal(JsLiteral.String s, ValueNone)
-        | [ FormatSegG.Hole(hole, operand) ] -> buildHole ctx hole operand
+        | [ FormatSegG.Hole(hole, operand) ] -> buildHole ctx hole operand ValueNone
+        | [ FormatSegG.StarWidthHole(width, hole, value) ] -> buildHole ctx hole value (ValueSome width)
         | segs ->
             let pieces = ResizeArray<JsRawSeg>()
             // Seed with `""` so the first `+` already concatenates strings, even
@@ -864,7 +865,9 @@ module EmitJs =
 
                 match seg with
                 | FormatSegG.Lit s -> pieces.Add(JsRawSeg.Hole(JsExpr.Literal(JsLiteral.String s, ValueNone)))
-                | FormatSegG.Hole(hole, operand) -> pieces.Add(JsRawSeg.Hole(buildHole ctx hole operand))
+                | FormatSegG.Hole(hole, operand) -> pieces.Add(JsRawSeg.Hole(buildHole ctx hole operand ValueNone))
+                | FormatSegG.StarWidthHole(width, hole, value) ->
+                    pieces.Add(JsRawSeg.Hole(buildHole ctx hole value (ValueSome width)))
 
             JsExpr.Raw(List.ofSeq pieces, ValueNone)
 
@@ -903,7 +906,12 @@ module EmitJs =
     /// `%0w.pf` (`FixedZeroPad`), and `%+`/`% ` (`ForcedSign`). Still cold (raw
     /// operand, deferred per the plan): `%e`/`%E`/`%g`/`%G` (`Exponential`/`Compact`)
     /// — the .NET exponent / compact field widths have no faithful JS analogue.
-    and private buildHole (ctx: WalkCtx) (hole: Frozen.HoleSpec) (operand: Frozen.TExpr) : JsExpr =
+    and private buildHole
+        (ctx: WalkCtx)
+        (hole: Frozen.HoleSpec)
+        (operand: Frozen.TExpr)
+        (starWidth: Frozen.TExpr voption)
+        : JsExpr =
         let num (n: int) =
             JsExpr.Literal(JsLiteral.Number(string n), ValueNone)
 
@@ -948,15 +956,30 @@ module EmitJs =
         let strBind (inner: JsExpr) (build: JsExpr -> JsExpr) : JsExpr =
             call (JsExpr.Arrow([ "s" ], JsFnBody.Expr(build (id "s")), ValueNone)) [ inner ]
 
-        let emitField (fmt: FieldFormat) (alignment: int option) : JsExpr =
+        // Apply a hole's field width dynamically for `%*d`: pad an already-string
+        // expression to the runtime width bound to `w` (`padEnd` for a `-`-flag
+        // left-justify, else `padStart`). The negative-width guard is emitted by the
+        // enclosing IIFE (`buildStar`), before the value.
+        let padDyn (leftJustify: bool) (e: JsExpr) : JsExpr =
+            if leftJustify then
+                invoke e "padEnd" [ id "w" ]
+            else
+                invoke e "padStart" [ id "w" ]
+
+        // `emitField` builds the value string then applies `wrap` (a static
+        // `padStart`/`padEnd`, a dynamic `%*d` pad, or identity). `stringify` forces
+        // the `Verbatim` form through `String(v)` — needed whenever an alignment wraps
+        // it (a bare `%d` keeps the raw operand so the concat coerces it).
+        let emitField (fmt: FieldFormat) (stringify: bool) (wrap: JsExpr -> JsExpr) : JsExpr =
             match fmt with
             // `%d`/`%s`/`%O`/`%c`/`%M`: plain stringification. Bare ⇒ the raw operand
             // (the surrounding concat coerces it, a lone `%d` stays `console.log(x)`);
             // with a width ⇒ `String(v)` then pad.
             | FieldFormat.Verbatim ->
-                match alignment with
-                | None -> buildExpr ctx operand
-                | Some _ -> withAlign alignment (direct (fun v -> call (id "String") [ v ]))
+                if stringify then
+                    wrap (direct (fun v -> call (id "String") [ v ]))
+                else
+                    buildExpr ctx operand
             // `%0wd`: sign-aware zero-pad — zeros pad to `width` *after* the sign
             // (`(-42).ToString("D5") = "-00042"`), so the value is read three times.
             | FieldFormat.DecimalZeroPad width ->
@@ -982,9 +1005,8 @@ module EmitJs =
                     | Radix.Binary -> 2, false
                     | Radix.Octal -> 8, false
 
-                withAlign
-                    alignment
-                    (direct (fun v ->
+                wrap (
+                    direct (fun v ->
                         let digits =
                             invoke (JsExpr.Binary(">>>", v, num 0, ValueNone)) "toString" [ num baseN ]
 
@@ -993,21 +1015,19 @@ module EmitJs =
                         match zeroPad with
                         | Some w -> invoke cased "padStart" [ num w; str "0" ]
                         | None -> cased
-                    ))
+                    )
+                )
             // `%u`: the source `int`'s bits reinterpreted unsigned (`>>> 0`).
             | FieldFormat.Unsigned ->
-                withAlign alignment (direct (fun v -> invoke (JsExpr.Binary(">>>", v, num 0, ValueNone)) "toString" []))
+                wrap (direct (fun v -> invoke (JsExpr.Binary(">>>", v, num 0, ValueNone)) "toString" []))
             // `%b`: lowercase `true`/`false` (explicit ternary keeps the alignment path uniform).
-            | FieldFormat.Bool ->
-                withAlign alignment (direct (fun v -> JsExpr.Conditional(v, str "true", str "false", ValueNone)))
+            | FieldFormat.Bool -> wrap (direct (fun v -> JsExpr.Conditional(v, str "true", str "false", ValueNone)))
             // `%f` / `%.Nf`: fixed-point with `precision` fraction digits.
-            | FieldFormat.Fixed precision ->
-                withAlign alignment (direct (fun v -> invoke (receiver v) "toFixed" [ num precision ]))
+            | FieldFormat.Fixed precision -> wrap (direct (fun v -> invoke (receiver v) "toFixed" [ num precision ]))
             // `%0w.Nf`: fixed-point, then zeros after any sign to a total field of `width`.
             | FieldFormat.FixedZeroPad(precision, width) ->
-                withAlign
-                    alignment
-                    (strBind
+                wrap (
+                    strBind
                         (direct (fun v -> invoke (receiver v) "toFixed" [ num precision ]))
                         (fun s ->
                             let padTail =
@@ -1024,16 +1044,16 @@ module EmitJs =
                                 invoke s "padStart" [ num width; str "0" ],
                                 ValueNone
                             )
-                        ))
+                        )
+                )
             // `%+d`/`% d`/`%+.Nf`/`% .Nf`: forced sign — a non-negative value takes the
             // sign char (`+` or a space), a negative keeps its `-`. `precision = 0` ⇒
             // integer (`toFixed(0)`).
             | FieldFormat.ForcedSign(space, precision) ->
                 let sign = if space then " " else "+"
 
-                withAlign
-                    alignment
-                    (strBind
+                wrap (
+                    strBind
                         (direct (fun v -> invoke (receiver v) "toFixed" [ num precision ]))
                         (fun s ->
                             JsExpr.Conditional(
@@ -1042,19 +1062,20 @@ module EmitJs =
                                 JsExpr.Binary("+", str sign, s, ValueNone),
                                 ValueNone
                             )
-                        ))
+                        )
+                )
             // `%e`/`%E`: scientific notation via `v.toExponential(precision)`. JS uses
             // a lowercase `e` and a minimal (1-2 digit) exponent, so this is NOT byte-
             // identical to F#/.NET (which zero-pads the exponent to 3 digits,
             // `1.234500e+004`); it's an accepted close approximation. `%E` upper-cases
             // the `e` (only letter in the string, so `toUpperCase` is safe).
             | FieldFormat.Exponential(precision, upper) ->
-                withAlign
-                    alignment
-                    (direct (fun v ->
+                wrap (
+                    direct (fun v ->
                         let e = invoke (receiver v) "toExponential" [ num precision ]
                         if upper then invoke e "toUpperCase" [] else e
-                    ))
+                    )
+                )
             // `%g`/`%G`: compact form via `v.toPrecision(significant)`. JS `toPrecision`
             // keeps trailing zeros and switches to exponential on different thresholds
             // than .NET `G`, so again an accepted approximation, not byte-exact.
@@ -1063,28 +1084,79 @@ module EmitJs =
             | FieldFormat.Compact(precision, upper) ->
                 let sig' = max 1 precision
 
-                withAlign
-                    alignment
-                    (direct (fun v ->
+                wrap (
+                    direct (fun v ->
                         let g = invoke (receiver v) "toPrecision" [ num sig' ]
                         if upper then invoke g "toUpperCase" [] else g
-                    ))
-
-        match hole.Source with
-        // A `{x:fmt}` interpolation custom-format clause: a CLR dialect string with no
-        // printf placeholder, which JS does not interpret — the raw operand stands.
-        | HoleSpecSource.RawFormat _ -> buildExpr ctx operand
-        | HoleSpecSource.Classified(HoleForm.PercentA(width, size)) ->
-            let fmtRef =
-                // A Vesper-emitted runtime export — always a NAMED import.
-                JsExpr.Identifier(
-                    JsImports.addRef ctx.Imports "structuralFormat" structuralFormatKey ImportForm.Named,
-                    ValueNone
+                    )
                 )
 
-            let value = buildExpr ctx operand
-            call fmtRef [ value; num (percentAWidth width); num (percentASize size) ]
-        | HoleSpecSource.Classified(HoleForm.Field(fmt, alignment)) -> emitField fmt alignment
+        // The `structuralFormat` runtime export a `%A` hole renders through — always
+        // a NAMED import (`Vesper.Printf.mjs`).
+        let structuralFmtRef () =
+            JsExpr.Identifier(
+                JsImports.addRef ctx.Imports "structuralFormat" structuralFormatKey ImportForm.Named,
+                ValueNone
+            )
+
+        // Bind the runtime star width to `w`, evaluated *before* the value: the arrow
+        // argument (`widthExpr`) evaluates first in JS call order, mirroring F#'s
+        // curried application order, then `body` (which references `w` and reads the
+        // value) runs. `body` may be a guarded block (padding forms) or an expression
+        // (`%*A` clamp). The value operand is read once inside `body`.
+        let bindStarWidth (widthExpr: Frozen.TExpr) (body: JsFnBody) : JsExpr =
+            call (JsExpr.Arrow([ "w" ], body, ValueNone)) [ buildExpr ctx widthExpr ]
+
+        match hole.Source, starWidth with
+        // `%*d`/`%-*d`/`%+*d`: a runtime field width. F# throws on a negative width
+        // (the error TYPE diverges from the CLR's `ArgumentOutOfRangeException`, an
+        // accepted divergence like `%e`/`%g`), so guard before padding by `w`.
+        | HoleSpecSource.Classified(HoleForm.Field(fmt, PrintfHoleForm.Alignment.Star leftJustify)), ValueSome widthExpr ->
+            let padded = emitField fmt true (padDyn leftJustify)
+
+            let body =
+                JsFnBody.Block
+                    [
+                        JsStatement.If(
+                            JsExpr.Binary("<", id "w", num 0, ValueNone),
+                            [
+                                JsStatement.Throw(JsExpr.New(id "RangeError", [ str "totalWidth" ], ValueNone))
+                            ],
+                            []
+                        )
+                        JsStatement.Return padded
+                    ]
+
+            bindStarWidth widthExpr body
+        // `%*A`: a runtime column budget. F# renders a negative budget flat (no throw),
+        // so clamp to 0 rather than guard.
+        | HoleSpecSource.Classified(HoleForm.PercentA(PrintWidth.Star, size)), ValueSome widthExpr ->
+            let clamped =
+                JsExpr.Conditional(JsExpr.Binary("<", id "w", num 0, ValueNone), num 0, id "w", ValueNone)
+
+            let bodyExpr =
+                call (structuralFmtRef ()) [ buildExpr ctx operand; clamped; num (percentASize size) ]
+
+            bindStarWidth widthExpr (JsFnBody.Expr bodyExpr)
+        // A `{x:fmt}` interpolation custom-format clause: a CLR dialect string with no
+        // printf placeholder, which JS does not interpret — the raw operand stands.
+        | HoleSpecSource.RawFormat _, _ -> buildExpr ctx operand
+        | HoleSpecSource.Classified(HoleForm.PercentA(width, size)), _ ->
+            let widthCols =
+                match percentAWidth width with
+                | ValueSome n -> n
+                | ValueNone -> failwith "EmitJs: %*A without a star-width segment (invariant broken)"
+
+            call (structuralFmtRef ()) [ buildExpr ctx operand; num widthCols; num (percentASize size) ]
+        | HoleSpecSource.Classified(HoleForm.Field(fmt, alignment)), _ ->
+            let stringify, wrap =
+                match alignment with
+                | PrintfHoleForm.Alignment.None -> false, (fun e -> e)
+                | PrintfHoleForm.Alignment.Const a -> true, withAlign (Some a)
+                | PrintfHoleForm.Alignment.Star _ ->
+                    failwith "EmitJs: Field star alignment without a star-width segment (invariant broken)"
+
+            emitField fmt stringify wrap
 
     /// Compile a pattern against a pure scrutinee-access expression `access` into a
     /// refutability test (`None` ⇒ irrefutable) and the `const` bindings its named

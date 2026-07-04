@@ -180,6 +180,21 @@ type Formatter =
     member this.AppendStructured(value: 'T, width: int, size: int) =
         this.AppendLiteral(StructuralPrinter.Print(value, width, size))
 
+    /// Guards a `%*d`-style runtime field width: throws
+    /// `ArgumentOutOfRangeException("totalWidth")` on a negative width — the same
+    /// exception type + `ParamName` F#'s `PadLeft`/`PadRight` throw — and returns a
+    /// non-negative width unchanged. Not built on `PadLeft` (which would allocate);
+    /// the guard is the throw parity, not a real pad.
+    static member GuardTotalWidth(totalWidth: int) : int =
+        if totalWidth < 0 then
+            raise (new ArgumentOutOfRangeException("totalWidth"))
+        else
+            totalWidth
+
+    /// Clamps a `%*A` runtime column budget to `0` on a negative width — F# renders
+    /// a negative `%A` width flat (never breaking) rather than throwing.
+    static member ClampWidth(width: int) : int = if width < 0 then 0 else width
+
     /// Flushes buffered text to the write-through sink and releases the buffer.
     member this.Flush() =
         match this.Writer with

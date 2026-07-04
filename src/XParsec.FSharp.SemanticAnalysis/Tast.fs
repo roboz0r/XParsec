@@ -408,6 +408,13 @@ and [<RequireQualifiedAccess>] FormatSinkG<'ty, 'tok> =
 and [<RequireQualifiedAccess>] FormatSegG<'ty, 'tok> =
     | Lit of string
     | Hole of HoleSpecG<'ty, 'tok> * TExprG<'ty, 'tok>
+    /// A star-width hole (`%*d`, `%-*d`, `%+*d`, `%*A`): the width `int` is a
+    /// runtime argument the curried application evaluates *before* the value, so it
+    /// rides here as `width` (first, mirroring source arg order) alongside the
+    /// hole's `spec` and its `value`. Invariant: `spec.Source` classifies to an
+    /// `Alignment.Star` (padding forms) or `PrintWidth.Star` (`%*A`), constructed
+    /// from the same placeholder as `width` — consumers may assume they agree.
+    | StarWidthHole of width: TExprG<'ty, 'tok> * spec: HoleSpecG<'ty, 'tok> * value: TExprG<'ty, 'tok>
 
 /// One clause of a `TExpr.StaticOptimization`. `Constraints` is the `and`-joined
 /// list (all must hold; declared in `SemanticInfo.fs` so the side table can carry

@@ -18,10 +18,17 @@ module ClrHoleFormat =
     /// `AppendZeroPaddedFloat` ABI). `%A` (`HoleForm.PercentA`) has no .NET format
     /// string and isn't a `FieldFormat`, so it never reaches here — `EmitFormat`
     /// emits the `AppendStructured` handler from the `PercentA` fields directly.
-    let toDotNetFormat (fmt: FieldFormat) (alignment: int option) : PrintfSpec.HoleKind * string option * int option =
+    /// The alignment slot is carried through as an `Alignment`: `Star` (a runtime
+    /// `%*d` width, supplied by the star-width lowering) and `Const` pass through
+    /// where a field width lands; the zero-pad forms carry their width inside the
+    /// `FieldFormat` and so return `Alignment.None` (the alignment slot is free),
+    /// except `FixedZeroPad`, which repurposes the slot for its total width as a
+    /// `Const` (the `AppendZeroPaddedFloat` ABI). A `Star` never reaches the
+    /// zero-pad forms — `tryClassify` defers `%0*d`.
+    let toDotNetFormat (fmt: FieldFormat) (alignment: Alignment) : PrintfSpec.HoleKind * string option * Alignment =
         match fmt with
         | FieldFormat.Verbatim -> PrintfSpec.HoleKind.Formatted, None, alignment
-        | FieldFormat.DecimalZeroPad w -> PrintfSpec.HoleKind.Formatted, Some("D" + string w), None
+        | FieldFormat.DecimalZeroPad w -> PrintfSpec.HoleKind.Formatted, Some("D" + string w), Alignment.None
         | FieldFormat.IntRadix(radix, zeroPad) ->
             match radix with
             | Radix.Octal -> PrintfSpec.HoleKind.Octal, None, alignment
@@ -29,16 +36,17 @@ module ClrHoleFormat =
                 let letter = if upper then "X" else "x"
 
                 match zeroPad with
-                | Some w -> PrintfSpec.HoleKind.Formatted, Some(letter + string w), None
+                | Some w -> PrintfSpec.HoleKind.Formatted, Some(letter + string w), Alignment.None
                 | None -> PrintfSpec.HoleKind.Formatted, Some letter, alignment
             | Radix.Binary ->
                 match zeroPad with
-                | Some w -> PrintfSpec.HoleKind.Formatted, Some("B" + string w), None
+                | Some w -> PrintfSpec.HoleKind.Formatted, Some("B" + string w), Alignment.None
                 | None -> PrintfSpec.HoleKind.Formatted, Some "B", alignment
         | FieldFormat.Unsigned -> PrintfSpec.HoleKind.Unsigned, None, alignment
         | FieldFormat.Bool -> PrintfSpec.HoleKind.BoolText, None, alignment
         | FieldFormat.Fixed prec -> PrintfSpec.HoleKind.Formatted, Some("F" + string prec), alignment
-        | FieldFormat.FixedZeroPad(prec, w) -> PrintfSpec.HoleKind.ZeroPaddedFloat, Some("F" + string prec), Some w
+        | FieldFormat.FixedZeroPad(prec, w) ->
+            PrintfSpec.HoleKind.ZeroPaddedFloat, Some("F" + string prec), Alignment.Const w
         | FieldFormat.Exponential(prec, upper) ->
             PrintfSpec.HoleKind.Formatted, Some((if upper then "E" else "e") + string prec), alignment
         | FieldFormat.Compact(prec, upper) ->

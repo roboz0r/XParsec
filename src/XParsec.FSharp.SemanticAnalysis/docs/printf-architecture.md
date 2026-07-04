@@ -39,13 +39,12 @@ runtime spec-runner over a `static readonly` parsed-spec field. That is supersed
 through the same `EmitFormat.fs` lowering as the happy path. `PrintfFormat` and the runtime
 spec-runner survive only on the **cold** (format-as-value / non-literal) row.
 
-**Star-width holes (`%*d`, `%*.*f`): design settled, not yet implemented.** The `*`
-width/precision consumes the dimension as an extra `int` argument *preceding* the value:
-`sprintf "%*.*f" 12 1 x` applies width, then precision, then the value. Today
-`Lexing.lFormatPlaceholder` parses width and precision as `opt pbigint` (literal integers
-only), so a `*` fails the placeholder grammar and the lexer emits `InvalidFormatPlaceholder`:
-`%*d` is a **compile error**, reaching neither the happy path nor the FSharp.Core fallback.
-(Contrast `%a`/`%t`, which *parse* but aren't typed and so defer cold — a different gap.)
+**Star-width holes (`%*d`, `%*.*f`).** The `*` width/precision consumes the dimension as an
+extra `int` argument *preceding* the value: `sprintf "%*.*f" 12 1 x` applies width, then
+precision, then the value. Lexing (`FormatDim`), the typing seam (`argTypes`), and native
+lowering of the width-star forms below are **implemented**; star-*precision* is designed
+(see the Star-precision bullet) but still rides the cold path, as do the tracked residuals
+(`%0*d`, flagged star-`%A`).
 
 Semantics verified against F# (fsi, 2026-07-04):
 - **Arg order** is width, precision, value (`%*.*f` above).
@@ -116,9 +115,47 @@ The model, per layer:
   - JS backend: pads via `padStart`/`padEnd` with the equivalent negative-width guard;
     the thrown error's *type* diverges from the CLR (documented, like the `%e`/`%g`
     approximations) but throws-vs-pads agrees.
-  - Open premises (verify in fsi before coding `%*A` native): negative runtime width on
-    `%*A` (budget, not padding — throw or clamp?); whether flags combine with `%*A`
-    (`%-*A` / `%0*A`).
+- **Star-precision** (design settled against `XParsec.FSharp.Lib/Printf/printf.fs`; not yet
+  implemented — the cold path remains correct meanwhile):
+  - FSharp.Core builds the .NET format string *per call*
+    (`getFormatForFloat ch prec = ch.ToString() + prec.ToString()`, `printf.fs:606`) — an
+    allocation the native handler avoids: a dedicated dynamic-precision member builds the
+    format in a `stackalloc` span and renders via `ISpanFormattable.TryFormat`. Build it
+    from the **source type char + raw digits**, exactly mirroring `getFormatForFloat`:
+    byte parity with FSharp.Core's quirks then emerges for free (see next).
+  - **Clamp asymmetry is load-bearing, verified in fsi (2026-07-04)**:
+    `normalizePrecision` (clamp 0..99, `printf.fs:608`) is applied on the
+    width=\*+prec=\* path (`:632`) but NOT the prec=\*-only paths (`:649-657`). So
+    `sprintf "%.*f" -1 3.14` = `"f-1"` (the invalid standard format falls back to .NET
+    *custom*-format interpretation and echoes its literals) and precision 105 yields 105
+    digits — while `%*.*f` clamps the same inputs to 0 / 99. Mirror both paths as-is;
+    `runParity` (oracle = the process's own sprintf) enforces the quirk.
+  - Scope: `Fixed`/`Exponential`/`Compact`/`ForcedSign` precision slots become a two-state
+    dim (`Const of int | Star`), like `Alignment`; `PercentA`'s size budget likewise —
+    `%.*A` is a runtime `sizeBudget`, already a parameter of `AppendStructured`, so it
+    rides along free. `FixedZeroPad` stays literal-only (zero-pad star remains cold).
+  - The width-carrying format segment generalizes to one dynamic-hole record
+    (`{ Width: voption; Precision: voption; Spec; Value }`) rather than a case per
+    combination; Freeze constructs dim-presence and spec agreement together. Emission
+    spills width then precision locals before the value (evaluation order, as for width).
+  - JS: `toFixed`/`toExponential`/`toPrecision` accept runtime precision natively; the
+    existing approximation caveats carry over.
+  - `%0A`'s zero-width flag **wins** over a star width (`printf.fs:1117` — the width arg
+    is consumed but ignored), settling the flagged-`%0*A` semantics if it ever goes
+    native; it stays cold for now.
+  - **Accepted deviation (maintainer, 2026-07-04): `%*%` / `%5%` are rejected.** F# accepts a
+    width on the percent *escape* (`StepPercentStar1`, `printf.fs:418`), consuming the
+    width argument and writing a bare unpadded `%`. Our lexer rejects both forms
+    (compile error). Left rejected: an arity-affecting no-op even FSharp.Core doesn't
+    render.
+  - `%*A` (verified in fsi, 2026-07-04): a negative runtime width does **not** throw — it
+    renders flat (`-1` never breaks where `1` breaks per element), so the native emission
+    clamps negative to `0` (= `PrintWidth.Never`) rather than guard-throwing; the same
+    width-spill preserves evaluation order (`AppendStructured`'s budget parameter follows
+    the value). Only *bare* `%*A` lowers natively: the flagged star forms
+    (`%-*A`/`%+*A`/`%0*A`) type-check in F# (the star int is consumed) but their
+    flag-vs-star layout interaction is unverified, so they stay cold residuals alongside
+    star-precision.
 
 Because of star-width, **arity is computed per hole, never as a hole count.** Today every
 hole yields exactly one arg, so arity = hole count and `args.Length = specs.Length + 1`
