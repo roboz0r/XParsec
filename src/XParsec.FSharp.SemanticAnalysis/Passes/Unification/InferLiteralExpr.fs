@@ -108,8 +108,22 @@ module internal UnificationInferLiteralExpr =
                 | ValueSome ft ->
                     match Lexing.parseFormatSpecifierView (ctx.ReadableOf ft) with
                     | ValueSome p ->
-                        match PrintfSpec.argType (fun () -> TyVar(freshTyVar ctx)) p.Type with
-                        | ValueSome t -> unify ctx (CstKeys.ofExpr e) holeTy t
+                        // A star dimension draws its value from a printf argument;
+                        // an interpolation hole has none. F# rejects this too, with a
+                        // misleading FS3371 — ours is accurate. Still unify the value
+                        // type (the last of `argTypes`) as best-effort recovery.
+                        if p.Width = FormatDim.Star || p.Precision = FormatDim.Star then
+                            ctx.Diagnostics.Add
+                                {
+                                    Key = CstKeys.ofExpr e
+                                    Message =
+                                        "star width/precision takes its value from a printf argument; interpolated strings have none"
+                                    Code = ""
+                                    Severity = Severity.Error
+                                }
+
+                        match PrintfSpec.argTypes (fun () -> TyVar(freshTyVar ctx)) p with
+                        | ValueSome ts -> unify ctx (CstKeys.ofExpr e) holeTy (List.last ts)
                         | ValueNone -> ()
                     | ValueNone -> ()
                 | ValueNone -> ()

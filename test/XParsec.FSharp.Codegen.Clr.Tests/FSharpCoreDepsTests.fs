@@ -81,6 +81,22 @@ let tests =
                 Expect.isEmpty deps (sprintf "%% A is pure Vesper — no FSharp.Core dependency (%A)" deps)
             }
 
+            test "`printfn \"%*d\"` (star width) rides the FSharp.Core cold path" {
+                // Star width/precision defers lowering (the native handler is the
+                // tracked residual), so a star format still constructs a `PrintfFormat`
+                // and calls `PrintFormatLine`. Non-empty deps is the cold-path pin.
+                let _, artifact = compileSource "DepsStarPrintf" "printfn \"%*d\" 5 42"
+                let deps = artifact.FSharpCoreDependencies
+                Expect.isNonEmpty deps "the star-width cold path depends on FSharp.Core"
+
+                Expect.contains
+                    deps
+                    "Microsoft.FSharp.Core.PrintfModule.PrintFormatLine"
+                    "the cold path calls PrintFormatLine"
+
+                Expect.contains deps "Microsoft.FSharp.Core.PrintfFormat`4 (.ctor)" "and constructs a PrintfFormat"
+            }
+
             // A project-local record / DU carries a synthesised
             // `IStructuralFormattable.Format`, so `%A` of one lowers on the structural
             // engine instead of the FSharp.Core cold path. The observable proof:

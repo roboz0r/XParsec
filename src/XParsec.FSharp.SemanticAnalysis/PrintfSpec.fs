@@ -50,6 +50,7 @@ module PrintfSpec =
 
     let private tyUnit: SemType = TyConst("unit", EqArray.empty)
     let private tyString: SemType = TyConst("string", EqArray.empty)
+    let private tyInt: SemType = TyConst("int", EqArray.empty)
 
     let private tyTextWriter: SemType =
         TyConst(RuntimeNames.textWriterTypeName, EqArray.empty)
@@ -129,13 +130,16 @@ module PrintfSpec =
         /// `toDotNetFormat`.
         | Structured
 
-    /// SemType of the argument a specifier consumes, or `ValueNone` for the
-    /// specifiers v1 doesn't type. `%A`/`%O` both consume a polymorphic argument
-    /// (a fresh type variable); the `%A`-vs-`%O` distinction, irrelevant to
-    /// typing, stays in the `FormatType` for codegen. `%a`/`%t` aren't modelled
-    /// yet, so they return `ValueNone` and the caller falls through to standard
-    /// inference.
-    let argType (fresh: unit -> SemType) (t: FormatType) : SemType voption =
+    /// SemType of the *value* argument a type letter consumes, or `ValueNone`
+    /// for the letters v1 doesn't type. `%A`/`%O` both consume a polymorphic
+    /// argument (a fresh type variable); the `%A`-vs-`%O` distinction, irrelevant
+    /// to typing, stays in the `FormatType` for codegen. `%a`/`%t` aren't modelled
+    /// yet, so they return `ValueNone`.
+    ///
+    /// Private: no cross-pass signature carries a bare `FormatType` — star-ness
+    /// lives on the placeholder, so callers go through `argTypes`, which folds in
+    /// the star-dimension arguments this letter-keyed helper knows nothing about.
+    let private argType (fresh: unit -> SemType) (t: FormatType) : SemType voption =
         match t with
         | FormatType.Bool -> ValueSome(TyConst("bool", EqArray.empty))
         | FormatType.String -> ValueSome tyString
@@ -144,7 +148,7 @@ module PrintfSpec =
         | FormatType.UnsignedDecimalInt
         | FormatType.UnsignedHex
         | FormatType.UnsignedOctal
-        | FormatType.UnsignedBinary -> ValueSome(TyConst("int", EqArray.empty))
+        | FormatType.UnsignedBinary -> ValueSome tyInt
         | FormatType.FloatExponential
         | FormatType.FloatDecimal
         | FormatType.FloatCompact -> ValueSome(TyConst("float", EqArray.empty))
@@ -153,6 +157,24 @@ module PrintfSpec =
         | FormatType.Structured -> ValueSome(fresh ())
         | FormatType.FormatFunction
         | FormatType.Text -> ValueNone
+
+    /// Every argument a placeholder consumes, in *application* order: a leading
+    /// `int` per `Star` dimension (width before precision, matching F#'s
+    /// `sprintf "%*.*f" width precision value`), then the value argument. `ValueNone`
+    /// iff the type letter is untypeable (`%a`/`%t`), in which case the caller
+    /// defers to standard inference. This is the per-hole typing seam: arity is
+    /// `List.length`, never a hole count.
+    let argTypes (fresh: unit -> SemType) (p: FormatPlaceholder) : SemType list voption =
+        match argType fresh p.Type with
+        | ValueNone -> ValueNone
+        | ValueSome value ->
+            let starDim d =
+                match d with
+                | FormatDim.Star -> [ tyInt ]
+                | FormatDim.Absent
+                | FormatDim.Literal _ -> []
+
+            ValueSome(starDim p.Width @ starDim p.Precision @ [ value ])
 
     /// True when the specifier consumes an argument of a *fixed concrete* type.
     /// Excludes `%a`/`%t` (`FormatFunction`/`Text` — no arg type at all) and
@@ -167,6 +189,18 @@ module PrintfSpec =
         | FormatType.FormatFunction
         | FormatType.Text -> false
         | _ -> true
+
+    /// A hole admissible for the flat value-struct closure lowering (partial-app
+    /// 4a): it consumes *exactly one* argument of fixed concrete type. The Fun-K
+    /// peel that lowering drives assumes one arg per hole; a star dimension makes
+    /// `argTypes` yield an extra leading `int`, so a star hole is all-concrete yet
+    /// multi-arg — `hasConcreteArgType` alone would silently admit it the moment
+    /// the classify gate starts accepting star. Gating on this stated invariant
+    /// keeps extending the peel to multi-arg holes a deliberate later decision.
+    let isUnaryConcreteHole (p: FormatPlaceholder) : bool =
+        hasConcreteArgType p.Type
+        && p.Width <> FormatDim.Star
+        && p.Precision <> FormatDim.Star
 
     /// `FormatArgIndex` is the positional slot of the format string (0 for
     /// `printf`/`sprintf`/…; 1 for `fprintf`, after the `TextWriter`). `Tail` is
@@ -253,27 +287,44 @@ module PrintfSpec =
     let printerType (argTypes: SemType list) (fam: Family) : SemType =
         List.foldBack (fun a r -> TyFun(a, r)) argTypes fam.Tail
 
+    /// Total number of curried arguments the placeholders consume — the sum of
+    /// per-hole `argTypes` lengths. The happy-path marker gate reads this
+    /// (`args.Length = totalArity + 1`) instead of a hole count: a star hole
+    /// consumes 2–3 args, so holes = args no longer holds. The value type is
+    /// irrelevant to the count, so a constant `fresh` mints no type var. Untypeable
+    /// letters (`%a`/`%t`) count 0, but the gate only runs after `appliedTypeOf`
+    /// succeeded, where every hole is typeable.
+    let totalArity (specs: FormatPlaceholder list) : int =
+        specs
+        |> List.sumBy (fun p ->
+            match argTypes (fun () -> tyUnit) p with
+            | ValueSome ts -> ts.Length
+            | ValueNone -> 0
+        )
+
     /// Shape: `leading… -> PrintfFormat<printer,…> -> printer`, plus the format
     /// type and printer type computed along the way. `ValueNone` when any
-    /// specifier isn't typeable in v1 (`%a` / `%t`) — the caller then defers to
-    /// standard inference.
+    /// placeholder isn't typeable in v1 (`%a` / `%t`) — the caller then defers to
+    /// standard inference. Star dimensions concat their leading `int`s into the
+    /// printer arrow via `argTypes`, so the printer curries width/precision before
+    /// the value.
     let appliedTypeOf
         (fresh: unit -> SemType)
-        (specs: FormatType list)
+        (specs: FormatPlaceholder list)
         (fam: Family)
         : (SemType * SemType * SemType) voption =
         let rec mapAll acc specs =
             match specs with
             | [] -> ValueSome(List.rev acc)
-            | s :: rest ->
-                match argType fresh s with
-                | ValueSome t -> mapAll (t :: acc) rest
+            | p :: rest ->
+                match argTypes fresh p with
+                | ValueSome ts -> mapAll (List.rev ts @ acc) rest
                 | ValueNone -> ValueNone
 
         match mapAll [] specs with
         | ValueNone -> ValueNone
-        | ValueSome argTypes ->
-            let printer = printerType argTypes fam
+        | ValueSome flatArgTypes ->
+            let printer = printerType flatArgTypes fam
             let fmt = formatType printer fam
 
             let fnTy =

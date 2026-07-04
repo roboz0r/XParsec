@@ -230,10 +230,10 @@ module internal UnificationInferLiterals =
     /// grammar lives here. `ValueNone` when the string carries interpolation
     /// holes or lexer-error parts (not a simple format literal), so the
     /// printf special-case falls through to standard inference.
-    let formatSpecifiers (ctx: PassContext) (e: Expr<SyntaxToken>) : FormatType list voption =
+    let formatSpecifiers (ctx: PassContext) (e: Expr<SyntaxToken>) : FormatPlaceholder list voption =
         match e with
         | Expr.String(parts = parts) ->
-            let acc = ResizeArray<FormatType>()
+            let acc = ResizeArray<FormatPlaceholder>()
             let mutable ok = true
 
             for part in parts do
@@ -244,16 +244,7 @@ module internal UnificationInferLiterals =
                 | StringPart.VerbatimEscapeQuote _ -> ()
                 | StringPart.FormatSpecifier t ->
                     match Lexing.parseFormatSpecifierView (ctx.ReadableOf t) with
-                    // A `*` width/precision consumes an extra `int` argument
-                    // *preceding* the value, so this projection of one `FormatType`
-                    // per hole would type the call with too few args (a miscompile).
-                    // Fall through to standard inference until this is replaced by
-                    // the per-hole `argTypes` seam that yields the star ints.
-                    | ValueSome placeholder when
-                        placeholder.Width = FormatDim.Star || placeholder.Precision = FormatDim.Star
-                        ->
-                        ok <- false
-                    | ValueSome placeholder -> acc.Add placeholder.Type
+                    | ValueSome placeholder -> acc.Add placeholder
                     | ValueNone -> ok <- false
                 | StringPart.Expr _
                 | StringPart.OrphanFormatSpecifier _
@@ -264,31 +255,9 @@ module internal UnificationInferLiterals =
 
     /// Whether every specifier is one the happy path lowers inline
     /// (`PrintfHoleForm.tryClassify`); a `false` keeps the FSharp.Core cold
-    /// path. `%%` escapes are lowerable (P2): Freeze collapses `%%`→`%` in the
-    /// literal segment. Only interpolation holes (`Expr`), orphan specifiers
-    /// and lexer-error parts force the cold path.
-    let lowerablePlaceholders (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
-        match e with
-        | Expr.String(parts = parts) ->
-            let mutable ok = true
-
-            for part in parts do
-                match part with
-                | StringPart.FormatSpecifier t ->
-                    match Lexing.parseFormatSpecifierView (ctx.ReadableOf t) with
-                    | ValueSome p ->
-                        match PrintfHoleForm.tryClassify p with
-                        | ValueSome _ -> ()
-                        | ValueNone -> ok <- false
-                    | ValueNone -> ok <- false
-                // A `%%` escape arrives as raw `Text` "%%" — still lowerable.
-                | StringPart.Text _
-                | StringPart.EscapeSequence _
-                | StringPart.VerbatimEscapeQuote _
-                | StringPart.EscapePercent _ -> ()
-                | StringPart.Expr _
-                | StringPart.OrphanFormatSpecifier _
-                | StringPart.InvalidText _ -> ok <- false
-
-            ok
-        | _ -> false
+    /// path. Folds over `formatSpecifiers`' already-parsed placeholders so the
+    /// part-walk and its rejections (interpolation holes, orphan specifiers,
+    /// lexer-error parts → `ValueNone`) happen once and can't drift from the
+    /// typing walk. `%%` escapes arrive as raw `Text` and never reach here.
+    let lowerablePlaceholders (placeholders: FormatPlaceholder list) : bool =
+        placeholders |> List.forall (fun p -> (PrintfHoleForm.tryClassify p).IsSome)

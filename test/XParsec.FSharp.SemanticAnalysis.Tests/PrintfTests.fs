@@ -36,6 +36,17 @@ let private tyUnit = BuiltinTypes.tyUnit
 let private tyInt = BuiltinTypes.tyInt
 let private tyString = BuiltinTypes.tyString
 
+/// A dimensionless placeholder over a type letter — the shape `argTypes`
+/// reduces to a single value argument for.
+let private ph (t: FormatType) : FormatPlaceholder =
+    {
+        Flags = ""
+        Width = FormatDim.Absent
+        Precision = FormatDim.Absent
+        Type = t
+        TypeChar = ' '
+    }
+
 [<Tests>]
 let tests =
     testList
@@ -93,7 +104,7 @@ let tests =
                 Expect.isTrue (Lexing.parseFormatSpecifier "%*").IsNone "%* has no type letter"
             }
 
-            test "argType: every integer base types as int" {
+            test "argTypes: every integer base types as one int" {
                 let fresh () = TyConst("FRESH", EqArray.empty)
 
                 for t in
@@ -104,27 +115,125 @@ let tests =
                         FormatType.UnsignedOctal
                         FormatType.UnsignedBinary
                     ] do
-                    Expect.equal (PrintfSpec.argType fresh t) (ValueSome tyInt) (sprintf "%A : int" t)
+                    Expect.equal (PrintfSpec.argTypes fresh (ph t)) (ValueSome [ tyInt ]) (sprintf "%A : int" t)
             }
 
-            test "argType: %A and %O both consume a fresh (polymorphic) arg" {
+            test "argTypes: %A and %O both consume one fresh (polymorphic) arg" {
                 let fresh () = TyConst("FRESH", EqArray.empty)
 
                 Expect.equal
-                    (PrintfSpec.argType fresh FormatType.Structured)
-                    (ValueSome(TyConst("FRESH", EqArray.empty)))
+                    (PrintfSpec.argTypes fresh (ph FormatType.Structured))
+                    (ValueSome [ TyConst("FRESH", EqArray.empty) ])
                     "%A poly"
 
                 Expect.equal
-                    (PrintfSpec.argType fresh FormatType.Object)
-                    (ValueSome(TyConst("FRESH", EqArray.empty)))
+                    (PrintfSpec.argTypes fresh (ph FormatType.Object))
+                    (ValueSome [ TyConst("FRESH", EqArray.empty) ])
                     "%O poly"
             }
 
-            test "argType: %a / %t are not typed in v1" {
+            test "argTypes: %a / %t are not typed in v1" {
                 let fresh () = TyConst("FRESH", EqArray.empty)
-                Expect.equal (PrintfSpec.argType fresh FormatType.FormatFunction) ValueNone "%a deferred"
-                Expect.equal (PrintfSpec.argType fresh FormatType.Text) ValueNone "%t deferred"
+                Expect.equal (PrintfSpec.argTypes fresh (ph FormatType.FormatFunction)) ValueNone "%a deferred"
+                Expect.equal (PrintfSpec.argTypes fresh (ph FormatType.Text)) ValueNone "%t deferred"
+            }
+
+            test "argTypes: star dims prepend an int per star, width before precision" {
+                let fresh () = TyConst("FRESH", EqArray.empty)
+                let tyFloat = BuiltinTypes.tyFloat
+
+                let star (w: FormatDim) (p: FormatDim) (t: FormatType) = { ph t with Width = w; Precision = p }
+
+                // %*d : width int, then value int.
+                Expect.equal
+                    (PrintfSpec.argTypes fresh (star FormatDim.Star FormatDim.Absent FormatType.DecimalInt))
+                    (ValueSome [ tyInt; tyInt ])
+                    "%*d"
+
+                // %.*f : precision int, then value float.
+                Expect.equal
+                    (PrintfSpec.argTypes fresh (star FormatDim.Absent FormatDim.Star FormatType.FloatDecimal))
+                    (ValueSome [ tyInt; tyFloat ])
+                    "%.*f"
+
+                // %*.*f : width int, precision int, value float.
+                Expect.equal
+                    (PrintfSpec.argTypes fresh (star FormatDim.Star FormatDim.Star FormatType.FloatDecimal))
+                    (ValueSome [ tyInt; tyInt; tyFloat ])
+                    "%*.*f"
+
+                // A literal width consumes no extra argument.
+                Expect.equal
+                    (PrintfSpec.argTypes
+                        fresh
+                        (star (FormatDim.Literal(bigint 5)) FormatDim.Absent FormatType.DecimalInt))
+                    (ValueSome [ tyInt ])
+                    "%5d"
+            }
+
+            test "isUnaryConcreteHole: concrete single-arg holes only" {
+                let star (w: FormatDim) (p: FormatDim) (t: FormatType) = { ph t with Width = w; Precision = p }
+
+                Expect.isTrue (PrintfSpec.isUnaryConcreteHole (ph FormatType.DecimalInt)) "%d unary concrete"
+
+                Expect.isTrue
+                    (PrintfSpec.isUnaryConcreteHole (
+                        star (FormatDim.Literal(bigint 5)) FormatDim.Absent FormatType.DecimalInt
+                    ))
+                    "%5d unary concrete"
+
+                Expect.isFalse
+                    (PrintfSpec.isUnaryConcreteHole (star FormatDim.Star FormatDim.Absent FormatType.DecimalInt))
+                    "%*d multi-arg → excluded"
+
+                Expect.isFalse (PrintfSpec.isUnaryConcreteHole (ph FormatType.Structured)) "%A polymorphic → excluded"
+            }
+
+            test "star-width printer types: %*d printer is int -> int -> unit" {
+                let tast = analyse "let g () = printf \"%*d\""
+
+                Expect.equal
+                    (lastDeclType tast)
+                    (TyFun(tyUnit, TyFun(tyInt, TyFun(tyInt, tyUnit))))
+                    "unit -> (int -> int -> unit)"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "star-width printer types: %*.*f printer is int -> int -> float -> unit" {
+                let tast = analyse "let g () = printf \"%*.*f\""
+                let tyFloat = BuiltinTypes.tyFloat
+
+                Expect.equal
+                    (lastDeclType tast)
+                    (TyFun(tyUnit, TyFun(tyInt, TyFun(tyInt, TyFun(tyFloat, tyUnit)))))
+                    "unit -> (int -> int -> float -> unit)"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "star-width mid-hole partial: printfn \"%*d\" 5 : int -> unit" {
+                let tast = analyse "let f = printfn \"%*d\" 5"
+                Expect.equal (lastDeclType tast) (TyFun(tyInt, tyUnit)) "int -> unit"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "star width fully applied types as unit and stays off the happy path" {
+                // %*d types fine (a silent cold-path degrade, no diagnostic) —
+                // classify still defers star, so no Format marker is stamped.
+                let tast = analyse "let r = printfn \"%*d\" 5 42"
+                Expect.equal (lastDeclType tast) tyUnit "result unit"
+                Expect.isEmpty tast.Diagnostics "no diagnostics for star width"
+            }
+
+            test "interpolated star width is an accurate error" {
+                let tast = analyse "let x = 42\nlet r = $\"%*d{x}\""
+
+                let hasStarDiag =
+                    tast.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "star width/precision")
+
+                Expect.isTrue hasStarDiag "interpolated star emits the accurate diagnostic"
             }
 
             test "printfn \"%d\" 42 : unit" {

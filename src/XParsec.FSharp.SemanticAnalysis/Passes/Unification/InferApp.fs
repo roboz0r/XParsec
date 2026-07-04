@@ -349,8 +349,8 @@ module internal UnificationInferApp =
                                 // (additive — `%A`, partial application, etc. unaffected).
                                 match PrintfSpec.sinkOf (qualifiedNameOf ctx fn) with
                                 | ValueSome sink when
-                                    args.Length = specs.Length + idx + 1
-                                    && lowerablePlaceholders ctx args.[idx]
+                                    args.Length = PrintfSpec.totalArity specs + idx + 1
+                                    && lowerablePlaceholders specs
                                     && (idx = 0
                                         || (idx = 1
                                             && (
@@ -372,8 +372,8 @@ module internal UnificationInferApp =
                                     idx = 0
                                     && args.Length = idx + 1
                                     && specs.Length >= 1
-                                    && lowerablePlaceholders ctx args.[idx]
-                                    && specs |> List.forall PrintfSpec.hasConcreteArgType
+                                    && lowerablePlaceholders specs
+                                    && specs |> List.forall PrintfSpec.isUnaryConcreteHole
                                     ->
                                     ctx.PrintfPartial.Set(key, sink)
                                 | _ -> ()

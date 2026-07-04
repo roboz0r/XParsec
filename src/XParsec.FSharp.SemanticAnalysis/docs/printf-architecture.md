@@ -89,14 +89,36 @@ The model, per layer:
   all that's needed. Consequence: `lowerablePlaceholders` collapses to a fold over
   `formatSpecifiers`' result (they walk the same parts with the same rejections today, each
   re-parsing every placeholder — one parse, one walk, and the two can no longer drift).
-- **Lowering**: `HoleForm.Field`'s alignment slot admits a runtime width. Emission must
-  **not** fold the `-` flag into a signed .NET alignment: F#'s throw-on-negative means the
-  handler needs the *raw* width argument plus a left-align flag, padding via
-  `PadLeft`/`PadRight` — which reproduces F#'s exact exception. `%*A` is easy: the star is
-  just a runtime `widthBudget`, and `AppendStructured` already takes it as a parameter.
-  **Star-precision stays cold** at first — precision is baked into the compile-time .NET
-  format string, so dynamic precision needs a dedicated handler member; a legal degrade only
-  until the cold recipes are deleted (the coverage-plan capstone must sequence after it).
+- **Lowering** (native width-star):
+  - `HoleForm.Field`'s alignment slot becomes `Alignment = None | Const of int (signed,
+    negative = left-justify, today's convention) | Star of leftJustify: bool`. Star is
+    admitted exactly where a literal width already lands in the alignment slot (incl. the
+    `ForcedSign` arm, so `%+*d` / `% *d` classify); the zero-pad star forms (`%0*d` — width
+    rides *inside* `FieldFormat`) and **star-precision** stay cold: a legal degrade only
+    until the cold recipes are deleted (the coverage-plan capstone sequences after them).
+  - `FormatSegG` gains a width-carrying hole case (width expr + spec + value expr) — the
+    `Hole(spec, arg)` 1:1 shape is the lowering-side holes = args pin.
+    `translatePrintfFormat` walks the (marker-guaranteed fully-applied) args by per-hole
+    arity instead of one per hole. The spec's `Alignment.Star` and the segment's width expr
+    are constructed together from the same placeholder — consumers may assume they agree.
+  - **No new generic handler members.** Emission must *not* fold the `-` flag into a signed
+    alignment (F# *throws* on a negative runtime width; a negated negative would silently
+    right-justify). Instead a single width-guard helper on the handler
+    (`int -> int`, throwing `PadLeft`'s exact `ArgumentOutOfRangeException("totalWidth")`
+    on negative) feeds the *existing* signed-alignment members — negate after the guard for
+    `leftJustify`. All alignment-capable members (incl. `AppendBool`/`AppendUnsigned`/
+    `AppendOctal`) get star support from this one helper.
+  - **Evaluation order**: F# evaluates the width argument *before* the value (curried
+    application order), but the handler members take `(value, alignment, …)` — so the
+    emitter must spill the guarded width to a local *before* emitting the value expression,
+    not push it in parameter order. Same for `%*A`'s `widthBudget` (parameter follows the
+    value in `AppendStructured`).
+  - JS backend: pads via `padStart`/`padEnd` with the equivalent negative-width guard;
+    the thrown error's *type* diverges from the CLR (documented, like the `%e`/`%g`
+    approximations) but throws-vs-pads agrees.
+  - Open premises (verify in fsi before coding `%*A` native): negative runtime width on
+    `%*A` (budget, not padding — throw or clamp?); whether flags combine with `%*A`
+    (`%-*A` / `%0*A`).
 
 Because of star-width, **arity is computed per hole, never as a hole count.** Today every
 hole yields exactly one arg, so arity = hole count and `args.Length = specs.Length + 1`

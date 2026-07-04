@@ -75,6 +75,30 @@ let private runParity (name: string) (src: string) (expected: string) =
     Expect.equal exitCode 0 (sprintf "Main returns 0 for: %s" src)
     Expect.equal (output.TrimEnd('\r', '\n')) expected (sprintf "%s == F# parity" src)
 
+/// Full name of the deepest exception the compiled driver's entry point throws
+/// (or `None` if it returns normally). The asserting run helpers turn a throw into
+/// a test failure, so a run that must OBSERVE F#'s throw (a negative star width,
+/// which `PadLeft` rejects with `ArgumentOutOfRangeException`) invokes directly.
+let private entryPointThrew (src: string) : string option =
+    withPrintfAlc (fun alc ->
+        let _, artifact = compileSource "PHpStarThrow" src
+        use ms = new System.IO.MemoryStream(Codegen.toBytes artifact)
+        let asm = alc.LoadFromStream ms
+        let entry = asm.EntryPoint
+
+        try
+            entry.Invoke(null, [| box (Array.empty<string>) |]) |> ignore
+            None
+        with :? System.Reflection.TargetInvocationException as e when not (isNull e.InnerException) ->
+            let rec deepest (ex: exn) =
+                if isNull ex.InnerException then
+                    ex
+                else
+                    deepest ex.InnerException
+
+            Some((deepest e.InnerException).GetType().FullName)
+    )
+
 [<Tests>]
 let tests =
     testList
@@ -1085,5 +1109,50 @@ let tests =
                     "InterpSprintf"
                     "printfn \"%s\" (sprintf \"%s\" $\"v={9}\")"
                     (sprintf "%s" (sprintf "%s" $"v={9}"))
+            }
+
+            // ---- Star width / precision (`%*d`, `%*.*f`) ----
+            // Runtime dimensions consume a leading `int` per star (width before
+            // precision). Lowering still defers star, so these ride the FSharp.Core
+            // cold path — the oracle IS the test process's own `sprintf`.
+
+            test "`%*d` takes a runtime width and right-justifies (cold path)" {
+                runParity "PHpStarD" "printfn \"%*d\" 5 42" (sprintf "%*d" 5 42)
+            }
+
+            test "`%*d` runtime width matches the literal `%5d`" {
+                // Pins the observable value the brief calls out: three leading spaces.
+                runParity "PHpStarDPin" "printfn \"%*d\" 5 42" "   42"
+            }
+
+            test "`%*.*f` takes a runtime width then precision then the value" {
+                runParity "PHpStarWP" "printfn \"%*.*f\" 12 1 123.456" (sprintf "%*.*f" 12 1 123.456)
+            }
+
+            test "`%-*d` (left-align) combines the `-` flag with a star width" {
+                runParity "PHpStarLeft" "printfn \"%-*d\" 5 42" (sprintf "%-*d" 5 42)
+            }
+
+            test "`%0*d` (zero-pad) combines the `0` flag with a star width" {
+                runParity "PHpStarZero" "printfn \"%0*d\" 5 42" (sprintf "%0*d" 5 42)
+            }
+
+            test "`%*s` takes a runtime width for a string" {
+                runParity "PHpStarS" "printfn \"%*s\" 6 \"hi\"" (sprintf "%*s" 6 "hi")
+            }
+
+            test "`%*A` feeds the star as the structural print-width budget" {
+                runParity "PHpStarA" "printfn \"%*A\" 5 42" (sprintf "%*A" 5 42)
+            }
+
+            test "`%.*f` takes a runtime precision (no width)" {
+                runParity "PHpStarPrec" "printfn \"%.*f\" 2 3.14159" (sprintf "%.*f" 2 3.14159)
+            }
+
+            test "a negative star width throws ArgumentOutOfRangeException (matches F#)" {
+                Expect.equal
+                    (entryPointThrew "printfn \"%*d\" (0 - 5) 42")
+                    (Some "System.ArgumentOutOfRangeException")
+                    "F#'s throw-on-negative-width is reproduced on the cold path"
             }
         ]
