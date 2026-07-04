@@ -220,6 +220,12 @@ module internal FreezeExpr =
             mkUnionCons ctx caseName ty (peelCtorArgs (translateExpr ctx) args) tok
         | Expr.HighPrecedenceApp(funcExpr = CtorRef ctx caseName; argExpr = arg) ->
             mkUnionCons ctx caseName ty (peelOneArg (translateExpr ctx) arg) tok
+        // Printf *partial* — a fully-unapplied lowerable literal (`printfn "%d"`),
+        // marked by `Unification.tryInferPrintfApp`. Synthesise a Vesper closure
+        // `fun h1 … hn -> Format(sink, …)` (4a: emitted heap, dispatched via the
+        // ordinary `Fun`2`::Invoke` path) instead of the FSharp.Core cold path. Must
+        // precede the generic `App` projection below, like the happy-path arm.
+        | Expr.App(_, args) when ctx.PrintfPartial.ContainsKey key -> translatePrintfPartial ctx key args ty tok
         // Printf happy-path call, marked by `Unification.tryInferPrintfApp`. Must
         // lower to a `TExpr.Format` *before* the `App(printfn, New PrintfFormat …)`
         // projection below ever runs.
@@ -1347,6 +1353,125 @@ module internal FreezeExpr =
                 | PrintfSpec.PrintfSink.StringResult -> FormatSink.ToString
 
             ValueSome(TExpr.Format(formatSink, EqArray.ofSeq segments, ty, tok))
+
+    /// Lower a fully-unapplied lowerable printf partial (`ctx.PrintfPartial` marked
+    /// it) to a synthesised Vesper closure `fun h1 … hn -> Format(sink, …)`. Each
+    /// hole becomes a fresh lambda parameter that the `Format` node's segment reads
+    /// as a `Var`; the format's literal runs and per-hole `HoleForm` are baked in
+    /// exactly as the happy path bakes them, so the closure's `Invoke` — the same
+    /// `EmitFormat` unroll — produces byte-identical output. `ty` is the App node's
+    /// type: the curried printer arrow `h1 -> … -> hn -> tail`, whose domains supply
+    /// the parameter types (in specifier order) and whose tail is the `Format`
+    /// result. `%A`/`%O` (and `%a`/`%t`) are excluded at the gate, so every hole has
+    /// a concrete argument type. Unlike `translatePrintfFormat` this path never
+    /// declines: with no `%A` hole there is no faithfulness question, and the marker
+    /// invariant guarantees each specifier parses and classifies.
+    and private translatePrintfPartial
+        (ctx: PassContext)
+        (key: NodeKey)
+        (args: ImmutableArray<Expr<SyntaxToken>>)
+        (ty: SemType)
+        (tok: SyntaxToken)
+        : TExpr =
+        let sink =
+            match ctx.PrintfPartial.TryGetValue key with
+            | ValueSome s -> s
+            | ValueNone -> failwithf "Freeze.translatePrintfPartial: no PrintfPartial marker at %O" key
+
+        let parts =
+            match args.[0] with
+            | Expr.String(parts = parts) -> parts
+            | other -> failwithf "Freeze.translatePrintfPartial: format arg is not a string literal: %A" other
+
+        let segments = ResizeArray<FormatSeg>()
+        let litRun = System.Text.StringBuilder()
+        // The synthesised lambda parameters, one per hole, in specifier order.
+        let parameters = ResizeArray<NodeKey * SemType * SyntaxToken>()
+
+        let flushLit () =
+            if litRun.Length > 0 then
+                segments.Add(FormatSeg.Lit(litRun.ToString()))
+                litRun.Clear() |> ignore
+
+        // Peel one printer-arrow domain per hole (specifier order matches the
+        // curried arrow order — `PrintfSpec.printerType` folds the hole types onto
+        // the tail left-to-right). The running codomain after the last hole is the
+        // tail (the `Format` result).
+        let mutable runningTy = Unification.zonk ty
+
+        for part in parts do
+            match part with
+            | StringPart.Text t
+            | StringPart.EscapeSequence t
+            | StringPart.VerbatimEscapeQuote t -> litRun.Append((ctx.NameOf t).Replace("%%", "%")) |> ignore
+            | StringPart.EscapePercent _ -> litRun.Append('%') |> ignore
+            | StringPart.FormatSpecifier t ->
+                flushLit ()
+
+                let placeholder =
+                    match Lexing.parseFormatSpecifierView (ctx.ReadableOf t) with
+                    | ValueSome p -> p
+                    | ValueNone ->
+                        failwith "Freeze.translatePrintfPartial: unparsable specifier (marker invariant broken)"
+
+                let holeForm =
+                    match PrintfHoleForm.tryClassify placeholder with
+                    | ValueSome hf -> hf
+                    | ValueNone ->
+                        failwith "Freeze.translatePrintfPartial: unsupported specifier (marker invariant broken)"
+
+                let holeTy, restTy =
+                    match runningTy with
+                    | TyFun(dom, cod) -> dom, cod
+                    | _ ->
+                        failwithf
+                            "Freeze.translatePrintfPartial: printer type has fewer arrows than holes: %A"
+                            (Unification.zonk ty)
+
+                // A fresh parameter keyed off the specifier's own token offset —
+                // distinct per hole (distinct source positions) and stable, so the
+                // synthesised `Var` and `NamedSimple` binder agree.
+                let paramKey = NodeKey.ofSynthetic t.StartIndex NodeKind.SynthLambdaBody
+                parameters.Add(paramKey, holeTy, t)
+
+                segments.Add(
+                    FormatSeg.Hole(
+                        {
+                            Ty = holeTy
+                            Source = HoleSpecSource.Classified holeForm
+                            Tok = t
+                        },
+                        TExpr.Var(paramKey, holeTy, t)
+                    )
+                )
+
+                runningTy <- Unification.zonk restTy
+            | StringPart.Expr _
+            | StringPart.OrphanFormatSpecifier _
+            | StringPart.InvalidText _ ->
+                failwith "Freeze.translatePrintfPartial: non-literal format part (marker invariant broken)"
+
+        flushLit ()
+
+        let formatSink =
+            match sink with
+            | PrintfSpec.PrintfSink.StdOut nl -> FormatSink.ToStdOut nl
+            | PrintfSpec.PrintfSink.StdErr nl -> FormatSink.ToStdErr nl
+            | PrintfSpec.PrintfSink.StringResult -> FormatSink.ToString
+
+        // `runningTy` is now the tail; the `Format` node returns it.
+        let mutable body = TExpr.Format(formatSink, EqArray.ofSeq segments, runningTy, tok)
+        let mutable resultTy = runningTy
+
+        // Wrap innermost-last so the outermost lambda's type is the whole printer
+        // arrow (equal to `ty`), exactly as `translateFun` folds a source lambda.
+        for i = parameters.Count - 1 downto 0 do
+            let (pk, pty, ptok) = parameters.[i]
+            let lamTy = TyFun(pty, resultTy)
+            body <- TExpr.Lambda(TPat.NamedSimple(pk, pty, ptok), body, lamTy, ptok)
+            resultTy <- lamTy
+
+        body
 
     /// `((^T): (static member (+) : ^T * ^T -> ^T) (x, y))` — an SRTP member-trait
     /// call (the body of a `let inline` operator's `when ^T : ^T` static-opt clause,

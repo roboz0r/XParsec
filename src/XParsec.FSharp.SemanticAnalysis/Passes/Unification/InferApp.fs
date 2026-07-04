@@ -327,6 +327,22 @@ module internal UnificationInferApp =
                                     && lowerablePlaceholders ctx args.[idx]
                                     ->
                                     ctx.PrintfApp.Set(key, sink)
+                                // 4a partial-application marker: a *fully-unapplied* lowerable
+                                // literal partial (`printfn "%d"`, `printf "%d %s"`) — only the
+                                // format is supplied (`args.Length = idx + 1`), `1..K` holes,
+                                // none `%A`/`%O` (an unapplied `%A` hole is an unpinned typar,
+                                // so out of scope for 4a). Freeze synthesises a Vesper heap
+                                // closure over the `EmitFormat` unroll instead of the FSharp.Core
+                                // `PrintfFormat` cold path. Mutually exclusive with `PrintfApp`
+                                // (which needs full application).
+                                | ValueSome sink when
+                                    idx = 0
+                                    && args.Length = idx + 1
+                                    && specs.Length >= 1
+                                    && lowerablePlaceholders ctx args.[idx]
+                                    && specs |> List.forall PrintfSpec.hasConcreteArgType
+                                    ->
+                                    ctx.PrintfPartial.Set(key, sink)
                                 | _ -> ()
 
                                 ValueSome currTy

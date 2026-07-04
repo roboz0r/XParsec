@@ -138,12 +138,107 @@ through to FSharp.Core.
   [printf-architecture](printf-architecture.md)); landing it turns `argType` into a
   hole → arg-types mapping (`%*d` = width + value), which an arity peel routed through the seam
   absorbs without a structural change.
-- **The open design question (resolve first).** The landed step-3 substrate produces value
-  structs from *source lambdas* via the node-keyed `FunVerdict` + `EmitClosures` peel. A printf
-  partial is **not** a lambda — so step 4 must either (a) synthesise a lambda-shaped `Frozen`
-  node the closure machinery already lowers, or (b) add a dedicated printf-partial value-struct
-  emission whose `Invoke` body is the `EmitFormat` unroll. Decide before coding; write it into
-  this doc first (see [feedback_redesign_doc_first]).
+- **The open design question — RESOLVED (2026-07-04), with a scope-widening caveat.** The
+  landed step-3 substrate produces value structs from *source lambdas* via the node-keyed
+  `FunVerdict` + `EmitClosures` peel. A printf partial is **not** a lambda — so step 4 must
+  either (a) synthesise a lambda-shaped `Frozen` node the closure machinery already lowers, or
+  (b) add a dedicated printf-partial value-struct emission whose `Invoke` body is the
+  `EmitFormat` unroll.
+
+  **What the code review found** (the premise the fork silently assumed, now checked against
+  `EmitClosures.discoverClosures`): the landed substrate does **not** produce a free-standing
+  value struct at all. It only ever mints one for a lambda that is *simultaneously* (i) an
+  **argument** landing on an explicit `:> Fun<…>`-bounded combinator typar (that is the sole
+  source of a `FunVerdict` — `InferApp.recordFunArityVerdicts`), (ii) **anonymous**
+  (`ValueOption.isNone selfKey` — a `let p = <lambda>` is disqualified and falls to a heap
+  closure), and (iii) **monomorphic** (`currentTypars = 0`). And it is only ever *invoked* from
+  **inside** that combinator body as `f.Invoke(…)` on the constrained typar
+  (`constrained.callvirt`, the `apply2`/`apply3`/`apply4` tests). There is **no** existing path
+  for "bind a value struct to a name / return it, then apply it later" — a value struct today is
+  constructed and consumed in the *same* combinator call, never stored, returned, or applied via
+  a bare `p x`.
+
+  A free-standing printf partial has **none** of those anchors: `let p = printfn "%d"` types `p`
+  as the bare arrow `int -> unit` (no `Fun` bound, no combinator, no verdict), the binding sets
+  `selfKey` (heap-disqualified), and `p 3` is an ordinary curried-closure `App`, not a
+  constrained-typar `Invoke`. So the true content of step 4 is **greenfield representation +
+  application dispatch for a free-standing value-struct closure** — the piece the substrate never
+  needed. The (a)/(b) fork is only about *how to fill the `Invoke` body*; **both** arms still
+  need that free-standing bridge, and route (a) additionally fights the anonymous-only /
+  no-`Fun`-bound restrictions (it would need the closure machinery to value-struct a *named,
+  bare-arrow-typed* binding — a substrate change to `discoverClosures`' `isValueStruct` gate,
+  which is step-3 territory, not step 4).
+
+  **Decision: route (b), a dedicated printf-partial value-struct emission, with a
+  statically-unrolled `Invoke` body** (confirmed with the maintainer 2026-07-04). It matches the
+  escape-caveat/acceptance text already in this doc (the partial *is* `default(S)`, `p 3` is
+  `S.Invoke(3)` — a direct call on the concrete struct, NOT a `constrained.callvirt` on a typar,
+  so it is actually *simpler* than the combinator case), and it does not perturb the
+  combinator-arg substrate. The `Invoke` body **statically unrolls** through the existing
+  `EmitFormat` lowering (no runtime spec-runner, no spec value, no `static readonly` spec field);
+  a runtime-runner + parsed-spec-field design was considered and deferred — it only pays off once
+  the *whole* `Xprintf` family (cold / format-as-value paths) converges on one runner, which is
+  out of scope here. The work route (b) entails, none of which the substrate supplies:
+    1. **Mint a concrete stateless closure struct** `S : Fun<h1,…,hn,tail>` per marked partial
+       (flat arity `n ≤ K`), no instance fields, format baked into its `Invoke` body via the
+       `EmitFormat` unroll — reuse the value-struct closure *emission* machinery (the same path
+       that turns an `apply2` `fun x y -> …` into a `Fun`-implementing struct with a flat
+       `Invoke`), but driven from the printf gate, not from a `FunVerdict`-tagged `Lambda`.
+    2. **Represent the partial's value** as `default(S)` (stateless ⇒ zero-init struct) at the
+       binding/return site, even though its *front-end type* is the bare arrow `int -> unit`.
+    3. **Lower a saturated application** `p h1 … hn` of such a partial to one flat `S.Invoke(…)`
+       (direct, non-virtual — `S` is concrete), the `n > K` residual deferred to step 5.
+
+  **The dispatch crux (found while mapping codegen — this, not the `Invoke` body, is the hard
+  part).** The value-struct *emission* machinery is fully reusable: a `Closure` record with
+  `IsValueStruct = true`, `Captures = []`, `FunArity = n`, `Body = <a Format node>` flows through
+  `Layout`→`Assembler` to a sealed sequential-layout `Vesper.Fun`N`-implementing struct with zero
+  instance fields, and a captureless one constructs as `ldloca; initobj; ldloc` — exactly
+  `default(S)` (`EmitConstruct.buildValueStructClosure`). What is **not** built is *dispatch of a
+  free-standing partial*, and it cannot be bolted on the way the combinator path was:
+    - For **soundness the partial's front-end type must stay the arrow** `int -> unit`. `p` may
+      escape into an arrow-typed slot (`List.iter p xs`), where it must unify as `int -> unit`
+      and box to the `Fun<int,unit>` interface. So `S` is a *representation*, never the node's
+      type — typing `p` as `S` would break every non-invoke use.
+    - Therefore `p 3` → `S.Invoke(3)` (direct, unboxed) vs. a boxed `callvirt` on escape is a
+      **representation/escape decision codegen must make**, keyed on *which values are currently
+      in unboxed-`S` form* — NOT on `typeOfExpr`, which says `int -> unit` for both. The existing
+      value-struct path never faced this: a combinator arg is constructed inline and consumed in
+      the *same* call via `constrained.callvirt` on the `:> Fun` typar — it is never stored,
+      returned, or re-loaded, so no "is this local boxed?" question ever arises. A free-standing
+      partial stored in a `let` (or returned from a function, the `f ()`/`g` case) is exactly
+      that missing analysis.
+
+  This makes the zero-alloc value struct a **representation-analysis** feature, materially larger
+  than "reuse the emission machinery" implied. So the decomposition leads with a correct,
+  Vesper-native, still-allocating slice and isolates the representation work:
+
+  **Sub-step breakdown** (each a full green vertical slice — the suite is source→output
+  end-to-end, so a partial slice would leave an un-lowerable node and break the build).
+  **Priority (set by the maintainer 2026-07-04): breadth before the zero-alloc optimization.**
+  Getting the *whole* printf family lowered natively so the compiler can drop its FSharp.Core
+  dependency is the near-term goal; the value-struct optimization (former 4b) is deferred behind
+  that breadth. Revised order:
+    - **4a — Vesper-native *heap* closure (correctness baseline, nearly free).** Synthesise a
+      Vesper closure `fun h1 … hn -> Format(sink, …)` for the fully-unapplied lowerable partial
+      and let the *existing heap* closure path emit it (a `let`-bound lambda is already
+      heap by `discoverClosures`' `selfKey` rule; `Invoke` body = the `EmitFormat` static
+      unroll). Drops the FSharp.Core `PrintfModule`/`PrintfFormat` path for these — strictly
+      fewer allocations, no `PrintfFormat` object, native — while dispatch rides the **existing**
+      curried-closure `Fun`2`::Invoke` machinery (`emitInvoke`), so **no new representation
+      analysis**. Not yet zero-alloc (one closure object), but correct. Gate + Freeze synthesis +
+      arity 1..K.
+    - **4b — family/sink breadth (the priority; drop FSharp.Core).** `eprintf*` / `sprintf`
+      sinks, `fprintf` (`idx ≠ 0`) and its writer sink, `n > K` arities, and any remaining
+      lowerable partial shapes — everything needed so no lowerable printf falls back to
+      FSharp.Core's cold path. Also the whole-family review the plan calls for. Still on the heap
+      closure representation (correctness/coverage, not allocation).
+    - **4c — zero-alloc value struct (deferred optimization; the representation work).**
+      Re-represent the non-escaping partial as `default(S)` and dispatch `p h1…hn` as a direct
+      flat `S.Invoke`, boxing to the `Fun<…>` interface only where it escapes into an arrow-typed
+      slot — the free-standing-value-struct bridge + escape decision above. Covers `let p = … in
+      p 3` and the `let f () = printf "%d %s %b"` / `let g d s b = f () d s b` return-crossing
+      case (the `apply3` analogue). Within-chunk partials stay Phase B.
 - **Freeze:** `FreezeExpr.fs` currently diverts a marked happy-path call to a `TExpr.Format`
   node. The partial case needs its own lowering — a value-struct closure of arity = hole count
   whose `Invoke`, given `h1..hn`, runs the same segment-unroll a `TExpr.Format` does.

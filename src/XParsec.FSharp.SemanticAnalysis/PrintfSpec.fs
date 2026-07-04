@@ -145,6 +145,20 @@ module PrintfSpec =
         | FormatType.FormatFunction
         | FormatType.Text -> ValueNone
 
+    /// True when the specifier consumes an argument of a *fixed concrete* type.
+    /// Excludes `%a`/`%t` (`FormatFunction`/`Text` — no arg type at all) and
+    /// `%A`/`%O` (`Object`/`Structured` — a fresh typar, which is unpinned when the
+    /// printf partial is left unapplied). A fully-unapplied partial over such a hole
+    /// would be a *generic* value struct, out of scope for the 4a heap-closure
+    /// lowering; `argType` returns `fresh ()`/`ValueNone` for exactly these.
+    let hasConcreteArgType (t: FormatType) : bool =
+        match t with
+        | FormatType.Object
+        | FormatType.Structured
+        | FormatType.FormatFunction
+        | FormatType.Text -> false
+        | _ -> true
+
     /// `FormatArgIndex` is the positional slot of the format string (0 for
     /// `printf`/`sprintf`/…; 1 for `fprintf`, after the `TextWriter`). `Tail` is
     /// the final result of the curried printer (`unit` for the writing families,

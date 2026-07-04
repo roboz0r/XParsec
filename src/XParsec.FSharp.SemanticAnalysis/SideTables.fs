@@ -1392,6 +1392,16 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// sink, every specifier `PrintfHoleForm.tryClassify` accepts). Absence keeps
     /// the existing FSharp.Core path.
     member val PrintfApp = SideTable<PrintfSpec.PrintfSink>() with get
+    /// Keyed by an `Expr.App` NodeKey; present only for a *fully-unapplied*
+    /// lowerable printf partial (`printfn "%d"`, `printf "%d %s"`, …) — a literal
+    /// format, `idx = 0`, a `StdOut`/`StdErr`/`StringResult` sink, `1..K` holes,
+    /// every specifier lowerable and none `%A`/`%O` (an unapplied `%A` hole is an
+    /// unpinned typar). Freeze synthesises a Vesper closure
+    /// `fun h1 … hn -> Format(sink, …)` for it (heap, 4a) instead of the
+    /// FSharp.Core `PrintfFormat` cold path. Mutually exclusive with `PrintfApp`
+    /// (that fires only when the call is fully applied). Absence keeps the existing
+    /// FSharp.Core path.
+    member val PrintfPartial = SideTable<PrintfSpec.PrintfSink>() with get
     /// The node-keyed value-struct closure verdict. Keyed by a
     /// SOURCE-lambda argument's NodeKey; the `FunVerdict` carries the flat `FunN`
     /// arity (always) and, for a transformer combinator, the result-typar position.
