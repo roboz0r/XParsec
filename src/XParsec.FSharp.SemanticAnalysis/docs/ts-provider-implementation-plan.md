@@ -11,8 +11,8 @@ code itself (module headers + the tests named below), per
   provider (`Codegen.Js.NumberCovariance`). See §G1 for the as-built record; only the
   orthogonal **Step 5** (full provider laziness — a perf/architecture cleanup, no correctness
   dependency) remains, deferrable.
-- **Two small `dynamic` follow-ups** (§G2, §G3), **one inert residue** (§G4), and **two external
-  interface-heritage resolution gaps** (§G5 — orthogonal to G1, bite at §Breadth).
+- **Two small `dynamic` follow-ups** (§G2, §G3) and **one inert residue** (§G4). The two external
+  interface-heritage resolution gaps (§G5) **LANDED 2026-07-04**.
 - **The two breadth destinations** — `@types/node` and `Js.Dom` (§Breadth) — plus the
   **faithful-later graduations** they will pull in (§Faithful-later).
 
@@ -161,39 +161,40 @@ Six `Error`-subclass ctors are return-type-divergent; the ctor dedupe keeps the 
 nothing constructs `Error` subclasses, so it is currently harmless. **Revisit only if/when an
 `Error` subclass is actually constructed from Vesper.**
 
-### G5 — external INTERFACE heritage is unresolved (two gaps) — OPEN
+### G5 — external INTERFACE heritage resolution (two gaps) — LANDED (2026-07-04)
 
-Surfaced while confirming the G1 `NumberCovariance` relocation is total (`mapProviderTypes`
-threads `number` through a class's `FrozenInterfaces` / `FrozenBaseType` heritage args): those
-surfaces are threaded, but the FRONT END has no wired consumer for external *interface*
-heritage, so a `number` there has no observable end-to-end behaviour (and neither does anything
-else declared through interface `extends`). Two independent gaps, both empirically confirmed with
-hand-built manifests:
+**As built.** Both interface-heritage gaps are resolved; the canonical record is now the code +
+`ExternalHeritageTests` ([[feedback_durable_knowledge_in_code]]). Three changes, all keeping to the
+wall design pattern (no SemType case, no `unify`/`subsumes` edge):
 
-- **Interface-to-interface supertype assignability does not fire at the foreign-arg seam.**
-  Passing a value of `interface NumChild extends Base<T>` where a `Base<T>` parameter is expected
-  is REJECTED (`Type mismatch`), while the CLASS-base analogue (`class C extends Base<T>` → a
-  `Base<T>` param) is ACCEPTED. So the nominal upcast walk reaches an external base CLASS
-  (`EngineCore.subtypeParentOf` → `instantiateBaseType`) but not an external interface's
-  `extends`-interfaces (`subtypeInterfacesOf` → `instantiateInterfaces` is built but not consulted
-  on this path). Anchor: `Passes/Unification/Engine.fs` `tryCoerceUpcast` / `EngineCore.fs`
-  `subtypeInterfacesOf`.
-- **External INHERITED member reads are not walked.** Reading a member declared on a base
-  interface off a subtype receiver (`sub.value` where `value` lives on `Base`) MISSES: the external
-  member-access path resolves OWN members only (`Passes/Unification/InferRecordAccess.fs`,
-  `ctx.Provider.TryLookupMember(receiverName, …)` — no heritage walk), and the TS provider stores
-  heritage as `FrozenInterfaces` / `FrozenBaseType` WITHOUT flattening inherited members into
-  `Members` (`TsManifestMembers.build`). The metadata (reflection) layer sidesteps this because
-  `GetInterfaces()` / the `inherit` chain surface the transitive set; the TS-manifest layer does not.
+- **Interface→interface supertype assignability now fires at the foreign-arg seam.** The single
+  subtype walk (`EngineCore.tryUpcastWitness`) was rewritten to walk the nominal `(name, args)` form
+  and RECURSE through each interface `subtypeInterfacesOf` surfaces (not just direct-match), so an
+  external `interface C extends B`, `interface B extends A<int>` reaches `A` transitively — the walk
+  the metadata layer never needed because `GetInterfaces()` pre-flattens. `tryCoerceUpcast` /
+  `unifyArg` are unchanged (they already drive this walk).
+- **The provider stored the WRONG name for a generic super-interface.** `TsManifestMembers.
+  classifyHeritage` stored the BARE `extends`-interface name (`A`) in `FrozenInterfaces`, but the
+  walk compares against the arity-suffixed compiled name (`` A`1 ``, THE LAW) — so even a DIRECT
+  `extends A<int>` missed. Now it `arityName`s the stored name, matching the metadata layer's
+  `buildClassInterfaces` (which keys by the suffixed `metadataName`). No-op at arity 0.
+- **External INHERITED member reads are now walked.** `EngineCore.tryExternalInheritedMember` walks
+  a receiver's external supertypes (interfaces + base, transitively) for a member the receiver's OWN
+  members miss, returning it paired with the supertype's args-as-reached (so a generic base member
+  `Base<int>.value` resolves at the receiver's instantiation). `InferRecordAccess.resolveFieldStep`'s
+  external `TyClass` arm consults it on an own-member miss and commits identically (freshened method
+  typars, recorded for Freeze). The inherited member lowers to native `receiver.member` through the
+  DECLARING interface's `AttachedNative` flag — pinned E2E by a Node round-trip.
 
-Orthogonal to G1 (the numeric-variance relocation is complete and correct regardless). These bite
-the moment a real `@types/*` package needs `interface Foo extends Bar<…>` member inheritance or
-super-interface assignability — i.e. **§Breadth** (`@types/node` config objects, `Js.Dom`'s deeply
-`extends`-chained event/element hierarchy). Build-when-it-bites; pin with an isolation fixture
-(`interface Base<T> { m(): T }` + `interface Child extends Base<int>` + a read and an upcall) first.
-The precise per-surface `number` resolution these WOULD expose is already pinned structurally by
-`MapProviderTypesTests` (`ExternalSymbols.mapProviderTypes`), so no end-to-end number fixture is owed
-here — only the inheritance-resolution capability itself.
+Tests: `ExternalHeritageTests` (direct + transitive inherited reads, direct + transitive
+super-interface assignability, negatives, and a Node round-trip proving the transitively-inherited
+read lowers native and runs). The per-surface `number` resolution these expose stays pinned
+structurally by `MapProviderTypesTests` (`ExternalSymbols.mapProviderTypes`) — no end-to-end number
+fixture was owed, only the inheritance-resolution capability, which is what landed.
+
+**Scope landed:** transitive interface upcast + inherited external member reads (both directions of
+the heritage graph). Consumed by **§Breadth** the moment `@types/node` config objects / `Js.Dom`'s
+deeply `extends`-chained event/element hierarchy arrive.
 
 ---
 

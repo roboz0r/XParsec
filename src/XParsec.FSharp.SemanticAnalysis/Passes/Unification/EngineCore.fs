@@ -580,20 +580,23 @@ module UnificationEngineCore =
                 ExternalSymbols.instantiateBaseType shape (args.AsSpan().ToArray())
             | _ -> ValueNone
 
-    // The interfaces a nominal `(name, args)` declares, surfaced as
-    // `(canonical-name, instantiated-args)` nominal pairs (the same form
-    // `subtypeNominalOf` yields, so the subtype walk treats an interface exactly
-    // like a base). Project-local `interface … with` impls first (their
-    // `Resolved` type is written over the class's typars, so the receiver's
-    // `args` substitute exactly as in `subtypeParentOf`), then the external
-    // provider's frozen interface list (already a full transitive set from the
-    // metadata `GetInterfaces()`). Same purity contract as `subtypeParentOf`.
+    // The interfaces a nominal `(name, args)` declares, surfaced as instantiated
+    // nominal `SemType`s (so the subtype walk treats an interface exactly like a
+    // base — recomputing its own registry key / interfaces as it recurses THROUGH
+    // it). Project-local `interface … with` impls first (their `Resolved` type is
+    // written over the class's typars, so the receiver's `args` substitute exactly
+    // as in `subtypeParentOf`), then the external provider's interface list. The
+    // metadata provider pre-flattens the transitive set, but the TS-manifest
+    // provider stores it un-flattened, so callers must recurse THROUGH each
+    // surfaced interface for its own `extends`. An external interface is surfaced
+    // as a `TyConst` (no local registry key, so its recursion routes back to the
+    // provider by qualified name). Same purity contract as `subtypeParentOf`.
     let private subtypeInterfacesOf
         (ctx: PassContext)
         (localKey: SymbolKey voption)
         (name: string)
         (args: EqArray<SemType>)
-        : struct (string * EqArray<SemType>) list =
+        : SemType list =
         // A class, union, *or* record may declare `interface … with` impls; the subtype
         // walk treats every kind's interface list identically. Resolve the local host by
         // its arity-key (`localKey`, the receiver's own registry key), falling back to
@@ -608,10 +611,7 @@ module UnificationEngineCore =
             [
                 for impl in info.InterfaceImpls do
                     match impl.Resolved with
-                    | ValueSome ifaceTy ->
-                        match subtypeNominalOf ctx (instantiateMember (info.TypeParams, args) ifaceTy) with
-                        | ValueSome p -> yield p
-                        | ValueNone -> ()
+                    | ValueSome ifaceTy -> yield instantiateMember (info.TypeParams, args) ifaceTy
                     | ValueNone -> ()
             ]
         | ValueNone ->
@@ -619,7 +619,7 @@ module UnificationEngineCore =
             | ValueSome(ExternalTypeShape.Class shape) ->
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
                 |> Array.toList
-                |> List.map (fun (n, ta) -> struct (canonName ctx n, EqArray.ofArray ta))
+                |> List.map (fun (n, ta) -> TyConst(n, EqArray.ofArray ta))
             | _ -> []
 
     /// Find the instantiation of `src` (or one of its bases / interfaces) whose
@@ -632,10 +632,17 @@ module UnificationEngineCore =
     /// then up the `inherit` chain (class→base, user + BCL); `subsumes`
     /// is layered on top of it. `seen` short-circuits a cyclic `inherit` chain.
     let tryUpcastWitness (ctx: PassContext) (src: SemType) (tgtName: string) : EqArray<SemType> voption =
-        let nominalOf = subtypeNominalOf ctx
-
+        // Walk the nominal `SemType`: an interface supertype surfaced by
+        // `subtypeInterfacesOf` is itself walked for its OWN `extends`-interfaces.
+        // An external `interface C extends B`, `interface B extends A<int>` reaches
+        // `A` only by recursing THROUGH `B` — a direct-match-only check at `C` (which
+        // sees just `B`) would miss it. The metadata layer papers over this because
+        // `GetInterfaces()` pre-flattens the transitive set; the TS-manifest layer
+        // stores heritage un-flattened, so the walk must recurse. Staying on `SemType`
+        // (not a bare `(name, args)` pair) lets each level recompute its own
+        // `nominalKeyOf`, so the local base / interface-impl lookups resolve per-arity.
         let rec walk (seen: HashSet<string>) (cur: SemType) : EqArray<SemType> voption =
-            match nominalOf cur with
+            match subtypeNominalOf ctx cur with
             | ValueNone -> ValueNone
             | ValueSome(struct (s, sa)) ->
                 if s = tgtName then
@@ -643,24 +650,79 @@ module UnificationEngineCore =
                 elif not (seen.Add s) then
                     ValueNone
                 else
-                    // `s`/`sa` are the qualified canonical name + args (the walk's
-                    // comparison currency, unifying `TyConst`/external/local into one
-                    // space); `localKey` is the same nominal's registry key so the local
-                    // base / interface-impl lookups resolve per-arity, not by bare name.
+                    // `localKey` is this nominal's registry key so the local base /
+                    // interface-impl lookups resolve per-arity, not by bare name.
                     let localKey = nominalKeyOf cur
 
-                    let viaIface =
-                        subtypeInterfacesOf ctx localKey s sa
-                        |> List.tryPick (fun (struct (iname, ia)) -> if iname = tgtName then Some ia else None)
+                    let rec pick =
+                        function
+                        | [] -> ValueNone
+                        | iface :: rest ->
+                            match walk seen iface with
+                            | ValueSome _ as found -> found
+                            | ValueNone -> pick rest
 
-                    match viaIface with
-                    | Some ia -> ValueSome ia
-                    | None ->
+                    match pick (subtypeInterfacesOf ctx localKey s sa) with
+                    | ValueSome _ as viaIface -> viaIface
+                    | ValueNone ->
                         match subtypeParentOf ctx localKey s sa with
                         | ValueSome parentInstance -> walk seen parentInstance
                         | ValueNone -> ValueNone
 
         walk (HashSet<string>()) src
+
+    /// Find an instance member `memberName` on an EXTERNAL SUPERTYPE of `receiver`
+    /// (its base type / interfaces, transitively), returning the member paired with the
+    /// type args to instantiate its signature over — the supertype's args as reached from
+    /// the receiver (`Base<int>`'s `[int]` for a `Child : Base<int>` receiver). `ValueNone`
+    /// when no supertype declares it. Walks SUPERTYPES ONLY: the receiver's OWN members are
+    /// resolved by the caller first, and this lights up only on that miss. Needed because
+    /// the TS-manifest provider stores heritage UN-FLATTENED (`FrozenInterfaces` /
+    /// `FrozenBaseType`) and does not copy inherited members onto the subtype's `Members` —
+    /// unlike the metadata layer, whose `GetInterfaces()` / `inherit` chain make the
+    /// provider's own `TryLookupMember` already see the transitive set. Same read-only
+    /// purity contract as `tryUpcastWitness`; `seen` short-circuits a cyclic chain.
+    let tryExternalInheritedMember
+        (ctx: PassContext)
+        (receiver: SemType)
+        (memberName: string)
+        : struct (ExternalMember * EqArray<SemType>) voption =
+        // A node's direct supertypes: its interfaces, then its declared base type.
+        // Kept as `SemType`s so each carries its own `nominalKeyOf` — the local base /
+        // interface-impl lookups resolve per-arity, exactly as in `tryUpcastWitness`.
+        let supertypesOf (node: SemType) : SemType list =
+            match subtypeNominalOf ctx node with
+            | ValueNone -> []
+            | ValueSome(struct (s, sa)) ->
+                let localKey = nominalKeyOf node
+
+                [
+                    yield! subtypeInterfacesOf ctx localKey s sa
+                    match subtypeParentOf ctx localKey s sa with
+                    | ValueSome parent -> yield parent
+                    | ValueNone -> ()
+                ]
+
+        let seen = HashSet<string>()
+
+        let rec walk (nodes: SemType list) : struct (ExternalMember * EqArray<SemType>) voption =
+            match nodes with
+            | [] -> ValueNone
+            | node :: rest ->
+                match subtypeNominalOf ctx node with
+                | ValueNone -> walk rest
+                | ValueSome(struct (s, sa)) ->
+                    if not (seen.Add s) then
+                        walk rest
+                    else
+                        match ctx.Provider.TryLookupMember(s, memberName) with
+                        | ValueSome m when not m.IsStatic -> ValueSome(struct (m, sa))
+                        // Breadth-first across the heritage graph: this node's supertypes are
+                        // appended AFTER the remaining siblings, so a member on a nearer
+                        // ancestor wins over one further up a parallel branch.
+                        | _ -> walk (rest @ supertypesOf node)
+
+        walk (supertypesOf receiver)
 
     [<RequireQualifiedAccess>]
     type NominalKind =

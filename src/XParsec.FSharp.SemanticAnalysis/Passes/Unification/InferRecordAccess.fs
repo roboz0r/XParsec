@@ -274,17 +274,20 @@ module internal UnificationInferRecordAccess =
                 // record it for Freeze.
                 let clsQual = SymbolKeyOps.qualifiedName clsKey
 
-                match ctx.Provider.TryLookupMember(clsQual, memberName) with
-                | ValueSome m when not m.IsStatic ->
-                    // This is the COMMIT of a single-candidate member (no overload set to
-                    // pick from), so freshen the method typars per use site exactly as the
-                    // multi-candidate `commitExternalOverload` does — NOT the open,
-                    // marker-preserving `openSignature`. A generic instance method called at
-                    // two instantiations would otherwise share one inert `TyTypar(Method,_)`
-                    // that no per-call solution can touch (rigid-vs-concrete mismatch); a
-                    // non-generic member is byte-identical either way.
+                // Commit a resolved external instance member `m` whose signature is written
+                // over ITS declaring type's typars, instantiated with `memberArgs`: the
+                // receiver's own args for an own member; the supertype's args-as-reached for
+                // an INHERITED one (`Base<int>`'s `[int]` for a `Child : Base<int>`).
+                // This is the COMMIT of a single-candidate member (no overload set to pick
+                // from), so freshen the method typars per use site exactly as the
+                // multi-candidate `commitExternalOverload` does — NOT the open,
+                // marker-preserving `openSignature`. A generic instance method called at two
+                // instantiations would otherwise share one inert `TyTypar(Method,_)` that no
+                // per-call solution can touch (rigid-vs-concrete mismatch); a non-generic
+                // member is byte-identical either way.
+                let commitExternalMember (m: ExternalMember) (memberArgs: EqArray<SemType>) : SemType =
                     let memberSig =
-                        ExternalSymbols.instantiateSignature m (args.AsSpan().ToArray()) ctx.CurrentLevel
+                        ExternalSymbols.instantiateSignature m (memberArgs.AsSpan().ToArray()) ctx.CurrentLevel
 
                     ctx.Resolution.ExternalAccess.Set(
                         diagKey,
@@ -298,25 +301,38 @@ module internal UnificationInferRecordAccess =
                     )
 
                     memberSig
+
+                match ctx.Provider.TryLookupMember(clsQual, memberName) with
+                | ValueSome m when not m.IsStatic -> commitExternalMember m args
                 | _ ->
-                    // A homed external `TyClass` whose home is ABSENT from the
-                    // compilation: the provider stack has NO shape for it at all
-                    // (`TryLookupType` also misses) and the key carries a home assembly
-                    // — the fingerprint of a refs-table identity minted by one package's
-                    // provider whose HOME manifest was never stacked. Name the missing
-                    // package rather than emit a generic no-such-member (the plain
-                    // "Unknown class type" is for an in-stack type genuinely lacking the
-                    // member).
-                    match ctx.Provider.TryLookupType clsQual, SymbolKeyOps.keyAsm clsKey with
-                    | ValueNone, Some home ->
-                        errorTy
-                            ctx
-                            diagKey
-                            (sprintf
-                                "type '%s' is referenced from package '%s' but that package is not part of the compilation"
-                                clsSimple
-                                home)
-                    | _ -> errorTy ctx diagKey (sprintf "Unknown class type '%s'" clsQual)
+
+                    // An own-member miss may still resolve as a member INHERITED from an external
+                    // base interface/class: the TS-manifest provider stores heritage un-flattened,
+                    // so walk the receiver's supertypes (the metadata layer's `TryLookupMember`
+                    // already sees inherited members via `GetInterfaces()`/`inherit`). Commit with
+                    // the supertype's args so a generic base member (`Base<int>.value`) resolves at
+                    // the receiver's instantiation.
+                    match tryExternalInheritedMember ctx rTy memberName with
+                    | ValueSome(struct (m, memberArgs)) -> commitExternalMember m memberArgs
+                    | ValueNone ->
+                        // A homed external `TyClass` whose home is ABSENT from the
+                        // compilation: the provider stack has NO shape for it at all
+                        // (`TryLookupType` also misses) and the key carries a home assembly
+                        // — the fingerprint of a refs-table identity minted by one package's
+                        // provider whose HOME manifest was never stacked. Name the missing
+                        // package rather than emit a generic no-such-member (the plain
+                        // "Unknown class type" is for an in-stack type genuinely lacking the
+                        // member).
+                        match ctx.Provider.TryLookupType clsQual, SymbolKeyOps.keyAsm clsKey with
+                        | ValueNone, Some home ->
+                            errorTy
+                                ctx
+                                diagKey
+                                (sprintf
+                                    "type '%s' is referenced from package '%s' but that package is not part of the compilation"
+                                    clsSimple
+                                    home)
+                        | _ -> errorTy ctx diagKey (sprintf "Unknown class type '%s'" clsQual)
         | TyUnion(unionKey, args) ->
             // Union instance member access — mirrors the `TyClass` arm
             // against the union's augmentation members.

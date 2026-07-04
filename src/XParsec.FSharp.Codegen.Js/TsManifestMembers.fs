@@ -136,10 +136,18 @@ module internal TsManifestMembers =
             | _ ->
                 // An interface, or an unresolved (cross-package) name → the interface slot
                 // as a `(compiled-name, type-args)` pair, matching the metadata layer's
-                // `buildClassInterfaces` shape. Cross-package defaults here because a
-                // cross-package base CLASS is far rarer than a cross-package interface, and
-                // mis-slotting only loses base-member lookup for that rare case.
-                interfaces.Add(name, args |> List.map (toFrozen ctx) |> Array.ofList)
+                // `buildClassInterfaces` shape (which keys by the arity-suffixed
+                // `metadataName`). The stored name MUST be arity-suffixed — the subtype
+                // walk / inherited-member walk compare it against a nominal target whose
+                // name is `arityName`'d (THE LAW), so a generic `extends Foo<T>` stored bare
+                // as `Foo` would never match `` Foo`1 ``. `arityName` is a no-op at arity 0.
+                // Cross-package defaults here because a cross-package base CLASS is far rarer
+                // than a cross-package interface, and mis-slotting only loses base-member
+                // lookup for that rare case.
+                interfaces.Add(
+                    SymbolKeyOps.arityName name (List.length args),
+                    args |> List.map (toFrozen ctx) |> Array.ofList
+                )
 
         interfaces.ToArray(), baseTy
 
