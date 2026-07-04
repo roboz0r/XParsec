@@ -28,6 +28,11 @@ let private manifest: Schema.PackageManifest =
                     [ sig1 "x" (named "number") (named "unit") ],
                     Schema.ImportShape.Named
                 )
+                // A `number`-typed PROPERTY, read covariantly — a JS `number` value IS a
+                // Vesper `float`, so `b.size` must type as `float` (usable in float arithmetic
+                // and a `float` annotation), NOT the opaque `number` token.
+                Schema.Export.Interface("Box", 0, [ property' "size" (named "number") ], [])
+                Schema.Export.Function("makeBox", [ sig0 (named "Box") ], Schema.ImportShape.Named)
             ]
         Diagnostics = []
         Refs = []
@@ -61,5 +66,15 @@ let tests =
             test "a `string` argument is rejected by a `number` parameter" {
                 let errs = analyseErrors "configure \"hi\"\n"
                 Expect.isNonEmpty errs "a non-numeric argument must NOT widen into number"
+            }
+
+            test "a `number` property read binds to a `float` annotation (covariant identity)" {
+                let errs = analyseErrors "let b = makeBox()\nlet s: float = b.size\n"
+                Expect.isEmpty errs (sprintf "a number property read should type as float, got: %A" errs)
+            }
+
+            test "a `number` property read is usable in `float` arithmetic" {
+                let errs = analyseErrors "let b = makeBox()\nlet s = b.size + 1.0\n"
+                Expect.isEmpty errs (sprintf "a number return should be float-arithmetic-usable, got: %A" errs)
             }
         ]

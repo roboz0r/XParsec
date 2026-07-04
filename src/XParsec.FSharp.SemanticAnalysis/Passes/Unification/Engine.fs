@@ -287,7 +287,11 @@ module UnificationEngine =
                             match fieldTy m.Name with
                             | ValueNone -> false
                             | ValueSome argTy ->
-                                let expectedTy = ExternalSymbols.instantiateSignature m declArgs ctx.CurrentLevel
+                                // RAW realisation: an interface `number` field must stay
+                                // `number` here (a contravariant, argument-position target) so
+                                // `numericFamilyOr` widens it — the covariant `number → float`
+                                // identity would defeat that.
+                                let expectedTy = ExternalSymbols.instantiateSignatureRaw m declArgs ctx.CurrentLevel
 
                                 subsumes ctx argTy expectedTy <> SubsumeOutcome.Unrelated
                                 || (

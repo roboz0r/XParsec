@@ -927,6 +927,27 @@ module ExternalSymbols =
             Comparable = resolveAnchor "Vesper.comparable`1"
         }
 
+    /// Apply the `type number = float` abbreviation's COVARIANT identity to a realised
+    /// signature. A JS `number` read as a VALUE is a Vesper `float` (`prim-types-number.js.fsi`),
+    /// so a `number` in a covariant (return / value-member / result) position becomes `float`;
+    /// a `number` in a CONTRAVARIANT (parameter) position is left intact so the
+    /// argument-coercion seam can still widen it to the int/float/float32 family
+    /// (`UnificationEngine.numericFamilyOr`). Variance flips at each `TyFun` domain; other
+    /// constructors carry the enclosing variance into their arguments. Only front-end CANON
+    /// identities are named ("number"/"float") — their alias is DECLARED in `Vesper.Core`, the
+    /// int/float/float32 = `number` repr relation stays in the provider. `number` originates
+    /// ONLY from a JS-target manifest, so this is inert for every non-TS producer / on CLR.
+    let rec private polarizeNumber (covariant: bool) (t: SemType) : SemType =
+        match t with
+        | TyConst("number", args) when args.Length = 0 && covariant -> TyConst("float", EqArray.empty)
+        | TyFun(a, b) -> TyFun(polarizeNumber (not covariant) a, polarizeNumber covariant b)
+        | TyTuple ts -> TyTuple(EqArray.map (polarizeNumber covariant) ts)
+        | TyConst(n, args) when args.Length > 0 -> TyConst(n, EqArray.map (polarizeNumber covariant) args)
+        | TyClass(k, args) -> TyClass(k, EqArray.map (polarizeNumber covariant) args)
+        | TyRecord(k, args) -> TyRecord(k, EqArray.map (polarizeNumber covariant) args)
+        | TyUnion(k, args) -> TyUnion(k, EqArray.map (polarizeNumber covariant) args)
+        | other -> other
+
     /// Realise a member's `Signature` with SOME method typars PRE-BOUND to a concrete
     /// type (`seed`, index → type) instead of a fresh var — the rest freshen normally
     /// (shared `cache`). The call-site literal-grounding rule (R4a step 3) seeds a method
@@ -934,8 +955,10 @@ module ExternalSymbols =
     /// position (mitt's no-payload `emit(type: undefined extends Events[Key] ? Key :
     /// never)` — `Key` is never a bare parameter, so plain unification cannot solve it, but
     /// the constant `"tick"` grounds it here, letting the conditional fold). A bare-position
-    /// typar is left unseeded (unification already solves it).
-    let instantiateSignatureWith
+    /// typar is left unseeded (unification already solves it). The RAW realiser: no `number`
+    /// polarisation — the structural-width check (`tryStructuralWiden`) reads it so an
+    /// interface's `number` FIELD stays `number` and its arg-position widening still fires.
+    let instantiateSignatureRawWith
         (seed: (int * SemType) list)
         (m: ExternalMember)
         (declaringArgs: SemType[])
@@ -955,6 +978,18 @@ module ExternalSymbols =
         else
             TyFun(instantiateWith decl methodVar s.Parameters, instantiateWith decl methodVar s.Return)
 
+    /// `instantiateSignatureRawWith` with the covariant `number → float` identity applied
+    /// (return / value covariant, parameters stay `number`). The default for a use-site call
+    /// or member access: a foreign `number` RETURN reads as `float`, while a `number`
+    /// PARAMETER stays widenable at the arg seam.
+    let instantiateSignatureWith
+        (seed: (int * SemType) list)
+        (m: ExternalMember)
+        (declaringArgs: SemType[])
+        (level: int)
+        : SemType =
+        polarizeNumber true (instantiateSignatureRawWith seed m declaringArgs level)
+
     /// Realise a member's `Signature` at `level`: `FTTypar(Declaring,i) →
     /// declaringArgs.[i]`, `FTTypar(Method,j) → fresh TyVar at level` (one per
     /// index, shared across `Parameters` and `Return`). Reconstructs
@@ -965,6 +1000,12 @@ module ExternalSymbols =
     let instantiateSignature (m: ExternalMember) (declaringArgs: SemType[]) (level: int) : SemType =
         instantiateSignatureWith [] m declaringArgs level
 
+    /// The RAW (`number`-unpolarised) `instantiateSignature` — for the structural-width
+    /// check, which needs an interface `number` field to stay `number` so the arg-position
+    /// family widening fires (see `polarizeNumber`).
+    let instantiateSignatureRaw (m: ExternalMember) (declaringArgs: SemType[]) (level: int) : SemType =
+        instantiateSignatureRawWith [] m declaringArgs level
+
     /// The *open* realisation of a member's `Signature`: declaring typars
     /// substituted from `declaringArgs`, but the member's own method typars left
     /// as `TyTypar(Method,j)` markers — exactly the shape `BuildSignature`
@@ -973,16 +1014,20 @@ module ExternalSymbols =
     /// stays a wildcard for `InferOverload.applicabilityMatches`, and the bind site that
     /// commits the member freshens them separately (`instantiateSignature`, or
     /// `Infer.instantiateMethodTypars`). For a non-generic member (the common
-    /// case) it is byte-identical to `instantiateSignature` at any level.
+    /// case) it is byte-identical to `instantiateSignature` at any level. Covariant
+    /// `number → float` is applied (parameters stay `number`); the marker-preserving open
+    /// form is used at read/result positions where the covariant identity is what callers want.
     let openSignature (m: ExternalMember) (declaringArgs: SemType[]) : SemType =
         let decl i = declaringArgs.[i]
         let methodOpen j = TyTypar(TyparAxis.Method, j)
         let s = m.Signature
 
         if m.IsValueMember then
-            instantiateWith decl methodOpen s.Return
+            polarizeNumber true (instantiateWith decl methodOpen s.Return)
         else
-            TyFun(instantiateWith decl methodOpen s.Parameters, instantiateWith decl methodOpen s.Return)
+            polarizeNumber
+                true
+                (TyFun(instantiateWith decl methodOpen s.Parameters, instantiateWith decl methodOpen s.Return))
 
     /// Realise a member's method-typar BOUNDS at a use site — one `SemType voption` per
     /// method-typar index. `FTTypar(Declaring,i)` inside a bound → `declaringArgs.[i]`;
