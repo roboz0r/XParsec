@@ -347,6 +347,10 @@ type ExternalMember =
         /// default is `null` / a non-primitive `default(struct)` ends the trailing run
         /// (that parameter stays required), so no call can omit past it.
         OptionalDefaults: TConstValue list
+        /// True for an OPTIONAL interface member (`verbose?: T`) — a structural-width
+        /// admission at a foreign-call arg position treats it as not-required. Every
+        /// non-interface producer (metadata, .fsi contract, JS-native, ctors) sets `false`.
+        IsOptional: bool
     }
 
     /// A value member (field or property) — no parameters, the value in `Return` —
@@ -378,6 +382,7 @@ type ExternalMember =
             Origin = origin
             Key = SymbolKey.MemberKey(declKey, ".ctor", argSig, MemberKind.Method)
             OptionalDefaults = optionalDefaults
+            IsOptional = false
         }
 
 /// HOW an external type's instance-member CALLS lower on the JS backend — a single

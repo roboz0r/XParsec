@@ -562,6 +562,7 @@ let private mkMember (name: string) (methodArity: int) (parameters: FrozenType) 
         Origin = SymbolOrigin.Empty
         Key = SymbolKey.MemberKey(SymbolKeyOps.qualifiedTypeKeyOf None "C" 0, name, EqArray.empty, MemberKind.Method)
         OptionalDefaults = []
+        IsOptional = false
     }
 
 /// A contract provider publishing exactly `overloads` as the member set of every

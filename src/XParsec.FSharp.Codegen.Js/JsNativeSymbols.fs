@@ -51,6 +51,7 @@ module JsNativeSymbols =
             Origin = errorOrigin
             Key = SymbolKey.MemberKey(errorKey, "message", EqArray.empty, MemberKind.Property)
             OptionalDefaults = []
+            IsOptional = false
         }
 
     let private errorShape: ExternalTypeShape =
@@ -142,6 +143,7 @@ module JsNativeSymbols =
             Origin = origin
             Key = SymbolKey.MemberKey(declKey, name, EqArray.empty, MemberKind.InterfaceMethod declKey)
             OptionalDefaults = []
+            IsOptional = false
         }
 
     /// Pair an erased class-interface shape with the map key DERIVED from its head

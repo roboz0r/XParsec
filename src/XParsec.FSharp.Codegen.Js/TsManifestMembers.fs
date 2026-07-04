@@ -53,6 +53,7 @@ module internal TsManifestMembers =
                 Origin = origin
                 Key = SymbolKey.MemberKey(declKey, mem.Name, EqArray.ofList argSig, kind)
                 OptionalDefaults = []
+                IsOptional = mem.Optional
             }
         )
 
@@ -82,6 +83,7 @@ module internal TsManifestMembers =
                     Origin = origin
                     Key = SymbolKey.MemberKey(declKey, mem.Name, EqArray.empty, MemberKind.Property)
                     OptionalDefaults = []
+                    IsOptional = mem.Optional
                 }
             ]
         | Schema.MemberKind.Method ->

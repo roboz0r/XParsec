@@ -1090,6 +1090,7 @@ module VesperLib =
                                     // The `.fsi` contract layer doesn't publish optional-parameter
                                     // defaults yet.
                                     OptionalDefaults = []
+                                    IsOptional = false
                                 }
 
                             memberCsts.Add

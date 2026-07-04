@@ -252,6 +252,55 @@ module UnificationEngine =
             | _ -> ValueNone
         | _ -> ValueNone
 
+    /// Structural inflow admission (G1): a Vesper RECORD satisfies an EXTERNAL interface
+    /// PARAMETER by WIDTH. CONFINED to the argument-coercion seams below — gated on the
+    /// provider's `IsInterface` (real TS interfaces AND the `@struct` erasing nominals),
+    /// so the front end never recognises the `@struct` backend home
+    /// ([[feedback_freeze_no_backend_knowledge]]). Every REQUIRED (non-optional) value
+    /// member of the interface must be supplied by a same-named record field whose type
+    /// coerces into the member's type — an ordinary `subsumes`, plus the `number`-family
+    /// admission (`numericFamilyOr`) so an `int` field satisfies a `number` member. Pure
+    /// read (`subsumes`/provider lookups, no `Link`), so it is safe as a speculative guard
+    /// before the plain-`unify` fallback. A Vesper CLASS arg (`TyClass`) is left to the
+    /// nominal class→interface upcast path (`subtypeNominalOf`); only a record widens here.
+    let private tryStructuralWiden (ctx: PassContext) (actual: SemType) (expected: SemType) : bool =
+        match resolveStep expected with
+        | TyClass(ikey, iargs) ->
+            match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedName ikey) with
+            | ValueSome(ExternalTypeShape.Class shape) when shape.IsInterface ->
+                match resolveStep actual with
+                | TyRecord(rkey, rargs) ->
+                    match TypeRegistry.tryRecordByKey ctx.Types rkey with
+                    | ValueSome info ->
+                        let subst = mkNamedTypeSubst info.TypeParams rargs
+
+                        let fieldTy (name: string) : SemType voption =
+                            match info.Fields |> Array.tryFind (fun f -> f.Name = name) with
+                            | Some f -> ValueSome(substituteWith subst f.Type)
+                            | None -> ValueNone
+
+                        let declArgs = iargs |> EqArray.toList |> List.toArray
+
+                        shape.Members
+                        |> Array.filter (fun m -> not m.IsStatic && m.IsValueMember && not m.IsOptional)
+                        |> Array.forall (fun m ->
+                            match fieldTy m.Name with
+                            | ValueNone -> false
+                            | ValueSome argTy ->
+                                let expectedTy = ExternalSymbols.instantiateSignature m declArgs ctx.CurrentLevel
+
+                                subsumes ctx argTy expectedTy <> SubsumeOutcome.Unrelated
+                                || (
+                                    match numericFamilyOr ctx expectedTy with
+                                    | ValueSome fam -> subsumes ctx argTy fam <> SubsumeOutcome.Unrelated
+                                    | ValueNone -> false
+                                )
+                        )
+                    | ValueNone -> false
+                | _ -> false
+            | _ -> false
+        | _ -> false
+
     let rec unify (ctx: PassContext) (key: NodeKey) (a: SemType) (b: SemType) =
         let a = resolveStep a
         let b = resolveStep b
@@ -417,7 +466,7 @@ module UnificationEngine =
                 | _ ->
                     match numericFamilyOr ctx b with
                     | ValueSome fam when subsumes ctx a fam <> SubsumeOutcome.Unrelated -> ()
-                    | _ -> unify ctx key a b
+                    | _ -> if tryStructuralWiden ctx a b then () else unify ctx key a b
 
     /// Unify an *applied callable* shape against a resolved member signature,
     /// coercing each argument position rather than unifying it. `actual` is the
@@ -1063,16 +1112,20 @@ module UnificationEngine =
                 | ValueSome fam -> subsumes ctx src fam <> SubsumeOutcome.Unrelated
                 | ValueNone ->
 
-                    match subtypeNominalOf ctx tgt with
-                    | ValueNone -> false
-                    | ValueSome(struct (tname, targs)) ->
-                        match tryUpcastWitness ctx src tname with
-                        | ValueSome sargs when sargs.Length = targs.Length ->
-                            for i in 0 .. targs.Length - 1 do
-                                unify ctx key sargs.[i] targs.[i]
+                    if tryStructuralWiden ctx src tgt then
+                        true
+                    else
 
-                            true
-                        | _ -> false
+                        match subtypeNominalOf ctx tgt with
+                        | ValueNone -> false
+                        | ValueSome(struct (tname, targs)) ->
+                            match tryUpcastWitness ctx src tname with
+                            | ValueSome sargs when sargs.Length = targs.Length ->
+                                for i in 0 .. targs.Length - 1 do
+                                    unify ctx key sargs.[i] targs.[i]
+
+                                true
+                            | _ -> false
 
     /// Unify an *argument* against its expected parameter type, admitting the
     /// implicit class→interface / class→base upcast F# inserts at a coercion

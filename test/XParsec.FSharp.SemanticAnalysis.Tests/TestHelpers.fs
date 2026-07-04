@@ -107,6 +107,7 @@ let mkMember: ExternalMember =
         Origin = SymbolOrigin.Empty
         Key = SymbolKeyOps.valueKeyOf None ""
         OptionalDefaults = []
+        IsOptional = false
     }
 
 /// A throwaway source token for hand-built TAST construction in tests. The

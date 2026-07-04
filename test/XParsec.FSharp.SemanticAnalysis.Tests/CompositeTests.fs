@@ -50,6 +50,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
                                 MemberKind.Method
                             )
                         OptionalDefaults = []
+                        IsOptional = false
                     }
             else
                 ValueNone

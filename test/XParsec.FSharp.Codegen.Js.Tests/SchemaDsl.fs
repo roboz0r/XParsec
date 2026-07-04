@@ -134,3 +134,9 @@ let property' (name: string) (ty: Schema.TypeRef) : Schema.Member =
         Static = false
         Optional = false
     }
+
+/// An OPTIONAL instance data Property (`name?: ty`).
+let optProperty' (name: string) (ty: Schema.TypeRef) : Schema.Member =
+    { property' name ty with
+        Optional = true
+    }

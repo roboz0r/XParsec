@@ -353,6 +353,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, string list>, assemblyPath
                         Origin = origin
                         Key = SymbolKey.MemberKey(declKey, f.Name, EqArray.empty, MemberKind.Property)
                         OptionalDefaults = []
+                        IsOptional = false
                     }
             | None -> None
 
@@ -384,6 +385,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, string list>, assemblyPath
                 Origin = origin
                 Key = SymbolKey.MemberKey(declKey, m.Name, argSig, MemberKind.Method)
                 OptionalDefaults = MetadataMapping.optionalDefaults (m.GetParameters())
+                IsOptional = false
             }
         )
 
@@ -406,6 +408,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, string list>, assemblyPath
                 Origin = origin
                 Key = SymbolKey.MemberKey(declKey, p.Name, EqArray.empty, MemberKind.Property)
                 OptionalDefaults = []
+                IsOptional = false
             }
         )
 
@@ -457,6 +460,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, string list>, assemblyPath
                         Origin = origin
                         Key = SymbolKey.MemberKey(declKey, "get_Item", argSig, MemberKind.Method)
                         OptionalDefaults = []
+                        IsOptional = false
                     }
                 )
             )
