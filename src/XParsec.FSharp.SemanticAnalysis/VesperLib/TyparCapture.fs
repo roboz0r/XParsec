@@ -266,7 +266,7 @@ module VesperLibTyparCapture =
         member val AmbientShapes: (string -> ExternalTypeShape voption) = (fun _ -> ValueNone) with get, set
         /// The implicit open prefixes contributed by this package's dependency
         /// providers (their `AmbientOpenPrefixes` — e.g. Vesper.Core's `"Vesper"`,
-        /// where `Fun` / `Fun2` / `Ref` live). Seeded by
+        /// where `Fun`2` / `Fun`3` / `Ref` live). Seeded by
         /// `ReferencedProject.buildProviderWith` from the dependency composite, and
         /// used as the lowest-priority open prefixes during this package's own
         /// extraction (`extractSymbols`), so a `.fsi` can name a dependency's

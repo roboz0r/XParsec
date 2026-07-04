@@ -1287,26 +1287,28 @@ module Unification =
     /// scan needs no change — the member already resolves off whichever operand declares
     /// it — so the remaining work is in the SRTP/defaulting layer, not here.
     let private resolveOperatorValues (ctx: PassContext) : unit =
-        // The static-operator member declared on a project-local nominal named
-        // `typeName` — the declaring type's `Key`. Mirrors `FreezeExpr.tryClassMember`
-        // but returns only what the verdict needs (Freeze re-forms the member key).
-        // NOTE: bare-name keyed. Safe today because the only arity-overloaded type
-        // (`Fun`2`/`Fun`3`) is an interface with no static operators; a future
-        // arity-overloaded class carrying static ops would need `typeName` replaced by
-        // the receiver's arity-qualified key (mirror `Freeze.tryClassMemberByKey`).
-        let tryOwnStaticOp (typeName: string) (opName: string) : SymbolKey voption =
+        // The static-operator member declared on the project-local nominal the
+        // operand's `TyClass`/`TyUnion` key identifies — returns the declaring type's
+        // `Key`. Resolved by the arity-qualified `SymbolKey` (`tryClassByKey`/
+        // `tryUnionByKey`), not the bare simple name: an arity-overloaded operand
+        // (`Foo`2`/`Foo`3`) has its bare alias withdrawn, so a `simpleName` lookup
+        // would miss — exactly how the F# compiler resolves an operator trait against
+        // the operand's entity (`TyconRef`), never its short name. Mirrors
+        // `Freeze.tryClassMemberByKey`; returns only what the verdict needs (Freeze
+        // re-forms the member key).
+        let tryOwnStaticOp (typeKey: SymbolKey) (opName: string) : SymbolKey voption =
             let pick (key: SymbolKey) (members: TypeMemberInfo[]) =
                 if members |> Array.exists (fun m -> m.Name = opName && m.IsStatic) then
                     ValueSome key
                 else
                     ValueNone
 
-            match ctx.Types.Class.TryGetValue typeName with
-            | true, info -> pick info.Key info.Members
-            | false, _ ->
-                match ctx.Types.Union.TryGetValue typeName with
-                | true, info -> pick info.Key info.Members
-                | false, _ -> ValueNone
+            match TypeRegistry.tryClassByKey ctx.Types typeKey with
+            | ValueSome info -> pick info.Key info.Members
+            | ValueNone ->
+                match TypeRegistry.tryUnionByKey ctx.Types typeKey with
+                | ValueSome info -> pick info.Key info.Members
+                | ValueNone -> ValueNone
 
         // Peel the curried arrows to the list of operand (parameter) types; the
         // trailing return type is not an operand and is dropped.
@@ -1327,7 +1329,7 @@ module Unification =
                         | ValueNone ->
                             match zonk operand with
                             | TyClass(k, _)
-                            | TyUnion(k, _) -> tryOwnStaticOp (SymbolKeyOps.simpleName k) site.Name
+                            | TyUnion(k, _) -> tryOwnStaticOp k site.Name
                             | _ -> ValueNone
                     )
                     ValueNone

@@ -285,7 +285,7 @@ module UnificationSubsume =
         // is a read-only check, not a `unify` — grounding a still-free `Fun`-arg FROM
         // the arrow is deferred, not yet exercised. Arity-1 `Fun`2`
         // — a curried `TyFun(a, TyFun(b,c))` against `Fun`2` falls out naturally
-        // (codomain = the inner arrow), with no flat-`Fun2`/`Fun3` special-casing.
+        // (codomain = the inner arrow), with no flat-`Fun`3` special-casing.
         | TyFun(a, b), (TyClass(tk, targs)) when
             SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tk) = funInterfaceQualifiedName
             && targs.Length = 2
@@ -297,16 +297,16 @@ module UnificationSubsume =
                 SubsumeOutcome.Subtype
             else
                 SubsumeOutcome.Unrelated
-        // The FLAT-2 arrow↔`Fun2` correspondence: a CURRIED arrow
+        // The FLAT-2 arrow↔`Fun`3` correspondence: a CURRIED arrow
         // `TyFun(a, TyFun(b,c))` IS a subtype of the canonical
         // `Vesper.Fun`3<a,b,c>` interface — a saturated 2-arg slot. Sibling of the
-        // arity-1 `Vesper.Fun` arm above (`Fun2` does NOT inherit `Fun`,
+        // arity-1 `Vesper.Fun`2` arm above (`Fun`3` does NOT inherit `Fun`2`,
         // so the two arms are independent). Same read-only, invariant-arg discipline:
         // the two arrow domains and the final codomain must each be `Equal` to the
-        // `Fun2`'s three type args. The caller records the arity-2 verdict for the
+        // `Fun`3`'s three type args. The caller records the arity-2 verdict for the
         // lambda node (`inferApp`), keyed for the value-struct flat-`Invoke` lowering.
         | TyFun(a, TyFun(b, c)), (TyClass(tk, targs)) when
-            SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tk) = fun2InterfaceQualifiedName
+            SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tk) = funInterfaceQualifiedName
             && targs.Length = 3
             ->
             if

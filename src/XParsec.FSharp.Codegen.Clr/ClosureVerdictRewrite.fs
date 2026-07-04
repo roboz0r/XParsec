@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis
 ///
 /// A *transformer* combinator (`map`, `mk : ('TF:>Fun) -> Holder<'TF>`) returns a
 /// nominal carrying the lambda's function typar; the front end freezes that result
-/// with `'TFunc := arrow`, which `encodeType` lowers to the `Vesper.Fun`/`Fun2`
+/// with `'TFunc := arrow`, which `encodeType` lowers to the `Vesper.Fun`2`/`Fun`3`
 /// INTERFACE — but the call actually produces a `<closure>$` value-struct, so the
 /// stored slot / `constrained.` dispatch token disagrees with the value (corruption /
 /// `EntryPointNotFoundException`). Given the value-struct closures' minted nominal
@@ -288,7 +288,7 @@ module internal ClosureVerdictRewrite =
         // walk the spine of `fn (arg)` collecting each direct argument, and look up the
         // value-struct closure (by node identity) among them. Returns the closure's
         // `(value-struct type, result-typar position)`. A combinator takes at most one
-        // `Fun`/`Fun2`-bounded lambda argument, so at most one verdict is found per call.
+        // `Fun`2`/`Fun`3`-bounded lambda argument, so at most one verdict is found per call.
         let appOwnVerdict (e: Frozen.TExpr) : struct (FrozenType * int) voption =
             let rec scan (e: Frozen.TExpr) : struct (FrozenType * int) voption =
                 match e with

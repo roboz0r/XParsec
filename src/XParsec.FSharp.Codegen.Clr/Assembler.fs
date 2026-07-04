@@ -820,7 +820,7 @@ type internal Assembler
                 }
             )
 
-            // A flat-2 (`Fun2`) closure's `Invoke` is `Invoke(a, b) : c`;
+            // A flat-2 (`Fun`3`) closure's `Invoke` is `Invoke(a, b) : c`;
             // arity-1 keeps the single-arg `Invoke(a) : b`.
             let invokeSignature, invokeParamNames =
                 match c.Param2 with
@@ -862,11 +862,11 @@ type internal Assembler
                 )
 
             // `Fun\`2<param, result>` interface `TypeSpec` — closure ambient
-            // still installed, so free `TyVar`s encode to `!i`. A flat-2 (`Fun2`)
+            // still installed, so free `TyVar`s encode to `!i`. A flat-2 (arity-2)
             // value-struct closure implements `Fun`3<a,b,c>` instead.
             let ifaceSpec =
                 match c.Param2 with
-                | ValueSome(_, p2ty, _) -> provider.Fun2InterfaceSpec(c.ParamTy, p2ty, c.ResultTy)
+                | ValueSome(_, p2ty, _) -> provider.FlatFunInterfaceSpec(c.ParamTy, p2ty, c.ResultTy)
                 | ValueNone -> provider.FunInterfaceSpec(c.ParamTy, c.ResultTy)
 
             if isGenericClosure then

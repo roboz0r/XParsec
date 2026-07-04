@@ -105,7 +105,7 @@ module Emit =
         let args = Dictionary<NodeKey, int>()
         args.[closure.ParamKey] <- 1 // `this` is 0; the single applied parameter is 1
 
-        // A flat-2 (`Fun2`) value-struct closure has a SECOND flat
+        // A flat-2 (`Fun`3`) value-struct closure has a SECOND flat
         // parameter at `ldarg.2` — the peeled inner-`Lambda` binder.
         match closure.Param2 with
         | ValueSome(p2, _, _) -> args.[p2] <- 2

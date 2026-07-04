@@ -17,7 +17,7 @@ module UnificationEngine =
 
     /// The flat `FunN` arity a parameter slot constrains its argument to,
     /// or `ValueNone` for an ordinary (non-`Fun`-bounded) parameter. A combinator
-    /// param `'TF :> Fun<a,b>` is arity 1; `'TF :> Fun2<a,b,c>` is arity 2. The
+    /// param `'TF :> Fun<a,b>` is arity 1; `'TF :> Fun<a,b,c>` is arity 2. The
     /// `subsumes` arm decides the arrow↔`FunN` correspondence; this reads the SAME
     /// nominal bound so `inferApp` can record the verdict against the lambda
     /// argument's node (the value-struct flat-`Invoke` lowering reads it at codegen).
@@ -37,7 +37,7 @@ module UnificationEngine =
 
                         if bare = funInterfaceQualifiedName && targs.Length = 2 then
                             Some 1
-                        elif bare = fun2InterfaceQualifiedName && targs.Length = 3 then
+                        elif bare = funInterfaceQualifiedName && targs.Length = 3 then
                             Some 2
                         else
                             None
@@ -745,10 +745,10 @@ module UnificationEngine =
                     | _ -> ()
                 | _ -> ()
 
-                // The INVERSE direction for the arrow↔`Fun`/`Fun2` correspondence:
+                // The INVERSE direction for the arrow↔`Fun`2`/`Fun`3` correspondence:
                 // a source lambda whose arrow has STILL-FREE
                 // domains (`fun x y -> x + y` — no literal pins `x`/`y`) coerced into a
-                // GROUND constrained slot (`'TF :> Fun2<int,int,int>`) must ground from
+                // GROUND constrained slot (`'TF :> Fun<int,int,int>`) must ground from
                 // the slot's args, so the lambda body's SRTP operators resolve instead
                 // of leaking `?ungrounded-operator`. `subsumes` itself stays read-only
                 // (it only *checks* invariant-equality); this is the one place the
@@ -764,7 +764,7 @@ module UnificationEngine =
                         unify ctx key a targs.[0]
                         unify ctx key b targs.[1]
                     | ValueSome(struct (tname, targs)), TyFun(a, bc) when
-                        SymbolKeyOps.bareName tname = fun2InterfaceQualifiedName && targs.Length = 3
+                        SymbolKeyOps.bareName tname = funInterfaceQualifiedName && targs.Length = 3
                         ->
                         match resolveStep bc with
                         | TyFun(b, c) ->

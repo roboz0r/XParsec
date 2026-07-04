@@ -95,8 +95,15 @@ module SymbolKeyOps =
         | SymbolKey.MemberKey(decl, _, _, _) -> keyAsm decl
 
     /// The bare simple name (namespace dropped, arity suffix stripped) of a key's
-    /// name component — the bare name the front-end `TypeRegistry` (`tryRecord` /
-    /// `tryClass` / `tryUnion`) keys on.
+    /// name component. Dropping the arity is LOSSY, so this is for uses where the
+    /// arity is genuinely not part of the identity: human-facing diagnostics, and
+    /// backends whose names carry no generic arity (the JS emitter, CLR member-name
+    /// mangling). It is NOT a registry lookup key — the `TypeRegistry` tables are
+    /// arity-keyed and withdraw the bare alias for an overloaded name (`Foo`2`/
+    /// `Foo`3`), so a `simpleName`-keyed lookup silently MISSES an overloaded type
+    /// and mis-classifies it as external. To resolve a key against a registry use the
+    /// `*ByKey` helpers (`tryClassByKey` / `tryUnionByKey` / `tryRecordByKey` /
+    /// `tryInterfaceImplHostByKey`), which read the arity-qualified name verbatim.
     let simpleName (k: SymbolKey) : string =
         let n =
             match k with

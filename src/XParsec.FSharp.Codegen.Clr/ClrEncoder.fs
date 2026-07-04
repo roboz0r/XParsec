@@ -754,7 +754,7 @@ type internal ClrEncoder(env: ClrEnv) =
 
         msig
 
-    /// `instance c Invoke(a, b)` — a FLAT 2-arg (`Fun2`) closure's `Invoke`
+    /// `instance c Invoke(a, b)` — a FLAT 2-arg (`Fun`3`) closure's `Invoke`
     /// override signature. The arity-2 sibling of `InvokeSignature`.
     member _.InvokeSignature2(a: FrozenType, b: FrozenType, c: FrozenType) : BlobBuilder =
         let msig = BlobBuilder()

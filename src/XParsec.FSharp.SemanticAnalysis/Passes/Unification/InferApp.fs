@@ -26,7 +26,7 @@ module internal UnificationInferApp =
     /// Record the node-keyed `Fun`-arity verdict (and its
     /// result-typar position) for each source-lambda argument of an application.
     /// Walk the head's curried domains in lockstep with the source arguments; when a
-    /// SOURCE lambda lands on a parameter whose typar bound is `:> Fun`/`:> Fun2`
+    /// SOURCE lambda lands on a parameter whose typar bound is `:> Fun<a,b>`/`:> Fun<a,b,c>`
     /// (`funSlotArityOf`, the same nominal the `subsumes` arm matches), key the
     /// lambda's node → that flat arity so codegen sizes its value-struct `Invoke`.
     /// Must run BEFORE `inferGenericAppFrom` links the domain to the arrow (which

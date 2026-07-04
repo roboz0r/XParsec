@@ -1587,7 +1587,7 @@ module VesperLib =
         // open scope at lowest priority — fileOpens flows to the tail of each
         // descended scope (`ownOpens @ (nsName :: fileOpens)`), so an explicit
         // `open` / the enclosing namespace still wins. This lets a `.fsi` reference
-        // a dependency's ambiently-available type (`Fun` / `Fun2` from Core) by
+        // a dependency's ambiently-available type (`Fun`2` / `Fun`3` from Core) by
         // bare name, matching the consumer front end's composite resolution.
         let fileOpens = ctx.DependencyAmbientPrefixes
 

@@ -206,7 +206,7 @@ module EmitCall =
             // When a SOURCE-LAMBDA argument lowered to a
             // value-struct closure (an external struct-seq combinator: `StructSeq.map`
             // / `fold`), the head's frozen type is stale for the instantiation recovery
-            // — its `'TFunc` leaf is the front end's arrow (→ the `Fun`/`Fun2`
+            // — its `'TFunc` leaf is the front end's arrow (→ the `Fun`2`/`Fun`3`
             // INTERFACE), and a chained `'S` source slot still carries the producing
             // transformer's arrow rather than its already-rewritten `<closure>$`
             // value-struct. Reconstruct the recovery type from the ACTUAL (closure-

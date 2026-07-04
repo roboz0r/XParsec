@@ -71,7 +71,7 @@ module EmitTypes =
             /// Driven by the node-keyed verdict (`TastFile.FunVerdicts`); only a
             /// value-struct closure (`IsValueStruct`) is ever arity > 1 today.
             FunArity: int
-            /// The SECOND flat parameter for an arity-2 (`Fun2`) closure: its binder
+            /// The SECOND flat parameter for an arity-2 (`Fun`3`) closure: its binder
             /// key, type, and pattern (peeled from the inner `Lambda`). `ValueNone`
             /// for the arity-1 path. The closure's `Invoke` binds `Param2` to
             /// `ldarg.2`.

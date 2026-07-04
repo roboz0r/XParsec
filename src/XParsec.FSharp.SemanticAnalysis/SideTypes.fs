@@ -49,7 +49,7 @@ type ModuleMemberInfo =
 
 /// The per-source-lambda value-struct closure verdict, keyed
 /// (in the side table / `TastFile`) by the lambda argument's `NodeKey`. One record
-/// makes the subset invariant explicit: a lambda threaded through a `:> Fun`/`:> Fun2`
+/// makes the subset invariant explicit: a lambda threaded through a `:> Fun<a,b>`/`:> Fun<a,b,c>`
 /// slot always has an `Arity`; only one whose constrained `'TFunc` *also* surfaces in
 /// the producing combinator's RESULT nominal carries a `ResultTyparPos`. Recorded in
 /// `inferApp`; `Arity` read by codegen's `discoverClosures` (flat `Invoke` sizing),
@@ -57,7 +57,7 @@ type ModuleMemberInfo =
 type FunVerdict =
     {
         /// The flat `FunN` arity the slot constrains the argument to: `1` for a
-        /// `Fun<a,b>` slot, `2` for a `Fun2<a,b,c>` slot.
+        /// `Fun<a,b>` slot, `2` for a `Fun<a,b,c>` slot.
         Arity: int
         /// The type-argument POSITION the lambda's constrained `'TFunc` occupies in
         /// the combinator's RESULT nominal (`0` for `mk : ('TF:>Fun) -> Holder<'TF>`),

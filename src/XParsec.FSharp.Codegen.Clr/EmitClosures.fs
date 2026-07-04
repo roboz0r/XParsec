@@ -704,9 +704,9 @@ module EmitClosures =
 
     /// The source-lambda argument nodes that lower onto a zero-alloc
     /// value-struct, each mapped to the FLAT `FunN` arity its constrained slot
-    /// demands (`1` for `Fun<_,_>`, `2` for `Fun2<_,_,_>`). The decision is the
+    /// demands (`1` for `Fun<_,_>`, `2` for `Fun<_,_,_>`). The decision is the
     /// node-keyed verdict `inferApp` recorded when the
-    /// `subsumes(TyFun, Fun`/`Fun2)` arm fired — codegen no longer
+    /// `subsumes(TyFun, Fun`2`/`Fun`3`)` arm fired — codegen no longer
     /// re-derives it structurally (the prior all-`GSimple` + bare-method-typar walk
     /// was a fragile reconstruction of what `subsumes` already knew, and could not
     /// see an external combinator head). A lambda's frozen node carries the same
@@ -756,7 +756,7 @@ module EmitClosures =
         let lookup = Dictionary<Frozen.TExpr, Closure>(HashIdentity.Reference)
         let mutable counter = 0
 
-        // Source lambdas threaded through a constrained `Fun`/`Fun2`
+        // Source lambdas threaded through a constrained `Fun`2`/`Fun`3`
         // slot — eligible for the value-struct closure shape, mapped to their flat
         // arity (1 or 2). The node-keyed verdict (`TastFile.FunVerdicts`).
         let stackLambdaArgs = collectStackLambdaArgs funVerdicts decls memberRoots
@@ -774,7 +774,7 @@ module EmitClosures =
         // verbatim); `declaringOffset` is how many of those are the enclosing
         // class's typars (the leading slots) — `0` for a static-fn closure.
         // The arity of a value-struct lambda node (1 by default; 2 for a
-        // flat `Fun2` slot). Only an anonymous monomorphic lambda the verdict reached.
+        // flat `Fun`3` slot). Only an anonymous monomorphic lambda the verdict reached.
         let valueStructArity (currentTypars: int) (selfKey: NodeKey voption) (e: Frozen.TExpr) : int =
             if currentTypars = 0 && ValueOption.isNone selfKey then
                 match stackLambdaArgs.TryGetValue e with
@@ -784,7 +784,7 @@ module EmitClosures =
                 1
 
         let rec go (currentTypars: int) (declaringOffset: int) (selfKey: NodeKey voption) (e: Frozen.TExpr) =
-            // A FLAT-2 (`Fun2`) value-struct lambda peels its inner `Lambda` into the
+            // A FLAT-2 (`Fun`3`) value-struct lambda peels its inner `Lambda` into the
             // SAME closure's second parameter (one flat `Invoke(a,b)`), so the inner
             // lambda is NOT walked as an independent closure — recurse into the inner
             // BODY instead. Every other node walks children first (leaves-first).
@@ -810,7 +810,7 @@ module EmitClosures =
                 (body: Frozen.TExpr)
                 (lamTy: FrozenType)
                 =
-                // A flat-2 (`Fun2`) value-struct closure peels the inner
+                // A flat-2 (`Fun`3`) value-struct closure peels the inner
                 // `Lambda` — its second parameter + the real (inner) body + the inner
                 // arrow's codomain. Arity-1 keeps the curried `ResultTy = codomain`.
                 let arity = valueStructArity currentTypars selfKey e
@@ -861,7 +861,7 @@ module EmitClosures =
                 // The CODEGEN value-struct trigger — the stricter gate
                 // (necessary-not-sufficient `Repr` is NOT consulted). An *anonymous*
                 // lambda (`ValueNone` selfKey — a `let`-bound closure keeps its heap
-                // shape) threaded through a constrained `Fun`/`Fun2` slot, monomorphic;
+                // shape) threaded through a constrained `Fun`2`/`Fun`3` slot, monomorphic;
                 // the node-keyed verdict (`valueStructArity` ≥ 1 ⇒ in the table). A
                 // CAPTURING such lambda is also a value-struct (captures stored by
                 // value); the flat-2 arity is supported too. A plain value struct

@@ -869,7 +869,7 @@ type TastFileG<'ty, 'tok> =
         /// `ctx.FunVerdicts`; `discoverClosures` reads `Arity` to size the closure's
         /// flat `Invoke`, and `ClosureVerdictRewrite` reads `ResultTyparPos` to lay a
         /// stored binding's `'TFunc` slot out as the `<closure>$` value-struct rather
-        /// than the `Fun`/`Fun2` interface. A lambda absent here is an ordinary
+        /// than the `Fun`2`/`Fun`3` interface. A lambda absent here is an ordinary
         /// curried closure.
         FunVerdicts: Map<NodeKey, FunVerdict>
         /// A project-local generalised binding's

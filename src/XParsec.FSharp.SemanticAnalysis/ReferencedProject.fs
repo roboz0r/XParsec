@@ -492,7 +492,7 @@ module ReferencedProject =
             ctx.AmbientShapes <- ambientShapes
             // The dependency composite's ambient open prefixes (`Vesper`, …) so this
             // package's own extraction resolves a dependency's ambiently-available
-            // type by bare name (`Fun` / `Fun2`), the way the consumer front end does.
+            // type by bare name (`Fun`2` / `Fun`3`), the way the consumer front end does.
             ctx.DependencyAmbientPrefixes <- dependencyAmbientPrefixes
             // The package's own home assembly, so `mkNominal` stamps it onto own-type
             // keys whose extraction-time origin is still Empty — matching
@@ -669,7 +669,7 @@ module ReferencedProject =
             let ambientShapes = (fun name -> depComposite.TryLookupType name)
 
             // The dependency providers' implicit open prefixes (`Vesper` from Core,
-            // where `Fun`/`Fun2`/`Ref` live), so this package's extraction resolves a
+            // where `Fun`2`/`Fun`3`/`Ref` live), so this package's extraction resolves a
             // dependency's ambiently-available type by bare name — mirroring the consumer
             // composite's `AmbientOpenPrefixes`. Dedup, dependency order.
             let depAmbientPrefixes =

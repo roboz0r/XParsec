@@ -352,19 +352,14 @@ module UnificationEngineCore =
         | ValueNone -> ValueNone
 
     /// The bare (arity-suffix-stripped) qualified name of the canonical function
-    /// interface `Vesper.Fun`2` — the codegen contract `SemType.TyFun` lowers to.
-    /// `subsumes` consults this for the single arrow→`Fun` discharge rule;
-    /// the unifier otherwise keeps `TyFun` purely structural.
+    /// interface family the codegen contract `SemType.TyFun` lowers to. The curried
+    /// arity-1 `Vesper.Fun`2<'A,'B>` and the flat arity-2 `Vesper.Fun`3<'A,'B,'C>`
+    /// overload this ONE qualified name by generic arity, so every recognizer site
+    /// matches this name AND discriminates on `targs.Length` (2 curried vs 3 flat) —
+    /// the name alone never tells the two apart. `subsumes` consults this for the
+    /// arrow→`Fun` discharge rules; the unifier otherwise keeps `TyFun` structural.
     [<Literal>]
     let funInterfaceQualifiedName = "Vesper.Fun"
-
-    /// The canonical FLAT 2-arg function interface `Vesper.Fun`3<'A,'B,'C>` — the
-    /// arity-2 sibling of `funInterfaceQualifiedName`, which it overloads by generic
-    /// arity: both share the qualified name `Vesper.Fun` and are told apart by their
-    /// type-arg count (2 curried vs 3 flat) at every recognizer site. A curried arrow
-    /// `TyFun(a, TyFun(b,c))` subsumes into it; see the `subsumes` arm.
-    [<Literal>]
-    let fun2InterfaceQualifiedName = "Vesper.Fun"
 
     // Canonical nominal name for subtype comparison: the type's platform-INVARIANT
     // front-end identity — the `.fsi` name itself (`int`, `exn`), NOT a BCL name.

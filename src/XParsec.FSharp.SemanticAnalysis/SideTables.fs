@@ -936,9 +936,10 @@ module TypeRegistry =
     /// `IInterfaceImplHost`. The `subsumes` interface-admission walk uses this so a
     /// union's/record's declared interfaces participate in subtyping exactly like a
     /// class's. Classes win a name collision (they always have for the bare-alias reads).
-    /// Bare-name keyed: an arity-overloaded *host* (a `Foo`1`/`Foo`2` both carrying
-    /// `interface … with` impls) has no bare alias and would miss here — safe today
-    /// because the only arity-overloaded type (`Fun`) is an interface, never a host.
+    /// Bare-name keyed — the recognition-only sibling of `tryInterfaceImplHostByKey`.
+    /// An arity-overloaded *host* (a `Foo`2`/`Foo`3` both carrying `interface … with`
+    /// impls) has its bare alias withdrawn and would MISS here, so a caller holding
+    /// the host's `SymbolKey` must route through `tryInterfaceImplHostByKey` instead.
     let tryInterfaceImplHost (types: PassContextTypes) (name: string) : IInterfaceImplHost voption =
         match types.Class.TryGetValue name with
         | true, info -> ValueSome(info :> IInterfaceImplHost)
@@ -949,6 +950,24 @@ module TypeRegistry =
                 match types.Record.TryGetValue name with
                 | true, info -> ValueSome(info :> IInterfaceImplHost)
                 | false, _ -> ValueNone
+
+    /// Resolve an `interface … with` host by its arity-qualified `SymbolKey` (via
+    /// `tryByTypeKey`, which reads the key's ``name`arity`` verbatim), not the bare
+    /// simple name — the key-based sibling of `tryInterfaceImplHost`. An
+    /// arity-overloaded host (`Foo`2`/`Foo`3`) has no bare alias, so a caller holding
+    /// a `TyClass`/`TyUnion`/`TyRecord` key must route through here or it would miss
+    /// the local host and mis-classify the type as external. Class → union → record,
+    /// matching the bare-name sibling.
+    let tryInterfaceImplHostByKey (types: PassContextTypes) (key: SymbolKey) : IInterfaceImplHost voption =
+        match tryByTypeKey types.Class key with
+        | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
+        | ValueNone ->
+            match tryByTypeKey types.Union key with
+            | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
+            | ValueNone ->
+                match tryByTypeKey types.Record key with
+                | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
+                | ValueNone -> ValueNone
 
     /// Resolve a union or record (NOT a class) by bare short name as the shared
     /// `IInterfaceImplHost`. The union/record analogue of the class `tryClassLikeDecl`
@@ -1387,7 +1406,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// SOURCE-lambda argument's NodeKey; the `FunVerdict` carries the flat `FunN`
     /// arity (always) and, for a transformer combinator, the result-typar position.
     /// Recorded in `inferApp` when an argument lambda lands on a typar parameter
-    /// whose `:> Fun`/`:> Fun2` coercion bound fires (the `subsumes` arm). The
+    /// whose `:> Fun<a,b>`/`:> Fun<a,b,c>` coercion bound fires (the `subsumes` arm). The
     /// decision lives here (inference) as the single source of truth; the Pipeline
     /// snapshots it onto `TastFile.FunVerdicts`, codegen's `discoverClosures` reads
     /// `Arity` to size the value-struct closure's flat `Invoke`, and
