@@ -56,54 +56,76 @@ Note: the `StructuralEquality/Comparison/Format/Printer` test families are a DIF
 
 ## Outstanding gaps
 
-### G1 — Structural inflow widening (Wall 3's last step) — DEFERRED, design + entry point settled
+### G1 — Structural inflow widening (Wall 3's last step) — DESIGN SETTLED (2026-07-03)
 
 The one unbuilt Wall 3 step. **Outflow is done** (a TS fn returning `{x,y}` resolves members
-through the erasing nominal above). **Inflow** — passing a Vesper record *into* a foreign
+through the erasing nominal above). **Inflow** — passing a Vesper record/class *into* a foreign
 function whose parameter is structural/interface — still only unifies nominally: at
 `InferExternalCall.commitExternalOverload` the sole widenings are the `obj` implicit-box,
 `admitLiteralMethodTypars`, and `tryFillOptionalCall`. There is **no** path admitting a Vesper
-record to a structural/interface parameter by width.
+record to a structural/interface parameter by width, and no path admitting an `int` argument to
+a TS `number` parameter.
 
-**Settled design (resolves both guardrails).**
-- The check is **CONFINED to the foreign-call arg position** — NOT a general `subsumes`/`unify`
-  edge. Vesper-internal code cannot silently widen a record to a structural type (there is no
-  Vesper-internal structural target anyway).
-- The front end must **NOT** recognise a structural target itself (that would leak the `@struct`
-  backend convention upstream, violating [[feedback_freeze_no_backend_knowledge]]).
-- **Resolution: the provider is the assignability oracle.** When a foreign arg doesn't directly
-  unify, the front end hands the provider the ARG's field structure (the arg is often a
-  project-local record the provider can't introspect); the provider — which owns
-  `@struct`/`IsInterface` recognition AND field-level assignability (`int`/`float` → `number`)
-  — returns a coerced signature (param matched to the arg) when structurally satisfiable, else
-  `None`. The front end then unifies against the returned signature by ORDINARY unification, so
-  it grows no structural rule and never learns why. Generalises the existing `obj`-absorption
-  coercion at the same seam. **Needs a new arg-aware coercion capability on
-  `IExternalSymbolProvider`** (today's interface, `ExternalSymbols.fs`, has only the
-  `TryLookup*` family + the two intrinsic-axis maps — no coercion oracle).
+The design has **two independent pieces**. Both keep JS-specific knowledge in `Vesper.Core`'s
+`.js.fs` intrinsics + the provider seam — no backend-convention leak
+([[feedback_freeze_no_backend_knowledge]]), no bespoke front-end assignability
+([[feedback_codegen_js_owns_assignability]]). The earlier framing (a provider "coercion oracle"
+interface member returning a rewritten signature) is SUPERSEDED by the variance model below.
 
-**Entry-point consumer shape (what to drive it with).** The pervasive real inflow is the
-**options/config-object call**, whose target is usually a NAMED foreign interface, not an
-anonymous `@struct` (DOM `addEventListener(…, options: AddEventListenerOptions)` /
-`scrollIntoView(ScrollIntoViewOptions)`; node `fs.readFile(path, options)`). A TS interface is
-structural, so the SAME checked-width admission must fire for **external-interface targets**
-(via the provider's `IsInterface`), not just `@struct` — which is exactly what
-`@types/node`/`Js.Dom` demand, so driving with the interface case builds the general thing.
-Vesper has no `{| |}` literal yet, so the argument is a NAMED record.
+**Piece 1 — TS `number` as a variance-polarized abbreviation.** A JS `number` is genuinely
+wider than any one Vesper numeric, but Vesper `float` IS exactly JS `number` semantics. Express
+the two faces by *variance*, not a new type:
+- The extractor **RETAINS** TS `number` (stop rewriting `number → float` in `TypeMap.fs`),
+  emitting `Named("number", [])`.
+- `Vesper.Core` declares `type number = float` — a transparent ABBREVIATION (an alias, **not**
+  `(# "number" #)`; no new intrinsic, no arithmetic wiring). This is the *source* expression of
+  "number = float."
+- Resolution is **variance-polarized** (the one piece that must be code — variance is a property
+  of *position*, so no type declaration can carry it):
+  - **Covariant** (return, property read, annotation) → expand the abbreviation to `float`.
+    Return values are real `float`, fully usable; zero new behaviour.
+  - **Contravariant** (parameter, and fields of a param-position structural target) → widen to
+    the repr FAMILY `TyOr[int; float; float32]` (the canons that share `float`'s platform repr
+    `"number"`). An `int`/`float32` argument is then absorbed by the EXISTING `TyOr` rule in
+    `unifyArgCoerce` (and its eager twin `tryCoerceUpcast`) — no pin, verbatim emit.
+- The family comes from `IExternalSymbolProvider.IntrinsicReverseCanon`, whose shape is
+  **CORRECTED to `Map<string, string list>`**: the `{ platform-repr -> canon }` relation is
+  genuinely one-to-many on JS (`"number" -> [int; float; float32]`); the old
+  `Map<string,string>` lossily collapsed it — the same collapse Wall 1 had to dodge. Its one CLR
+  consumer (`EngineCore.canonName`'s `System.Exception -> exn` reconciliation) is single-valued
+  per key on CLR and takes the sole element.
+- **Directionality is free:** only a slot that was literally `number` (the abbreviation) widens;
+  a genuine `float`/`int` parameter stays strict. The variance rule names NO concrete type — it
+  is driven entirely by abbreviation resolution + the source-derived repr map, so **Codegen.Js is
+  untouched.**
+
+**Piece 2 — record/class → structural-interface admission by width** (the genuinely new edge):
+- **CONFINED to the foreign-call arg position** (`unifyArgCoerce`) — NOT a general
+  `subsumes`/`unify` edge. Vesper-internal code cannot widen a record to a structural type.
+- **Gated on the provider's `IsInterface`** (both real TS interfaces and the `@struct` erasing
+  nominals surface as `Class { IsInterface = true }`), so the front end never recognises the
+  `@struct` home. A foreign CLASS (`IsInterface = false`) is nominal — construct it — and does
+  NOT admit width.
+- When `actual` is a Vesper `TyRecord`/`TyClass` and `expected` is an external `IsInterface`
+  `TyClass`: for each REQUIRED (non-optional) interface member, the arg must supply a same-named
+  field whose type `subsumes` into the interface field's type, translated CONTRAVARIANTLY (so a
+  `number` field becomes the family). On success, ABSORB (no pin; the record/class emits
+  verbatim). Else fall through to the nominal error.
+
+**Entry-point consumer shape.** The pervasive real inflow is the **options/config-object call**
+against a NAMED foreign interface (DOM `addEventListener(…, options: AddEventListenerOptions)` /
+`scrollIntoView(ScrollIntoViewOptions)`; node `fs.readFile(path, options)`) — so driving with the
+interface case builds the general thing `@types/node`/`Js.Dom` demand. Vesper has no `{| |}`
+literal yet, so the argument is a NAMED record.
 
 - **Isolation fixture:** `interface Options { retries: number; label: string; verbose?: boolean }`
   + `configure(opts: Options)`, called with a Vesper `type Cfg = { retries: int; label: string }`
-  value. Exercises width (`Cfg` ⊇ required), boundary coercion (`int`→`number`), verbatim emit
-  (POJO record), and negatives (missing/`int`-typed `label` rejected).
-- **Design point to settle then:** WHICH external targets admit width — interfaces + `@struct`
-  yes; a foreign class is more nominal (construct it), likely no.
-- **Test:** the fixture above, Node round-trip; `Cfg` with an extra field also passes (width);
+  value. Exercises width (`Cfg` ⊇ required), the numeric family (`int` satisfies `number` via
+  `TyOr`), verbatim emit (POJO record), and negatives (missing / `string`-vs-`int` `label`
+  rejected). Plus a cheaper scalar test: `configure2(x: number)` ← `int` (the family absorption
+  alone, no structural width).
+- **Test:** the fixtures above, Node round-trip; `Cfg` with an extra field also passes (width);
   missing/incompatible field rejected.
-
-*Note:* `int`/`float` satisfying a TS `number` field is a repr-compatible **boundary** coercion
-at the foreign-call site (`prim-types-min.js.fs`, `int = (# "number" #)`), NOT a global
-`int <: float` claim — it lives entirely inside the provider oracle, per
-[[feedback_codegen_js_owns_assignability]].
 
 ### G2 — `dynamic` implicit-escape warning — STAGED
 
@@ -185,13 +207,20 @@ into module headers + [[project_js_ref_pack]] / `reference_*` memories
 
 ## Orientation — files and symbols (outstanding-relevant)
 
-- **Provider / assignability oracle (G1):** `IExternalSymbolProvider` (`ExternalSymbols.fs`) —
-  the interface a coercion capability is added to; `Passes/Unification/InferExternalCall.fs`
-  (`commitExternalOverload` — the arg-binding seam; today's `obj`-absorption + literal-typar +
-  optional-fill are the widenings to generalise). Provider side:
-  `TsManifestTypes.fs` (`structuralHash`/`structuralKey`/`@struct` home, `toFrozen`),
-  `TsManifestMembers.fs` (`buildStructuralTypes` — the registered erasing nominal + Property
-  members; owns `@struct`/`IsInterface` recognition + field-level assignability).
+- **G1 seam:** `Passes/Unification/Engine.fs` (`unifyArgCoerce` / `tryCoerceUpcast` — the
+  confined foreign-arg absorption home the `TyOr` family-widen and the record→interface width
+  check land in); `Passes/Unification/InferExternalCall.fs` (`commitExternalOverload` — the
+  arg-binding seam; `obj`-absorption + literal-typar + optional-fill are its siblings).
+- **G1 variance / repr family:** `IExternalSymbolProvider.IntrinsicReverseCanon`
+  (`ExternalSymbols.fs`) — SHAPE CORRECTED to `Map<string,string list>`; built in
+  `VesperLib/TyparCapture.fs` (`intrinsicReverse`) and `ReferencedProject.fs`, merged in
+  `ExternalSymbols.mergeReverseCanon`, consumed on CLR by `EngineCore.canonName`.
+  `ExternalSymbols.instantiateSignature*` translates `.Parameters` (contravariant) vs `.Return`
+  (covariant) — the variance-injection points. `Passes/Unification/Translate.fs` expands the
+  `type number = float` abbreviation. Extractor: `src/Vesper.Ts.Extractor/TypeMap.fs` (retain
+  `number`); `Vesper.Core` prim-types `.fsi` (declare `type number = float`).
+- **G1 provider structural facts:** `TsManifestMembers.fs` (`buildStructuralTypes` — the
+  `IsInterface`/@struct erasing nominal + Property members).
 - **`dynamic` follow-ups (G2/G3):** `InferGeneralize.applyDefaults` (the SRTP `default`-constraint
   pass `?` rides — the escape-warning tyvar-origin seam); `ops-dynamic.js.fsi` /
   `prim-types-dynamic.js.fsi`; `retype` in Vesper.Core (surface decision).

@@ -723,17 +723,21 @@ type IExternalSymbolProvider =
     /// all do (and for providers with no inline bodies).
     abstract TryLookupInlineBodyByName: name: string -> InlineBody voption
 
-    /// The reverse intrinsic axis `{ platform-repr -> canon }`, so the unifier can
+    /// The reverse intrinsic axis `{ platform-repr -> [canon] }`, so the unifier can
     /// reconcile an incoming BCL/native *runtime* name (the `platform` face, e.g.
     /// `"System.Exception"` surfaced by a metadata `inherit` chain on CLR) back to the
-    /// short front-end identity (`canon`, the `.fsi` name, e.g. `"exn"`). The forward
-    /// `canon` axis lives on `ExternalTypeShape.Intrinsic` and is reachable by name via
-    /// `TryLookupType`; the reverse axis cannot be (it is keyed by the platform repr,
-    /// which is not a provider type key), so it is published as data here. The
-    /// intrinsic-carrying providers (`ExtractCtx.toProvider`) and their composite
-    /// (`ExternalSymbols.stack`) build a real map; metadata / JS-native / test
-    /// providers carry no intrinsics and return `Map.empty`.
-    abstract IntrinsicReverseCanon: Map<string, string>
+    /// short front-end identity (`canon`, the `.fsi` name, e.g. `"exn"`). ONE-TO-MANY:
+    /// a single platform repr can be the target of several canons — on JS `int`,
+    /// `float`, and `float32` all share repr `"number"`, so `"number" -> ["int";
+    /// "float"; "float32"]`; on CLR each platform name maps to exactly one canon, so
+    /// the list is a singleton. Consumers that want a single canon take the head/sole
+    /// element. The forward `canon` axis lives on `ExternalTypeShape.Intrinsic` and is
+    /// reachable by name via `TryLookupType`; the reverse axis cannot be (it is keyed
+    /// by the platform repr, which is not a provider type key), so it is published as
+    /// data here. The intrinsic-carrying providers (`ExtractCtx.toProvider`) and their
+    /// composite (`ExternalSymbols.stack`) build a real map; metadata / JS-native /
+    /// test providers carry no intrinsics and return `Map.empty`.
+    abstract IntrinsicReverseCanon: Map<string, string list>
 
     /// The FORWARD intrinsic axis `{ canon -> platform-repr }` (the `.fsi` short name
     /// -> its `.fs` `(# … #)` repr for the compiling target) — the mirror of
@@ -1249,9 +1253,23 @@ module ExternalSymbols =
         (Map.empty, Array.rev arr)
         ||> Array.fold (fun acc s -> (acc, project s) ||> Map.fold (fun m k v -> Map.add k v m))
 
-    /// Merge sources' reverse `{ platform-repr -> canon }` maps (first-source-wins).
-    let mergeReverseCanon (sources: IExternalSymbolProvider seq) : Map<string, string> =
-        mergeIntrinsicMaps (fun s -> s.IntrinsicReverseCanon) sources
+    /// Merge sources' reverse `{ platform-repr -> [canon] }` maps by UNIONING the canon
+    /// lists per platform key (dedup, first-seen order preserved). `Array.rev` folds the
+    /// earliest source's entries LAST so its canons lead each list — the same
+    /// first-source-wins precedence `mergeIntrinsicMaps` gives the forward axis, here
+    /// widened to keep every source's canons rather than shadow to one.
+    let mergeReverseCanon (sources: IExternalSymbolProvider seq) : Map<string, string list> =
+        let arr = Seq.toArray sources
+
+        (Map.empty, Array.rev arr)
+        ||> Array.fold (fun acc s ->
+            (acc, s.IntrinsicReverseCanon)
+            ||> Map.fold (fun m platform canons ->
+                match Map.tryFind platform m with
+                | Some existing -> Map.add platform (canons @ existing |> List.distinct) m
+                | None -> Map.add platform (canons |> List.distinct) m
+            )
+        )
 
     /// Merge sources' forward `{ canon -> platform-repr }` maps (first-source-wins).
     let mergeForwardRepr (sources: IExternalSymbolProvider seq) : Map<string, string> =

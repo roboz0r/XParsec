@@ -614,11 +614,11 @@ module ReferencedProject =
         buildProviderWith None (fun _ -> ValueNone) [] manifestPath
 
     /// A layer-2 metadata-tail factory: given the harvested `{ platform-repr →
-    /// canon }` reverse map of the layer-1 providers composed so far, produce the
+    /// [canon] }` reverse map of the layer-1 providers composed so far, produce the
     /// trailing leaf providers. `composeOrdered` is leaf-AGNOSTIC — a backend injects
     /// its BCL `MetadataSymbols` / JS-native tail; an in-assembly caller that needs no
     /// metadata passes `noMetaTail`.
-    type MetaTailFactory = Map<string, string> -> IExternalSymbolProvider list
+    type MetaTailFactory = Map<string, string list> -> IExternalSymbolProvider list
 
     /// The empty layer-2 tail: the layer-1 `.fsi` contracts alone, no metadata leaf.
     /// For an in-assembly caller (a test fixture front-ending source against the real

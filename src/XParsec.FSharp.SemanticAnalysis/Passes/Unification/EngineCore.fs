@@ -444,8 +444,13 @@ module UnificationEngineCore =
                         // reverse miss) but in one shot — fully materialised AFTER
                         // NameResolution has populated `IntrinsicReprTypes`, so there is
                         // no ordering hazard with the forward-resolved names.
+                        // One-to-many reverse axis: a platform repr can name several
+                        // canons (JS `number` <- int/float/float32); this reconciliation
+                        // wants the single front-end identity, which on CLR (where this
+                        // path fires) is always the sole/head canon. An empty list reads
+                        // as a miss.
                         match ctx.IntrinsicReverseCanon.Value.TryGetValue n with
-                        | true, canon -> canon
+                        | true, (canon :: _) -> canon
                         | _ -> n
 
             ctx.IntrinsicCanonCache.[n] <- repr

@@ -153,10 +153,13 @@ let tests =
                                 (sprintf "%s platform is its `.fs` CLR repr" lookup)
                         | ValueNone -> failtestf "%s must carry a CapabilityFace" lookup
 
-                        Expect.equal
-                            (Map.tryFind platformExpected provider.IntrinsicReverseCanon)
-                            (Some canonExpected)
-                            (sprintf "reverse-canon maps %s -> %s" platformExpected canonExpected)
+                        match Map.tryFind platformExpected provider.IntrinsicReverseCanon with
+                        | Some canons ->
+                            Expect.contains
+                                canons
+                                canonExpected
+                                (sprintf "reverse-canon maps %s -> %s" platformExpected canonExpected)
+                        | None -> failtestf "reverse-canon is missing the %s entry" platformExpected
                     | other -> failtestf "expected %s as a dual-faced Class shape, got %A" lookup other
 
                 expectCapability "Vesper.disposable" "disposable" "System.IDisposable"

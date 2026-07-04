@@ -385,6 +385,11 @@ module VesperLibTyparCapture =
                         Some(face.Platform, face.Canon)
                     | _ -> None
                 )
+                // A platform repr is one-to-many over canons (JS: `number` <- int/float/
+                // float32), so group rather than collapse — `Map.ofSeq` would keep only
+                // the last canon per key. Dedup, preserve first-seen order.
+                |> Seq.groupBy fst
+                |> Seq.map (fun (platform, xs) -> platform, xs |> Seq.map snd |> Seq.distinct |> List.ofSeq)
                 |> Map.ofSeq
 
             // Forward intrinsic axis `{ canon -> platform-repr }` — the mirror of

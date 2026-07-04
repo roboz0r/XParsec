@@ -23,13 +23,15 @@ module private MetadataMapping =
         else
             t.FullName
 
-    /// `reverseCanon` is the dynamically-harvested `{ platform-repr → canon }` map
-    /// (`System.Int32 → int`), folded from the layer-1 providers' `IntrinsicReverseCanon`
+    /// `reverseCanon` is the dynamically-harvested `{ platform-repr → [canon] }` map
+    /// (`System.Int32 → [int]`), folded from the layer-1 providers' `IntrinsicReverseCanon`
     /// — the reverse face of `type int = (# "System.Int32" #)`. It is what lets a BCL
     /// member's `System.Int32` parameter present as a Vesper `int` so semantic analysis
     /// can call it (`int` and `System.Int32` are otherwise distinct, never-unifying
-    /// types). NOT a static table: a BCL type absent from the map is a real class.
-    let rec tryBuildType (reverseCanon: Map<string, string>) (t: Type) : FrozenType option =
+    /// types). NOT a static table: a BCL type absent from the map is a real class. On CLR
+    /// each platform name maps to exactly one canon, so the list is a singleton and the
+    /// head is taken.
+    let rec tryBuildType (reverseCanon: Map<string, string list>) (t: Type) : FrozenType option =
         let go = tryBuildType reverseCanon
 
         if t.IsByRef then
@@ -80,8 +82,11 @@ module private MetadataMapping =
             // their canon at the unification bridge (`Engine.canonName`), not eagerly.
             // Scalar primitives + `string` are sealed; `obj`/`exn`/interfaces are not,
             // so `IsSealed` partitions them exactly (and dynamically — no name list).
-            | fullName when t.IsSealed && reverseCanon.ContainsKey fullName ->
-                Some(FTConst(reverseCanon.[fullName], EqArray.empty))
+            | fullName when
+                t.IsSealed
+                && (reverseCanon |> Map.tryFind fullName |> Option.exists (List.isEmpty >> not))
+                ->
+                Some(FTConst(reverseCanon.[fullName] |> List.head, EqArray.empty))
             | fullName ->
                 Some(
                     FTClass(SymbolKeyOps.qualifiedTypeKeyOf (Some(t.Assembly.GetName().Name)) fullName 0, EqArray.empty)
@@ -96,7 +101,7 @@ module private MetadataMapping =
         | _ -> FTTuple(EqArray.ofArray ps)
 
     /// `(Parameters, Return)` templates for a method. `None` if any type doesn't map.
-    let tryMethodSignature (reverseCanon: Map<string, string>) (m: MethodInfo) : (FrozenType * FrozenType) option =
+    let tryMethodSignature (reverseCanon: Map<string, string list>) (m: MethodInfo) : (FrozenType * FrozenType) option =
         let paramTys =
             m.GetParameters()
             |> Array.map (fun p -> tryBuildType reverseCanon p.ParameterType)
@@ -186,12 +191,15 @@ module private MetadataMapping =
         acc
 
     /// Property signature: value type only (no arrow). `Storage = Property` on the member.
-    let tryPropertySignature (reverseCanon: Map<string, string>) (p: PropertyInfo) : FrozenType option =
+    let tryPropertySignature (reverseCanon: Map<string, string list>) (p: PropertyInfo) : FrozenType option =
         tryBuildType reverseCanon p.PropertyType
 
     /// Constructor as `(params) → declType`. Zero-param ctor reads as `unit → declType`.
     /// `None` if any type doesn't map. Surfaced as member `".ctor"`.
-    let tryCtorSignature (reverseCanon: Map<string, string>) (c: ConstructorInfo) : (FrozenType * FrozenType) option =
+    let tryCtorSignature
+        (reverseCanon: Map<string, string list>)
+        (c: ConstructorInfo)
+        : (FrozenType * FrozenType) option =
         let paramTys =
             c.GetParameters()
             |> Array.map (fun p -> tryBuildType reverseCanon p.ParameterType)
@@ -241,10 +249,10 @@ module private MetadataMapping =
         SymbolKey.TypeKey(asm, ns, simple)
 
 /// `IExternalSymbolProvider` over reference assembly paths via a shared `MetadataLoadContext`.
-/// `reverseCanon` is the harvested `{ platform-repr → canon }` map (`System.Int32 → int`)
+/// `reverseCanon` is the harvested `{ platform-repr → [canon] }` map (`System.Int32 → [int]`)
 /// the leaf canonicalizes BCL primitive types through (see `MetadataMapping.tryBuildType`);
 /// `Map.empty` for a leaf with no Vesper.Core in scope (BCL types then stay nominal classes).
-type MetadataSymbolProvider(reverseCanon: Map<string, string>, assemblyPaths: string seq) =
+type MetadataSymbolProvider(reverseCanon: Map<string, string list>, assemblyPaths: string seq) =
     let paths = Seq.toArray assemblyPaths
     let mlc = new MetadataLoadContext(PathAssemblyResolver paths)
 
@@ -784,7 +792,7 @@ module MetadataSymbols =
 
     /// Provider over an explicit reference-assembly path set, canonicalizing BCL
     /// primitives through the harvested `{ platform-repr → canon }` map.
-    let createWith (reverseCanon: Map<string, string>) (paths: string seq) : IExternalSymbolProvider =
+    let createWith (reverseCanon: Map<string, string list>) (paths: string seq) : IExternalSymbolProvider =
         MetadataSymbolProvider(reverseCanon, paths) :> IExternalSymbolProvider
 
     /// `createWith` with no primitive reverse map — BCL primitive types stay nominal

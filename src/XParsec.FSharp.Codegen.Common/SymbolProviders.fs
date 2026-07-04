@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// Builds the symbol-resolution provider stack.
 module SymbolProviders =
 
-    /// Layer-2 tail FACTORY: given the harvested `{ platform-repr → canon }` reverse
+    /// Layer-2 tail FACTORY: given the harvested `{ platform-repr → [canon] }` reverse
     /// map (folded from the layer-1 providers' `IntrinsicReverseCanon`), produce the
     /// metadata leaf. A factory rather than a fixed list so the leaf can be seeded with
     /// the reverse map — it canonicalizes a BCL `System.Int32` to the Vesper `int`

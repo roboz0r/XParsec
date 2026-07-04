@@ -1437,7 +1437,8 @@ let tests =
 
                 // The reverse-canon folds the BCL spelling to the canonical — the exn mechanism.
                 match provider.IntrinsicReverseCanon.TryFind "System.IDisposable" with
-                | Some canon -> Expect.equal canon "disposable" "reverse-canon folds System.IDisposable -> disposable"
+                | Some canons ->
+                    Expect.contains canons "disposable" "reverse-canon folds System.IDisposable -> disposable"
                 | None -> failtest "reverse-canon is missing the System.IDisposable -> disposable entry"
             }
 
