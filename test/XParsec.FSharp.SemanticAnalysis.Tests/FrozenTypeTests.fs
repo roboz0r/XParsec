@@ -175,6 +175,195 @@ let tests =
             }
         ]
 
+// `FrozenType.mapVariant` — the variance-tracking rebuild skeleton. These pin the
+// variance ALGEBRA directly (a pure `FrozenType -> FrozenType`, no provider
+// scaffolding) so every position rule is a one-liner and every constructor arm is
+// reachable — including the type-level operators (`keyof`/indexed/conditional) a
+// stored member signature can only awkwardly carry. The `mapProviderTypes` decorator
+// tests cover only the SURFACE mapping (which field → which root variance); the number
+// POLICY is tested end-to-end elsewhere. Here the leaf is a position-witness: a marker
+// `FTConst("M", [])` is replaced by `FTConst("<co|contra|inv>", [])`, so the output
+// records the variance at which the marker was reached.
+[<Tests>]
+let mapVariantTests =
+    let marker = FTConst("M", EqArray.empty)
+
+    /// Replace the marker with a witness naming the variance it was reached at; defer
+    /// (recurse) everywhere else.
+    let witnessLeaf (v: Variance) (t: FrozenType) : FrozenType voption =
+        match t with
+        | FTConst("M", args) when args.Length = 0 ->
+            let name =
+                match v with
+                | Variance.Co -> "co"
+                | Variance.Contra -> "contra"
+                | Variance.Inv -> "inv"
+
+            ValueSome(FTConst(name, EqArray.empty))
+        | _ -> ValueNone
+
+    /// The reachability sample from the round-trip oracle, reused to assert a
+    /// `ValueNone` leaf is the identity on EVERY constructor (faithful recursion).
+    let allShapes = sampleFrozenTypes
+
+    let run v t = FrozenType.mapVariant witnessLeaf v t
+    let witness name = FTConst(name, EqArray.empty)
+
+    testList
+        "FrozenType.mapVariant"
+        [
+            test "Variance.Flip: co↔contra, inv self-dual" {
+                Expect.equal Variance.Co.Flip Variance.Contra "co flips to contra"
+                Expect.equal Variance.Contra.Flip Variance.Co "contra flips to co"
+                Expect.equal Variance.Inv.Flip Variance.Inv "inv is self-dual"
+            }
+
+            test "a ValueNone leaf is the identity on every constructor shape" {
+                // The skeleton must rebuild faithfully — recursion changes nothing when
+                // the leaf never fires (structural arms route `FTOr` through `MkUnion`,
+                // which is idempotent on already-canonical input).
+                for ft in allShapes do
+                    Expect.equal (run Variance.Co ft) ft (sprintf "identity: %A" ft)
+            }
+
+            test "the root variance reaches a bare marker" {
+                Expect.equal (run Variance.Co marker) (witness "co") "co root"
+                Expect.equal (run Variance.Contra marker) (witness "contra") "contra root"
+                Expect.equal (run Variance.Inv marker) (witness "inv") "inv root"
+            }
+
+            test "variance flips at an FTFun domain and is kept for the result" {
+                // `M -> M` under Co: the parameter is contravariant, the result covariant.
+                Expect.equal
+                    (run Variance.Co (FTFun(marker, marker)))
+                    (FTFun(witness "contra", witness "co"))
+                    "domain contra, result co"
+            }
+
+            test "a doubly-nested FTFun domain flips back to the enclosing variance" {
+                // `(M -> _) -> _` under Co: the outer domain is contra, so ITS domain
+                // (the inner `M`) flips again to co.
+                let t =
+                    FTFun(FTFun(marker, FTConst("unit", EqArray.empty)), FTConst("unit", EqArray.empty))
+
+                Expect.equal
+                    (run Variance.Co t)
+                    (FTFun(FTFun(witness "co", FTConst("unit", EqArray.empty)), FTConst("unit", EqArray.empty)))
+                    "domain-of-domain is co again"
+            }
+
+            test "a generic type ARGUMENT drops to invariant regardless of enclosing variance" {
+                // `[]<M>` (a generic intrinsic) at every root variance → the arg is inv.
+                for root in [ Variance.Co; Variance.Contra; Variance.Inv ] do
+                    Expect.equal
+                        (run root (FTConst("[]", EqArray.singleton marker)))
+                        (FTConst("[]", EqArray.singleton (witness "inv")))
+                        (sprintf "arg is inv under %A root" root)
+            }
+
+            test "invariance dominates a contravariant enclosing position" {
+                let kBox = SymbolKeyOps.qualifiedTypeKey "Test.Box" 1
+                // `Box<M> -> M` under Co: the domain is contra, but `Box`'s ARG is a
+                // generic slot → inv wins over the contra it sits inside; the result `M`
+                // stays co.
+                let t = FTFun(FTClass(kBox, EqArray.singleton marker), marker)
+
+                Expect.equal
+                    (run Variance.Co t)
+                    (FTFun(FTClass(kBox, EqArray.singleton (witness "inv")), witness "co"))
+                    "Box arg is inv, result is co"
+            }
+
+            test "FTClass / FTRecord / FTUnion arguments are invariant" {
+                let k = SymbolKeyOps.qualifiedTypeKey "Test.T" 1
+
+                for mk in
+                    [
+                        (fun a -> FTClass(k, a))
+                        (fun a -> FTRecord(k, a))
+                        (fun a -> FTUnion(k, a))
+                    ] do
+                    Expect.equal
+                        (run Variance.Co (mk (EqArray.singleton marker)))
+                        (mk (EqArray.singleton (witness "inv")))
+                        "nominal args are invariant"
+            }
+
+            test "structural operators carry the enclosing variance into their children" {
+                // Tuple under Contra → every element contra.
+                Expect.equal
+                    (run Variance.Contra (FTTuple(EqArray.ofList [ marker; marker ])))
+                    (FTTuple(EqArray.ofList [ witness "contra"; witness "contra" ]))
+                    "tuple carries contra"
+
+                // keyof / indexed / conditional under Co → children co.
+                Expect.equal (run Variance.Co (FTKeyOf marker)) (FTKeyOf(witness "co")) "keyof carries co"
+
+                Expect.equal
+                    (run Variance.Co (FTIndexedAccess(marker, marker)))
+                    (FTIndexedAccess(witness "co", witness "co"))
+                    "indexed access carries co"
+
+                Expect.equal
+                    (run
+                        Variance.Co
+                        (FTConditional
+                            {
+                                Check = marker
+                                Extends = marker
+                                WhenTrue = marker
+                                WhenFalse = marker
+                            }))
+                    (FTConditional
+                        {
+                            Check = witness "co"
+                            Extends = witness "co"
+                            WhenTrue = witness "co"
+                            WhenFalse = witness "co"
+                        })
+                    "conditional carries co into all four branches"
+            }
+
+            test "an anonymous union carries variance and re-canonicalises through MkUnion" {
+                // `M | int` under Contra: the marker becomes `contra`, and the set is
+                // rebuilt through `MkUnion` (structural arm via `mapChildren`).
+                let t = FrozenType.MkUnion [ marker; FTConst("int", EqArray.empty) ]
+
+                Expect.equal
+                    (run Variance.Contra t)
+                    (FrozenType.MkUnion [ witness "contra"; FTConst("int", EqArray.empty) ])
+                    "union member carried to contra"
+            }
+
+            test "childless leaves pass through untouched" {
+                for leaf in
+                    [
+                        FTConst("int", EqArray.empty)
+                        FTTypar(TyparAxis.Method, 0)
+                        FTLiteral(LiteralConst.String "GET")
+                        FTUnknown "X"
+                        FTEnum(SymbolKeyOps.qualifiedTypeKey "Test.Colour" 0)
+                    ] do
+                    Expect.equal (run Variance.Co leaf) leaf (sprintf "leaf unchanged: %A" leaf)
+            }
+
+            test "the leaf is consulted first at NON-leaf nodes and can own the whole subtree" {
+                // A leaf that fires on an FTFun replaces it wholesale — recursion never
+                // descends. Proves `leaf` gets first crack at every node, not just scalars.
+                let sentinel = FTConst("REPLACED", EqArray.empty)
+
+                let funLeaf (_: Variance) (t: FrozenType) : FrozenType voption =
+                    match t with
+                    | FTFun _ -> ValueSome sentinel
+                    | _ -> ValueNone
+
+                Expect.equal
+                    (FrozenType.mapVariant funLeaf Variance.Co (FTFun(marker, marker)))
+                    sentinel
+                    "the FTFun subtree is owned by the leaf, undescended"
+            }
+        ]
+
 // `iterChildren2` pairs the members of an `FTOr` — a SET, so storage order is not a
 // semantic invariant across instantiation. These pin the head-keyed fallback that
 // recovers the pairing when the members line up NON-positionally (the case

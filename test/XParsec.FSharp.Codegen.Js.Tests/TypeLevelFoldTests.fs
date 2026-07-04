@@ -167,7 +167,7 @@ let private busManifest: Schema.PackageManifest =
     }
 
 let private busProvider: IExternalSymbolProvider =
-    ExternalSymbols.stack ValueNone [] [ TsManifestProvider.providerOfManifest busManifest; jsProvider.Value ]
+    stackJs [] [ TsManifestProvider.providerOfManifest busManifest; jsProvider.Value ]
 
 // A project-local record supplies the ground `Events` the folds read member names/types
 // off of: `ping : int`, `pong : string`.

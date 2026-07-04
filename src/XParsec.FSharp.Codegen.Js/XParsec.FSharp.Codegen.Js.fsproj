@@ -4,6 +4,7 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="NumberCovariance.fs" />
     <Compile Include="JsNativeSymbols.fs" />
     <Compile Include="TsManifestTypes.fs" />
     <Compile Include="TsManifestMembers.fs" />

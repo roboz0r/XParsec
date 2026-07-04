@@ -234,9 +234,20 @@ let runJs (name: string) (input: string) : (int * string) option =
 /// `canonName`'s forward intrinsic resolution reaches `Vesper.undefined` (a JS-only
 /// intrinsic registered under its qualified name) only through it — dropping ambient
 /// would let the reverse-canon map collapse `undefined` onto `unit`.
+/// The ONE builder for a JS-target test provider stack: composes `sources` (no home
+/// assembly) then applies the covariant `number → float` resolution and the per-lookup
+/// cache in the SAME order as production (`TsManifestProvider.buildContractFor`). EVERY
+/// hand-built front-end test stack MUST go through here so the `NumberCovariance.wrap` /
+/// `ExternalSymbols.memoize` steps can never be silently dropped at one site and quietly
+/// diverge from production behaviour.
+let stackJs (ambient: string list) (sources: IExternalSymbolProvider list) : IExternalSymbolProvider =
+    ExternalSymbols.stack ValueNone ambient sources
+    |> NumberCovariance.wrap
+    |> ExternalSymbols.memoize
+
 let private stackWithAmbient (sources: IExternalSymbolProvider list) : IExternalSymbolProvider =
     let ambient = sources |> List.collect (fun s -> s.AmbientOpenPrefixes)
-    ExternalSymbols.stack ValueNone ambient sources
+    stackJs ambient sources
 
 /// The provider-stack one-liner: a TS-manifest provider layered over the standard
 /// JS-native provider (so the manifest's primitive/`int`/`string` argument types still

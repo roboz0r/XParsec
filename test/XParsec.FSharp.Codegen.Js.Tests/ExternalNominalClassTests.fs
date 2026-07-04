@@ -106,7 +106,7 @@ let private boxProviderRaw: IExternalSymbolProvider =
 
 /// Layered over the JS provider so `int`/`unit` resolve in the front-end test.
 let private boxProvider: IExternalSymbolProvider =
-    ExternalSymbols.stack ValueNone [] [ boxProviderRaw; jsProvider.Value ]
+    stackJs [] [ boxProviderRaw; jsProvider.Value ]
 
 /// The frozen RETURN of a manifest free function (its `Scheme` is `FTFun(_, ret)`).
 let private returnOf (name: string) : FrozenType =

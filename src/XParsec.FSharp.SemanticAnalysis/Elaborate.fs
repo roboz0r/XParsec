@@ -1548,7 +1548,7 @@ module Elaborate =
                                 else ClassValueKind.RefType
                             HasPrimaryCtor = info.HasPrimaryCtor
                         })
-                    // Classes are reference-equal by default ([[project_c_attr_pr_a]]);
+                    // Classes are reference-equal by default;
                     // [<CustomEquality>] / [<NoEquality>] lift this in a later sprint.
                     EqualityVerdict.Reference
                     ComparisonVerdict.NoComparison,

@@ -240,7 +240,7 @@ module UnificationEngine =
     /// member and gate out by length). Purely data-driven off the reverse intrinsic
     /// axis, so it names no concrete type: the int/float/float32 = `number` relation
     /// lives entirely in `Vesper.Core`'s `.js.fs` intrinsic bindings, flowing here via
-    /// the provider ([[feedback_codegen_js_owns_assignability]]). Confined to the
+    /// the provider (the JS backend owns assignability / intrinsic repr). Confined to the
     /// argument-coercion seams below (`unifyArgCoerce` / `tryCoerceUpcast`) — never a
     /// general `unify`/`subsumes` edge, so nothing widens outside a foreign-call arg.
     let private numericFamilyOr (ctx: PassContext) (ty: SemType) : SemType voption =
@@ -252,11 +252,31 @@ module UnificationEngine =
             | _ -> ValueNone
         | _ -> ValueNone
 
+    /// Two intrinsic canons are REPR-SIBLINGS iff they share a forward platform repr
+    /// (`IntrinsicForwardRepr[a] = IntrinsicForwardRepr[b]`). On JS this fires exactly on
+    /// the numeric family (all `→ "number"`) and extends automatically to any future
+    /// shared-repr family; on CLR each canon reprs distinctly, so it never fires. Purely
+    /// data-driven off the forward intrinsic axis — it names no concrete type, the
+    /// int/float/float32 = `number` relation lives in `Vesper.Core`'s `.js.fs` bindings
+    /// (the JS backend owns assignability / intrinsic repr). Used by the structural-width admission
+    /// so an `int` record field satisfies a `float` (`number`-repr'd) interface member: a
+    /// plain `subsumes` sees `int`≁`float`, but they carry the same runtime repr, so the
+    /// value flows. Confined to that seam, never a general `subsumes`/`unify` edge.
+    let private reprSiblings (ctx: PassContext) (a: SemType) (b: SemType) : bool =
+        match resolveStep a, resolveStep b with
+        | TyConst(n1, a1), TyConst(n2, a2) when a1.Length = 0 && a2.Length = 0 ->
+            let fwd = ctx.Provider.IntrinsicForwardRepr
+
+            match Map.tryFind n1 fwd, Map.tryFind n2 fwd with
+            | Some r1, Some r2 -> r1 = r2
+            | _ -> false
+        | _ -> false
+
     /// Structural inflow admission (G1): a Vesper RECORD satisfies an EXTERNAL interface
     /// PARAMETER by WIDTH. CONFINED to the argument-coercion seams below — gated on the
     /// provider's `IsInterface` (real TS interfaces AND the `@struct` erasing nominals),
     /// so the front end never recognises the `@struct` backend home
-    /// ([[feedback_freeze_no_backend_knowledge]]). Every REQUIRED (non-optional) value
+    /// (the freeze layer must stay backend-agnostic). Every REQUIRED (non-optional) value
     /// member of the interface must be supplied by a same-named record field whose type
     /// coerces into the member's type — an ordinary `subsumes`, plus the `number`-family
     /// admission (`numericFamilyOr`) so an `int` field satisfies a `number` member. Pure
@@ -287,18 +307,16 @@ module UnificationEngine =
                             match fieldTy m.Name with
                             | ValueNone -> false
                             | ValueSome argTy ->
-                                // RAW realisation: an interface `number` field must stay
-                                // `number` here (a contravariant, argument-position target) so
-                                // `numericFamilyOr` widens it — the covariant `number → float`
-                                // identity would defeat that.
-                                let expectedTy = ExternalSymbols.instantiateSignatureRaw m declArgs ctx.CurrentLevel
+                                // Realise the member NORMALLY — a covariant interface
+                                // `number` value member reads as `float` (the provider's
+                                // resolved signature). An `int` record field satisfies it
+                                // not by `subsumes` (int ≁ float) but because the two are
+                                // REPR-SIBLINGS (both carry JS repr `number`), so the value
+                                // flows at this width seam.
+                                let expectedTy = ExternalSymbols.instantiateSignature m declArgs ctx.CurrentLevel
 
                                 subsumes ctx argTy expectedTy <> SubsumeOutcome.Unrelated
-                                || (
-                                    match numericFamilyOr ctx expectedTy with
-                                    | ValueSome fam -> subsumes ctx argTy fam <> SubsumeOutcome.Unrelated
-                                    | ValueNone -> false
-                                )
+                                || reprSiblings ctx argTy expectedTy
                         )
                     | ValueNone -> false
                 | _ -> false

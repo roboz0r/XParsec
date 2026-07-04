@@ -264,3 +264,10 @@ module TsManifestProvider =
             )
 
         SymbolProviders.buildContractWithMetadata "tsmanifest" tsProviders target manifestPaths
+        // Resolve the covariant `number → float` identity of the retained TS token at the
+        // Codegen.Js seam (the front end stays number-agnostic). Wraps the COMPOSED
+        // provider so the assertion reads the merged forward axis.
+        |> NumberCovariance.wrap
+        // One general per-lookup cache atop the whole stack (the `stack` fall-through and
+        // the `number` rewrite otherwise re-run on every hit of a hot symbol).
+        |> ExternalSymbols.memoize

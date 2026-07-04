@@ -1,8 +1,11 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open System.Collections.Concurrent
+
 // The full FSharp.Core (+) story (SRTPs + static-optimisation clauses +
-// per-target inline IL) is firmly future work — see
-// [[project_inline_il_target_specific]] for why we don't model it here.
+// per-target inline IL) is firmly future work — the resolved operator's compiled
+// name drives target-specific dispatch, so the inline IL stays target-specific and
+// is not modelled here.
 
 /// Raised by `mkNominal` when a nominal head resolves to a
 /// genuinely body-less shape (`ExternalTypeShape.Opaque` — an enum / delegate /
@@ -746,14 +749,18 @@ type IExternalSymbolProvider =
 
     /// The FORWARD intrinsic axis `{ canon -> platform-repr }` (the `.fsi` short name
     /// -> its `.fs` `(# … #)` repr for the compiling target) — the mirror of
-    /// `IntrinsicReverseCanon`. The CLR backend reads it to resolve a primitive's IL
-    /// representation from the single `.fs` source (the JS backend resolves reprs by its
-    /// own path and leaves this `Map.empty`): a bare canon like `"int"` is the
-    /// open-resolved identity codegen carries (opens are a name-resolution concern,
-    /// already discharged), and `TryLookupType` can't serve it because intrinsics are
-    /// keyed there by qualified compiled name. The intrinsic-carrying providers
-    /// (`ExtractCtx.toProvider`) and their composite build a real map; metadata /
-    /// JS-native / test providers return `Map.empty`.
+    /// `IntrinsicReverseCanon`. The CLR *codegen* backend reads it to resolve a
+    /// primitive's IL representation from the single `.fs` source; a bare canon like
+    /// `"int"` is the open-resolved identity codegen carries (opens are a name-resolution
+    /// concern, already discharged), and `TryLookupType` can't serve it because intrinsics
+    /// are keyed there by qualified compiled name. On JS the codegen backend resolves reprs
+    /// by its own path and never reads this axis, but the map is still POPULATED on the JS
+    /// contract stack (harvested from the `.js.fs` `(# … #)` bindings, exactly as on CLR):
+    /// the JS front-end seams depend on it — `reprSiblings` (structural-width admission) and
+    /// `Codegen.Js.NumberCovariance` (the covariant `number → float` target, asserted to
+    /// repr to `number`) both read it. The intrinsic-carrying providers
+    /// (`ExtractCtx.toProvider`) and their composite build a real map on EVERY target;
+    /// metadata / JS-native / test providers return `Map.empty`.
     abstract IntrinsicForwardRepr: Map<string, string>
 
 /// The open signature of an external module-level function as the codegen
@@ -927,27 +934,6 @@ module ExternalSymbols =
             Comparable = resolveAnchor "Vesper.comparable`1"
         }
 
-    /// Apply the `type number = float` abbreviation's COVARIANT identity to a realised
-    /// signature. A JS `number` read as a VALUE is a Vesper `float` (`prim-types-number.js.fsi`),
-    /// so a `number` in a covariant (return / value-member / result) position becomes `float`;
-    /// a `number` in a CONTRAVARIANT (parameter) position is left intact so the
-    /// argument-coercion seam can still widen it to the int/float/float32 family
-    /// (`UnificationEngine.numericFamilyOr`). Variance flips at each `TyFun` domain; other
-    /// constructors carry the enclosing variance into their arguments. Only front-end CANON
-    /// identities are named ("number"/"float") — their alias is DECLARED in `Vesper.Core`, the
-    /// int/float/float32 = `number` repr relation stays in the provider. `number` originates
-    /// ONLY from a JS-target manifest, so this is inert for every non-TS producer / on CLR.
-    let rec private polarizeNumber (covariant: bool) (t: SemType) : SemType =
-        match t with
-        | TyConst("number", args) when args.Length = 0 && covariant -> TyConst("float", EqArray.empty)
-        | TyFun(a, b) -> TyFun(polarizeNumber (not covariant) a, polarizeNumber covariant b)
-        | TyTuple ts -> TyTuple(EqArray.map (polarizeNumber covariant) ts)
-        | TyConst(n, args) when args.Length > 0 -> TyConst(n, EqArray.map (polarizeNumber covariant) args)
-        | TyClass(k, args) -> TyClass(k, EqArray.map (polarizeNumber covariant) args)
-        | TyRecord(k, args) -> TyRecord(k, EqArray.map (polarizeNumber covariant) args)
-        | TyUnion(k, args) -> TyUnion(k, EqArray.map (polarizeNumber covariant) args)
-        | other -> other
-
     /// Realise a member's `Signature` with SOME method typars PRE-BOUND to a concrete
     /// type (`seed`, index → type) instead of a fresh var — the rest freshen normally
     /// (shared `cache`). The call-site literal-grounding rule (R4a step 3) seeds a method
@@ -955,10 +941,11 @@ module ExternalSymbols =
     /// position (mitt's no-payload `emit(type: undefined extends Events[Key] ? Key :
     /// never)` — `Key` is never a bare parameter, so plain unification cannot solve it, but
     /// the constant `"tick"` grounds it here, letting the conditional fold). A bare-position
-    /// typar is left unseeded (unification already solves it). The RAW realiser: no `number`
-    /// polarisation — the structural-width check (`tryStructuralWiden`) reads it so an
-    /// interface's `number` FIELD stays `number` and its arg-position widening still fires.
-    let instantiateSignatureRawWith
+    /// typar is left unseeded (unification already solves it). Realises the member's stored
+    /// template VERBATIM — the covariant `number → float` identity is a JS-provider fact
+    /// already baked into the member's `FrozenType` before it reaches here
+    /// (`Codegen.Js.NumberCovariance`), so this front-end realiser is number-agnostic.
+    let instantiateSignatureWith
         (seed: (int * SemType) list)
         (m: ExternalMember)
         (declaringArgs: SemType[])
@@ -978,18 +965,6 @@ module ExternalSymbols =
         else
             TyFun(instantiateWith decl methodVar s.Parameters, instantiateWith decl methodVar s.Return)
 
-    /// `instantiateSignatureRawWith` with the covariant `number → float` identity applied
-    /// (return / value covariant, parameters stay `number`). The default for a use-site call
-    /// or member access: a foreign `number` RETURN reads as `float`, while a `number`
-    /// PARAMETER stays widenable at the arg seam.
-    let instantiateSignatureWith
-        (seed: (int * SemType) list)
-        (m: ExternalMember)
-        (declaringArgs: SemType[])
-        (level: int)
-        : SemType =
-        polarizeNumber true (instantiateSignatureRawWith seed m declaringArgs level)
-
     /// Realise a member's `Signature` at `level`: `FTTypar(Declaring,i) →
     /// declaringArgs.[i]`, `FTTypar(Method,j) → fresh TyVar at level` (one per
     /// index, shared across `Parameters` and `Return`). Reconstructs
@@ -1000,12 +975,6 @@ module ExternalSymbols =
     let instantiateSignature (m: ExternalMember) (declaringArgs: SemType[]) (level: int) : SemType =
         instantiateSignatureWith [] m declaringArgs level
 
-    /// The RAW (`number`-unpolarised) `instantiateSignature` — for the structural-width
-    /// check, which needs an interface `number` field to stay `number` so the arg-position
-    /// family widening fires (see `polarizeNumber`).
-    let instantiateSignatureRaw (m: ExternalMember) (declaringArgs: SemType[]) (level: int) : SemType =
-        instantiateSignatureRawWith [] m declaringArgs level
-
     /// The *open* realisation of a member's `Signature`: declaring typars
     /// substituted from `declaringArgs`, but the member's own method typars left
     /// as `TyTypar(Method,j)` markers — exactly the shape `BuildSignature`
@@ -1014,20 +983,19 @@ module ExternalSymbols =
     /// stays a wildcard for `InferOverload.applicabilityMatches`, and the bind site that
     /// commits the member freshens them separately (`instantiateSignature`, or
     /// `Infer.instantiateMethodTypars`). For a non-generic member (the common
-    /// case) it is byte-identical to `instantiateSignature` at any level. Covariant
-    /// `number → float` is applied (parameters stay `number`); the marker-preserving open
-    /// form is used at read/result positions where the covariant identity is what callers want.
+    /// case) it is byte-identical to `instantiateSignature` at any level. Realises the
+    /// stored template VERBATIM — the covariant `number → float` identity is a JS-provider
+    /// fact baked into the member's `FrozenType` upstream (`Codegen.Js.NumberCovariance`),
+    /// so this realiser is number-agnostic.
     let openSignature (m: ExternalMember) (declaringArgs: SemType[]) : SemType =
         let decl i = declaringArgs.[i]
         let methodOpen j = TyTypar(TyparAxis.Method, j)
         let s = m.Signature
 
         if m.IsValueMember then
-            polarizeNumber true (instantiateWith decl methodOpen s.Return)
+            instantiateWith decl methodOpen s.Return
         else
-            polarizeNumber
-                true
-                (TyFun(instantiateWith decl methodOpen s.Parameters, instantiateWith decl methodOpen s.Return))
+            TyFun(instantiateWith decl methodOpen s.Parameters, instantiateWith decl methodOpen s.Return)
 
     /// Realise a member's method-typar BOUNDS at a use site — one `SemType voption` per
     /// method-typar index. `FTTypar(Declaring,i)` inside a bound → `declaringArgs.[i]`;
@@ -1495,6 +1463,157 @@ module ExternalSymbols =
         | [] -> nullProvider
         | [ single ] -> single
         | _ -> stack ValueNone (collectAmbient sources) sources
+
+    /// Rebuild a provider so every VALUE-FLOW `FrozenType` surface it serves is passed
+    /// through `transform` AT that surface's variance — the general, content-agnostic
+    /// decorator a variance-sensitive rewrite (the JS `number` resolution being the
+    /// first) plugs into. It names NO concrete type; the leaf inside `transform` owns
+    /// all policy. `transform` is applied at each surface's ROOT variance; a caller
+    /// that must thread the decision through nested positions composes
+    /// `FrozenType.mapVariant leaf` (which flips/drops variance down the tree). The
+    /// surface → root-variance map is fixed here ONCE so no caller re-enumerates where
+    /// the types live or which position they occupy:
+    ///
+    /// - a symbol `Scheme` and a member `Return` are COVARIANT (a value read / result);
+    ///   a member's `Parameters` are CONTRAVARIANT (a curried `Scheme`'s own `FTFun`
+    ///   flips give its parameters contravariance under `mapVariant` automatically);
+    /// - a RECORD field and a UNION-case field are COVARIANT (a field read);
+    /// - an interface / base-type type-ARGUMENT is INVARIANT (a generic slot).
+    ///
+    /// TOTAL over the value-flow surfaces — the reason it exists: a bespoke per-shape
+    /// walk keeps missing one (union-case fields, interface args, the base type). The
+    /// non-value-flow TEMPLATE positions are deliberately NOT threaded: an `Abbrev` body
+    /// inherits its USE SITE's variance (unknowable here), and `MethodTyparBounds` /
+    /// `Constraints` are constraint-solve inputs, not value positions — a shape-level
+    /// resolution there would be a guess, so they resolve (if ever) at their own
+    /// instantiation seam. `TryLookupType`'s shape match is EXHAUSTIVE, so a new
+    /// `ExternalTypeShape` case forces a variance decision here.
+    let mapProviderTypes
+        (transform: Variance -> FrozenType -> FrozenType)
+        (inner: IExternalSymbolProvider)
+        : IExternalSymbolProvider =
+        let co t = transform Variance.Co t
+        let contra t = transform Variance.Contra t
+        let inv t = transform Variance.Inv t
+
+        // A member's `Return` is a covariant read; its `Parameters` contravariant.
+        let mapMember (m: ExternalMember) : ExternalMember =
+            { m with
+                Signature =
+                    { m.Signature with
+                        Parameters = contra m.Signature.Parameters
+                        Return = co m.Signature.Return
+                    }
+            }
+
+        // Interface / base-type type-ARGUMENTS are invariant generic slots.
+        let mapInterfaces (ifaces: (string * FrozenType[])[]) =
+            ifaces |> Array.map (fun (name, args) -> name, args |> Array.map inv)
+
+        // A union-case field is a covariant value read (shared by `TryLookupType`'s
+        // `Union` shape and the reverse `TryLookupUnionCase`).
+        let mapCase (c: ExternalCaseShape) : ExternalCaseShape =
+            { c with
+                FrozenFieldTypes = c.FrozenFieldTypes |> Array.map co
+            }
+
+        let mapShape (shape: ExternalTypeShape) : ExternalTypeShape =
+            match shape with
+            | ExternalTypeShape.Class info ->
+                ExternalTypeShape.Class
+                    { info with
+                        Members = info.Members |> Array.map mapMember
+                        FrozenInterfaces = mapInterfaces info.FrozenInterfaces
+                        FrozenBaseType = info.FrozenBaseType |> ValueOption.map inv
+                    }
+            | ExternalTypeShape.Record(arity, fields, origin) ->
+                // A record field is a covariant value read.
+                ExternalTypeShape.Record(arity, fields |> Array.map (fun f -> { f with Frozen = co f.Frozen }), origin)
+            | ExternalTypeShape.Union(arity, cases, ifaces, origin) ->
+                ExternalTypeShape.Union(arity, cases |> Array.map mapCase, mapInterfaces ifaces, origin)
+            // No value-flow FrozenType surface (Abbrev: no intrinsic variance — see header).
+            | ExternalTypeShape.Abbrev _
+            | ExternalTypeShape.Enum _
+            | ExternalTypeShape.Intrinsic _
+            | ExternalTypeShape.Opaque _ -> shape
+
+        { new IExternalSymbolProvider with
+            member _.TryLookup name =
+                inner.TryLookup name
+                |> ValueOption.map (fun s -> { s with Scheme = co s.Scheme })
+
+            member _.TryLookupType name =
+                inner.TryLookupType name |> ValueOption.map mapShape
+
+            member _.TryLookupMember(typeName, memberName) =
+                inner.TryLookupMember(typeName, memberName) |> ValueOption.map mapMember
+
+            member _.TryLookupMembers(typeName, memberName) =
+                inner.TryLookupMembers(typeName, memberName) |> Array.map mapMember
+
+            member _.TryLookupUnionCase caseName =
+                inner.TryLookupUnionCase caseName
+                |> ValueOption.map (fun uc -> { uc with Case = mapCase uc.Case })
+
+            member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
+            member _.TryLookupInlineBody key = inner.TryLookupInlineBody key
+            member _.TryLookupInlineBodyByName name = inner.TryLookupInlineBodyByName name
+            member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
+            member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
+        }
+
+    /// A general MEMOISING decorator: every lookup channel caches on first hit (MISSES
+    /// included — the contract is immutable for a compile, so a `ValueNone` / `[||]` is
+    /// as stable as a hit). Content-agnostic — it changes no result, only avoids
+    /// recomputing it. Apply ONCE atop a composed stack: the per-source `stack`
+    /// fall-through and any `mapProviderTypes` rewrite otherwise re-run on EVERY call,
+    /// and a hot symbol is looked up many times across the parallel per-file
+    /// `PassContext`s. Thread-safe via `ConcurrentDictionary` (the provider contract
+    /// requires concurrent-safe lookups; a factory may run more than once under
+    /// contention but the inner lookup is pure, so only one result is ever stored). The
+    /// intrinsic axes and ambient prefixes are constant fields — passed through uncached.
+    let memoize (inner: IExternalSymbolProvider) : IExternalSymbolProvider =
+        let symbols = ConcurrentDictionary<string, ExternalSymbol voption>()
+        let types = ConcurrentDictionary<string, ExternalTypeShape voption>()
+
+        let members =
+            ConcurrentDictionary<struct (string * string), ExternalMember voption>()
+
+        let memberSets = ConcurrentDictionary<struct (string * string), ExternalMember[]>()
+        let unionCases = ConcurrentDictionary<string, ExternalUnionCase voption>()
+        let inlineByKey = ConcurrentDictionary<SymbolKey, InlineBody voption>()
+        let inlineByName = ConcurrentDictionary<string, InlineBody voption>()
+
+        { new IExternalSymbolProvider with
+            member _.TryLookup name =
+                symbols.GetOrAdd(name, (fun n -> inner.TryLookup n))
+
+            member _.TryLookupType name =
+                types.GetOrAdd(name, (fun n -> inner.TryLookupType n))
+
+            member _.TryLookupMember(typeName, memberName) =
+                members.GetOrAdd(struct (typeName, memberName), (fun (struct (t, m)) -> inner.TryLookupMember(t, m)))
+
+            member _.TryLookupMembers(typeName, memberName) =
+                memberSets.GetOrAdd(
+                    struct (typeName, memberName),
+                    (fun (struct (t, m)) -> inner.TryLookupMembers(t, m))
+                )
+
+            member _.TryLookupUnionCase caseName =
+                unionCases.GetOrAdd(caseName, (fun n -> inner.TryLookupUnionCase n))
+
+            member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
+
+            member _.TryLookupInlineBody key =
+                inlineByKey.GetOrAdd(key, (fun k -> inner.TryLookupInlineBody k))
+
+            member _.TryLookupInlineBodyByName name =
+                inlineByName.GetOrAdd(name, (fun n -> inner.TryLookupInlineBodyByName n))
+
+            member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
+            member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
+        }
 
 /// The primitive `SemType` anchors the type-checker pins literals and built-in
 /// constructs to (`Unification` / `Freeze`). Codegen maps each `TyConst` name to

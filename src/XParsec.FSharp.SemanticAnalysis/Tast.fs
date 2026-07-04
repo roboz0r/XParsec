@@ -127,8 +127,7 @@ type HoleSpecSource =
 /// `Ty` is the static type (drives `AppendFormatted<T>`, no box). `Source` is the
 /// hole's classified formatting (printf classification or interpolation format
 /// clause); `Tok` is the specifier's source token for source maps / PDBs
-/// ([[project_tast_tok_migration]] — `FormatPlaceholder` itself carries no
-/// position).
+/// (`FormatPlaceholder` itself carries no position).
 ///
 /// The legacy `(Kind, Format, Alignment)` projection that once lived here as
 /// transitional members was retired: both
@@ -172,7 +171,7 @@ type TExprG<'ty, 'tok> =
     | Var of binding: NodeKey * ty: 'ty * tok: 'tok
     /// Symbol resolved through IExternalSymbolProvider. Carries the compiled
     /// name so target plugins can dispatch (`op_Addition` -> CIL `add` on
-    /// .NET, native `+` on Rust, etc. — see [[project_inline_il_target_specific]]).
+    /// .NET, native `+` on Rust, etc. — the inline IL is target-specific).
     /// `key` interns the resolved `SymbolKey` so codegen reads the binding off the
     /// node instead of re-resolving by name;
     /// `ValueNone` until Freeze stamps it — every site is name-only today.

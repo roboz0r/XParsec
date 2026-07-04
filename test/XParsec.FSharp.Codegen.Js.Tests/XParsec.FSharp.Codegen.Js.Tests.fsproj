@@ -55,9 +55,11 @@
     <Compile Include="JsNamespaceTests.fs" />
     <Compile Include="JsMapE2ETests.fs" />
     <Compile Include="IterableForInTests.fs" />
+    <Compile Include="IntrinsicForwardReprJsTests.fs" />
     <Compile Include="NumberFamilyTests.fs" />
     <Compile Include="StructuralWidenTests.fs" />
     <Compile Include="StructuralWidenE2ETests.fs" />
+    <Compile Include="TypeArgNumberTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

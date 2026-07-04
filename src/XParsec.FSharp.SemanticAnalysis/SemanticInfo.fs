@@ -855,6 +855,26 @@ module MeasureTerm =
         else
             m.Exponents |> List.map (fun (n, e) -> n, e * k) |> MeasureTerm.ofList
 
+/// The variance a `FrozenType` position carries, threaded by `FrozenType.mapVariant`:
+/// COVARIANT (a value read / result), CONTRAVARIANT (a parameter), INVARIANT (a
+/// generic type ARGUMENT — a slot that admits both reads and writes, so neither the
+/// covariant nor the contravariant face alone is sound for it). A general type-system
+/// concept, not a backend one — the walk names no concrete type; a caller's leaf owns
+/// any policy.
+[<RequireQualifiedAccess>]
+type Variance =
+    | Co
+    | Contra
+    | Inv
+
+    /// Flip co/contra; invariant is self-dual. Applied at each `FTFun` DOMAIN — a
+    /// parameter position inverts the enclosing variance.
+    member this.Flip =
+        match this with
+        | Variance.Co -> Variance.Contra
+        | Variance.Contra -> Variance.Co
+        | Variance.Inv -> Variance.Inv
+
 /// One-level structural walks over `FrozenType`'s DIRECT children — THE answer to
 /// the "every new constructor fans out into N hand-written walker arms" tax: a
 /// generic walk keeps only its leaf-specific arms and delegates every
@@ -893,6 +913,45 @@ module FrozenType =
         | FTLiteral _
         | FTTypar _
         | FTUnknown _ -> t
+
+    /// Variance-tracking rebuild — the reusable skeleton for any walk whose per-arm
+    /// action depends on POSITION (a covariant value read vs a contravariant parameter
+    /// vs an invariant generic slot). `leaf v node` is consulted FIRST at every node:
+    /// `ValueSome replacement` replaces `node` at variance `v` and STOPS the recursion
+    /// (the leaf owns that subtree); `ValueNone` recurses under the structural variance
+    /// rule. That rule is the type system's own and is FIXED here so no variance-sensitive
+    /// walk re-derives it: variance FLIPS at each `FTFun` domain (a parameter is
+    /// contravariant) and is KEPT for the result; a nominal / applied-constructor type
+    /// ARGUMENT drops to INVARIANT (a generic slot admits both reads and writes);
+    /// structural operators (tuple, anonymous union, keyof, indexed access, conditional)
+    /// CARRY the enclosing variance into their children. Unlike `mapChildren`, the arms
+    /// carry SEMANTICS (the variance decision), so — apart from the structural-operator
+    /// arm, whose children are unconditionally same-variance — this is an EXHAUSTIVE match
+    /// with no `mapChildren` catch-all: a new child-carrying constructor must force a
+    /// variance decision here rather than silently inherit the enclosing one.
+    let rec mapVariant (leaf: Variance -> FrozenType -> FrozenType voption) (v: Variance) (t: FrozenType) : FrozenType =
+        match leaf v t with
+        | ValueSome replaced -> replaced
+        | ValueNone ->
+            match t with
+            // A parameter is contravariant: flip for the domain, keep variance for the result.
+            | FTFun(a, b) -> FTFun(mapVariant leaf v.Flip a, mapVariant leaf v b)
+            // Nominal / applied-constructor type ARGUMENTS are invariant slots.
+            | FTConst(name, args) -> FTConst(name, args |> EqArray.map (mapVariant leaf Variance.Inv))
+            | FTClass(k, args) -> FTClass(k, args |> EqArray.map (mapVariant leaf Variance.Inv))
+            | FTRecord(k, args) -> FTRecord(k, args |> EqArray.map (mapVariant leaf Variance.Inv))
+            | FTUnion(k, args) -> FTUnion(k, args |> EqArray.map (mapVariant leaf Variance.Inv))
+            // Structural operators carry the ENCLOSING variance into their children.
+            | FTTuple _
+            | FTOr _
+            | FTKeyOf _
+            | FTIndexedAccess _
+            | FTConditional _ -> mapChildren (mapVariant leaf v) t
+            // Childless leaves.
+            | FTEnum _
+            | FTLiteral _
+            | FTTypar _
+            | FTUnknown _ -> t
 
     let iterChildren (f: FrozenType -> unit) (t: FrozenType) : unit =
         match t with
