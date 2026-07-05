@@ -1329,17 +1329,22 @@ module VesperLib =
                     // A trailing `with interface … / member …` publishes a capability
                     // surface: register as a bodied class/interface (`extractBodiedClassLike`)
                     // so a consumer's structural probe sees the members and `FrozenInterfaces`.
-                    if not isIntrinsic then
-                        extractBodiedClassLike ctx lexed input opens compiled arity typeName elems
-                    elif bodyIsInterface elems then
-                        // DUAL-FACED capability interface (`type disposable = extern with
-                        // abstract member …` whose `.fs` ALSO binds `(# "System.IDisposable" #)`):
-                        // register the Class (members + interface-ness), then attach the
-                        // platform face from the repr so it reconciles to its BCL spelling as
-                        // an `Intrinsic` does. A target whose `.fs` omits the repr (JS) leaves
-                        // `CapabilityFace = ValueNone`, so the canonical identity stands.
-                        extractBodiedClassLike ctx lexed input opens compiled arity typeName elems
+                    // This admits BOTH a capability INTERFACE (`abstract member …`) and a
+                    // CONCRETE member surface (`member Poke: int -> int`) on an intrinsic — a
+                    // concrete `(# … #)`-bound member is a general platform-binding capability
+                    // (the member's body is served as a member-keyed inline splice), not a
+                    // structural mutation of the primitive: the `ExternalTypeShape.Intrinsic`
+                    // shape carries no member slots, so the dual-faced Class is the sole shape
+                    // able to publish them while the `CapabilityFace` keeps the canonical
+                    // primitive identity for `subsumes` / codegen.
+                    extractBodiedClassLike ctx lexed input opens compiled arity typeName elems
 
+                    // For an intrinsic, attach the platform face from the repr so the Class
+                    // reconciles to its platform spelling exactly as an `Intrinsic` does. A
+                    // target whose `.fs` omits the repr (JS) leaves `CapabilityFace = ValueNone`,
+                    // so the canonical identity stands. A non-intrinsic `extern` stays a plain
+                    // Class (no face).
+                    if isIntrinsic then
                         match ctx.IntrinsicReprs.TryGetValue short with
                         | true, platform ->
                             match ctx.TypeShapes.TryGetValue compiled with
@@ -1351,27 +1356,6 @@ module VesperLib =
                                         }
                             | _ -> ()
                         | _ -> ()
-                    else
-                        // A CONCRETE (non-interface) member surface on an intrinsic primitive
-                        // (`type string = extern with member …`) is deferred — the `Intrinsic`
-                        // shape carries no member slots and flipping `string` to a `Class`
-                        // would lose its primitive identity. Fail loud + keep it `Intrinsic`.
-                        //
-                        // DURABLE INVARIANT: the `(# … #)` repr is for structurally inert
-                        // leaves — a name deferring wholesale to a platform TYPE (`int`/`exn`).
-                        // The dual-faced capability INTERFACE arm above is the one admitted
-                        // exception (it still names a real platform type). A concrete member
-                        // surface asks the repr to carry value-bearing structure, which it
-                        // cannot mean — this rejection fences the repr, it is not a missing
-                        // feature to route around.
-                        ctx.Diagnostics.Add(
-                            file,
-                            sprintf
-                                "type %s: a concrete member surface on an intrinsic primitive is not yet supported"
-                                compiled
-                        )
-
-                        registerIntrinsic ()
                 | _ ->
                     // No member body. A primitive/capability anchor (`IntrinsicBaseReprs`)
                     // publishes as `Intrinsic`; an `extern` with no base companion repr is a

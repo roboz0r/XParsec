@@ -204,6 +204,14 @@ inlines via `Inline.nullaryIntrinsicValueBody`) landed too, retiring the `option
 `unit → undefined` repr hack (now an honest `undefined`-typed fill via `BuiltinTypes.tyUndefined`). The
 callable-object-with-props graduation is NOT here — split to **W8** (no node type forces it).
 
+**Refactor surfaced post-landing (2026-07-05): W4's index-sig mechanism is a SECOND indexer
+path parallel to the canonical `Item`/`get_Item` one — retire it under W9.** W4 shipped a
+working-but-non-canonical shape: `x.[k]` desugars through F#'s `Item` indexer
+(`get_Item`/`set_Item`) canonically, and the read side ALREADY resolves that via
+`resolveExternalIndexer clsQual clsArgs "get_Item"`. W4 bolted a parallel seam
+(`GetIndex`/`SetIndex` intrinsics + `TryLookupIndexSignature` + `tryIndexSignature`) alongside
+it rather than synthesising `Item` members. Not node-blocking; see **W9**.
+
 ### W5 — `namespace` / declaration merging
 
 Node's `NodeJS` namespace merges pervasively (`namespace NodeJS {}` + `interface NodeJS.*`). Today a
@@ -239,10 +247,13 @@ Fun-coercion landed with G5. The intent: called from Vesper via `.Invoke`, but p
 function-accepting parameter slot with a matching signature (the object and a lambda are
 interchangeable to a `Fun`-bounded slot).
 
-It is NOT just data-carrying — it has a lowering wrinkle exactly parallel to W4's `$0[$1]` decision:
+It is NOT just data-carrying — it has a lowering wrinkle, its OWN mechanism (distinct from W9):
 - **`.Invoke` on an external callable object must lower to a DIRECT JS call `$0($1…)`**, not a
   `.Invoke(...)` method call — a TS callable is invoked as `obj(x)`, and a JS object has no `.Invoke`.
-  A new lowering, sibling to `GetIndex`.
+  This is a call-site LOWERING DECISION on the compiler-known `Fun` INTERFACE (whose `Invoke` is an
+  `abstract` member with no body) — a `MemberLowering`-style axis, NOT W9's concrete inline-bodied
+  intrinsic member. The two only resemble each other in emitting a non-dotted shape; the mechanisms
+  differ (interface-call lowering vs `(# … #)` body splice) and neither depends on the other.
 - **Fun-coercion for an external nominal** must be verified: lambdas coerce into a `Fun`-bounded slot;
   an external Fun-implementing nominal flowing into an arrow slot needs confirming (it should ride the
   G5 upcast + the arg-position structural width, but is unexercised).
@@ -253,6 +264,130 @@ Schema slot: the call signature(s) carried on the erasing nominal (a `Structural
 bump — Fable + goldens). **No `@types/node` type forces this** (EventEmitter/process/timers/streams
 are not callable-with-props), so it stays deferred with its own isolation fixture, landing when a real
 consumed type (node or `Js.Dom`) produces a callable object.
+
+### W9 — Concrete inline-bodied members on intrinsic/declared types; indexers as its first consumer — *foundational; supersedes W4's index-sig facet*
+
+**Direction (user, 2026-07-05): (a-literal). The enabling primitive is GENERAL — an intrinsic /
+`extern` type MAY carry concrete members with `(# … #)` inline bodies — NOT an indexer feature.** It
+is a first-class platform-binding strategy for any type the automatic binder (`TsManifestProvider`)
+doesn't cover or can't express. Indexers (`array`/`string` `get_Item`/`set_Item`/`Length`) are its
+first consumer. (Distinct from W8: `Vesper.Fun` is a compiler-known INTERFACE with an `abstract Invoke`
+and a call-site lowering decision — not a concrete inline-bodied intrinsic member. The two are
+independent; W9 does not subsume it and need not precede it.) Significant effort, but it DELETES more
+than it adds — the receiver-classification ladder, the parallel index-sig seam, the
+`.Length` special-cases, and the `GetArray`/`Get*` free-function intrinsics all collapse into one
+member-resolution + one member-inline-splice path. Keeps [[feedback_dynamic_intrinsics_over_du_cases]]
+(no SemType case) and [[feedback_codegen_js_owns_assignability]] (splice-vs-call is backend lowering).
+
+**The invariant at `VesperLib.fs:1354-1374` is LIFTED — it was "not yet", not "never".** Its comment
+fences "a concrete member surface on an intrinsic primitive" as a DURABLE rejection ("the `(# … #)`
+repr is for structurally inert leaves"); the decision overrules that — a concrete member surface is a
+wanted general capability. The admitted-exception arm right above it (`:1334-1353`) already shows the
+mechanism: a dual-faced `type X = extern with …` registers as a `Class` (which HAS member slots) via
+`extractBodiedClassLike` AND attaches the `(# … #)` repr as a `CapabilityFace`, so the canonical
+primitive identity survives for codegen / `subsumes`. The concrete-member case takes the SAME path
+(register Class + face) instead of `registerIntrinsic ()` + diagnostic. (`ExternalTypeShape.Intrinsic`
+carries no member slots — the dual-faced Class is precisely how the capability arm already solved that.)
+
+**Member inlining REUSES function inlining (user steer; the load-bearing mechanism).** A concrete
+accessor `member _.Item with get (i) = (# "ldelem" … #)` IS the inline function
+`get_Item (this) (i) = (# "ldelem" this i #)` — `this` prepended as the first inline param. So:
+- Capture mints an `InlineBody` from each concrete accessor body, keyed by the MEMBER (`arrayName 1` +
+  `get_Item`/`set_Item`/`get_Length`), `this`-first — the member-sourced twin of `collectInlineBodies`'
+  `let inline` case (`SymbolProviders.fs:46-104`).
+- `InlineExpansion` gains ONE new App-head arm: a `TExpr.ExternalMember` head whose member carries a
+  registered inline body splices via the SAME `reduceApplication` / `ParamAttrs` / `expandExternalAt`
+  path the `TExpr.External` arm uses (`InlineExpansion.fs:589`). A member with NO inline body (a real
+  CLR `get_Item` runtime method) stays a real call — so the splice-vs-call fork is simply "does this
+  member carry an inline body", uniform for every receiver.
+- Both `x.[i]` (indexer sugar) and dotted `x.get_Item(2)` resolve the SAME member and hit the SAME
+  splice — so `get_Item` stays nameable (the FSI-confirmed F# semantics) with no divergence.
+
+**Stage work (grounded in the four-stage pipeline map):**
+1. **Parser** (`src/XParsec.FSharp/`) — **LANDED (1a).** Only ONE host needed: the `.fs`
+   `= (# … #) with member …` augmentation — `TypeDefn.Abbrev` gained an `extensions` slot (mirroring
+   `Record`/`Union`) and `parseAbbrevOrImplicitClass` now parses the trailing `with` block
+   (`TypeDefnParsing.fs:1331`; fixture `399_extern_member_intrinsic.fs`). The `.fsi` side needed NO
+   change — DECIDED standard-F# spelling (`member Poke: int -> int`, `member Item: int -> 'T with get, set`)
+   already parses inside `extern with` (`sig_16_extern_with.fsi`). The plan's `src/XParsec.FSharp.Parser/`
+   paths were WRONG — the parser is `src/XParsec.FSharp/`.
+2. **Capture** — two sub-stages, because the impl-side member BODIES are not reachable without a
+   front-end elaboration step the plan originally missed:
+   - **2a — impl-side type-augmentation elaboration** (`Passes/Desugar.fs`, `Passes/NameResolution/`
+     `TypeRegistration.fs`+`MemberRegistration.fs`, `Elaborate.fs`). A `TypeDefn.Abbrev` carrying
+     `extensions` elaborates its members through the SAME `this`-first host-member path records/unions
+     already use for their inline `with member` blocks (`Elaborate.elaborateHostMembers` →
+     `translateClassMember` → `tryClassType`; body typing via `Unification.fillTypeMembers`). Today it is
+     DROPPED at four sites — `Desugar.fs:182`, `MemberRegistration.fs:925`, `Elaborate.fs:1612`
+     (no `Abbrev` classify arm), `TypeRegistration.fs:518` (binds only `typeName`/`typ`, ignores
+     `extensions`). GUARDRAIL: only an **ILIntrinsic-RHS** abbrev may carry members (a transparent alias
+     `type T = int with member` is rejected — F# rejects it too: `tcTypeAbbreviationsMayNotHaveMembers`).
+     IDENTITY: `X` keeps its `TyConst` identity (stays in `IntrinsicReprTypes`, resolves to `TyConst name`
+     at use sites); members elaborate `this`-first with `ThisTy` = `X`'s intrinsic type; the produced
+     `TDecl.Type` is consumed only by the harvest (2b), never emitted. This is the general
+     inline-augmentation mechanism; STANDALONE `type X with member …` (`TypeDefn.TypeExtension`, already
+     parsed, still dropped) and EXTRINSIC/cross-module extensions (F#'s `eIndexedExtensionMembers` table)
+     are DEFERRED (build the core so they slot in later; not needed for W9). F# scout confirmed our
+     `this`-first `TTypeMember` model already matches F#'s member-`Val` + `tcaug_adhoc` attachment — no
+     new representation to copy.
+   - **2b — consumer capture + member-keyed harvest/store.** Consumer side: lift the
+     `VesperLib.fs:1354-1374` invariant, routing a concrete-member intrinsic through the dual-faced
+     Class + `CapabilityFace` arm (so `TryLookupMember` resolves + mints the finalized member `Key`).
+     Impl side: `collectInlineBodies` (`SymbolProviders.fs`) gains a `TDecl.Type` → Class-member arm
+     (`harvestMemberBody`) minting the `this`-first inline `TDecl.Let`; `buildContractCached` stores it
+     under the FINALIZED `TryLookupMember(...).Key` (never a hand-rolled `MemberKey` — a method's argSig
+     is rewritten from frozen params at `VesperLib.fs:438-446`, so keying off the resolved member is the
+     only agreement-safe choice). Isolation: `TryLookupInlineBody(mem.Key).IsSome` from a real loaded
+     `widget` package.
+3. **Resolution** (`InferRecordAccess.fs`) — `inferIndexedLookup` resolves `get_Item`/`set_Item` via
+   `TryLookupMember` on the receiver INCLUDING the array/string intrinsic; add the write mirror
+   `inferIndexedSet` (`set_Item`; no `set_Item` resolution exists in source today — external CLR indexer
+   writes land as a free byproduct); element type pinned from the member signature. **Load-bearing
+   question — RESOLVED (spike, 2026-07-05): ROUTABLE with a local change, no gate relaxation.**
+   `EngineCore.fs:500`'s `isStructuralConstructorName → ValueNone` (in `tryExternalReceiver`, the
+   receiver→provider-key mapper) is a routing DEFAULT, not a block, and must STAY closed — relaxing it
+   would mis-map `"[]"` to the IL repr `"!0[]"` (line 502) and hand the provider the wrong key. Instead
+   the indexer path keys the lookup DIRECTLY on `arrayName 1`: an array is a `TyConst` (not `TyClass`),
+   so it misses the `TyClass`-only external guard at `InferRecordAccess.fs:631` and falls to the `_` arm
+   (line 641); add an array branch there that calls the EXISTING `resolveExternalIndexer (arrayName 1)
+   args "get_Item"` (line 531, needs no change) before `stringOrArrayIndex()`. The write mirror wires
+   from `inferAssignment` (`InferControlFlow.fs:811`) when the LHS is `Expr.IndexedLookup` (today it just
+   re-`infer`s the LHS through `inferIndexedLookup` — no write resolution). Optionally route `arr.Length`
+   through `TryLookupMember(arrayName 1, "get_Length")` at `resolveFieldStep` line 440 to retire the
+   hardcoded branch. **The ONE precondition:** key AGREEMENT — capture stores members under the
+   arity-suffixed compiled name (`arityName "[]" 1 = "[]``1"`), but a `TyConst` receiver's key is the bare
+   `"[]"`. W9 must make both sides agree on `"[]"` (either key the array's members under `"[]"`, deviating
+   from the default `compiled` keying, or translate `TyConst("[]")` → `"[]``1"` at the lookup). Ordinal,
+   no normalization, so once aligned `TryLookupMember("[]", "get_Item")` hits.
+4. **Inline splice** (`SymbolProviders.fs`, `InlineExpansion.fs`) — the general member-inline mechanism
+   above (member-keyed `InlineBody` + the `TExpr.ExternalMember` splice arm).
+5. **Emit** — nothing new: a spliced `(# … #)` emits as today; a bodiless member stays a real call
+   (`ClrExternalMembers.fs`, `EmitJs.fs:621-663`).
+6. **Migrate + delete** — move `GetArray`/`SetArray`/`GetArrayLength` (and `GetString`) bodies from the
+   `ops-platform.fs` / `.js.fs` free `let inline` functions INTO `'T[]` / `string` member accessors; the
+   TS index-sig `get_Item`/`set_Item` become provider-synthesised members whose inline body is the
+   `$0[$1]` bracket, served via `TryLookupInlineBody` (so `GetIndex`/`SetIndex` become those bodies — no
+   separate lowering flag). Then DELETE: `tryIndexSignature`, `TryLookupIndexSignature` (+ its ~12
+   impls), the Freeze `zonk arrTy` re-derivation ladder (read + write — Finding 1's duplication with it),
+   the `TyConst(arrayName 1) && "Length"` special-cases (`InferRecordAccess.fs:440`, `FreezeExpr.fs:556`,
+   `Resolve.fs:816`), and the now-unreferenced `GetArray`/`Get*` free functions. `[IndexerName]` stays
+   NON-generalised: `string` is the sole `get_Chars` producer in .NET, so the string companion maps
+   `get_Item` → `get_Chars` on CLR / native `s[i]` on JS by hand, not by attribute.
+
+**Net deletion >> addition** (the user's expectation): one member-resolution + one member-inline-splice
+arm REPLACE the receiver-classification ladder, the parallel index-sig facet, the `.Length`
+special-cases, and the free-function indexer intrinsics — and the enabling primitive (concrete inline
+members on intrinsics) is reusable platform-binding surface well beyond indexers.
+
+**Sequencing + isolation (isolation-first):**
+1. The GENERAL primitive FIRST — a minimal `extern` type with ONE concrete `(# … #)`-bodied member
+   (NOT an indexer): assert parse → capture (dual-faced Class + face) → member-inline-splice → emit.
+   Proves the primitive independent of indexer sugar.
+2. THEN array/string `get_Item`/`set_Item`/`Length` (migrated bodies) — array index/length + string
+   index tests and `IndexSignatureTests` must stay emit-BYTE-IDENTICAL (pure re-plumbing).
+3. THEN external CLR `get_Item` (real call, no inline body) + TS index-sig (provider-served bracket
+   body) — proving the splice-vs-call fork resolves on ONE path. The `set_Item` write half is new
+   capability, so it needs its own read-AND-write assertion.
 
 ---
 
@@ -279,6 +414,15 @@ hand-built fixture BEFORE the real-package regen.
    fieldless `Record<K,V>`, optional-field graduation) + the `indexsig` extractor golden. **W5/W8** —
    targeted fixtures per graduation as each bites a real node type.
 5. Only then: vendor real `@types/node`, regen goldens, commit **W7** burndown.
+
+**W9** is OFF the node critical path (it supersedes landed W4 and establishes a general platform-binding
+primitive, not a node capability) and is INDEPENDENT of W8 (different mechanism — see W8). It is the
+largest single item here — a four-stage change lifting the `VesperLib.fs:1354-1374` invariant — so it
+lands as its own tranche, isolation-first per its own §Sequencing (general primitive → array/string
+migration → external/TS), with array/string + `IndexSignatureTests` emit byte-identical as the
+regression guard and the `set_Item` write half as new capability. The Resolution load-bearing question
+is RESOLVED (spike 2026-07-05: routable by keying lookups on `arrayName 1`, no `EngineCore.fs:500`
+relaxation); the one open precondition is capture/lookup key AGREEMENT on `"[]"` vs `"[]``1"` (see W9 §3).
 
 Node-specific shapes need NO special code: `Buffer`/`EventEmitter`/typed arrays ride the generic
 refs path (typed arrays are NOT on the intrinsic-overlap skip-list, so they home normally);

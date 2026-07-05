@@ -179,6 +179,11 @@ module Desugar =
                         walkMemberElems elems
                     | TypeDefn.Record(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
                         walkMemberElems elems
+                    // An inline intrinsic-abbrev host (`type X = (# … #) with member …`)
+                    // carries member bodies too — their operators need the same
+                    // compiled-name entries the union/record augmentation members get.
+                    | TypeDefn.Abbrev(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
+                        walkMemberElems elems
                     | _ -> ()
         | _ -> ()
 

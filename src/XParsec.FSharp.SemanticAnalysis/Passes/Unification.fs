@@ -1114,9 +1114,9 @@ module Unification =
             for td in defs do
                 // Only a `with` block (`ValueSome elems`) carries augmentation / interface-impl
                 // members; without one there is nothing to fill.
-                match TypeDefnPatterns.tryUnionOrRecordHostDecl td with
+                match TypeDefnPatterns.tryNonClassMemberHostDecl td with
                 | ValueSome(struct (nameLi, ValueSome elems)) ->
-                    match TypeRegistry.tryUnionOrRecordHost ctx.Types (ctx.NameOf nameLi.Idents.[0]) with
+                    match TypeRegistry.tryNonClassMemberHost ctx.Types (ctx.NameOf nameLi.Idents.[0]) with
                     | ValueSome host -> fillHostMembers ctx host elems
                     | ValueNone -> ()
                 | _ -> ()
@@ -1169,9 +1169,9 @@ module Unification =
                     // resolve them up front on the same path so a `:>` / coercion site
                     // sees them. (Impls ride the `with` block, so a type with none is a
                     // no-op `resolveInterfaceImpls` — the elems are immaterial here.)
-                    match TypeDefnPatterns.tryUnionOrRecordHostDecl td with
+                    match TypeDefnPatterns.tryNonClassMemberHostDecl td with
                     | ValueSome(struct (nameLi, _)) ->
-                        match TypeRegistry.tryUnionOrRecordHost ctx.Types (ctx.NameOf nameLi.Idents.[0]) with
+                        match TypeRegistry.tryNonClassMemberHost ctx.Types (ctx.NameOf nameLi.Idents.[0]) with
                         | ValueSome host -> resolveInterfaceImpls ctx host
                         | ValueNone -> ()
                     | ValueNone -> ()

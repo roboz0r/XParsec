@@ -515,7 +515,7 @@ module NameResolutionTypeRegistration =
     /// RHS can reference any other same-file type.
     let private registerAbbreviationDefn (ctx: PassContext) (declNs: string) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
-        | TypeDefn.Abbrev(typeName = tn; typ = rhs) ->
+        | TypeDefn.Abbrev(typeName = tn; typ = rhs; extensions = ext) ->
             let (TypeName(ident = nameLi)) = tn
 
             if nameLi.Idents.Length <> 1 then
@@ -543,9 +543,27 @@ module NameResolutionTypeRegistration =
                             Severity = Severity.Error
                         }
                 else
+                    // An inline intrinsic-abbrev may carry a `with member …`
+                    // augmentation (`type X = (# … #) with member …`) — but ONLY an
+                    // ILIntrinsic RHS may. A transparent-alias abbrev with members
+                    // (`type bad = int with member …`) is rejected here (F# rejects it
+                    // too): the alias would have no distinct nominal identity to hang a
+                    // member on. Registered as a host in `IntrinsicAbbrevHost` so the
+                    // members name-resolve / type / elaborate on the shared host path,
+                    // WITHOUT withdrawing the type from `IntrinsicReprTypes` (its
+                    // `TyConst` identity is preserved at every other use site).
+                    let registerMemberHostIfAny () =
+                        match ext with
+                        | ValueNone -> ()
+                        | ValueSome _ ->
+                            let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
+                            let key = stampLocalTypeKey ctx declKey declNs name typeParams.Length
+                            ctx.Types.IntrinsicAbbrevHost.[name] <- IntrinsicAbbrevInfo(name, typeParams, declKey, key)
+
                     match rhs with
                     | Type.ILIntrinsic(kindTag = tag; instrParts = parts) ->
                         ctx.Types.IntrinsicReprTypes.[name] <- ilIntrinsicString ctx parts
+                        registerMemberHostIfAny ()
 
                         match tag with
                         // Untagged `(# "…" #)` — an opaque value repr, never a base.
@@ -572,6 +590,24 @@ module NameResolutionTypeRegistration =
                                     Severity = Severity.Error
                                 }
                     | _ ->
+                        // Guardrail: a transparent-alias abbrev cannot carry members.
+                        // Reject with a diagnostic and drop the augmentation; the alias
+                        // itself still registers so ordinary references keep resolving.
+                        match ext with
+                        | ValueSome _ ->
+                            ctx.Diagnostics.Add
+                                {
+                                    Key = declKey
+                                    Message =
+                                        sprintf
+                                            "Type abbreviation '%s' cannot carry augmentation members: only an inline-IL abbreviation ('type %s = (# \"…\" #) with member …') may declare members"
+                                            name
+                                            name
+                                    Code = ""
+                                    Severity = Severity.Error
+                                }
+                        | ValueNone -> ()
+
                         let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
                         let key = stampLocalTypeKey ctx declKey declNs name typeParams.Length
 

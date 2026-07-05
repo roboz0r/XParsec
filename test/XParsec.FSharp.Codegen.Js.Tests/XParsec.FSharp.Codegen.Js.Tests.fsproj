@@ -64,6 +64,7 @@
     <Compile Include="IndexSignatureTests.fs" />
     <Compile Include="StructuralWidenE2ETests.fs" />
     <Compile Include="TypeArgNumberTests.fs" />
+    <Compile Include="ExternMemberInlineTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

@@ -922,5 +922,23 @@ module NameResolutionMemberRegistration =
                         info.InterfaceImpls <- x.InterfaceImpls
                         info.ThisKey <- x.ThisKey
                     | false, _ -> ()
+                // An inline intrinsic-abbrev host (`type X = (# … #) with member …`):
+                // stamp its augmentation members + `ThisKey` exactly as the union/record
+                // arms do. The host is present in `IntrinsicAbbrevHost` only for an
+                // ILIntrinsic RHS (a transparent-alias abbrev with members was rejected
+                // at registration), so this arm fires only for the sanctioned host. No
+                // `interface … with` on the intrinsic host (out of scope) — the extracted
+                // `InterfaceImpls` are always empty.
+                | TypeDefn.Abbrev(
+                    typeName = TypeName(ident = nameLi); extensions = ValueSome(TypeExtensionElements(elements = elems))) when
+                    nameLi.Idents.Length = 1
+                    ->
+                    match ctx.Types.IntrinsicAbbrevHost.TryGetValue(ctx.NameOf nameLi.Idents.[0]) with
+                    | true, info ->
+                        let x = extract info.DeclKey info.TypeParams elems
+                        info.Members <- x.Members
+                        info.InterfaceImpls <- x.InterfaceImpls
+                        info.ThisKey <- x.ThisKey
+                    | false, _ -> ()
                 | _ -> ()
         | _ -> ()

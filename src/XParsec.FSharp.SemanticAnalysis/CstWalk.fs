@@ -164,9 +164,9 @@ module TypeDefnPatterns =
     /// `interface … with` impls; three passes (`Unification.fillNominalMembers` /
     /// `resolveInterfaceImplsForElem`, `NameResolution.walkNominalBodies`) matched this
     /// exact shape independently, each pairing it with a registry lookup
-    /// (`TypeRegistry.tryUnionOrRecordHost`). `ValueNone` for any other `TypeDefn` shape or
+    /// (`TypeRegistry.tryNonClassMemberHost`). `ValueNone` for any other `TypeDefn` shape or
     /// a multi-ident name.
-    let tryUnionOrRecordHostDecl (td: TypeDefn<'T>) : struct (LongIdent<'T> * TypeDefnElements<'T> voption) voption =
+    let tryNonClassMemberHostDecl (td: TypeDefn<'T>) : struct (LongIdent<'T> * TypeDefnElements<'T> voption) voption =
         let extElems (ext: TypeExtensionElements<'T> voption) =
             match ext with
             | ValueSome(TypeExtensionElements(elements = elems)) -> ValueSome elems
@@ -175,6 +175,15 @@ module TypeDefnPatterns =
         match td with
         | TypeDefn.Union(typeName = TypeName(ident = nameLi); extensions = ext)
         | TypeDefn.Record(typeName = TypeName(ident = nameLi); extensions = ext) when nameLi.Idents.Length = 1 ->
+            ValueSome(struct (nameLi, extElems ext))
+        // An inline intrinsic-abbrev augmented with `with member …`
+        // (`type X = (# … #) with member …`) hosts its members on the same path.
+        // Registration files the host in `IntrinsicAbbrevHost` ONLY for an ILIntrinsic
+        // RHS carrying extensions (a transparent-alias abbrev with members is rejected
+        // there), so the `tryNonClassMemberHost` lookup naturally skips a rejected one.
+        | TypeDefn.Abbrev(typeName = TypeName(ident = nameLi); extensions = ext & ValueSome _) when
+            nameLi.Idents.Length = 1
+            ->
             ValueSome(struct (nameLi, extElems ext))
         | _ -> ValueNone
 

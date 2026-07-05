@@ -397,11 +397,11 @@ module NameResolution =
         | ModuleElem.Type defs ->
             for td in defs do
                 // Only a `with` block (`ValueSome elems`) carries augmentation / impl bodies.
-                match TypeDefnPatterns.tryUnionOrRecordHostDecl td with
+                match TypeDefnPatterns.tryNonClassMemberHostDecl td with
                 | ValueSome(struct (nameLi, ValueSome elems)) ->
                     let name = ctx.NameOf nameLi.Idents.[0]
 
-                    match TypeRegistry.tryUnionOrRecordHost ctx.Types name with
+                    match TypeRegistry.tryNonClassMemberHost ctx.Types name with
                     | ValueSome host -> walkNominalHostBodies ctx walker name host elems
                     | ValueNone -> ()
                 | _ -> ()

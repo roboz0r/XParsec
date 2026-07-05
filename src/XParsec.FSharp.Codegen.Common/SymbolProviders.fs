@@ -33,10 +33,84 @@ module SymbolProviders =
     let buildWith (metaTail: MetaTailFactory) (manifestPaths: string list) : IExternalSymbolProvider =
         ReferencedProject.composeContract metaTail None manifestPaths
 
-    /// Cross-package `let inline` bodies keyed by source name. Collected once here,
-    /// frozen against the same provider stack the consumer uses.
-    let private collectInlineBodies (ctx: PassContext) (tast: TastFile) : (string * InlineBody) list =
+    /// A harvested member-sourced inline body: the declaring type's (simple)
+    /// compiled name, the member name, and the `this`-first inline `Body`. Kept a
+    /// SEPARATE channel from the source-name value bodies because a member resolves
+    /// to its `SymbolKey` through the provider (`TryLookupMember`) at store time —
+    /// so the stored key AGREES with the use-site `TExpr.ExternalMember.Key` (the
+    /// finalized member key) rather than a hand-rolled `MemberKey`.
+    type MemberInlineBody =
+        {
+            TypeName: string
+            MemberName: string
+            Body: InlineBody
+        }
+
+    /// Mint the `this`-first inline `TDecl.Let` for a concrete `(# … #)`-bodied
+    /// member — the member-sourced twin of the `let inline` value case. A concrete
+    /// accessor `member _.M p0 p1 = (# … #)` IS the inline function
+    /// `M this p0 p1 = (# … #)`: `this` (the member's `ThisKey` / `ThisTy`) prepended
+    /// as the OUTERMOST curried lambda param, then the value params in order; a STATIC
+    /// member (`ThisKey = ValueNone`) prepends no `this`. The curried lambda and its
+    /// `declTy` (the outer lambda's own arrow type, carrying the declaring + method
+    /// typars in curried-param order) match the exact shape `inlineExpand` /
+    /// `expandExternalAt` consume. Only an inline-IL (`TExpr.ILIntrinsic`) body is a
+    /// splice template; any other member body is a real callable and yields `None`.
+    let harvestMemberBody (typeName: string) (m: TTypeMember) : MemberInlineBody option =
+        match m.Body with
+        | TExpr.ILIntrinsic(_, _, _, _, bodyTok) ->
+            let curried =
+                [
+                    match m.ThisKey with
+                    | ValueSome tk -> yield (tk, m.ThisTy)
+                    | ValueNone -> ()
+
+                    for (k, ty) in m.Params do
+                        yield (k, ty)
+                ]
+
+            let mutable body = m.Body
+            let mutable resultTy = m.ReturnTy
+
+            // Fold innermost-last so the outermost lambda's type is the whole curried
+            // arrow (`this -> p0 -> … -> ret`), exactly as `translateFun` folds a
+            // source lambda.
+            for i = curried.Length - 1 downto 0 do
+                let (pk, pty) = curried.[i]
+                let lamTy = TyFun(pty, resultTy)
+                body <- TExpr.Lambda(TPat.NamedSimple(pk, pty, bodyTok), body, lamTy, bodyTok)
+                resultTy <- lamTy
+
+            let declTy = resultTy
+            // The `TDecl.Let` binder is unread by `inlineExpand` (it matches
+            // `TDecl.Let(_, value, _, declTy)`); a synthetic key keeps the node total.
+            let patKey = NodeKey.ofSynthetic bodyTok.StartIndex NodeKind.SynthLambdaBody
+            let decl = TDecl.Let(TPat.NamedSimple(patKey, declTy, bodyTok), body, true, declTy)
+
+            // ParamAttrs aligned to curried position: a leading (default) entry for
+            // `this` holds value-param attribute indices at their curried offset. A
+            // member param carries no decoded compiler attribute today, so every
+            // entry is `ParamAttrs.Default`.
+            let paramAttrs = Array.create curried.Length ParamAttrs.Default
+
+            Some
+                {
+                    TypeName = typeName
+                    MemberName = m.Name
+                    Body = { Decl = decl; ParamAttrs = paramAttrs }
+                }
+        | _ -> None
+
+    /// Cross-package inline bodies. The first channel is `let inline` VALUE bodies
+    /// keyed by source name; the second is member-sourced bodies (concrete
+    /// `(# … #)`-bodied members on a `Class`), served by member key. Collected once
+    /// here, frozen against the same provider stack the consumer uses.
+    let private collectInlineBodies
+        (ctx: PassContext)
+        (tast: TastFile)
+        : (string * InlineBody) list * MemberInlineBody list =
         let acc = ResizeArray<string * InlineBody>()
+        let memberAcc = ResizeArray<MemberInlineBody>()
 
         // Pre-pass: build NodeKey → source-name map. Inline bodies that reference a
         // sibling inline carry `TExpr.Var` bound to a key not in scope at a consumer
@@ -101,9 +175,21 @@ module SymbolProviders =
                 match Map.tryFind k tast.ModuleMembers with
                 | Some info -> acc.Add(info.Name, { Decl = d; ParamAttrs = [||] })
                 | None -> ()
+            // Member-sourced inline bodies: a concrete `(# … #)`-bodied member on a
+            // `Class` mints a `this`-first inline body (the member-sourced twin of
+            // the `let inline` value case). A member with a non-inline-IL body is a
+            // real callable and is skipped by `harvestMemberBody`.
+            | TDecl.Type tdecl ->
+                match tdecl.Kind with
+                | TTypeKind.Class clsG ->
+                    for m in clsG.Members do
+                        match harvestMemberBody tdecl.Name m with
+                        | Some mb -> memberAcc.Add mb
+                        | None -> ()
+                | _ -> ()
             | _ -> ()
 
-        List.ofSeq acc
+        List.ofSeq acc, List.ofSeq memberAcc
 
     /// Load cross-package inline bodies from manifests' `impl` files. Type-checked
     /// and frozen once against `provider`. A later body wins on a name clash.
@@ -112,8 +198,9 @@ module SymbolProviders =
         (target: string option)
         (provider: IExternalSymbolProvider)
         (manifestPaths: string list)
-        : Map<string, InlineBody> =
+        : Map<string, InlineBody> * MemberInlineBody list =
         let mutable acc = Map.empty
+        let memberAcc = ResizeArray<MemberInlineBody>()
 
         for manifestPath in manifestPaths do
             match ReferencedProject.loadManifest manifestPath with
@@ -146,10 +233,14 @@ module SymbolProviders =
                             let ctx, tast =
                                 Pipeline.analyseSemWithContextFor manifest.Name provider parsed.Input parsed.Lexed f
 
-                            for (name, body) in collectInlineBodies ctx tast do
+                            let values, members = collectInlineBodies ctx tast
+
+                            for (name, body) in values do
                                 acc <- Map.add name body acc
 
-        acc
+                            memberAcc.AddRange members
+
+        acc, List.ofSeq memberAcc
 
 
     /// Cache keyed by normalised manifest set + target + metadata tag. Each set is
@@ -218,7 +309,7 @@ module SymbolProviders =
                          let provider =
                              ReferencedProject.composeOrdered metaTail target ordered transitiveDeps
 
-                         let inlines = inlineBodies target provider ordered
+                         let inlines, memberInlines = inlineBodies target provider ordered
 
                          let byKey =
                              System.Collections.Generic.Dictionary<SymbolKey, InlineBody>(HashIdentity.Structural)
@@ -226,6 +317,16 @@ module SymbolProviders =
                          for KeyValue(name, body) in inlines do
                              match provider.TryLookup name with
                              | ValueSome sym -> byKey.[sym.Key] <- body
+                             | ValueNone -> ()
+
+                         // Member-sourced bodies are keyed by the FINALIZED member key
+                         // the provider resolves (`TryLookupMember`): a method's argSig
+                         // is rewritten from its frozen params, so this key AGREES with
+                         // the use-site `TExpr.ExternalMember.Key`. Never hand-roll a
+                         // `MemberKey` here — that would risk key disagreement.
+                         for mb in memberInlines do
+                             match provider.TryLookupMember(mb.TypeName, mb.MemberName) with
+                             | ValueSome mem -> byKey.[mem.Key] <- mb.Body
                              | ValueNone -> ()
 
                          withInlineBodies provider byKey inlines, inlines)

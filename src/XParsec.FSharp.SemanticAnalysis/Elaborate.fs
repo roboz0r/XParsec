@@ -1555,8 +1555,75 @@ module Elaborate =
                 List.ofSeq env
             )
 
+    /// Surface an inline intrinsic-abbrev host (`type X = (# … #) with member …`) as a
+    /// `TDecl.Type` of kind `Class` from its `IntrinsicAbbrevInfo`. This decl is an
+    /// INTERNAL artifact consumed only by the member-inline harvest (a concrete
+    /// `(# … #)`-bodied member becomes a `this`-first inline body); it is NEVER emitted,
+    /// and the abbrev keeps its `TyConst` identity (it stays in `IntrinsicReprTypes`).
+    /// Members surface through the shared host-member path (`elaborateHostMembers` →
+    /// `translateNominalMember`), whose `MkSelfType` yields the abbrev's `TyConst` type,
+    /// so each member's `ThisTy` is the intrinsic type — NOT a `TyClass`. Every non-member
+    /// `Class` facet is empty (no ctor / fields / base / static-lets / impls); a `Class`
+    /// kind is chosen only because the harvest matches `TTypeKind.Class`.
+    let private tryIntrinsicAbbrevType
+        (ctx: PassContext)
+        (ns: string option)
+        (name: string)
+        (ext: TypeExtensionElements<SyntaxToken> voption)
+        : (TDecl * (TypeVar * SemType) list) option =
+        match ctx.Types.IntrinsicAbbrevHost.TryGetValue name with
+        | false, _ -> None
+        | true, info ->
+            let markers = mkDeclTyparEnv info.TypeParams
+            let env = ResizeArray markers
+            let declTypars = [ for (n, _) in info.TypeParams -> n ]
+            let selfTy = TyConst(name, declTyparArgs info.TypeParams)
+
+            // Monomorphic host (the W9 fixture): members keep `translateNominalMember`'s
+            // `TyConst(name, [])` self-type untouched. A generic intrinsic host remaps
+            // each member's self-type to declaring-typar roots, exactly like the
+            // union/record surfacers.
+            let elaborateOne (m: TTypeMember) : TTypeMember =
+                if List.isEmpty declTypars then
+                    m
+                else
+                    let m, methodMarkers = elaborateMember selfTy m
+                    env.AddRange methodMarkers
+                    m
+
+            let members, _ =
+                elaborateHostMembers ctx (info :> IInterfaceImplHost) ext elaborateOne
+
+            let clsG: TClassG<SemType, SyntaxToken> =
+                {
+                    Fields = EqArray.empty
+                    CtorParams = EqArray.empty
+                    Members = members
+                    BaseType = ValueNone
+                    Interfaces = EqArray.empty
+                    IsSealed = false
+                    StaticLets = EqArray.empty
+                    SecondaryCtors = EqArray.empty
+                    BaseCtorCall = ValueNone
+                    ValueKind = ClassValueKind.RefType
+                    HasPrimaryCtor = false
+                }
+
+            Some(
+                mkTypeDecl
+                    name
+                    info.Key
+                    ns
+                    (EqArray.ofList declTypars)
+                    (TTypeKind.Class clsG)
+                    EqualityVerdict.Reference
+                    ComparisonVerdict.NoComparison,
+                List.ofSeq env
+            )
+
     /// Surface an interface-shaped, union, record, or class `TypeDefn` as a
-    /// `TDecl.Type`. Abbreviations surface nothing.
+    /// `TDecl.Type`. A plain abbreviation surfaces nothing; an inline intrinsic-abbrev
+    /// carrying a `with member …` augmentation surfaces its members (harvest-only).
     let private tryTypeDecl
         (ctx: PassContext)
         (ns: string option)
@@ -1609,6 +1676,9 @@ module Elaborate =
         | TypeDefn.Record(typeName = tn; extensions = ext) ->
             tryRecordType ctx ns (typeNameSimple ctx tn) (typeNameDeclKey ctx tn) ext
         | TypeDefn.Enum(typeName = tn; cases = cases) -> tryEnumType ctx ns (typeNameSimple ctx tn) cases
+        // A plain abbrev has no host in `IntrinsicAbbrevHost` and surfaces `None`; an
+        // inline intrinsic-abbrev with `with member …` surfaces its members (harvest-only).
+        | TypeDefn.Abbrev(typeName = tn; extensions = ext) -> tryIntrinsicAbbrevType ctx ns (typeNameSimple ctx tn) ext
         | _ -> None
 
     let private longIdentText (ctx: PassContext) (li: LongIdent<SyntaxToken>) : string =

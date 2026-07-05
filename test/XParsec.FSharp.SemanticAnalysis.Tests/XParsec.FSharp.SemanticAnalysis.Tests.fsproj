@@ -41,6 +41,7 @@
     <Compile Include="TypeProvenanceTests.fs" />
     <Compile Include="ConformanceTests.fs" />
     <Compile Include="EnumTests.fs" />
+    <Compile Include="ExternMemberElabTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

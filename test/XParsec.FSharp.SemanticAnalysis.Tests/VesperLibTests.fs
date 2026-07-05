@@ -1442,21 +1442,19 @@ let tests =
                 | None -> failtest "reverse-canon is missing the System.IDisposable -> disposable entry"
             }
 
-            test "CONCRETE member surface on an intrinsic primitive is rejected (the inert-leaf guardrail fires)" {
-                // DURABLE INVARIANT (VesperLib.extractTypeSig): the `(# … #)` type-repr is for
-                // structurally INERT leaves; the dual-faced capability INTERFACE arm is the one
-                // admitted exception. A CONCRETE (non-interface) member surface over an intrinsic
-                // repr asks the repr to carry value-bearing structure it cannot mean, and MUST be
-                // rejected with a diagnostic + the shape kept `Intrinsic` (never silently flipped
-                // to a `Class`). This test pins that the guardrail FIRES — guarding against a
-                // future change that routes a concrete member surface through the interface arm.
+            test "CONCRETE member surface on an intrinsic primitive is admitted as a dual-faced Class" {
+                // A CONCRETE (non-interface) member surface over an intrinsic repr is a general
+                // platform-binding capability: the `(# … #)`-bound member's body is served as a
+                // member-keyed inline splice, so the surface registers as a dual-faced `Class`
+                // (member slots + `CapabilityFace`) exactly as the capability INTERFACE arm does —
+                // the `ExternalTypeShape.Intrinsic` shape carries no member slots, and the
+                // `CapabilityFace` keeps the canonical primitive identity for `subsumes` / codegen.
                 let ctx = VesperLib.ExtractCtx.empty ()
                 // `isIntrinsic` is decided by the BASE repr marker (the primitive's `.fs`).
                 ctx.IntrinsicBaseReprs.["widget"] <- "System.Widget"
                 ctx.IntrinsicReprs.["widget"] <- "System.Widget"
 
-                // A CONCRETE instance member (`member M`), NOT `abstract member` → bodyIsInterface
-                // is false, so the concrete-member guardrail arm runs.
+                // A CONCRETE instance member (`member M`), NOT `abstract member`.
                 let input =
                     "namespace Vesper\n\ntype widget = extern with\n    member M : unit -> unit\n"
 
@@ -1486,23 +1484,37 @@ let tests =
                     }
 
                 VesperLib.extractSymbols ctx parsed
+                VesperLib.finalizeDeferred ctx
 
-                // The guardrail fired: a diagnostic naming the concrete-member rejection.
-                let fired =
+                let key =
+                    match ctx.TypeShapes.Keys |> Seq.tryFind (fun k -> k.EndsWith "widget") with
+                    | Some k -> k
+                    | None -> failtestf "widget registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
+
+                // Admitted as a dual-faced Class (member slots + platform CapabilityFace),
+                // NOT rejected or kept a bare `Intrinsic`.
+                match ctx.TypeShapes.[key] with
+                | ExternalTypeShape.Class shape ->
+                    match shape.CapabilityFace with
+                    | ValueSome face ->
+                        Expect.equal face.Canon "widget" "CapabilityFace canon is the `.fsi` short name"
+                        Expect.equal face.Platform "System.Widget" "CapabilityFace platform is the `.fs` repr"
+                    | ValueNone -> failtest "concrete-member intrinsic Class must carry a CapabilityFace"
+                | other -> failtestf "expected a dual-faced Class for widget; got %A" other
+
+                // No rejection diagnostic — the old inert-leaf guardrail is lifted.
+                let rejected =
                     ctx.Diagnostics
                     |> Seq.exists (fun (_, msg) -> msg.Contains "concrete member surface on an intrinsic primitive")
 
-                Expect.isTrue fired "the concrete-member-on-intrinsic guardrail must emit a diagnostic"
+                Expect.isFalse rejected "the lifted guardrail must NOT emit a rejection diagnostic"
 
-                // …and the shape stayed `Intrinsic` (its primitive identity was NOT lost to a Class).
-                let key = ctx.TypeShapes.Keys |> Seq.tryFind (fun k -> k.EndsWith "widget")
+                // The member surface survives on the Class, resolvable via TryLookupMember.
+                let provider = VesperLib.ExtractCtx.toProvider ctx
 
-                match key with
-                | Some k ->
-                    match ctx.TypeShapes.[k] with
-                    | ExternalTypeShape.Intrinsic _ -> ()
-                    | other -> failtestf "rejected concrete-member intrinsic must stay `Intrinsic`; got %A" other
-                | None -> failtestf "widget registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
+                match provider.TryLookupMember(key, "M") with
+                | ValueSome _ -> ()
+                | ValueNone -> failtest "concrete member surface `M` was dropped from the dual-faced Class"
             }
 
             test "`when 'T : equality` captured + applied to fresh TyVar" {

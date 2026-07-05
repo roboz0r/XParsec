@@ -333,6 +333,55 @@ type UnionTypeInfo
         member this.ComparisonSupport = this.ComparisonSupport
         member this.MkSelfType args = TyUnion(this.Key, args)
 
+/// Host side-table for an inline intrinsic-abbrev augmented with concrete
+/// `(# … #)`-bodied members (`type widget = (# "object" #) with member …`).
+/// The abbrev KEEPS its `TyConst` identity: it stays in `IntrinsicReprTypes` and
+/// `translateType` resolves the name to `TyConst name` at every use site, so this
+/// is NOT a nominal type registration — it exists ONLY to hang the augmentation
+/// members off the same `IInterfaceImplHost` member-extract / fill / elaborate path
+/// unions and records use. `MkSelfType` yields `TyConst name args` (the intrinsic
+/// identity), so each member's `ThisTy` is the intrinsic type, never a `TyClass`.
+/// Interface impls are out of scope for the intrinsic host (always empty). The
+/// surfaced `TDecl.Type(Class)` is an internal artifact consumed only by the
+/// member-inline harvest; it is never emitted.
+[<Sealed>]
+type IntrinsicAbbrevInfo(name: string, typeParams: EqArray<string * TypeVar>, declKey: NodeKey, key: SymbolKey) =
+    member val Name = name
+    /// Stable project-local nominal identity, minted by `stampLocalTypeKey` at
+    /// registration to match a use-site key. Never emitted (the abbrev is intrinsic).
+    member val Key: SymbolKey = key
+    member val TypeParams = typeParams
+    member val DeclKey = declKey
+    /// Augmentation members (`with member …`). Stamped by
+    /// `NameResolution.registerNominalMembers`; types linked by Unification's
+    /// `fillHostMembers`. Empty until then.
+    member val Members: TypeMemberInfo[] = [||] with get, set
+    /// `this`-binding source name (default `"this"`; honours `as self`).
+    member val ThisName = "this" with get, set
+    /// Synthetic NodeKey for the `this` binder shared across every instance member
+    /// body. Set during registration when there are members.
+    member val ThisKey = Unchecked.defaultof<NodeKey> with get, set
+    /// `interface … with` blocks are out of scope for the intrinsic host; always empty.
+    member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
+
+    interface IInterfaceImplHost with
+        member this.Key = this.Key
+        member this.DeclKey = this.DeclKey
+        member this.TypeParams = this.TypeParams
+        member this.ThisName = this.ThisName
+        member this.ThisKey = this.ThisKey
+        member this.InterfaceImpls = this.InterfaceImpls
+        member this.Members = this.Members
+        // An intrinsic value repr is reference-neutral here; these verdicts are
+        // unread for this host (it is never surfaced through the equality/comparison
+        // gate — the harvest reads only its members).
+        member _.EqualitySupport = EqualityVerdict.Reference
+        member _.ComparisonSupport = ComparisonVerdict.NoComparison
+        // The load-bearing choice: the member self-type is the abbrev's INTRINSIC
+        // type (`TyConst name args`), preserving `X`'s `TyConst` identity — not a
+        // `TyClass`. `translateNominalMember` stamps this onto each member's `ThisTy`.
+        member _.MkSelfType args = TyConst(name, args)
+
 /// An enum type declaration (`type E = | C1 = v1 | …`). Unlike unions/records,
 /// an enum is non-generic and carries no member side tables: it is a closed,
 /// named set of cases. Registration (`NameResolution.registerEnumTypeDefn`) needs
@@ -745,6 +794,16 @@ type PassContextTypes =
         /// call instead of treating it as an opaque (sealed, unencodable-as-base) value
         /// repr. The repr string itself stays in `IntrinsicReprTypes`.
         HeritableExternBases: HashSet<string>
+        /// Host side-tables for inline intrinsic-abbrevs carrying `with member …`
+        /// augmentations (`type widget = (# "object" #) with member …`), keyed by bare
+        /// short name (abbrevs aren't arity-overloaded). Populated by
+        /// `NameResolution.registerAbbreviationDefn` ONLY when the abbrev's RHS is
+        /// `Type.ILIntrinsic` and it carries extensions; a transparent-alias abbrev with
+        /// members is rejected there and never lands here. The type itself stays in
+        /// `IntrinsicReprTypes` (identity preserved); this table only carries the members.
+        /// Resolved as an `IInterfaceImplHost` by `tryNonClassMemberHost`, so the member
+        /// bodies name-resolve, type, and elaborate on the shared host path.
+        IntrinsicAbbrevHost: Dictionary<string, IntrinsicAbbrevInfo>
         /// Bookkeeping for the bare-name alias `Union` keeps for arity-overloaded
         /// unions (`Choice\`2`…`Choice\`7`). `Union` is keyed by `TypeRegistry.keyFor`
         /// (bare name for a non-generic union, ``name`N`` for arity N>0); a *single*
@@ -792,6 +851,7 @@ module PassContextTypes =
             ClassMemberIndex = Dictionary<_, _>()
             IntrinsicReprTypes = Dictionary<_, _>()
             HeritableExternBases = HashSet<_>()
+            IntrinsicAbbrevHost = Dictionary<_, _>()
             UnionBareArity = Dictionary<_, _>()
             ClassBareArity = Dictionary<_, _>()
             RecordBareArity = Dictionary<_, _>()
@@ -958,22 +1018,27 @@ module TypeRegistry =
                 | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
                 | ValueNone -> ValueNone
 
-    /// Resolve a union or record (NOT a class) by bare short name as the shared
-    /// `IInterfaceImplHost`. The union/record analogue of the class `tryClassLikeDecl`
-    /// path: the three host-body passes route their
-    /// `TypeDefnPatterns.tryUnionOrRecordHostDecl` match through this one lookup, so they
+    /// Resolve a union, record, or inline intrinsic-abbrev host (NOT a class) by bare
+    /// short name as the shared `IInterfaceImplHost`. The non-class analogue of the
+    /// `tryClassLikeDecl` path: the host-body passes route their
+    /// `TypeDefnPatterns.tryNonClassMemberHostDecl` match through this one lookup, so they
     /// share one bare-name convention instead of skewing against the arity-key. (The
     /// subtype walk resolves the same hosts by `SymbolKey` via `tryInterfaceImplHostByKey`.)
-    /// Classes are excluded — they fill and
-    /// resolve through their own richer path (`fillClassMembers` / `walkClassBodies`), so
-    /// admitting one here would double-fill.
-    let tryUnionOrRecordHost (types: PassContextTypes) (name: string) : IInterfaceImplHost voption =
+    /// The intrinsic-abbrev host is admitted so `type X = (# … #) with member …` fills
+    /// and elaborates its members on the SAME `fillHostMembers` path — its `MkSelfType`
+    /// yields the abbrev's `TyConst` identity, so the members' self-type stays intrinsic.
+    /// Classes are excluded — they fill and resolve through their own richer path
+    /// (`fillClassMembers` / `walkClassBodies`), so admitting one here would double-fill.
+    let tryNonClassMemberHost (types: PassContextTypes) (name: string) : IInterfaceImplHost voption =
         match types.Union.TryGetValue name with
         | true, info -> ValueSome(info :> IInterfaceImplHost)
         | false, _ ->
             match types.Record.TryGetValue name with
             | true, info -> ValueSome(info :> IInterfaceImplHost)
-            | false, _ -> ValueNone
+            | false, _ ->
+                match types.IntrinsicAbbrevHost.TryGetValue name with
+                | true, info -> ValueSome(info :> IInterfaceImplHost)
+                | false, _ -> ValueNone
 
     /// Register an enum under its bare short name (enums are non-generic, so no
     /// arity overload — mirrors records, not unions).
