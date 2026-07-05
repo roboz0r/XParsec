@@ -267,6 +267,69 @@ consumed type (node or `Js.Dom`) produces a callable object.
 
 ### W9 — Concrete inline-bodied members on intrinsic/declared types; indexers as its first consumer — *foundational; supersedes W4's index-sig facet*
 
+---
+#### ▶ STATUS / RESUME HERE (2026-07-05)
+
+**Stage 1 (the general primitive) is COMPLETE and committed** — a concrete `(# … #)`-bodied member on
+an intrinsic/`extern` type is now a real, reusable capability, end-to-end (parse → elaborate → capture
+→ harvest → splice → emit). Commits on branch `codegen-js`:
+- `52bfac38` **1a** — parse `type X = (# … #) with member …` (`TypeDefn.Abbrev` gained an `extensions` slot).
+- `e8e099cb` **1b** — impl-side type-augmentation ELABORATION (the four drop-site arms + the shared
+  `tryNonClassMemberHost`/`…Decl` seams + `IntrinsicAbbrevInfo` host, `SideTables.fs`) reusing the
+  union/record `this`-first host-member path; CONSUMER capture (VesperLib invariant lifted → Class +
+  `CapabilityFace`); member-keyed harvest/store (`SymbolProviders.harvestMemberBody` + `buildContractCached`).
+- `1f7222bb` **1c** — the `TExpr.ExternalMember` splice arm (`InlineExpansion.fs`; receiver prepended to
+  the spine, splice-vs-call fork on `TryLookupInlineBody`) + end-to-end emit fixture (`fixtures/widget/`).
+- `d2d890bf` **1d** — key the harvest store by `SymbolKeyOps.qualifiedName tdecl.Key` (namespaced types work).
+- `0fbec4d0` **2a** — array `arr.[i]` READ via a `get_Item` member on `'T[]` (JS), byte-identical, with a
+  white-box anti-masking assertion (`ArrayIndexMemberTests`). New files `src/Vesper.Core/array-index.js.fsi`
+  + `array-index-body.js.fs`, wired into `manifest.toml`.
+
+**Decisions locked this milestone (do NOT re-litigate):**
+- `.fsi` member sigs use STANDARD-F# spelling (already parse); only the `.fs` abbrev host was new (1a).
+- Only the INLINE intrinsic-abbrev augmentation is in scope. STANDALONE `type X with member …`
+  (`TypeDefn.TypeExtension`) and EXTRINSIC/cross-module extensions are DEFERRED (the core is built to
+  accept them later; not needed here).
+- GUARDRAIL: only an ILIntrinsic-RHS abbrev may carry members (transparent alias rejected).
+- Array STAYS a bare `TyConst("[]")` — NOT promoted to `TyClass`. `EngineCore.fs:500` /
+  `isStructuralConstructorName` stay closed. Member lookup keys DIRECTLY on the array's contract name.
+- **Qualifying intrinsic identities (bare `TyConst("[]")`/`("string")` → namespaced) is DEFERRED to its
+  own milestone** — see [`qualified-intrinsic-identities-plan.md`](qualified-intrinsic-identities-plan.md)
+  (SYSTEMIC: ~205 bare-name sites, `BuiltinTypes` linchpin). W9 lands indexers localized on top of the
+  bare identities.
+- **Array contract-name reality (corrects §3 below):** the key-agreement string is NOT `"[]``1"`.
+  VesperLib's `nameOfTok` registers array under its verbatim backtick-escaped token `` ``[]`` `` and
+  `arityName`'s backtick-guard suppresses the suffix, so both the consumer contract AND the harvest store
+  key it as `` ``[]`` `` — single-sourced as `RuntimeNames.arrayContractName`, which the `InferRecordAccess`
+  array branch uses for the lookup. This escaped bridge is a localized cost of deferring array-identity
+  normalization (tracked in the identity doc for removal there).
+
+**REMAINING (pick up in order):**
+- **2b** — array WRITE (`arr.[i] <- v` → `set_Item`) via the new `inferIndexedSet` from
+  `inferAssignment` (`InferControlFlow.fs:811`, no write resolution exists today) + `arr.Length` via a
+  `get_Length` member (retire the three `.Length` special-cases at `InferRecordAccess.fs:440`,
+  `FreezeExpr.fs:556`, `Resolve.fs:816`). Same escaped-name + byte-identical + white-box pattern as 2a.
+- **2c** — string `s.[i]` via a `get_Item`/`get_Chars` member (string keys CLEANLY as `"string"` — a
+  simpler path than array's escaped name; `GetString`'s `$0[$1]` body migrates). Byte-identical
+  (`ArrayLoopTests` string-index, `IndexSignatureTests`).
+- **2d** — CLR target: migrate the CLR `GetArray`/`SetArray`/`GetArrayLength`/`GetString` bodies into the
+  same members so CLR emit stays byte-identical too (2a-2c are JS-only so far; the `.fsi` contract is
+  shared, the `.fs` bodies are per-target).
+- **Stage 3** — external CLR `get_Item` (real call, no inline body — proves the splice-vs-call fork on ONE
+  path) + TS index-sig (provider-synthesised `$0[$1]` member body). THEN the big DELETE (see §6): the
+  `GetArray`/`SetArray`/`GetArrayLength`/`GetString` free functions + their Freeze emit sites, the
+  `getArrayIndex`/`stringOrArrayIndex` fallbacks, `tryIndexSignature`/`TryLookupIndexSignature`, the
+  `GetIndex`/`SetIndex` intrinsics. The fallbacks are STILL PRESENT through Stage 2 (so a key mismatch
+  would emit byte-identically) — that is why every Stage-2 slice needs the WHITE-BOX assertion that
+  resolution took the member path (an `ExternalAccess` `get_Item`/`set_Item` entry), not the fallback.
+
+Blast-radius recon confirmed de-specializing array is LOCALIZED (~a dozen sites) as long as array stays a
+`TyConst`; the systemic part (qualified identities, array-as-real-`TyClass`, literal JS repr) is the
+separate deferred milestone. The §Stage-work and §Sequencing below are the ORIGINAL plan; the STATUS block
+above is authoritative where they conflict (esp. the `"[]``1"` key claim in §3 — it is `` ``[]`` `` in reality).
+
+---
+
 **Direction (user, 2026-07-05): (a-literal). The enabling primitive is GENERAL — an intrinsic /
 `extern` type MAY carry concrete members with `(# … #)` inline bodies — NOT an indexer feature.** It
 is a first-class platform-binding strategy for any type the automatic binder (`TsManifestProvider`)
