@@ -261,6 +261,8 @@ module JsPrint =
 
             let clause = [ defaultBinding; namedClause ] |> List.choose id |> String.concat ", "
             text (sprintf "import %s from %s;" clause (JsEscape.quoted source))
+        | JsStatement.ImportNamespace(binding, source) ->
+            text (sprintf "import * as %s from %s;" binding (JsEscape.quoted source))
         | JsStatement.If(test, consequent, alternate) ->
             let elseDoc =
                 if List.isEmpty alternate then

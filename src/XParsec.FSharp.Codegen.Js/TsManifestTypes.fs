@@ -4,28 +4,84 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open Vesper.Ts.Manifest
 
-/// THE single-source home→namespace table for GLOBAL (ambient) ref packs. A wire
-/// HOME/assembly that appears here is a global pack: the JS runtime provides its
-/// types intrinsically, so they mount under their VESPER-FACING namespace AND emit
-/// with NO `import`. This ONE fact — `es2015 → Js` — ties three sites together:
-///   1. the provider mounts a global pack's exports under its namespace
-///      (`providerOfManifest` starts its flatten at the mount prefix);
-///   2. the provider stamps `ExternalClassFlags.Global = true` on those shapes;
-///   3. the consumer ref-minting (`toFrozen`'s `nominal`) homes a `RefEntry` under
-///      the same namespace, so a homed `Map` ref and the mounted es2015 `Map`
-///      share the qualified name `Js.Map`.
+/// THE single-source home→namespace mount + global-home classification for ref packs.
+/// TWO axes, deliberately SPLIT (a node module needs one without the other):
+///
+///   • `mountFor home` — the VESPER-FACING namespace a home's exports mount under
+///     (`""` = root, a real flat package). `es2015 → Js`; a node module
+///     `node/<mod> → Node.<Mod>` (`node/fs → Node.Fs`). Ties three sites together:
+///       1. the provider mounts a home's exports under it (`providerOfManifest`
+///          flattens from the mount prefix);
+///       2. the consumer ref-minting (`toFrozen`'s `nominal`) homes a `RefEntry`
+///          under the same namespace, so a homed `Map` ref and the mounted es2015
+///          `Map` share the qualified name `Js.Map`;
+///       3. the resolution walk starts at the mount prefix.
+///
+///   • `isGlobalHome home` — whether the JS runtime provides the home's types
+///     INTRINSICALLY, so they emit with NO `import` (`ExternalClassFlags.Global`,
+///     bare-name `addRef`). ONLY the ambient ES-core lib (`es2015`). A node module
+///     mounts under a namespace (axis 1) but is NOT global: `import fs from "fs"` is
+///     REQUIRED, so it must still emit a real import.
+///
+/// The es2015 case sets BOTH (mount `Js` + global); node sets ONLY the mount. That
+/// split is exactly why this is two functions, not one `Map` whose membership
+/// conflated namespace-mount with import-suppression.
+///
 /// Design-table row: the ECMAScript CORE library flattens into a single `Js`
 /// namespace — the `es2015`/`es2017`/… lib version suffix is TS's compile-TARGET
 /// mechanism, not a semantic namespace, so every ES-core lib home maps to `Js`.
-/// A home ABSENT here is a real package: normal namespace `""` and normal import.
 module TsGlobalHomes =
-    let globalLibHomes: Map<string, string> = Map [ "es2015", "Js" ]
+
+    /// The ECMAScript CORE library home — mounts under `Js` AND is import-free (a
+    /// JS-runtime intrinsic). The one home for which `mountFor` and `isGlobalHome` both
+    /// fire, so it reads from ONE token: an ES-core rename can't desync mount from
+    /// is-global.
+    [<Literal>]
+    let private esCoreHome = "es2015"
+
+    /// The `node/` home prefix — a `@types/node` per-module manifest is homed
+    /// `<packageName>/<module>` (W1), e.g. `node/fs`; its exports mount under `Node.*`.
+    [<Literal>]
+    let private nodeHomePrefix = "node/"
+
+    /// Upper-case the first character (`fs → Fs`, `child_process → Child_process`);
+    /// the module segment is already a legal JS/namespace identifier.
+    let private capitalize (s: string) : string =
+        if s = "" then
+            s
+        else
+            string (System.Char.ToUpperInvariant s.[0]) + s.Substring 1
+
+    /// The Vesper-facing namespace `home`'s exports mount under (`""` = root).
+    let mountFor (home: string) : string =
+        if home = esCoreHome then
+            "Js"
+        elif home.StartsWith nodeHomePrefix then
+            "Node." + capitalize (home.Substring nodeHomePrefix.Length)
+        else
+            ""
+
+    /// Whether `home`'s types are JS-runtime intrinsics (bare name, NO import).
+    let isGlobalHome (home: string) : bool = home = esCoreHome
 
 /// Type translation for the TS-manifest provider: the manifest's `TypeRef` grammar
 /// → the seam's `FrozenType` / `ExternalSignature`, plus the per-manifest
 /// `TranslateCtx` (the type-identity table every walk threads). Consumed by
 /// `TsManifestMembers` and `TsManifestProvider`.
 module internal TsManifestTranslate =
+
+    /// THE ONE mapping from the manifest's wire `Schema.ImportShape` to the seam's
+    /// `ImportForm` (the JS backend's import-statement selector). Shared by the value
+    /// stamp (`stampValueSymbol`) and the overloaded-free-function grouping type
+    /// (`buildOverloadGroupingTypes`), so a free function and its overloaded sibling
+    /// lower through the SAME classification. `CommonJsExport → CommonJs` and
+    /// `Namespace → Namespace` are faithful (they were formerly collapsed to `Named`).
+    let importFormOfShape (import: Schema.ImportShape) : ImportForm =
+        match import with
+        | Schema.ImportShape.Named -> ImportForm.Named
+        | Schema.ImportShape.Default -> ImportForm.Default
+        | Schema.ImportShape.CommonJsExport -> ImportForm.CommonJs
+        | Schema.ImportShape.Namespace -> ImportForm.Namespace
 
     /// The lookup key a symbol declared at namespace path `nsPath` is registered/found
     /// under: its DOTTED QUALIFIED name (`NS.Foo`, `NS.Inner.Baz`), matching exactly
@@ -98,13 +154,14 @@ module internal TsManifestTranslate =
             /// The symbols' import path (for a flat single-file package, the package
             /// name); stamped into every minted key and `SymbolOrigin`.
             ModuleSpec: string
-            /// The namespace a GLOBAL pack's exports are MOUNTED under (`Js` for an
-            /// `es2015` home; `""` for a real package). A global pack registers its
-            /// types under `Js.<name>`, but its member signatures still spell an
-            /// intra-pack sibling by its BARE name (`Map`'s ctor returns `Map`, not
-            /// `Js.Map`), so `nominal`'s own-registry probe retries the BARE name
-            /// prefixed by this mount (`Js.Map`). `""` makes the retry a no-op, so a
-            /// real package is byte-identical. ONE source: `globalLibHomes`.
+            /// The namespace a MOUNTED pack's exports are MOUNTED under (`Js` for an
+            /// `es2015` home, `Node.Fs` for `node/fs`; `""` for a real flat package). A
+            /// mounted pack registers its types under `<Mount>.<name>`, but its member
+            /// signatures still spell an intra-pack sibling by its BARE name (`Map`'s
+            /// ctor returns `Map`, not `Js.Map`), so `nominal`'s own-registry probe
+            /// retries the BARE name prefixed by this mount (`Js.Map`). `""` makes the
+            /// retry a no-op, so a real package is byte-identical. ONE source:
+            /// `TsGlobalHomes.mountFor`.
             MountPrefix: string
         }
 
@@ -355,13 +412,14 @@ module internal TsManifestTranslate =
                     match entry.Kind with
                     | Schema.RefKind.Class
                     | Schema.RefKind.Interface ->
-                        // A GLOBAL home mints its ref under the Vesper-facing namespace
-                        // (`es2015` → `Js`) so this homed identity's `qualifiedName`
-                        // (`Js.Map\`2`) equals what the MOUNTED home provider registers
-                        // its own type under (`providerOfManifest` starts its flatten at
-                        // the same mount prefix). A real-package home stays namespace ""
-                        // (normal in-package spelling). ONE source: `globalLibHomes`.
-                        let ns = TsGlobalHomes.globalLibHomes.TryFind entry.Home |> Option.defaultValue ""
+                        // A MOUNTED home mints its ref under the Vesper-facing namespace
+                        // (`es2015` → `Js`, `node/fs → Node.Fs`) so this homed identity's
+                        // `qualifiedName` (`Js.Map\`2`) equals what the MOUNTED home
+                        // provider registers its own type under (`providerOfManifest`
+                        // starts its flatten at the same mount prefix). A real flat-package
+                        // home stays namespace "" (normal in-package spelling). ONE source:
+                        // `TsGlobalHomes.mountFor`.
+                        let ns = TsGlobalHomes.mountFor entry.Home
 
                         let key =
                             SymbolKey.TypeKey(Some entry.Home, ns, SymbolKeyOps.arityName name entry.Arity)

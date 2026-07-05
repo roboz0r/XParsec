@@ -88,29 +88,38 @@ let inline jsRefEq (a: obj) (b: obj) : bool = jsNative
 [<Emit("$0 == null")>]
 let inline jsIsNullOrUndef (o: obj) : bool = jsNative
 
+/// The unquoted name of a `declare module "…"` node (`fs`, `node:fs`), or `None` for
+/// any OTHER node — a non-module node, or an identifier-named `namespace`/`module`
+/// (`namespace NS`, whose `.name` is an `Identifier`, not a `StringLiteral`). The
+/// string-literal name's `.text` carries no quotes — they are syntax, absent from
+/// `.text` — so the result needs no de-quoting. Classified by the
+/// `isModuleDeclaration`/`isStringLiteral` runtime predicates, never raw `SyntaxKind`
+/// numerics, per the producer discipline.
+let quotedModuleNameOf (node: Ts.Node) : string option =
+    if ts.isModuleDeclaration node then
+        let nameNode = unbox<Ts.Node> (unbox<Ts.ModuleDeclaration> node).name
+
+        if ts.isStringLiteral nameNode then
+            Some (unbox<Ts.LiteralLikeNode> nameNode).text
+        else
+            None
+    else
+        None
+
 /// The name of the innermost QUOTED ambient module (`declare module "fs" { … }`)
 /// enclosing `node`, or `None` when the node sits in no quoted module (a true global,
 /// a default-lib type). Walks the parent chain, STEPPING OVER identifier-named
 /// `namespace`/`module` blocks (a `namespace NS` nested inside `declare module "fs"`
-/// is still homed to `"fs"` — only the QUOTED wrapper counts) and stopping at the
-/// source file. The name is the string-literal's UNQUOTED `.text` (`fs`, `node:fs`),
-/// so it needs no de-quoting — the quotes are syntax, not part of `.text`. Classified
-/// by the `isModuleDeclaration`/`isStringLiteral` runtime predicates, never raw
-/// `SyntaxKind` numerics, per the producer discipline.
+/// is still homed to `"fs"` — only the QUOTED wrapper counts, and `quotedModuleNameOf`
+/// returns `None` for the identifier-named ones) and stopping at the source file.
 let enclosingQuotedModuleName (node: Ts.Node) : string option =
     let rec walk (n: Ts.Node) : string option =
         if jsIsNullOrUndef (box n) || ts.isSourceFile n then
             None
-        elif ts.isModuleDeclaration n then
-            let md = unbox<Ts.ModuleDeclaration> n
-            let nameNode = unbox<Ts.Node> md.name
-
-            if ts.isStringLiteral nameNode then
-                Some (unbox<Ts.LiteralLikeNode> nameNode).text
-            else
-                walk n.parent
         else
-            walk n.parent
+            match quotedModuleNameOf n with
+            | Some name -> Some name
+            | None -> walk n.parent
 
     walk node
 

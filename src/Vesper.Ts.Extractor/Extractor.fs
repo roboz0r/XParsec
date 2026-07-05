@@ -367,22 +367,7 @@ let private manifestBaseName (moduleName: string) : string =
 let private ambientModuleName (sym: Ts.Symbol) : string =
     let fromDecl =
         match sym.declarations with
-        | Some ds ->
-            ds
-            |> Seq.tryPick (fun d ->
-                let n = unbox<Ts.Node> d
-
-                if ts.isModuleDeclaration n then
-                    let md = unbox<Ts.ModuleDeclaration> n
-                    let nameNode = unbox<Ts.Node> md.name
-
-                    if ts.isStringLiteral nameNode then
-                        Some (unbox<Ts.LiteralLikeNode> nameNode).text
-                    else
-                        None
-                else
-                    None
-            )
+        | Some ds -> ds |> Seq.tryPick (fun d -> quotedModuleNameOf (unbox<Ts.Node> d))
         | None -> None
 
     match fromDecl with

@@ -406,13 +406,13 @@ let testProviderResolves (path: string) =
                 for nx in nested do
                     check childPrefix nx
 
-        // A GLOBAL pack (its home is in `globalLibHomes`, e.g. `es2015` → `Js`) mounts
-        // every export under its Vesper-facing namespace, so the provider registers
-        // `eval` as `Js.eval` and `Map` as `Js.Map\`2`. Start the resolution walk at that
-        // mount prefix — the SAME single source the provider flattens from — so a real
-        // package stays prefix "" (byte-identical) and es2015 resolves through `Js`.
-        let mountPrefix =
-            TsGlobalHomes.globalLibHomes.TryFind man.Package |> Option.defaultValue ""
+        // A MOUNTED pack (`TsGlobalHomes.mountFor` non-empty, e.g. `es2015` → `Js`)
+        // mounts every export under its Vesper-facing namespace, so the provider
+        // registers `eval` as `Js.eval` and `Map` as `Js.Map\`2`. Start the resolution
+        // walk at that mount prefix — the SAME single source the provider flattens from
+        // — so a real package stays prefix "" (byte-identical) and es2015 resolves
+        // through `Js`.
+        let mountPrefix = TsGlobalHomes.mountFor man.Package
 
         for ex in man.Exports do
             check mountPrefix ex

@@ -92,6 +92,11 @@ and [<RequireQualifiedAccess>] JsStatement =
     /// `name as alias` spelling by `JsPrint`, never pre-formatted by the producer. At
     /// least one of the two is non-empty.
     | Import of defaultBinding: string option * named: (string * string) list * source: string
+    /// `import * as <binding> from "<source>";` — a namespace-object import, the
+    /// lowering of a `Schema.ImportShape.Namespace` export. Its own statement (a
+    /// namespace clause cannot ride the braces of a `{ named }` import), emitted
+    /// beside any default/named `Import` for the same source.
+    | ImportNamespace of binding: string * source: string
     /// `if (test) { … } else { … }`. An empty alternate prints without the `else`.
     | If of test: JsExpr * consequent: JsStatement list * alternate: JsStatement list
     /// `while (test) { … }` — the self-tail-call trampoline.

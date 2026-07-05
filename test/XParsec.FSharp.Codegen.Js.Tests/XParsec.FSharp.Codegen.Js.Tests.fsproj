@@ -34,6 +34,7 @@
     <Compile Include="StructuralPrinterTests.fs" />
     <Compile Include="PrintfSpecifierTests.fs" />
     <Compile Include="FreeFnOverloadTests.fs" />
+    <Compile Include="ImportFormLoweringTests.fs" />
     <Compile Include="MemberOverloadTests.fs" />
     <Compile Include="TsManifestEnumTests.fs" />
     <Compile Include="EnumTests.fs" />

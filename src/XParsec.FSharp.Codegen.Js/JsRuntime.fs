@@ -28,6 +28,11 @@ type private ImportEntry =
         /// a repeat reference must be a no-op; `importStatements` sorts on read.
         Named: System.Collections.Generic.HashSet<string * string>
         mutable Default: string option
+        /// The at-most-one `import * as <binding>` namespace local for this module
+        /// (`Schema.ImportShape.Namespace`). Its own statement — a namespace clause
+        /// cannot ride the `{ named }` braces — so it is emitted beside any default/
+        /// named import for the same source.
+        mutable Namespace: string option
     }
 
 /// Per-compilation accumulator for the runtime-module imports a program needs.
@@ -64,6 +69,7 @@ module JsImports =
                         Module = rt
                         Named = System.Collections.Generic.HashSet<string * string>()
                         Default = None
+                        Namespace = None
                     }
 
                 imports.Entries.[assembly] <- entry
@@ -71,41 +77,64 @@ module JsImports =
             | None -> failwithf "JS codegen: %s from assembly '%s' has no JS runtime module" what assembly
 
     /// Resolve an `External` value node to its local import identifier, recording the
-    /// import. The export is aliased to `$<ns>_<name>` (`$` is illegal in F#, so
-    /// collision-free). `form` is the resolved symbol's `ExternalSymbol.ImportForm`
-    /// (read off the provider seam by the caller): `Default` lowers to a DEFAULT
-    /// import (the alias binds the module's default export, no named specifier);
-    /// `Named` to a named specifier. Fails loudly for a package with no authored
-    /// runtime module.
+    /// import. `form` is the resolved symbol's `ExternalSymbol.ImportForm` (read off
+    /// the provider seam by the caller), selecting the import-statement shape:
+    ///   • `Named`            → a named specifier `{ name as $<ns>_<name> }`, returns
+    ///     the alias;
+    ///   • `Default`/`CommonJs` → a DEFAULT binding (the alias binds the module's
+    ///     default export / `module.exports`, no named specifier), returns the alias.
+    ///     `export =` binds `module.exports` to the same default slot under the
+    ///     esModuleInterop lowering, so `CommonJs` rides the `Default` path;
+    ///   • `Namespace`        → an `import * as <nsLocal>` binding, returns the
+    ///     MEMBER path `<nsLocal>.<name>` (the export is read off the namespace
+    ///     object).
+    /// The alias/namespace-local is `$`-prefixed (`$` is illegal in F#, so
+    /// collision-free). Fails loudly for a package with no authored runtime module.
     let addRef (imports: JsImports) (compiledName: string) (key: SymbolKey voption) (form: ImportForm) : string =
         match key with
-        // A GLOBAL pack's export (its home is in `globalLibHomes`) is provided by the
-        // JS runtime intrinsically: emit its BARE export name, record NO import. Global
-        // rides the HOME, so this is decided by the key's home assembly — the SAME
-        // single-source fact the provider mounted the pack under `Js` by. (A Global
-        // class's construction bypasses `addRef` entirely via the external-new arm;
-        // this covers a Global pack's free-function / variable exports.)
-        | ValueSome(SymbolKey.ValueKey(Some asm, _, name)) when TsGlobalHomes.globalLibHomes.ContainsKey asm -> name
+        // A GLOBAL pack's export (its home is a `TsGlobalHomes.isGlobalHome`) is
+        // provided by the JS runtime intrinsically: emit its BARE export name, record
+        // NO import. Global rides the HOME, so this is decided by the key's home
+        // assembly — the SAME single-source fact the provider mounted the pack under
+        // `Js` by. (A Global class's construction bypasses `addRef` entirely via the
+        // external-new arm; this covers a Global pack's free-function / variable
+        // exports.) A node module MOUNTS under a namespace too (`node/fs → Node.Fs`)
+        // but is NOT a global home, so it falls through to a real import below.
+        | ValueSome(SymbolKey.ValueKey(Some asm, _, name)) when TsGlobalHomes.isGlobalHome asm -> name
         | ValueSome(SymbolKey.ValueKey(Some asm, ns, name)) ->
             let entry = entryFor imports asm (sprintf "external value '%s'" compiledName)
             let alias = "$" + (ns + "." + name).Replace('.', '_')
 
-            match form with
-            | ImportForm.Default ->
-                // At-most-one default binding per module, ENFORCED: a second, different
-                // alias would silently clobber the first in the emitted `import` line.
-                // Re-recording the same alias is the normal repeat-reference no-op.
-                match entry.Default with
-                | Some prev when prev <> alias ->
+            // Bind an at-most-one module slot (`Default`/`Namespace`), ENFORCED: a
+            // second, different local would silently clobber the first in the emitted
+            // `import` line; re-recording the SAME local is the normal repeat-reference
+            // no-op. `slotDesc` names the slot for the diagnostic.
+            let bindOnce (current: string option) (set: string -> unit) (slotDesc: string) (local: string) : unit =
+                match current with
+                | Some prev when prev <> local ->
                     failwithf
-                        "JS codegen: module '%s' already binds its default export as '%s'; cannot re-bind it as '%s'"
+                        "JS codegen: module '%s' already binds its %s as '%s'; cannot re-bind it as '%s'"
                         asm
+                        slotDesc
                         prev
-                        alias
-                | _ -> entry.Default <- Some alias
-            | ImportForm.Named -> entry.Named.Add((name, alias)) |> ignore
+                        local
+                | _ -> set local
 
-            alias
+            match form with
+            | ImportForm.Default
+            | ImportForm.CommonJs ->
+                bindOnce entry.Default (fun v -> entry.Default <- Some v) "default export" alias
+                alias
+            | ImportForm.Named ->
+                entry.Named.Add((name, alias)) |> ignore
+                alias
+            | ImportForm.Namespace ->
+                // One namespace local per module; a member is read off it (`ns.name`).
+                // The local derives from the module (not the export), so every Namespace
+                // ref to `asm` shares it.
+                let nsLocal = "$ns_" + asm.Replace('.', '_').Replace('/', '_')
+                bindOnce entry.Namespace (fun v -> entry.Namespace <- Some v) "namespace import" nsLocal
+                nsLocal + "." + name
         | _ -> failwithf "JS codegen (Step 5b): unsupported external value '%s' (key %A)" compiledName key
 
     /// Resolve an external union's case class to its local import identifier, importing
@@ -136,7 +165,15 @@ module JsImports =
         [
             for kv in imports.Entries |> Seq.sortBy (fun kv -> kv.Key) do
                 let entry = kv.Value
-                JsStatement.Import(entry.Default, entry.Named |> List.ofSeq |> List.sort, "./" + entry.Module.FileName)
+                let source = "./" + entry.Module.FileName
+                // A default/named import statement, only when the entry has such a
+                // binding (a pure-namespace module has none).
+                if entry.Default.IsSome || entry.Named.Count > 0 then
+                    JsStatement.Import(entry.Default, entry.Named |> List.ofSeq |> List.sort, source)
+                // A `import * as ns` statement rides its own line beside the above.
+                match entry.Namespace with
+                | Some binding -> JsStatement.ImportNamespace(binding, source)
+                | None -> ()
         ]
 
     /// The runtime modules referenced during the walk, sorted by assembly. Each emitted

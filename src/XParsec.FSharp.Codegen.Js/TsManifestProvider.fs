@@ -44,11 +44,9 @@ module TsManifestProvider =
     /// variable symbols: both resolve their `import … from '<moduleSpec>'` through
     /// `JsImports.addRef`, which needs a `ValueKey(Some moduleSpec, …)` — without it
     /// the symbol carries `asm = None` and emit fails on a `ValueKey(None, …)`.
-    /// `import` is the manifest's per-export shape: a TS `export default` stamps
-    /// `ImportForm.Default` so the JS backend lowers the use site to a DEFAULT import
-    /// (`import x from '<spec>'` — a default export cannot be imported by name);
-    /// everything else collapses to `Named` (Namespace/CommonJS forms have no
-    /// fixture yet — see `ImportForm`).
+    /// `import` is the manifest's per-export shape, mapped faithfully through the ONE
+    /// `importFormOfShape` (a TS `export default` → `Default` → DEFAULT import; an
+    /// `export =` → `CommonJs`; a namespace module → `Namespace`; else `Named`).
     let private stampValueSymbol
         (ctx: TranslateCtx)
         (nsPath: string)
@@ -59,10 +57,7 @@ module TsManifestProvider =
         { sym with
             Origin = originFor ctx nsPath
             Key = SymbolKey.ValueKey(Some ctx.ModuleSpec, nsPath, name)
-            ImportForm =
-                match import with
-                | Schema.ImportShape.Default -> ImportForm.Default
-                | _ -> ImportForm.Named
+            ImportForm = importFormOfShape import
         }
 
     let private toFunctionSymbol
@@ -139,19 +134,19 @@ module TsManifestProvider =
         // later tier supplies nested namespace paths here instead of `pkg` directly.
         let moduleSpec = pkg
 
-        // A GLOBAL pack (its `Package`/home appears in `globalLibHomes`) mounts every
-        // export under its Vesper-facing namespace: start the flatten at that prefix,
-        // so `es2015`'s `Map` registers as `Js.Map` (nsPath `Js`) and every downstream
-        // site — `mint`/`originFor`/`buildCtx`/`toTypeShape`/`funcs`/synthetic types —
-        // picks up the prefix from the SAME `flatExports`. `mountPrefix = ""` for a
-        // real package (flatten at root, as before). ONE source: `globalLibHomes`.
-        let mountPrefix =
-            TsGlobalHomes.globalLibHomes.TryFind man.Package |> Option.defaultValue ""
+        // A MOUNTED pack (`TsGlobalHomes.mountFor` non-empty) mounts every export under
+        // its Vesper-facing namespace: start the flatten at that prefix, so `es2015`'s
+        // `Map` registers as `Js.Map` (nsPath `Js`) and a `node/fs` export registers
+        // under `Node.Fs`, and every downstream site — `mint`/`originFor`/`buildCtx`/
+        // `toTypeShape`/`funcs`/synthetic types — picks up the prefix from the SAME
+        // `flatExports`. `mountPrefix = ""` for a real flat package (flatten at root).
+        let mountPrefix = TsGlobalHomes.mountFor man.Package
 
-        // Global rides the HOME: a type this manifest builds is import-free iff its
-        // home is a global pack (equivalently, `mountPrefix <> ""`). Stamped onto
-        // every class/interface shape below.
-        let isGlobalPack = mountPrefix <> ""
+        // Global rides the HOME, and is a SEPARATE axis from the mount: a global pack's
+        // types are import-free, but a node module MOUNTS (`Node.Fs`) while STILL
+        // requiring a real import — so this is `isGlobalHome`, NOT `mountPrefix <> ""`.
+        // Stamped onto every class/interface shape below.
+        let isGlobalPack = TsGlobalHomes.isGlobalHome man.Package
 
         let flatExports = flatten mountPrefix man.Exports
 

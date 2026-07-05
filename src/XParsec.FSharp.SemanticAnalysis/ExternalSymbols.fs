@@ -56,17 +56,26 @@ type ExternalConstraint =
     | Coercion of typarIndex: int * target: FrozenType
 
 /// How a symbol's home module EXPORTS it — the fact that decides the JS import
-/// statement shape at a use site. `Named` (`import { x from … }`) for everything
-/// except a TS `export default` (`Default` — `import x from …`; a default export
-/// cannot be imported by name). A semantic classification of the external
-/// package, so it rides the provider seam (like `ExternalClassFlags.MemberLowering`);
-/// only the JS backend consumes it (`JsImports.addRef`). Two arms only: these are
-/// the only forms produced today — the manifest's `Schema.ImportShape.Namespace` /
-/// `CommonJsExport` collapse to `Named` at the provider until a fixture needs them.
+/// statement shape at a use site. A semantic classification of the external package,
+/// so it rides the provider seam (like `ExternalClassFlags.MemberLowering`); only the
+/// JS backend consumes it (`JsImports.addRef`). The four arms mirror the manifest's
+/// `Schema.ImportShape`:
+///   • `Named`   → `import { x } from …` (the default for every non-TS producer);
+///   • `Default` → `import x from …` (a TS `export default`; a default export cannot
+///     be imported by name);
+///   • `CommonJs`→ a TS `export =` (CommonJS `module.exports = X`). Under the
+///     esModuleInterop lowering every modern ESM/node consumer uses, `export =`
+///     binds the whole `module.exports` to a DEFAULT import, so `CommonJs` lowers
+///     IDENTICALLY to `Default` today — it stays a distinct arm so the extractor's
+///     brand survives to a later CJS-target that would emit `import x = require(…)`;
+///   • `Namespace` → `import * as ns from …` with member access `ns.x` (a
+///     namespace-object import, e.g. `import * as fs from "fs"`).
 [<RequireQualifiedAccess>]
 type ImportForm =
     | Named
     | Default
+    | CommonJs
+    | Namespace
 
 type ExternalSymbol =
     {
@@ -437,12 +446,23 @@ type ExternalClassFlags =
         /// (`Map`, `Set`, `Promise`, …), reachable by its BARE name with NO `import`.
         /// A SEPARATE axis from `MemberLowering`: that decides call-lowering shape,
         /// this decides import emission. Fable-named after `[<Global>]`. STAMPED by
-        /// the TS-manifest provider for a type whose HOME is a global pack (an entry
-        /// of `TsGlobalHomes.globalLibHomes`, e.g. `es2015` mounted under `Js`) —
+        /// the TS-manifest provider for a type whose HOME is a global pack (a
+        /// `TsGlobalHomes.isGlobalHome`, e.g. `es2015` mounted under `Js`) —
         /// Global rides the HOME, not the type, so a real-package home keeps `false`
         /// (normal import). CONSUMED by the JS backend: `JsImports.addRef` skips
         /// recording and the external-new / member-emit sites use the bare name.
         Global: bool
+        /// The import-STATEMENT shape for this type's home-module exports — the
+        /// type-level analog of `ExternalSymbol.ImportForm` (which a VALUE symbol
+        /// carries directly). An overloaded free function is routed to a synthetic
+        /// `ErasedBare` grouping type, which drops the per-value `ImportForm`; the
+        /// group's uniform form is stamped HERE instead so `JsExternalMembers`'
+        /// erased-grouping ref can lower `Util.format(x)` to the right import
+        /// (`import { format }` for `Named`, `import format` for `Default`/`CommonJs`,
+        /// `import * as util; util.format` for `Namespace`). `Named` for every other
+        /// producer and type shape (the churn-free default). A SEPARATE axis from
+        /// `Global`: that decides import-vs-no-import, this the statement shape.
+        ImportForm: ImportForm
     }
 
     /// The conservative default the contract layer stamps when a `.fsi` only
@@ -455,6 +475,7 @@ type ExternalClassFlags =
             IsValueType = false
             MemberLowering = MemberLowering.ReceiverFirst
             Global = false
+            ImportForm = ImportForm.Named
         }
 
 /// The two faces of a **dual-faced capability interface** — a `Class` that, like

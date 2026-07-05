@@ -436,18 +436,21 @@ module internal TsManifestMembers =
         overloadedFns
         |> List.groupBy (fun fn -> fn.NsPath)
         |> List.map (fun (nsPath, fns) ->
-            // Named-imports-only gate: the erase path reuses the existing
-            // named-import `addRef` lowering; Default/Namespace/CommonJS import forms
-            // have no JS AST yet. Throw loudly on a non-Named overloaded free function
-            // so the deferred import-form work is gated to exactly that fixture.
-            for fn in fns do
-                match fn.Import with
-                | Schema.ImportShape.Named -> ()
-                | other ->
+            // The group's UNIFORM import form, stamped on the erased type's flags so
+            // `erasedGroupingRef` lowers `Util.format(x)` to the right import shape.
+            // The overloads of one grouping share a home module, so they share an
+            // import form; a MIXED group is a manifest anomaly (a single module cannot
+            // be both `export =` and named-export) — throw rather than silently pick.
+            let groupImportForm =
+                let forms = fns |> List.map (fun fn -> importFormOfShape fn.Import) |> List.distinct
+
+                match forms with
+                | [ single ] -> single
+                | many ->
                     failwithf
-                        "overloaded free function '%s' uses import shape %A; only Named imports are supported for the synthetic free-function-overload grouping type"
-                        fn.Name
-                        other
+                        "overloaded free functions at namespace '%s' mix import forms %A; a synthetic grouping type carries ONE import form"
+                        nsPath
+                        many
 
             let simpleName = syntheticTypeName moduleSpec
             // The synthetic type's identity goes through the same `mint` spelling
@@ -490,6 +493,11 @@ module internal TsManifestMembers =
                             // Global rides the HOME: a global pack's grouping type is
                             // import-free like its real types.
                             Global = isGlobalPack
+                            // The group's import form, consumed by `erasedGroupingRef`
+                            // to pick `import { format }` (Named) vs `import format`
+                            // (Default/CommonJs) vs `import * as util; util.format`
+                            // (Namespace).
+                            ImportForm = groupImportForm
                         }
                     Origin = origin
                     // JS is single-faced — no BCL platform spelling to reconcile.

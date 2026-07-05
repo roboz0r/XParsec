@@ -635,8 +635,9 @@ module EmitJs =
                     memberName
             | ValueSome {
                             MemberLowering = MemberLowering.ErasedBare
+                            ImportForm = form
                         },
-              ValueNone -> JsExternalMembers.erasedGroupingRef ctx.Imports declKey memberName loc
+              ValueNone -> JsExternalMembers.erasedGroupingRef ctx.Imports declKey memberName form loc
             | ValueSome {
                             MemberLowering = MemberLowering.AttachedNative
                         },

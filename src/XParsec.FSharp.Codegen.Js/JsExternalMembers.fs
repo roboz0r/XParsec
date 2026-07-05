@@ -253,7 +253,13 @@ module JsExternalMembers =
     /// from the type's home module — so `Util.format(x)` emits `import { format … }`
     /// + `format(x)`, NOT the mangled `Util_format` an ordinary external static
     /// member would import (no such export exists).
-    let erasedGroupingRef (imports: JsImports) (declKey: SymbolKey) (memberName: string) (loc: JsLoc voption) : JsExpr =
+    let erasedGroupingRef
+        (imports: JsImports)
+        (declKey: SymbolKey)
+        (memberName: string)
+        (form: ImportForm)
+        (loc: JsLoc voption)
+        : JsExpr =
         // The free-function `External` path carries a `ValueKey(Some home, ns, name)`;
         // mirror it from the grouping type's key so `addRef` imports the same bare
         // export (`name`) from the same home module the bare free function would.
@@ -266,10 +272,10 @@ module JsExternalMembers =
                     memberName
                     declKey
 
-        // `ImportForm.Named` by construction: `TsManifestProvider.providerOfManifest`
-        // gates the synthetic grouping type to Named-imported overloads (it throws on
-        // any other import shape), so an erased member is always a named export.
-        JsExpr.Identifier(JsImports.addRef imports memberName (ValueSome valueKey) ImportForm.Named, loc)
+        // `form` is the group's import shape, stamped on the grouping type's flags by
+        // `buildOverloadGroupingTypes`: `Named` → `import { format }`; `Default`/
+        // `CommonJs` → `import format`; `Namespace` → `import * as util; util.format`.
+        JsExpr.Identifier(JsImports.addRef imports memberName (ValueSome valueKey) form, loc)
 
     /// The mangled receiver-first import: `<Type>__<member>` / `<Type>_<member>`
     /// aliased from the declaring type's runtime-js module, applied to the receiver

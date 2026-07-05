@@ -35,6 +35,7 @@ The code + named tests are the canonical record; do not re-narrate here.
 | G3 `retype` → non-AutoOpen `Vesper.Unsafe` | `ops-dynamic.js.fsi`/`.fs`; `DynamicTypeTests` |
 | G5 external interface heritage (transitive upcast + inherited reads) | `ExternalHeritageTests` |
 | W1 ambient-module extraction entry (`--ambient-modules`, one manifest per quoted module, per-symbol resilience, cross-module ref homing) | `Extractor.extractAmbientModules`; `TsInterop.enclosingQuotedModuleName`; `MapCtx.ModuleHome`; `ExportMap.mapExportResilient`; `specs/ambient-modules/` golden (`testExtractorMatchesGoldenAmbientModules`) |
+| W2 CommonJS/Namespace import lowering + `node/* → Node.*` mount (mount/is-global split) | `ImportForm.CommonJs`/`Namespace`; `TsManifestTranslate.importFormOfShape`; `ExternalClassFlags.ImportForm`; `JsRuntime.addRef` + `JsStatement.ImportNamespace`; `TsGlobalHomes.mountFor`/`isGlobalHome`; `ImportFormLoweringTests` |
 
 **Generic machinery node RIDES (already built, reused verbatim):** the `--package` module-entry
 extraction (`extractPackage`); the refs table (identity-only homed `FTClass`, the ECMA-335
@@ -129,19 +130,35 @@ lowering) owns — and no manifest is provider-CONSUMED until W2 anyway (W1's fi
 extraction-only). So the mount lands in W2, where the global-pack/no-import bit is split from the
 namespace mount rather than conflated. W1 is otherwise complete.
 
-### W2 — CommonJS / Namespace import **lowering** *(hard blocker)*
+### W2 — CommonJS / Namespace import **lowering** *(hard blocker)* — **LANDED**
 
-Node's `export =` modules are *extracted* (`ImportShape.CommonJsExport` is branded, and
-`extractModuleExports` explicitly pulls the `export =` entry the export table omits) but **not
-lowered**: the consumer maps only `Default → ImportForm.Default`, everything else → `Named`
-(`TsManifestProvider.fs`), and — worse — `buildOverloadGroupingTypes` **throws** on a
-Default/Namespace/CommonJS overloaded free function (`TsManifestMembers.fs`). Node's overloaded
-`export =` module functions would hard-fail. Land the CommonJS/Namespace import form + relax the
-overload-grouping gate to accept them. Fixture: an overloaded `export =` module.
-**Also owns the `node/* → Node.*` namespace mount deferred from W1** (see W1): split the
-namespace-mount half of `globalLibHomes` from the is-global/no-import half so a node module can mount
-under `Node.<Module>` while STILL emitting a real import, then add the `node/*` mount. This is the
-provider's first actual consumption of a node manifest, so it belongs here, not W1.
+**Landed.** `ImportForm` gained `CommonJs` + `Namespace` arms; the ONE
+`TsManifestTranslate.importFormOfShape` maps `Schema.ImportShape` faithfully (no more
+everything-but-`Default` → `Named` collapse), shared by `stampValueSymbol` and the grouping
+builder. The overloaded-free-function grouping type no longer **throws** on a non-`Named` import:
+`buildOverloadGroupingTypes` computes the group's uniform import form (throws only on a mixed
+group — a manifest anomaly) and stamps it on the new `ExternalClassFlags.ImportForm`, which
+`JsExternalMembers.erasedGroupingRef` reads to lower the erase — `import { f }` (Named), `import f`
+(Default/CommonJs — `export =` binds `module.exports` to a DEFAULT import under esModuleInterop),
+or `import * as ns; ns.f` (Namespace, via the new `JsStatement.ImportNamespace` + `ImportEntry.Namespace`
+slot). `CommonJs` shares the `Default` `addRef` path but stays a distinct arm so the brand survives
+to a later CJS target. **The `node/* → Node.*` mount landed too:** `TsGlobalHomes` split the
+former `globalLibHomes` `Map` (which conflated namespace-mount with import-suppression) into
+`mountFor` (home → mount namespace — `es2015 → Js`, `node/<mod> → Node.<Mod>`) and `isGlobalHome`
+(import-free set — es2015 only), so a node module MOUNTS under `Node.Fs` while STILL emitting a
+real import (`Global = false`). Fixtures: `ImportFormLoweringTests` — an overloaded `export =`
+module (default import + bare-erased call + no grouping throw), an overloaded Namespace module
+(`import * as` + member call), and a `node/fs`-homed manifest (mounts under `Node.Fs`, emits a real
+import — the mount/is-global split).
+
+**Residue (deferred, not W2):** a node module's import SPECIFIER still flows through the
+`JsRuntimeModule.FileName` seam (`import … from "./fs.mjs"`), not the bare node specifier
+(`"fs"`/`"node:fs"`). Bare-specifier emission (and the runtime-asset-vs-external-package
+distinction it needs) lands with real `@types/node` consumption (W7), where a node manifest carries
+its own import specifier instead of a synthetic `.mjs`. The `Namespace` arm is also not yet
+extractor-PRODUCIBLE for a value export (`importShapeOf` routes a module-flagged symbol to an
+`Export.Namespace`, never a `Namespace`-branded `Function`/`Variable`); its lowering is pinned by a
+hand-built consumer fixture, faithful to whatever shape a manifest declares.
 
 ### W3 — Per-parameter optional/rest + `OptionalDefaults`
 
@@ -205,7 +222,10 @@ hand-built fixture BEFORE the real-package regen.
    code path — `mapExportResilient` — but not exercised by a fixture: engineering a deterministic
    throw from a `.d.ts` symbol is impractical, so it stays a reviewed-in-place insurance like its
    globals-path sibling `mapGlobalSymbolResilient`.)
-2. **W2** — an overloaded `export =` module; assert import form + no grouping throw.
+2. **W2** — **DONE.** `ImportFormLoweringTests`: an overloaded `export =` module (CommonJS
+   default import + no grouping throw), an overloaded Namespace module (`import * as`), and a
+   `node/fs`-homed manifest (mounts under `Node.Fs`, still a real import). Specifier-shape residue
+   (bare `"fs"` vs `"./fs.mjs"`) deferred to W7.
 3. **W3** — `fn(path, opts?, cb)`; assert optional-omit call + callback + config-object width, and
    that same-`argSig` overloads dedup rather than throw.
 4. **W4/W5** — targeted fixtures per graduation as each bites a real node type.
