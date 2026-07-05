@@ -76,25 +76,19 @@ found several F#-rejected forms. Then flip each `PrintfHappyPathTests` cold asse
   zero-pad for **non-float** types (`%-05d ≡ %-5d`, spaces on the right). The `%A` arm reads the
   **raw** `0` flag (`%0A`/`%05A` force flat regardless of width). F#-**rejected** (not targets):
   `%05s`/`%05b`/`%05c`/`%0s` (FS0741, `0` unsupported on non-numeric).
-- **A1b — zero-pad on unsigned / octal. NEXT (real formatting; touches the runtime handler).**
-  Oracle (pinned in `tmp/printf_a1.fsx`): `%05u` 42 → `00042`, `%05u` -1 → `4294967295` (10 digits,
-  overflows width ⇒ no pad); `%08o` 8 → `00000010`, `%08o` -1 → `37777777777`. **This corrects an
-  in-code invariant:** `FieldFormat.IntRadix`'s doc says "`%o` never zero-pads — always None" and
-  the classifier defers `%08o`, but F# **does** zero-pad octal. Work items:
-    1. **Front end:** in `tryClassify`, admit `zeroPad` for `UnsignedDecimalInt` (`%u`) and
-       `UnsignedOctal` (`%o`) — today `:219`/`:220-224` return `ValueNone`. Carry the zero-pad
-       width: extend `FieldFormat.Unsigned` to `Unsigned of zeroPad: int option` and
-       `IntRadix(radix, zeroPad)` already has the slot — just stop forcing `None` for octal.
-    2. **CLR projection:** `Codegen.Clr/ClrHoleFormat.toDotNetFormat` — map the zero-pad width onto
-       the handler args (mirror how `%05x`/`%05d` already project: hex uses `IntRadix` zeroPad, dec
-       uses `DecimalZeroPad`/`HoleKind.ZeroPaddedFloat`-style width-in-alignment-slot).
-    3. **Runtime handler (`Vesper.Printf/formatter.fs`, Vesper-compiled):** `AppendUnsigned` /
-       `AppendOctal` (`HoleKind.Unsigned` / `HoleKind.Octal`) need a zero-pad width parameter, or a
-       dedicated `AppendZeroPadded*` member. **Model it on the existing `AppendZeroPaddedFloat`**
-       (the `%0w.pf` handler) — same "zero-pad *after any sign* to a total field of `width`"
-       shape. Note the overflow case (`%05u` -1 ⇒ 10 digits, no truncation, no pad).
-    4. Tests: `runParity` for each oracle form; no cold assertion currently pins `%05u`/`%08o`
-       specifically (they fell under the generic defer), so add fresh `Format`-shape + parity tests.
+- **A1b — zero-pad on unsigned / octal. LANDED (`dea85b42`).** `%05u`/`%08o` (and their
+  overflow forms) now lower to native `Format` nodes. Oracle (pinned in `tmp/printf_a1.fsx`):
+  `%05u` 42 → `00042`, `%05u` -1 → `4294967295` (10 digits, overflows width ⇒ no pad); `%08o` 8 →
+  `00000010`, `%08o` -1 → `37777777777`. **Corrected an in-code invariant:** `FieldFormat.IntRadix`'s
+  doc claimed "`%o` never zero-pads — always None", but F# **does** zero-pad octal. What landed:
+  `FieldFormat.Unsigned` grew a `zeroPad: int option` slot and octal now emits
+  `IntRadix(Radix.Octal, Some w)`; two new `HoleKind`s (`UnsignedZeroPad`/`OctalZeroPad`) carry the
+  width in the alignment slot as a `Const` (zero-pad and space-pad share no operand slot); two new
+  Vesper handler members (`AppendZeroPaddedUnsigned`/`AppendZeroPaddedOctal`) reuse a shared
+  `ZeroPadAfterSign` extracted from `AppendZeroPaddedFloat` (overflow is a no-op — no truncation).
+  JS backend kept in sync (`%05u` via `padStart`) with a `runsLines` parity test covering both
+  overflow cases. `%-05u`/`%-08o` were already covered by the A1a left-align-wins normalisation
+  (drops `zeroPad`, routes through the space-pad path).
 - **A2 — byte-exact sign/zero-pad float forms (deferred; hardest parity).** Each its own
   `FieldFormat` + section-format construction in `ClrHoleFormat`, oracle-verified: forced-sign on
   non-`%d`/`%f` (`%+g`/`% g`/`%+e`, `:171-177`), sign+zero-pad (`%+05d`, `:163-164`), `%08e`/`%010g`
@@ -207,16 +201,22 @@ pins exactly this. A *full* `rm FSharp.Core.dll` also needs list/option to resol
 types (the self-host posture, `ctx.DefaultListIsVesper`) — track separately; this sprint's success
 is measured by *printf* pinning nothing, not by the whole program being FSharp.Core-free.
 
-## Ordering summary & status (updated 2026-07-04)
+## Ordering summary & status (updated 2026-07-05)
 
 **Landed:** A0 (`% A`, `ae6e424e`) → B1 (`fprintf`/`fprintfn`, `0c11484b`) + writer-slot `TyClass`
-cleanup (`9498ad84`) → A1a (inert-flag / left-wins forms, `16b69e2f`). All on branch
-`semantic-analysis`; suites green at each (CLR 1137 / JS 252 / semantic 700).
+cleanup (`9498ad84`) → A1a (inert-flag / left-wins forms, `16b69e2f`) → **Track F** (star-width
+`%*d` / precision `%.*f` / `%*A`, `927aaabe`…`416495b2` — a separable feature, landed on top of the
+A1a/A1b-docs commits) → A1b (zero-pad `%u`/`%o`, `dea85b42`). All on branch
+`semantic-analysis`. **A1b verified 2026-07-05:** clean build, all suites green — **CLR 1191**
+(1185 + 6 new) **/ JS 259 (258 + 1 new) / semantic 710** (+1 skipped). Track F's cold star **residuals**
+(`%0*d`, `%0*.Nf`, `%-*A`/`%+*A`/`%0*A`) are pinned in `FSharpCoreDepsTests.fs`
+(`test/XParsec.FSharp.Codegen.Clr.Tests/`, `:144`) and remain a capstone precondition (see § Track F).
 
-**RESUME HERE → A1b** (zero-pad on `%u`/`%o`) — fully spec'd in Track A above; oracle bytes in
-`tmp/printf_a1.fsx`. First A-form that touches the runtime handler (`Vesper.Printf/formatter.fs`),
-so build+run the FULL CLR suite. The maintainer chose to keep A1's *specifier-forms* order rather
-than jump to Track C.
+**RESUME HERE → A2** (byte-exact sign/zero-pad float forms) — spec'd in Track A above. Hardest
+parity in Track A: each form is its own `FieldFormat` + section-format construction in
+`ClrHoleFormat`, oracle-verified via `tmp/printf_a1.fsx`. The pinned cold `PrintfHappyPathTests`
+cases (`%010g`/`%+g`/`% g`/`%+05d`/`%+e`/`%08e`/`%.2M`, plus the `%-05.2f` guard A1a added) flip as
+each lands.
 
 **Then:** A2 (byte-exact float forms) → C1/C2 (`%A` gate relax; big coverage jump) → B2 (`bprintf`)
 → D (`%a`/`%t`, design pass first — sink ABI) → E1 (const-literal format) → E2 (runtime runner;
