@@ -262,8 +262,8 @@ everywhere. It divides into an easy half available *today* and a hard half that 
 
 ### Track E — format-as-value / non-literal format
 
-`formatSpecifiers` returns `ValueNone` for a non-`Expr.String` format (`InferLiterals.fs:249`), so
-a `PrintfFormat`-typed value used at the call site defers. Two sub-cases:
+`formatSpecifiers` (`InferLiterals.fs`) returns `ValueNone` for a non-`Expr.String` format (its
+final `| _ -> ValueNone`), so a `PrintfFormat`-typed value used at the call site defers. Two sub-cases:
 - **E1 — compile-time-known literal bound to a `let`** (`let fmt = ... in printf fmt` where `fmt`
   is a literal): constant-propagate the format to the call site and lower normally. Medium.
 - **E2 — genuinely dynamic format** (computed at runtime): needs the **runtime spec-runner** this
@@ -306,22 +306,25 @@ is measured by *printf* pinning nothing, not by the whole program being FSharp.C
 cleanup (`9498ad84`) → A1a (inert-flag / left-wins forms, `16b69e2f`) → **Track F** (star-width
 `%*d` / precision `%.*f` / `%*A`, `927aaabe`…`416495b2` — a separable feature, landed on top of the
 A1a/A1b-docs commits) → A1b (zero-pad `%u`/`%o`, `dea85b42`) → A2 (float sign/zero-pad forms,
-`ab78a321`) → **Track C** (`%A` gate relax — C1 + C2, `134d942b`) → **B2** (`bprintf`, 2026-07-05).
-All on branch `semantic-analysis`. **Track A is complete** (`tryClassify` total over every lowerable
-flag/width/precision form), **Track C is complete** (every `%A` hole lowers natively), and **Track B
-is complete** (`fprintf`/`fprintfn`/`bprintf` all lower natively; fully-applied only, JS deferred).
-**B2 verified 2026-07-05:** clean build, all suites green — **CLR 1223** (1219 + 4 new) **/ JS 264 /
-semantic 711** (+1 skipped) / **Vesper 49**. Remaining printf cold residuals: Track F's star forms
+`ab78a321`) → **Track C** (`%A` gate relax — C1 + C2, `134d942b`) → **B2** (`bprintf`, 2026-07-05) →
+**Track D** (`%a`/`%t` callback holes, `c8233247`…`b27618ae` — typing seam → CLR native → JS
+`sprintf` + writer-family diagnostic). All on branch `semantic-analysis`. **Tracks A, B, C, D, F are
+complete.** Track A (`tryClassify` total over every lowerable flag/width/precision form); Track B
+(`fprintf`/`fprintfn`/`bprintf`, fully-applied only, CLR — JS writer families deferred to the shim
+increment); Track C (every `%A` hole native); Track D (`%a`/`%t` native — CLR every family, JS
+`sprintf`; writer/builder `%a` on JS diagnoses via the provider-capability gate).
+**Track D verified 2026-07-05:** clean build, suites green — **CLR 1233 / JS 269 /
+semantic 711** (+1 skipped). Remaining printf cold residuals: Track F's star forms
 (`%0*d`, `%0*.Nf`, `%-*A`/`%+*A`/`%0*A`) and the deliberate `%+08.2f` (sign + zero-pad float, no
 faithful section format) — both classifier-level, pinned in `FSharpCoreDepsTests.fs`/`SelfHostTests.fs`,
 and capstone preconditions (the capstone must lower or re-error them). The list/option-*literal*
 representation pin is a separate axis (§ Capstone).
 
-**Track D IN PROGRESS (2026-07-05)** — design fully resolved (§ Track D): v1 emit is **capture-first**
-(per-family scratch sink → residue string → `AppendLiteral`; `Vesper.Fun` `EmitInvoke`, no
-FSharp.Core), and lowerability is **provider-capability-driven** (`sprintf` lowers everywhere incl.
-JS; writer/builder need `ctx.Provider.TryLookupType(TextWriter/StringBuilder)`, else a diagnostic).
-Implemented in steps:
+**Track D COMPLETE (2026-07-05, `c8233247`…`b27618ae`)** — `%a`/`%t` lower natively. v1 emit is
+**capture-first** (per-family scratch sink → residue string → `AppendLiteral`; `Vesper.Fun`
+`EmitInvoke`, no FSharp.Core), and lowerability is **provider-capability-driven** (`sprintf` lowers
+everywhere incl. JS; writer/builder need `ctx.Provider.TryLookupType(TextWriter/StringBuilder)`, else a
+diagnostic). Landed in three steps:
 - **Step 1 — typing seam. LANDED (`c8233247`).** `argTypes` types `%a` (`'State -> 'T -> 'Residue`
   plus value `'T`, one shared typar) / `%t` (`'State -> 'Residue`), threading `fam.State`/`fam.Residue`;
   `tryClassify` untouched so both still route cold. Suites green (711/1223/264).
@@ -370,8 +373,20 @@ calls PascalCase `.ToString()`/`Write`, so the shim's compiler-facing surface mu
 `Console.Out`'s line-buffer/flush semantics vs the `Formatter`'s single terminal flush is a parity
 call to pin with an oracle.
 
-**Then:** D → E1 (const-literal format) → E2 (runtime runner; heaviest) → capstone.
-F (`%*d`) is a separable feature.
+**RESUME HERE → E1** (`let`-bound const-literal format; § Track E). Concrete starting point: the gate
+`tryInferPrintfApp` (`InferApp.fs`) reads the format via `formatSpecifiers ctx args.[idx]`
+(`InferLiterals.fs`), which returns `ValueNone` for any non-`Expr.String` node — so `let fmt = "%d"
+in printf fmt` (an `Ident` at the format slot, not a string literal) defers to the cold path. E1 =
+recognise that the format arg *resolves* to a compile-time-known string-literal `let`-binding and
+constant-propagate that literal into the same `formatSpecifiers`/classify path a direct literal
+takes (via `ctx.Bindings`, the binding table the gate already consults at `:272` to reject *shadowed*
+printf names). Everything downstream (typing seam, gate, Freeze, both emits) is unchanged — E1 is a
+front-of-gate format-recovery step, not a new lowering. Medium effort; no design fork open (unlike E2,
+which needs the deferred runtime spec-runner). Confirm with an oracle (`dotnet fsi`) that the
+`let`-bound and inline forms are byte-identical before coding.
+
+**Then:** E1 → E2 (runtime runner; heaviest — its own sub-sprint) → capstone (delete the three cold
+recipes + drop the `FSharp.Core` ref; § Capstone). F (`%*d`) is a separable feature already DONE.
 
 **Working method (established this sprint):** oracle-first — confirm exact bytes and F#-acceptance
 with `dotnet fsi tmp/printf_a1.fsx` before coding a batch; one subagent per step implementing +
