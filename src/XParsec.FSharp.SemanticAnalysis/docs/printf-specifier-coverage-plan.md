@@ -89,45 +89,24 @@ found several F#-rejected forms. Then flip each `PrintfHappyPathTests` cold asse
   JS backend kept in sync (`%05u` via `padStart`) with a `runsLines` parity test covering both
   overflow cases. `%-05u`/`%-08o` were already covered by the A1a left-align-wins normalisation
   (drops `zeroPad`, routes through the space-pad path).
-- **A2 — byte-exact sign / zero-pad float (+ adjacent) forms. NEXT.** Oracle bytes pinned in
-  `tmp/printf_a2.fsx` (`dotnet fsi tmp/printf_a2.fsx`). **Post-Track-F this needs essentially NO new
-  `Formatter` members** — Track F's dynamic-precision handlers plus A1b's `ZeroPadAfterSign` cover all
-  but one form; the pre-refactor "each its own section-format construction" framing is stale. The
-  pinned cold `PrintfHappyPathTests` cases (`%010g`/`%+g`/`% g`/`%+05d`/`%+e`/`%08e`/`%.2M`, plus the
-  `%-05.2f` guard A1a added) flip as each lands. Oracle-verify each — including the uppercase
-  `%08E`/`%010G`/`%+E`/`%+G` and an overflow case (a value with more digits than the width) — then
-  `runParity`. Five forms, cheapest first:
-    1. **`%.2M` — precision is INERT (classifier only).** Oracle: `%.2M` 3.14159m → `3.14159` (F#
-       silently ignores precision on `%M`). Today `tryClassify`'s `FormatType.Decimal` arm
-       (`PrintfHoleForm.fs:424-430`) defers *any* non-absent precision; admit a **literal/absent**
-       precision as inert → `FieldFormat.Verbatim`, keeping `%.*M` (star precision, no consumer) cold.
-       No projection or handler change.
-    2. **`%+05d` / `% 05d` — compile-time section format (projection only).** Oracle: `+0042` /
-       `-0042` / ` 0042`. A .NET section format zero-pads *through* the sign: `"+0000;-0000"` (digit
-       count = `width-1`). Extend `FieldFormat.ForcedSign` to carry a zero-pad width and build
-       `sign + 0×(w-1) + ";-" + 0×(w-1)` in the existing `ForcedSign` arm of
-       `ClrHoleFormat.toDotNetFormat` (`ClrHoleFormat.fs:70-74`); admit the `zeroPad` case in the
-       forced-sign arm of `tryClassify` (`PrintfHoleForm.fs:310-311`, today `ValueNone`). No new handler.
-    3. **`%+e` / `% e` / `%+g` / `% g` — reuse `AppendDynamicPrecisionSignedFloat`.** Scientific /
-       compact notation can't ride a .NET section format, so route to Track F's signed handler
-       (`formatter.fsi:86`) with a **literal** precision (default 6). Add `FloatExponential` /
-       `FloatCompact` cases to the forced-sign arm of `tryClassify` (`PrintfHoleForm.fs:318-334`, today
-       `| _ -> ValueNone`) carrying the type letter; `EmitFormat` emits the signed-dynamic call with the
-       const precision. Oracle-confirmed byte-exact (`%+e` 1234.5 → `+1.234500e+003`).
-    4. **`%08e` / `%014e` / `%010g` — reuse `AppendZeroPaddedFloat`.** Hypothesis oracle-CONFIRMED:
-       `%e`/`%g` bytes == .NET `ToString("e6")`/`("g6")`, and `ZeroPadAfterSign` over that body
-       reproduces F# (`%010g` -1234.5 → `-0001234.5`; `%014e` 1234.5 → `01.234500e+003`). The handler
-       (`formatter.fsi:64`) already accepts an arbitrary format body — only its `FieldFormat` /
-       projection are `F`-specific. Admit `zeroPad` in the `FloatExponential` / `FloatCompact` arms
-       (`PrintfHoleForm.fs:403-412`, today `ValueNone`) into an exp/compact zero-pad `FieldFormat`
-       (mirror `FixedZeroPad`) carrying type letter + precision + upper; project to `ZeroPaddedFloat`
-       with body `"e6"`/`"E6"`/`"g6"`/`"G6"` (`ClrHoleFormat.fs:64-65`). No new handler.
-    5. **`%-05.2f` — the one new (small) handler; separable, can trail 1–4.** Oracle: `%-05.2f`
-       3.14159 → `3.140` — F# zero-pads floats on the **right** under left-align (no .NET format nor
-       space-alignment does this). `tryClassify` keeps `leftAlign && zeroPad && isFloatLike → ValueNone`
-       (`PrintfHoleForm.fs:335-338`). Add a small `AppendRightZeroPaddedFloat(value, format, width)`
-       (format the `%.2f` body, then right-fill `'0'` to `width`) and admit the case. The hardest
-       residual — the only A2 form that grows the handler surface.
+- **A2 — byte-exact sign / zero-pad float (+ adjacent) forms. LANDED (`ab78a321`).** All five forms
+  now lower natively; Track F's dynamic-precision handlers + A1b's `ZeroPadAfterSign` meant only one
+  new `Formatter` member was needed. Oracle bytes pinned in `tmp/printf_a2.fsx`. What landed:
+    - **`%.2M`** — F# silently ignores precision on `%M`, so a literal/absent precision is inert and
+      lowers as plain `%M` (`Verbatim`); `%.*M` (star) stays cold. Classifier-only.
+    - **`%+05d` / `% 05d`** — zero-pad *through* the sign via a wider section format `"+0000;-0000"`
+      (digit count `w-1`); `FieldFormat.ForcedSign` gained a `zeroPad` field. Projection-only.
+    - **`%+e` / `% e` / `%+g` / `%+G`** — scientific/compact can't ride a section format, so routed to
+      `AppendDynamicPrecisionSignedFloat` with a **constant** precision (`EmitFormat.dynamicFloat` now
+      takes a push-precision thunk; `constSignedExpCompact` detects the e/E/g/G letters).
+    - **`%08e` / `%014e` / `%010g`** — reuse `AppendZeroPaddedFloat` over the `"e6"`/`"g6"` body via a
+      new `FieldFormat.ExpCompactZeroPad` → `HoleKind.ZeroPaddedFloat`.
+    - **`%-05.2f`** — the one new handler: `AppendRightZeroPaddedFloat` (F# left-align + zero-pad fills
+      the *right* with zeros; overflow no-op). New `FieldFormat.FixedRightZeroPad` /
+      `HoleKind.RightZeroPaddedFloat`.
+  Cold-recipe guard tests repointed `%08e` → `%+08.2f` (sign+zero-pad float has no faithful section
+  format, stays cold). JS backend in sync: byte-parity for the integer/fixed forms, accepted
+  `toExponential`/`toPrecision` divergence pinned for scientific/compact.
 
 ### Track B — sink breadth (`fprintf`/`fprintfn`, then `bprintf`)
 
@@ -237,21 +216,24 @@ is measured by *printf* pinning nothing, not by the whole program being FSharp.C
 **Landed:** A0 (`% A`, `ae6e424e`) → B1 (`fprintf`/`fprintfn`, `0c11484b`) + writer-slot `TyClass`
 cleanup (`9498ad84`) → A1a (inert-flag / left-wins forms, `16b69e2f`) → **Track F** (star-width
 `%*d` / precision `%.*f` / `%*A`, `927aaabe`…`416495b2` — a separable feature, landed on top of the
-A1a/A1b-docs commits) → A1b (zero-pad `%u`/`%o`, `dea85b42`). All on branch
-`semantic-analysis`. **A1b verified 2026-07-05:** clean build, all suites green — **CLR 1191**
-(1185 + 6 new) **/ JS 259 (258 + 1 new) / semantic 710** (+1 skipped). Track F's cold star **residuals**
-(`%0*d`, `%0*.Nf`, `%-*A`/`%+*A`/`%0*A`) are pinned in `FSharpCoreDepsTests.fs`
-(`test/XParsec.FSharp.Codegen.Clr.Tests/`, `:144`) and remain a capstone precondition (see § Track F).
+A1a/A1b-docs commits) → A1b (zero-pad `%u`/`%o`, `dea85b42`) → A2 (float sign/zero-pad forms,
+`ab78a321`). All on branch `semantic-analysis`. **A2 verified 2026-07-05:** clean build, all suites
+green — **CLR 1215** (1191 + 24 new) **/ JS 263 (259 + 4 new) / semantic 710** (+1 skipped). With A2
+in, **Track A is complete** — `tryClassify` is total over every lowerable flag/width/precision form.
+Track F's cold star **residuals** (`%0*d`, `%0*.Nf`, `%-*A`/`%+*A`/`%0*A`) are pinned in
+`FSharpCoreDepsTests.fs` (`test/XParsec.FSharp.Codegen.Clr.Tests/`) and remain a capstone precondition
+(see § Track F). The `%+08.2f` cold pin (sign + zero-pad float, no faithful section format) now guards
+the cold recipes in `FSharpCoreDepsTests`/`SelfHostTests`.
 
-**RESUME HERE → A2** (byte-exact sign/zero-pad float forms) — spec'd in Track A above. Hardest
-parity in Track A: each form is its own `FieldFormat` + section-format construction in
-`ClrHoleFormat`, oracle-verified via `tmp/printf_a1.fsx`. The pinned cold `PrintfHappyPathTests`
-cases (`%010g`/`%+g`/`% g`/`%+05d`/`%+e`/`%08e`/`%.2M`, plus the `%-05.2f` guard A1a added) flip as
-each lands.
+**RESUME HERE → C1/C2** (`%A` gate relax — the big coverage jump; the runtime `%A` dispatcher is
+already total, so this is mostly relaxing `structuredArgFaithful` in `FreezeExpr.fs`, not writing a
+renderer — see § Track C and § The key lever). C2 (polymorphic `%A`) is the one item needing a codegen
+check (generic method-typar hole).
 
-**Then:** A2 (byte-exact float forms) → C1/C2 (`%A` gate relax; big coverage jump) → B2 (`bprintf`)
-→ D (`%a`/`%t`, design pass first — sink ABI) → E1 (const-literal format) → E2 (runtime runner;
-heaviest) → capstone. F (`%*d`) is a separable feature.
+**Then:** B2 (`bprintf`) → D (`%a`/`%t`, design pass first — sink ABI, largely pre-resolved: split by
+`Family.State`; writer families get a scratch/underlying `TextWriter`, `sprintf` splices the residue
+string; `Formatter`-as-`'State` via `allows ref struct` is the eventual zero-copy ABI break) → E1
+(const-literal format) → E2 (runtime runner; heaviest) → capstone. F (`%*d`) is a separable feature.
 
 **Working method (established this sprint):** oracle-first — confirm exact bytes and F#-acceptance
 with `dotnet fsi tmp/printf_a1.fsx` before coding a batch; one subagent per step implementing +
