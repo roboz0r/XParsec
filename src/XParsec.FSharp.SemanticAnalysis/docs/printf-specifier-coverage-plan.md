@@ -166,15 +166,52 @@ introduced *then*, not now (routing CLR `fprintf` through a Vesper sink now woul
 ### Track D — `%a` / `%t` callback holes
 
 `argType` returns `ValueNone` for `FormatFunction`/`Text` (`PrintfSpec.fs:145-146`), so any format
-containing them defers (and raises a diagnostic). Native support needs, end to end:
+containing them defers (and raises a diagnostic). Two mechanical pieces still to build:
 - A **typing** rule: `%a` consumes a printer `(State -> 'T -> unit)` **and** a value `'T`; `%t`
-  consumes `(State -> unit)`. `State` is the Vesper sink.
+  consumes `(State -> unit)`. `State` is the family's sink type (below) — the same `Family.State`
+  slot the printf rule already threads.
 - A **Format segment / `HoleForm`** kind for a callback hole that, at emit, invokes the user
-  callback against the live `Formatter`.
-- **ABI design (needs its own pass):** the Vesper `Formatter` is a `[<Struct; IsByRefLike>]`
-  handler; a user callback taking it as `State` cannot flow through an ordinary boxed closure.
-  Decide the callback's sink type (the byref-struct handler by `inref`/`byref`, or a thin sink
-  interface the handler implements). This is the hardest *design* item; flag before coding.
+  callback and splices its output at the hole position.
+
+**ABI decision (maintainer, 2026-07-05) — RESOLVED; no longer an open design item.** `State` is
+**not** uniformly `TextWriter`: it is already family-dependent in `PrintfSpec.Family` (writer
+families `State = TextWriter` / `Residue = unit`; `sprintf` `State = unit` / `Residue = string`;
+`bprintf` `State = StringBuilder`). So the native ABI splits cleanly along `Family.State`, and **no
+new sink type is introduced now** — the `[<IsByRefLike>]` `Formatter`-vs-boxed-closure problem is
+sidestepped per family:
+- **Writer families** (`printf`/`printfn`/`eprintf`/`fprintf`): the callback is
+  `TextWriter -> 'a -> unit` (F# source-compatible). The `Formatter` already flushes to an
+  underlying `TextWriter`, so **flush the buffered text, then hand the callback that same underlying
+  writer** — zero extra allocation, no adapter. (Strictly-safe universal fallback: a scratch
+  `StringWriter` whose buffer is copied into the `Formatter` via `AppendLiteral` after the callback
+  returns — prefer flush-and-pass.) Correct because the callback is **synchronous** (returns `unit`,
+  so the writer's lifetime *is* the callback's scope) and can write only to the writer it is handed
+  (so splicing its output at the hole is byte-identical to F#'s inline write); wrap the invocation
+  in `try/finally` to release any pooled buffer if it throws. The byref-struct `Formatter` never
+  escapes — the callback touches only a heap `TextWriter`.
+- **`sprintf`** (`State = unit`, `Residue = string`): no writer at all — invoke the callback and
+  **splice its returned residue string** into the native string buffer. No byref concern.
+- **`bprintf`** (`State = StringBuilder`): hand the callback the `StringBuilder` sink B2 already
+  built.
+- **JS deferred** (consistent with `fprintf`/`bprintf`): a JS `%a` gets a Vesper-native sink when a
+  real use case demands it, not now.
+
+**Eventual zero-copy ABI (post-public break; NOT required for the dependency-drop goal).** Because
+Vesper owns the printf types, `'State` can later become the `Formatter` itself (`allows ref struct`
+on the `'State` slot), so the callback is `Formatter -> 'a -> unit`, writes straight into the live
+handler — no `TextWriter`, no copy — and the `Family.State` split collapses to one sink type
+everywhere. It divides into an easy half available *today* and a hard half that waits:
+  - **Statically-known callback** (the common `printfn "%a" (fun w x -> …) v` — the lambda is at the
+    call site): **inline the callback body** against the live `Formatter` at emit. No `FSharpFunc`,
+    no ref-struct-through-a-delegate, no `allows ref struct` — zero-copy now, gated only on the
+    surface type being `Formatter`-compatible.
+  - **Opaque callback value** (`let p = … in printfn "%a" p v`): can't inline, so the ref struct
+    must flow as a value; `FSharpFunc<Formatter,_>` can't exist (a heap closure would box it), so
+    this is the half that genuinely needs `allows ref struct` — a ref-struct-clean delegate /
+    function-pointer printer ABI.
+  Note: `allows ref struct` does **not** make the `TextWriter` surface zero-copy — a ref struct can
+  never substitute for the concrete `TextWriter` class; it is relevant only for this Vesper-native
+  `Formatter`-as-`State` surface (or a future JS `%a`).
 
 ### Track E — format-as-value / non-literal format
 
@@ -233,20 +270,21 @@ faithful section format) — both classifier-level, pinned in `FSharpCoreDepsTes
 and capstone preconditions (the capstone must lower or re-error them). The list/option-*literal*
 representation pin is a separate axis (§ Capstone).
 
-**RESUME HERE → D** (`%a`/`%t`) — the hardest remaining track; needs a design pass on the callback
-sink ABI *before* coding (flag it). See § Track D and the "Then" note below.
+**RESUME HERE → D** (`%a`/`%t`) — the hardest remaining track, but the **sink ABI is now decided**
+(§ Track D, 2026-07-05): split by `Family.State` — writer families flush-and-pass their underlying
+`TextWriter`, `sprintf` splices the residue string, `bprintf` uses B2's `StringBuilder` sink; no new
+sink type, JS deferred. So D is now an implementation task (typing rule + callback `HoleForm` +
+per-family emit), not a design pass. The `Formatter`-as-`'State` zero-copy ABI is a later post-public
+break, not required here.
 
-**Then:** D (`%a`/`%t`, design pass first — sink ABI, largely pre-resolved: split by `Family.State`;
-writer families get a scratch/underlying `TextWriter`, `sprintf` splices the residue string;
-`Formatter`-as-`'State` via `allows ref struct` is the eventual zero-copy ABI break — statically-known
-callbacks inline today, only opaque callback *values* wait on it) → E1 (const-literal format) → E2
-(runtime runner; heaviest) → capstone. F (`%*d`) is a separable feature.
+**Then:** D (`%a`/`%t`) → E1 (const-literal format) → E2 (runtime runner; heaviest) → capstone.
+F (`%*d`) is a separable feature.
 
 **Working method (established this sprint):** oracle-first — confirm exact bytes and F#-acceptance
 with `dotnet fsi tmp/printf_a1.fsx` before coding a batch; one subagent per step implementing +
 flipping/adding tests (NOT committing); maintainer reviews the diff, runs the full suites, and
-commits with a short message. Surface design questions (next real one: Track D's sink ABI) before
-coding them.
+commits with a short message. Surface design questions before coding them (Track D's sink ABI —
+the last big one — is now resolved, § Track D).
 
 ## Testing
 
