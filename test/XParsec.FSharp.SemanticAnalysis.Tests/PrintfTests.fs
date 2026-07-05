@@ -338,6 +338,28 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
+            test "fully-applied bprintf lowers to a builder-sink Format (native, not cold)" {
+                // The format is arg 1 (arg 0 is the StringBuilder); a fully-applied
+                // lowerable `bprintf` mints a `TExpr.Format` with a `ToBuilder` sink
+                // rather than falling to the FSharp.Core path.
+                let tast = analyse "let f (sb: System.Text.StringBuilder) = bprintf sb \"%d\" 42"
+
+                match lastDeclValue tast with
+                | TExpr.Lambda(_, body, _, _) ->
+                    match body with
+                    | TExpr.Format(FormatSink.ToBuilder _, segs, ty, _) ->
+                        Expect.equal ty tyUnit "bprintf result is unit"
+
+                        match EqArray.toList segs with
+                        | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Int 42, _, _)) ] ->
+                            Expect.equal hole.Ty tyInt "the %d hole types as int"
+                        | other -> failtestf "unexpected Format segments: %A" other
+                    | other -> failtestf "expected a ToBuilder Format body, got: %A" other
+                | other -> failtestf "expected a lambda, got: %A" other
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
             test "v1 does not type %a — it falls through (and surfaces a diagnostic)" {
                 // %a needs a callback printer; not modelled in v1, so the
                 // special-case defers and the literal can't match PrintfFormat.

@@ -122,12 +122,18 @@ module RuntimeNames =
     let systemObjectQualifiedName: string = SymbolKeyOps.qualifiedName systemObjectKey
 
     /// The BCL `System.IO.TextWriter` nominal name, carried as the `SemType` of a
-    /// printf writer *sink* (`fprintf`/`bprintf`, `PrintfSpec.tyTextWriter`). A CLR
+    /// printf writer *sink* (`fprintf`, `PrintfSpec.tyTextWriter`). A CLR
     /// contract with no JS analogue — single-sourced here so the one consumer's
     /// hardcoded literal is an auditable, named coupling rather than a bare string
     /// buried in the printf spec (the deferred target-independent model resolves the
     /// sink type through the provider per target).
     let textWriterTypeName: string = "System.IO.TextWriter"
+
+    /// The BCL `System.Text.StringBuilder` nominal name, carried as the `SemType`
+    /// of a printf builder *sink* (`bprintf`, `PrintfSpec.tyStringBuilder`). Like
+    /// `textWriterTypeName`, a CLR contract with no JS analogue — single-sourced
+    /// here so the coupling is named rather than a bare literal in the printf spec.
+    let stringBuilderTypeName: string = "System.Text.StringBuilder"
 
     /// The canonical identity name for a rank-`rank` array, sourced from the
     /// `prim-types-min.fs` declaration `type 'T ``[]`` ` (rank 1 → `"[]"`;

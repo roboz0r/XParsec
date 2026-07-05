@@ -32,6 +32,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let ePrintfFormat4 = env.EPrintfFormat4
     let eUnit = env.EUnit
     let eTextWriter = env.ETextWriter
+    let eStringBuilder = env.EStringBuilder
     let ePrintfModule = env.EPrintfModule
     let eFun2 = env.EFun2
     let eFlatFun = env.EFlatFun
@@ -635,6 +636,23 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
             toEntity (ctx.MemberRef(eFormatter.Value, ".ctor", s))
 
+        let ctorBuilder =
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = true)
+                .Parameters(
+                    3,
+                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                    (fun (pars: ParametersEncoder) ->
+                        pars.AddParameter().Type().Int32()
+                        pars.AddParameter().Type().Int32()
+                        pars.AddParameter().Type().Type(eStringBuilder.Value, false)
+                    )
+                )
+
+            toEntity (ctx.MemberRef(eFormatter.Value, ".ctor", s))
+
         let ctorString =
             let s = BlobBuilder()
 
@@ -876,6 +894,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         {
             HandlerLocal = FTConst(formatterTypeName, EqArray.empty)
             CtorWriter = ctorWriter
+            CtorBuilder = ctorBuilder
             CtorString = ctorString
             AppendLiteral = appendLiteral
             Flush = flush

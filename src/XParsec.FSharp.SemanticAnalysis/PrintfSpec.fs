@@ -55,6 +55,9 @@ module PrintfSpec =
     let private tyTextWriter: SemType =
         TyConst(RuntimeNames.textWriterTypeName, EqArray.empty)
 
+    let private tyStringBuilder: SemType =
+        TyConst(RuntimeNames.stringBuilderTypeName, EqArray.empty)
+
     /// Target-agnostic classification of a printf entry point's output sink,
     /// resolved from the entry-point name. Recorded on `PassContext.PrintfApp`
     /// for the calls P1 lowers inline.
@@ -68,13 +71,17 @@ module PrintfSpec =
         /// sets it). Freeze reads the writer sink kind to recover the format arg
         /// index (writer ⇒ 1, else 0).
         | Writer of newline: bool
+        /// `bprintf` — a `StringBuilder` leading argument (arg 0, the format at
+        /// arg 1). No `bprintfn` exists in F#, so there is no trailing newline.
+        /// Freeze recovers the format arg index (builder ⇒ 1, else 0) the same way.
+        | Builder
 
     /// Sink for a natively-lowered printf family member. The console/string
     /// families put the format at arg 0; `fprintf`/`fprintfn` (`Writer`) put a
-    /// `TextWriter` at arg 0 and the format at arg 1. `bprintf` and every other
-    /// name return `ValueNone`, keeping the existing FSharp.Core path. Keyed on
-    /// the last `.`-segment so `Printf.printfn` and bare `printfn` both hit
-    /// (mirrors `tryFamily`).
+    /// `TextWriter` at arg 0 and the format at arg 1; `bprintf` (`Builder`) puts a
+    /// `StringBuilder` at arg 0 and the format at arg 1. Every other name returns
+    /// `ValueNone`, keeping the existing FSharp.Core path. Keyed on the last
+    /// `.`-segment so `Printf.printfn` and bare `printfn` both hit (mirrors `tryFamily`).
     let sinkOf (name: string) : PrintfSink voption =
         let short =
             let dot = name.LastIndexOf '.'
@@ -87,6 +94,7 @@ module PrintfSpec =
         | "eprintfn" -> ValueSome(PrintfSink.StdErr true)
         | "fprintf" -> ValueSome(PrintfSink.Writer false)
         | "fprintfn" -> ValueSome(PrintfSink.Writer true)
+        | "bprintf" -> ValueSome PrintfSink.Builder
         | "sprintf" -> ValueSome PrintfSink.StringResult
         | _ -> ValueNone
 
@@ -243,6 +251,16 @@ module PrintfSpec =
             LeadingArgTypes = leading
         }
 
+    let private builderFamily (formatArgIndex: int) (leading: SemType list) : Family =
+        {
+            FormatArgIndex = formatArgIndex
+            Tail = tyUnit
+            State = tyStringBuilder
+            Residue = tyUnit
+            Result = tyUnit
+            LeadingArgTypes = leading
+        }
+
     let private stringFamily: Family =
         {
             FormatArgIndex = 0
@@ -253,9 +271,8 @@ module PrintfSpec =
             LeadingArgTypes = []
         }
 
-    /// Keyed by source short name. `bprintf` / the `k*`-continuation family are
-    /// out of scope — they carry extra leading arguments and aren't needed by
-    /// the canonical sample.
+    /// Keyed by source short name. The `k*`-continuation family is out of scope —
+    /// it carries an extra leading continuation argument.
     let families: Map<string, Family> =
         [
             "printf", writerFamily 0 []
@@ -264,6 +281,7 @@ module PrintfSpec =
             "eprintfn", writerFamily 0 []
             "fprintf", writerFamily 1 [ tyTextWriter ]
             "fprintfn", writerFamily 1 [ tyTextWriter ]
+            "bprintf", builderFamily 1 [ tyStringBuilder ]
             "sprintf", stringFamily
         ]
         |> Map.ofList
@@ -279,17 +297,31 @@ module PrintfSpec =
         | Some f -> ValueSome f
         | None -> ValueNone
 
-    /// Rewrite the family's writer slot — the by-name `TyConst(System.IO.TextWriter)`
-    /// placeholder (`State`, and the `LeadingArgTypes` writer of `fprintf`/`fprintfn`)
-    /// — to `writerTy`. The gate passes the provider-resolved `TyClass(TextWriter)`
-    /// (the SAME `TypeKey` a real `Console.Out` argument carries), so a leading writer
-    /// arg reconciles with the slot under plain `unify` (core `unify` compares
-    /// `TyClass` by key equality, and never a `TyClass` against a `TyConst`). Kept
-    /// here — and provider-free — so `PrintfSpec` stays a pure SemType module: the
-    /// gate owns the `ctx.Provider` resolution and hands in the resolved type.
-    let substituteWriter (writerTy: SemType) (fam: Family) : Family =
+    /// Rewrite the family's external leading-arg slots — the by-name
+    /// `TyConst(System.IO.TextWriter)` (`fprintf`/`fprintfn`) or
+    /// `TyConst(System.Text.StringBuilder)` (`bprintf`) placeholders (`State`, and
+    /// the matching `LeadingArgTypes` entry) — to the provider-resolved `TyClass`
+    /// the `resolve` callback returns for each slot's nominal name. The gate passes
+    /// a `resolve` that yields the SAME `TypeKey` a real `Console.Out` /
+    /// `StringBuilder()` argument carries, so a leading sink arg reconciles with the
+    /// slot under plain `unify` (core `unify` compares `TyClass` by key equality, and
+    /// never a `TyClass` against a `TyConst`). A slot whose name `resolve` can't map
+    /// (`ValueNone`) keeps its by-name `TyConst` (no regression). Kept provider-free
+    /// so `PrintfSpec` stays a pure SemType module: the gate owns the `ctx.Provider`
+    /// resolution and hands in the callback.
+    let resolveExternalSlots (resolve: string -> SemType voption) (fam: Family) : Family =
         let sub (t: SemType) =
-            if t = tyTextWriter then writerTy else t
+            let resolveName name =
+                match resolve name with
+                | ValueSome resolved -> resolved
+                | ValueNone -> t
+
+            if t = tyTextWriter then
+                resolveName RuntimeNames.textWriterTypeName
+            elif t = tyStringBuilder then
+                resolveName RuntimeNames.stringBuilderTypeName
+            else
+                t
 
         { fam with
             State = sub fam.State

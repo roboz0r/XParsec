@@ -194,6 +194,8 @@ type FormatHandles =
     {
         HandlerLocal: FrozenType
         CtorWriter: EntityHandle
+        /// `bprintf`: the `(int, int, StringBuilder)` ctor.
+        CtorBuilder: EntityHandle
         CtorString: EntityHandle
         AppendLiteral: EntityHandle
         Flush: EntityHandle

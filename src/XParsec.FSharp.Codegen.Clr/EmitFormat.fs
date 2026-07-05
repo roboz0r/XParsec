@@ -57,7 +57,9 @@ module EmitFormat =
         | FormatSinkG.ToWriter(w, _) ->
             buildExpr env b w
             b.Add(ILInstr.Call(fh.CtorWriter, 4, 0))
-        | FormatSinkG.ToBuilder _ -> failwith "Emit: bprintf (ToBuilder) is not yet supported"
+        | FormatSinkG.ToBuilder sb ->
+            buildExpr env b sb
+            b.Add(ILInstr.Call(fh.CtorBuilder, 4, 0))
 
         // A float field form whose precision is a runtime star (`%.*f`/`%.*e`/`%.*g`/
         // `%+.*f`): the source type letter + whether it is forced-sign (`Some space`).
@@ -374,4 +376,9 @@ module EmitFormat =
             b.Add(ILInstr.Ldloca slot)
             b.Add(ILInstr.Call(fh.Flush, 1, 0))
             EmitTypes.buildUnitValue env b
-        | FormatSinkG.ToBuilder _ -> failwith "Emit: bprintf (ToBuilder) is not yet supported"
+        | FormatSinkG.ToBuilder _ ->
+            // `bprintf` has no newline variant, so no trailing `\n` — just flush the
+            // buffered text to the `StringBuilder` sink and yield unit.
+            b.Add(ILInstr.Ldloca slot)
+            b.Add(ILInstr.Call(fh.Flush, 1, 0))
+            EmitTypes.buildUnitValue env b

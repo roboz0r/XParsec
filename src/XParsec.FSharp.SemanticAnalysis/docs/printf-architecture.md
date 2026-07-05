@@ -194,8 +194,9 @@ output and documented at the head of `formatter.fs`:
 own; and we want one type shared with string interpolation. (`sprintf` may still
 delegate to the BCL handler where cheaper.)
 
-Sinks built: write-through `TextWriter` and string/`ToStringAndClear`. `StringBuilder`
-(`bprintf`) is not built — `EmitFormat.fs` errors on `ToBuilder`.
+Sinks built: write-through `TextWriter` (`fprintf`/`fprintfn`), write-through
+`StringBuilder` (`bprintf` — `Flush` appends the buffer to the builder), and
+string/`ToStringAndClear` (`sprintf`).
 
 ## Happy-path lowering
 

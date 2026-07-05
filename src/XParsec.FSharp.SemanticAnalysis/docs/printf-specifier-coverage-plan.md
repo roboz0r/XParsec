@@ -134,12 +134,17 @@ introduced *then*, not now (routing CLR `fprintf` through a Vesper sink now woul
     through the *same* provider (`ctx.Provider.TryLookupType "System.IO.TextWriter"` →
     `externalTypeKey`, the path `Console.Out`'s type took, `Scope.fs:57`) so keys match and plain
     `unify` works; then delete the gate's leading-arg `subsumes` special-case.
-- **B2 — `bprintf`.** Not in `PrintfSpec.families` at all → doesn't even type via the printf
-  rule. Add a `Family` entry (`idx = 1`, StringBuilder leading arg) + a `FormatSink.ToBuilder`
-  emission (`EmitFormat.fs:57` currently `failwith`s on `ToBuilder`) driving the handler's
-  `StringBuilder` sink. Larger than B1 — new sink end-to-end. **JS note:** when a JS `bprintf`
-  lands, the `StringBuilder` shim can likely be a thin wrapper over a single growable string
-  field (JS engines optimise string concatenation via ropes), rather than CLR's chunked buffer.
+- **B2 — `bprintf`. LANDED (2026-07-05).** `PrintfSink.Builder` + a `builderFamily` (`idx = 1`,
+  `StringBuilder` leading arg), `sinkOf`/`families` entries; the gate admits the `Builder` sink at
+  `idx = 1` (like `Writer`) and Freeze threads the builder expr into a `FormatSink.ToBuilder` node.
+  The `Formatter` grew a third `StringBuilder` ctor + a `Builder` field, and `Flush` appends the
+  buffered text to it (no `bprintfn`, so never a trailing newline). `substituteWriter` generalised
+  to `resolveExternalSlots` (resolves both the `TextWriter` and `StringBuilder` slots to the
+  provider `TyClass` so a leading sink arg unifies directly); `EmitFormat` emits `CtorBuilder` +
+  `Flush`. Fully-applied only; `bprintf` *partials* stay cold (4a gate is `idx = 0`). CLR-only, like
+  B1 (JS deferred). **JS note:** when a JS `bprintf` lands, the `StringBuilder` shim can likely be a
+  thin wrapper over a single growable string field (JS engines optimise string concatenation via
+  ropes), rather than CLR's chunked buffer.
 
 ### Track C — `%A` breadth (relax the gate; the runtime is already total)
 
@@ -217,18 +222,19 @@ is measured by *printf* pinning nothing, not by the whole program being FSharp.C
 cleanup (`9498ad84`) → A1a (inert-flag / left-wins forms, `16b69e2f`) → **Track F** (star-width
 `%*d` / precision `%.*f` / `%*A`, `927aaabe`…`416495b2` — a separable feature, landed on top of the
 A1a/A1b-docs commits) → A1b (zero-pad `%u`/`%o`, `dea85b42`) → A2 (float sign/zero-pad forms,
-`ab78a321`) → **Track C** (`%A` gate relax — C1 + C2, `134d942b`). All on branch `semantic-analysis`.
-**Track C verified 2026-07-05:** clean build, all suites green — **CLR 1219** (1215 + 4 new) **/ JS
-264 (263 + 1 new) / semantic 710** (+1 skipped). **Track A is complete** (`tryClassify` total over
-every lowerable flag/width/precision form) and **Track C is complete** (every `%A` hole lowers
-natively). Remaining printf cold residuals: Track F's star forms (`%0*d`, `%0*.Nf`, `%-*A`/`%+*A`/`%0*A`)
-and the deliberate `%+08.2f` (sign + zero-pad float, no faithful section format) — both classifier-level,
-pinned in `FSharpCoreDepsTests.fs`/`SelfHostTests.fs`, and capstone preconditions (the capstone must
-lower or re-error them). The list/option-*literal* representation pin is a separate axis (§ Capstone).
+`ab78a321`) → **Track C** (`%A` gate relax — C1 + C2, `134d942b`) → **B2** (`bprintf`, 2026-07-05).
+All on branch `semantic-analysis`. **Track A is complete** (`tryClassify` total over every lowerable
+flag/width/precision form), **Track C is complete** (every `%A` hole lowers natively), and **Track B
+is complete** (`fprintf`/`fprintfn`/`bprintf` all lower natively; fully-applied only, JS deferred).
+**B2 verified 2026-07-05:** clean build, all suites green — **CLR 1223** (1219 + 4 new) **/ JS 264 /
+semantic 711** (+1 skipped) / **Vesper 49**. Remaining printf cold residuals: Track F's star forms
+(`%0*d`, `%0*.Nf`, `%-*A`/`%+*A`/`%0*A`) and the deliberate `%+08.2f` (sign + zero-pad float, no
+faithful section format) — both classifier-level, pinned in `FSharpCoreDepsTests.fs`/`SelfHostTests.fs`,
+and capstone preconditions (the capstone must lower or re-error them). The list/option-*literal*
+representation pin is a separate axis (§ Capstone).
 
-**RESUME HERE → B2** (`bprintf`) — not in `PrintfSpec.families` at all, so it needs a new `Family` entry
-(`idx = 1`, StringBuilder leading arg) + a `FormatSink.ToBuilder` emission (`EmitFormat.fs` currently
-`failwith`s on `ToBuilder`) driving a new `StringBuilder` sink end-to-end. Larger than B1 (see § Track B).
+**RESUME HERE → D** (`%a`/`%t`) — the hardest remaining track; needs a design pass on the callback
+sink ABI *before* coding (flag it). See § Track D and the "Then" note below.
 
 **Then:** D (`%a`/`%t`, design pass first — sink ABI, largely pre-resolved: split by `Family.State`;
 writer families get a scratch/underlying `TextWriter`, `sprintf` splices the residue string;

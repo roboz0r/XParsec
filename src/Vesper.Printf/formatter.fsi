@@ -1,6 +1,7 @@
 namespace Vesper
 
 open System.IO
+open System.Text
 open System.Runtime.CompilerServices
 
 // The printf write-through format handler: a stack-only ref struct that accumulates
@@ -14,6 +15,10 @@ type Formatter =
     /// Write-through sink: appended text is buffered and flushed to <c>writer</c>
     /// (via <c>TextWriter.Write(ReadOnlySpan&lt;char&gt;)</c>, no result string).
     new: literalLength: int * formattedCount: int * writer: TextWriter -> Formatter
+
+    /// Builder sink (<c>bprintf</c>): buffered text is flushed to <c>builder</c>
+    /// via <c>StringBuilder.Append</c>.
+    new: literalLength: int * formattedCount: int * builder: StringBuilder -> Formatter
 
     /// String sink: <c>ToStringAndClear</c> returns the accumulated text.
     new: literalLength: int * formattedCount: int -> Formatter

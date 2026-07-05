@@ -4,6 +4,7 @@ open System
 open System.Buffers
 open System.Globalization
 open System.IO
+open System.Text
 
 open Vesper.IntComparison
 
@@ -33,8 +34,12 @@ type Formatter =
     /// Culture for all hole formatting — Invariant, to match F# `printf`.
     static let provider: IFormatProvider = CultureInfo.InvariantCulture
 
-    /// Write-through sink, or `null` for a string sink.
+    /// Write-through `TextWriter` sink, or `null` (a string / builder sink).
     val mutable private Writer: TextWriter
+
+    /// Write-through `StringBuilder` sink (`bprintf`), or `null` (a string /
+    /// writer sink). `Flush` appends the buffered text to it.
+    val mutable private Builder: StringBuilder
 
     /// The pooled array backing `Chars`, returned on clear.
     val mutable private Pool: char[]
@@ -52,6 +57,20 @@ type Formatter =
 
         {
             Writer = writer
+            Builder = null
+            Pool = buf
+            Chars = Span<char>(buf)
+            Pos = 0
+        }
+
+    /// Builder ctor (`bprintf`): buffered text is flushed to `builder`.
+    new(literalLength: int, formattedCount: int, builder: StringBuilder) =
+        let buf =
+            ArrayPool<char>.Shared.Rent(Math.Max(256, literalLength + formattedCount * 11))
+
+        {
+            Writer = null
+            Builder = builder
             Pool = buf
             Chars = Span<char>(buf)
             Pos = 0
@@ -64,6 +83,7 @@ type Formatter =
 
         {
             Writer = null
+            Builder = null
             Pool = buf
             Chars = Span<char>(buf)
             Pos = 0
@@ -288,10 +308,17 @@ type Formatter =
         elif precision > 99 then 99
         else precision
 
-    /// Flushes buffered text to the write-through sink and releases the buffer.
+    /// Flushes buffered text to the write-through sink (a `TextWriter` or a
+    /// `StringBuilder`) and releases the buffer. At most one sink is set; the
+    /// string sink (`ToStringAndClear`) never flushes. The `.ToString()` on the
+    /// span mirrors the writer path — F# has no implicit `Span` → `ReadOnlySpan`
+    /// conversion for the no-alloc `StringBuilder.Append(ReadOnlySpan<char>)`.
     member this.Flush() =
         match this.Writer with
-        | null -> ()
+        | null ->
+            match this.Builder with
+            | null -> ()
+            | sb -> sb.Append(this.Chars.Slice(0, this.Pos).ToString()) |> ignore
         | w -> w.Write(this.Chars.Slice(0, this.Pos).ToString())
 
         this.Clear()

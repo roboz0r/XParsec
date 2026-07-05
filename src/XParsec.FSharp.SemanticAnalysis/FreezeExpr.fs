@@ -1234,7 +1234,8 @@ module internal FreezeExpr =
         // lockstep with `PrintfSpec.Family.FormatArgIndex` (the gate's `idx`).
         let idx =
             match sink with
-            | PrintfSpec.PrintfSink.Writer _ -> 1
+            | PrintfSpec.PrintfSink.Writer _
+            | PrintfSpec.PrintfSink.Builder -> 1
             | _ -> 0
 
         // This compilation's target assembly as a home-assembly `option` — a
@@ -1374,6 +1375,9 @@ module internal FreezeExpr =
                 // The writer expression is the leading arg 0 (the format is arg 1);
                 // `newline` threads `fprintfn`'s trailing `\n` into `EmitFormat`.
                 | PrintfSpec.PrintfSink.Writer nl -> FormatSink.ToWriter(translateExpr ctx args.[0], nl)
+                // `bprintf`: the `StringBuilder` is the leading arg 0 (the format is
+                // arg 1). No `bprintfn`, so `ToBuilder` carries no trailing newline.
+                | PrintfSpec.PrintfSink.Builder -> FormatSink.ToBuilder(translateExpr ctx args.[0])
 
             ValueSome(TExpr.Format(formatSink, EqArray.ofSeq segments, ty, tok))
 
@@ -1481,11 +1485,13 @@ module internal FreezeExpr =
             | PrintfSpec.PrintfSink.StdOut nl -> FormatSink.ToStdOut nl
             | PrintfSpec.PrintfSink.StdErr nl -> FormatSink.ToStdErr nl
             | PrintfSpec.PrintfSink.StringResult -> FormatSink.ToString
-            // The 4a partial gate is `idx = 0`, so a writer sink (`fprintf`
-            // partial, `idx = 1`) never reaches this path — those stay cold.
-            | PrintfSpec.PrintfSink.Writer _ ->
+            // The 4a partial gate is `idx = 0`, so a writer / builder sink
+            // (`fprintf` / `bprintf` partial, `idx = 1`) never reaches this path —
+            // those stay cold.
+            | PrintfSpec.PrintfSink.Writer _
+            | PrintfSpec.PrintfSink.Builder ->
                 failwith
-                    "Freeze.translatePrintfPartial: writer sink is not a partial-lowering shape (marker invariant broken)"
+                    "Freeze.translatePrintfPartial: writer/builder sink is not a partial-lowering shape (marker invariant broken)"
 
         // `runningTy` is now the tail; the `Format` node returns it.
         let mutable body = TExpr.Format(formatSink, EqArray.ofSeq segments, runningTy, tok)

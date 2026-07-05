@@ -278,18 +278,22 @@ module internal UnificationInferApp =
                 match PrintfSpec.tryFamily (qualifiedNameOf ctx fn) with
                 | ValueNone -> ValueNone
                 | ValueSome fam ->
-                    // Resolve the writer slot to the provider's `TyClass(TextWriter)`
-                    // through the SAME path a real writer arg (`System.Console.Out`)
-                    // took (`NameResolutionScope.tryResolveExternalTypeKey`, arity 0),
-                    // so both carry the identical `TypeKey` and a leading writer arg
-                    // unifies with the slot directly. A provider that doesn't surface
-                    // `System.IO.TextWriter` keeps the by-name `TyConst` slot (no
-                    // regression; in practice the resolving provider is the same one
-                    // that types `Console.Out`).
+                    // Resolve the family's external sink slot (`fprintf`'s `TextWriter`
+                    // / `bprintf`'s `StringBuilder`) to the provider's `TyClass`
+                    // through the SAME path a real sink arg (`System.Console.Out` /
+                    // `StringBuilder()`) takes (`tryResolveExternalTypeKey`, arity 0),
+                    // so both carry the identical `TypeKey` and a leading sink arg
+                    // unifies with the slot directly. A slot whose name the provider
+                    // doesn't surface keeps its by-name `TyConst` (no regression; in
+                    // practice the resolving provider is the same one that types the
+                    // real sink argument).
                     let fam =
-                        match NameResolutionScope.tryResolveExternalTypeKey ctx RuntimeNames.textWriterTypeName 0 with
-                        | ValueSome writerKey -> PrintfSpec.substituteWriter (TyClass(writerKey, EqArray.empty)) fam
-                        | ValueNone -> fam
+                        fam
+                        |> PrintfSpec.resolveExternalSlots (fun name ->
+                            match NameResolutionScope.tryResolveExternalTypeKey ctx name 0 with
+                            | ValueSome key -> ValueSome(TyClass(key, EqArray.empty))
+                            | ValueNone -> ValueNone
+                        )
 
                     let idx = fam.FormatArgIndex
 
@@ -343,10 +347,12 @@ module internal UnificationInferApp =
                                 // `TExpr.Format`. Full application is `idx` leading args + the
                                 // format + one arg per hole (`specs.Length + idx + 1`). The
                                 // console/string sinks put the format at arg 0 (`idx = 0`);
-                                // `fprintf`/`fprintfn` (`Writer`) put a `TextWriter` at arg 0 and
-                                // the format at arg 1 (`idx = 1`), threaded into the `Format` node
-                                // as `FormatSink.ToWriter`. Otherwise the FSharp.Core path stands
-                                // (additive — `%A`, partial application, etc. unaffected).
+                                // `fprintf`/`fprintfn` (`Writer`) and `bprintf` (`Builder`) put a
+                                // `TextWriter` / `StringBuilder` at arg 0 and the format at arg 1
+                                // (`idx = 1`), threaded into the `Format` node as
+                                // `FormatSink.ToWriter` / `FormatSink.ToBuilder`. Otherwise the
+                                // FSharp.Core path stands (additive — `%A`, partial application,
+                                // etc. unaffected).
                                 match PrintfSpec.sinkOf (qualifiedNameOf ctx fn) with
                                 | ValueSome sink when
                                     args.Length = PrintfSpec.totalArity specs + idx + 1
@@ -355,7 +361,8 @@ module internal UnificationInferApp =
                                         || (idx = 1
                                             && (
                                                 match sink with
-                                                | PrintfSpec.PrintfSink.Writer _ -> true
+                                                | PrintfSpec.PrintfSink.Writer _
+                                                | PrintfSpec.PrintfSink.Builder -> true
                                                 | _ -> false
                                             )))
                                     ->

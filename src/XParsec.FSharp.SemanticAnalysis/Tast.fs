@@ -394,10 +394,11 @@ and TMatchArmG<'ty, 'tok> =
 
 /// Kept abstract from CLR specifics so an alternate target (JS → template
 /// literal) maps it independently. `ToWriter`/`ToBuilder` carry the explicit
-/// sink expression (`fprintf` / `bprintf`); P1 produces the first three plus
-/// `ToWriter` (fully-applied `fprintf`/`fprintfn`). `ToWriter`'s `newline`
-/// records the trailing `\n` (`fprintfn` sets it, `fprintf` does not), mirroring
-/// `ToStdOut`/`ToStdErr`.
+/// sink expression (`fprintf` / `bprintf`); P1 produces all five when fully
+/// applied (`ToWriter` for `fprintf`/`fprintfn`, `ToBuilder` for `bprintf`).
+/// `ToWriter`'s `newline` records the trailing `\n` (`fprintfn` sets it,
+/// `fprintf` does not), mirroring `ToStdOut`/`ToStdErr`; `ToBuilder` carries no
+/// newline (F# has no `bprintfn`).
 and [<RequireQualifiedAccess>] FormatSinkG<'ty, 'tok> =
     | ToStdOut of newline: bool
     | ToStdErr of newline: bool

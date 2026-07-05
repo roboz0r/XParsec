@@ -30,6 +30,16 @@ let tests =
                 Expect.isEmpty artifact.FSharpCoreDependencies "native fprintf has no FSharp.Core dependency"
             }
 
+            test "a fully-applied `bprintf` to a builder references no FSharp.Core construct" {
+                // `bprintf` now lowers natively to a `ToBuilder` sink, so a
+                // fully-applied builder call rides the Vesper.Formatter path instead of
+                // FSharp.Core's cold printf.
+                let _, artifact =
+                    compileSource "DepsBprintf" "bprintf (System.Text.StringBuilder()) \"%d\" 42"
+
+                Expect.isEmpty artifact.FSharpCoreDependencies "native bprintf has no FSharp.Core dependency"
+            }
+
             test "interpolation lowering references no FSharp.Core construct" {
                 let _, artifact = compileSource "DepsInterp" "printfn \"%s\" $\"n={42}\""
                 Expect.isEmpty artifact.FSharpCoreDependencies "interpolation has no FSharp.Core dependency"

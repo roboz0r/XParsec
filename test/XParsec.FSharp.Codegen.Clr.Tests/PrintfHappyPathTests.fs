@@ -686,6 +686,38 @@ let tests =
                 runPrints "PHpFWriterMulti" "fprintf System.Console.Out \"%d and %s\" 7 \"x\"" "7 and x"
             }
 
+            // `bprintf` to a `StringBuilder` — the builder is arg 0, the format arg 1
+            // — a `ToBuilder` sink, not the FSharp.Core cold path. No `bprintfn`, so
+            // never a trailing newline.
+            test "fully-applied `bprintf` lowers to a builder-sink Format" {
+                match soleDecl "bprintf (System.Text.StringBuilder()) \"%d\" 42" with
+                | TDecl.Expression(TExpr.Format(FormatSink.ToBuilder _, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal (kindOf hole) PrintfSpec.HoleKind.Formatted "%d → Formatted"
+                    | other -> failtestf "unexpected Format segments: %A" other
+                | other -> failtestf "expected a ToBuilder Format node, got: %A" other
+            }
+
+            test "`bprintf` appends to the builder (read back via ToString)" {
+                let exitCode, output =
+                    withPrintfAlc (fun alc ->
+                        runDriverInAlc
+                            alc
+                            "let sb = System.Text.StringBuilder()\nbprintf sb \"%d\" 42\nprintf \"%s\" (sb.ToString())"
+                    )
+
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal output "42" "bprintf appends the value to the builder (no newline)"
+            }
+
+            test "multi-hole `bprintf` appends both holes in order" {
+                runPrints
+                    "PHpBBuilderMulti"
+                    "let sb = System.Text.StringBuilder()\nbprintf sb \"%d and %s\" 7 \"x\"\nprintf \"%s\" (sb.ToString())"
+                    "7 and x"
+            }
+
             // `%A` runtime oracle is the structural spec (copy-pasteable source), not
             // `sprintf "%A"`; small values coincide with F#.
             test "`%A` of a list prints the copy-pasteable literal (slice 4)" {
