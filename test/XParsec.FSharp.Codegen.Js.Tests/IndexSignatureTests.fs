@@ -22,6 +22,9 @@ open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 ///     structural shape whose index rides its `structuralKey` identity);
 ///   • `cfg`      — `{ foo: string | undefined }` (a structural field carrying the
 ///     optional-graduation `T | undefined`);
+///   • `lookup`   — a FIELDLESS anonymous `{ [k: string]: number }` (a bare `Record<K,V>`
+///     whose only content is the index sig, riding the same `structuralKey` carry);
+///   • `lookupOpt` — a fieldless `{ [k: string]: string | undefined }`;
 ///   • `wantNumber` / `wantString` / `wantStringOpt` — parameter slots that admit exactly
 ///     one type, so a read's inferred element type is asserted by which call type-checks.
 let private manifest: Schema.PackageManifest =
@@ -53,6 +56,21 @@ let private manifest: Schema.PackageManifest =
                 Schema.Export.Variable(
                     "cfg",
                     structural "{foo:string|undefined}" [ "foo", union [ named "string"; named "undefined" ] ],
+                    true,
+                    Schema.ImportShape.Named
+                )
+                Schema.Export.Variable(
+                    "lookup",
+                    structuralIx "{[k:string]:number}" [] [ named "string", named "number" ],
+                    true,
+                    Schema.ImportShape.Named
+                )
+                Schema.Export.Variable(
+                    "lookupOpt",
+                    structuralIx
+                        "{[k:string]:string|undefined}"
+                        []
+                        [ named "string", union [ named "string"; named "undefined" ] ],
                     true,
                     Schema.ImportShape.Named
                 )
@@ -153,5 +171,37 @@ let tests =
 
                 let bad = analyseErrors "let c = cfg\nwantString(c.foo)\n"
                 Expect.isNonEmpty bad "a `string | undefined` field must not satisfy a bare `string` parameter"
+            }
+
+            test "a FIELDLESS index shape `{ [k: string]: number }` reads through the bracket" {
+                // A bare `Record<string, number>` has no named fields — its index IS its whole
+                // content. `x.[k]` must still infer `number` (not `dynamic`), proving the
+                // fieldless-with-index shape rides its `structuralKey` carry.
+                let ok = analyseErrors "let l = lookup\nwantNumber(l.[\"k\"])\n"
+                Expect.isEmpty ok (sprintf "a fieldless index read should be `number`, got: %A" ok)
+
+                let bad = analyseErrors "let l = lookup\nwantString(l.[\"k\"])\n"
+
+                Expect.isNonEmpty
+                    bad
+                    "a fieldless `number` index read must not satisfy a `string` parameter (not `dynamic`)"
+
+                let js = emitIx "let l = lookup\nlet n = l.[\"k\"]\n"
+
+                Expect.stringContains
+                    js
+                    "[(\"k\")]"
+                    (sprintf "expected a bracket read on the fieldless index shape, got:\n%s" js)
+            }
+
+            test "a fieldless `{ [k: string]: string | undefined }` read carries the union" {
+                let ok = analyseErrors "let l = lookupOpt\nwantStringOpt(l.[\"k\"])\n"
+
+                Expect.isEmpty
+                    ok
+                    (sprintf "a fieldless `string | undefined` read should satisfy the optional slot, got: %A" ok)
+
+                let bad = analyseErrors "let l = lookupOpt\nwantString(l.[\"k\"])\n"
+                Expect.isNonEmpty bad "a fieldless `string | undefined` read must not satisfy a bare `string` parameter"
             }
         ]

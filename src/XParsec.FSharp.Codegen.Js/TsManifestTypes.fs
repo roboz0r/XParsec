@@ -345,16 +345,16 @@ module internal TsManifestTranslate =
             (printed, fields)
             :: (fields |> List.collect (fun (_, ft) -> structuralShapesIn ft))
 
-    /// Every FIELD-BEARING anonymous OBJECT shape carrying a non-empty TS index
-    /// signature, as `(shapeHash, index-pairs)` — the structural analogue of the named
-    /// `Interface`/`Class` `index` facet. Keyed by the SAME `structuralHash printed
-    /// fields` `structuralShapesIn` interns a member surface under, so the frozen
-    /// `FTClass(structuralKey …)` a use site resolves to and this index entry AGREE. A
-    /// FIELDLESS structural (a pure `{ [k: K]: V }`) freezes to an OPAQUE `FTUnknown`
-    /// (no nominal identity to hang an index lookup on), so it is not collected — the
-    /// consumer reaches an index signature only through a field-bearing shape or a
-    /// named interface/class. Recurses into field types (mirroring `structuralShapesIn`)
-    /// so a nested shape's index registers too. Case coverage mirrors `shapeHash`.
+    /// Every anonymous OBJECT shape carrying a non-empty TS index signature, as
+    /// `(shapeHash, index-pairs)` — the structural analogue of the named `Interface`/`Class`
+    /// `index` facet. Keyed by the SAME `structuralHash printed fields` its frozen
+    /// `FTClass(structuralKey …)` carries, so a use site's resolved nominal and this index
+    /// entry AGREE. Covers BOTH a field-bearing shape AND a FIELDLESS one (a bare `{ [k: K]:
+    /// V }` / `Record<K,V>`): the latter now freezes to a nominal too (its index IS its whole
+    /// content), so its index must register for `x.[k]` to reach `TryLookupIndexSignature`.
+    /// Only a TRULY EMPTY shape (no fields AND no index) contributes nothing — it stays an
+    /// opaque `FTUnknown`. Recurses into field types (mirroring `structuralShapesIn`) so a
+    /// nested shape's index registers too. Case coverage mirrors `shapeHash`.
     let rec structuralIndexSigsIn (t: Schema.TypeRef) : (string * (Schema.TypeRef * Schema.TypeRef) list) list =
         match t with
         | Schema.TypeRef.Named(_, args) -> args |> List.collect structuralIndexSigsIn
@@ -369,7 +369,12 @@ module internal TsManifestTranslate =
         | Schema.TypeRef.Conditional(check, extends, whenTrue, whenFalse) ->
             [ check; extends; whenTrue; whenFalse ] |> List.collect structuralIndexSigsIn
         | Schema.TypeRef.Dynamic -> []
-        | Schema.TypeRef.Structural(_, [], _) -> []
+        // A TRULY EMPTY shape (no fields AND no index) contributes nothing. A FIELDLESS shape
+        // with a NON-EMPTY index (a bare `{ [k: K]: V }`) DOES register its index — keyed by
+        // `structuralHash printed []`, the SAME identity its frozen `FTClass(structuralKey …)`
+        // carries — so `x.[k]` on it reaches `TryLookupIndexSignature`. Aligns with the
+        // field-bearing arm below.
+        | Schema.TypeRef.Structural(_, [], []) -> []
         | Schema.TypeRef.Structural(printed, fields, index) ->
             let here =
                 match index with
@@ -500,14 +505,19 @@ module internal TsManifestTranslate =
         // native `receiver.x` read — while NOTHING is emitted for the type (no decl, no
         // import, no ctor). Identity is the canonical, field-ORDER-INVARIANT shape-hash
         // (`{x;y}` ≡ `{y;x}`), so two permuted shapes intern to the SAME key and unify. The
-        // FIELDLESS form has no members to resolve, so it stays an OPAQUE `FTUnknown` keyed
-        // by the tsc-`printed` fallback (see `structuralHash`).
+        // FIELDLESS shape carrying a NON-EMPTY index signature (a bare `{ [k: K]: V }` /
+        // `Record<K,V>`) is NOT opaque: its index IS its whole content, so it too freezes to
+        // the nominal `FTClass(structuralKey)` — the SAME identity a field-bearing shape
+        // gets — and its index is reached via `TryLookupIndexSignature` keyed by that qn.
+        // Only a TRULY EMPTY shape (no fields AND no index) has nothing to resolve, so it
+        // stays an OPAQUE `FTUnknown` keyed by the tsc-`printed` fallback (a
+        // `function&`/branded form — see `structuralHash`).
         // The index-signature facet is threaded through but not consumed by the frozen
         // nominal: an index-sig receiver resolves its element type at the lookup site
         // (`inferIndexedLookup` → `GetIndex`/`SetIndex`), not through this shape's members.
-        | Schema.TypeRef.Structural(printed, fields, _) ->
-            match fields with
-            | [] -> FTUnknown("structural:" + structuralHash printed fields)
+        | Schema.TypeRef.Structural(printed, fields, index) ->
+            match fields, index with
+            | [], [] -> FTUnknown("structural:" + structuralHash printed fields)
             | _ -> FTClass(structuralKey (structuralHash printed fields) |> snd, EqArray.empty)
 
     let unitFrozen: FrozenType = FTConst("unit", EqArray.empty)

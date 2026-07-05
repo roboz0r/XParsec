@@ -209,8 +209,9 @@ module TsManifestProvider =
         // The TS index signatures `{ [k: K]: V }` a type carries, keyed by the SAME
         // qualified name its members register under (so `TryLookupIndexSignature` and
         // `TryLookupMember` share one key). A named `Interface`/`Class` keys by its
-        // `declaredIdentity` qn; a FIELD-BEARING anonymous `Structural` shape keys by its
-        // `structuralKey` (the same identity `toFrozen` freezes it to). Each `(key,
+        // `declaredIdentity` qn; an anonymous `Structural` shape (field-bearing OR a
+        // fieldless bare `{ [k: K]: V }`) keys by its `structuralKey` (the same identity
+        // `toFrozen` freezes it to). Each `(key,
         // value)` `Schema.TypeRef` pair is `toFrozen`ed over the type's declaring typars —
         // a generic `Dict<T>`'s value `T` stays `FTTypar(Declaring,0)`, realised against
         // the receiver's args at the lookup site. First-declaration-wins on a duplicate qn.
