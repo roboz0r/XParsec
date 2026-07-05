@@ -40,7 +40,8 @@ let private boxManifest: Schema.PackageManifest =
                         method' "set" (sig1 "x" intT unitT)
                         property' "value" intT
                     ],
-                    []
+                    [],
+                    None
                 )
                 Schema.Export.Function("makeBox", [ sig0 (named "Box") ], Schema.ImportShape.Named)
             ]

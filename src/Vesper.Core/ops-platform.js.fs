@@ -247,3 +247,21 @@ module StringIntrinsics =
     /// indexable; F# `char` is a length-1 string). The desugaring target for `s.[i]`
     /// on the JS target, where `string` carries no BCL `get_Chars`. Mirrors `GetArray`.
     let inline GetString (s: string) (index: int) : char = (# "$0[$1]" s index : char #)
+
+/// Index-signature intrinsics — see `ops-platform.fsi`.
+[<AutoOpen>]
+module IndexIntrinsics =
+
+    /// Indexed read of an index-signature object — `x.[k]` → the native computed-member
+    /// read `x[k]`. Carries the SAME proven `$0[$1]` template the JS backend already
+    /// lowers for `GetString` and the `dynamic` `(?)`, so an index-signature object
+    /// (`process.env`, `NodeJS.Dict<T>`, an instantiated `Record<K,V>`) reads with a
+    /// precise `'K`/`'V` typing and NO `dynamic` escape — and there is no JS
+    /// `get_Item` method to route through (a JS object has none; bracket IS the form).
+    let inline GetIndex (target: 'T) (key: 'K) : 'V = (# "$0[$1]" target key : 'V #)
+
+    /// Indexed write of an index-signature object — `x.[k] <- value` → the
+    /// computed-member assignment `x[k] = value` (the `$0[$1] = $2` template `(?<-)`
+    /// and `SetArray` already lower). The `SetIndex` sibling of `GetIndex`.
+    let inline SetIndex (target: 'T) (key: 'K) (value: 'V) : unit =
+        (# "$0[$1] = $2" target key value : unit #)

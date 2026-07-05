@@ -289,8 +289,8 @@ let testProviderResolves (path: string) =
                         $"overloaded function '{name}' members must have distinct keys"
                 else
                     Expect.isTrue (prov.TryLookup(q name)).IsSome $"function '{q name}' should resolve"
-            | Schema.Export.Interface(name, typeParams, members, heritage)
-            | Schema.Export.Class(name, typeParams, members, heritage, _) ->
+            | Schema.Export.Interface(name, typeParams, members, heritage, _)
+            | Schema.Export.Class(name, typeParams, members, heritage, _, _) ->
                 // THE LOOKUP CONTRACT (`SymbolKeyOps.arityName`): the provider keys types
                 // under their ARITY-SUFFIXED qualified name (`Box\`1`), and CALLERS suffix
                 // by arity before lookup — the same law `TsManifestTypes.mint` and the

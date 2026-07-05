@@ -47,7 +47,8 @@ let private nullManifest: Schema.PackageManifest =
                         staticMethod' "renderU" [ sig1 "value" undefUnion stringT ]
                     ],
                     [],
-                    Schema.ImportShape.Named
+                    Schema.ImportShape.Named,
+                    None
                 )
             ]
         Diagnostics = []

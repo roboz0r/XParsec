@@ -75,8 +75,15 @@ type TypeRef =
     | Conditional of check: TypeRef * extends: TypeRef * whenTrue: TypeRef * whenFalse: TypeRef
     /// TS `any` → the opaque `dynamic` JS intrinsic front-end side (`FTConst "dynamic"`).
     | Dynamic
-    /// Structural object type, content-hashed (deferred milestone).
-    | Structural of hash: string * fields: (string * TypeRef) list
+    /// Structural object type, content-hashed (deferred milestone). `index` carries a
+    /// TS index signature `{ [k: K]: V }` as a `(key, value)` pair when the object bears
+    /// one (an instantiated `Record<K,V>`, or an anonymous `{ [k: string]: T }`) — a
+    /// DISTINCT facet, NOT a reserved `get_Item` field (which would collide with a real
+    /// BCL member name downstream). Only the FIRST index signature is carried; a type
+    /// with both a string- AND a number-index signature keeps the first (no consumed node
+    /// type declares both). The codec OMITS it when `None`, so a shape without an index
+    /// signature stays byte-identical to a pre-facet golden.
+    | Structural of hash: string * fields: (string * TypeRef) list * index: (TypeRef * TypeRef) option
 
 [<RequireQualifiedAccess>]
 type MemberKind =
@@ -130,8 +137,27 @@ type ImportShape =
 [<RequireQualifiedAccess>]
 type Export =
     | Function of name: string * signatures: Signature list * import: ImportShape
-    | Interface of name: string * typeParams: int * members: Member list * heritage: TypeRef list
-    | Class of name: string * typeParams: int * members: Member list * heritage: TypeRef list * import: ImportShape
+    /// `index`: a TS index signature `{ [k: K]: V }` on the interface (`NodeJS.Dict<T>`,
+    /// `ProcessEnv`) as a `(key, value)` pair — the named-type analogue of
+    /// `TypeRef.Structural`'s `index` facet. `getIndexInfosOfType` flattens inherited
+    /// index sigs through heritage, so a `ProcessEnv extends Dict<T>` carries the string
+    /// index directly. The codec OMITS it when `None`, so an interface without an index
+    /// signature stays byte-identical to a pre-facet golden.
+    | Interface of
+        name: string *
+        typeParams: int *
+        members: Member list *
+        heritage: TypeRef list *
+        index: (TypeRef * TypeRef) option
+    /// `index`: as `Interface`'s — a TS index signature on the class, carried
+    /// omitted-when-`None`.
+    | Class of
+        name: string *
+        typeParams: int *
+        members: Member list *
+        heritage: TypeRef list *
+        import: ImportShape *
+        index: (TypeRef * TypeRef) option
     | TypeAlias of name: string * typeParams: int * target: TypeRef
     /// `members`: each case name paired with its type-tagged value; `None` = a
     /// computed/unresolvable member. The numeric/string/mixed variant falls out

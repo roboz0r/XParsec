@@ -28,7 +28,7 @@ let private manifestA: Schema.PackageManifest =
         Version = None
         Exports =
             [
-                Schema.Export.Class("Box", 1, [ method' "get" (sig0 (typar 0)) ], [], Schema.ImportShape.Named)
+                Schema.Export.Class("Box", 1, [ method' "get" (sig0 (typar 0)) ], [], Schema.ImportShape.Named, None)
             ]
         Diagnostics = []
         Refs = []

@@ -208,8 +208,8 @@ let rec encodeTypeRef (t: TypeRef) : JsonValue =
                 "whenFalse", encodeTypeRef whenFalse
             ]
     | TypeRef.Dynamic -> jObj [ "k", jStr "dynamic" ]
-    | TypeRef.Structural(hash, fields) ->
-        jObj
+    | TypeRef.Structural(hash, fields, index) ->
+        jObj (
             [
                 "k", jStr "structural"
                 "hash", jStr hash
@@ -219,6 +219,18 @@ let rec encodeTypeRef (t: TypeRef) : JsonValue =
                     |> List.map (fun (n, ft) -> jObj [ "name", jStr n; "type", encodeTypeRef ft ])
                 )
             ]
+            @ encodeIndexFields index
+        )
+
+/// The `index` facet an index-signature-bearing host (`Structural`/`Interface`/`Class`)
+/// contributes to its wire object — a `{ key, value }` pair, OMITTED (not `null`) when
+/// absent so a facet-free host stays BYTE-IDENTICAL to a pre-facet golden (the
+/// `refs`/`typeParamBounds` omit-when-empty precedent). In the `encodeTypeRef` rec group
+/// so both it and `encodeExport` reach it.
+and private encodeIndexFields (index: (TypeRef * TypeRef) option) : (string * JsonValue) list =
+    match index with
+    | Some(k, v) -> [ "index", jObj [ "key", encodeTypeRef k; "value", encodeTypeRef v ] ]
+    | None -> []
 
 let rec decodeTypeRef (j: JsonValue) : Result<TypeRef, string> =
     result {
@@ -266,7 +278,8 @@ let rec decodeTypeRef (j: JsonValue) : Result<TypeRef, string> =
         | "structural" ->
             let! h = readField "hash" asString m
             let! fields = listField "fields" decodeStructField m
-            return TypeRef.Structural(h, fields)
+            let! index = decodeIndex m
+            return TypeRef.Structural(h, fields, index)
         | other -> return! Error(sprintf "unknown TypeRef kind '%s'" other)
     }
 
@@ -277,6 +290,21 @@ and private decodeStructField (j: JsonValue) : Result<string * TypeRef, string> 
         let! t = readField "type" decodeTypeRef m
         return (n, t)
     }
+
+/// Read the omitted-when-absent `index` facet (`{ key, value }`) off a host object
+/// (`Structural`/`Interface`/`Class`); absent or `null` → `None`. In the `decodeTypeRef`
+/// rec group so both it and `decodeExport` reach it.
+and private decodeIndex (m: JsonObject) : Result<(TypeRef * TypeRef) option, string> =
+    match tryField "index" m with
+    | None
+    | Some JsonValue.Null -> Ok None
+    | Some v ->
+        result {
+            let! im = asObject v
+            let! k = readField "key" decodeTypeRef im
+            let! vv = readField "value" decodeTypeRef im
+            return Some(k, vv)
+        }
 
 // ─── leaf enums ────────────────────────────────────────────────────────────
 
@@ -531,8 +559,8 @@ let rec encodeExport (e: Export) : JsonValue =
                 "signatures", jArr (List.map encodeSignature sigs)
                 "import", encodeImport import
             ]
-    | Export.Interface(name, tp, members, heritage) ->
-        jObj
+    | Export.Interface(name, tp, members, heritage, index) ->
+        jObj (
             [
                 "export", jStr "interface"
                 "name", jStr name
@@ -540,8 +568,10 @@ let rec encodeExport (e: Export) : JsonValue =
                 "members", jArr (List.map encodeMember members)
                 "heritage", jArr (List.map encodeTypeRef heritage)
             ]
-    | Export.Class(name, tp, members, heritage, import) ->
-        jObj
+            @ encodeIndexFields index
+        )
+    | Export.Class(name, tp, members, heritage, import, index) ->
+        jObj (
             [
                 "export", jStr "class"
                 "name", jStr name
@@ -550,6 +580,8 @@ let rec encodeExport (e: Export) : JsonValue =
                 "heritage", jArr (List.map encodeTypeRef heritage)
                 "import", encodeImport import
             ]
+            @ encodeIndexFields index
+        )
     | Export.TypeAlias(name, tp, target) ->
         jObj
             [
@@ -601,13 +633,15 @@ let rec decodeExport (j: JsonValue) : Result<Export, string> =
             let! tp = readField "typeParams" asInt m
             let! members = listField "members" decodeMember m
             let! heritage = listField "heritage" decodeTypeRef m
-            return Export.Interface(name, tp, members, heritage)
+            let! index = decodeIndex m
+            return Export.Interface(name, tp, members, heritage, index)
         | "class" ->
             let! tp = readField "typeParams" asInt m
             let! members = listField "members" decodeMember m
             let! heritage = listField "heritage" decodeTypeRef m
             let! import = readField "import" decodeImport m
-            return Export.Class(name, tp, members, heritage, import)
+            let! index = decodeIndex m
+            return Export.Class(name, tp, members, heritage, import, index)
         | "typeAlias" ->
             let! tp = readField "typeParams" asInt m
             let! target = readField "target" decodeTypeRef m

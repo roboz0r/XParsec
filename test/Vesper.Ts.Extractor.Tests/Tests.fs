@@ -195,13 +195,15 @@ let mittDiagnosticsContract =
 // deliberate golden update; shrinking these counts is the scoreboard. Each code's
 // gloss (WHY that construct degraded):
 //   • structural-object-stubbed — the genuinely-UNREPRESENTABLE structural residue: a
-//     type whose content a named-field list cannot fully carry — an index signature
-//     (`{ [idx]: … }`), a call/construct signature (`new(...)=>R`), an array, a 0-/1-tuple
-//     or an optional/rest/variadic tuple (`[K, V?]`, `[K, ...V[]]`), an empty `{}`, or a
-//     mapped type (`Readonly<T>`/`Record`) → an OPAQUE (empty-field) content-hashed
-//     `Structural`. Only a pure named-property record carries its fields (FAITHFULLY, no
-//     warning), and a fixed all-required multi-element tuple (`[number, string]`, `[K, V]`)
-//     now carries as a real `Tuple` (→ `FTTuple`); everything else here is opaque.
+//     type whose content a named-field list cannot fully carry — a call/construct
+//     signature (`new(...)=>R`), an array, a 0-/1-tuple or an optional/rest/variadic tuple
+//     (`[K, V?]`, `[K, ...V[]]`), an empty `{}`, or a mapped type (`Readonly<T>`/`Record`)
+//     → an OPAQUE (empty-field) content-hashed `Structural`. An INDEX SIGNATURE
+//     (`{ [idx]: … }`) no longer stubs — it now carries FAITHFULLY on the `Structural`'s
+//     `index` facet (count fell 18 → 14 as those objects graduated). Only a pure
+//     named-property record carries its fields (FAITHFULLY, no warning), and a fixed
+//     all-required multi-element tuple (`[number, string]`, `[K, V]`) now carries as a real
+//     `Tuple` (→ `FTTuple`); everything else here is opaque.
 //   • recursion-depth-exceeded — the self-recursive `Awaited<T>` conditional (and the
 //     `infer`-introduced pieces it expands into) recurses unbounded; `mapType` degrades
 //     the subtree to `obj` at the depth bound so `Promise` still extracts as a class.
@@ -223,9 +225,9 @@ let es2015BurndownContract =
     // Regenerated deliberately (never silently) when the extractor's fidelity changes.
     let committedRanking =
         [
-            "structural-object-stubbed", 18
             "recursion-depth-exceeded", 15
             "method-axis-typar-erased", 14
+            "structural-object-stubbed", 14
             "intersection-erased", 2
         ]
 
@@ -258,8 +260,8 @@ let es2015BurndownContract =
                         | Schema.Export.Function(n, _, _)
                         | Schema.Export.Variable(n, _, _, _)
                         | Schema.Export.TypeAlias(n, _, _)
-                        | Schema.Export.Interface(n, _, _, _)
-                        | Schema.Export.Class(n, _, _, _, _)
+                        | Schema.Export.Interface(n, _, _, _, _)
+                        | Schema.Export.Class(n, _, _, _, _, _)
                         | Schema.Export.Enum(n, _)
                         | Schema.Export.Namespace(n, _) -> n
 
@@ -290,6 +292,96 @@ let es2015BurndownContract =
                     Expect.isFalse
                         (refNames.Contains "Array")
                         "the es2015 pack must carry no self-ref for the skip-listed 'Array'"
+            }
+        ]
+
+// Index-signature + optional-graduation capture, asserted on the committed
+// `indexsig` fixture manifest (the whole-manifest golden below pins the exact bytes;
+// this pins the SPECIFIC facets so a regression reads as a named failure, not a diff).
+[<Tests>]
+let indexSignatureContract =
+    let manifestPath =
+        Path.Combine(specsDir.Value, "indexsig", "indexsig.manifest.json")
+
+    let load () =
+        match Codec.deserialize (File.ReadAllText manifestPath) with
+        | Error e -> failtestf "indexsig manifest does not parse: %s" e
+        | Ok man -> man
+
+    let stringRef = Schema.TypeRef.Named("string", [])
+    let undefinedRef = Schema.TypeRef.Named("undefined", [])
+
+    testList
+        "index-signature + optional capture"
+        [
+            test "Dict carries its string index signature with a string | undefined value" {
+                let dictIndex =
+                    load().Exports
+                    |> List.tryPick (
+                        function
+                        | Schema.Export.Interface("Dict", _, _, _, index) -> Some index
+                        | _ -> None
+                    )
+
+                match dictIndex with
+                | Some(Some(key, value)) ->
+                    Expect.equal key stringRef "Dict index key is string"
+
+                    match value with
+                    | Schema.TypeRef.Union ms ->
+                        Expect.isTrue (List.contains undefinedRef ms) "Dict index value union includes undefined"
+                        Expect.isTrue (List.contains stringRef ms) "Dict index value union includes string"
+                    | other -> failtestf "Dict index value should be a union, got %A" other
+                | other -> failtestf "Dict must carry an index signature, got %A" other
+            }
+
+            test "lookup's anonymous object carries a (string, number) index facet" {
+                let lookupTy =
+                    load().Exports
+                    |> List.tryPick (
+                        function
+                        | Schema.Export.Variable("lookup", ty, _, _) -> Some ty
+                        | _ -> None
+                    )
+
+                match lookupTy with
+                | Some(Schema.TypeRef.Structural(_, [], Some(key, value))) ->
+                    Expect.equal key stringRef "lookup index key is string"
+                    Expect.equal value (Schema.TypeRef.Named("number", [])) "lookup index value is number"
+                | other -> failtestf "lookup should be an index-bearing Structural, got %A" other
+            }
+
+            test "Config.foo is optional; settings.timeout carries T | undefined on an anonymous field" {
+                let man = load ()
+
+                let configMembers =
+                    man.Exports
+                    |> List.pick (
+                        function
+                        | Schema.Export.Interface("Config", _, ms, _, _) -> Some ms
+                        | _ -> None
+                    )
+
+                let foo = configMembers |> List.find (fun m -> m.Name = "foo")
+                Expect.isTrue foo.Optional "Config.foo must carry Member.Optional"
+
+                let settingsTy =
+                    man.Exports
+                    |> List.pick (
+                        function
+                        | Schema.Export.Variable("settings", ty, _, _) -> Some ty
+                        | _ -> None
+                    )
+
+                match settingsTy with
+                | Schema.TypeRef.Structural(_, fields, _) ->
+                    let _, timeoutTy = fields |> List.find (fun (n, _) -> n = "timeout")
+
+                    match timeoutTy with
+                    | Schema.TypeRef.Union ms ->
+                        Expect.isTrue (List.contains undefinedRef ms) "settings.timeout carries undefined"
+                    | other -> failtestf "settings.timeout should be a union, got %A" other
+                | other -> failtestf "settings should be a Structural, got %A" other
             }
         ]
 

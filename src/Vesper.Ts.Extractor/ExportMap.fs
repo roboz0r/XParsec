@@ -116,6 +116,13 @@ let private mapMember (ctx: MapCtx) (isStatic: bool) (prop: Ts.Symbol) : Schema.
     let isMethod =
         callSigs.Count > 0 && hasFlag (prop.getFlags ()) Ts.SymbolFlags.Method
 
+    // Optionality (`foo?: T`) is a property-SYMBOL flag: tsc pre-evaluates `Partial<T>`
+    // to a resolved object whose property symbols carry `SymbolFlags.Optional` while the
+    // property TYPE stays `T[P]`, so read it from the flag, never the type. A named member
+    // carries it on the existing `Member.Optional` channel (an anonymous `Structural` field,
+    // which has no such channel, instead rides `structuralFieldType`'s `T | undefined`).
+    let optional = hasFlag (prop.getFlags ()) Ts.SymbolFlags.Optional
+
     if isMethod then
         {
             Name = prop.getName ()
@@ -123,7 +130,7 @@ let private mapMember (ctx: MapCtx) (isStatic: bool) (prop: Ts.Symbol) : Schema.
             Type = None
             Signatures = callSigs |> Seq.map (mapSignature ctx SigAxis.MemberMethod) |> List.ofSeq
             Static = isStatic
-            Optional = false
+            Optional = optional
         }
     else
         {
@@ -132,7 +139,7 @@ let private mapMember (ctx: MapCtx) (isStatic: bool) (prop: Ts.Symbol) : Schema.
             Type = Some(mapType ctx t)
             Signatures = []
             Static = isStatic
-            Optional = false
+            Optional = optional
         }
 
 /// Construct signatures (`getConstructSignatures()` on a class's constructor-function
@@ -282,7 +289,16 @@ let private classLikeExport
 
     let heritage = extendsBases ctx instanceTy @ classImplements ctx resolved
 
-    Schema.Export.Class(name, List.length env, instanceMembers @ staticMembers @ ctorMember, heritage, import)
+    // A class bearing a TS index signature (`{ [k: string]: V }`) carries it on the
+    // `index` slot — flattened through heritage by `getIndexInfosOfType`.
+    Schema.Export.Class(
+        name,
+        List.length env,
+        instanceMembers @ staticMembers @ ctorMember,
+        heritage,
+        import,
+        mapIndexInfo ctx instanceTy
+    )
 
 /// `ctx0` is the walk ROOT (empty typar axes); each arm seeds `DeclaringEnv` with
 /// its declaration's own typar scope.
@@ -375,7 +391,17 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
 
         // Heritage (item 16): an interface's heritage is its `extends` interfaces only
         // (an interface cannot have a base class), so `getBaseTypes` alone is faithful.
-        Some(Schema.Export.Interface(name, List.length env, members @ ctorMember, extendsBases ctx declared))
+        // A TS index signature (`NodeJS.Dict<T>`, `ProcessEnv`) rides the `index` slot,
+        // flattened through heritage by `getIndexInfosOfType`.
+        Some(
+            Schema.Export.Interface(
+                name,
+                List.length env,
+                members @ ctorMember,
+                extendsBases ctx declared,
+                mapIndexInfo ctx declared
+            )
+        )
     elif hasFlag flags Ts.SymbolFlags.Class then
         // The instance/static two-walk lives in the shared `classLikeExport` (the
         // fused-global path calls it too). A class may itself be `export default class`,

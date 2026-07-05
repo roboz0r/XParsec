@@ -187,18 +187,59 @@ it stays a required array param). Variadic rest lowering (spread-emit / multi-ar
 when a real node signature forces it. Constructors keep `OptionalDefaults = []` (ctor optional-fill
 is a separate `InferCtor` path, unexercised by the fixture).
 
-### W4 — Faithful-later graduations node forces *(each its own small pass, build-when-it-bites)*
+### W4 — Index signatures + optional graduation — **DECIDED, in progress**
 
-All three are honest degrades today (`carriesFaithfullyAsFields` gates them out → opaque
-`Structural` stub + warn), graduating via the SAME Wall-3 erasing-nominal machinery:
+Two graduations node forces, both off the `carriesFaithfullyAsFields` gate that stubs them today.
+The callable-object-with-props graduation is NOT here — it needs its own lowering + coercion pass and
+no node type forces it, so it split out to **W8**.
 
-- **Index signatures** `{ [k: string]: T }` → a dictionary/index capability. Node forces this first
-  (`process.env`, `NodeJS.Dict`). The `getIndexInfosOfType t = 0` gate in `TypeMap.fs` is the seam.
-- **Callable-object-with-props** `{ (x): void; prop: string }` → an erasing nominal listing
-  `Fun<…>` in its interface set (call signature carried) + the data props as Property members.
-  Needs a schema slot for the call signature (a `Structural`-node contract bump: Fable + goldens).
-- **Mapped types** `Readonly<T>`/`Partial<T>`/`Record<K,V>` → near-pure records; carry the fields +
-  a `partial`/`faithful` bit through to a front-end warn-on-use.
+**Index signatures** `{ [k: string]: T }` → an F# indexed-lookup capability (`x.[k]` / `x.[k] <- v`).
+Node forces this first (`process.env`, `NodeJS.Dict`, and `Record<K,V>` which instantiates TO an
+index signature). The `getIndexInfosOfType t = 0` clause in `carriesFaithfullyAsFields` (`TypeMap.fs`)
+is the seam.
+
+*Design (DECIDED).* The index accessor LOWERS to the proven `$0[$1]` / `$0[$1] = $2` JS bracket
+template — the exact template the JS backend already emits for `GetString` (`ops-platform.js.fs`) and
+`(?)`/`(?<-)` (`ops-dynamic.js.fs`) — NOT a `get_Item`/`set_Item` method call (a JS object has no such
+method; routing through a member call would force Freeze/EmitJs to special-case that these members
+lower to bracket, the fragility we avoid). Anchoring on that template means **EmitJs needs no change**
+and the JS string is correct by construction. Two new Vesper.Core intrinsics — `GetIndex`/`SetIndex`,
+siblings of `GetArray`/`GetString` — carry the template with precise `'K`/`'V` typing, so
+`process.env.["PATH"] : string | undefined` (the `| undefined` rides in the declared value type; no
+`dynamic` escape). This is the GetArray precedent: `x.[i]` is *syntax*, realised by an intrinsic, never
+a literal `Item` member in the emitted JS. Wiring, all seams verified:
+- **Extractor** carries the index signature via `getIndexInfosOfType` (which FLATTENS inherited sigs
+  through heritage — `ProcessEnv extends Dict<T>` resolves the string index directly, no consume-time
+  heritage walk) on `Structural` (anonymous) and `Interface`/`Class` (named); ungate the gate so the
+  sig is captured, not stubbed. Additive-omit wire slot (goldens byte-identical when absent).
+- **Provider** gains `TryLookupIndexSignature(qual) : (key,value) option` — parallel to `TryLookupMember`.
+- **Infer**: `inferIndexedLookup` (`InferRecordAccess.fs`) recognises an index-sig receiver and unifies
+  against `GetIndex`'s scheme instantiated at `(key,value)` BEFORE the `get_Item`/`getArrayIndex`
+  attempts. `inferAssignment` needs NO change (it types the LHS via the read path; get/set share the
+  value type). **Freeze**: route to `GetIndex` (read branch) / `SetIndex` (the `SetArray` write branch)
+  beside the existing `GetString`/`GetArray` pick, classifying the receiver via `ctx.Provider`.
+
+**Optional graduation** (`Partial<T>` + optional members). tsc PRE-EVALUATES `Partial<T>` to a resolved
+anonymous object whose property symbols carry the optional FLAG — the type stays `T[P]`, optionality
+lives in the flag, and no mapped-type construct reaches the extractor. The extractor drops it today:
+`mapMember` (`ExportMap.fs`) hardcodes `Optional = false`, and anonymous `Structural` fields
+(`(string * TypeRef)`) have no optional channel. Fix (extraction-only, NO schema change, NO consumer
+change): read `SymbolFlags.Optional`; a `Structural` field's optional carries as `Union[T; undefined]`
+(the read semantics the consumer needs, re-hashing to a distinct structural identity); a named
+interface/class member populates the existing-but-unused `Member.Optional`. `Readonly<T>` over a record
+is already faithful; `Record<K,V>` rides the index-sig carry above.
+
+*Follow-on (tack-on task, AFTER the index-sig + optional work lands, run sequentially — never a second
+concurrent code-changing agent).* `undefined` exists only as a TYPE today (`prim-types-undefined.js.fs`);
+there is no value-level `undefined`, so the omitted-optional fill (`FreezeExpr.optionalDefaultNode`, W3)
+HACKS it by synthesising `TConstValue.Unit` and exploiting the coincidental `unit → undefined` value
+repr. Add a real value-level `[<Global>] let undefined : undefined = (# "undefined" #)` (needs new
+plumbing — `[<Global>]` is NOT a source attribute yet, only an internal `ExternalClassFlags.Global`
+type-shape flag: `AttributeDecode` must recognise `[<Global>]` on a value binding, the value symbol must
+carry an ambient/global bit, and EmitJs must emit the bare name + suppress both the definition — else
+`const undefined = undefined` — and the import). Then replace the `optionalDefaultNode` unit hack with
+the honest `undefined` value. Not required for the index-sig/optional graduation itself (runtime supplies
+read values; fixtures assert frozen type / emitted JS), so it lands last.
 
 ### W5 — `namespace` / declaration merging
 
@@ -224,6 +265,32 @@ equal the manifest's diagnostics, drift-either-way fails (the scoreboard for shr
 exactly like `es2015BurndownContract`. Ranked over the same closed `DiagCode` vocabulary; W4/W5
 landings show up as the counts fall.
 
+### W8 — Callable-object-with-props (`Vesper.Fun`-implementers) — *deferred, build-when-a-type-forces-it*
+
+Split out of W4 (2026-07-05): a TS callable object `{ (x: number): string; prop: boolean }` → an
+erasing nominal carrying `Fun<number,string>` in its heritage/interface set (the call signature) plus
+the data props as Property members. The **typing** side rides mostly-existing machinery: `Fun<a,b>` /
+`Fun<a,b,c>` is already the interface function values satisfy, with a value-struct `Invoke` sized by
+arity (`InferApp.fs` `recordFunArityVerdicts` + the `:> Fun<a,b>` bound), and external heritage +
+Fun-coercion landed with G5. The intent: called from Vesper via `.Invoke`, but passable into any
+function-accepting parameter slot with a matching signature (the object and a lambda are
+interchangeable to a `Fun`-bounded slot).
+
+It is NOT just data-carrying — it has a lowering wrinkle exactly parallel to W4's `$0[$1]` decision:
+- **`.Invoke` on an external callable object must lower to a DIRECT JS call `$0($1…)`**, not a
+  `.Invoke(...)` method call — a TS callable is invoked as `obj(x)`, and a JS object has no `.Invoke`.
+  A new lowering, sibling to `GetIndex`.
+- **Fun-coercion for an external nominal** must be verified: lambdas coerce into a `Fun`-bounded slot;
+  an external Fun-implementing nominal flowing into an arrow slot needs confirming (it should ride the
+  G5 upcast + the arg-position structural width, but is unexercised).
+- **Overloaded call signatures** compound it — `isFunctionType` already bails on >1 call sig, so a
+  callable object with overloaded call sigs needs the multi-signature story first.
+
+Schema slot: the call signature(s) carried on the erasing nominal (a `Structural`/heritage contract
+bump — Fable + goldens). **No `@types/node` type forces this** (EventEmitter/process/timers/streams
+are not callable-with-props), so it stays deferred with its own isolation fixture, landing when a real
+consumed type (node or `Js.Dom`) produces a callable object.
+
 ---
 
 ## Sequencing + isolation fixtures
@@ -245,7 +312,9 @@ hand-built fixture BEFORE the real-package regen.
    emit-`undefined`), `readFile(path, cb, opts?)` (callback + config-object width on the supplied
    optional + omit), and a doubly-declared `log(x: number)` (same-`argSig` overloads dedup rather
    than throw). Rest-param variadic lowering deferred (a trailing rest stays a required array param).
-4. **W4/W5** — targeted fixtures per graduation as each bites a real node type.
+4. **W4** — index-sig read/write/emit fixture (`{ [k: string]: string | undefined }`: `x.[k]`,
+   `x.[k] <- v`, and the emitted `obj[k]` bracket) + a `Partial`/optional-field fixture, hand-built
+   before any real-node regen. **W5/W8** — targeted fixtures per graduation as each bites a real node type.
 5. Only then: vendor real `@types/node`, regen goldens, commit **W7** burndown.
 
 Node-specific shapes need NO special code: `Buffer`/`EventEmitter`/typed arrays ride the generic

@@ -1,0 +1,220 @@
+{
+  "schemaVersion": 1,
+  "package": "indexsig",
+  "version": null,
+  "exports": [
+    {
+      "export": "interface",
+      "name": "Dict",
+      "typeParams": 0,
+      "members": [],
+      "heritage": [],
+      "index": {
+        "key": {
+          "k": "named",
+          "name": "string",
+          "args": []
+        },
+        "value": {
+          "k": "union",
+          "members": [
+            {
+              "k": "named",
+              "name": "undefined",
+              "args": []
+            },
+            {
+              "k": "named",
+              "name": "string",
+              "args": []
+            }
+          ]
+        }
+      }
+    },
+    {
+      "export": "interface",
+      "name": "Config",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "foo",
+          "kind": "property",
+          "type": {
+            "k": "union",
+            "members": [
+              {
+                "k": "named",
+                "name": "undefined",
+                "args": []
+              },
+              {
+                "k": "named",
+                "name": "number",
+                "args": []
+              }
+            ]
+          },
+          "signatures": [],
+          "static": false,
+          "optional": true
+        },
+        {
+          "name": "bar",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": []
+    },
+    {
+      "export": "interface",
+      "name": "Point",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "x",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "y",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": []
+    },
+    {
+      "export": "variable",
+      "name": "settings",
+      "type": {
+        "k": "structural",
+        "hash": "{ name: string; timeout?: number | undefined; }",
+        "fields": [
+          {
+            "name": "name",
+            "type": {
+              "k": "named",
+              "name": "string",
+              "args": []
+            }
+          },
+          {
+            "name": "timeout",
+            "type": {
+              "k": "union",
+              "members": [
+                {
+                  "k": "named",
+                  "name": "undefined",
+                  "args": []
+                },
+                {
+                  "k": "named",
+                  "name": "number",
+                  "args": []
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "const": true,
+      "import": "named"
+    },
+    {
+      "export": "variable",
+      "name": "lookup",
+      "type": {
+        "k": "structural",
+        "hash": "{ [k: string]: number; }",
+        "fields": [],
+        "index": {
+          "key": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          },
+          "value": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          }
+        }
+      },
+      "const": true,
+      "import": "named"
+    },
+    {
+      "export": "variable",
+      "name": "partialPoint",
+      "type": {
+        "k": "structural",
+        "hash": "Partial<Point>",
+        "fields": [
+          {
+            "name": "x",
+            "type": {
+              "k": "union",
+              "members": [
+                {
+                  "k": "named",
+                  "name": "undefined",
+                  "args": []
+                },
+                {
+                  "k": "named",
+                  "name": "number",
+                  "args": []
+                }
+              ]
+            }
+          },
+          {
+            "name": "y",
+            "type": {
+              "k": "union",
+              "members": [
+                {
+                  "k": "named",
+                  "name": "undefined",
+                  "args": []
+                },
+                {
+                  "k": "named",
+                  "name": "number",
+                  "args": []
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "const": true,
+      "import": "named"
+    }
+  ],
+  "diagnostics": []
+}

@@ -440,3 +440,19 @@ module StringIntrinsics =
     /// end desugars <c>s.[i]</c> to on a <c>string</c> receiver (the `string`
     /// analogue of <c>GetArray</c>).</summary>
     val inline GetString: s: string -> index: int -> char
+
+/// Index-signature intrinsics — the desugaring target for `x.[k]` / `x.[k] <- v` on a
+/// receiver whose EXTERNAL type carries a TS index signature (`{ [k: K]: V }`),
+/// mirroring `GetArray`/`SetArray` for arrays and `GetString` for strings. JS-target
+/// concept (a JS object has no `get_Item` method — bracket access is the only form);
+/// like `GetString`, the CLR body is contract-only.
+[<AutoOpen>]
+module IndexIntrinsics =
+
+    /// <summary>Indexed read of an index-signature object — the lowering target the
+    /// front end desugars <c>x.[k]</c> to on such a receiver.</summary>
+    val inline GetIndex: target: 'T -> key: 'K -> 'V
+
+    /// <summary>Indexed write of an index-signature object — the lowering target the
+    /// front end desugars <c>x.[k] &lt;- value</c> to on such a receiver.</summary>
+    val inline SetIndex: target: 'T -> key: 'K -> value: 'V -> unit

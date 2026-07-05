@@ -47,7 +47,8 @@ let private busManifest: Schema.PackageManifest =
                         method' "record" (sig1 "x" intT unitT)
                         method' "last" (sig0 intT)
                     ],
-                    []
+                    [],
+                    None
                 )
                 Schema.Export.Function("makeBus", [ sig0 (named "Bus") ], Schema.ImportShape.Named)
             ]

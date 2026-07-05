@@ -81,7 +81,8 @@ let private idManifest: Schema.PackageManifest =
                         // unit ⊑ unit  → int branch (unit's own identity intact)
                         condMethod "unitUnit" unitT unitT
                     ],
-                    []
+                    [],
+                    None
                 )
                 Schema.Export.Function(
                     "makeId",

@@ -46,7 +46,8 @@ let private setManifest: Schema.PackageManifest =
                         method' "__@iterator@1" (sig0 (namedG "SetIterator" [ typar 0 ]))
                     ],
                     [],
-                    Schema.ImportShape.Named
+                    Schema.ImportShape.Named,
+                    None
                 )
             ]
         Diagnostics = []

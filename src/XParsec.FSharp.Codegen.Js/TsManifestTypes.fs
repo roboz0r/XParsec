@@ -193,10 +193,10 @@ module internal TsManifestTranslate =
             flatExports
             |> List.choose (fun (nsPath, ex) ->
                 match ex with
-                | Schema.Export.Interface(name, tp, _, _) ->
+                | Schema.Export.Interface(name, tp, _, _, _) ->
                     let qn, key = mint moduleSpec nsPath name tp
                     Some(qn, { Key = key; IsInterface = true })
-                | Schema.Export.Class(name, tp, _, _, _) ->
+                | Schema.Export.Class(name, tp, _, _, _, _) ->
                     let qn, key = mint moduleSpec nsPath name tp
                     Some(qn, { Key = key; IsInterface = false })
                 | _ -> None
@@ -275,7 +275,9 @@ module internal TsManifestTranslate =
             + shapeHash whenFalse
             + ")"
         | Schema.TypeRef.Dynamic -> "Dyn"
-        | Schema.TypeRef.Structural(printed, fields) -> structuralHash printed fields
+        // The index-signature facet does not participate in the structural shape-hash
+        // (identity is the field set); ignore it, leaving a facet-free shape hash-identical.
+        | Schema.TypeRef.Structural(printed, fields, _) -> structuralHash printed fields
 
     /// The `Structural` arm of `shapeHash`, split out so `toFrozen` reaches it directly.
     /// FIELDLESS fallback: the extractor emits empty `fields` for a non-object structural
@@ -338,8 +340,8 @@ module internal TsManifestTranslate =
         | Schema.TypeRef.Conditional(check, extends, whenTrue, whenFalse) ->
             [ check; extends; whenTrue; whenFalse ] |> List.collect structuralShapesIn
         | Schema.TypeRef.Dynamic -> []
-        | Schema.TypeRef.Structural(_, []) -> []
-        | Schema.TypeRef.Structural(printed, fields) ->
+        | Schema.TypeRef.Structural(_, [], _) -> []
+        | Schema.TypeRef.Structural(printed, fields, _) ->
             (printed, fields)
             :: (fields |> List.collect (fun (_, ft) -> structuralShapesIn ft))
 
@@ -369,8 +371,8 @@ module internal TsManifestTranslate =
         match ex with
         | Schema.Export.Variable(_, ty, _, _) -> [ ty ]
         | Schema.Export.Function(_, sigs, _) -> sigs |> List.collect sigRefs
-        | Schema.Export.Interface(_, _, members, heritage) -> heritage @ (members |> List.collect memberRefs)
-        | Schema.Export.Class(_, _, members, heritage, _) -> heritage @ (members |> List.collect memberRefs)
+        | Schema.Export.Interface(_, _, members, heritage, _) -> heritage @ (members |> List.collect memberRefs)
+        | Schema.Export.Class(_, _, members, heritage, _, _) -> heritage @ (members |> List.collect memberRefs)
         | Schema.Export.TypeAlias(_, _, target) -> [ target ]
         | Schema.Export.Enum _ -> []
         | Schema.Export.Namespace _ -> []
@@ -467,7 +469,10 @@ module internal TsManifestTranslate =
         // (`{x;y}` ≡ `{y;x}`), so two permuted shapes intern to the SAME key and unify. The
         // FIELDLESS form has no members to resolve, so it stays an OPAQUE `FTUnknown` keyed
         // by the tsc-`printed` fallback (see `structuralHash`).
-        | Schema.TypeRef.Structural(printed, fields) ->
+        // The index-signature facet is threaded through but not consumed by the frozen
+        // nominal: an index-sig receiver resolves its element type at the lookup site
+        // (`inferIndexedLookup` → `GetIndex`/`SetIndex`), not through this shape's members.
+        | Schema.TypeRef.Structural(printed, fields, _) ->
             match fields with
             | [] -> FTUnknown("structural:" + structuralHash printed fields)
             | _ -> FTClass(structuralKey (structuralHash printed fields) |> snd, EqArray.empty)

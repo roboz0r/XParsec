@@ -31,7 +31,7 @@ let private manifest: Schema.PackageManifest =
                 // A `number`-typed PROPERTY, read covariantly — a JS `number` value IS a
                 // Vesper `float`, so `b.size` must type as `float` (usable in float arithmetic
                 // and a `float` annotation), NOT the opaque `number` token.
-                Schema.Export.Interface("Box", 0, [ property' "size" (named "number") ], [])
+                Schema.Export.Interface("Box", 0, [ property' "size" (named "number") ], [], None)
                 Schema.Export.Function("makeBox", [ sig0 (named "Box") ], Schema.ImportShape.Named)
             ]
         Diagnostics = []

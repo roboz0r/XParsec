@@ -36,7 +36,14 @@ let private es2015Manifest: Schema.PackageManifest =
         Version = None
         Exports =
             [
-                Schema.Export.Class("Widget", 0, [ ctor0; method' "ping" (sig0 unitT) ], [], Schema.ImportShape.Named)
+                Schema.Export.Class(
+                    "Widget",
+                    0,
+                    [ ctor0; method' "ping" (sig0 unitT) ],
+                    [],
+                    Schema.ImportShape.Named,
+                    None
+                )
                 // A free function on the global pack, to exercise the `addRef` Global-skip
                 // (bare export name, no import) — the value-export sibling of the class path.
                 Schema.Export.Function("spin", [ sig0 unitT ], Schema.ImportShape.Named)

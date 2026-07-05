@@ -262,8 +262,8 @@ module internal TsManifestMembers =
             )
 
         match ex with
-        | Schema.Export.Interface(name, tp, members, heritage) -> build name tp members heritage true
-        | Schema.Export.Class(name, tp, members, heritage, _import) -> build name tp members heritage false
+        | Schema.Export.Interface(name, tp, members, heritage, _index) -> build name tp members heritage true
+        | Schema.Export.Class(name, tp, members, heritage, _import, _index) -> build name tp members heritage false
         | Schema.Export.TypeAlias(name, tp, target) ->
             // `type X = …` maps onto the seam's transparent abbreviation shape: a use
             // site of `name` expands to the target's `FrozenType` (via

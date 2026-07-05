@@ -28,7 +28,7 @@ let private manifest: Schema.PackageManifest =
         Version = None
         Exports =
             [
-                Schema.Export.Interface("Box", 1, [ property' "value" (typar 0) ], [])
+                Schema.Export.Interface("Box", 1, [ property' "value" (typar 0) ], [], None)
                 Schema.Export.Function(
                     "makeNumBox",
                     [ sig0 (namedG "Box" [ named "number" ]) ],

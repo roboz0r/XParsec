@@ -26,7 +26,8 @@ let private manifest: Schema.PackageManifest =
                     "Options",
                     0,
                     [ property' "retries" (named "number"); property' "label" (named "string") ],
-                    []
+                    [],
+                    None
                 )
                 Schema.Export.Function(
                     "configure",

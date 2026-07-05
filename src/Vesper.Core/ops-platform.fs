@@ -218,3 +218,19 @@ module StringIntrinsics =
     /// satisfy the contract; its `s.[i]` resolves to `get_Chars`, NOT recursively
     /// to GetString (the front end prefers `get_Chars` over this intrinsic).
     let inline GetString (s: string) (index: int) : char = s.[index]
+
+/// Index-signature intrinsics — see `ops-platform.fsi`.
+[<AutoOpen>]
+module IndexIntrinsics =
+
+    /// Indexed read of an index-signature object. These desugar `x.[k]` / `x.[k] <- v`
+    /// on a receiver whose EXTERNAL (TS) type carries an index signature — a JS-target
+    /// concept with no CLR analog (a `.NET` indexer resolves via `get_Item`/`set_Item`
+    /// metadata), so like the JS-only `GetString` path the CLR body exists ONLY to
+    /// satisfy the contract and is never routed to on CLR.
+    let inline GetIndex (target: 'T) (key: 'K) : 'V = failwith "GetIndex is a JS-target intrinsic"
+
+    /// Indexed write of an index-signature object — the `SetIndex` sibling of `GetIndex`
+    /// (contract-only on CLR, see `GetIndex`).
+    let inline SetIndex (target: 'T) (key: 'K) (value: 'V) : unit =
+        failwith "SetIndex is a JS-target intrinsic"

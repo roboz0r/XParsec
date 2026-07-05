@@ -116,15 +116,16 @@ let isFunctionType (t: Ts.Type) : bool =
     && (t.getConstructSignatures ()).Count = 0
     && (t.getProperties ()).Count = 0
 
-/// The shared "can a `Structural` field list carry this WHOLE type?" tail, checked on
-/// a type whose OBJECT-ness the caller has already established. TRUE only when every
-/// bit of its content survives as named fields: it has at least one property AND no
-/// index signature (`{ [k: string]: number }`), no call signature, and no construct
-/// signature — each of which a field list silently drops. FALSE means the carry is
-/// partial (index/call/construct sigs) or empty (`{}`), so the caller must warn.
+/// The shared "can a `Structural` carry this WHOLE type?" tail, checked on a type whose
+/// OBJECT-ness the caller has already established. TRUE when every bit of its content
+/// survives — as named fields AND/OR the carried index-signature facet: it has at least
+/// one property OR an index signature (`{ [k: string]: number }`, now carried via
+/// `mapIndexInfo` onto the `Structural`/`Interface`/`Class` `index` slot, no longer a
+/// silent drop), and NO call signature and NO construct signature (each of which a field
+/// list plus index facet still silently drops). FALSE means the carry is partial
+/// (call/construct sigs) or empty (`{}`), so the caller must warn.
 let carriesFaithfullyAsFields (checker: Ts.TypeChecker) (t: Ts.Type) : bool =
-    (t.getProperties ()).Count > 0
-    && (checker.getIndexInfosOfType t).Count = 0
+    ((t.getProperties ()).Count > 0 || (checker.getIndexInfosOfType t).Count > 0)
     && (t.getCallSignatures ()).Count = 0
     && (t.getConstructSignatures ()).Count = 0
 
@@ -187,10 +188,10 @@ and private carryStructural (ctx: MapCtx) (t: Ts.Type) (printed: string) (faithf
     if faithful then
         let fields =
             t.getProperties ()
-            |> Seq.map (fun p -> p.getName (), mapType ctx (ctx.Checker.getTypeOfSymbol p))
+            |> Seq.map (fun p -> p.getName (), structuralFieldType ctx p)
             |> List.ofSeq
 
-        Schema.TypeRef.Structural(printed, fields)
+        Schema.TypeRef.Structural(printed, fields, mapIndexInfo ctx t)
     else
         emitWarning
             ctx
@@ -199,7 +200,42 @@ and private carryStructural (ctx: MapCtx) (t: Ts.Type) (printed: string) (faithf
             (t.getSymbol () |> Option.bind tryDeclOf |> Option.map spanOfNode)
             (sprintf "structural type '%s' has no faithful representation; carried as an opaque Structural" printed)
 
-        Schema.TypeRef.Structural(printed, [])
+        Schema.TypeRef.Structural(printed, [], None)
+
+/// A structural FIELD's carried type. A `Structural` field is a bare `(name, TypeRef)`
+/// with NO optional channel (unlike a named `Member`, which has `Member.Optional`), so
+/// an OPTIONAL field (`foo?: T`) carries its read semantics `T | undefined` as a `Union`
+/// that includes `undefined`. tsc PRE-EVALUATES `Partial<T>` to a resolved object whose
+/// property SYMBOLS carry the optional flag while the property TYPE stays `T[P]` — so
+/// optionality is read from the SYMBOL flag (`SymbolFlags.Optional`), never the type.
+and private structuralFieldType (ctx: MapCtx) (p: Ts.Symbol) : Schema.TypeRef =
+    let ty = mapType ctx (ctx.Checker.getTypeOfSymbol p)
+
+    if hasFlag (p.getFlags ()) Ts.SymbolFlags.Optional then
+        let undef = Schema.TypeRef.Named("undefined", [])
+
+        match ty with
+        // Don't double-add `undefined` if the resolved type already carries it.
+        | Schema.TypeRef.Union ms when List.contains undef ms -> ty
+        | Schema.TypeRef.Union ms -> Schema.TypeRef.Union(ms @ [ undef ])
+        | _ -> Schema.TypeRef.Union [ ty; undef ]
+    else
+        ty
+
+/// The FIRST index signature of `t` (`{ [k: K]: V }`), key and value each `mapType`-mapped,
+/// or `None` for a type with no index signature. `getIndexInfosOfType` FLATTENS inherited
+/// index sigs through heritage (a `ProcessEnv extends Dict<T>` resolves the string index
+/// directly, no consume-time heritage walk). Only the FIRST is carried: the wire form has
+/// ONE index facet, and no consumed type declares BOTH a string- and a number-index
+/// signature; a rare multi-signature type keeps the first and drops the rest.
+and mapIndexInfo (ctx: MapCtx) (t: Ts.Type) : (Schema.TypeRef * Schema.TypeRef) option =
+    let infos = ctx.Checker.getIndexInfosOfType t
+
+    if infos.Count = 0 then
+        None
+    else
+        let info = infos.[0]
+        Some(mapType ctx info.keyType, mapType ctx info.``type``)
 
 and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
     let checker = ctx.Checker

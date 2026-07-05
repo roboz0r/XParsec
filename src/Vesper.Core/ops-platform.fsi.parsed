@@ -1457,4 +1457,59 @@ namespace                 'namespace'       KWNamespace         tok=   0  pos=  
         ->                '->'              OpArrowRight        tok=2752  pos=18398
         NamedType:
           Ident           'char'            Identifier          tok=2754  pos=18401
-    end                   <virt>            KWEnd               tok=virt  pos=18406
+    end                   <virt>            KWEnd               tok=virt  pos=18800
+  Module:
+    [<                    '[<'              KWLAttrBracket      tok=2767  pos=18800
+    NamedType:
+      Ident               'AutoOpen'        Identifier          tok=2768  pos=18802
+    >]                    '>]'              KWRAttrBracket      tok=2769  pos=18810
+    module                'module'          KWModule            tok=2771  pos=18813
+    ident                 'IndexIntri...'   Identifier          tok=2773  pos=18820
+    =                     '='               OpEquality          tok=2775  pos=18836
+    begin                 <virt>            KWBegin             tok=virt  pos=19001
+      Val:
+        val               'val'             KWVal               tok=2785  pos=19001
+        inline            'inline'          KWInline            tok=2787  pos=19005
+        Ident             'GetIndex'        Identifier          tok=2789  pos=19012
+        :                 ':'               OpColon             tok=2790  pos=19020
+        arg               'target'          Identifier          tok=2792  pos=19022
+        :                 ':'               OpColon             tok=2793  pos=19028
+        VarType:
+          Typar.Named:
+                          ''T'              TypeParameter       tok=2795  pos=19030
+        ->                '->'              OpArrowRight        tok=2797  pos=19033
+        arg               'key'             Identifier          tok=2799  pos=19036
+        :                 ':'               OpColon             tok=2800  pos=19039
+        VarType:
+          Typar.Named:
+                          ''K'              TypeParameter       tok=2802  pos=19041
+        ->                '->'              OpArrowRight        tok=2804  pos=19044
+        VarType:
+          Typar.Named:
+                          ''V'              TypeParameter       tok=2806  pos=19047
+      Val:
+        val               'val'             KWVal               tok=2816  pos=19226
+        inline            'inline'          KWInline            tok=2818  pos=19230
+        Ident             'SetIndex'        Identifier          tok=2820  pos=19237
+        :                 ':'               OpColon             tok=2821  pos=19245
+        arg               'target'          Identifier          tok=2823  pos=19247
+        :                 ':'               OpColon             tok=2824  pos=19253
+        VarType:
+          Typar.Named:
+                          ''T'              TypeParameter       tok=2826  pos=19255
+        ->                '->'              OpArrowRight        tok=2828  pos=19258
+        arg               'key'             Identifier          tok=2830  pos=19261
+        :                 ':'               OpColon             tok=2831  pos=19264
+        VarType:
+          Typar.Named:
+                          ''K'              TypeParameter       tok=2833  pos=19266
+        ->                '->'              OpArrowRight        tok=2835  pos=19269
+        arg               'value'           Identifier          tok=2837  pos=19272
+        :                 ':'               OpColon             tok=2838  pos=19277
+        VarType:
+          Typar.Named:
+                          ''V'              TypeParameter       tok=2840  pos=19279
+        ->                '->'              OpArrowRight        tok=2842  pos=19282
+        NamedType:
+          Ident           'unit'            Identifier          tok=2844  pos=19285
+    end                   <virt>            KWEnd               tok=virt  pos=19290

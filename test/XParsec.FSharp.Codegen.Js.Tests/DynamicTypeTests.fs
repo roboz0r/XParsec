@@ -41,7 +41,8 @@ let private dynManifest: Schema.PackageManifest =
                         staticMethod' "useAny" [ sig1 "v" dynamic stringT ]
                     ],
                     [],
-                    Schema.ImportShape.Named
+                    Schema.ImportShape.Named,
+                    None
                 )
             ]
         Diagnostics = []

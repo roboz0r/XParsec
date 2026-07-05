@@ -75,7 +75,8 @@ let private recorderManifest: Schema.PackageManifest =
                         method' "lastPong" (sig0 strT)
                         method' "tickCount" (sig0 intT)
                     ],
-                    []
+                    [],
+                    None
                 )
                 Schema.Export.Function("makeRecorder", [ sig0 (named "Recorder") ], Schema.ImportShape.Named)
             ]

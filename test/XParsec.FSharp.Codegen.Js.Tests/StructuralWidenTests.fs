@@ -32,7 +32,8 @@ let private manifest: Schema.PackageManifest =
                         property' "label" (named "string")
                         optProperty' "verbose" (named "bool")
                     ],
-                    []
+                    [],
+                    None
                 )
                 Schema.Export.Function(
                     "configure",
