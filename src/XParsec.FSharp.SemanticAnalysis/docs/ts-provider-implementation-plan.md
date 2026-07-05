@@ -37,6 +37,7 @@ The code + named tests are the canonical record; do not re-narrate here.
 | W1 ambient-module extraction entry (`--ambient-modules`, one manifest per quoted module, per-symbol resilience, cross-module ref homing) | `Extractor.extractAmbientModules`; `TsInterop.enclosingQuotedModuleName`; `MapCtx.ModuleHome`; `ExportMap.mapExportResilient`; `specs/ambient-modules/` golden (`testExtractorMatchesGoldenAmbientModules`) |
 | W2 CommonJS/Namespace import lowering + `node/* → Node.*` mount (mount/is-global split) | `ImportForm.CommonJs`/`Namespace`; `TsManifestTranslate.importFormOfShape`; `ExternalClassFlags.ImportForm`; `JsRuntime.addRef` + `JsStatement.ImportNamespace`; `TsGlobalHomes.mountFor`/`isGlobalHome`; `ImportFormLoweringTests` |
 | W3 per-param optional-fill (trailing optionals → `OptionalDefaults`, omitted slot = `undefined`) + `overloadArgSigs` degrade-and-dedup (ErasedDistinction throw excised) | `TsManifestMembers.trailingOptionalCount`; `TsManifestTranslate.overloadArgSigs`; `OptionalParamTests` |
+| W4 index signatures (`x.[k]` read/write → `GetIndex`/`SetIndex` bracket) + optional graduation (`SymbolFlags.Optional` → `Member.Optional` / `T \| undefined`) + value-level `undefined` (retires the `optionalDefaultNode` unit hack) | `Codegen.Js.GetIndex`/`SetIndex`; `Schema … index` facet; `TypeMap.mapIndexInfo`; `TryLookupIndexSignature`; `inferIndexedLookup` recognizer; `Vesper.undefined`/`Inline.nullaryIntrinsicValueBody`/`BuiltinTypes.tyUndefined`; `IndexSignatureTests`, `indexsig` golden |
 
 **Generic machinery node RIDES (already built, reused verbatim):** the `--package` module-entry
 extraction (`extractPackage`); the refs table (identity-only homed `FTClass`, the ECMA-335
@@ -187,59 +188,21 @@ it stays a required array param). Variadic rest lowering (spread-emit / multi-ar
 when a real node signature forces it. Constructors keep `OptionalDefaults = []` (ctor optional-fill
 is a separate `InferCtor` path, unexercised by the fixture).
 
-### W4 — Index signatures + optional graduation — **DECIDED, in progress**
+### W4 — Index signatures + optional graduation — **LANDED**
 
-Two graduations node forces, both off the `carriesFaithfullyAsFields` gate that stubs them today.
-The callable-object-with-props graduation is NOT here — it needs its own lowering + coercion pass and
-no node type forces it, so it split out to **W8**.
-
-**Index signatures** `{ [k: string]: T }` → an F# indexed-lookup capability (`x.[k]` / `x.[k] <- v`).
-Node forces this first (`process.env`, `NodeJS.Dict`, and `Record<K,V>` which instantiates TO an
-index signature). The `getIndexInfosOfType t = 0` clause in `carriesFaithfullyAsFields` (`TypeMap.fs`)
-is the seam.
-
-*Design (DECIDED).* The index accessor LOWERS to the proven `$0[$1]` / `$0[$1] = $2` JS bracket
-template — the exact template the JS backend already emits for `GetString` (`ops-platform.js.fs`) and
-`(?)`/`(?<-)` (`ops-dynamic.js.fs`) — NOT a `get_Item`/`set_Item` method call (a JS object has no such
-method; routing through a member call would force Freeze/EmitJs to special-case that these members
-lower to bracket, the fragility we avoid). Anchoring on that template means **EmitJs needs no change**
-and the JS string is correct by construction. Two new Vesper.Core intrinsics — `GetIndex`/`SetIndex`,
-siblings of `GetArray`/`GetString` — carry the template with precise `'K`/`'V` typing, so
-`process.env.["PATH"] : string | undefined` (the `| undefined` rides in the declared value type; no
-`dynamic` escape). This is the GetArray precedent: `x.[i]` is *syntax*, realised by an intrinsic, never
-a literal `Item` member in the emitted JS. Wiring, all seams verified:
-- **Extractor** carries the index signature via `getIndexInfosOfType` (which FLATTENS inherited sigs
-  through heritage — `ProcessEnv extends Dict<T>` resolves the string index directly, no consume-time
-  heritage walk) on `Structural` (anonymous) and `Interface`/`Class` (named); ungate the gate so the
-  sig is captured, not stubbed. Additive-omit wire slot (goldens byte-identical when absent).
-- **Provider** gains `TryLookupIndexSignature(qual) : (key,value) option` — parallel to `TryLookupMember`.
-- **Infer**: `inferIndexedLookup` (`InferRecordAccess.fs`) recognises an index-sig receiver and unifies
-  against `GetIndex`'s scheme instantiated at `(key,value)` BEFORE the `get_Item`/`getArrayIndex`
-  attempts. `inferAssignment` needs NO change (it types the LHS via the read path; get/set share the
-  value type). **Freeze**: route to `GetIndex` (read branch) / `SetIndex` (the `SetArray` write branch)
-  beside the existing `GetString`/`GetArray` pick, classifying the receiver via `ctx.Provider`.
-
-**Optional graduation** (`Partial<T>` + optional members). tsc PRE-EVALUATES `Partial<T>` to a resolved
-anonymous object whose property symbols carry the optional FLAG — the type stays `T[P]`, optionality
-lives in the flag, and no mapped-type construct reaches the extractor. The extractor drops it today:
-`mapMember` (`ExportMap.fs`) hardcodes `Optional = false`, and anonymous `Structural` fields
-(`(string * TypeRef)`) have no optional channel. Fix (extraction-only, NO schema change, NO consumer
-change): read `SymbolFlags.Optional`; a `Structural` field's optional carries as `Union[T; undefined]`
-(the read semantics the consumer needs, re-hashing to a distinct structural identity); a named
-interface/class member populates the existing-but-unused `Member.Optional`. `Readonly<T>` over a record
-is already faithful; `Record<K,V>` rides the index-sig carry above.
-
-*Follow-on (tack-on task, AFTER the index-sig + optional work lands, run sequentially — never a second
-concurrent code-changing agent).* `undefined` exists only as a TYPE today (`prim-types-undefined.js.fs`);
-there is no value-level `undefined`, so the omitted-optional fill (`FreezeExpr.optionalDefaultNode`, W3)
-HACKS it by synthesising `TConstValue.Unit` and exploiting the coincidental `unit → undefined` value
-repr. Add a real value-level `[<Global>] let undefined : undefined = (# "undefined" #)` (needs new
-plumbing — `[<Global>]` is NOT a source attribute yet, only an internal `ExternalClassFlags.Global`
-type-shape flag: `AttributeDecode` must recognise `[<Global>]` on a value binding, the value symbol must
-carry an ambient/global bit, and EmitJs must emit the bare name + suppress both the definition — else
-`const undefined = undefined` — and the import). Then replace the `optionalDefaultNode` unit hack with
-the honest `undefined` value. Not required for the index-sig/optional graduation itself (runtime supplies
-read values; fixtures assert frozen type / emitted JS), so it lands last.
+**Landed.** Index signatures (`x.[k]` read / `x.[k] <- v` write) and the optional graduation are consumed
+end to end and live in the code + `IndexSignatureTests`. Anchors: `Codegen.Js.GetIndex`/`SetIndex`
+(`ops-platform.js.fs`, the `$0[$1]` bracket template); `Schema.TypeRef.Structural`/`Export.Interface`/
+`Class`'s `index: (TypeRef * TypeRef) list` facet (codec omit-when-empty); `TypeMap.mapIndexInfo` +
+ungated `carriesFaithfullyAsFields`; `IExternalSymbolProvider.TryLookupIndexSignature` (FrozenType
+templates, realised per use site); `inferIndexedLookup`'s index-sig recognizer + Freeze's
+`GetIndex`/`SetIndex` routing; a fieldless index-only shape (bare `Record<K,V>`) freezes to a nominal so
+its index is reachable (only a truly-empty shape stays `FTUnknown`). Optionality reads from
+`SymbolFlags.Optional` — a named member fills `Member.Optional`, an anonymous structural field carries
+`T | undefined`. The value-level `undefined` (`Vesper.undefined`, a zero-operand intrinsic the JS backend
+inlines via `Inline.nullaryIntrinsicValueBody`) landed too, retiring the `optionalDefaultNode`
+`unit → undefined` repr hack (now an honest `undefined`-typed fill via `BuiltinTypes.tyUndefined`). The
+callable-object-with-props graduation is NOT here — split to **W8** (no node type forces it).
 
 ### W5 — `namespace` / declaration merging
 
@@ -312,9 +275,9 @@ hand-built fixture BEFORE the real-package regen.
    emit-`undefined`), `readFile(path, cb, opts?)` (callback + config-object width on the supplied
    optional + omit), and a doubly-declared `log(x: number)` (same-`argSig` overloads dedup rather
    than throw). Rest-param variadic lowering deferred (a trailing rest stays a required array param).
-4. **W4** — index-sig read/write/emit fixture (`{ [k: string]: string | undefined }`: `x.[k]`,
-   `x.[k] <- v`, and the emitted `obj[k]` bracket) + a `Partial`/optional-field fixture, hand-built
-   before any real-node regen. **W5/W8** — targeted fixtures per graduation as each bites a real node type.
+4. **W4** — **DONE.** `IndexSignatureTests` (index read/write/emit `obj[k]`, `string | undefined` value,
+   fieldless `Record<K,V>`, optional-field graduation) + the `indexsig` extractor golden. **W5/W8** —
+   targeted fixtures per graduation as each bites a real node type.
 5. Only then: vendor real `@types/node`, regen goldens, commit **W7** burndown.
 
 Node-specific shapes need NO special code: `Buffer`/`EventEmitter`/typed arrays ride the generic
