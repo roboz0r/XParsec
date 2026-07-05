@@ -42,7 +42,7 @@ let private dynManifest: Schema.PackageManifest =
                     ],
                     [],
                     Schema.ImportShape.Named,
-                    None
+                    []
                 )
             ]
         Diagnostics = []

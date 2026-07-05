@@ -42,7 +42,7 @@ let private widgetManifest: Schema.PackageManifest =
                         method' "getMode" (sig0 modeUnion)
                     ],
                     [],
-                    None
+                    []
                 )
                 Schema.Export.Function("makeWidget", [ sig0 (named "Widget") ], Schema.ImportShape.Named)
             ]

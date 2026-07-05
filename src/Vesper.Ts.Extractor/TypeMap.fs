@@ -200,7 +200,7 @@ and private carryStructural (ctx: MapCtx) (t: Ts.Type) (printed: string) (faithf
             (t.getSymbol () |> Option.bind tryDeclOf |> Option.map spanOfNode)
             (sprintf "structural type '%s' has no faithful representation; carried as an opaque Structural" printed)
 
-        Schema.TypeRef.Structural(printed, [], None)
+        Schema.TypeRef.Structural(printed, [], [])
 
 /// A structural FIELD's carried type. A `Structural` field is a bare `(name, TypeRef)`
 /// with NO optional channel (unlike a named `Member`, which has `Member.Optional`), so
@@ -222,20 +222,15 @@ and private structuralFieldType (ctx: MapCtx) (p: Ts.Symbol) : Schema.TypeRef =
     else
         ty
 
-/// The FIRST index signature of `t` (`{ [k: K]: V }`), key and value each `mapType`-mapped,
-/// or `None` for a type with no index signature. `getIndexInfosOfType` FLATTENS inherited
-/// index sigs through heritage (a `ProcessEnv extends Dict<T>` resolves the string index
-/// directly, no consume-time heritage walk). Only the FIRST is carried: the wire form has
-/// ONE index facet, and no consumed type declares BOTH a string- and a number-index
-/// signature; a rare multi-signature type keeps the first and drops the rest.
-and mapIndexInfo (ctx: MapCtx) (t: Ts.Type) : (Schema.TypeRef * Schema.TypeRef) option =
-    let infos = ctx.Checker.getIndexInfosOfType t
-
-    if infos.Count = 0 then
-        None
-    else
-        let info = infos.[0]
-        Some(mapType ctx info.keyType, mapType ctx info.``type``)
+/// The index signatures of `t` (`{ [k: K]: V }`), each key and value `mapType`-mapped, as a
+/// list of `(key, value)` pairs (empty when `t` has none). `getIndexInfosOfType` FLATTENS
+/// inherited index sigs through heritage (a `ProcessEnv extends Dict<T>` resolves the string
+/// index directly, no consume-time heritage walk). ALL are carried: a TS type may declare
+/// BOTH a string- and a number-index signature, and the list carries each.
+and mapIndexInfo (ctx: MapCtx) (t: Ts.Type) : (Schema.TypeRef * Schema.TypeRef) list =
+    ctx.Checker.getIndexInfosOfType t
+    |> Seq.map (fun info -> mapType ctx info.keyType, mapType ctx info.``type``)
+    |> List.ofSeq
 
 and private mapTypeInner (ctx: MapCtx) (t: Ts.Type) : Schema.TypeRef =
     let checker = ctx.Checker

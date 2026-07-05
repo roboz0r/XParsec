@@ -223,14 +223,21 @@ let rec encodeTypeRef (t: TypeRef) : JsonValue =
         )
 
 /// The `index` facet an index-signature-bearing host (`Structural`/`Interface`/`Class`)
-/// contributes to its wire object — a `{ key, value }` pair, OMITTED (not `null`) when
-/// absent so a facet-free host stays BYTE-IDENTICAL to a pre-facet golden (the
+/// contributes to its wire object — a JSON ARRAY of `{ key, value }` pairs, OMITTED (not
+/// `null`) when EMPTY so a facet-free host stays BYTE-IDENTICAL to a pre-facet golden (the
 /// `refs`/`typeParamBounds` omit-when-empty precedent). In the `encodeTypeRef` rec group
 /// so both it and `encodeExport` reach it.
-and private encodeIndexFields (index: (TypeRef * TypeRef) option) : (string * JsonValue) list =
+and private encodeIndexFields (index: (TypeRef * TypeRef) list) : (string * JsonValue) list =
     match index with
-    | Some(k, v) -> [ "index", jObj [ "key", encodeTypeRef k; "value", encodeTypeRef v ] ]
-    | None -> []
+    | [] -> []
+    | pairs ->
+        [
+            "index",
+            jArr (
+                pairs
+                |> List.map (fun (k, v) -> jObj [ "key", encodeTypeRef k; "value", encodeTypeRef v ])
+            )
+        ]
 
 let rec decodeTypeRef (j: JsonValue) : Result<TypeRef, string> =
     result {
@@ -291,20 +298,23 @@ and private decodeStructField (j: JsonValue) : Result<string * TypeRef, string> 
         return (n, t)
     }
 
-/// Read the omitted-when-absent `index` facet (`{ key, value }`) off a host object
-/// (`Structural`/`Interface`/`Class`); absent or `null` → `None`. In the `decodeTypeRef`
-/// rec group so both it and `decodeExport` reach it.
-and private decodeIndex (m: JsonObject) : Result<(TypeRef * TypeRef) option, string> =
+/// Read the omitted-when-empty `index` facet (a JSON array of `{ key, value }` pairs) off
+/// a host object (`Structural`/`Interface`/`Class`); absent or `null` → `[]`. In the
+/// `decodeTypeRef` rec group so both it and `decodeExport` reach it.
+and private decodeIndex (m: JsonObject) : Result<(TypeRef * TypeRef) list, string> =
     match tryField "index" m with
     | None
-    | Some JsonValue.Null -> Ok None
+    | Some JsonValue.Null -> Ok []
     | Some v ->
-        result {
-            let! im = asObject v
-            let! k = readField "key" decodeTypeRef im
-            let! vv = readField "value" decodeTypeRef im
-            return Some(k, vv)
-        }
+        asArray v
+        >>= traverse (fun el ->
+            result {
+                let! im = asObject el
+                let! k = readField "key" decodeTypeRef im
+                let! vv = readField "value" decodeTypeRef im
+                return (k, vv)
+            }
+        )
 
 // ─── leaf enums ────────────────────────────────────────────────────────────
 

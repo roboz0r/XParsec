@@ -37,7 +37,7 @@ let private manifest: Schema.PackageManifest =
                     0,
                     [ property' "retries" (named "number"); optProperty' "verbose" (named "bool") ],
                     [],
-                    None
+                    []
                 )
                 Schema.Export.Interface(
                     "Api",
@@ -71,7 +71,7 @@ let private manifest: Schema.PackageManifest =
                             ]
                     ],
                     [],
-                    None
+                    []
                 )
                 Schema.Export.Variable("api", named "Api", true, Schema.ImportShape.Named)
             ]

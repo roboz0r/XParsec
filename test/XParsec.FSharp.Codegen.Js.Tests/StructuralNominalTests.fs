@@ -18,7 +18,7 @@ let private intT = named "int"
 
 /// The `{x:int;y:int}` shape, in the given field order.
 let private point (order: (string * Schema.TypeRef) list) : Schema.TypeRef =
-    Schema.TypeRef.Structural("{x:int;y:int}", order, None)
+    Schema.TypeRef.Structural("{x:int;y:int}", order, [])
 
 let private xThenY = [ "x", intT; "y", intT ]
 let private yThenX = [ "y", intT; "x", intT ]
@@ -41,7 +41,7 @@ let private manifest: Schema.PackageManifest =
                     Schema.TypeRef.Structural(
                         "{pt:{x:int;y:int};label:string}",
                         [ "pt", point xThenY; "label", named "string" ],
-                        None
+                        []
                     ),
                     true,
                     Schema.ImportShape.Named

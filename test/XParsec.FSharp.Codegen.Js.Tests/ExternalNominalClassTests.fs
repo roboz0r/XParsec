@@ -73,7 +73,7 @@ let private boxManifest: Schema.PackageManifest =
                     0,
                     [ method' "get" (sig0 intT); method' "set" (sig1 "x" intT unitT) ],
                     [],
-                    None
+                    []
                 )
                 Schema.Export.Function("makeBox", [ sig0 (named "Box") ], Schema.ImportShape.Named)
                 Schema.Export.Function("wantInt", [ sig0 intT ], Schema.ImportShape.Named)
@@ -82,7 +82,7 @@ let private boxManifest: Schema.PackageManifest =
                 // register/mint `Wrap` under its arity-suffixed compiled name `` Wrap`1 `` so a
                 // `Wrap<int>` annotation (resolved by `TypeTranslate` as `arityName "Wrap" 1`)
                 // and the `toFrozen` return key AGREE — the exact mitt wall-2 shape.
-                Schema.Export.Interface("Wrap", 1, [ method' "value" (sig0 (Schema.TypeRef.Typar 0)) ], [], None)
+                Schema.Export.Interface("Wrap", 1, [ method' "value" (sig0 (Schema.TypeRef.Typar 0)) ], [], [])
                 Schema.Export.Function(
                     "makeIntWrap",
                     [ sig0 (Schema.TypeRef.Named("Wrap", [ intT ])) ],
@@ -92,7 +92,7 @@ let private boxManifest: Schema.PackageManifest =
                 Schema.Export.Namespace(
                     "NS",
                     [
-                        Schema.Export.Interface("Inner", 0, [ method' "get" (sig0 intT) ], [], None)
+                        Schema.Export.Interface("Inner", 0, [ method' "get" (sig0 intT) ], [], [])
                         // The wire spells a cross/namespaced reference by its QUALIFIED name.
                         Schema.Export.Function("makeInner", [ sig0 (named "NS.Inner") ], Schema.ImportShape.Named)
                     ]

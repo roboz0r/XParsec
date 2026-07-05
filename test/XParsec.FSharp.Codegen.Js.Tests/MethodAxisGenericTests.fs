@@ -50,7 +50,7 @@ let private idManifest: Schema.PackageManifest =
                     ],
                     [],
                     Schema.ImportShape.Named,
-                    None
+                    []
                 )
             ]
         Diagnostics = []

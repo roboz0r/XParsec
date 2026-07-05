@@ -524,18 +524,44 @@
       "typeParams": 0,
       "members": [],
       "heritage": [],
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "string",
-          "args": []
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          },
+          "value": {
+            "k": "named",
+            "name": "PropertyDescriptor",
+            "args": []
+          }
         },
-        "value": {
-          "k": "named",
-          "name": "PropertyDescriptor",
-          "args": []
+        {
+          "key": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "value": {
+            "k": "named",
+            "name": "PropertyDescriptor",
+            "args": []
+          }
+        },
+        {
+          "key": {
+            "k": "named",
+            "name": "symbol",
+            "args": []
+          },
+          "value": {
+            "k": "named",
+            "name": "PropertyDescriptor",
+            "args": []
+          }
         }
-      }
+      ]
     },
     {
       "export": "typeAlias",
@@ -1443,16 +1469,18 @@
         }
       ],
       "heritage": [],
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "number",
-          "args": []
-        },
-        "value": {
-          "k": "dynamic"
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "value": {
+            "k": "dynamic"
+          }
         }
-      }
+      ]
     },
     {
       "export": "interface",
@@ -3919,28 +3947,30 @@
                 }
               }
             ],
-            "index": {
-              "key": {
-                "k": "named",
-                "name": "number",
-                "args": []
-              },
-              "value": {
-                "k": "union",
-                "members": [
-                  {
-                    "k": "named",
-                    "name": "undefined",
-                    "args": []
-                  },
-                  {
-                    "k": "named",
-                    "name": "bool",
-                    "args": []
-                  }
-                ]
+            "index": [
+              {
+                "key": {
+                  "k": "named",
+                  "name": "number",
+                  "args": []
+                },
+                "value": {
+                  "k": "union",
+                  "members": [
+                    {
+                      "k": "named",
+                      "name": "undefined",
+                      "args": []
+                    },
+                    {
+                      "k": "named",
+                      "name": "bool",
+                      "args": []
+                    }
+                  ]
+                }
               }
-            }
+            ]
           },
           "signatures": [],
           "static": false,
@@ -3960,18 +3990,20 @@
           ]
         }
       ],
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "number",
-          "args": []
-        },
-        "value": {
-          "k": "named",
-          "name": "string",
-          "args": []
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "value": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          }
         }
-      }
+      ]
     },
     {
       "export": "interface",
@@ -4038,18 +4070,20 @@
       "typeParams": 0,
       "members": [],
       "heritage": [],
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "string",
-          "args": []
-        },
-        "value": {
-          "k": "named",
-          "name": "string",
-          "args": []
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          },
+          "value": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          }
         }
-      }
+      ]
     },
     {
       "export": "interface",
@@ -4057,18 +4091,20 @@
       "typeParams": 0,
       "members": [],
       "heritage": [],
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "string",
-          "args": []
-        },
-        "value": {
-          "k": "named",
-          "name": "string",
-          "args": []
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          },
+          "value": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          }
         }
-      }
+      ]
     },
     {
       "export": "class",
@@ -9172,28 +9208,30 @@
                 }
               }
             ],
-            "index": {
-              "key": {
-                "k": "named",
-                "name": "number",
-                "args": []
-              },
-              "value": {
-                "k": "union",
-                "members": [
-                  {
-                    "k": "named",
-                    "name": "undefined",
-                    "args": []
-                  },
-                  {
-                    "k": "named",
-                    "name": "bool",
-                    "args": []
-                  }
-                ]
+            "index": [
+              {
+                "key": {
+                  "k": "named",
+                  "name": "number",
+                  "args": []
+                },
+                "value": {
+                  "k": "union",
+                  "members": [
+                    {
+                      "k": "named",
+                      "name": "undefined",
+                      "args": []
+                    },
+                    {
+                      "k": "named",
+                      "name": "bool",
+                      "args": []
+                    }
+                  ]
+                }
               }
-            }
+            ]
           },
           "signatures": [],
           "static": false,
@@ -9213,18 +9251,20 @@
           ]
         }
       ],
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "number",
-          "args": []
-        },
-        "value": {
-          "k": "named",
-          "name": "string",
-          "args": []
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "value": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          }
         }
-      }
+      ]
     },
     {
       "export": "interface",
@@ -12310,28 +12350,30 @@
                 }
               }
             ],
-            "index": {
-              "key": {
-                "k": "named",
-                "name": "number",
-                "args": []
-              },
-              "value": {
-                "k": "union",
-                "members": [
-                  {
-                    "k": "named",
-                    "name": "undefined",
-                    "args": []
-                  },
-                  {
-                    "k": "named",
-                    "name": "bool",
-                    "args": []
-                  }
-                ]
+            "index": [
+              {
+                "key": {
+                  "k": "named",
+                  "name": "number",
+                  "args": []
+                },
+                "value": {
+                  "k": "union",
+                  "members": [
+                    {
+                      "k": "named",
+                      "name": "undefined",
+                      "args": []
+                    },
+                    {
+                      "k": "named",
+                      "name": "bool",
+                      "args": []
+                    }
+                  ]
+                }
               }
-            }
+            ]
           },
           "signatures": [],
           "static": false,
@@ -12351,18 +12393,20 @@
           ]
         }
       ],
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "number",
-          "args": []
-        },
-        "value": {
-          "k": "named",
-          "name": "string",
-          "args": []
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "value": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          }
         }
-      }
+      ]
     },
     {
       "export": "class",
@@ -16425,28 +16469,30 @@
                 }
               }
             ],
-            "index": {
-              "key": {
-                "k": "named",
-                "name": "number",
-                "args": []
-              },
-              "value": {
-                "k": "union",
-                "members": [
-                  {
-                    "k": "named",
-                    "name": "undefined",
-                    "args": []
-                  },
-                  {
-                    "k": "named",
-                    "name": "bool",
-                    "args": []
-                  }
-                ]
+            "index": [
+              {
+                "key": {
+                  "k": "named",
+                  "name": "number",
+                  "args": []
+                },
+                "value": {
+                  "k": "union",
+                  "members": [
+                    {
+                      "k": "named",
+                      "name": "undefined",
+                      "args": []
+                    },
+                    {
+                      "k": "named",
+                      "name": "bool",
+                      "args": []
+                    }
+                  ]
+                }
               }
-            }
+            ]
           },
           "signatures": [],
           "static": false,
@@ -16454,17 +16500,19 @@
         }
       ],
       "heritage": [],
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "number",
-          "args": []
-        },
-        "value": {
-          "k": "typar",
-          "i": 0
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "value": {
+            "k": "typar",
+            "i": 0
+          }
         }
-      }
+      ]
     },
     {
       "export": "interface",
@@ -16588,17 +16636,19 @@
         }
       ],
       "heritage": [],
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "number",
-          "args": []
-        },
-        "value": {
-          "k": "typar",
-          "i": 0
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "value": {
+            "k": "typar",
+            "i": 0
+          }
         }
-      }
+      ]
     },
     {
       "export": "interface",
@@ -23079,43 +23129,47 @@
                               }
                             }
                           ],
-                          "index": {
-                            "key": {
-                              "k": "named",
-                              "name": "number",
-                              "args": []
-                            },
-                            "value": {
-                              "k": "union",
-                              "members": [
-                                {
-                                  "k": "named",
-                                  "name": "undefined",
-                                  "args": []
-                                },
-                                {
-                                  "k": "named",
-                                  "name": "bool",
-                                  "args": []
-                                }
-                              ]
+                          "index": [
+                            {
+                              "key": {
+                                "k": "named",
+                                "name": "number",
+                                "args": []
+                              },
+                              "value": {
+                                "k": "union",
+                                "members": [
+                                  {
+                                    "k": "named",
+                                    "name": "undefined",
+                                    "args": []
+                                  },
+                                  {
+                                    "k": "named",
+                                    "name": "bool",
+                                    "args": []
+                                  }
+                                ]
+                              }
                             }
-                          }
+                          ]
                         }
                       }
                     ],
-                    "index": {
-                      "key": {
-                        "k": "named",
-                        "name": "number",
-                        "args": []
-                      },
-                      "value": {
-                        "k": "named",
-                        "name": "unknown",
-                        "args": []
+                    "index": [
+                      {
+                        "key": {
+                          "k": "named",
+                          "name": "number",
+                          "args": []
+                        },
+                        "value": {
+                          "k": "named",
+                          "name": "unknown",
+                          "args": []
+                        }
                       }
-                    }
+                    ]
                   }
                 ]
               },
@@ -48900,17 +48954,19 @@
         }
       ],
       "heritage": [],
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "number",
-          "args": []
-        },
-        "value": {
-          "k": "typar",
-          "i": 0
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "value": {
+            "k": "typar",
+            "i": 0
+          }
         }
-      }
+      ]
     },
     {
       "export": "typeAlias",
@@ -52582,18 +52638,20 @@
       ],
       "heritage": [],
       "import": "named",
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "number",
-          "args": []
-        },
-        "value": {
-          "k": "named",
-          "name": "number",
-          "args": []
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "value": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          }
         }
-      }
+      ]
     },
     {
       "export": "class",
@@ -54791,18 +54849,20 @@
       ],
       "heritage": [],
       "import": "named",
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "number",
-          "args": []
-        },
-        "value": {
-          "k": "named",
-          "name": "number",
-          "args": []
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "value": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          }
         }
-      }
+      ]
     },
     {
       "export": "class",
@@ -57000,18 +57060,20 @@
       ],
       "heritage": [],
       "import": "named",
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "number",
-          "args": []
-        },
-        "value": {
-          "k": "named",
-          "name": "number",
-          "args": []
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "value": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          }
         }
-      }
+      ]
     },
     {
       "export": "class",
@@ -59209,18 +59271,20 @@
       ],
       "heritage": [],
       "import": "named",
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "number",
-          "args": []
-        },
-        "value": {
-          "k": "named",
-          "name": "number",
-          "args": []
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "value": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          }
         }
-      }
+      ]
     },
     {
       "export": "class",
@@ -61418,18 +61482,20 @@
       ],
       "heritage": [],
       "import": "named",
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "number",
-          "args": []
-        },
-        "value": {
-          "k": "named",
-          "name": "number",
-          "args": []
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "value": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          }
         }
-      }
+      ]
     },
     {
       "export": "class",
@@ -63627,18 +63693,20 @@
       ],
       "heritage": [],
       "import": "named",
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "number",
-          "args": []
-        },
-        "value": {
-          "k": "named",
-          "name": "number",
-          "args": []
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "value": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          }
         }
-      }
+      ]
     },
     {
       "export": "class",
@@ -65836,18 +65904,20 @@
       ],
       "heritage": [],
       "import": "named",
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "number",
-          "args": []
-        },
-        "value": {
-          "k": "named",
-          "name": "number",
-          "args": []
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "value": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          }
         }
-      }
+      ]
     },
     {
       "export": "class",
@@ -68045,18 +68115,20 @@
       ],
       "heritage": [],
       "import": "named",
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "number",
-          "args": []
-        },
-        "value": {
-          "k": "named",
-          "name": "number",
-          "args": []
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "value": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          }
         }
-      }
+      ]
     },
     {
       "export": "class",
@@ -70254,18 +70326,20 @@
       ],
       "heritage": [],
       "import": "named",
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "number",
-          "args": []
-        },
-        "value": {
-          "k": "named",
-          "name": "number",
-          "args": []
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "value": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          }
         }
-      }
+      ]
     },
     {
       "export": "namespace",
@@ -77550,41 +77624,45 @@
                               }
                             }
                           ],
-                          "index": {
-                            "key": {
-                              "k": "named",
-                              "name": "number",
-                              "args": []
-                            },
-                            "value": {
-                              "k": "union",
-                              "members": [
-                                {
-                                  "k": "named",
-                                  "name": "undefined",
-                                  "args": []
-                                },
-                                {
-                                  "k": "named",
-                                  "name": "bool",
-                                  "args": []
-                                }
-                              ]
+                          "index": [
+                            {
+                              "key": {
+                                "k": "named",
+                                "name": "number",
+                                "args": []
+                              },
+                              "value": {
+                                "k": "union",
+                                "members": [
+                                  {
+                                    "k": "named",
+                                    "name": "undefined",
+                                    "args": []
+                                  },
+                                  {
+                                    "k": "named",
+                                    "name": "bool",
+                                    "args": []
+                                  }
+                                ]
+                              }
                             }
-                          }
+                          ]
                         }
                       }
                     ],
-                    "index": {
-                      "key": {
-                        "k": "named",
-                        "name": "number",
-                        "args": []
-                      },
-                      "value": {
-                        "k": "dynamic"
+                    "index": [
+                      {
+                        "key": {
+                          "k": "named",
+                          "name": "number",
+                          "args": []
+                        },
+                        "value": {
+                          "k": "dynamic"
+                        }
                       }
-                    }
+                    ]
                   },
                   "optional": false,
                   "rest": false
@@ -78232,41 +78310,45 @@
                               }
                             }
                           ],
-                          "index": {
-                            "key": {
-                              "k": "named",
-                              "name": "number",
-                              "args": []
-                            },
-                            "value": {
-                              "k": "union",
-                              "members": [
-                                {
-                                  "k": "named",
-                                  "name": "undefined",
-                                  "args": []
-                                },
-                                {
-                                  "k": "named",
-                                  "name": "bool",
-                                  "args": []
-                                }
-                              ]
+                          "index": [
+                            {
+                              "key": {
+                                "k": "named",
+                                "name": "number",
+                                "args": []
+                              },
+                              "value": {
+                                "k": "union",
+                                "members": [
+                                  {
+                                    "k": "named",
+                                    "name": "undefined",
+                                    "args": []
+                                  },
+                                  {
+                                    "k": "named",
+                                    "name": "bool",
+                                    "args": []
+                                  }
+                                ]
+                              }
                             }
-                          }
+                          ]
                         }
                       }
                     ],
-                    "index": {
-                      "key": {
-                        "k": "named",
-                        "name": "number",
-                        "args": []
-                      },
-                      "value": {
-                        "k": "dynamic"
+                    "index": [
+                      {
+                        "key": {
+                          "k": "named",
+                          "name": "number",
+                          "args": []
+                        },
+                        "value": {
+                          "k": "dynamic"
+                        }
                       }
-                    }
+                    ]
                   },
                   "optional": false,
                   "rest": false

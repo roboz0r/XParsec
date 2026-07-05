@@ -42,7 +42,7 @@ let private es2015Manifest: Schema.PackageManifest =
                     [ ctor0; method' "ping" (sig0 unitT) ],
                     [],
                     Schema.ImportShape.Named,
-                    None
+                    []
                 )
                 // A free function on the global pack, to exercise the `addRef` Global-skip
                 // (bare export name, no import) — the value-export sibling of the class path.

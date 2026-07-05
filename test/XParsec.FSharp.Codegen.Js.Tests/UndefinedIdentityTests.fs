@@ -82,7 +82,7 @@ let private idManifest: Schema.PackageManifest =
                         condMethod "unitUnit" unitT unitT
                     ],
                     [],
-                    None
+                    []
                 )
                 Schema.Export.Function(
                     "makeId",

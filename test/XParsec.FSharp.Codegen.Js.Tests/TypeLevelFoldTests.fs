@@ -148,7 +148,7 @@ let private busManifest: Schema.PackageManifest =
                         methodMem "cond2" [ condFalseSig ]
                     ],
                     [],
-                    None
+                    []
                 )
                 Schema.Export.Function(
                     "makeBus",

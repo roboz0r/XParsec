@@ -37,7 +37,7 @@ let private echoManifest: Schema.PackageManifest =
                     0,
                     [ method' "echo" (sigG 1 [ param' "x" (methodTypar 0) ] (methodTypar 0)) ],
                     [],
-                    None
+                    []
                 )
                 Schema.Export.Function("makeBox", [ sig0 (named "Box") ], Schema.ImportShape.Named)
             ]

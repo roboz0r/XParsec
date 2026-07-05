@@ -47,7 +47,7 @@ let private setManifest: Schema.PackageManifest =
                     ],
                     [],
                     Schema.ImportShape.Named,
-                    None
+                    []
                 )
             ]
         Diagnostics = []

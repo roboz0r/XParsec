@@ -43,16 +43,16 @@ let keyof (t: Schema.TypeRef) : Schema.TypeRef = Schema.TypeRef.KeyOf t
 /// its harvested `(name, type)` fields (`{x:number;y:number}`). No index signature —
 /// the common case; an index-bearing shape uses `structuralIx`.
 let structural (printed: string) (fields: (string * Schema.TypeRef) list) : Schema.TypeRef =
-    Schema.TypeRef.Structural(printed, fields, None)
+    Schema.TypeRef.Structural(printed, fields, [])
 
-/// An anonymous structural object type carrying a TS index signature `{ [k: key]: value }`
-/// alongside its (possibly empty) named fields.
+/// An anonymous structural object type carrying TS index signatures `{ [k: key]: value }`
+/// (a list of `(key, value)` pairs; empty = none) alongside its named fields.
 let structuralIx
     (printed: string)
     (fields: (string * Schema.TypeRef) list)
-    (index: Schema.TypeRef * Schema.TypeRef)
+    (index: (Schema.TypeRef * Schema.TypeRef) list)
     : Schema.TypeRef =
-    Schema.TypeRef.Structural(printed, fields, Some index)
+    Schema.TypeRef.Structural(printed, fields, index)
 
 /// `obj[index]` (an indexed-access type).
 let idx (obj: Schema.TypeRef) (index: Schema.TypeRef) : Schema.TypeRef =

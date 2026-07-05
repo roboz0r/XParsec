@@ -324,7 +324,7 @@ let indexSignatureContract =
                     )
 
                 match dictIndex with
-                | Some(Some(key, value)) ->
+                | Some [ (key, value) ] ->
                     Expect.equal key stringRef "Dict index key is string"
 
                     match value with
@@ -345,7 +345,7 @@ let indexSignatureContract =
                     )
 
                 match lookupTy with
-                | Some(Schema.TypeRef.Structural(_, [], Some(key, value))) ->
+                | Some(Schema.TypeRef.Structural(_, [], [ (key, value) ])) ->
                     Expect.equal key stringRef "lookup index key is string"
                     Expect.equal value (Schema.TypeRef.Named("number", [])) "lookup index value is number"
                 | other -> failtestf "lookup should be an index-bearing Structural, got %A" other

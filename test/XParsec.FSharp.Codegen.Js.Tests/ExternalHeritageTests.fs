@@ -40,9 +40,9 @@ let private manifest: Schema.PackageManifest =
         Version = None
         Exports =
             [
-                Schema.Export.Interface("A", 1, [ property' "value" (typar 0); method' "m" (sig0 (typar 0)) ], [], None)
-                Schema.Export.Interface("B", 0, [ property' "bTag" stringT ], [ namedG "A" [ intT ] ], None)
-                Schema.Export.Interface("C", 0, [ property' "cTag" stringT ], [ named "B" ], None)
+                Schema.Export.Interface("A", 1, [ property' "value" (typar 0); method' "m" (sig0 (typar 0)) ], [], [])
+                Schema.Export.Interface("B", 0, [ property' "bTag" stringT ], [ namedG "A" [ intT ] ], [])
+                Schema.Export.Interface("C", 0, [ property' "cTag" stringT ], [ named "B" ], [])
                 Schema.Export.Function("makeA", [ sig0 (namedG "A" [ intT ]) ], Schema.ImportShape.Named)
                 Schema.Export.Function("makeB", [ sig0 (named "B") ], Schema.ImportShape.Named)
                 Schema.Export.Function("makeC", [ sig0 (named "C") ], Schema.ImportShape.Named)
@@ -76,10 +76,10 @@ let private chainManifest: Schema.PackageManifest =
                     0,
                     [ property' "value" intT; method' "describe" (sig0 stringT) ],
                     [],
-                    None
+                    []
                 )
-                Schema.Export.Interface("Mid", 0, [], [ named "Base" ], None)
-                Schema.Export.Interface("Leaf", 0, [ property' "tag" intT ], [ named "Mid" ], None)
+                Schema.Export.Interface("Mid", 0, [], [ named "Base" ], [])
+                Schema.Export.Interface("Leaf", 0, [ property' "tag" intT ], [ named "Mid" ], [])
                 Schema.Export.Function("makeLeaf", [ sig0 (named "Leaf") ], Schema.ImportShape.Named)
             ]
         Diagnostics = []

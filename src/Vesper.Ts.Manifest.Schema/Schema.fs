@@ -75,15 +75,16 @@ type TypeRef =
     | Conditional of check: TypeRef * extends: TypeRef * whenTrue: TypeRef * whenFalse: TypeRef
     /// TS `any` → the opaque `dynamic` JS intrinsic front-end side (`FTConst "dynamic"`).
     | Dynamic
-    /// Structural object type, content-hashed (deferred milestone). `index` carries a
-    /// TS index signature `{ [k: K]: V }` as a `(key, value)` pair when the object bears
-    /// one (an instantiated `Record<K,V>`, or an anonymous `{ [k: string]: T }`) — a
-    /// DISTINCT facet, NOT a reserved `get_Item` field (which would collide with a real
-    /// BCL member name downstream). Only the FIRST index signature is carried; a type
-    /// with both a string- AND a number-index signature keeps the first (no consumed node
-    /// type declares both). The codec OMITS it when `None`, so a shape without an index
-    /// signature stays byte-identical to a pre-facet golden.
-    | Structural of hash: string * fields: (string * TypeRef) list * index: (TypeRef * TypeRef) option
+    /// Structural object type, content-hashed (deferred milestone). `index` carries the
+    /// TS index signatures `{ [k: K]: V }` the object bears (an instantiated `Record<K,V>`,
+    /// or an anonymous `{ [k: string]: T }`) as a list of `(key, value)` pairs — a DISTINCT
+    /// facet, NOT a reserved `get_Item` field (which would collide with a real BCL member
+    /// name downstream). A TS type may declare BOTH a string- AND a number-index signature;
+    /// the list carries all of them (which also matches the "overloaded indexer" model the
+    /// consumer selects by key type). Empty list = no index signature. The codec OMITS it
+    /// when EMPTY, so a shape without an index signature stays byte-identical to a pre-facet
+    /// golden.
+    | Structural of hash: string * fields: (string * TypeRef) list * index: (TypeRef * TypeRef) list
 
 [<RequireQualifiedAccess>]
 type MemberKind =
@@ -137,27 +138,28 @@ type ImportShape =
 [<RequireQualifiedAccess>]
 type Export =
     | Function of name: string * signatures: Signature list * import: ImportShape
-    /// `index`: a TS index signature `{ [k: K]: V }` on the interface (`NodeJS.Dict<T>`,
-    /// `ProcessEnv`) as a `(key, value)` pair — the named-type analogue of
-    /// `TypeRef.Structural`'s `index` facet. `getIndexInfosOfType` flattens inherited
-    /// index sigs through heritage, so a `ProcessEnv extends Dict<T>` carries the string
-    /// index directly. The codec OMITS it when `None`, so an interface without an index
-    /// signature stays byte-identical to a pre-facet golden.
+    /// `index`: the TS index signatures `{ [k: K]: V }` on the interface (`NodeJS.Dict<T>`,
+    /// `ProcessEnv`) as a list of `(key, value)` pairs — the named-type analogue of
+    /// `TypeRef.Structural`'s `index` facet (a type may declare both a string- AND a
+    /// number-index signature; the list carries all). `getIndexInfosOfType` flattens
+    /// inherited index sigs through heritage, so a `ProcessEnv extends Dict<T>` carries the
+    /// string index directly. Empty list = none. The codec OMITS it when EMPTY, so an
+    /// interface without an index signature stays byte-identical to a pre-facet golden.
     | Interface of
         name: string *
         typeParams: int *
         members: Member list *
         heritage: TypeRef list *
-        index: (TypeRef * TypeRef) option
-    /// `index`: as `Interface`'s — a TS index signature on the class, carried
-    /// omitted-when-`None`.
+        index: (TypeRef * TypeRef) list
+    /// `index`: as `Interface`'s — the TS index signatures on the class, carried
+    /// omitted-when-EMPTY.
     | Class of
         name: string *
         typeParams: int *
         members: Member list *
         heritage: TypeRef list *
         import: ImportShape *
-        index: (TypeRef * TypeRef) option
+        index: (TypeRef * TypeRef) list
     | TypeAlias of name: string * typeParams: int * target: TypeRef
     /// `members`: each case name paired with its type-tagged value; `None` = a
     /// computed/unresolvable member. The numeric/string/mixed variant falls out

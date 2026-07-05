@@ -9,28 +9,30 @@
       "typeParams": 0,
       "members": [],
       "heritage": [],
-      "index": {
-        "key": {
-          "k": "named",
-          "name": "string",
-          "args": []
-        },
-        "value": {
-          "k": "union",
-          "members": [
-            {
-              "k": "named",
-              "name": "undefined",
-              "args": []
-            },
-            {
-              "k": "named",
-              "name": "string",
-              "args": []
-            }
-          ]
+      "index": [
+        {
+          "key": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          },
+          "value": {
+            "k": "union",
+            "members": [
+              {
+                "k": "named",
+                "name": "undefined",
+                "args": []
+              },
+              {
+                "k": "named",
+                "name": "string",
+                "args": []
+              }
+            ]
+          }
         }
-      }
+      ]
     },
     {
       "export": "interface",
@@ -151,18 +153,20 @@
         "k": "structural",
         "hash": "{ [k: string]: number; }",
         "fields": [],
-        "index": {
-          "key": {
-            "k": "named",
-            "name": "string",
-            "args": []
-          },
-          "value": {
-            "k": "named",
-            "name": "number",
-            "args": []
+        "index": [
+          {
+            "key": {
+              "k": "named",
+              "name": "string",
+              "args": []
+            },
+            "value": {
+              "k": "named",
+              "name": "number",
+              "args": []
+            }
           }
-        }
+        ]
       },
       "const": true,
       "import": "named"
