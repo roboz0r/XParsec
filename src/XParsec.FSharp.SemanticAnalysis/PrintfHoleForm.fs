@@ -152,6 +152,45 @@ module PrintfHoleForm =
         | PrintSize.Cols n -> ValueSome n
         | PrintSize.Star -> ValueNone
 
+    /// The runtime clamp F# applies to a form's *star* width (`%*d` / `%*A`).
+    /// `Guard` (every padding `Field` form) throws `ArgumentOutOfRangeException` on a
+    /// negative width; `Clamp` (`%*A`) renders a negative budget flat (→ 0) instead.
+    [<RequireQualifiedAccess>]
+    type StarWidthClamp =
+        | Guard
+        | Clamp
+
+    /// Which runtime clamp a form's star width takes, or `ValueNone` when the form
+    /// carries no star width. The single owner of the guard-vs-clamp rule: both
+    /// backends dispatch on this instead of re-matching the classified form (so the
+    /// two can't drift, and neither carries a `_ -> invariant broken` catch-all).
+    let starWidthClamp (form: HoleForm) : StarWidthClamp voption =
+        match form with
+        | HoleForm.Field(_, Alignment.Star _) -> ValueSome StarWidthClamp.Guard
+        | HoleForm.PercentA(PrintWidth.Star, _) -> ValueSome StarWidthClamp.Clamp
+        | _ -> ValueNone
+
+    /// True iff a float `Field` carries a *runtime* (`Prec.Star`) precision
+    /// (`%.*f`/`%.*e`/`%.*g`/`%+.*f`) — routed through the dynamic-precision handler
+    /// rather than a static .NET format string / `toFixed` literal.
+    let isDynamicPrecisionFloat (fmt: FieldFormat) : bool =
+        match fmt with
+        | FieldFormat.Fixed Prec.Star
+        | FieldFormat.Exponential(Prec.Star, _)
+        | FieldFormat.Compact(Prec.Star, _)
+        | FieldFormat.ForcedSign(_, Prec.Star) -> true
+        | _ -> false
+
+    /// True iff F# clamps a runtime star precision to `0..99` (`normalizePrecision`)
+    /// on this form: ONLY the two-star float-field path (`printf.fs:632`). The
+    /// prec-star-only `Field` paths and `%.*A` keep the raw precision (`:649-657`,
+    /// `:1114`), so a static width (bare `Alignment`) or `%A` returns `false`. The
+    /// single owner of the normalize rule — consumed by both backends.
+    let normalizesStarPrecision (form: HoleForm) : bool =
+        match form with
+        | HoleForm.Field(fmt, Alignment.Star _) -> isDynamicPrecisionFloat fmt
+        | _ -> false
+
     /// Classify a placeholder into its target-neutral `HoleForm`, or `ValueNone`
     /// for a specifier no backend renders faithfully (the lowering gate — the
     /// caller then keeps the generic printf call shape, which the CLR backend

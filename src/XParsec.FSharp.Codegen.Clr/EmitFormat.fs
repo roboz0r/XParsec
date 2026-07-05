@@ -250,21 +250,28 @@ module EmitFormat =
                         let l = b.Local(FTConst("int", EqArray.empty))
                         buildExpr env b widthExpr
 
-                        match d.Spec.Source with
-                        | HoleSpecSource.Classified(HoleForm.Field(_, Alignment.Star leftJustify)) ->
+                        let form =
+                            match d.Spec.Source with
+                            | HoleSpecSource.Classified f -> f
+                            | _ -> failwith "Emit: DynHole star width on an unclassified hole (invariant broken)"
+
+                        match starWidthClamp form with
+                        | ValueSome StarWidthClamp.Guard ->
                             // Padding forms: F# throws on a negative width. Guard, then
                             // negate *after* the guard for a `-`-flag left-justify (the
                             // members read a negative alignment as left-justify), so a
                             // negative width still throws rather than right-justifying.
                             b.Add(ILInstr.Call(fh.GuardTotalWidth, 1, 1))
 
-                            if leftJustify then
-                                b.Add(ILInstr.Un ILOpCode.Neg)
-                        | HoleSpecSource.Classified(HoleForm.PercentA(PrintWidth.Star, _)) ->
+                            match form with
+                            | HoleForm.Field(_, Alignment.Star true) -> b.Add(ILInstr.Un ILOpCode.Neg)
+                            | _ -> ()
+                        | ValueSome StarWidthClamp.Clamp ->
                             // `%*A`: a negative budget renders flat (F# does not throw),
                             // so clamp to 0 rather than guard-throwing.
                             b.Add(ILInstr.Call(fh.ClampWidth, 1, 1))
-                        | _ -> failwith "Emit: DynHole star width without a star-carrying spec (invariant broken)"
+                        | ValueNone ->
+                            failwith "Emit: DynHole star width without a star-carrying spec (invariant broken)"
 
                         b.Add(ILInstr.Stloc l)
                         Some l
@@ -276,20 +283,14 @@ module EmitFormat =
                         let l = b.Local(FTConst("int", EqArray.empty))
                         buildExpr env b precExpr
 
-                        // `normalizePrecision` (clamp 0..99) applies ONLY on the
-                        // width=*+prec=* path for a *float* form (`printf.fs:632`); the
-                        // prec=*-only paths keep the raw precision (`:649-657`), and `%A`
-                        // sets `PrintSize` raw regardless (`:1114`). So normalize iff both
-                        // dims are star AND the hole is a dynamic-precision float field.
-                        let bothStars = d.Width.IsSome
-
-                        let isFloatField =
-                            match d.Spec.Source with
-                            | HoleSpecSource.Classified(HoleForm.Field(fmt, _)) -> (dynFloatOf fmt).IsSome
-                            | _ -> false
-
-                        if bothStars && isFloatField then
+                        // `normalizePrecision` (clamp 0..99) applies ONLY on the two-star
+                        // float-field path (`printf.fs:632`); the prec-star-only paths keep
+                        // the raw precision (`:649-657`) and `%A` sets `PrintSize` raw
+                        // (`:1114`). The shared classifier owns that rule.
+                        match d.Spec.Source with
+                        | HoleSpecSource.Classified form when normalizesStarPrecision form ->
                             b.Add(ILInstr.Call(fh.NormalizePrecision, 1, 1))
+                        | _ -> ()
 
                         b.Add(ILInstr.Stloc l)
                         Some l

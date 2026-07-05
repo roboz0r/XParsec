@@ -981,20 +981,22 @@ module EmitJs =
             | Prec.Const n -> num (max 1 n)
             | Prec.Star -> invoke (id "Math") "max" [ num 1; id "p" ]
 
-        // `emitField` builds the value string then applies `wrap` (a static
-        // `padStart`/`padEnd`, a dynamic `%*d` pad, or identity). `stringify` forces
-        // the `Verbatim` form through `String(v)` — needed whenever an alignment wraps
-        // it (a bare `%d` keeps the raw operand so the concat coerces it).
-        let emitField (fmt: FieldFormat) (stringify: bool) (wrap: JsExpr -> JsExpr) : JsExpr =
+        // `emitField` builds the value string then applies the field-width `wrap` (a
+        // static `padStart`/`padEnd` or a dynamic `%*d` pad). `wrap = None` means no
+        // field width: only `Verbatim` cares — a bare `%d` keeps the raw operand so the
+        // surrounding concat coerces it; every other form ignores `None` (identity),
+        // as `toFixed`/`toString`/… already yield a string.
+        let emitField (fmt: FieldFormat) (wrap: (JsExpr -> JsExpr) option) : JsExpr =
+            let wrapped = defaultArg wrap (fun e -> e)
+
             match fmt with
             // `%d`/`%s`/`%O`/`%c`/`%M`: plain stringification. Bare ⇒ the raw operand
             // (the surrounding concat coerces it, a lone `%d` stays `console.log(x)`);
             // with a width ⇒ `String(v)` then pad.
             | FieldFormat.Verbatim ->
-                if stringify then
-                    wrap (direct (fun v -> call (id "String") [ v ]))
-                else
-                    buildExpr ctx operand
+                match wrap with
+                | Option.Some w -> w (direct (fun v -> call (id "String") [ v ]))
+                | Option.None -> buildExpr ctx operand
             // `%0wd`: sign-aware zero-pad — zeros pad to `width` *after* the sign
             // (`(-42).ToString("D5") = "-00042"`), so the value is read three times.
             | FieldFormat.DecimalZeroPad width ->
@@ -1020,7 +1022,7 @@ module EmitJs =
                     | Radix.Binary -> 2, false
                     | Radix.Octal -> 8, false
 
-                wrap (
+                wrapped (
                     direct (fun v ->
                         let digits =
                             invoke (JsExpr.Binary(">>>", v, num 0, ValueNone)) "toString" [ num baseN ]
@@ -1034,15 +1036,16 @@ module EmitJs =
                 )
             // `%u`: the source `int`'s bits reinterpreted unsigned (`>>> 0`).
             | FieldFormat.Unsigned ->
-                wrap (direct (fun v -> invoke (JsExpr.Binary(">>>", v, num 0, ValueNone)) "toString" []))
+                wrapped (direct (fun v -> invoke (JsExpr.Binary(">>>", v, num 0, ValueNone)) "toString" []))
             // `%b`: lowercase `true`/`false` (explicit ternary keeps the alignment path uniform).
-            | FieldFormat.Bool -> wrap (direct (fun v -> JsExpr.Conditional(v, str "true", str "false", ValueNone)))
+            | FieldFormat.Bool -> wrapped (direct (fun v -> JsExpr.Conditional(v, str "true", str "false", ValueNone)))
             // `%f` / `%.Nf` / `%.*f`: fixed-point with `precision` fraction digits
             // (runtime `p` for a star).
-            | FieldFormat.Fixed precision -> wrap (direct (fun v -> invoke (receiver v) "toFixed" [ precJs precision ]))
+            | FieldFormat.Fixed precision ->
+                wrapped (direct (fun v -> invoke (receiver v) "toFixed" [ precJs precision ]))
             // `%0w.Nf`: fixed-point, then zeros after any sign to a total field of `width`.
             | FieldFormat.FixedZeroPad(precision, width) ->
-                wrap (
+                wrapped (
                     strBind
                         (direct (fun v -> invoke (receiver v) "toFixed" [ num precision ]))
                         (fun s ->
@@ -1068,7 +1071,7 @@ module EmitJs =
             | FieldFormat.ForcedSign(space, precision) ->
                 let sign = if space then " " else "+"
 
-                wrap (
+                wrapped (
                     strBind
                         (direct (fun v -> invoke (receiver v) "toFixed" [ precJs precision ]))
                         (fun s ->
@@ -1086,7 +1089,7 @@ module EmitJs =
             // `1.234500e+004`); it's an accepted close approximation. `%E` upper-cases
             // the `e` (only letter in the string, so `toUpperCase` is safe).
             | FieldFormat.Exponential(precision, upper) ->
-                wrap (
+                wrapped (
                     direct (fun v ->
                         let e = invoke (receiver v) "toExponential" [ precJs precision ]
                         if upper then invoke e "toUpperCase" [] else e
@@ -1098,7 +1101,7 @@ module EmitJs =
             // `toPrecision` requires ≥ 1 significant digit, so clamp (a `%.0g` would
             // otherwise throw a RangeError at runtime).
             | FieldFormat.Compact(precision, upper) ->
-                wrap (
+                wrapped (
                     direct (fun v ->
                         let g = invoke (receiver v) "toPrecision" [ precForToPrecision precision ]
                         if upper then invoke g "toUpperCase" [] else g
@@ -1136,14 +1139,33 @@ module EmitJs =
 
             call (JsExpr.Arrow([ "p" ], JsFnBody.Expr bodyExpr, ValueNone)) [ arg ]
 
+        // The hole's classified form (if any) — drives the shared `PrintfHoleForm`
+        // runtime-dim policy in `wrapDims`. `RawFormat` (no form) returns before it.
+        let classified =
+            match hole.Source with
+            | HoleSpecSource.Classified f -> ValueSome f
+            | HoleSpecSource.RawFormat _ -> ValueNone
+
         // Wrap a built body with the precision binding (inner) then the width binding
         // (outer) so the emitted JS evaluates width, then precision, then the value —
-        // curried application order. `guardWidth` throws on a negative width (padding
-        // forms); otherwise the width flows through unchanged (`%*A` clamps inline).
-        let wrapDims (guardWidth: bool) (bodyExpr: JsExpr) : JsExpr =
+        // curried application order. The shared `starWidthClamp` decides guard-vs-clamp
+        // (a `Guard` form throws on a negative width; `%*A` clamps inline instead), and
+        // `normalizesStarPrecision` whether a star precision clamps to `0..99` — the same
+        // classification the CLR backend consumes, so the two can't drift.
+        let wrapDims (bodyExpr: JsExpr) : JsExpr =
+            let guardWidth =
+                match classified with
+                | ValueSome f -> starWidthClamp f = ValueSome StarWidthClamp.Guard
+                | ValueNone -> false
+
+            let normalizePrec =
+                match classified with
+                | ValueSome f -> normalizesStarPrecision f
+                | ValueNone -> false
+
             let withPrec =
                 match starPrecision with
-                | ValueSome precExpr -> bindStarPrec precExpr (guardWidth && starWidth.IsSome) bodyExpr
+                | ValueSome precExpr -> bindStarPrec precExpr normalizePrec bodyExpr
                 | ValueNone -> bodyExpr
 
             match starWidth with
@@ -1189,18 +1211,18 @@ module EmitJs =
 
             let bodyExpr =
                 call (structuralFmtRef ()) [ buildExpr ctx operand; widthArg; sizeArg ]
-            // `%A` never guard-throws on a negative width, and its size is raw.
-            wrapDims false bodyExpr
+
+            wrapDims bodyExpr
         // Every `Field` form: a static width lands in `alignment` (`Const`/`None`); a
         // star width is `Alignment.Star` and pads by `w` under a negative-width guard.
         | HoleSpecSource.Classified(HoleForm.Field(fmt, alignment)) ->
-            let stringify, wrap =
+            let wrap =
                 match alignment with
-                | PrintfHoleForm.Alignment.None -> false, (fun e -> e)
-                | PrintfHoleForm.Alignment.Const a -> true, withAlign (Some a)
-                | PrintfHoleForm.Alignment.Star leftJustify -> true, (padDyn leftJustify)
+                | PrintfHoleForm.Alignment.None -> Option.None
+                | PrintfHoleForm.Alignment.Const a -> Option.Some(withAlign (Some a))
+                | PrintfHoleForm.Alignment.Star leftJustify -> Option.Some(padDyn leftJustify)
 
-            wrapDims true (emitField fmt stringify wrap)
+            wrapDims (emitField fmt wrap)
 
     /// Compile a pattern against a pure scrutinee-access expression `access` into a
     /// refutability test (`None` ⇒ irrefutable) and the `const` bindings its named
