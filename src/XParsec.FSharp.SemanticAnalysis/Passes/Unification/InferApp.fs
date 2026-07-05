@@ -354,28 +354,17 @@ module internal UnificationInferApp =
                                 // FSharp.Core path stands (additive — `%A`, partial application,
                                 // etc. unaffected).
                                 // `%a`/`%t` callback holes lower only where THIS target's
-                                // provider surfaces the family's sink type. `resolveExternalSlots`
-                                // (above) rewrote a resolvable by-name `TyConst(TextWriter/
-                                // StringBuilder)` to a `TyClass`; `sprintf` needs no external sink
-                                // (`State = unit`). So the sink is available iff `fam.State` is
-                                // `unit` (sprintf) or a resolved `TyClass` (writer/builder); a
-                                // still-by-name `TyConst` (e.g. the JS provider) is NOT available.
+                                // provider surfaces the family's sink type (see
+                                // `PrintfSpec.callbackSinkAvailable`, reading the
+                                // `resolveExternalSlots`-rewritten `fam`). No cold fallback once
+                                // FSharp.Core is dropped, and the sink type this target can't name
+                                // — reject rather than silently mis-lower. The marker guards below
+                                // read `not rejectCallback`, so neither marker sets and the call
+                                // stays cold (App path) today.
                                 let hasCallbackHole =
-                                    specs
-                                    |> List.exists (fun p ->
-                                        p.Type = FormatType.FormatFunction || p.Type = FormatType.Text
-                                    )
+                                    specs |> List.exists (fun p -> PrintfSpec.isCallbackHole p.Type)
 
-                                let sinkAvailable =
-                                    match fam.State with
-                                    | TyClass _ -> true
-                                    | s -> s = BuiltinTypes.tyUnit
-
-                                // No cold fallback once FSharp.Core is dropped, and the sink type
-                                // this target can't name — reject rather than silently mis-lower.
-                                // The marker guards below read `not rejectCallback`, so neither
-                                // marker sets and the call stays cold (App path) today.
-                                let rejectCallback = hasCallbackHole && not sinkAvailable
+                                let rejectCallback = hasCallbackHole && not (PrintfSpec.callbackSinkAvailable fam)
 
                                 if rejectCallback then
                                     ctx.Diagnostics.Add

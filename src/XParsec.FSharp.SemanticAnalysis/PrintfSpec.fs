@@ -154,35 +154,46 @@ module PrintfSpec =
         /// `toDotNetFormat`.
         | Structured
 
-    /// SemType of the *value* argument a type letter consumes, or `ValueNone`
-    /// for the letters this single-value helper can't express. `%A`/`%O` both
-    /// consume a polymorphic argument (a fresh type variable); the `%A`-vs-`%O`
+    /// The two printer-callback letters — `%a` (`FormatFunction`) and `%t` (`Text`).
+    /// They're the only letters `argTypes` types from the family's `'State`/`'Residue`
+    /// rather than a standalone value, and the only ones excluded from every "consumes
+    /// a plain value" path. Centralised so that "these two are special" has one home
+    /// instead of an inline `= FormatFunction || = Text` at each call site.
+    let isCallbackHole (t: FormatType) : bool =
+        match t with
+        | FormatType.FormatFunction
+        | FormatType.Text -> true
+        | _ -> false
+
+    /// SemType of the *value* argument a plain-value type letter consumes. `%A`/`%O`
+    /// both consume a polymorphic argument (a fresh type variable); the `%A`-vs-`%O`
     /// distinction, irrelevant to typing, stays in the `FormatType` for codegen.
-    /// `%a`/`%t` still return `ValueNone` here: their shape (two entries for `%a`;
-    /// a `'State`/`'Residue` dependency for both) can't fit one `SemType` with no
-    /// `Family` in scope — `argTypes` types them directly instead.
+    /// `%a`/`%t` never reach here — their shape (two entries for `%a`; a
+    /// `'State`/`'Residue` dependency for both) can't fit one `SemType` with no
+    /// `Family` in scope, so `argTypes` intercepts them before this helper and types
+    /// them directly. The `isCallbackHole` arm is therefore unreachable.
     ///
     /// Private: no cross-pass signature carries a bare `FormatType` — star-ness
     /// lives on the placeholder, so callers go through `argTypes`, which folds in
     /// the star-dimension arguments this letter-keyed helper knows nothing about.
-    let private argType (fresh: unit -> SemType) (t: FormatType) : SemType voption =
+    let private argType (fresh: unit -> SemType) (t: FormatType) : SemType =
         match t with
-        | FormatType.Bool -> ValueSome(TyConst("bool", EqArray.empty))
-        | FormatType.String -> ValueSome tyString
-        | FormatType.Char -> ValueSome(TyConst("char", EqArray.empty))
+        | FormatType.Bool -> TyConst("bool", EqArray.empty)
+        | FormatType.String -> tyString
+        | FormatType.Char -> TyConst("char", EqArray.empty)
         | FormatType.DecimalInt
         | FormatType.UnsignedDecimalInt
         | FormatType.UnsignedHex
         | FormatType.UnsignedOctal
-        | FormatType.UnsignedBinary -> ValueSome tyInt
+        | FormatType.UnsignedBinary -> tyInt
         | FormatType.FloatExponential
         | FormatType.FloatDecimal
-        | FormatType.FloatCompact -> ValueSome(TyConst("float", EqArray.empty))
-        | FormatType.Decimal -> ValueSome(TyConst("decimal", EqArray.empty))
+        | FormatType.FloatCompact -> TyConst("float", EqArray.empty)
+        | FormatType.Decimal -> TyConst("decimal", EqArray.empty)
         | FormatType.Object
-        | FormatType.Structured -> ValueSome(fresh ())
+        | FormatType.Structured -> fresh ()
         | FormatType.FormatFunction
-        | FormatType.Text -> ValueNone
+        | FormatType.Text -> failwith "PrintfSpec.argType: %a/%t are typed by argTypes, never here"
 
     /// Every argument a placeholder consumes, in *application* order: a leading
     /// `int` per `Star` dimension (width before precision, matching F#'s
@@ -207,16 +218,15 @@ module PrintfSpec =
             ValueSome [ TyFun(state, TyFun(tv, residue)); tv ]
         | FormatType.Text -> ValueSome [ TyFun(state, residue) ]
         | _ ->
-            match argType fresh p.Type with
-            | ValueNone -> ValueNone
-            | ValueSome value ->
-                let starDim d =
-                    match d with
-                    | FormatDim.Star -> [ tyInt ]
-                    | FormatDim.Absent
-                    | FormatDim.Literal _ -> []
+            let value = argType fresh p.Type
 
-                ValueSome(starDim p.Width @ starDim p.Precision @ [ value ])
+            let starDim d =
+                match d with
+                | FormatDim.Star -> [ tyInt ]
+                | FormatDim.Absent
+                | FormatDim.Literal _ -> []
+
+            ValueSome(starDim p.Width @ starDim p.Precision @ [ value ])
 
     /// True when the specifier consumes an argument of a *fixed concrete* type.
     /// Excludes `%a`/`%t` (`FormatFunction`/`Text`) and `%A`/`%O`
@@ -229,10 +239,8 @@ module PrintfSpec =
     let hasConcreteArgType (t: FormatType) : bool =
         match t with
         | FormatType.Object
-        | FormatType.Structured
-        | FormatType.FormatFunction
-        | FormatType.Text -> false
-        | _ -> true
+        | FormatType.Structured -> false
+        | t -> not (isCallbackHole t)
 
     /// A hole admissible for the flat value-struct closure lowering (partial-app
     /// 4a): it consumes *exactly one* argument of fixed concrete type. The Fun-K
@@ -347,6 +355,18 @@ module PrintfSpec =
             State = sub fam.State
             LeadingArgTypes = fam.LeadingArgTypes |> List.map sub
         }
+
+    /// Whether a `%a`/`%t` callback hole can lower on this target — i.e. whether the
+    /// family's `'State` sink type is nameable here. Read a `Family` that has already
+    /// been through `resolveExternalSlots`: `sprintf` needs no external sink
+    /// (`State = unit`), and the writer/builder families are available exactly when
+    /// their by-name `TyConst` slot was rewritten to a provider-resolved `TyClass`. A
+    /// slot that stayed a by-name `TyConst` (e.g. a JS provider with no `TextWriter`)
+    /// is NOT available, so the gate rejects rather than mis-lower.
+    let callbackSinkAvailable (fam: Family) : bool =
+        match fam.State with
+        | TyClass _ -> true
+        | s -> s = tyUnit
 
     let formatType (printer: SemType) (fam: Family) : SemType =
         TyClass(RuntimeNames.printfFormatKey, EqArray.ofList [ printer; fam.State; fam.Residue; fam.Result ])

@@ -128,10 +128,9 @@ module internal UnificationInferLiteralExpr =
                         // the value-type recovery for them. State/residue are
                         // irrelevant here: only the final value type is read, and
                         // it's a plain-value letter by this point.
-                        match p.Type with
-                        | FormatType.FormatFunction
-                        | FormatType.Text -> ()
-                        | _ ->
+                        if PrintfSpec.isCallbackHole p.Type then
+                            ()
+                        else
                             match
                                 PrintfSpec.argTypes
                                     (fun () -> TyVar(freshTyVar ctx))
