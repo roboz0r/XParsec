@@ -68,7 +68,20 @@ module EmitFormat =
             | FieldFormat.Fixed Prec.Star -> Some('f', None)
             | FieldFormat.Exponential(Prec.Star, upper) -> Some((if upper then 'E' else 'e'), None)
             | FieldFormat.Compact(Prec.Star, upper) -> Some((if upper then 'G' else 'g'), None)
-            | FieldFormat.ForcedSign(space, Prec.Star) -> Some('f', Some space)
+            | FieldFormat.ForcedSign(space, Prec.Star, typeChar, _) -> Some(typeChar, Some space)
+            | _ -> None
+
+        // A forced-sign scientific / compact float at a *static* precision
+        // (`%+e`/`% e`/`%+g`/`%+G`): `(typeChar, space, precision)`. Scientific / compact
+        // notation can't ride a .NET section format, so it routes to the signed dynamic
+        // handler with a constant precision (unlike the fixed `'d'`/`'f'` forms, which
+        // project to a section format via `toDotNetFormat`).
+        let constSignedExpCompact (fmt: FieldFormat) : (char * bool * int) option =
+            match fmt with
+            | FieldFormat.ForcedSign(space, Prec.Const n, typeChar, Option.None) when
+                typeChar = 'e' || typeChar = 'E' || typeChar = 'g' || typeChar = 'G'
+                ->
+                Some(typeChar, space, n)
             | _ -> None
 
         // Emit one hole's handler call. `starWidthLocal`/`starPrecLocal = Some slot` for
@@ -131,15 +144,18 @@ module EmitFormat =
 
                 b.Add(ILInstr.Call(fh.AppendStructured hole.Ty, 4, 0))
 
-            // A float field form with a *runtime* precision (`%.*f`/`%.*e`/`%.*g`/
-            // `%+.*f`): push (value, typeChar, precision-local, alignment[, space]) and
-            // call the dynamic-precision member. `alignment` is the width slot — a
-            // `Star` loads the spilled width local, a `Const` a literal, `None` 0.
-            let dynamicFloat (typeChar: char) (signedSpace: bool option) (align: Alignment) (precLocal: int) =
+            // A float field form routed through the dynamic-precision member: a *runtime*
+            // precision (`%.*f`/`%.*e`/`%.*g`/`%+.*f` — `pushPrec` loads the spilled
+            // precision local) or a forced-sign scientific / compact form at a *static*
+            // precision (`%+e`/`%+g` — `pushPrec` a constant, since notation can't ride a
+            // section format). Pushes (value, typeChar, precision, alignment[, space]).
+            // `alignment` is the width slot — a `Star` loads the spilled width local, a
+            // `Const` a literal, `None` 0.
+            let dynamicFloat (typeChar: char) (signedSpace: bool option) (align: Alignment) (pushPrec: unit -> unit) =
                 b.Add(ILInstr.Ldloca slot)
                 buildExpr env b arg
                 b.Add(ILInstr.LdcI4(int typeChar))
-                b.Add(ILInstr.Ldloc precLocal)
+                pushPrec ()
                 pushAlign align (Some 0) |> ignore
 
                 match signedSpace with
@@ -210,10 +226,13 @@ module EmitFormat =
                     b.Add(ILInstr.LdcI4 width)
                     b.Add(ILInstr.Call(handle, 3, 0))
 
-                | PrintfSpec.HoleKind.ZeroPaddedFloat ->
-                    // `AppendZeroPaddedFloat(value, "F<prec>", width)` — the
-                    // `"F<prec>"` body rides in `format`, the field width in the
-                    // alignment slot as a `Const` (both guaranteed present by the
+                | PrintfSpec.HoleKind.ZeroPaddedFloat
+                | PrintfSpec.HoleKind.RightZeroPaddedFloat ->
+                    // `AppendZeroPaddedFloat(value, body, width)` (`%0w.pf`, and the
+                    // scientific / compact `%014e`/`%010g` over the `"e6"`/`"g6"` body)
+                    // zero-pads *after any sign*; `AppendRightZeroPaddedFloat` (`%-0w.pf`)
+                    // pads on the RIGHT instead. Both take the format body in `format` and
+                    // the field width in the alignment slot as a `Const` (guaranteed by the
                     // projection; a star never reaches the zero-pad forms).
                     let fmt =
                         match format with
@@ -225,11 +244,16 @@ module EmitFormat =
                         | Alignment.Const w -> w
                         | _ -> failwith "Emit: ZeroPaddedFloat hole missing its width"
 
+                    let handle =
+                        match kind with
+                        | PrintfSpec.HoleKind.RightZeroPaddedFloat -> fh.AppendRightZeroPaddedFloat
+                        | _ -> fh.AppendZeroPaddedFloat
+
                     b.Add(ILInstr.Ldloca slot)
                     buildExpr env b arg
                     b.Add(ILInstr.Ldstr(env.Ctx.UserString fmt))
                     b.Add(ILInstr.LdcI4 width)
-                    b.Add(ILInstr.Call(fh.AppendZeroPaddedFloat, 4, 0))
+                    b.Add(ILInstr.Call(handle, 4, 0))
 
                 | PrintfSpec.HoleKind.Structured ->
                     // `toDotNetFormat` only projects `FieldFormat`s, so `Structured`
@@ -245,12 +269,17 @@ module EmitFormat =
             | HoleSpecSource.Classified(HoleForm.PercentA(width, size)) -> percentA width size
             | HoleSpecSource.Classified(HoleForm.Field(fmt, alignment)) ->
                 match dynFloatOf fmt, starPrecLocal with
-                | Some(typeChar, signedSpace), Some precLocal -> dynamicFloat typeChar signedSpace alignment precLocal
+                | Some(typeChar, signedSpace), Some precLocal ->
+                    dynamicFloat typeChar signedSpace alignment (fun () -> b.Add(ILInstr.Ldloc precLocal))
                 | Some _, None ->
                     failwith "Emit: runtime-precision float field without a spilled precision local (invariant broken)"
                 | Option.None, _ ->
-                    let kind, format, align = ClrHoleFormat.toDotNetFormat fmt alignment
-                    field kind format align
+                    match constSignedExpCompact fmt with
+                    | Some(typeChar, space, prec) ->
+                        dynamicFloat typeChar (Some space) alignment (fun () -> b.Add(ILInstr.LdcI4 prec))
+                    | Option.None ->
+                        let kind, format, align = ClrHoleFormat.toDotNetFormat fmt alignment
+                        field kind format align
 
         for seg in segments do
             match seg with

@@ -50,14 +50,14 @@ let tests =
                     (sprintf "no FSharp.Core AssemblyRef row in the executable (refs: %A)" refs)
             }
 
-            test "`printfn \"%08e\"` (cold path) pins PrintfModule + PrintfFormat" {
-                // Zero-pad exponential `%08e` has no faithful section-format mapping,
-                // so it rides the FSharp.Core cold path; happy-path forms lower to the
-                // structural engine. `%08e` is the pin that proves the cold recipes
-                // still work.
-                let _, artifact = compileSource "DepsColdPrintf" "printfn \"%08e\" 1234.5"
+            test "`printfn \"%+08.2f\"` (cold path) pins PrintfModule + PrintfFormat" {
+                // Sign + zero-pad float `%+08.2f` has no faithful section-format mapping
+                // (the zeros must land after the sign, which .NET can't express with a
+                // forced-sign section), so it rides the FSharp.Core cold path. It is the
+                // pin that proves the cold recipes still work.
+                let _, artifact = compileSource "DepsColdPrintf" "printfn \"%+08.2f\" 1234.5"
                 let deps = artifact.FSharpCoreDependencies
-                Expect.isNonEmpty deps "the %08e cold path depends on FSharp.Core"
+                Expect.isNonEmpty deps "the %+08.2f cold path depends on FSharp.Core"
 
                 Expect.contains
                     deps

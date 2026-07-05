@@ -63,6 +63,12 @@ type Formatter =
     /// zero-pads to a total width.
     member AppendZeroPaddedFloat: value: float * format: string * width: int -> unit
 
+    /// Append an F# <c>%-0w.pf</c> hole: format the float via <c>format</c> (an
+    /// <c>"F&lt;prec&gt;"</c> string), then zero-pad on the RIGHT (past the digits) to a
+    /// field of <c>width</c> chars — F#'s left-align + zero-pad fills the right with
+    /// zeros. Overflow (already ≥ <c>width</c>) is a no-op; no truncation.
+    member AppendRightZeroPaddedFloat: value: float * format: string * width: int -> unit
+
     /// Append an F# <c>%A</c> hole as copy-pasteable Vesper source, laid out
     /// within a column budget of <c>width</c> chars (0 ⇒ never break — the
     /// <c>%0A</c> flat mode) and a node budget of <c>size</c> (F# PrintSize —

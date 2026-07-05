@@ -97,6 +97,11 @@ module PrintfHoleForm =
         /// `width`. (.NET has no float format that zero-pads to a total width.)
         /// Precision stays a static `int` — zero-pad star stays cold, so no `Star`.
         | FixedZeroPad of precision: int * width: int
+        /// `%-0w.Nf`: fixed-point, then zeros on the RIGHT (after the digits, past the
+        /// point) to a total field of `width` — F#'s left-align + zero-pad on a float
+        /// (`%-05.2f` 3.14159 ⇒ `"3.140"`). No .NET format nor space-alignment does
+        /// this; overflow (already ≥ `width`) is a no-op, like every zero-pad form.
+        | FixedRightZeroPad of precision: int * width: int
         /// `%e` / `%E` / `%.*e`: scientific, `precision` fraction digits (`Star` ⇒
         /// runtime), `upper` exponent case. CLR is byte-exact; JS approximates via
         /// `toExponential` (minimal exponent width, not .NET's 3-digit zero-pad).
@@ -105,11 +110,24 @@ module PrintfHoleForm =
         /// runtime), `upper` case. CLR is byte-exact; JS approximates via
         /// `toPrecision` (keeps trailing zeros, different exponential threshold).
         | Compact of precision: Prec * upper: bool
-        /// `%+d`/`% d`/`%+.Nf`/`% .Nf`/`%+.*f`: forced-sign. `space` ⇒ a leading space
-        /// on a non-negative value (else a `+`); `precision` is the fraction digits
-        /// (`Const 0` ⇒ integer / `%+.0f`, `Star` ⇒ runtime). A negative value keeps
-        /// its `-`.
-        | ForcedSign of space: bool * precision: Prec
+        /// `%0we`/`%0wE`/`%0wg`/`%0wG`: scientific / compact, then zeros after any sign
+        /// to a total field of `width` (`%014e` 1234.5 ⇒ `"01.234500e+003"`). `typeChar`
+        /// is the source letter (`'e'`/`'E'`/`'g'`/`'G'`); `precision` its static digit
+        /// count. Reuses the `%0w.Nf` zero-pad-after-sign handler over the `"e6"`/`"g6"`
+        /// body — .NET zero-pads no float to a total width. CLR is byte-exact; JS
+        /// inherits the `toExponential`/`toPrecision` approximation.
+        | ExpCompactZeroPad of precision: int * width: int * typeChar: char
+        /// `%+d`/`% d`/`%+05d`/`%+.Nf`/`% .Nf`/`%+.*f`/`%+e`/`%+g`: forced-sign. `space`
+        /// ⇒ a leading space on a non-negative value (else a `+`); a negative keeps its
+        /// `-`. `precision` is the fraction / significant digits (`Const 0` ⇒ integer
+        /// `%+.0f`, `Star` ⇒ runtime `%+.*f`). `typeChar` is the source letter
+        /// (`'d'`/`'f'`/`'e'`/`'E'`/`'g'`/`'G'`): the section-format-expressible fixed
+        /// forms (`'d'`/`'f'`) lower to a .NET section format; the scientific / compact
+        /// forms (`'e'`…`'G'`) and any runtime precision route to the signed dynamic
+        /// handler instead (no section format can express them). `zeroPad = Some w`
+        /// zero-pads *through* the sign to a total field of `w` (`%+05d`; the section
+        /// format's digit count is `w-1`) — only the fixed integer form uses it.
+        | ForcedSign of space: bool * precision: Prec * typeChar: char * zeroPad: int option
 
     /// A `Field` hole's alignment-slot intent. `Const` keeps today's signed
     /// convention (negative ⇒ left-justify). `Star` (`%*d`, `%-*d`, `%+*d`) defers
@@ -179,7 +197,7 @@ module PrintfHoleForm =
         | FieldFormat.Fixed Prec.Star
         | FieldFormat.Exponential(Prec.Star, _)
         | FieldFormat.Compact(Prec.Star, _)
-        | FieldFormat.ForcedSign(_, Prec.Star) -> true
+        | FieldFormat.ForcedSign(_, Prec.Star, _, _) -> true
         | _ -> false
 
     /// True iff F# clamps a runtime star precision to `0..99` (`normalizePrecision`)
@@ -305,37 +323,86 @@ module PrintfHoleForm =
             // compile-time value to embed) — stays cold.
             ValueNone
         elif plusSign || spaceSign then
-            // Forced-sign: only the signed decimal-integer and fixed-point-float
-            // forms section-format faithfully; sign+zero-pad stays cold.
-            if zeroPad then
-                ValueNone
-            else
-                // `+` wins over space when both flags are present (legacy
-                // `if plusSign then "+" else " "`); this arm runs only when
-                // `plusSign || spaceSign`, so `not plusSign` ⇒ render a space.
-                let space = not plusSign
+            // Forced-sign. The signed decimal-integer (incl. `%+05d` zero-pad through
+            // the sign) and fixed-point-float forms section-format faithfully; the
+            // scientific / compact forms route to the signed dynamic handler; every
+            // other sign+zero-pad combination stays cold.
+            //
+            // `+` wins over space when both flags are present (legacy
+            // `if plusSign then "+" else " "`); this arm runs only when
+            // `plusSign || spaceSign`, so `not plusSign` ⇒ render a space.
+            let space = not plusSign
 
-                match p.Type with
-                | FormatType.DecimalInt ->
-                    // Integer forced sign has no precision slot; a star precision
-                    // (`%+.*d`) has no consumer, so defer it.
-                    if precIsStar then
-                        ValueNone
-                    else
-                        ValueSome(HoleForm.Field(FieldFormat.ForcedSign(space, Prec.Const 0), alignment))
-                | FormatType.FloatDecimal ->
+            // A literal precision as a static digit count (default `dflt`), or `ValueNone`
+            // for a star precision (no consumer on these forms — defer it).
+            let constPrecOr (dflt: int) : int voption =
+                match p.Precision with
+                | FormatDim.Star -> ValueNone
+                | FormatDim.Literal pr -> ValueSome(int pr)
+                | FormatDim.Absent -> ValueSome dflt
+
+            match p.Type with
+            | FormatType.DecimalInt ->
+                // Integer forced sign has no precision slot; a star precision
+                // (`%+.*d`) has no consumer, so defer it. `%+05d` zero-pads through the
+                // sign — the width rides inside the `FieldFormat` (`Alignment.None`); a
+                // star zero-pad width (`%+0*d`) is already declined above.
+                if precIsStar then
+                    ValueNone
+                else
+                    let zp = if zeroPad then Some width.Value else None
+                    let align = if zeroPad then Alignment.None else alignment
+                    ValueSome(HoleForm.Field(FieldFormat.ForcedSign(space, Prec.Const 0, 'd', zp), align))
+            | FormatType.FloatDecimal ->
+                // `%+08.2f` (sign + zero-pad float) has no faithful section format — cold.
+                if zeroPad then
+                    ValueNone
+                else
                     let prec =
                         match p.Precision with
                         | FormatDim.Star -> Prec.Star
                         | FormatDim.Literal pr -> Prec.Const(let n = int pr in if n <= 0 then 0 else n)
                         | FormatDim.Absent -> Prec.Const 6
 
-                    ValueSome(HoleForm.Field(FieldFormat.ForcedSign(space, prec), alignment))
-                | _ -> ValueNone
+                    ValueSome(HoleForm.Field(FieldFormat.ForcedSign(space, prec, 'f', None), alignment))
+            | FormatType.FloatExponential ->
+                // `%+e`/`% e`/`%+E`: scientific notation can't ride a .NET section
+                // format, so a *literal* precision routes to the signed dynamic handler.
+                // Sign+zero-pad (`%+08e`) and star precision (`%+.*e`) stay cold.
+                if zeroPad then
+                    ValueNone
+                else
+                    match constPrecOr 6 with
+                    | ValueNone -> ValueNone
+                    | ValueSome pr ->
+                        let tc = if p.TypeChar = 'E' then 'E' else 'e'
+                        ValueSome(HoleForm.Field(FieldFormat.ForcedSign(space, Prec.Const pr, tc, None), alignment))
+            | FormatType.FloatCompact ->
+                if zeroPad then
+                    ValueNone
+                else
+                    match constPrecOr 6 with
+                    | ValueNone -> ValueNone
+                    | ValueSome pr ->
+                        let tc = if p.TypeChar = 'G' then 'G' else 'g'
+                        ValueSome(HoleForm.Field(FieldFormat.ForcedSign(space, Prec.Const pr, tc, None), alignment))
+            | _ -> ValueNone
         elif leftAlign && zeroPad && isFloatLike then
-            // Left-align + zero-pad on a float/decimal zero-pads on the right — no
-            // faithful structured mapping — defer.
-            ValueNone
+            // Left-align + zero-pad on a float zero-pads on the RIGHT (`%-05.2f`
+            // 3.14159 ⇒ `"3.140"`). Only fixed-point (`FloatDecimal`) has a faithful
+            // right-zero-pad handler; the scientific / compact / decimal variants keep
+            // deferring. A star precision (`%-0*.*f`) has no static width to embed —
+            // `widthIsStar && zeroPad` is declined above, so `width` is a literal here.
+            match p.Type with
+            | FormatType.FloatDecimal when not precIsStar ->
+                let prec =
+                    match p.Precision with
+                    | FormatDim.Literal pr -> int pr
+                    | FormatDim.Absent
+                    | FormatDim.Star -> 6
+
+                ValueSome(HoleForm.Field(FieldFormat.FixedRightZeroPad(prec, width.Value), Alignment.None))
+            | _ -> ValueNone
         else
             // Left-align wins over zero-pad for the non-float forms (`%-05d ≡ %-5d`):
             // drop the zero-pad and let the negative `alignment` pad with spaces on
@@ -402,12 +469,35 @@ module PrintfHoleForm =
                     field (FieldFormat.Fixed(precDim 6))
             | FormatType.FloatExponential ->
                 if zeroPad then
-                    ValueNone
+                    // `%08e`/`%014e`: zero-pad after any sign over the `"e6"` body — the
+                    // static-precision zero-pad reuses the `%0w.Nf` handler; a star
+                    // precision rides no static body, so defer it.
+                    if precIsStar then
+                        ValueNone
+                    else
+                        let prec =
+                            match p.Precision with
+                            | FormatDim.Literal pr -> int pr
+                            | FormatDim.Absent
+                            | FormatDim.Star -> 6
+
+                        let tc = if p.TypeChar = 'E' then 'E' else 'e'
+                        ValueSome(HoleForm.Field(FieldFormat.ExpCompactZeroPad(prec, zpWidth (), tc), Alignment.None))
                 else
                     field (FieldFormat.Exponential(precDim 6, p.TypeChar = 'E'))
             | FormatType.FloatCompact ->
                 if zeroPad then
-                    ValueNone
+                    if precIsStar then
+                        ValueNone
+                    else
+                        let prec =
+                            match p.Precision with
+                            | FormatDim.Literal pr -> int pr
+                            | FormatDim.Absent
+                            | FormatDim.Star -> 6
+
+                        let tc = if p.TypeChar = 'G' then 'G' else 'g'
+                        ValueSome(HoleForm.Field(FieldFormat.ExpCompactZeroPad(prec, zpWidth (), tc), Alignment.None))
                 else
                     field (FieldFormat.Compact(precDim 6, p.TypeChar = 'G'))
             | FormatType.UnsignedDecimalInt ->
@@ -422,9 +512,11 @@ module PrintfHoleForm =
                 else
                     deferIfStarPrec (field FieldFormat.Bool)
             | FormatType.Decimal ->
-                // F# `%M` precision semantics are unusual; zero-pad has no faithful
-                // mapping — defer both.
-                if zeroPad || (p.Precision <> FormatDim.Absent) then
+                // F# silently IGNORES a `%M` precision (`%.2M` 3.14159m ⇒ `"3.14159"`),
+                // so a literal / absent precision is inert — the plain `Verbatim` form.
+                // A star precision (`%.*M`) still consumes a runtime arg with no
+                // consumer, and zero-pad has no faithful mapping — defer both.
+                if zeroPad || precIsStar then
                     ValueNone
                 else
                     field FieldFormat.Verbatim

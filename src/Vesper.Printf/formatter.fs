@@ -180,6 +180,21 @@ type Formatter =
         this.AppendFormatted(value, format) // the "F<prec>" body, no padding
         this.ZeroPadAfterSign(startingPos, width)
 
+    /// Writes `value` for an F# `%-0w.pf` hole: formatted via `format` (an
+    /// `"F<precision>"` string), then zero-padded on the RIGHT (past the digits) to a
+    /// total field of `width` chars. Dedicated because F#'s left-align + zero-pad fills
+    /// the right with zeros, which no .NET float format nor field alignment reproduces.
+    member this.AppendRightZeroPaddedFloat(value: float, format: string, width: int) =
+        let startingPos = this.Pos
+        this.AppendFormatted(value, format) // the "F<prec>" body, no padding
+        let paddingNeeded = width - (this.Pos - startingPos)
+
+        // Overflow (already ≥ width) is a no-op — F# never truncates a zero-pad field.
+        if paddingNeeded > 0 then
+            this.EnsureCapacityForAdditionalChars(paddingNeeded)
+            this.Chars.Slice(this.Pos, paddingNeeded).Fill('0')
+            this.Pos <- this.Pos + paddingNeeded
+
     /// Writes `value` as 32-bit two's-complement octal for an F# `%08o` hole, then
     /// zero-pads to a total field of `width` chars. `%o` output carries no sign, so
     /// the padding is a plain left-fill; overflowing digits are not truncated.

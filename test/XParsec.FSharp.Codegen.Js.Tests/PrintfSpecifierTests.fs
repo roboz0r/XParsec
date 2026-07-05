@@ -130,6 +130,55 @@ let tests =
                     [ "[+5]"; "[ 5]"; "[-5]"; "[+3.14]" ]
             }
 
+            // Sign + zero-pad integer (`%+05d`/`% 05d`): the sign stays at the field's
+            // left edge and zeros fill through it — byte-exact with F# (`padStart`
+            // never truncates, so a wider value overflows unpadded).
+            test "sign + zero-pad integer (`%+05d`/`% 05d`) match F#" {
+                runsLines
+                    "signzero"
+                    (String.concat
+                        "\n"
+                        [
+                            "printfn \"[%+05d]\" 42"
+                            "printfn \"[%+05d]\" (-42)"
+                            "printfn \"[% 05d]\" 42"
+                            "printfn \"[%+05d]\" 123456"
+                        ])
+                    [ "[+0042]"; "[-0042]"; "[ 0042]"; "[+123456]" ]
+            }
+
+            // Left-align + zero-pad float (`%-05.2f`): F# fills the RIGHT with zeros;
+            // `padEnd` reproduces it byte-for-byte (overflow prints unpadded).
+            test "left-align + zero-pad float (`%-05.2f`) matches F#" {
+                runsLines
+                    "rightzero"
+                    (String.concat
+                        "\n"
+                        [
+                            "printfn \"[%-05.2f]\" 3.14159"
+                            "printfn \"[%-05.2f]\" (-3.14159)"
+                            "printfn \"[%-08.2f]\" 3.14159"
+                            "printfn \"[%-05.2f]\" 12345.6"
+                        ])
+                    [ "[3.140]"; "[-3.14]"; "[3.140000]"; "[12345.60]" ]
+            }
+
+            // Forced-sign / zero-pad on the scientific & compact forms lower through
+            // `toExponential` / `toPrecision` (an accepted JS approximation, like the
+            // plain `%e`/`%g`), so these pin the JS emission shape, not F# parity.
+            test "`%+e` prefixes the sign onto the `toExponential` result" {
+                Expect.stringContains
+                    (emitJs "printfn \"%+e\" 1234.5")
+                    "toExponential(6)"
+                    "forced-sign exponential rides toExponential"
+            }
+
+            test "`%014e` zero-pads the `toExponential` result after any sign" {
+                let js = emitJs "printfn \"%014e\" 1234.5"
+                Expect.stringContains js "toExponential(6)" "zero-pad exponential rides toExponential"
+                Expect.stringContains js "padStart(14" "and zero-pads to the field width"
+            }
+
             // `%e`/`%E`/`%g`/`%G` were previously cold (raw operand). They now emit
             // `toExponential` / `toPrecision` — an accepted *approximation* of .NET's
             // byte-exact output (JS uses a minimal exponent width, not .NET's 3-digit

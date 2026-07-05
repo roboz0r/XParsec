@@ -217,6 +217,9 @@ type FormatHandles =
         AppendZeroPaddedUnsigned: EntityHandle
         /// `%0w.pf`: zero-pad after the sign — .NET has no float format that does this.
         AppendZeroPaddedFloat: EntityHandle
+        /// `%-0w.pf`: zero-pad on the RIGHT (left-align + zero-pad float) — no .NET
+        /// float format nor field alignment fills the right with zeros.
+        AppendRightZeroPaddedFloat: EntityHandle
         /// `%.*f`/`%*.*f`/`%.*e`/`%.*g`: runtime precision. Signature
         /// `(value: float, typeChar: char, precision: int, alignment: int)` — builds
         /// the .NET format string in-handler from `typeChar` + `precision`.

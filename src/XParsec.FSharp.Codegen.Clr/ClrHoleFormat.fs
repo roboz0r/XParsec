@@ -63,12 +63,29 @@ module ClrHoleFormat =
         | FieldFormat.Fixed prec -> PrintfSpec.HoleKind.Formatted, Some("F" + string (constPrec prec)), alignment
         | FieldFormat.FixedZeroPad(prec, w) ->
             PrintfSpec.HoleKind.ZeroPaddedFloat, Some("F" + string prec), Alignment.Const w
+        | FieldFormat.FixedRightZeroPad(prec, w) ->
+            PrintfSpec.HoleKind.RightZeroPaddedFloat, Some("F" + string prec), Alignment.Const w
         | FieldFormat.Exponential(prec, upper) ->
             PrintfSpec.HoleKind.Formatted, Some((if upper then "E" else "e") + string (constPrec prec)), alignment
         | FieldFormat.Compact(prec, upper) ->
             PrintfSpec.HoleKind.Formatted, Some((if upper then "G" else "g") + string (constPrec prec)), alignment
-        | FieldFormat.ForcedSign(space, prec) ->
+        | FieldFormat.ExpCompactZeroPad(prec, w, typeChar) ->
+            // Reuses the `%0w.Nf` zero-pad-after-sign handler over the `"e6"`/`"g6"` body.
+            PrintfSpec.HoleKind.ZeroPaddedFloat, Some(string typeChar + string prec), Alignment.Const w
+        | FieldFormat.ForcedSign(space, prec, _typeChar, zeroPad) ->
+            // Only the section-format-expressible fixed forms (`'d'`/`'f'`) reach here;
+            // the scientific / compact letters and any runtime precision are routed to
+            // the signed dynamic handler in `EmitFormat`, never this static projection.
             let prec = constPrec prec
             let sign = if space then " " else "+"
-            let body = if prec <= 0 then "0" else "0." + System.String('0', prec)
-            PrintfSpec.HoleKind.Formatted, Some(sign + body + ";-" + body), alignment
+
+            match zeroPad with
+            | Option.None ->
+                let body = if prec <= 0 then "0" else "0." + System.String('0', prec)
+                PrintfSpec.HoleKind.Formatted, Some(sign + body + ";-" + body), alignment
+            | Option.Some w ->
+                // Zero-pad *through* the sign: a `%+05d` is the section format
+                // `"+0000;-0000"` (digit count `w-1`), the sign supplied by the literal.
+                // Only the integer form zero-pads (`prec = 0`), so no fraction digits.
+                let digits = System.String('0', max 1 (w - 1))
+                PrintfSpec.HoleKind.Formatted, Some(sign + digits + ";-" + digits), alignment

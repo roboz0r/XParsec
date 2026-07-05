@@ -733,6 +733,25 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
             toEntity (ctx.MemberRef(eFormatter.Value, "AppendZeroPaddedFloat", s))
 
+        // `instance void AppendRightZeroPaddedFloat(float64, string, int32)` — `%-0w.pf`
+        // (value, "F<prec>" body, field width). Same shape as `AppendZeroPaddedFloat`.
+        let appendRightZeroPaddedFloat =
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = true)
+                .Parameters(
+                    3,
+                    (fun (ret: ReturnTypeEncoder) -> ret.Void()),
+                    (fun (pars: ParametersEncoder) ->
+                        pars.AddParameter().Type().Double()
+                        pars.AddParameter().Type().String()
+                        pars.AddParameter().Type().Int32()
+                    )
+                )
+
+            toEntity (ctx.MemberRef(eFormatter.Value, "AppendRightZeroPaddedFloat", s))
+
         // `instance void AppendDynamicPrecisionFloat(float64, char, int32, int32)` —
         // `%.*f`/`%*.*f`/`%.*e`/`%.*g` (value, type letter, runtime precision, field width).
         let appendDynamicPrecisionFloat =
@@ -870,6 +889,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             AppendZeroPaddedOctal = appendZeroPaddedOctal
             AppendZeroPaddedUnsigned = appendZeroPaddedUnsigned
             AppendZeroPaddedFloat = appendZeroPaddedFloat
+            AppendRightZeroPaddedFloat = appendRightZeroPaddedFloat
             AppendDynamicPrecisionFloat = appendDynamicPrecisionFloat
             AppendDynamicPrecisionSignedFloat = appendDynamicPrecisionSignedFloat
             AppendStructured = appendStructured

@@ -465,16 +465,16 @@ let tests =
                         References = [ fsCorePath ]
                     }
 
-                // Zero-pad exponential `%08e` keeps the FSharp.Core cold path (no
-                // faithful section-format mapping) — the lowerable forms lower to the
-                // structural engine instead.
-                let src = "printfn \"%08e\" 1234.5"
+                // Sign + zero-pad float `%+08.2f` keeps the FSharp.Core cold path (no
+                // faithful section-format mapping — the zeros must land after the sign) —
+                // the lowerable forms lower to the structural engine instead.
+                let src = "printfn \"%+08.2f\" 1234.5"
                 let lexed, file = parseFile src
                 // Resolve `int` (Vesper.Core) and `printfn` (Vesper.Printf) from the real
                 // contract stack — the single source — not `MockBuiltins`, which carries no
                 // primitive reprs (the codegen `defaults` bootstrap that used to supply
-                // `int` here is gone in T8 1.5). `%08e` still lowers to the FSharp.Core cold
-                // path: that is a `PrintfSpec` decision, independent of the resolution provider.
+                // `int` here is gone in T8 1.5). `%+08.2f` still lowers to the FSharp.Core
+                // cold path: that is a `PrintfSpec` decision, independent of the provider.
                 let provider = ClrSymbolProviders.buildContract defaultManifests
                 // Front-end assembly name must equal codegen's `project.AssemblyName`
                 // so a local type's home-assembly key matches its `userTypes`
@@ -483,7 +483,10 @@ let tests =
 
                 let artifact = Codegen.compile provider project tast
 
-                Expect.contains artifact.ReferencedAssemblies "FSharp.Core" "the %08e cold path references FSharp.Core"
+                Expect.contains
+                    artifact.ReferencedAssemblies
+                    "FSharp.Core"
+                    "the %+08.2f cold path references FSharp.Core"
 
                 let asm = loadAssembly (Codegen.toBytes artifact)
 

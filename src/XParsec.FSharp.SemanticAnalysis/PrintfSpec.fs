@@ -131,6 +131,13 @@ module PrintfSpec =
         /// `"F<prec>"` body as the format string and the field width in the
         /// alignment slot.
         | ZeroPaddedFloat
+        /// `AppendRightZeroPaddedFloat(v, format, width)` — F# `%-0w.Nf`: format the
+        /// float via `format` (an `"F<prec>"` string), then zero-pad on the RIGHT (past
+        /// the digits) to a total field of `width`. Dedicated because F#'s left-align +
+        /// zero-pad fills the right with zeros — no .NET format nor field alignment does
+        /// this. `toDotNetFormat` returns the `"F<prec>"` body and the width in the
+        /// alignment slot, exactly like `ZeroPaddedFloat`.
+        | RightZeroPaddedFloat
         /// `AppendStructured<v>(v, widthBudget, sizeBudget)` — F# `%A`. No .NET
         /// format string; the runtime engine (`Vesper.Printf.StructuralPrinter`)
         /// renders the value as copy-pasteable source. `EmitFormat` resolves the

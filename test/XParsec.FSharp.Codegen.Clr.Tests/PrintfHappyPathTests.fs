@@ -398,47 +398,92 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            test "`%010g` (zero-pad) stays on the cold path" {
+            test "`%010g` (zero-pad compact) lowers to a ZeroPaddedFloat hole over the \"g6\" body" {
                 match soleDecl "printfn \"%010g\" 1.5" with
-                | TDecl.Expression(TExpr.Format _, _) -> failtest "%010g must stay on the cold path"
-                | TDecl.Expression(TExpr.App _, _) -> ()
-                | other -> failtestf "unexpected TAST for %%010g: %A" other
+                | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal (kindOf hole) PrintfSpec.HoleKind.ZeroPaddedFloat "%010g is a ZeroPaddedFloat hole"
+                        Expect.equal (formatOf hole) (Some "g6") "the \"g6\" body rides in Format"
+                        Expect.equal (alignmentOf hole) (Some 10) "the field width rides in Alignment"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            test "`%+g` (forced sign on compact) stays on the cold path" {
+            // `%+g` / `% g` route through the signed dynamic handler (scientific /
+            // compact notation can't ride a .NET section format), so they lower to a
+            // Field hole carrying a `ForcedSign` form with the `g` letter — asserted on
+            // the classified source, not the section-format `triple` projection.
+            test "`%+g` (forced sign on compact) lowers to a ForcedSign field" {
                 match soleDecl "printfn \"%+g\" 1.5" with
-                | TDecl.Expression(TExpr.Format _, _) -> failtest "%+g must stay on the cold path"
-                | TDecl.Expression(TExpr.App _, _) -> ()
-                | other -> failtestf "unexpected TAST for %%+g: %A" other
+                | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        match hole.Source with
+                        | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.ForcedSign(false,
+                                                                                                                        PrintfHoleForm.Prec.Const 6,
+                                                                                                                        'g',
+                                                                                                                        None),
+                                                                                  _)) -> ()
+                        | other -> failtestf "expected a ForcedSign 'g' field, got: %A" other
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            test "`% g` (space-sign on compact) stays on the cold path" {
+            test "`% g` (space-sign on compact) lowers to a space ForcedSign field" {
                 match soleDecl "printfn \"% g\" 1.5" with
-                | TDecl.Expression(TExpr.Format _, _) -> failtest "% g must stay on the cold path"
-                | TDecl.Expression(TExpr.App _, _) -> ()
-                | other -> failtestf "unexpected TAST for %% g: %A" other
+                | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        match hole.Source with
+                        | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.ForcedSign(true,
+                                                                                                                        PrintfHoleForm.Prec.Const 6,
+                                                                                                                        'g',
+                                                                                                                        None),
+                                                                                  _)) -> ()
+                        | other -> failtestf "expected a space ForcedSign 'g' field, got: %A" other
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            test "`%+05d` (forced sign + zero-pad) is NOT lowered" {
+            test "`%+05d` (forced sign + zero-pad) lowers to a zero-padded section format" {
                 match soleDecl "printfn \"%+05d\" 42" with
-                | TDecl.Expression(TExpr.Format _, _) -> failtest "%+05d must stay on the cold path"
-                | TDecl.Expression(TExpr.App _, _) -> ()
-                | other -> failtestf "unexpected TAST for %%+05d: %A" other
+                | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal (kindOf hole) PrintfSpec.HoleKind.Formatted "%+05d is a Formatted (section) hole"
+                        Expect.equal (formatOf hole) (Some "+0000;-0000") "zero-pad through the sign → digit count w-1"
+                        Expect.equal (alignmentOf hole) None "the width rides inside the section format"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            test "`%+e` (forced sign on exponential) is NOT lowered" {
+            test "`%+e` (forced sign on exponential) lowers to a ForcedSign field" {
                 match soleDecl "printfn \"%+e\" 1234.5" with
-                | TDecl.Expression(TExpr.Format _, _) -> failtest "%+e must stay on the cold path"
-                | TDecl.Expression(TExpr.App _, _) -> ()
-                | other -> failtestf "unexpected TAST for %%+e: %A" other
+                | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        match hole.Source with
+                        | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.ForcedSign(false,
+                                                                                                                        PrintfHoleForm.Prec.Const 6,
+                                                                                                                        'e',
+                                                                                                                        None),
+                                                                                  _)) -> ()
+                        | other -> failtestf "expected a ForcedSign 'e' field, got: %A" other
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            test "`%08e` (zero-pad on exponential) is NOT lowered" {
-                // `%e` exponent zero-pad parity is subtle; stays on the cold path.
+            test "`%08e` (zero-pad on exponential) lowers to a ZeroPaddedFloat hole over the \"e6\" body" {
                 match soleDecl "printfn \"%08e\" 1234.5" with
-                | TDecl.Expression(TExpr.Format _, _) -> failtest "%08e must stay on the cold path"
-                | TDecl.Expression(TExpr.App _, _) -> ()
-                | other -> failtestf "unexpected TAST for %%08e: %A" other
+                | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal (kindOf hole) PrintfSpec.HoleKind.ZeroPaddedFloat "%08e is a ZeroPaddedFloat hole"
+                        Expect.equal (formatOf hole) (Some "e6") "the \"e6\" body rides in Format"
+                        Expect.equal (alignmentOf hole) (Some 8) "the field width rides in Alignment"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
             }
 
             // ---- `%A` structural format ----
@@ -905,12 +950,22 @@ let tests =
                 runParity "PHpLeftZeroUns" "printfn \"%-05u\" 42" (sprintf "%-05u" 42)
             }
 
-            // Floats keep zero-padding on the RIGHT under left-align — deferred (A2).
-            test "`%-05.2f` (left + zero-pad float) stays on the cold path" {
+            // Floats zero-pad on the RIGHT under left-align (`%-05.2f` 3.14159 ⇒
+            // `"3.140"`) — the one A2 form needing a dedicated handler.
+            test "`%-05.2f` (left + zero-pad float) lowers to a RightZeroPaddedFloat hole" {
                 match soleDecl "printfn \"%-05.2f\" 3.14159" with
-                | TDecl.Expression(TExpr.Format _, _) -> failtest "%-05.2f must stay on the cold path"
-                | TDecl.Expression(TExpr.App _, _) -> ()
-                | other -> failtestf "unexpected TAST for %%-05.2f: %A" other
+                | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal
+                            (kindOf hole)
+                            PrintfSpec.HoleKind.RightZeroPaddedFloat
+                            "%-05.2f is a RightZeroPaddedFloat hole"
+
+                        Expect.equal (formatOf hole) (Some "F2") "the \"F<prec>\" body rides in Format"
+                        Expect.equal (alignmentOf hole) (Some 5) "the field width rides in Alignment"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
             }
 
             test "`%c` lowers to a Formatted char hole (no format string)" {
@@ -938,12 +993,18 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            test "`%.2M` (precision) stays on the cold path" {
-                // F# `%M` precision semantics are unusual; only bare `%M` is lowered.
+            test "`%.2M` (precision) lowers as plain `%M` (F# ignores the precision)" {
+                // F# silently ignores a `%M` precision (`%.2M` 3.14159m ⇒ `"3.14159"`),
+                // so a literal precision is inert — the plain Verbatim decimal hole.
                 match soleDecl "printfn \"%.2M\" 3.14159M" with
-                | TDecl.Expression(TExpr.Format _, _) -> failtest "%.2M must stay on the cold path"
-                | TDecl.Expression(TExpr.App _, _) -> ()
-                | other -> failtestf "unexpected TAST for %%.2M: %A" other
+                | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal (kindOf hole) PrintfSpec.HoleKind.Formatted "%.2M is a Formatted hole"
+                        Expect.equal (formatOf hole) None "no .NET format string (the precision is ignored)"
+                        Expect.equal hole.Ty (TyConst("decimal", EqArray.empty)) "the %M hole types as decimal"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
             }
 
             test "`%c` prints the char" { runParity "PHpChar" "printfn \"%c\" 'a'" (sprintf "%c" 'a') }
@@ -1100,6 +1161,113 @@ let tests =
 
             test "`%02.2f` leaves a body wider than the field untouched" {
                 runParity "PHpZFloatN" "printfn \"%02.2f\" 3.14159" (sprintf "%02.2f" 3.14159)
+            }
+
+            // ---- byte-exact sign / zero-pad float forms ----
+
+            // `%.NM` — F# ignores the precision on a decimal; the lowered plain `%M`
+            // must print the same bytes as `sprintf "%.NM"`.
+            test "`%.2M` ignores the precision (prints the full decimal)" {
+                runParity "PHpDecPrec" "printfn \"%.2M\" 3.14159M" (sprintf "%.2M" 3.14159M)
+            }
+
+            test "`%.0M` ignores a zero precision too" {
+                runParity "PHpDecPrec0" "printfn \"%.0M\" 3.14159M" (sprintf "%.0M" 3.14159M)
+            }
+
+            // `%+05d` / `% 05d` — the .NET section format zero-pads through the sign.
+            test "`%+05d` zero-pads a positive int through the sign" {
+                runParity "PHpPlusZeroD" "printfn \"%+05d\" 42" (sprintf "%+05d" 42)
+            }
+
+            test "`%+05d` zero-pads a negative int through the sign" {
+                runParity "PHpPlusZeroDNeg" "printfn \"%+05d\" (0 - 42)" (sprintf "%+05d" -42)
+            }
+
+            test "`% 05d` space-signs and zero-pads" {
+                runParity "PHpSpaceZeroD" "printfn \"% 05d\" 42" (sprintf "% 05d" 42)
+            }
+
+            // Overflow: the digit count exceeds the field — the section format's min
+            // width neither pads nor truncates.
+            test "`%+05d` of a wider value overflows the field without truncation" {
+                runParity "PHpPlusZeroDOvf" "printfn \"%+05d\" 123456" (sprintf "%+05d" 123456)
+            }
+
+            // `%+e` / `%+g` (and uppercase) route through the signed dynamic handler.
+            test "`%+e` forces + on a positive exponential" {
+                runParity "PHpPlusE" "printfn \"%+e\" 1234.5" (sprintf "%+e" 1234.5)
+            }
+
+            test "`%+e` keeps - on a negative exponential" {
+                runParity "PHpPlusENeg" "printfn \"%+e\" (0.0 - 1234.5)" (sprintf "%+e" -1234.5)
+            }
+
+            test "`% e` space-signs a positive exponential" {
+                runParity "PHpSpaceE" "printfn \"% e\" 1234.5" (sprintf "% e" 1234.5)
+            }
+
+            test "`%+E` forces + and keeps the upper-case exponent" {
+                runParity "PHpPlusEU" "printfn \"%+E\" 1234.5" (sprintf "%+E" 1234.5)
+            }
+
+            test "`%+g` forces + on a positive compact" {
+                runParity "PHpPlusG" "printfn \"%+g\" 1234.5" (sprintf "%+g" 1234.5)
+            }
+
+            test "`% g` space-signs a positive compact" {
+                runParity "PHpSpaceG" "printfn \"% g\" 1234.5" (sprintf "% g" 1234.5)
+            }
+
+            test "`%+G` forces + on an upper-case compact" {
+                runParity "PHpPlusGU" "printfn \"%+G\" 1234.5" (sprintf "%+G" 1234.5)
+            }
+
+            test "`%+.2e` honours a literal precision on the signed handler" {
+                runParity "PHpPlusEPrec" "printfn \"%+.2e\" 1234.5" (sprintf "%+.2e" 1234.5)
+            }
+
+            // `%08e` / `%014e` / `%010g` — zero-pad after any sign over the "e6"/"g6" body.
+            test "`%08e` leaves an exponential wider than the field untouched" {
+                runParity "PHpZeroE" "printfn \"%08e\" 1234.5" (sprintf "%08e" 1234.5)
+            }
+
+            test "`%014e` zero-pads an exponential to width 14" {
+                runParity "PHpZeroEW" "printfn \"%014e\" 1234.5" (sprintf "%014e" 1234.5)
+            }
+
+            test "`%014E` zero-pads an upper-case exponential" {
+                runParity "PHpZeroEU" "printfn \"%014E\" 1234.5" (sprintf "%014E" 1234.5)
+            }
+
+            test "`%010g` zero-pads a compact to width 10" {
+                runParity "PHpZeroG" "printfn \"%010g\" 1234.5" (sprintf "%010g" 1234.5)
+            }
+
+            test "`%010g` zero-pads a negative compact after the sign" {
+                runParity "PHpZeroGNeg" "printfn \"%010g\" (0.0 - 1234.5)" (sprintf "%010g" -1234.5)
+            }
+
+            test "`%010G` zero-pads an upper-case compact" {
+                runParity "PHpZeroGU" "printfn \"%010G\" 1234.5" (sprintf "%010G" 1234.5)
+            }
+
+            // `%-05.2f` — left-align + zero-pad fills the RIGHT with zeros.
+            test "`%-05.2f` right-zero-pads a positive float" {
+                runParity "PHpRZeroF" "printfn \"%-05.2f\" 3.14159" (sprintf "%-05.2f" 3.14159)
+            }
+
+            test "`%-05.2f` right-zero-pads a negative float (no pad, already wide)" {
+                runParity "PHpRZeroFNeg" "printfn \"%-05.2f\" (0.0 - 3.14159)" (sprintf "%-05.2f" -3.14159)
+            }
+
+            test "`%-08.2f` right-zero-pads to width 8" {
+                runParity "PHpRZeroFW" "printfn \"%-08.2f\" 3.14159" (sprintf "%-08.2f" 3.14159)
+            }
+
+            // Overflow: the body already exceeds the field — no right padding.
+            test "`%-05.2f` of a wider value overflows without padding" {
+                runParity "PHpRZeroFOvf" "printfn \"%-05.2f\" 12345.6" (sprintf "%-05.2f" 12345.6)
             }
 
             test "`$\"x={1}\"` lowers to a ToString Format node" {

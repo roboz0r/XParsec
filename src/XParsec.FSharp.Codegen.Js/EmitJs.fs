@@ -903,9 +903,12 @@ module EmitJs =
     /// Covered: `%d`/`%i`/`%s`/`%O`/`%c`/`%M` (`Verbatim`), width + alignment
     /// (`padStart` / `padEnd`), `%x`/`%X`/`%B`/`%o` (`IntRadix`), `%u` (`Unsigned`
     /// reinterpret), `%b` (`Bool`), `%f` (`Fixed`), `%0wd` (`DecimalZeroPad`),
-    /// `%0w.pf` (`FixedZeroPad`), and `%+`/`% ` (`ForcedSign`). Still cold (raw
-    /// operand, deferred per the plan): `%e`/`%E`/`%g`/`%G` (`Exponential`/`Compact`)
-    /// — the .NET exponent / compact field widths have no faithful JS analogue.
+    /// `%0w.pf` (`FixedZeroPad`), `%-0w.pf` (`FixedRightZeroPad`), and `%+`/`% `
+    /// (`ForcedSign`, incl. `%+05d` zero-pad-through-sign). The scientific / compact
+    /// forms — `%e`/`%E`/`%g`/`%G` (`Exponential`/`Compact`), their zero-pad
+    /// (`ExpCompactZeroPad`) and forced-sign (`ForcedSign` with an `e`/`g` letter)
+    /// variants — emit `toExponential`/`toPrecision`, an accepted JS *approximation*
+    /// (minimal exponent width, `toPrecision` trailing zeros), not F# byte-parity.
     and private buildHole
         (ctx: WalkCtx)
         (hole: Frozen.HoleSpec)
@@ -1074,15 +1077,41 @@ module EmitJs =
                             )
                         )
                 )
-            // `%+d`/`% d`/`%+.Nf`/`% .Nf`: forced sign — a non-negative value takes the
-            // sign char (`+` or a space), a negative keeps its `-`. `precision = 0` ⇒
-            // integer (`toFixed(0)`).
-            | FieldFormat.ForcedSign(space, precision) ->
+            // `%-0w.Nf`: fixed-point, then zeros on the RIGHT (past the digits) to a
+            // total field of `width` — F#'s left-align + zero-pad on a float. `padEnd`
+            // never truncates, so an already-wider body prints unpadded (matching F#).
+            | FieldFormat.FixedRightZeroPad(precision, width) ->
+                wrapped (
+                    direct (fun v ->
+                        invoke (invoke (receiver v) "toFixed" [ num precision ]) "padEnd" [ num width; str "0" ]
+                    )
+                )
+            // `%+d`/`% d`/`%+05d`/`%+.Nf`/`% .Nf`/`%+e`/`%+g`: forced sign — a
+            // non-negative value takes the sign char (`+` or a space), a negative keeps
+            // its `-`. `typeChar` selects the base rendering (`'f'` ⇒ `toFixed`, `'e'`/`'E'`
+            // ⇒ `toExponential`, `'g'`/`'G'` ⇒ `toPrecision`; the scientific / compact
+            // forms inherit the JS approximation caveat, not F# parity). `zeroPad = Some w`
+            // (`%+05d`) then zero-fills *after* the sign to a total field of `w`.
+            | FieldFormat.ForcedSign(space, precision, typeChar, zeroPad) ->
                 let sign = if space then " " else "+"
 
-                wrapped (
+                let numStr =
+                    direct (fun v ->
+                        match typeChar with
+                        | 'e'
+                        | 'E' ->
+                            let e = invoke (receiver v) "toExponential" [ precJs precision ]
+                            if typeChar = 'E' then invoke e "toUpperCase" [] else e
+                        | 'g'
+                        | 'G' ->
+                            let g = invoke (receiver v) "toPrecision" [ precForToPrecision precision ]
+                            if typeChar = 'G' then invoke g "toUpperCase" [] else g
+                        | _ -> invoke (receiver v) "toFixed" [ precJs precision ]
+                    )
+
+                let signed =
                     strBind
-                        (direct (fun v -> invoke (receiver v) "toFixed" [ precJs precision ]))
+                        numStr
                         (fun s ->
                             JsExpr.Conditional(
                                 invoke s "startsWith" [ str "-" ],
@@ -1091,7 +1120,25 @@ module EmitJs =
                                 ValueNone
                             )
                         )
-                )
+
+                let padded =
+                    match zeroPad with
+                    | Option.None -> signed
+                    | Option.Some w ->
+                        // The signed string always opens with a sign char (`+`/` `/`-`);
+                        // zero-fill after it to a total field of `w`.
+                        strBind
+                            signed
+                            (fun s ->
+                                JsExpr.Binary(
+                                    "+",
+                                    invoke s "slice" [ num 0; num 1 ],
+                                    invoke (invoke s "slice" [ num 1 ]) "padStart" [ num (w - 1); str "0" ],
+                                    ValueNone
+                                )
+                            )
+
+                wrapped padded
             // `%e`/`%E`: scientific notation via `v.toExponential(precision)`. JS uses
             // a lowercase `e` and a minimal (1-2 digit) exponent, so this is NOT byte-
             // identical to F#/.NET (which zero-pads the exponent to 3 digits,
@@ -1115,6 +1162,39 @@ module EmitJs =
                         let g = invoke (receiver v) "toPrecision" [ precForToPrecision precision ]
                         if upper then invoke g "toUpperCase" [] else g
                     )
+                )
+            // `%014e`/`%010g`: scientific / compact, then zeros after any sign to a total
+            // field of `width` (mirror `FixedZeroPad`). Inherits the
+            // `toExponential`/`toPrecision` approximation — an accepted JS divergence.
+            | FieldFormat.ExpCompactZeroPad(precision, width, typeChar) ->
+                wrapped (
+                    strBind
+                        (direct (fun v ->
+                            match typeChar with
+                            | 'e'
+                            | 'E' ->
+                                let e = invoke (receiver v) "toExponential" [ num precision ]
+                                if typeChar = 'E' then invoke e "toUpperCase" [] else e
+                            | _ ->
+                                let g = invoke (receiver v) "toPrecision" [ num (max 1 precision) ]
+                                if typeChar = 'G' then invoke g "toUpperCase" [] else g
+                        ))
+                        (fun s ->
+                            let padTail =
+                                JsExpr.Binary(
+                                    "+",
+                                    str "-",
+                                    invoke (invoke s "slice" [ num 1 ]) "padStart" [ num (width - 1); str "0" ],
+                                    ValueNone
+                                )
+
+                            JsExpr.Conditional(
+                                invoke s "startsWith" [ str "-" ],
+                                padTail,
+                                invoke s "padStart" [ num width; str "0" ],
+                                ValueNone
+                            )
+                        )
                 )
 
         // The `structuralFormat` runtime export a `%A` hole renders through — always
