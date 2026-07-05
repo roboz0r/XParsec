@@ -1,0 +1,52 @@
+module                     'module'          KWModule            tok=   0  pos=   0
+                           'Widgets'         Identifier          tok=   2  pos=   7
+TypeDefn.Abbrev:
+  TypeName                 'widget'          Identifier          tok=  15  pos= 310
+  =                        '='               OpEquality          tok=  17  pos= 317
+    ILIntrinsic:
+      (#                   '(#'              KWLHashParen        tok=  20  pos= 323
+      StringLiteral        '"'               StringOpen          tok=  22  pos= 326
+      Parts:
+        Text               'object'          StringFragment      tok=  23  pos= 327
+                           '"'               StringClose         tok=  24  pos= 333
+      #)                   '#)'              KWRHashParen        tok=  26  pos= 335
+  with                     'with'            KWWith              tok=  29  pos= 342
+    member                 'member'          KWMember            tok=  32  pos= 355
+    self                   '_'               Wildcard            tok=  34  pos= 362
+    Pat.NamedSimple        'Poke'            Identifier          tok=  36  pos= 364
+    Pats:
+      ParenBlock           '('               KWLParen            tok=  38  pos= 369
+        Pat.Typed:
+          Pat.NamedSimple  'x'               Identifier          tok=  39  pos= 370
+          Colon            ':'               OpColon             tok=  40  pos= 371
+          NamedType:
+            Ident          'int'             Identifier          tok=  42  pos= 373
+                           ')'               KWRParen            tok=  43  pos= 376
+    ReturnColon            ':'               OpColon             tok=  45  pos= 378
+    NamedType:
+      Ident                'int'             Identifier          tok=  47  pos= 380
+    =                      '='               OpEquality          tok=  49  pos= 384
+      ILIntrinsic:
+        (#                 '(#'              KWLHashParen        tok=  51  pos= 386
+        StringLiteral      '"'               StringOpen          tok=  53  pos= 389
+        Parts:
+          Text             '$0 + 1'          StringFragment      tok=  54  pos= 390
+                           '"'               StringClose         tok=  55  pos= 396
+        Arg:
+          Ident            'x'               Identifier          tok=  57  pos= 398
+        ILReturnType:
+          :                ':'               OpColon             tok=  59  pos= 400
+          NamedType:
+            Ident          'int'             Identifier          tok=  61  pos= 402
+        #)                 '#)'              KWRHashParen        tok=  63  pos= 406
+  end                      'end'             KWEnd               tok=  66  pos= 413
+TypeDefn.Abbrev:
+  TypeName                 'alias'           Identifier          tok=  73  pos= 501
+  =                        '='               OpEquality          tok=  75  pos= 507
+    ILIntrinsic:
+      (#                   '(#'              KWLHashParen        tok=  77  pos= 509
+      StringLiteral        '"'               StringOpen          tok=  79  pos= 512
+      Parts:
+        Text               'System.Int...'   StringFragment      tok=  80  pos= 513
+                           '"'               StringClose         tok=  81  pos= 525
+      #)                   '#)'              KWRHashParen        tok=  83  pos= 527

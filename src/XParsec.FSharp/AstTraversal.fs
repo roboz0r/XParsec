@@ -2049,13 +2049,26 @@ and walkObjectModelBody (visitor: AstVisitor<'T>) (body: ObjectModelBody<'T>) : 
 
 and walkTypeDefn (visitor: AstVisitor<'T>) (typeDefn: TypeDefn<'T>) : unit =
     match typeDefn with
-    | TypeDefn.Abbrev(typeName, equals, typ) ->
+    | TypeDefn.Abbrev(typeName, equals, typ, ext) ->
         visitor.EnterSection "TypeDefn.Abbrev"
         walkTypeName visitor typeName
         visitor.VisitToken "=" equals
         visitor.EnterSection ""
         walkType visitor typ
         visitor.ExitSection ""
+
+        match ext with
+        | ValueSome(TypeExtensionElements(withTok, elems, endTok)) ->
+            visitor.VisitToken "with" withTok
+            visitor.EnterSection ""
+
+            for e in elems do
+                walkTypeDefnElement visitor e
+
+            visitor.ExitSection ""
+            visitor.VisitToken "end" endTok
+        | ValueNone -> ()
+
         visitor.ExitSection "TypeDefn.Abbrev"
     | TypeDefn.Union(typeName, equals, cases, _, ext) ->
         visitor.EnterSection "TypeDefn.Union"

@@ -1328,7 +1328,10 @@ module TypeDefn =
                             if toks.IsEmpty then m else Type<_>.SkipsTokens(toks)
                         )
 
-                return TypeDefn.Abbrev(typeName, equals, t)
+                let! ext =
+                    opt (choiceL [ TypeExtensionElements.parse; TypeExtensionElements.parseLight ] "Type Extension")
+
+                return TypeDefn.Abbrev(typeName, equals, t, ext)
         }
 
     /// Parses the body of a type definition after the leading keyword (type or and) has been consumed.

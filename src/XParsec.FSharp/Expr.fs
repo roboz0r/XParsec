@@ -695,7 +695,7 @@ and DelegateSig<'T> = | DelegateSig of delegateToken: 'T * ofToken: 'T * sign: U
 
 // Represents: type-defn, the top-level definition
 and [<RequireQualifiedAccess>] TypeDefn<'T> =
-    | Abbrev of typeName: TypeName<'T> * equals: 'T * typ: Type<'T>
+    | Abbrev of typeName: TypeName<'T> * equals: 'T * typ: Type<'T> * extensions: TypeExtensionElements<'T> voption
     | Record of
         typeName: TypeName<'T> *
         equals: 'T *
