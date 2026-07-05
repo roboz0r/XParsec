@@ -507,6 +507,27 @@ let rec private mapExport (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option
     else
         None
 
+/// Per-EXPORT resilience backstop, the module-path analog of `mapGlobalSymbolResilient`
+/// (the globals path). `extractModuleExports` walks a whole module's export table; an
+/// exotic symbol whose walk THROWS must not abort the entire manifest (at `@types/node`
+/// scale one bad export would lose the whole module). Catch, diagnose `SymbolWalkFailed`,
+/// and DROP the one symbol — the known in-place degrades (accessor/enum/heritage/…) fire
+/// below this and keep their symbol; this only catches what those did not anticipate.
+let mapExportResilient (ctx0: MapCtx) (sym: Ts.Symbol) : Schema.Export option =
+    try
+        mapExport ctx0 sym
+    with ex ->
+        let span = tryDeclOf sym |> Option.map spanOfNode
+
+        emitWarning
+            ctx0
+            Schema.DiagCode.SymbolWalkFailed
+            (sym.getName ())
+            span
+            (sprintf "export symbol '%s' could not be extracted and was dropped: %s" (sym.getName ()) ex.Message)
+
+        None
+
 /// Walk a MODULE symbol's exports into the manifest's `Export` list. Shared by the
 /// single-file path (`extractFile`) and the package-entry path (`extractPackage`):
 /// both resolve a module symbol — one for a local `.d.ts`, one for the package entry
@@ -520,6 +541,7 @@ let extractModuleExports
     (program: Ts.Program)
     (diags: ResizeArray<Schema.Diagnostic>)
     (refs: ResizeArray<string * Schema.RefEntry>)
+    (moduleHome: Ts.Symbol -> string option)
     (moduleSym: Ts.Symbol)
     : Schema.Export list =
     let exportSyms =
@@ -530,7 +552,16 @@ let extractModuleExports
         | Some tbl when tbl.has exportEqKey -> tbl.get exportEqKey :: named
         | _ -> named
 
-    exportSyms |> List.choose (mapExport (MapCtx.Root checker program diags refs))
+    let ctx0 =
+        { MapCtx.Root checker program diags refs with
+            ModuleHome = moduleHome
+        }
+
+    // Resilient per-symbol (see `mapExportResilient`): one throwing export is diagnosed
+    // and dropped, not fatal. `moduleHome` is the identity `fun _ -> None` for the
+    // single-module paths (byte-identical behaviour) and the sibling-module homer for
+    // the ambient-modules entry.
+    exportSyms |> List.choose (mapExportResilient ctx0)
 
 // ─── ambient-global dispatch (the `extractGlobals` entry mode) ─────────────────
 //

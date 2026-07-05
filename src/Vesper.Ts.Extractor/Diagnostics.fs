@@ -44,6 +44,17 @@ type MapCtx =
         /// Method-axis scope: a generic MEMBER's own typars. Empty for a free
         /// function / property / heritage walk.
         MethodEnv: Ts.Symbol list
+        /// Per-manifest OVERRIDE for a foreign ref's home. The ambient-modules entry
+        /// (decision A) extracts ONE manifest per quoted `declare module "…"`, so a
+        /// reference FROM one such module TO a type declared in a SIBLING module is
+        /// cross-manifest — even though both sit in the same physical `.d.ts` file, which
+        /// `classifyHome`'s file-origin oracle would call LOCAL. This resolver, closed
+        /// over the ambient-module set + the module CURRENTLY being extracted, homes such
+        /// a ref by its DECLARING module specifier (`node/events`), returning `None` for a
+        /// same-module (local) or non-ambient-module symbol so `classifyHome` falls
+        /// through to its default file-origin logic. The module paths (`extractFile`/
+        /// `extractPackage`) supply the always-`None` identity, so they are unchanged.
+        ModuleHome: Ts.Symbol -> string option
         /// SHARED `mapType` recursion depth (a single mutable cell threaded like `Diags`
         /// — the `{ ctx with … }` copies alias the SAME ref, so it counts total nesting
         /// across every axis). Guards a self-recursive conditional type (`Awaited<T>`)
@@ -65,6 +76,7 @@ type MapCtx =
             Refs = refs
             DeclaringEnv = []
             MethodEnv = []
+            ModuleHome = fun _ -> None
             Depth = ref 0
         }
 
@@ -182,30 +194,38 @@ let drainDiagnostics (baseDir: string) (diags: ResizeArray<Schema.Diagnostic>) :
 /// Origin is read off the symbol's DECLARATION source file via the program oracle,
 /// never a numeric flag.
 let private classifyHome (ctx: MapCtx) (sym: Ts.Symbol) : string option =
-    match tryDeclOf sym with
-    | None -> None // an intrinsic type has no declaration → not a foreign nominal ref
-    | Some decl ->
-        let sf = decl.getSourceFile ()
+    // The ambient-modules per-manifest override wins FIRST (decision A): a ref to a type
+    // declared in a SIBLING quoted module homes by that module's specifier, not the
+    // enclosing package name a file-origin walk would find. `None` (the module-path
+    // identity, or a same-module/non-ambient symbol) falls through to file-origin logic.
+    match ctx.ModuleHome sym with
+    | Some home -> Some home
+    | None ->
 
-        if ctx.Program.isSourceFileDefaultLibrary sf then
-            Some "es2015"
-        elif ctx.Program.isSourceFileFromExternalLibrary sf then
-            // Nearest `package.json` name walking up from the declaration's file — the
-            // external package's own manifest sits closest (mirrors `packageVersionOf`'s
-            // walk). A package.json missing a `name` degrades to `None` (no ref recorded).
-            let rec walk (dir: string) : string option =
-                let pj = pathJoin dir "package.json"
+        match tryDeclOf sym with
+        | None -> None // an intrinsic type has no declaration → not a foreign nominal ref
+        | Some decl ->
+            let sf = decl.getSourceFile ()
 
-                if existsSync pj then
-                    jsonNameField (JS.JSON.parse (readFileSyncUtf8 pj "utf8"))
-                else
-                    let parent = pathDirname dir
+            if ctx.Program.isSourceFileDefaultLibrary sf then
+                Some "es2015"
+            elif ctx.Program.isSourceFileFromExternalLibrary sf then
+                // Nearest `package.json` name walking up from the declaration's file — the
+                // external package's own manifest sits closest (mirrors `packageVersionOf`'s
+                // walk). A package.json missing a `name` degrades to `None` (no ref recorded).
+                let rec walk (dir: string) : string option =
+                    let pj = pathJoin dir "package.json"
 
-                    if parent = dir then None else walk parent
+                    if existsSync pj then
+                        jsonNameField (JS.JSON.parse (readFileSyncUtf8 pj "utf8"))
+                    else
+                        let parent = pathDirname dir
 
-            walk (pathDirname sf.fileName)
-        else
-            None // LOCAL: rides the own-registry path
+                        if parent = dir then None else walk parent
+
+                walk (pathDirname sf.fileName)
+            else
+                None // LOCAL: rides the own-registry path
 
 /// The referenced type's KIND, mirroring what its home manifest's export arm would
 /// emit (so the provider's re-mint dispatch matches). Classified by the SAME

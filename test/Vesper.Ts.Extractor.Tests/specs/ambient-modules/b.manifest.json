@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "package": "node/b",
+  "version": null,
+  "exports": [
+    {
+      "export": "function",
+      "name": "wrap",
+      "signatures": [
+        {
+          "typeParams": 0,
+          "params": [
+            {
+              "name": "w",
+              "type": {
+                "k": "named",
+                "name": "Widget",
+                "args": []
+              },
+              "optional": false,
+              "rest": false
+            }
+          ],
+          "returns": {
+            "k": "named",
+            "name": "Gadget",
+            "args": []
+          }
+        }
+      ],
+      "import": "named"
+    },
+    {
+      "export": "interface",
+      "name": "Gadget",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "widget",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "Widget",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "enabled",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "bool",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": []
+    }
+  ],
+  "diagnostics": [],
+  "refs": [
+    {
+      "name": "Widget",
+      "home": "node/a",
+      "kind": "interface",
+      "arity": 0
+    }
+  ]
+}

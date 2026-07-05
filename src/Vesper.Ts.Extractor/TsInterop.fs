@@ -83,6 +83,37 @@ let isAnonymousTypeName (name: string) : bool =
 [<Emit("$0 === $1")>]
 let inline jsRefEq (a: obj) (b: obj) : bool = jsNative
 
+/// `== null` — TRUE for both `null` and `undefined` (a node's `parent` is
+/// `undefined` above the source file, a JS falsy the F# option layer does not model).
+[<Emit("$0 == null")>]
+let inline jsIsNullOrUndef (o: obj) : bool = jsNative
+
+/// The name of the innermost QUOTED ambient module (`declare module "fs" { … }`)
+/// enclosing `node`, or `None` when the node sits in no quoted module (a true global,
+/// a default-lib type). Walks the parent chain, STEPPING OVER identifier-named
+/// `namespace`/`module` blocks (a `namespace NS` nested inside `declare module "fs"`
+/// is still homed to `"fs"` — only the QUOTED wrapper counts) and stopping at the
+/// source file. The name is the string-literal's UNQUOTED `.text` (`fs`, `node:fs`),
+/// so it needs no de-quoting — the quotes are syntax, not part of `.text`. Classified
+/// by the `isModuleDeclaration`/`isStringLiteral` runtime predicates, never raw
+/// `SyntaxKind` numerics, per the producer discipline.
+let enclosingQuotedModuleName (node: Ts.Node) : string option =
+    let rec walk (n: Ts.Node) : string option =
+        if jsIsNullOrUndef (box n) || ts.isSourceFile n then
+            None
+        elif ts.isModuleDeclaration n then
+            let md = unbox<Ts.ModuleDeclaration> n
+            let nameNode = unbox<Ts.Node> md.name
+
+            if ts.isStringLiteral nameNode then
+                Some (unbox<Ts.LiteralLikeNode> nameNode).text
+            else
+                walk n.parent
+        else
+            walk n.parent
+
+    walk node
+
 // A `TypeReference` (`ObjectFlags.Reference`) — the runtime shape of an instantiated
 // generic (`Array<string>`, `Box<number>`) — is the only `Type` carrying a `target`
 // back-pointer to its generic definition. The binding exposes no runtime

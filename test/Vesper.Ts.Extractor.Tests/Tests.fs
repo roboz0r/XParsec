@@ -346,6 +346,12 @@ let goldenTests =
             // cross-file interface merge.
             test "extract-globals: globals" { testExtractorMatchesGoldenGlobals () }
 
+            // Ambient-modules golden (W1, decision A): run the extractor in
+            // `--ambient-modules` mode over the two-quoted-module fixture and assert BOTH
+            // modules enumerate into their own per-module manifest, with the cross-module
+            // ref homed to its declaring specifier.
+            test "extract-ambient-modules: two-modules" { testExtractorMatchesGoldenAmbientModules () }
+
             // Real-scale lib-globals golden (Step 3): run the extractor in `--lib-globals`
             // mode over TypeScript's OWN `lib.es2015.*` + `lib.es5` closure and assert the
             // vendored `es2015.manifest.json`. Regenerated under UPDATE_SNAPSHOTS.

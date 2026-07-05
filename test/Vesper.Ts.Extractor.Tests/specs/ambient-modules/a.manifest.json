@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "package": "node/a",
+  "version": null,
+  "exports": [
+    {
+      "export": "function",
+      "name": "makeWidget",
+      "signatures": [
+        {
+          "typeParams": 0,
+          "params": [
+            {
+              "name": "id",
+              "type": {
+                "k": "named",
+                "name": "number",
+                "args": []
+              },
+              "optional": false,
+              "rest": false
+            }
+          ],
+          "returns": {
+            "k": "named",
+            "name": "Widget",
+            "args": []
+          }
+        }
+      ],
+      "import": "named"
+    },
+    {
+      "export": "interface",
+      "name": "Widget",
+      "typeParams": 0,
+      "members": [
+        {
+          "name": "id",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "number",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        },
+        {
+          "name": "label",
+          "kind": "property",
+          "type": {
+            "k": "named",
+            "name": "string",
+            "args": []
+          },
+          "signatures": [],
+          "static": false,
+          "optional": false
+        }
+      ],
+      "heritage": []
+    }
+  ],
+  "diagnostics": []
+}

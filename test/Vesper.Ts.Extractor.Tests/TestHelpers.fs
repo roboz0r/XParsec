@@ -30,17 +30,46 @@ let globalsDir =
 let private underGlobals (path: string) =
     path.StartsWith(globalsDir.Value, StringComparison.OrdinalIgnoreCase)
 
+// The ambient-MODULES fixture (W1, decision A) is a DIRECTORY holding ONE input `.d.ts`
+// but MANY manifests — one per quoted `declare module "…"`. Like the globals fixture it
+// is excluded from the single-file globs and the orphan guard (which pair a `.d.ts` with
+// a same-base `.manifest.json` and would else false-flag every per-module manifest as an
+// orphan), and discovered on its own path below.
+let ambientModulesDir =
+    lazy DirectoryInfo(Path.Combine(specsDir.Value, "ambient-modules")).FullName
+
+let private underAmbientModules (path: string) =
+    path.StartsWith(ambientModulesDir.Value, StringComparison.OrdinalIgnoreCase)
+
+let private excludedFromSpecGlobs (p: string) = underGlobals p || underAmbientModules p
+
 let manifestFiles =
     lazy
         (Directory.GetFiles(specsDir.Value, "*.manifest.json", SearchOption.AllDirectories)
-         |> Array.filter (fun p -> not (underGlobals p))
+         |> Array.filter (fun p -> not (excludedFromSpecGlobs p))
          |> Array.sort)
 
 let dtsFiles =
     lazy
         (Directory.GetFiles(specsDir.Value, "*.d.ts", SearchOption.AllDirectories)
-         |> Array.filter (fun p -> not (underGlobals p))
+         |> Array.filter (fun p -> not (excludedFromSpecGlobs p))
          |> Array.sort)
+
+/// The ambient-modules fixture's input `.d.ts` (there is exactly one; passed to the
+/// extractor's variadic input list) and its per-module manifest goldens.
+let ambientModulesDtsFiles =
+    lazy
+        (if Directory.Exists ambientModulesDir.Value then
+             Directory.GetFiles(ambientModulesDir.Value, "*.d.ts") |> Array.sort
+         else
+             [||])
+
+let ambientModulesManifests =
+    lazy
+        (if Directory.Exists ambientModulesDir.Value then
+             Directory.GetFiles(ambientModulesDir.Value, "*.manifest.json") |> Array.sort
+         else
+             [||])
 
 /// The globals fixture's input `.d.ts` (sorted, so program/order is deterministic and
 /// matches the extractor invocation) and its single manifest golden.
@@ -143,6 +172,10 @@ let allManifestFiles =
                      [| globalsManifest.Value |]
                  else
                      [||])
+                // The ambient-modules fixture's per-module manifests (W1) join the
+                // canonical-form + provider-resolution suites like any other
+                // `PackageManifest` (their per-module split is invisible to them).
+                ambientModulesManifests.Value
                 // The es2015 ref pack's manifest joins the canonical-form + provider-
                 // resolution suites like any other `PackageManifest` (Step 3). Its
                 // real-scale export surface exercises those loaders at 100× the fixtures.
@@ -583,6 +616,91 @@ let testExtractorMatchesGoldenGlobals () =
                 (normalize actual)
                 (normalize (File.ReadAllText golden))
                 "Globals extractor output does not match the golden (run UPDATE_SNAPSHOTS=1 to refresh)"
+
+/// Ambient-modules golden contract (W1, decision A): run the compiled extractor in
+/// AMBIENT-MODULES mode (`--ambient-modules node <outDir> <dts…>`) over the fixture's
+/// input `.d.ts` and assert the per-module manifests it writes into `outDir` equal the
+/// committed `ambient-modules/<module>.manifest.json` goldens — SET and CONTENT. The
+/// set equality is the "both modules enumerate" assertion; the content equality pins the
+/// per-module home + the cross-module ref. Same skip/refresh semantics as the other
+/// goldens; `UPDATE_SNAPSHOTS=1` rewrites the goldens from the extractor's output.
+let testExtractorMatchesGoldenAmbientModules () =
+    if not (File.Exists extractorJs.Value) then
+        skiptest "extractor not built — run: dotnet fable src/Vesper.Ts.Extractor -o src/Vesper.Ts.Extractor/dist"
+
+    let inputs = ambientModulesDtsFiles.Value
+
+    if inputs.Length = 0 then
+        skiptest "no ambient-modules fixture present"
+
+    // The fixture stands in for `@types/node`, so it uses the same `node` package name —
+    // its modules home `node/a`, `node/b` (the real `node/<module>` convention).
+    let packageName = "node"
+    let outDir = Path.Combine(Path.GetTempPath(), "vesper.ambient-modules.out")
+
+    if Directory.Exists outDir then
+        Directory.Delete(outDir, true)
+
+    Directory.CreateDirectory outDir |> ignore
+
+    let started =
+        try
+            let psi = ProcessStartInfo("node")
+            psi.ArgumentList.Add extractorJs.Value
+            psi.ArgumentList.Add "--ambient-modules"
+            psi.ArgumentList.Add packageName
+            psi.ArgumentList.Add outDir
+
+            for dts in inputs do
+                psi.ArgumentList.Add dts
+
+            psi.RedirectStandardError <- true
+            psi.RedirectStandardOutput <- true
+            psi.UseShellExecute <- false
+            Some(Process.Start psi)
+        with _ ->
+            None // node not on PATH
+
+    match started with
+    | None -> skiptest "node not available; skipping extractor run"
+    | Some p ->
+        let stderr = p.StandardError.ReadToEnd()
+        p.WaitForExit()
+
+        if p.ExitCode <> 0 then
+            failtestf "ambient-modules extractor failed (exit %d): %s" p.ExitCode stderr
+
+        let producedFiles = Directory.GetFiles(outDir, "*.manifest.json") |> Array.sort
+
+        if updateSnapshots then
+            // Replace the committed set wholesale: drop stale per-module goldens, write
+            // each freshly produced manifest under its module basename.
+            for old in ambientModulesManifests.Value do
+                File.Delete old
+
+            for produced in producedFiles do
+                let golden = Path.Combine(ambientModulesDir.Value, Path.GetFileName produced)
+                File.WriteAllText(golden, (File.ReadAllText produced).TrimEnd() + "\n")
+        else
+            let producedNames = producedFiles |> Array.map Path.GetFileName |> Array.sort
+
+            let committedNames =
+                ambientModulesManifests.Value |> Array.map Path.GetFileName |> Array.sort
+
+            // Both modules enumerate: the produced set of per-module manifests equals the
+            // committed set (no module dropped, none spuriously added).
+            Expect.equal
+                producedNames
+                committedNames
+                "ambient-modules produced manifest set must match the committed per-module goldens"
+
+            for name in producedNames do
+                Expect.equal
+                    (normalize (File.ReadAllText(Path.Combine(outDir, name))))
+                    (normalize (File.ReadAllText(Path.Combine(ambientModulesDir.Value, name))))
+                    (sprintf
+                        "ambient module manifest '%s' does not match its golden (run UPDATE_SNAPSHOTS=1 to refresh)"
+                        name)
 
 /// Real-scale `lib.es2015` golden contract (Step 3): run the compiled extractor in
 /// LIB-GLOBALS mode (`--lib-globals es2015 <outPath> <lib.es*.d.ts…>`) over the

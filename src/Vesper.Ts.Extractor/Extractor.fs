@@ -63,7 +63,9 @@ let extractFile (dtsPath: string) (packageName: string) : Schema.PackageManifest
         let moduleSym = moduleSymbolOf checker sf dtsPath
         let diags = ResizeArray<Schema.Diagnostic>()
         let refs = ResizeArray<string * Schema.RefEntry>()
-        let exports = extractModuleExports checker program diags refs moduleSym
+        // A single-file `.d.ts` is ONE module: no sibling-module home override.
+        let exports =
+            extractModuleExports checker program diags refs (fun _ -> None) moduleSym
 
         {
             SchemaVersion = Schema.SchemaVersion
@@ -171,7 +173,10 @@ let extractPackage (specifier: string) (resolveFromDir: string) (packageName: st
             let moduleSym = moduleSymbolOf checker sf resolvedFileName
             let diags = ResizeArray<Schema.Diagnostic>()
             let refs = ResizeArray<string * Schema.RefEntry>()
-            let exports = extractModuleExports checker program diags refs moduleSym
+            // The package entry is ONE module (its cross-file re-exports stay LOCAL): no
+            // sibling-module home override.
+            let exports =
+                extractModuleExports checker program diags refs (fun _ -> None) moduleSym
 
             {
                 SchemaVersion = Schema.SchemaVersion
@@ -336,6 +341,121 @@ let extractGlobals (dtsPaths: string list) (packageName: string) : Schema.Packag
 let extractLibGlobals (dtsPaths: string list) (packageName: string) : Schema.PackageManifest =
     extractGlobalsCore true dtsPaths packageName
 
+// ─── ambient-module entry mode (decision A: one manifest per quoted module) ───────
+//
+// `@types/node` is not a single module or a global script — it declares DOZENS of
+// quoted ambient modules (`declare module "fs" { … }`, `"path"`, `"events"`, …) plus a
+// few true globals. Neither `extractPackage` (walks ONE resolved module) nor
+// `extractGlobals` (walks the global SCOPE) descends into each `declare module "…"`
+// body. This entry enumerates `checker.getAmbientModules()` and emits ONE manifest per
+// module — homed `<pkg>/<module>` — so the provider can stay lazy per module and each
+// module is its own refs home (`fs`'s reference to `events.EventEmitter` homes to
+// `<pkg>/events`, not the package name). True globals (`Buffer`, `process`, `NodeJS`)
+// ride the existing `--globals`/`--lib-globals` path, in a sibling run.
+
+/// Filesystem-safe basename for a module's per-module manifest artifact (`node:fs` →
+/// `node_fs`, `fs/promises` → `fs_promises`). Only the FILENAME is sanitized — the
+/// manifest's `Package` home keeps the faithful `<pkg>/<module>` spelling.
+let private manifestBaseName (moduleName: string) : string =
+    moduleName.Replace(":", "_").Replace("/", "_").Replace("\\", "_")
+
+/// The clean (unquoted) name of an ambient module symbol. Prefer the string-literal off
+/// its `declare module "…"` declaration (the quotes are syntax, absent from `.text`);
+/// fall back to de-quoting the symbol name (TS stores an ambient module symbol under its
+/// QUOTED name, `"fs"`). Classified by the `isModuleDeclaration`/`isStringLiteral`
+/// runtime predicates, never raw `SyntaxKind` numerics, per the producer discipline.
+let private ambientModuleName (sym: Ts.Symbol) : string =
+    let fromDecl =
+        match sym.declarations with
+        | Some ds ->
+            ds
+            |> Seq.tryPick (fun d ->
+                let n = unbox<Ts.Node> d
+
+                if ts.isModuleDeclaration n then
+                    let md = unbox<Ts.ModuleDeclaration> n
+                    let nameNode = unbox<Ts.Node> md.name
+
+                    if ts.isStringLiteral nameNode then
+                        Some (unbox<Ts.LiteralLikeNode> nameNode).text
+                    else
+                        None
+                else
+                    None
+            )
+        | None -> None
+
+    match fromDecl with
+    | Some n -> n
+    | None ->
+        let raw = sym.getName ()
+        let n = raw.Length
+
+        if n >= 2 && (raw.[0] = '"' || raw.[0] = '\'') then
+            raw.Substring(1, n - 2)
+        else
+            raw
+
+/// Enumerate every quoted ambient module the fixture declares and emit ONE manifest per
+/// module (decision A). Returns `(artifactBaseName, manifest)` pairs — the caller writes
+/// each to `<outDir>/<base>.manifest.json`. A module whose declarations are ALL in the
+/// default lib is TS's OWN ambient decl (e.g. the lib's `"*"` wildcard), not the
+/// fixture's, and is excluded — mirroring the `isFixtureDeclared` filter of the globals
+/// path. Each module walks its exports through the shared `extractModuleExports`, with a
+/// per-module home override that homes a SIBLING-module reference by its declaring
+/// specifier (the (A) cross-module ref convention).
+let extractAmbientModules (dtsPaths: string list) (packageName: string) : (string * Schema.PackageManifest) list =
+    let options = baseOptions ()
+    let program = ts.createProgram (ResizeArray dtsPaths, options)
+    let checker = program.getTypeChecker ()
+
+    let fixtureAmbient =
+        checker.getAmbientModules ()
+        |> Seq.filter (fun m ->
+            match m.declarations with
+            | Some ds ->
+                ds
+                |> Seq.exists (fun d -> not (program.isSourceFileDefaultLibrary ((unbox<Ts.Node> d).getSourceFile ())))
+            | None -> false
+        )
+        |> List.ofSeq
+
+    // The clean names of ALL fixture-declared ambient modules — the set a cross-module
+    // ref is homed against (a ref to a module NOT in this set is not one of ours).
+    let ambientNames = fixtureAmbient |> List.map ambientModuleName |> Set.ofList
+
+    // Spans/refs relativize against the first input's directory (siblings), as elsewhere.
+    let baseDir = pathDirname (List.head dtsPaths)
+
+    fixtureAmbient
+    |> List.map (fun moduleSym ->
+        let moduleName = ambientModuleName moduleSym
+
+        // Home a reference to a SIBLING ambient module by that module's specifier
+        // (decision A): a SAME-module ref stays LOCAL (`None` → own-registry), a
+        // non-ambient ref returns `None` so `classifyHome` falls through to its default
+        // default-lib/external file-origin homing.
+        let moduleHome (sym: Ts.Symbol) : string option =
+            match tryDeclOf sym |> Option.bind enclosingQuotedModuleName with
+            | Some m when m <> moduleName && ambientNames.Contains m -> Some(packageName + "/" + m)
+            | _ -> None
+
+        let diags = ResizeArray<Schema.Diagnostic>()
+        let refs = ResizeArray<string * Schema.RefEntry>()
+        let exports = extractModuleExports checker program diags refs moduleHome moduleSym
+
+        manifestBaseName moduleName,
+        {
+            SchemaVersion = Schema.SchemaVersion
+            Package = packageName + "/" + moduleName
+            // An ambient-module fixture carries no version stamp (like the globals pack).
+            Version = None
+            Exports = exports
+            Diagnostics = drainDiagnostics baseDir diags
+            Refs = drainRefs refs
+        }
+    )
+
 let run (dtsPath: string) (packageName: string) (outPath: string) : unit =
     let manifest = extractFile dtsPath packageName
     writeFileSync outPath (Codec.serialize manifest)
@@ -356,3 +476,16 @@ let runLibGlobals (dtsPaths: string list) (packageName: string) (outPath: string
     writeFileSync outPath (Codec.serialize manifest)
 
     eprintfn "Wrote %s (%d exports, %d diagnostics)" outPath manifest.Exports.Length manifest.Diagnostics.Length
+
+/// Write one manifest per quoted ambient module into `outDir` (decision A). `outDir`
+/// must already exist (the golden harness / caller creates it). Each artifact is named
+/// `<sanitized-module>.manifest.json`.
+let runAmbientModules (dtsPaths: string list) (packageName: string) (outDir: string) : unit =
+    let manifests = extractAmbientModules dtsPaths packageName
+
+    for (baseName, man) in manifests do
+        let outPath = pathJoin outDir (baseName + ".manifest.json")
+        writeFileSync outPath (Codec.serialize man)
+        eprintfn "Wrote %s (%d exports)" outPath man.Exports.Length
+
+    eprintfn "Extracted %d ambient module(s)" manifests.Length

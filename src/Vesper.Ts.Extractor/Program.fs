@@ -28,11 +28,18 @@ let main _ =
     // files extract AS CONTENT (see `libOptions`). Used to vendor the `es2015` ref pack.
     | _ when args.Length >= 4 && args.[0] = "--lib-globals" ->
         Extractor.runLibGlobals (args.[3..] |> List.ofArray) args.[1] args.[2]
+    // Ambient-module entry (decision A): `--ambient-modules <packageName> <outDir>
+    // <dts…>` — same variadic shape as `--globals`, but the third arg is an output
+    // DIRECTORY: this entry emits ONE manifest per quoted `declare module "…"` the
+    // program declares (`@types/node`'s many modules), not a single artifact.
+    | _ when args.Length >= 4 && args.[0] = "--ambient-modules" ->
+        Extractor.runAmbientModules (args.[3..] |> List.ofArray) args.[1] args.[2]
     | [| dtsPath; packageName; outPath |] -> Extractor.run dtsPath packageName outPath
     | _ ->
         eprintfn "usage: extractor <dtsPath> <packageName> <outPath>"
         eprintfn "       extractor --package <specifier> <resolveFromDir> <packageName> <outPath>"
         eprintfn "       extractor --globals <packageName> <outPath> <dtsPath...>"
         eprintfn "       extractor --lib-globals <packageName> <outPath> <dtsPath...>"
+        eprintfn "       extractor --ambient-modules <packageName> <outDir> <dtsPath...>"
 
     0

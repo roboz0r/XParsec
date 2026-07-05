@@ -1,319 +1,282 @@
-# TS provider — outstanding gaps toward `@types/node` and `Js.Dom`
+# TS provider — next milestone: consuming `@types/node`
 
-**Status (2026-07-03).** The "faithful real-package consumption" tranche (Walls 1–5,
-sequenced BEFORE the two breadth destinations) has essentially **landed**. This doc has been
-rewritten to track only what is **NOT built** — the shipped walls are now recorded in the
-code itself (module headers + the tests named below), per
-[[feedback_durable_knowledge_in_code]]. What remains:
+**Status (2026-07-04).** The "faithful real-package consumption" tranche (Walls 1–5) and the
+`dynamic`/heritage gaps (G1 numeric-covariance + structural width, G2 dynamic-escape warning,
+G3 `retype`→`Vesper.Unsafe`, G5 external interface heritage) have all **LANDED** and now live in
+the code itself (module headers + the named tests), per [[feedback_durable_knowledge_in_code]].
+This doc has been **rescoped to the next breadth destination — `@types/node`** — and tracks only
+what is NOT built for it. `Js.Dom` is the destination *after* node and gets its own doc when node
+lands; the old §Breadth/§Faithful-later material is folded into the node work items below.
 
-- ~~**One reopened wall step** — Wall 3's *inflow structural widening* (§G1)~~ **LANDED
-  2026-07-04.** The `number→float` decision was relocated out of the front end into the JS
-  provider (`Codegen.Js.NumberCovariance`). See §G1 for the as-built record; only the
-  orthogonal **Step 5** (full provider laziness — a perf/architecture cleanup, no correctness
-  dependency) remains, deferrable.
-- **One small `dynamic` follow-up** (§G3) and **one inert residue** (§G4). The implicit-escape
-  warning (§G2) and the two external interface-heritage resolution gaps (§G5) **LANDED 2026-07-04**.
-- **The two breadth destinations** — `@types/node` and `Js.Dom` (§Breadth) — plus the
-  **faithful-later graduations** they will pull in (§Faithful-later).
-
-Every landed wall followed one design pattern, and any remaining work MUST keep to it:
-*real types via JS intrinsics + operators/recognizers/erasing-nominals, NOT new SemType DU
-cases with magic unifier behaviour.* No wall added a SemType case or changed `unify`/`subsumes`.
-
-**Companions (still load-bearing):**
-- [`dynamic-typing-design.md`](dynamic-typing-design.md) — the AS-BUILT `dynamic` design
-  (Wall 2). The §G2 escape-warning follow-up is specified there.
-- [`codegen-js-symbol-provider-plan.md`](codegen-js-symbol-provider-plan.md) — the original
-  *decisions* doc. Two of its sections are SUPERSEDED by what shipped (its `TyDynamic`-SemType
-  framing → Wall 2 shipped an opaque intrinsic + `?`; its `null`/`undefined`-as-core framing →
-  Wall 1 shipped `undefined` as a JS-only intrinsic, `null` needed no entry).
+Every landed piece followed one design pattern, and all node work MUST keep to it: *real types via
+JS intrinsics + operators/recognizers/erasing-nominals, NOT new SemType DU cases with magic unifier
+behaviour.* No wall added a SemType case or changed `unify`/`subsumes`; node adds none either.
 
 **Workflow.** Build/test/format via the **xparsec-dev** skill (`./claude_tools.cmd -Action
-Build|Test|Format`), never raw `dotnet`. The ONE exception is the Fable rebuild of the
-extractor (`dotnet fable src/Vesper.Ts.Extractor -o src/Vesper.Ts.Extractor/dist`) — needed
-only when work touches `src/Vesper.Ts.Extractor/`. Goldens regenerate via `-UpdateSnapshots`
-against `test/Vesper.Ts.Extractor.Tests` (consumer tests NEVER run the extractor). Anchors
-below are symbol names — confirm by reading before editing. Isolation-first is the rule
-([[feedback_systematic_tests_over_whackamole]]): pin the behaviour with a hand-built fixture
-before any golden regen.
+Build|Test|Format`), never raw `dotnet`. The ONE exception is the Fable rebuild of the extractor
+(`dotnet fable src/Vesper.Ts.Extractor -o src/Vesper.Ts.Extractor/dist`) — needed for any change
+under `src/Vesper.Ts.Extractor/`. Goldens regenerate via `-UpdateSnapshots` against
+`test/Vesper.Ts.Extractor.Tests` (consumer tests NEVER run the extractor). Anchors below are symbol
+names — confirm by reading before editing. Isolation-first is the rule
+([[feedback_systematic_tests_over_whackamole]]): pin behaviour with a hand-built fixture before any
+real-package golden regen.
 
 ---
 
-## What shipped (context, not work)
+## Already in place (context, not work)
 
-One row per landed piece — the code + named tests are the canonical record; do not re-narrate
-here.
+The code + named tests are the canonical record; do not re-narrate here.
 
-| Wall / area | State | Anchor + test |
-|---|---|---|
-| R1–R4a, R5 tranche‑1 | Manifest nominal → homed `FTClass`; native `receiver.member(args)` lowering; type-level carriers + `Engine.evalTypeLevel`; refs table; ambient-global mode; vendored `es2015` pack + `es2015BurndownContract`; `Js` namespace; bare `new Map()`. | `JsMapE2ETests`, `MittE2ETests` |
-| **Wall 1** — `undefined` distinct from `unit` (`809901dd`) | A **real JS-only intrinsic** (`prim-types-undefined.js.*`, `files-js`), published `Intrinsic(canon="undefined", platform=Some "undefined")` via the files-js harvest, resolving forward before the reverse-canon map collapses it to `unit`. `null` needed no entry. | `UndefinedIdentityTests`, `NullUndefinedTests` |
-| **Wall 2** — `dynamic`, a disciplined `any` (`6790cc3d`) | A **plain opaque JS intrinsic** (`type dynamic = (# "any" #)`), zero assignability edges, NO SemType case. Enter via `dynamic x` (erasing `retype`); access ONLY via `x?foo`/`x?foo <- v` (`op_Dynamic`/`op_DynamicAssignment`, SRTP `default ^TResult : dynamic`); dotted `.foo` on a `dynamic` ERRORS. See `dynamic-typing-design.md`. | `DynamicTypeTests` |
-| **Wall 3 (Steps 1,2,4)** — structural object → erasing nominal | Anonymous `{x,y}` gets a **canonical field-order-invariant shape-hash** (`TsManifestTypes.structuralHash`; named refs as leaves) and rehydrates to a **resolvable homed `@struct` nominal** (`FTClass(structuralKey …)`), registered by `TsManifestMembers.buildStructuralTypes` as an `IsInterface`/no-ctor class whose fields resolve + lower to native `receiver.field`, emitting nothing. Object-only **intersections graduate** to a merged `Structural` in the extractor (`TypeMap.fs` `isIntersection` arm); non-object stay `IntersectionErased → obj`. (Commits `92c4fc9c`/`1f6efa54`/`28fa702b`.) | `StructuralShapeHashTests`, `StructuralNominalTests`, extractor `Tests.fs` intersection asserts |
-| **Wall 4** — TS iterables → JS `for … of` | Provider homes a `[Symbol.iterator]` (`__@iterator@N`) member to `seq<T>` by injecting `enumerableInterfaceName` into `FrozenInterfaces` (`TsManifestMembers.tryIteratorElement`); the existing `pickEnumerableElem → tryForInEnumerator → EmitJs.ForOf` chain lights up. Tuple binder in the `for..of` lowering (`compileMatchPattern` reuse); fixed all-required TS tuple → `Schema.TypeRef.Tuple` in the extractor. | `IterableForInTests` |
-| **Wall 5** — module-level `let mutable` captured in a JS closure | `RefCellPromotion.collectPromotions` no longer seeds the **top-level** `TDecl.Let` binder into `promote` — a module-level mutable is a static field (CLR) / ambient reassignable `let` (JS), shared by the backend natively, never a `.contents` heap cell. Makes `rewriteDecl`'s "a top-level binding cannot itself be a promoted cell" hold by construction; latent-fixed the same miscompile on CLR. | `PrimitiveExprTests` (closure-writes-module-mutable), CLR `CapturedMutableTests` |
+| Landed | Anchor |
+|---|---|
+| Walls 1–5 (undefined, dynamic, structural identity, iterables, module `let mutable`) | `UndefinedIdentityTests`, `DynamicTypeTests`, `StructuralNominalTests`, `IterableForInTests`, `PrimitiveExprTests` |
+| G1 numeric covariance + record→interface structural width | `Codegen.Js.NumberCovariance`; `NumberFamilyTests`, `StructuralWidenTests`, `TypeArgNumberTests` |
+| G2 `dynamic` implicit-escape warning | `DynamicEscape.fs`; `DynamicTypeTests` |
+| G3 `retype` → non-AutoOpen `Vesper.Unsafe` | `ops-dynamic.js.fsi`/`.fs`; `DynamicTypeTests` |
+| G5 external interface heritage (transitive upcast + inherited reads) | `ExternalHeritageTests` |
+| W1 ambient-module extraction entry (`--ambient-modules`, one manifest per quoted module, per-symbol resilience, cross-module ref homing) | `Extractor.extractAmbientModules`; `TsInterop.enclosingQuotedModuleName`; `MapCtx.ModuleHome`; `ExportMap.mapExportResilient`; `specs/ambient-modules/` golden (`testExtractorMatchesGoldenAmbientModules`) |
 
-Note: the `StructuralEquality/Comparison/Format/Printer` test families are a DIFFERENT
-"structural" (F# runtime equality/`%A`), unrelated to Wall 3.
+**Generic machinery node RIDES (already built, reused verbatim):** the `--package` module-entry
+extraction (`extractPackage`); the refs table (identity-only homed `FTClass`, the ECMA-335
+`TypeRef`/`AssemblyRef` analog — never the foreign shape); member-overload expansion (per-`argSig`
+keys, `expandMethod`/`expandCtor`); the burndown-contract pattern + the closed `DiagCode` taxonomy +
+the `SymbolWalkFailed` per-symbol resilience backstop; the pure-record→erasing-nominal structural
+machinery (Wall 3); and the faithful `Fun`/`Tuple`/literal/`keyof`/indexed-access arms.
 
----
+### Inert residue (not node work)
 
-## Outstanding gaps
-
-### G1 — Structural inflow widening (Wall 3's last step) — LANDED (2026-07-04)
-
-**As built.** The `number→float` decision was relocated OUT of the shared front end and INTO the
-JS provider, resolving the layering violation the reopening flagged (`polarizeNumber` naming the
-literal `"number"`/`"float"` in `SemanticAnalysis`). The canonical record is now the code + tests
-below ([[feedback_durable_knowledge_in_code]]); this note is a pointer, not a spec.
-
-- **The covariant/invariant resolution lives in `Codegen.Js.NumberCovariance`** (module header is
-  the durable design). It is a provider DECORATOR wrapping the COMPOSED provider (installed in
-  `TsManifestProvider.buildContractFor` and, in tests, `TestHelpers.stackWithAmbient`). At wrap it
-  ASSERTS `IntrinsicForwardRepr["float"] = "number"` (throws otherwise — the datum that licenses
-  naming `float` as the covariant target), and reads the invariant family off
-  `IntrinsicReverseCanon["number"]`. A variance-tracked `FrozenType` walk resolves: covariant scalar
-  `number → float`; contravariant parameter → the retained `number` token; invariant generic
-  type-argument → the repr-family union `int|float|float32|…`.
-- **The front end is now number-agnostic.** `ExternalSymbols.polarizeNumber` and the raw/polarized
-  realiser split (`instantiateSignatureRaw`/`RawWith`) are DELETED; `instantiateSignature` /
-  `openSignature` realise the provider-resolved signature verbatim. `SemanticAnalysis` names no
-  `"number"`/`"float"` in the realisation path (only doc comments remain).
-- **Structural width is repr-sibling-driven.** `Engine.reprSiblings` (name-agnostic, off
-  `ctx.Provider.IntrinsicForwardRepr`) admits a record field whose canon shares a forward repr with
-  the member's — so an `int` field satisfies a now-`float` (`number`-repr'd) interface member.
-  `Engine.tryStructuralWiden` realises members normally and admits iff
-  `subsumes <> Unrelated || reprSiblings`. `numericFamilyOr` (contravariant param family, off the
-  reverse axis) is UNCHANGED.
-- **The `type number = float` abbreviation is GONE** (`prim-types-number.js.fsi` + its
-  `manifest.toml` `files-js` entry deleted). `number` names no Vesper-side type; it survives ONLY as
-  the provider-internal retained token (contravariant param → `numericFamilyOr`). The extractor is
-  unchanged (still retains the `number` token the provider consumes).
-- **The forward intrinsic axis was already populated on JS** — it flows to the composite from the
-  Vesper.Core `.js.fs` harvest (`ExtractCtx.toProvider` builds forward + reverse side-by-side),
-  identical to the reverse axis; no provider-leaf change was needed. Pinned by
-  `IntrinsicForwardReprJsTests`.
-
-Tests: `IntrinsicForwardReprJsTests` (forward axis), `NumberFamilyTests` (scalar covariant read =
-`float`; param widens), `StructuralWidenTests` / `StructuralWidenE2ETests` (record→interface width),
-`TypeArgNumberTests` (`Box<number>` value read = family union, NOT scalar float/int).
-
-**Scope landed:** the numeric-variance relocation, record-only structural width. Structural admission
-over nominal `TyClass` (the arbitrary-POJO-into-`{x,y}` case) stays punted to the nominal upcast path
-(`subtypeNominalOf`) — a FOLLOW-UP, unchanged.
-
-**Deferred (documented, not blocking):**
-- **Type-argument union usability caveats.** A covariant element read yields the UNION, so
-  `arr.[i] + 1.0` needs a narrow; Array invariance means a Vesper `int[]` does not flow into a
-  `number[]` param without element-wise subsumption at the arg seam. Typed binary arrays are out of
-  scope. The split (scalar `float` vs type-arg union) is on record and tested; the downstream
-  narrowing lands when a real consumer bites.
-- **Step 5 — full provider laziness (orthogonal, deferrable).** Flip `TsManifestSymbolProvider` from
-  the eager `Map.ofList`-in-ctor index to a lazy per-query index. The `NumberCovariance` decorator
-  already resolves + caches at the query seam, so correctness does NOT depend on this; Step 5 is a
-  perf/architecture cleanup. Keep separate — do not entangle with the variance work.
-
-#### Retained invariants (carried from the original design — still binding)
-
-- Structural width is **CONFINED to the foreign-call arg position** (`unifyArgCoerce` / its eager
-  twin `tryCoerceUpcast`) — NOT a general `subsumes`/`unify` edge. Vesper-internal code cannot
-  widen a record to a structural type.
-- **Gated on the provider's `IsInterface`** (real TS interfaces and the `@struct` erasing nominals
-  both surface as `Class { IsInterface = true }`), so the front end never recognises the `@struct`
-  home. A foreign CLASS (`IsInterface = false`) is nominal — construct it — and does NOT admit width.
-- Each REQUIRED (non-optional, via `ExternalMember.IsOptional`) member must be supplied by a
-  same-named field admitted per Step 1; success ABSORBS (no pin; record/class emits verbatim), else
-  fall through to the nominal error.
-- The reverse-axis `Map<string,string list>` shape and its sole CLR consumer
-  (`EngineCore.canonName`'s `System.Exception → exn` reconciliation, which takes the single element)
-  are unchanged.
-
-#### Entry-point consumer shape & fixtures (unchanged)
-
-The pervasive real inflow is the **options/config-object call** against a NAMED foreign interface
-(DOM `addEventListener(…, options: AddEventListenerOptions)` / `scrollIntoView(ScrollIntoViewOptions)`;
-node `fs.readFile(path, options)`). Vesper has no `{| |}` literal yet, so the argument is a NAMED
-record.
-
-- **Isolation fixture:** `interface Options { retries: number; label: string; verbose?: boolean }`
-  + `configure(opts: Options)`, called with a Vesper `type Cfg = { retries: int; label: string }`
-  value — width (`Cfg` ⊇ required), numeric admission (`int` satisfies `number` via repr-sibling),
-  verbatim emit, negatives (missing / `string`-vs-`int` `label` rejected). Plus the scalar
-  `configure2(x: number)` ← `int` (family absorption alone). These are the existing
-  `StructuralWidenTests` / `NumberFamilyTests`; keep them green across every step.
-
-### G2 — `dynamic` implicit-escape warning — LANDED (2026-07-04)
-
-**As built.** `d?foo + 1` now warns: a `?`-result pinned to a concrete non-`dynamic` type by
-context (the `default : dynamic` never fired) is an unchecked assertion. The canonical record is
-the code + `DynamicTypeTests` ([[feedback_durable_knowledge_in_code]]); this note is a pointer.
-
-- **`inferDynamicLookup`** (`InferApp.fs`) records each `?` site — its `^TResult` var + the `?`
-  node key — into `ctx.DynamicEscapes` (a `DynamicEscapeSite` list; no `TypeVar` field added).
-- **`DynamicEscape.run`** (new pass, slotted after `PlatformTypes` in `Pipeline`) sweeps the sites
-  post-settle: a site whose var `zonk`s to a concrete non-`dynamic` shape → `ctx.Warn`. A still-`dynamic`
-  or still-free var never warns.
-- **Suppression is the syntactic fork** (recommended): only an ascription DIRECTLY on the `?`
-  expression (`(d?foo : int)`) suppresses — `inferTypeAnnotation` records the inner `?` node's key
-  in `ctx.DynamicEscapeSuppressed`. A binding-level `let n : int = d?foo` still warns.
-- **`#nowarn` suppression descoped:** no warning-number infrastructure reaches the semantic
-  diagnostics (`Diagnostic.Code` is `""` everywhere; `WarnDirectives` gate only parse-time
-  warnings). The ascription route is the sole escape until a general semantic-warning-suppression
-  feature lands; this warning would be its first consumer.
-
-Tests: `DynamicTypeTests` (escape warns; unconstrained/chain/setter don't; ascription-on-`?`
-suppresses; binding-level annotation still warns).
-
-### G3 — `retype` surface — OPEN
-
-`retype` (the reinterpret intrinsic that powers `dynamic x`) is currently public `[<AutoOpen>]`
-(a general unsafe cast). FSharp.Core keeps `retype` internal; nothing yet depends on it being
-public, so it is still cheap to restrict. **Decide public (FFI-friendly) vs internal.**
-
-### G4 — es2015 `Error`-subclass ctor residue — INERT (note, not a step)
-
-Six `Error`-subclass ctors are return-type-divergent; the ctor dedupe keeps the first and
-nothing constructs `Error` subclasses, so it is currently harmless. **Revisit only if/when an
-`Error` subclass is actually constructed from Vesper.**
-
-### G5 — external INTERFACE heritage resolution (two gaps) — LANDED (2026-07-04)
-
-**As built.** Both interface-heritage gaps are resolved; the canonical record is now the code +
-`ExternalHeritageTests` ([[feedback_durable_knowledge_in_code]]). Three changes, all keeping to the
-wall design pattern (no SemType case, no `unify`/`subsumes` edge):
-
-- **Interface→interface supertype assignability now fires at the foreign-arg seam.** The single
-  subtype walk (`EngineCore.tryUpcastWitness`) was rewritten to walk the nominal `(name, args)` form
-  and RECURSE through each interface `subtypeInterfacesOf` surfaces (not just direct-match), so an
-  external `interface C extends B`, `interface B extends A<int>` reaches `A` transitively — the walk
-  the metadata layer never needed because `GetInterfaces()` pre-flattens. `tryCoerceUpcast` /
-  `unifyArg` are unchanged (they already drive this walk).
-- **The provider stored the WRONG name for a generic super-interface.** `TsManifestMembers.
-  classifyHeritage` stored the BARE `extends`-interface name (`A`) in `FrozenInterfaces`, but the
-  walk compares against the arity-suffixed compiled name (`` A`1 ``, THE LAW) — so even a DIRECT
-  `extends A<int>` missed. Now it `arityName`s the stored name, matching the metadata layer's
-  `buildClassInterfaces` (which keys by the suffixed `metadataName`). No-op at arity 0.
-- **External INHERITED member reads are now walked.** `EngineCore.tryExternalInheritedMember` walks
-  a receiver's external supertypes (interfaces + base, transitively) for a member the receiver's OWN
-  members miss, returning it paired with the supertype's args-as-reached (so a generic base member
-  `Base<int>.value` resolves at the receiver's instantiation). `InferRecordAccess.resolveFieldStep`'s
-  external `TyClass` arm consults it on an own-member miss and commits identically (freshened method
-  typars, recorded for Freeze). The inherited member lowers to native `receiver.member` through the
-  DECLARING interface's `AttachedNative` flag — pinned E2E by a Node round-trip.
-
-Tests: `ExternalHeritageTests` (direct + transitive inherited reads, direct + transitive
-super-interface assignability, negatives, and a Node round-trip proving the transitively-inherited
-read lowers native and runs). The per-surface `number` resolution these expose stays pinned
-structurally by `MapProviderTypesTests` (`ExternalSymbols.mapProviderTypes`) — no end-to-end number
-fixture was owed, only the inheritance-resolution capability, which is what landed.
-
-**Scope landed:** transitive interface upcast + inherited external member reads (both directions of
-the heritage graph). Consumed by **§Breadth** the moment `@types/node` config objects / `Js.Dom`'s
-deeply `extends`-chained event/element hierarchy arrive.
+**G4 — es2015 `Error`-subclass ctor residue.** Six `Error`-subclass ctors are return-type-divergent;
+the ctor dedupe keeps the first and nothing constructs them, so it is harmless. Revisit only if an
+`Error` subclass is ever constructed from Vesper. Node does not force this.
 
 ---
 
-## Breadth destinations (scoped later — do NOT start here)
+## The milestone: what `@types/node` IS
 
-- **`@types/node`** — module-entry breadth + refs at scale (no ambient mode needed). Where
-  lazy-per-symbol extraction starts to earn its keep. A refs-table + scale test; commit a ranked
-  diagnostics burndown like `es2015BurndownContract`. Its config-object calls are the natural
-  first consumer of **G1**.
-- **`Js.Dom`** — the eventual destination (browser is where a JS target earns its keep).
-  Ambient-global entry mode at 10× scale, its own namespace, deeply cyclic types. Needs **G1**
-  (inflow widening) AND **G5** (its event/element hierarchy is deeply `interface … extends …` —
-  super-interface assignability + inherited member reads) on top of the already-landed structural
-  identity (Wall 3) + iteration (Wall 4) + ambient mode (R5). **NOTE:** the old "needs SCC" framing was overstated — an
-  anonymous structural type cannot self-reference (TS recursion requires a *name*, hashed as a
-  leaf), so the shape-hash is acyclic by construction; Dom needs structural *identity*, not
-  cycle canonicalisation. SCC stays purely a region/closure concern.
+`@types/node` is **module-based**, not a global script and not a single-`export *` package:
+
+- **Many quoted ambient modules** — `declare module "fs" { … }`, `declare module "path"`,
+  `declare module "events"`, `declare module "node:fs"`, … dozens of them.
+- **A small true-globals subset** — `Buffer`, `process`, `global`, and the `NodeJS` namespace
+  (declaration-merged across files).
+- **CommonJS-shaped exports** — many modules are `export =` / `import fs = require("fs")`.
+- **Heavy overloading + optional/callback params** — `fs.readFile(path, options?, callback)` and
+  siblings; `EventEmitter.on`/`emit` overload storms.
+- **Index signatures and mapped types** — `process.env` (`{ [k: string]: string | undefined }`),
+  `NodeJS.Dict`, `Readonly`/`Partial`/`Record`.
+
+This shape — *a package that declares many quoted modules plus a few globals* — drives every work
+item below. It is why node needs a new extraction entry, not just a bigger `--package` run.
 
 ---
 
-## Faithful-later graduations (build-when-it-bites)
+## Packaging & extraction entry — **DECIDED: per-quoted-module manifests (A)**
 
-These are honest partial-degrades today (they warn, and missing capabilities self-enforce as
-resolution errors — sound, not wrong). Each graduates to faithful via the SAME erasing-nominal
-machinery Wall 3 built, when a real consumer needs it. No rework of the honest gate.
+The **#1 blocker**: nothing enumerates quoted ambient modules. `checker.getAmbientModules()` exists
+in the vendored binding (`vendor/TypeScript.fs`) but has **zero call sites**; `extractPackage`
+resolves ONE specifier's module symbol and `extractModuleExports` walks `getExportsOfModule`, which
+does not descend into each `declare module "…"` body. Both extraction modes today assume a *single*
+module entry or a global script.
 
-- **Callable-object-with-props → `Fun`-implementing erasing nominal.** A TS callable object with
-  data props (`{ (x): void; prop: string }`) currently falls to `Structural(props)`, DROPS the
-  call signature, and warns. Faithful model: an erasing nominal listing `Fun<params,ret>` in its
-  interface set (call signature carried) AND the data props as Property members — `f(x)` resolves
-  through `Fun`, `f.prop` through member access, both zero-emission. Needs (a) a schema slot for
-  the call signature alongside the fields (a `Structural`-node contract bump: Fable + goldens),
-  and (b) provider work so application resolves through `Fun` on an EXTERNAL nominal. Its own
-  small design pass.
-- **Partial structural resolution + a caller-facing warning.** The honest gate keeps a *non-pure*
-  structural OPAQUE (`fields = []` → consumer `FTUnknown`) rather than carrying a partial field
-  set — the fields would be usable (a caller can read the representable subset), but the
-  extractor's incompleteness warning dies at extraction and blanket partial-carry bloats goldens.
-  Faithful middle ground: carry the partial fields AND propagate a `partial`/`faithful` bit on the
-  `Structural` schema node through the provider to a front-end warn-on-use. Deferred until a
-  consumer needs the usable subset of a specific non-faithful type. Many such types are
-  "faithful-later" anyway (callable-object above; `Readonly<T>`/`Partial<T>` are near-pure records;
-  index signatures → a future dictionary/index capability), so this state is transitional.
-- **`retype` override layer** — a composite provider layer that overrides a lossy mapping; lands
-  when the first lossy mapping actually bites a real package. (Distinct from the `retype`
-  reinterpret intrinsic in Wall 2 — same name, different thing.)
-- **`Vesper.Platform.Map` portability layer** — a target-agnostic `Map` forwarding to
-  `SCG.Dictionary`/`Js.Map` per target; RECORDED as a possibility, explicitly out of scope
-  (`Js.*` stays JS-target-only by design).
+**Decision (2026-07-04): (A) per-quoted-module manifests.** The new extractor entry enumerates
+`getAmbientModules()` and emits **one manifest per module** — home e.g. `node/fs` → mounted namespace
+`Node.Fs`. This fits the existing refs-home model (each module is a home, like `es2015` is one home)
+and lets the provider stay lazy *per module* (W6). The cost accepted: many manifest artifacts, and a
+cross-module ref-home convention for intra-node references (`fs` → `events.EventEmitter` homes to
+`node/events`). The rejected alternative — one aggregate `Namespace`-keyed manifest — is simpler to
+wire but forces the eager provider (W6) to materialise the *entire* node surface on construction,
+which node scale is exactly what makes painful. W1 is built to shape (A); W2–W5, W7 are
+shape-independent.
+
+**Follow-ups (A) pulls in, resolved as W1 lands:**
+- **Cross-module ref home naming.** `classifyHome` (`Diagnostics.fs`) returns the nearest
+  `package.json` `name` for an external decl — for `@types/node` that is one string (`@types/node`),
+  NOT the per-module `node/fs` home (A) wants. W1 must home an intra-`@types/node` ref by its
+  declaring *module specifier*, not the package name, so `fs`'s reference to `EventEmitter` resolves
+  to the `node/events` manifest.
+- **Home→namespace mount.** `globalLibHomes` (`TsManifestTypes.fs`) maps only `es2015 → Js`; W1 adds
+  the `node/* → Node.*` mount convention (or a general `home → namespace` rule the node homes slot
+  into).
+
+---
+
+## Work items (what's NOT built)
+
+Ordered by dependency. Each is grounded in a read anchor; each keeps to the wall design pattern.
+
+### W1 — Ambient-module extraction entry *(the blocker)* — **LANDED (extraction), mount deferred to W2**
+
+**Landed.** The extractor entry (`--ambient-modules <packageName> <outDir> <dts…>` in `Program.fs`,
+writing ONE manifest per module into `outDir`) enumerates `checker.getAmbientModules()` (filtered to
+fixture-declared modules, mirroring the globals path's `isFixtureDeclared`) and, for each quoted
+module, emits its own manifest homed `<packageName>/<module>` (e.g. `node/fs`) via the shared
+`extractModuleExports`. The two extraction-side (A) follow-ups landed with it: the cross-module ref
+homes by DECLARING module specifier (`MapCtx.ModuleHome` → `classifyHome` consults it first;
+`enclosingQuotedModuleName` walks the parent chain to the quoted `declare module`), and the
+per-symbol resilience wrapper now guards the module path (`ExportMap.mapExportResilient`,
+`SymbolWalkFailed` on throw — `extractModuleExports` was a bare `List.choose (mapExport …)`; now
+resilient for `extractFile`/`extractPackage` too). Node's true globals (`Buffer`, `process`,
+`NodeJS`) still ride the existing globals path (sibling run). Golden: the two-quoted-module
+`specs/ambient-modules/` fixture asserts both modules enumerate into their own manifest with the
+cross-module ref homed to `node/a`.
+
+**Deferred to W2 — the `node/* → Node.*` mount.** `globalLibHomes` (`TsManifestTypes.fs`) is NOT
+just a namespace mount: membership there ALSO stamps `isGlobalPack = true` → emit with **no import**
+(`JsRuntime.addRef`, `TsManifestProvider.mountPrefix`). Node modules REQUIRE `import fs from "fs"`,
+so wiring `node/*` into `globalLibHomes` as-is would give node exports the WRONG import-free
+lowering. The namespace mount is coupled to import semantics, which W2 (CommonJS/Namespace import
+lowering) owns — and no manifest is provider-CONSUMED until W2 anyway (W1's fixture is
+extraction-only). So the mount lands in W2, where the global-pack/no-import bit is split from the
+namespace mount rather than conflated. W1 is otherwise complete.
+
+### W2 — CommonJS / Namespace import **lowering** *(hard blocker)*
+
+Node's `export =` modules are *extracted* (`ImportShape.CommonJsExport` is branded, and
+`extractModuleExports` explicitly pulls the `export =` entry the export table omits) but **not
+lowered**: the consumer maps only `Default → ImportForm.Default`, everything else → `Named`
+(`TsManifestProvider.fs`), and — worse — `buildOverloadGroupingTypes` **throws** on a
+Default/Namespace/CommonJS overloaded free function (`TsManifestMembers.fs`). Node's overloaded
+`export =` module functions would hard-fail. Land the CommonJS/Namespace import form + relax the
+overload-grouping gate to accept them. Fixture: an overloaded `export =` module.
+**Also owns the `node/* → Node.*` namespace mount deferred from W1** (see W1): split the
+namespace-mount half of `globalLibHomes` from the is-global/no-import half so a node module can mount
+under `Node.<Module>` while STILL emitting a real import, then add the `node/*` mount. This is the
+provider's first actual consumption of a node manifest, so it belongs here, not W1.
+
+### W3 — Per-parameter optional/rest + `OptionalDefaults`
+
+`paramsFrozen` (`TsManifestTypes.fs`) tuples only param *types*, dropping the per-param
+`Optional`/`Rest` flags the extractor faithfully records; `OptionalDefaults` is always `[]`. So
+`readFile(path, options?, callback)` is flattened — node's optional/callback-heavy surface can't be
+called with the optional arg omitted. Carry optional/rest to the foreign-arg seam (the G1
+optional-fill home: `unifyArgCoerce` / `commitExternalOverload`). **Also guard the
+`ErasedDistinction` throw** (`overloadArgSigs`): node overloads that erase to the same `argSig` after
+numeric/structural degradation must degrade-and-dedup, not abort. Fixture:
+`fn(path: string, opts?: Opts, cb: (err, data) => void)` — reuses the G1 `StructuralWidenTests`
+config-object shape.
+
+### W4 — Faithful-later graduations node forces *(each its own small pass, build-when-it-bites)*
+
+All three are honest degrades today (`carriesFaithfullyAsFields` gates them out → opaque
+`Structural` stub + warn), graduating via the SAME Wall-3 erasing-nominal machinery:
+
+- **Index signatures** `{ [k: string]: T }` → a dictionary/index capability. Node forces this first
+  (`process.env`, `NodeJS.Dict`). The `getIndexInfosOfType t = 0` gate in `TypeMap.fs` is the seam.
+- **Callable-object-with-props** `{ (x): void; prop: string }` → an erasing nominal listing
+  `Fun<…>` in its interface set (call signature carried) + the data props as Property members.
+  Needs a schema slot for the call signature (a `Structural`-node contract bump: Fable + goldens).
+- **Mapped types** `Readonly<T>`/`Partial<T>`/`Record<K,V>` → near-pure records; carry the fields +
+  a `partial`/`faithful` bit through to a front-end warn-on-use.
+
+### W5 — `namespace` / declaration merging
+
+Node's `NodeJS` namespace merges pervasively (`namespace NodeJS {}` + `interface NodeJS.*`). Today a
+`Module`-flagged symbol with a dominant type/value flag drops the namespace half with
+`MergedNamespaceDropped` (`ExportMap.fs`). Land the "type carrying a static namespace" seam so both
+halves survive.
+
+### W6 — Step 5: lazy per-symbol provider index *(perf/architecture; no correctness dependency)*
+
+`buildContractFor` builds `types`/`funcs` via eager `Map.ofList` in the ctor, plus whole-manifest
+pre-scans (`buildStructuralTypes`, `buildOverloadGroupingTypes`, `buildCtx`'s full mint pass). At
+node scale this freezes the entire surface on first construction. Flip to a lazy per-query index —
+**keeping identity-minting eager** (`buildCtx` needs it for forward references) and deferring only
+member/shape expansion (`toTypeShape`, the structural scan). Independent of correctness; node scale
+is where it earns its keep. Do NOT entangle with W1–W5.
+
+### W7 — The node burndown contract
+
+Once W1 lands: run the ambient-module extraction over a vendored `@types/node` fixture, commit it as
+a golden, and add a `nodeBurndownContract` — a committed `(DiagCode, count)` ranking asserted to
+equal the manifest's diagnostics, drift-either-way fails (the scoreboard for shrinking residue),
+exactly like `es2015BurndownContract`. Ranked over the same closed `DiagCode` vocabulary; W4/W5
+landings show up as the counts fall.
+
+---
+
+## Sequencing + isolation fixtures
+
+Isolation-first ([[feedback_systematic_tests_over_whackamole]]): pin each capability with a
+hand-built fixture BEFORE the real-package regen.
+
+1. **W1** — **DONE.** `specs/ambient-modules/two-modules.d.ts` (`declare module "a" { … } declare
+   module "b" { … }`, with a cross-module `b → a` ref); asserts both modules enumerate into their own
+   manifest and the cross-module ref homes to `node/a`. (The `SymbolWalkFailed` backstop is in the
+   code path — `mapExportResilient` — but not exercised by a fixture: engineering a deterministic
+   throw from a `.d.ts` symbol is impractical, so it stays a reviewed-in-place insurance like its
+   globals-path sibling `mapGlobalSymbolResilient`.)
+2. **W2** — an overloaded `export =` module; assert import form + no grouping throw.
+3. **W3** — `fn(path, opts?, cb)`; assert optional-omit call + callback + config-object width, and
+   that same-`argSig` overloads dedup rather than throw.
+4. **W4/W5** — targeted fixtures per graduation as each bites a real node type.
+5. Only then: vendor real `@types/node`, regen goldens, commit **W7** burndown.
+
+Node-specific shapes need NO special code: `Buffer`/`EventEmitter`/typed arrays ride the generic
+refs path (typed arrays are NOT on the intrinsic-overlap skip-list, so they home normally);
+node-style `(err, data) => void` callbacks map to a faithful `Fun`. Their only friction is the
+enclosing overload storm (W2/W3), not the shapes themselves.
+
+---
+
+## Retained invariants / guardrails (binding for all node work)
+
+- **The design pattern:** no new SemType DU case, no `unify`/`subsumes` edge — real intrinsics +
+  operators/recognizers/erasing-nominals ([[feedback_dynamic_intrinsics_over_du_cases]]).
+- **Extractor carries, front end evaluates, backend homes** ([[feedback_freeze_no_backend_knowledge]]);
+  **codegen-js owns assignability/intrinsic repr** ([[feedback_codegen_js_owns_assignability]]).
+- **Refs are identity-only** — home + kind + arity, NEVER the foreign shape/members (the staleness
+  trap). Member access resolves through the stacked home manifest or fails with a "package not
+  referenced" diagnostic.
+- **The arity law** ([[project_arity_overloaded_type_names]]): a homed key's simple name is
+  `arityName name Arity`.
+- Structural width stays CONFINED to the foreign-call arg position, gated on the provider's
+  `IsInterface` (carried from G1).
 
 ---
 
 ## When to delete this doc
 
-Delete when **G1** lands and the breadth destinations get their own docs; fold any durable facts
-into module headers + [[project_js_ref_pack]] / `reference_*` memories
-([[feedback_plan_docs_ephemeral]]). The `dynamic` design is already durably recorded in
-`dynamic-typing-design.md` + the `ops-dynamic.js.fsi` / `prim-types-dynamic.js.fsi` headers.
+Delete when `@types/node` lands and its burndown is committed; fold durable facts into module
+headers + [[project_js_ref_pack]] / `reference_*` memories ([[feedback_plan_docs_ephemeral]]).
+`Js.Dom` then gets its own doc (ambient-global entry at 10× scale, deeply `extends`-chained
+event/element hierarchy consuming the landed G1 + G5). The `@types/node` decisions doc — the *why* —
+lives in [`codegen-js-symbol-provider-plan.md`](codegen-js-symbol-provider-plan.md).
 
 ---
 
-## Orientation — files and symbols (outstanding-relevant)
+## Orientation — files and symbols (node-relevant)
 
-- **G1 seam:** `Passes/Unification/Engine.fs` (`unifyArgCoerce` / `tryCoerceUpcast` — the
-  confined foreign-arg absorption home the `TyOr` family-widen and the record→interface width
-  check land in); `Passes/Unification/InferExternalCall.fs` (`commitExternalOverload` — the
-  arg-binding seam; `obj`-absorption + literal-typar + optional-fill are its siblings).
-- **G1 variance / repr family (LANDED):** `Codegen.Js.NumberCovariance` (`wrap` — the provider
-  decorator that resolves covariant `number→float` / invariant type-arg → family-union off the
-  forward + reverse axes). Reverse axis `IExternalSymbolProvider.IntrinsicReverseCanon`
-  (`Map<string,string list>`) built in `VesperLib/TyparCapture.fs` (`intrinsicReverse`) +
-  `ReferencedProject.fs`, merged in `ExternalSymbols.mergeReverseCanon`; forward axis
-  `IntrinsicForwardRepr` built alongside (`intrinsicForward`). `Engine.reprSiblings` (forward-axis
-  width test) + `Engine.numericFamilyOr` (reverse-axis param family). `ExternalSymbols.
-  instantiateSignature` / `openSignature` realise the (already provider-resolved) template verbatim.
-  Extractor unchanged: `src/Vesper.Ts.Extractor/TypeMap.fs` retains the `number` token the provider
-  consumes.
-- **G1 provider structural facts:** `TsManifestMembers.fs` (`buildStructuralTypes` — the
-  `IsInterface`/@struct erasing nominal + Property members).
-- **`dynamic` follow-ups (G2/G3):** `InferGeneralize.applyDefaults` (the SRTP `default`-constraint
-  pass `?` rides — the escape-warning tyvar-origin seam); `ops-dynamic.js.fsi` /
-  `prim-types-dynamic.js.fsi`; `retype` in Vesper.Core (surface decision).
-- **Extractor (structural / faithful-later):** `src/Vesper.Ts.Extractor/TypeMap.fs`
-  (`isIntersection` arm — object-only merge; `carriesFaithfullyAsFields` — the pure-record gate a
-  callable-object/index-signature graduation would extend); rebuild via the one sanctioned Fable
-  command (workflow header).
-- **Type-system guardrails:** `PlatformTypes.fs` (`isUnrepresentable` — a JS-only intrinsic must
-  have `platform = Some`); Wall 2 added NO SemType case (`dynamic` is `TyConst "dynamic"`) — keep
-  it that way.
-- **Tests as patterns:** `test/XParsec.FSharp.Codegen.Js.Tests/{StructuralNominalTests,
-  StructuralShapeHashTests,IterableForInTests,DynamicTypeTests,JsMapE2ETests,MittE2ETests,
-  PrimitiveExprTests}.fs`; `TestHelpers`/`SchemaDsl` scaffolding; `test/Vesper.Ts.Extractor.Tests`
-  (goldens, `UPDATE_SNAPSHOTS`, `es2015BurndownContract`, `testProviderResolves`);
-  `test/ts-fixtures/{mitt,es2015}/`.
+- **Extraction entry (W1/W2):** `src/Vesper.Ts.Extractor/Extractor.fs` (`extractPackage`,
+  `extractGlobalsCore`, `mapGlobalSymbolResilient` — the resilience wrapper to extend to the module
+  path); `ExportMap.fs` (`extractModuleExports`, `mapExport`, `importShapeOf`, the
+  `MergedNamespaceDropped` arm for W5); `vendor/TypeScript.fs` `getAmbientModules` (the zero-call-site
+  W1 seam); `Program.fs` (CLI dispatch — add `--ambient-modules`). Rebuild via the one sanctioned
+  Fable command (workflow header).
+- **Degradation / faithful-later (W4):** `TypeMap.fs` (`carriesFaithfullyAsFields`, `isFunctionType`,
+  `isPureRecordObject`, the `getIndexInfosOfType` gate); `Diagnostics.fs` (`emitWarning`,
+  `recordForeignRef`/`classifyHome`/`classifyKind`/`refArity`, `drainDiagnostics`); `Schema.fs`
+  (`DiagCode`, `Export`, `ImportShape`, `RefEntry`, `Param.Optional`/`Rest`).
+- **Provider consumption (W2/W3/W6):** `TsManifestProvider.fs` (`buildContractFor` — the eager
+  `Map.ofList` index + the import-form map, `Default` vs `Named`); `TsManifestMembers.fs`
+  (`expandMethod`/`expandCtor`, `buildOverloadGroupingTypes` — the CommonJS throw-gate,
+  `buildStructuralTypes`); `TsManifestTypes.fs` (`toFrozen` nominal/refs resolution, `paramsFrozen` —
+  drops optional/rest, `overloadArgSigs` `ErasedDistinction`, `globalLibHomes`).
+- **Optional-fill seam (W3):** `Passes/Unification/Engine.fs` (`unifyArgCoerce`/`tryCoerceUpcast`);
+  `InferExternalCall.fs` (`commitExternalOverload`).
+- **Tests as patterns:** `test/Vesper.Ts.Extractor.Tests` (`es2015BurndownContract` /
+  `mittDiagnosticsContract` in `Tests.fs`; `TestHelpers.testExtractorMatchesGoldenLibGlobals`;
+  `UPDATE_SNAPSHOTS`); `test/XParsec.FSharp.Codegen.Js.Tests` (`StructuralWidenTests` — the G1
+  config-object fixture pattern W3 reuses); `test/ts-fixtures/{mitt,es2015}/`.
 
 ## Relevant memories
+
 [[project_js_ref_pack]] (canonical shipped state),
 [[reference_js_external_instance_member_walls]] (R1–R4a baseline + closed walls),
-[[feedback_freeze_no_backend_knowledge]] (extractor carries, front end evaluates, backend homes —
-the G1 guardrail),
-[[feedback_codegen_js_owns_assignability]] (codegen-js owns assignability/intrinsic repr — the G1
-oracle lives here),
+[[feedback_freeze_no_backend_knowledge]] (extractor carries, front end evaluates, backend homes),
+[[feedback_codegen_js_owns_assignability]] (codegen-js owns assignability/intrinsic repr),
+[[feedback_dynamic_intrinsics_over_du_cases]] (real intrinsics over new SemType cases),
 [[feedback_systematic_tests_over_whackamole]] (isolation fixture before wiring),
-[[feedback_durable_knowledge_in_code]] (shipped walls live in code, not this doc),
+[[feedback_durable_knowledge_in_code]] (landed work lives in code, not this doc),
 [[project_arity_overloaded_type_names]] (the arity law),
-[[feedback_plan_docs_ephemeral]] (delete this doc when G1 lands),
+[[feedback_plan_docs_ephemeral]] (delete this doc when node lands),
 [[feedback_user_commits]] (user reviews and commits).
