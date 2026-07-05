@@ -226,6 +226,7 @@ module JsNativeSymbols =
                 | arr -> ValueSome arr.[0]
 
             member _.TryLookupMembers(typeName, memberName) = membersOf typeName memberName
+            member _.TryLookupIndexSignature _ = []
             member _.TryLookupUnionCase _ = ValueNone
             member _.AmbientOpenPrefixes = []
             member _.TryLookupInlineBody _ = ValueNone

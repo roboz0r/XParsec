@@ -164,6 +164,7 @@ module SymbolProviders =
             member _.TryLookupType name = inner.TryLookupType name
             member _.TryLookupMember(t, m) = inner.TryLookupMember(t, m)
             member _.TryLookupMembers(t, m) = inner.TryLookupMembers(t, m)
+            member _.TryLookupIndexSignature t = inner.TryLookupIndexSignature t
             member _.TryLookupUnionCase c = inner.TryLookupUnionCase c
             member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
 

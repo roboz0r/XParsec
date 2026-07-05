@@ -773,6 +773,9 @@ type MetadataSymbolProvider(reverseCanon: Map<string, string list>, assemblyPath
                 membersCache.[key] <- v
                 v
 
+        // .NET metadata has no TS index-signature concept — an indexer is a `get_Item`
+        // member, served through `TryLookupMember`.
+        member _.TryLookupIndexSignature _ = []
         member _.TryLookupUnionCase _ = ValueNone
         member _.AmbientOpenPrefixes = []
         member _.TryLookupInlineBody _ = ValueNone

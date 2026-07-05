@@ -345,6 +345,39 @@ module internal TsManifestTranslate =
             (printed, fields)
             :: (fields |> List.collect (fun (_, ft) -> structuralShapesIn ft))
 
+    /// Every FIELD-BEARING anonymous OBJECT shape carrying a non-empty TS index
+    /// signature, as `(shapeHash, index-pairs)` — the structural analogue of the named
+    /// `Interface`/`Class` `index` facet. Keyed by the SAME `structuralHash printed
+    /// fields` `structuralShapesIn` interns a member surface under, so the frozen
+    /// `FTClass(structuralKey …)` a use site resolves to and this index entry AGREE. A
+    /// FIELDLESS structural (a pure `{ [k: K]: V }`) freezes to an OPAQUE `FTUnknown`
+    /// (no nominal identity to hang an index lookup on), so it is not collected — the
+    /// consumer reaches an index signature only through a field-bearing shape or a
+    /// named interface/class. Recurses into field types (mirroring `structuralShapesIn`)
+    /// so a nested shape's index registers too. Case coverage mirrors `shapeHash`.
+    let rec structuralIndexSigsIn (t: Schema.TypeRef) : (string * (Schema.TypeRef * Schema.TypeRef) list) list =
+        match t with
+        | Schema.TypeRef.Named(_, args) -> args |> List.collect structuralIndexSigsIn
+        | Schema.TypeRef.Typar _
+        | Schema.TypeRef.MethodTypar _ -> []
+        | Schema.TypeRef.Fun(args, ret) -> (args |> List.collect structuralIndexSigsIn) @ structuralIndexSigsIn ret
+        | Schema.TypeRef.Tuple items -> items |> List.collect structuralIndexSigsIn
+        | Schema.TypeRef.Union members -> members |> List.collect structuralIndexSigsIn
+        | Schema.TypeRef.Literal _ -> []
+        | Schema.TypeRef.KeyOf t -> structuralIndexSigsIn t
+        | Schema.TypeRef.IndexedAccess(objTy, index) -> structuralIndexSigsIn objTy @ structuralIndexSigsIn index
+        | Schema.TypeRef.Conditional(check, extends, whenTrue, whenFalse) ->
+            [ check; extends; whenTrue; whenFalse ] |> List.collect structuralIndexSigsIn
+        | Schema.TypeRef.Dynamic -> []
+        | Schema.TypeRef.Structural(_, [], _) -> []
+        | Schema.TypeRef.Structural(printed, fields, index) ->
+            let here =
+                match index with
+                | [] -> []
+                | _ -> [ structuralHash printed fields, index ]
+
+            here @ (fields |> List.collect (fun (_, ft) -> structuralIndexSigsIn ft))
+
     /// Every `TypeRef` an export directly mentions (member/signature/heritage types), for
     /// the structural pre-scan. `Namespace` produces none — `flatten` unwraps it to leaf
     /// exports before this is reached. `Enum` carries only literal values, no `TypeRef`.

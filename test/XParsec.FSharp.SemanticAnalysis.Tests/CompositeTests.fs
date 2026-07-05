@@ -60,6 +60,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
             | ValueSome mem -> [| mem |]
             | ValueNone -> [||]
 
+        member _.TryLookupIndexSignature _ = []
         member _.TryLookupUnionCase _ = ValueNone
         member _.AmbientOpenPrefixes = []
         member _.TryLookupInlineBody _ = ValueNone

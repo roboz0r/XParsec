@@ -108,6 +108,8 @@ let private fake: IExternalSymbolProvider =
             | ValueSome mem -> [| mem |]
             | ValueNone -> [||]
 
+        member _.TryLookupIndexSignature _ = []
+
         member _.TryLookupUnionCase caseName =
             if caseName = "C" then
                 ValueSome

@@ -711,6 +711,17 @@ type IExternalSymbolProvider =
     /// single-pick collapse).
     abstract TryLookupMembers: typeName: string * memberName: string -> ExternalMember[]
 
+    /// The TS index signature(s) `{ [k: K]: V }` on an external type, by its compiled
+    /// name — the seam `x.[k]` / `x.[k] <- v` reads/writes through (each entry a
+    /// `(keyTemplate, valueTemplate)` pair of `FrozenType`s over the type's DECLARING
+    /// typars, realised at a use site via `FrozenTypeBridge.instantiateDeclaring`
+    /// against the receiver's args, exactly as a member `Signature` is). EMPTY = no
+    /// index signature. A type may declare BOTH a string- and a number-index entry, so
+    /// the list carries all and the consumer (`inferIndexedLookup`) selects by the index
+    /// expression's type. Parallel to `TryLookupMember`; providers that model no index
+    /// signatures (metadata, .fsi contract, JS-native, test fakes) return `[]`.
+    abstract TryLookupIndexSignature: typeName: string -> (FrozenType * FrozenType) list
+
     /// Reverse case-name lookup: a (bare) union-case name → its declaring
     /// union's compiled name, the union's typar arity, and the case shape. The
     /// mirror of `TryLookupMember` for union construction: it lets a consumer
@@ -1270,6 +1281,7 @@ module ExternalSymbols =
             member _.TryLookupType _ = ValueNone
             member _.TryLookupMember(_, _) = ValueNone
             member _.TryLookupMembers(_, _) = [||]
+            member _.TryLookupIndexSignature _ = []
             member _.TryLookupUnionCase _ = ValueNone
             member _.AmbientOpenPrefixes = []
             member _.TryLookupInlineBody _ = ValueNone
@@ -1437,6 +1449,19 @@ module ExternalSymbols =
                 | ValueNone -> result
                 | ValueSome _ -> result |> Array.map stampMember
 
+            // First source with a non-empty index signature wins (a type's index sig
+            // lives in one home, like its members). The `(key, value)` templates are
+            // origin-independent, so no re-stamp — a plain first-hit-wins fall-through.
+            member _.TryLookupIndexSignature typeName =
+                let mutable result = []
+                let mutable i = 0
+
+                while List.isEmpty result && i < sources.Length do
+                    result <- sources.[i].TryLookupIndexSignature typeName
+                    i <- i + 1
+
+                result
+
             // First source that knows a case of this name wins; re-stamp the
             // package origin onto the result exactly as `TryLookupType` does for
             // the union shape it came from (the inner extractor records
@@ -1572,6 +1597,12 @@ module ExternalSymbols =
             member _.TryLookupMembers(typeName, memberName) =
                 inner.TryLookupMembers(typeName, memberName) |> Array.map mapMember
 
+            // An index KEY is a contravariant position (the supplied index), the VALUE a
+            // covariant read — the same variance split as a member's `Parameters`/`Return`.
+            member _.TryLookupIndexSignature typeName =
+                inner.TryLookupIndexSignature typeName
+                |> List.map (fun (k, v) -> contra k, co v)
+
             member _.TryLookupUnionCase caseName =
                 inner.TryLookupUnionCase caseName
                 |> ValueOption.map (fun uc -> { uc with Case = mapCase uc.Case })
@@ -1601,6 +1632,7 @@ module ExternalSymbols =
             ConcurrentDictionary<struct (string * string), ExternalMember voption>()
 
         let memberSets = ConcurrentDictionary<struct (string * string), ExternalMember[]>()
+        let indexSigs = ConcurrentDictionary<string, (FrozenType * FrozenType) list>()
         let unionCases = ConcurrentDictionary<string, ExternalUnionCase voption>()
         let inlineByKey = ConcurrentDictionary<SymbolKey, InlineBody voption>()
         let inlineByName = ConcurrentDictionary<string, InlineBody voption>()
@@ -1620,6 +1652,9 @@ module ExternalSymbols =
                     struct (typeName, memberName),
                     (fun (struct (t, m)) -> inner.TryLookupMembers(t, m))
                 )
+
+            member _.TryLookupIndexSignature typeName =
+                indexSigs.GetOrAdd(typeName, (fun n -> inner.TryLookupIndexSignature n))
 
             member _.TryLookupUnionCase caseName =
                 unionCases.GetOrAdd(caseName, (fun n -> inner.TryLookupUnionCase n))

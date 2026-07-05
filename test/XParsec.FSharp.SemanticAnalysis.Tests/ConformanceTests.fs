@@ -454,6 +454,7 @@ let private contractProvider (entries: (string * ExternalSymbol) list) : IExtern
         member _.TryLookupType _ = ValueNone
         member _.TryLookupMember(_, _) = ValueNone
         member _.TryLookupMembers(_, _) = [||]
+        member _.TryLookupIndexSignature _ = []
         member _.TryLookupUnionCase _ = ValueNone
         member _.AmbientOpenPrefixes = []
         member _.TryLookupInlineBody _ = ValueNone
@@ -581,6 +582,7 @@ let private memberContractProvider (overloads: ExternalMember list) : IExternalS
         member _.TryLookupMembers(_, name) =
             overloads |> List.filter (fun m -> m.Name = name) |> List.toArray
 
+        member _.TryLookupIndexSignature _ = []
         member _.TryLookupUnionCase _ = ValueNone
         member _.AmbientOpenPrefixes = []
         member _.TryLookupInlineBody _ = ValueNone

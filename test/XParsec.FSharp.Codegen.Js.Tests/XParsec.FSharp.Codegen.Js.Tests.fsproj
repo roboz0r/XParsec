@@ -61,6 +61,7 @@
     <Compile Include="NumberFamilyTests.fs" />
     <Compile Include="StructuralWidenTests.fs" />
     <Compile Include="OptionalParamTests.fs" />
+    <Compile Include="IndexSignatureTests.fs" />
     <Compile Include="StructuralWidenE2ETests.fs" />
     <Compile Include="TypeArgNumberTests.fs" />
     <Compile Include="Program.fs" />

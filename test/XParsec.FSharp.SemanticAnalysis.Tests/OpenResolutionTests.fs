@@ -32,6 +32,7 @@ let private provider: IExternalSymbolProvider =
 
         member _.TryLookupMember(_, _) = ValueNone
         member _.TryLookupMembers(_, _) = [||]
+        member _.TryLookupIndexSignature _ = []
 
         // `Color` is `[<RequireQualifiedAccess>]` (its case `Red` carries the flag);
         // `Hue` is an ordinary union (`Blue` does not). Drives the Gap 1 suppression

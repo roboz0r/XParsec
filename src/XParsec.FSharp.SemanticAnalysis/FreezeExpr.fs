@@ -392,7 +392,23 @@ module internal FreezeExpr =
                 let valTy = typeOfKey ctx (CstKeys.ofExpr right)
                 let valuePartial = TyFun(valTy, ty)
                 let idxPartial = TyFun(idxTy, valuePartial)
-                let setExpr = TExpr.External("SetArray", ValueNone, TyFun(arrTy, idxPartial), tok)
+
+                // An index-signature receiver writes through `SetIndex` (the `$0[$1] = $2`
+                // bracket), the write mirror of the read path's `GetIndex`; every other
+                // receiver through `SetArray` (`stelem`). Same receiver classification as
+                // the read branch — whether the external type carries an index signature.
+                let setName =
+                    match Unification.zonk arrTy with
+                    | TyClass(clsKey, _) when
+                        not (
+                            ctx.Provider.TryLookupIndexSignature(SymbolKeyOps.qualifiedName clsKey)
+                            |> List.isEmpty
+                        )
+                        ->
+                        "SetIndex"
+                    | _ -> "SetArray"
+
+                let setExpr = TExpr.External(setName, ValueNone, TyFun(arrTy, idxPartial), tok)
                 let app1 = TExpr.App(setExpr, translateExpr ctx arrE, idxPartial, tok)
                 let app2 = TExpr.App(app1, translateExpr ctx idxE, valuePartial, tok)
                 TExpr.App(app2, translateExpr ctx right, ty, tok)
@@ -623,12 +639,22 @@ module internal FreezeExpr =
                 let getTy = TyFun(arrTy, partialTy)
 
                 // A `string` receiver lowers through `GetString` (its inline body emits
-                // the native `s[i]` on JS); every other receiver through `GetArray`
-                // (`ldelem`). The inference picked the matching intrinsic (`inferIndexedLookup`
-                // → `getStringIndex`/`getArrayIndex`), so the names line up.
+                // the native `s[i]` on JS); an index-signature receiver (an external type
+                // carrying `{ [k: K]: V }`) through `GetIndex` (the same `$0[$1]` bracket);
+                // every other receiver through `GetArray` (`ldelem`). The inference picked
+                // the matching intrinsic (`inferIndexedLookup`), so the names line up. The
+                // bracket lowering is identical for every index entry, so Freeze checks only
+                // WHETHER the receiver has an index signature, never WHICH entry matched.
                 let getName =
                     match Unification.zonk arrTy with
                     | TyConst("string", _) -> "GetString"
+                    | TyClass(clsKey, _) when
+                        not (
+                            ctx.Provider.TryLookupIndexSignature(SymbolKeyOps.qualifiedName clsKey)
+                            |> List.isEmpty
+                        )
+                        ->
+                        "GetIndex"
                     | _ -> "GetArray"
 
                 let getExpr = TExpr.External(getName, ValueNone, getTy, tok)

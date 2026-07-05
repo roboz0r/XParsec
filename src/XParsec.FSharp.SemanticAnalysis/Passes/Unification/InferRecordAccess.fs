@@ -563,13 +563,81 @@ module internal UnificationInferRecordAccess =
                 ValueSome resultTy
             | _ -> ValueNone
 
+        // An index-signature receiver (`{ [k: K]: V }` on an external interface / class /
+        // anonymous object) reads through the `GetIndex` intrinsic — the `$0[$1]` bracket
+        // form, the JS analogue of `GetArray`'s `ldelem`. There is no `get_Item` method on
+        // such an object (bracket IS the accessor), so this fires BEFORE the `get_Item` /
+        // `getArrayIndex` attempts. `GetIndex`'s scheme is `'T -> 'K -> 'V` with three
+        // INDEPENDENT typars, so unifying it against `recv -> idx -> result` alone leaves
+        // `'V` free — the declared key/value are pinned separately from the provider entry.
+        let tryIndexSignature (clsQual: string) (clsArgs: SemType[]) : SemType voption =
+            match ctx.Provider.TryLookupIndexSignature clsQual with
+            | [] -> ValueNone
+            | entries ->
+                // Realise each entry's key/value template against the receiver's args
+                // (`Dict<number>`'s value `'V` → `number`).
+                let realised =
+                    entries
+                    |> List.map (fun (kF, vF) ->
+                        FrozenTypeBridge.instantiateDeclaring kF clsArgs,
+                        FrozenTypeBridge.instantiateDeclaring vF clsArgs
+                    )
+
+                // Select the entry whose key type matches the index expression's type — a
+                // string index picks the string-keyed sig, a numeric one the number-keyed
+                // sig. A single entry is used as-is; an unresolved / non-matching index
+                // defaults to the first (Node's `process.env` is a single string entry).
+                let keyTy, valTy =
+                    match realised with
+                    | [ single ] -> single
+                    | _ ->
+                        let matched =
+                            match resolveStep idxTy with
+                            | TyConst(idxName, _) ->
+                                realised
+                                |> List.tryFind (fun (k, _) ->
+                                    match resolveStep k with
+                                    | TyConst(kn, _) -> kn = idxName
+                                    | _ -> false
+                                )
+                            | _ -> None
+
+                        match matched with
+                        | Some e -> e
+                        | None -> List.head realised
+
+                match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "GetIndex" with
+                | ValueSome sym ->
+                    let resultTy = TyVar(freshTyVar ctx)
+
+                    unify
+                        ctx
+                        key
+                        (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel)
+                        (TyFun(recvTy, TyFun(idxTy, resultTy)))
+
+                    // Pin `'K`/`'V` (which the generic scheme leaves free) to the declared
+                    // key/value, so `x.[k]` reads the declared element type (`string |
+                    // undefined`), not a fresh var.
+                    unify ctx key idxTy keyTy
+                    unify ctx key resultTy valTy
+                    ValueSome resultTy
+                | ValueNone ->
+                    ValueSome(
+                        errorTy ctx key "Index-signature intrinsic 'GetIndex' is not in scope (Vesper.Core missing?)"
+                    )
+
         match resolveStep recvTy with
         | TyClass(clsKey, clsArgs) when (TypeRegistry.tryClassByKey ctx.Types clsKey).IsNone ->
             let clsQual = SymbolKeyOps.qualifiedName clsKey
+            let clsArgsArr = clsArgs.AsSpan().ToArray()
 
-            match resolveExternalIndexer clsQual (clsArgs.AsSpan().ToArray()) "get_Item" with
+            match tryIndexSignature clsQual clsArgsArr with
             | ValueSome resultTy -> resultTy
-            | ValueNone -> getArrayIndex ()
+            | ValueNone ->
+                match resolveExternalIndexer clsQual clsArgsArr "get_Item" with
+                | ValueSome resultTy -> resultTy
+                | ValueNone -> getArrayIndex ()
         | _ ->
             // An intrinsic receiver mapped to a BCL type — `string` (`s.[i]`), whose
             // indexer accessor is `System.String.get_Chars(int) : char`. When that does

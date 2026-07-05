@@ -450,6 +450,9 @@ module VesperLibTyparCapture =
                         |]
                     | _ -> [||]
 
+                // A `.fsi` contract does not (yet) publish TS index signatures.
+                member _.TryLookupIndexSignature _ = []
+
                 member _.TryLookupUnionCase caseName =
                     match unionCaseIndex.TryGetValue caseName with
                     | true, hit -> ValueSome hit

@@ -206,6 +206,37 @@ module TsManifestProvider =
             | Some(ExternalTypeShape.Class shape) -> shape.Members |> Array.filter (fun m -> m.Name = memberName)
             | _ -> [||]
 
+        // The TS index signatures `{ [k: K]: V }` a type carries, keyed by the SAME
+        // qualified name its members register under (so `TryLookupIndexSignature` and
+        // `TryLookupMember` share one key). A named `Interface`/`Class` keys by its
+        // `declaredIdentity` qn; a FIELD-BEARING anonymous `Structural` shape keys by its
+        // `structuralKey` (the same identity `toFrozen` freezes it to). Each `(key,
+        // value)` `Schema.TypeRef` pair is `toFrozen`ed over the type's declaring typars —
+        // a generic `Dict<T>`'s value `T` stays `FTTypar(Declaring,0)`, realised against
+        // the receiver's args at the lookup site. First-declaration-wins on a duplicate qn.
+        let indexSigs =
+            let named =
+                flatExports
+                |> List.choose (fun (nsPath, ex) ->
+                    match ex with
+                    | Schema.Export.Interface(name, tp, _, _, ((_ :: _) as index)) ->
+                        Some(fst (declaredIdentity ctx nsPath name tp), index)
+                    | Schema.Export.Class(name, tp, _, _, _, ((_ :: _) as index)) ->
+                        Some(fst (declaredIdentity ctx nsPath name tp), index)
+                    | _ -> None
+                )
+
+            let structural =
+                flatExports
+                |> List.collect (fun (_, ex) -> exportTypeRefs ex)
+                |> List.collect structuralIndexSigsIn
+                |> List.map (fun (hash, index) -> fst (structuralKey hash), index)
+
+            (named @ structural)
+            |> List.distinctBy fst
+            |> List.map (fun (qn, index) -> qn, index |> List.map (fun (k, v) -> toFrozen ctx k, toFrozen ctx v))
+            |> Map.ofList
+
         interface IExternalSymbolProvider with
             member _.TryLookup name =
                 match Map.tryFind name funcs with
@@ -223,6 +254,12 @@ module TsManifestProvider =
                 | arr -> ValueSome arr.[0]
 
             member _.TryLookupMembers(typeName, memberName) = membersOf typeName memberName
+
+            member _.TryLookupIndexSignature typeName =
+                match Map.tryFind typeName indexSigs with
+                | Some pairs -> pairs
+                | None -> []
+
             member _.TryLookupUnionCase _ = ValueNone
             member _.AmbientOpenPrefixes = []
             member _.TryLookupInlineBody _ = ValueNone
