@@ -83,10 +83,11 @@ module PrintfHoleForm =
         /// total field of `width` (`(-42)` ⇒ `"-00042"`).
         | DecimalZeroPad of width: int
         /// `%x`/`%X`/`%B`/`%o`: unsigned integer in `radix`. `zeroPad = Some w`
-        /// zero-pads to a total field of `w` (`%o` never zero-pads — always `None`).
+        /// zero-pads to a total field of `w` (F# zero-pads octal too, e.g. `%08o`).
         | IntRadix of radix: Radix * zeroPad: int option
-        /// `%u`: the source `int`'s bits reinterpreted unsigned.
-        | Unsigned
+        /// `%u`: the source `int`'s bits reinterpreted unsigned. `zeroPad = Some w`
+        /// zero-pads to a total field of `w` (`%05u`; overflowing digits are not truncated).
+        | Unsigned of zeroPad: int option
         /// `%b`: lowercase `true` / `false`.
         | Bool
         /// `%f` / `%.Nf` / `%.*f`: fixed-point with `precision` fraction digits
@@ -410,15 +411,11 @@ module PrintfHoleForm =
                 else
                     field (FieldFormat.Compact(precDim 6, p.TypeChar = 'G'))
             | FormatType.UnsignedDecimalInt ->
-                if zeroPad then
-                    ValueNone
-                else
-                    deferIfStarPrec (field FieldFormat.Unsigned)
+                deferIfStarPrec (field (FieldFormat.Unsigned(if zeroPad then Some(zpWidth ()) else None)))
             | FormatType.UnsignedOctal ->
-                if zeroPad then
-                    ValueNone
-                else
-                    deferIfStarPrec (field (FieldFormat.IntRadix(Radix.Octal, None)))
+                deferIfStarPrec (
+                    field (FieldFormat.IntRadix(Radix.Octal, (if zeroPad then Some(zpWidth ()) else None)))
+                )
             | FormatType.Bool ->
                 if zeroPad then
                     ValueNone

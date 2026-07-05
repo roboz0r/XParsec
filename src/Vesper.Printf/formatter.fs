@@ -143,14 +143,11 @@ type Formatter =
     /// `int32`/`uint32` alike), reproducing F# `%u`'s reinterpretation.
     member this.AppendUnsigned(value: uint, alignment: int) = this.AppendFormatted(value, alignment)
 
-    /// Writes `value` for an F# `%0w.pf` hole: formatted via `format` (an
-    /// `"F<precision>"` string), then zero-padded — after any leading sign — to
-    /// a total field of `width` chars. Dedicated because no .NET float format
-    /// zero-pads to a total width.
-    member this.AppendZeroPaddedFloat(value: float, format: string, width: int) =
-        let startingPos = this.Pos
-        this.AppendFormatted(value, format) // the "F<prec>" body, no padding
-
+    /// Zero-pads the text written since `startingPos` — inserting zeros *after any
+    /// leading sign* — to a total field of `width` chars. Shared by the zero-pad
+    /// float / octal / unsigned handlers. Overflow (already ≥ `width`) is a no-op:
+    /// F# never truncates a zero-pad field.
+    member private this.ZeroPadAfterSign(startingPos: int, width: int) =
         let charsWritten = this.Pos - startingPos
         let paddingNeeded = width - charsWritten
 
@@ -173,6 +170,31 @@ type Formatter =
 
             this.Chars.Slice(insertAt, paddingNeeded).Fill('0')
             this.Pos <- this.Pos + paddingNeeded
+
+    /// Writes `value` for an F# `%0w.pf` hole: formatted via `format` (an
+    /// `"F<precision>"` string), then zero-padded — after any leading sign — to
+    /// a total field of `width` chars. Dedicated because no .NET float format
+    /// zero-pads to a total width.
+    member this.AppendZeroPaddedFloat(value: float, format: string, width: int) =
+        let startingPos = this.Pos
+        this.AppendFormatted(value, format) // the "F<prec>" body, no padding
+        this.ZeroPadAfterSign(startingPos, width)
+
+    /// Writes `value` as 32-bit two's-complement octal for an F# `%08o` hole, then
+    /// zero-pads to a total field of `width` chars. `%o` output carries no sign, so
+    /// the padding is a plain left-fill; overflowing digits are not truncated.
+    member this.AppendZeroPaddedOctal(value: int, width: int) =
+        let startingPos = this.Pos
+        this.AppendLiteral(Convert.ToString(value, 8))
+        this.ZeroPadAfterSign(startingPos, width)
+
+    /// Writes `value` as unsigned decimal for an F# `%05u` hole, then zero-pads to a
+    /// total field of `width` chars. `%u` output carries no sign, so the padding is a
+    /// plain left-fill; overflowing digits are not truncated.
+    member this.AppendZeroPaddedUnsigned(value: uint, width: int) =
+        let startingPos = this.Pos
+        this.AppendFormatted(value)
+        this.ZeroPadAfterSign(startingPos, width)
 
     /// Writes `value` as copy-pasteable Vesper source for an F# `%A` hole, laid
     /// out within a column budget of `width` chars (0 ⇒ never break) and a node

@@ -22,9 +22,10 @@ module ClrHoleFormat =
     /// `%*d` width, supplied by the star-width lowering) and `Const` pass through
     /// where a field width lands; the zero-pad forms carry their width inside the
     /// `FieldFormat` and so return `Alignment.None` (the alignment slot is free),
-    /// except `FixedZeroPad`, which repurposes the slot for its total width as a
-    /// `Const` (the `AppendZeroPaddedFloat` ABI). A `Star` never reaches the
-    /// zero-pad forms — `tryClassify` defers `%0*d`.
+    /// except `FixedZeroPad` and the zero-pad octal (`%08o`) / unsigned (`%05u`)
+    /// forms, which repurpose the slot for their total width as a `Const` (the
+    /// `AppendZeroPadded*` ABI). A `Star` never reaches the zero-pad forms —
+    /// `tryClassify` defers `%0*d`.
     let toDotNetFormat (fmt: FieldFormat) (alignment: Alignment) : PrintfSpec.HoleKind * string option * Alignment =
         // A static .NET format string can only be built from a compile-time precision.
         // `Prec.Star` (`%.*f`, …) has no digits to embed — it routes through the
@@ -40,7 +41,10 @@ module ClrHoleFormat =
         | FieldFormat.DecimalZeroPad w -> PrintfSpec.HoleKind.Formatted, Some("D" + string w), Alignment.None
         | FieldFormat.IntRadix(radix, zeroPad) ->
             match radix with
-            | Radix.Octal -> PrintfSpec.HoleKind.Octal, None, alignment
+            | Radix.Octal ->
+                match zeroPad with
+                | Some w -> PrintfSpec.HoleKind.OctalZeroPad, None, Alignment.Const w
+                | None -> PrintfSpec.HoleKind.Octal, None, alignment
             | Radix.Hex upper ->
                 let letter = if upper then "X" else "x"
 
@@ -51,7 +55,10 @@ module ClrHoleFormat =
                 match zeroPad with
                 | Some w -> PrintfSpec.HoleKind.Formatted, Some("B" + string w), Alignment.None
                 | None -> PrintfSpec.HoleKind.Formatted, Some "B", alignment
-        | FieldFormat.Unsigned -> PrintfSpec.HoleKind.Unsigned, None, alignment
+        | FieldFormat.Unsigned zeroPad ->
+            match zeroPad with
+            | Some w -> PrintfSpec.HoleKind.UnsignedZeroPad, None, Alignment.Const w
+            | None -> PrintfSpec.HoleKind.Unsigned, None, alignment
         | FieldFormat.Bool -> PrintfSpec.HoleKind.BoolText, None, alignment
         | FieldFormat.Fixed prec -> PrintfSpec.HoleKind.Formatted, Some("F" + string (constPrec prec)), alignment
         | FieldFormat.FixedZeroPad(prec, w) ->

@@ -209,6 +209,12 @@ type FormatHandles =
         AppendOctal: EntityHandle
         /// `%u`: the `int` argument's bits reinterpreted as `uint`.
         AppendUnsigned: EntityHandle
+        /// `%08o`: zero-padded two's-complement octal. Signature `(value: int, width: int)`
+        /// — .NET has no octal format that zero-pads to a total width.
+        AppendZeroPaddedOctal: EntityHandle
+        /// `%05u`: zero-padded unsigned decimal. Signature `(value: uint, width: int)`
+        /// — overflowing digits are not truncated, matching F#.
+        AppendZeroPaddedUnsigned: EntityHandle
         /// `%0w.pf`: zero-pad after the sign — .NET has no float format that does this.
         AppendZeroPaddedFloat: EntityHandle
         /// `%.*f`/`%*.*f`/`%.*e`/`%.*g`: runtime precision. Signature

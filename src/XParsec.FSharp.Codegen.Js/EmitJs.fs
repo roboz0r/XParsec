@@ -1014,7 +1014,7 @@ module EmitJs =
                 )
             // `%x`/`%X`/`%B`/`%o`: `(v >>> 0).toString(base)` — `>>> 0` is JS's 32-bit
             // unsigned coercion (the CLI-stack reinterpret on CLR), then optional
-            // upper-casing and zero-pad. `%o` never zero-pads (`zeroPad = None`).
+            // upper-casing and zero-pad (`%08o` zero-pads like the others).
             | FieldFormat.IntRadix(radix, zeroPad) ->
                 let baseN, upper =
                     match radix with
@@ -1034,9 +1034,18 @@ module EmitJs =
                         | None -> cased
                     )
                 )
-            // `%u`: the source `int`'s bits reinterpreted unsigned (`>>> 0`).
-            | FieldFormat.Unsigned ->
-                wrapped (direct (fun v -> invoke (JsExpr.Binary(">>>", v, num 0, ValueNone)) "toString" []))
+            // `%u`/`%05u`: the source `int`'s bits reinterpreted unsigned (`>>> 0`),
+            // then optional zero-pad (`padStart` never truncates on overflow).
+            | FieldFormat.Unsigned zeroPad ->
+                wrapped (
+                    direct (fun v ->
+                        let digits = invoke (JsExpr.Binary(">>>", v, num 0, ValueNone)) "toString" []
+
+                        match zeroPad with
+                        | Some w -> invoke digits "padStart" [ num w; str "0" ]
+                        | None -> digits
+                    )
+                )
             // `%b`: lowercase `true`/`false` (explicit ternary keeps the alignment path uniform).
             | FieldFormat.Bool -> wrapped (direct (fun v -> JsExpr.Conditional(v, str "true", str "false", ValueNone)))
             // `%f` / `%.Nf` / `%.*f`: fixed-point with `precision` fraction digits

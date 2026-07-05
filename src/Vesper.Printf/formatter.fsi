@@ -47,6 +47,16 @@ type Formatter =
     /// <c>alignment</c> chars (the source <c>int</c> bits reinterpreted as <c>uint</c>).
     member AppendUnsigned: value: uint * alignment: int -> unit
 
+    /// Append an F# <c>%08o</c> hole: 32-bit two's-complement octal, zero-padded to a
+    /// total field of <c>width</c> chars. Dedicated because .NET has no octal format
+    /// string; overflowing digits are not truncated (<c>%08o</c> -1 ⇒ 11 digits).
+    member AppendZeroPaddedOctal: value: int * width: int -> unit
+
+    /// Append an F# <c>%05u</c> hole: unsigned decimal, zero-padded to a total field
+    /// of <c>width</c> chars (the source <c>int</c> bits reinterpreted as <c>uint</c>).
+    /// Overflowing digits are not truncated (<c>%05u</c> -1 ⇒ 10 digits, no pad).
+    member AppendZeroPaddedUnsigned: value: uint * width: int -> unit
+
     /// Append an F# <c>%0w.pf</c> hole: format the float via <c>format</c>
     /// (an <c>"F&lt;prec&gt;"</c> string), then zero-pad — after any sign — to a
     /// field of <c>width</c> chars. Dedicated because no .NET float format

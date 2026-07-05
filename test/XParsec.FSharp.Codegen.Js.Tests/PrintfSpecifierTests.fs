@@ -93,6 +93,22 @@ let tests =
                     [ "[00042]"; "[-00042]"; "[000000ff]"; "[00003.14]"; "[-0003.14]" ]
             }
 
+            // Zero-pad unsigned/octal: `padStart` never truncates, so an operand whose
+            // reinterpreted digits already exceed the width prints unpadded (matching F#).
+            test "zero-pad unsigned/octal (`%05u`/`%08o`) — overflow unpadded — match F#" {
+                runsLines
+                    "zeropaduo"
+                    (String.concat
+                        "\n"
+                        [
+                            "printfn \"[%05u]\" 42"
+                            "printfn \"[%05u]\" (-1)"
+                            "printfn \"[%08o]\" 8"
+                            "printfn \"[%08o]\" (-1)"
+                        ])
+                    [ "[00042]"; "[4294967295]"; "[00000010]"; "[37777777777]" ]
+            }
+
             test "fixed-point (`%f` default 6, `%.2f`) matches F#" {
                 runsLines
                     "fixed"

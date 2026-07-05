@@ -115,6 +115,15 @@ module PrintfSpec =
         /// `AppendOctal(v, alignment)` — `Convert.ToString(v, 8)` (.NET has no
         /// octal format string); two's-complement for negatives, matching F#.
         | Octal
+        /// `AppendZeroPaddedUnsigned(v, width)` — F# `%05u`: unsigned decimal,
+        /// zero-padded to a total field of `width` (the width rides in the
+        /// alignment slot as a `Const`, like `ZeroPaddedFloat`). Distinct from
+        /// `Unsigned` because zero-pad and space-pad share no operand slot.
+        | UnsignedZeroPad
+        /// `AppendZeroPaddedOctal(v, width)` — F# `%08o`: two's-complement octal,
+        /// zero-padded to a total field of `width` (the width rides in the
+        /// alignment slot as a `Const`). Distinct from `Octal` for the same reason.
+        | OctalZeroPad
         /// `AppendZeroPaddedFloat(v, format, width)` — F# `%0w.pf`: format the
         /// float via `format` (an `"F<prec>"` string), then zero-pad *after any
         /// sign* to a total field of `width` chars. Dedicated because no .NET

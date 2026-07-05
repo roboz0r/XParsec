@@ -706,6 +706,13 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         let appendBool = appendMember "AppendBool" (fun te -> te.Boolean())
         let appendOctal = appendMember "AppendOctal" (fun te -> te.Int32())
         let appendUnsigned = appendMember "AppendUnsigned" (fun te -> te.UInt32())
+        // `%08o` / `%05u` zero-pad members: same `(value, int32 width)` shape as the
+        // space-pad ones, so `appendMember` builds them — only the semantics differ.
+        let appendZeroPaddedOctal =
+            appendMember "AppendZeroPaddedOctal" (fun te -> te.Int32())
+
+        let appendZeroPaddedUnsigned =
+            appendMember "AppendZeroPaddedUnsigned" (fun te -> te.UInt32())
 
         // `instance void AppendZeroPaddedFloat(float64, string, int32)` — `%0w.pf` (value, "F<prec>"
         // body, field width). Distinct arity from `appendMember`, so built here.
@@ -860,6 +867,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             AppendBool = appendBool
             AppendOctal = appendOctal
             AppendUnsigned = appendUnsigned
+            AppendZeroPaddedOctal = appendZeroPaddedOctal
+            AppendZeroPaddedUnsigned = appendZeroPaddedUnsigned
             AppendZeroPaddedFloat = appendZeroPaddedFloat
             AppendDynamicPrecisionFloat = appendDynamicPrecisionFloat
             AppendDynamicPrecisionSignedFloat = appendDynamicPrecisionSignedFloat

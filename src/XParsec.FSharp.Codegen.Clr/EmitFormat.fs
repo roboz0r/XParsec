@@ -188,6 +188,28 @@ module EmitFormat =
                     pushAlign align (Some 0) |> ignore
                     b.Add(ILInstr.Call(handle, 3, 0))
 
+                | PrintfSpec.HoleKind.OctalZeroPad
+                | PrintfSpec.HoleKind.UnsignedZeroPad ->
+                    // `AppendZeroPadded{Octal,Unsigned}(value, width)` — the field
+                    // width rides in the alignment slot as a `Const` (the projection
+                    // guarantees it; a star never reaches the zero-pad forms). `%u`'s
+                    // `int`→`uint` is a free CLI-stack reinterpret, so the arg is
+                    // emitted unchanged, like `Unsigned`.
+                    let handle =
+                        match kind with
+                        | PrintfSpec.HoleKind.OctalZeroPad -> fh.AppendZeroPaddedOctal
+                        | _ -> fh.AppendZeroPaddedUnsigned
+
+                    let width =
+                        match align with
+                        | Alignment.Const w -> w
+                        | _ -> failwith "Emit: zero-pad octal/unsigned hole missing its width"
+
+                    b.Add(ILInstr.Ldloca slot)
+                    buildExpr env b arg
+                    b.Add(ILInstr.LdcI4 width)
+                    b.Add(ILInstr.Call(handle, 3, 0))
+
                 | PrintfSpec.HoleKind.ZeroPaddedFloat ->
                     // `AppendZeroPaddedFloat(value, "F<prec>", width)` — the
                     // `"F<prec>"` body rides in `format`, the field width in the

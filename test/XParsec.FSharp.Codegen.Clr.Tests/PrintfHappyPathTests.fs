@@ -322,6 +322,30 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
+            test "`%08o` (zero-pad octal) lowers to an OctalZeroPad hole carrying its width" {
+                match soleDecl "printfn \"%08o\" 8" with
+                | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal (kindOf hole) PrintfSpec.HoleKind.OctalZeroPad "%08o is OctalZeroPad"
+                        Expect.equal (formatOf hole) None "octal has no .NET format string"
+                        Expect.equal (alignmentOf hole) (Some 8) "width rides in the alignment slot"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            test "`%05u` (zero-pad unsigned) lowers to an UnsignedZeroPad hole carrying its width" {
+                match soleDecl "printfn \"%05u\" 42" with
+                | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal (kindOf hole) PrintfSpec.HoleKind.UnsignedZeroPad "%05u is UnsignedZeroPad"
+                        Expect.equal (formatOf hole) None "unsigned has no .NET format string"
+                        Expect.equal (alignmentOf hole) (Some 5) "width rides in the alignment slot"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
             test "`%g` carries a compact format string at default precision 6" {
                 match soleDecl "printfn \"%g\" 1.5" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
@@ -812,6 +836,23 @@ let tests =
 
             test "`%08x` zero-pads hex to width 8" {
                 runParity "PHpZeroHex" "printfn \"%08x\" 255" (sprintf "%08x" 255)
+            }
+
+            test "`%05u` zero-pads unsigned to width 5" {
+                runParity "PHpZeroUns" "printfn \"%05u\" 42" (sprintf "%05u" 42)
+            }
+
+            // Overflow: the reinterpreted `uint` is 10 digits, wider than the
+            // width — F# neither pads nor truncates.
+            test "`%05u` of -1 overflows the width without padding or truncation" {
+                runParity "PHpZeroUnsOvf" "printfn \"%05u\" (0 - 1)" (sprintf "%05u" -1)
+            }
+
+            test "`%08o` zero-pads octal to width 8" { runParity "PHpZeroOct" "printfn \"%08o\" 8" (sprintf "%08o" 8) }
+
+            // Overflow: the two's-complement octal is 11 digits — no pad, no truncation.
+            test "`%08o` of -1 overflows the width without padding or truncation" {
+                runParity "PHpZeroOctOvf" "printfn \"%08o\" (0 - 1)" (sprintf "%08o" -1)
             }
 
             // ---- inert width-less `-`/`0` flags: ignored, plain form (A1a) ----
