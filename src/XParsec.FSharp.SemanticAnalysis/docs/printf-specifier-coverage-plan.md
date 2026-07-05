@@ -89,14 +89,45 @@ found several F#-rejected forms. Then flip each `PrintfHappyPathTests` cold asse
   JS backend kept in sync (`%05u` via `padStart`) with a `runsLines` parity test covering both
   overflow cases. `%-05u`/`%-08o` were already covered by the A1a left-align-wins normalisation
   (drops `zeroPad`, routes through the space-pad path).
-- **A2 — byte-exact sign/zero-pad float forms (deferred; hardest parity).** Each its own
-  `FieldFormat` + section-format construction in `ClrHoleFormat`, oracle-verified: forced-sign on
-  non-`%d`/`%f` (`%+g`/`% g`/`%+e`, `:171-177`), sign+zero-pad (`%+05d`, `:163-164`), `%08e`/`%010g`
-  (`:209-218`), `%.2M` (`:226-232`), **and the float left+zero case A1a deferred** (`%-05.2f`
-  3.14159 → `3.140` — F# zero-pads floats on the *right* under left-align; `tryClassify` keeps
-  `leftAlign && zeroPad && isFloatLike → ValueNone`). The pinned cold tests
-  (`PrintfHappyPathTests` `%010g`/`%+g`/`% g`/`%+05d`/`%+e`/`%08e`/`%.2M`, and the `%-05.2f` guard
-  A1a added) flip as each lands.
+- **A2 — byte-exact sign / zero-pad float (+ adjacent) forms. NEXT.** Oracle bytes pinned in
+  `tmp/printf_a2.fsx` (`dotnet fsi tmp/printf_a2.fsx`). **Post-Track-F this needs essentially NO new
+  `Formatter` members** — Track F's dynamic-precision handlers plus A1b's `ZeroPadAfterSign` cover all
+  but one form; the pre-refactor "each its own section-format construction" framing is stale. The
+  pinned cold `PrintfHappyPathTests` cases (`%010g`/`%+g`/`% g`/`%+05d`/`%+e`/`%08e`/`%.2M`, plus the
+  `%-05.2f` guard A1a added) flip as each lands. Oracle-verify each — including the uppercase
+  `%08E`/`%010G`/`%+E`/`%+G` and an overflow case (a value with more digits than the width) — then
+  `runParity`. Five forms, cheapest first:
+    1. **`%.2M` — precision is INERT (classifier only).** Oracle: `%.2M` 3.14159m → `3.14159` (F#
+       silently ignores precision on `%M`). Today `tryClassify`'s `FormatType.Decimal` arm
+       (`PrintfHoleForm.fs:424-430`) defers *any* non-absent precision; admit a **literal/absent**
+       precision as inert → `FieldFormat.Verbatim`, keeping `%.*M` (star precision, no consumer) cold.
+       No projection or handler change.
+    2. **`%+05d` / `% 05d` — compile-time section format (projection only).** Oracle: `+0042` /
+       `-0042` / ` 0042`. A .NET section format zero-pads *through* the sign: `"+0000;-0000"` (digit
+       count = `width-1`). Extend `FieldFormat.ForcedSign` to carry a zero-pad width and build
+       `sign + 0×(w-1) + ";-" + 0×(w-1)` in the existing `ForcedSign` arm of
+       `ClrHoleFormat.toDotNetFormat` (`ClrHoleFormat.fs:70-74`); admit the `zeroPad` case in the
+       forced-sign arm of `tryClassify` (`PrintfHoleForm.fs:310-311`, today `ValueNone`). No new handler.
+    3. **`%+e` / `% e` / `%+g` / `% g` — reuse `AppendDynamicPrecisionSignedFloat`.** Scientific /
+       compact notation can't ride a .NET section format, so route to Track F's signed handler
+       (`formatter.fsi:86`) with a **literal** precision (default 6). Add `FloatExponential` /
+       `FloatCompact` cases to the forced-sign arm of `tryClassify` (`PrintfHoleForm.fs:318-334`, today
+       `| _ -> ValueNone`) carrying the type letter; `EmitFormat` emits the signed-dynamic call with the
+       const precision. Oracle-confirmed byte-exact (`%+e` 1234.5 → `+1.234500e+003`).
+    4. **`%08e` / `%014e` / `%010g` — reuse `AppendZeroPaddedFloat`.** Hypothesis oracle-CONFIRMED:
+       `%e`/`%g` bytes == .NET `ToString("e6")`/`("g6")`, and `ZeroPadAfterSign` over that body
+       reproduces F# (`%010g` -1234.5 → `-0001234.5`; `%014e` 1234.5 → `01.234500e+003`). The handler
+       (`formatter.fsi:64`) already accepts an arbitrary format body — only its `FieldFormat` /
+       projection are `F`-specific. Admit `zeroPad` in the `FloatExponential` / `FloatCompact` arms
+       (`PrintfHoleForm.fs:403-412`, today `ValueNone`) into an exp/compact zero-pad `FieldFormat`
+       (mirror `FixedZeroPad`) carrying type letter + precision + upper; project to `ZeroPaddedFloat`
+       with body `"e6"`/`"E6"`/`"g6"`/`"G6"` (`ClrHoleFormat.fs:64-65`). No new handler.
+    5. **`%-05.2f` — the one new (small) handler; separable, can trail 1–4.** Oracle: `%-05.2f`
+       3.14159 → `3.140` — F# zero-pads floats on the **right** under left-align (no .NET format nor
+       space-alignment does this). `tryClassify` keeps `leftAlign && zeroPad && isFloatLike → ValueNone`
+       (`PrintfHoleForm.fs:335-338`). Add a small `AppendRightZeroPaddedFloat(value, format, width)`
+       (format the `%.2f` body, then right-fill `'0'` to `width`) and admit the case. The hardest
+       residual — the only A2 form that grows the handler surface.
 
 ### Track B — sink breadth (`fprintf`/`fprintfn`, then `bprintf`)
 
