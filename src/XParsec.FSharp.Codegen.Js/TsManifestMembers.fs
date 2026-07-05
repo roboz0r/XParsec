@@ -11,6 +11,28 @@ open XParsec.FSharp.Codegen.Js.TsManifestTranslate
 /// `TsManifestProvider`.
 module internal TsManifestMembers =
 
+    /// The count of TRAILING optional parameters (`readFile(path, cb, opts?)` ⇒ 1) a
+    /// call may omit — carried onto the member's `OptionalDefaults` so the SHARED
+    /// optional-fill seam (`InferExternalCall.tryFillOptionalCall`, which admits an
+    /// under-applied arity, and `FreezeExpr.optionalDefaultNode`, which synthesises the
+    /// omitted slots) permits `api.readFile(path, cb)`. Each omitted slot is
+    /// `TConstValue.Unit`, whose JS value repr IS `undefined` — the correct absence
+    /// value for an omitted TS optional. (The `undefined` TYPE is a DISTINCT identity
+    /// from `unit`, see `prim-types-undefined.js.fs`; the fill exploits only the shared
+    /// `unit`→`undefined` VALUE repr, never the type, and the fill node is never
+    /// re-unified against the parameter type.)
+    ///
+    /// A REST parameter (`...args: T[]`) is NOT counted: an omitted rest means ZERO
+    /// args, which a single-`undefined` fill would wrongly materialise as one supplied
+    /// element — variadic rest lowering is deferred, so a trailing rest stays a required
+    /// array param. TS forbids a required parameter after an optional one, so the
+    /// optionals are always a trailing run; counting from the end is exact.
+    let private trailingOptionalCount (ps: Schema.Param list) : int =
+        ps
+        |> List.rev
+        |> List.takeWhile (fun p -> p.Optional && not p.Rest)
+        |> List.length
+
     /// Expand a `.ctor` member's N overload signatures into N `ExternalMember.ctor`s —
     /// the canonical seam constructor (`Name = ".ctor"`, instance, non-property, keyed
     /// `MemberKey(declKey, ".ctor", argSig, Method)`), the exact shape
@@ -23,7 +45,7 @@ module internal TsManifestMembers =
         (declArity: int)
         (mem: Schema.Member)
         : ExternalMember list =
-        overloadArgSigs ctx RedundantKeepFirst (sprintf "type '%A' .ctor" declKey) mem
+        overloadArgSigs ctx mem
         |> List.map (fun (argSig, sg) ->
             ExternalMember.ctor declKey (signatureOf ctx declArity sg) (EqArray.ofList argSig) origin []
         )
@@ -42,7 +64,7 @@ module internal TsManifestMembers =
         (kind: MemberKind)
         (mem: Schema.Member)
         : ExternalMember list =
-        overloadArgSigs ctx ErasedDistinction (sprintf "type '%A' method '%s'" declKey mem.Name) mem
+        overloadArgSigs ctx mem
         |> List.map (fun (argSig, sg) ->
             {
                 Name = mem.Name
@@ -52,7 +74,7 @@ module internal TsManifestMembers =
                 MethodArity = sg.TypeParams
                 Origin = origin
                 Key = SymbolKey.MemberKey(declKey, mem.Name, EqArray.ofList argSig, kind)
-                OptionalDefaults = []
+                OptionalDefaults = List.replicate (trailingOptionalCount sg.Params) TConstValue.Unit
                 IsOptional = mem.Optional
             }
         )

@@ -68,6 +68,10 @@ let param' (name: string) (ty: Schema.TypeRef) : Schema.Param =
         Rest = false
     }
 
+/// An OPTIONAL (`name?: ty`), non-rest parameter — a trailing run of these may be
+/// omitted at a call site (`readFile(path, cb, opts?)`).
+let optParam' (name: string) (ty: Schema.TypeRef) : Schema.Param = { param' name ty with Optional = true }
+
 /// A signature with `typeParams` own method typars, the given params, and no bounds.
 let sigG (typeParams: int) (ps: Schema.Param list) (ret: Schema.TypeRef) : Schema.Signature =
     {

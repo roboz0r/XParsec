@@ -36,6 +36,7 @@ The code + named tests are the canonical record; do not re-narrate here.
 | G5 external interface heritage (transitive upcast + inherited reads) | `ExternalHeritageTests` |
 | W1 ambient-module extraction entry (`--ambient-modules`, one manifest per quoted module, per-symbol resilience, cross-module ref homing) | `Extractor.extractAmbientModules`; `TsInterop.enclosingQuotedModuleName`; `MapCtx.ModuleHome`; `ExportMap.mapExportResilient`; `specs/ambient-modules/` golden (`testExtractorMatchesGoldenAmbientModules`) |
 | W2 CommonJS/Namespace import lowering + `node/* → Node.*` mount (mount/is-global split) | `ImportForm.CommonJs`/`Namespace`; `TsManifestTranslate.importFormOfShape`; `ExternalClassFlags.ImportForm`; `JsRuntime.addRef` + `JsStatement.ImportNamespace`; `TsGlobalHomes.mountFor`/`isGlobalHome`; `ImportFormLoweringTests` |
+| W3 per-param optional-fill (trailing optionals → `OptionalDefaults`, omitted slot = `undefined`) + `overloadArgSigs` degrade-and-dedup (ErasedDistinction throw excised) | `TsManifestMembers.trailingOptionalCount`; `TsManifestTranslate.overloadArgSigs`; `OptionalParamTests` |
 
 **Generic machinery node RIDES (already built, reused verbatim):** the `--package` module-entry
 extraction (`extractPackage`); the refs table (identity-only homed `FTClass`, the ECMA-335
@@ -160,17 +161,31 @@ extractor-PRODUCIBLE for a value export (`importShapeOf` routes a module-flagged
 `Export.Namespace`, never a `Namespace`-branded `Function`/`Variable`); its lowering is pinned by a
 hand-built consumer fixture, faithful to whatever shape a manifest declares.
 
-### W3 — Per-parameter optional/rest + `OptionalDefaults`
+### W3 — Per-parameter optional/rest + `OptionalDefaults` — **LANDED**
 
-`paramsFrozen` (`TsManifestTypes.fs`) tuples only param *types*, dropping the per-param
-`Optional`/`Rest` flags the extractor faithfully records; `OptionalDefaults` is always `[]`. So
-`readFile(path, options?, callback)` is flattened — node's optional/callback-heavy surface can't be
-called with the optional arg omitted. Carry optional/rest to the foreign-arg seam (the G1
-optional-fill home: `unifyArgCoerce` / `commitExternalOverload`). **Also guard the
-`ErasedDistinction` throw** (`overloadArgSigs`): node overloads that erase to the same `argSig` after
-numeric/structural degradation must degrade-and-dedup, not abort. Fixture:
-`fn(path: string, opts?: Opts, cb: (err, data) => void)` — reuses the G1 `StructuralWidenTests`
-config-object shape.
+**Landed.** The member path (`expandMethod`) now carries the extractor's per-param `Optional`
+flag: a trailing run of optional parameters becomes the member's `OptionalDefaults`
+(`TsManifestMembers.trailingOptionalCount` → `List.replicate n TConstValue.Unit`), so the SHARED
+optional-fill seam (`InferExternalCall.tryFillOptionalCall` admits the under-applied arity; the
+single-pick `resolveFieldStep` and `commitExternalOverload` both forward `OptionalDefaults` into
+`ExternalAccess`; `FreezeExpr.optionalDefaultNode` synthesises each omitted slot) permits
+`api.readFile(path, cb)` and `api.greet("x")`. Each omitted slot is `TConstValue.Unit` — its JS
+VALUE repr is `undefined` (the correct absence value for an omitted TS optional). The `undefined`
+TYPE is a distinct identity from `unit` (`prim-types-undefined.js.fs`); the fill exploits only the
+shared `unit`→`undefined` VALUE repr, and the fill node is never re-unified against the parameter
+type. The `ErasedDistinction` **throw is gone**: `overloadArgSigs` now DEGRADE-AND-DEDUPS
+(keep-first) for both the method and ctor sites — node's `number`-family / config-object overload
+storms collapse to one `argSig` pervasively, so the former abort was untenable; the collapsed
+`OverloadCollision` DU + `label` are excised. Fixture: `OptionalParamTests` — `greet(name, title?)`
+omit/supply/emit-`undefined`, `readFile(path, cb, opts?)` callback + structural-width-on-supplied +
+omit, and a doubly-declared `log(x: number)` proving dedup-not-throw at provider construction.
+
+**Deferred residue (not W3):** a REST parameter (`...args: T[]`) is carried through the schema/DSL
+(`restParam'`) but NOT made omittable — an omitted rest is ZERO args, which a single-`undefined`
+fill would wrongly materialise as one element (`trailingOptionalCount` excludes a trailing rest, so
+it stays a required array param). Variadic rest lowering (spread-emit / multi-arg application) lands
+when a real node signature forces it. Constructors keep `OptionalDefaults = []` (ctor optional-fill
+is a separate `InferCtor` path, unexercised by the fixture).
 
 ### W4 — Faithful-later graduations node forces *(each its own small pass, build-when-it-bites)*
 
@@ -226,8 +241,10 @@ hand-built fixture BEFORE the real-package regen.
    default import + no grouping throw), an overloaded Namespace module (`import * as`), and a
    `node/fs`-homed manifest (mounts under `Node.Fs`, still a real import). Specifier-shape residue
    (bare `"fs"` vs `"./fs.mjs"`) deferred to W7.
-3. **W3** — `fn(path, opts?, cb)`; assert optional-omit call + callback + config-object width, and
-   that same-`argSig` overloads dedup rather than throw.
+3. **W3** — **DONE.** `OptionalParamTests`: `greet(name, title?)` (optional-omit call + supply +
+   emit-`undefined`), `readFile(path, cb, opts?)` (callback + config-object width on the supplied
+   optional + omit), and a doubly-declared `log(x: number)` (same-`argSig` overloads dedup rather
+   than throw). Rest-param variadic lowering deferred (a trailing rest stays a required array param).
 4. **W4/W5** — targeted fixtures per graduation as each bites a real node type.
 5. Only then: vendor real `@types/node`, regen goldens, commit **W7** burndown.
 

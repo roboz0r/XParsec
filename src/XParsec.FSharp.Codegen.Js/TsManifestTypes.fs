@@ -509,53 +509,29 @@ module internal TsManifestTranslate =
             MethodTyparBounds = bounds
         }
 
-    /// How `overloadArgSigs` treats two overloads of one member that intern to the
-    /// SAME `argSig` (same param count AND spelled types) — the two overload flavours
-    /// need opposite handling, so the caller states which.
-    type OverloadCollision =
-        /// A collision is a real overload distinction ERASED by a too-thin extracted
-        /// type: both would mint the SAME `MemberKey`, so throw and point at the
-        /// fixture to sharpen. The method flavour — dispatch keys on the argSig.
-        | ErasedDistinction
-        /// A collision is genuinely redundant, so keep the first. The constructor
-        /// flavour — `new X(args)` selects on ARGUMENTS ALONE (never the return type),
-        /// so two same-argSig ctor signatures are identical for selection. They arise
-        /// from a cross-file merge (es2015's `MapConstructor` accretes an identical
-        /// no-arg construct sig from two lib files) or an inherited+own ctor pair (an
-        /// `Error` subclass's `new(message?): <Sub>` beside the inherited
-        /// `new(message?): Error`); the return-type divergence of the latter is inert
-        /// here (a ctor never keys on return type), so collapsing loses nothing.
-        | RedundantKeepFirst
-
-    /// Intern each overload signature's parameter shape into its `argSig`. Each
-    /// parameter renders through the SHARED `FrozenType` spelling grammar
+    /// Intern each overload signature's parameter shape into its `argSig`, KEEPING THE
+    /// FIRST of any that intern to the same `argSig` (same param count AND spelled
+    /// types). Each parameter renders through the SHARED `FrozenType` spelling grammar
     /// (`ExternalSymbols.argTypeName`, over the same `toFrozen` translation the
     /// `Signature.Parameters` template carries) — one renderer with the `.fsi`
     /// contract layer, so the two producers cannot drift on overload identity.
-    /// `collision` decides same-argSig handling; `label` names the member in the
-    /// `ErasedDistinction` error.
-    let overloadArgSigs
-        (ctx: TranslateCtx)
-        (collision: OverloadCollision)
-        (label: string)
-        (mem: Schema.Member)
-        : (string list * Schema.Signature) list =
-        let built =
-            mem.Signatures
-            |> List.map (fun sg ->
-                sg.Params
-                |> List.map (fun p -> ExternalSymbols.argTypeName (toFrozen ctx p.Type)),
-                sg
-            )
-
-        match collision with
-        | RedundantKeepFirst -> built |> List.distinctBy (fun (a, _) -> System.String.Join(",", a))
-        | ErasedDistinction ->
-            built
-            |> List.countBy (fun (a, _) -> System.String.Join(",", a))
-            |> List.tryFind (fun (_, n) -> n > 1)
-            |> Option.iter (fun (k, _) ->
-                failwithf "%s has duplicate overload argSig (%s); sharpen the extracted parameter types" label k
-            )
-
-            built
+    ///
+    /// DEGRADE-AND-DEDUP, never abort: two overloads that erase to one `argSig` after
+    /// numeric/structural degradation (node's `number`-family and config-object
+    /// overload storms collapse pervasively — `read(x: number)` beside a `number`
+    /// literal, two options-object overloads that widen to the same opaque
+    /// `Structural`) key the SAME dispatch slot, so the first is authoritative and any
+    /// later twin is UNREACHABLE. Dedup keeps the first; the rest are dropped rather
+    /// than throwing (the former `ErasedDistinction` abort was untenable at node scale,
+    /// where such collisions are the norm, not an extraction bug). Both the method and
+    /// constructor sites want identical handling — a ctor selects on ARGUMENTS ALONE
+    /// (never the return type), a method's dispatch keys on the argSig — so there is one
+    /// behaviour, not a per-caller collision policy.
+    let overloadArgSigs (ctx: TranslateCtx) (mem: Schema.Member) : (string list * Schema.Signature) list =
+        mem.Signatures
+        |> List.map (fun sg ->
+            sg.Params
+            |> List.map (fun p -> ExternalSymbols.argTypeName (toFrozen ctx p.Type)),
+            sg
+        )
+        |> List.distinctBy fst
