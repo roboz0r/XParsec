@@ -1,4 +1,4 @@
-namespace global
+namespace Widgets
 
 #nowarn "42"
 

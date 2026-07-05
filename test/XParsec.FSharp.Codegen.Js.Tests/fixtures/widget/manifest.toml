@@ -7,15 +7,13 @@
 # the package is loaded into (the test stacks it ahead of `jsManifests`, which carry
 # Vesper.Core). Modeled on `src/Vesper.Core` / `src/Vesper.List`.
 
-# GLOBAL namespace (empty): the type's compiled name is the bare `widget`, so the
-# member-inline store — which keys the harvested body under `TryLookupMember(tdecl.Name,
-# …)` with `tdecl.Name` the SIMPLE type name — resolves against the provider (whose
-# `TryLookupMember` matches by the qualified compiled name). A namespaced fixture would
-# key the body under `widget` but the provider would only serve `Ns.widget`, so the store
-# would silently miss. See the report note on the namespaced-type store-keying gap.
+# NAMESPACED (`Widgets`): the compiled name is `Widgets.widget`. The member-inline store
+# keys the harvested body by the QUALIFIED name (`SymbolKeyOps.qualifiedName tdecl.Key`),
+# which is exactly what the provider's `TryLookupMember` matches — so a namespaced
+# intrinsic resolves end-to-end (this fixture is the regression guard for that keying).
 [core]
 name = "widget"
-namespace = ""
+namespace = "Widgets"
 description = "Test fixture: a `(# … #)`-bodied member (`Poke`) on an `extern` type."
 
 # The front-end symbol contract: `type widget = extern with member Poke: int -> int`.

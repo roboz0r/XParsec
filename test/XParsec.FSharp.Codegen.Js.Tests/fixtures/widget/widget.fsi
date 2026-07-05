@@ -1,4 +1,4 @@
-namespace global
+namespace Widgets
 
 /// A test-fixture intrinsic/`extern` type carrying one concrete member. The `.fsi` is
 /// the consumer-side contract: `widget` is an `extern` (JS-provided) type, and `Poke`

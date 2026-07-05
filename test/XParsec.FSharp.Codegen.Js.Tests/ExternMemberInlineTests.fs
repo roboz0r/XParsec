@@ -164,7 +164,7 @@ let tests =
             // loadable fixture SPLICES its member body (`41 + 1`) — no `.Poke(` method
             // call survives, and `widget`'s harvest-only `Class` decl never reaches emit.
             test "`w.Poke 41` splices to `41 + 1` end-to-end (no `.Poke`, no `class widget`)" {
-                let js = emitWidget "let usePoke (w: widget) : int = w.Poke 41\n"
+                let js = emitWidget "open Widgets\nlet usePoke (w: widget) : int = w.Poke 41\n"
 
                 // The spliced body: the `$0 + 1` template with `$0` ← the arg `41`
                 // (the operand parenthesises to `(41)`).

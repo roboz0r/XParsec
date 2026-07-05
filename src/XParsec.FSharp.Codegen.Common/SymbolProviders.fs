@@ -182,8 +182,16 @@ module SymbolProviders =
             | TDecl.Type tdecl ->
                 match tdecl.Kind with
                 | TTypeKind.Class clsG ->
+                    // Key the harvested body by the QUALIFIED compiled name — the store
+                    // (`buildContractCached`) resolves the finalized member key via
+                    // `TryLookupMember(typeName, …)`, which matches by the qualified name
+                    // (`SymbolKeyOps.qualifiedName`), not the simple `tdecl.Name`. A
+                    // namespaced intrinsic (`Vesper.string`, `Widgets.widget`) would
+                    // otherwise miss and fall back to a (non-existent) real method call.
+                    let typeName = SymbolKeyOps.qualifiedName tdecl.Key
+
                     for m in clsG.Members do
-                        match harvestMemberBody tdecl.Name m with
+                        match harvestMemberBody typeName m with
                         | Some mb -> memberAcc.Add mb
                         | None -> ()
                 | _ -> ()
