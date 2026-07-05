@@ -209,22 +209,39 @@ families `State = TextWriter` / `Residue = unit`; `sprintf` `State = unit` / `Re
 `bprintf` `State = StringBuilder`). So the native ABI splits cleanly along `Family.State`, and **no
 new sink type is introduced now** — the `[<IsByRefLike>]` `Formatter`-vs-boxed-closure problem is
 sidestepped per family:
-- **Writer families** (`printf`/`printfn`/`eprintf`/`fprintf`): the callback is
-  `TextWriter -> 'a -> unit` (F# source-compatible). The `Formatter` already flushes to an
-  underlying `TextWriter`, so **flush the buffered text, then hand the callback that same underlying
-  writer** — zero extra allocation, no adapter. (Strictly-safe universal fallback: a scratch
-  `StringWriter` whose buffer is copied into the `Formatter` via `AppendLiteral` after the callback
-  returns — prefer flush-and-pass.) Correct because the callback is **synchronous** (returns `unit`,
-  so the writer's lifetime *is* the callback's scope) and can write only to the writer it is handed
-  (so splicing its output at the hole is byte-identical to F#'s inline write); wrap the invocation
-  in `try/finally` to release any pooled buffer if it throws. The byref-struct `Formatter` never
-  escapes — the callback touches only a heap `TextWriter`.
-- **`sprintf`** (`State = unit`, `Residue = string`): no writer at all — invoke the callback and
-  **splice its returned residue string** into the native string buffer. No byref concern.
-- **`bprintf`** (`State = StringBuilder`): hand the callback the `StringBuilder` sink B2 already
-  built.
-- **JS deferred** (consistent with `fprintf`/`bprintf`): a JS `%a` gets a Vesper-native sink when a
-  real use case demands it, not now.
+**v1 emit = capture-first (chosen 2026-07-05).** Every family produces a residue *string* that
+`Formatter.AppendLiteral`s at the hole — no `Formatter` change, no non-releasing drain, correct
+ordering by construction (nothing hits the real sink until the terminal `Flush`). The callback is a
+`Vesper.Fun` value, invoked via the native `EmitInvoke` path (NOT `FSharpFunc.Invoke`), so this
+reintroduces no FSharp.Core dependency. Per family:
+- **Writer families** (`printf`/`printfn`/`eprintf`/`fprintf`): callback `TextWriter -> 'a -> unit`.
+  Emit constructs a scratch `System.IO.StringWriter` (a `TextWriter`), invokes `cb(sw)(value)`, then
+  `AppendLiteral(sw.ToString())`. Byte-identical to F#'s inline write (the callback writes only to the
+  writer it is handed). One `StringWriter` alloc per hole — `%a` is rare; flush-and-pass + a
+  non-releasing `Formatter.Drain` stays a later optimization (`Formatter.Flush` is terminal — it
+  releases the pooled buffer — so it can't be reused mid-format).
+- **`sprintf`** (`State = unit`, `Residue = string`): no sink type at all — invoke `cb(unit)(value)`
+  and `AppendLiteral` its returned residue string. The one family with **no external sink dependency**.
+- **`bprintf`** (`State = StringBuilder`): scratch `StringBuilder`, invoke `cb(sb)(value)`, then
+  `AppendLiteral(sb.ToString())` (the `StringBuilder` entity is already wired for B2).
+
+**Lowerability is provider-capability-driven — this is the load-bearing model check (decision B,
+2026-07-05).** `tryClassify` classifies `%a`/`%t` → `HoleForm.Callback` **syntactically** (target-
+neutral, no provider — respects `feedback_freeze_no_backend_knowledge`). Whether that hole *lowers*
+on a given target is then decided at the gate (`InferApp`, which holds `ctx.Provider`) by whether the
+family's sink type is available on **this target's provider**:
+- **`sprintf`** needs no external sink (`State = unit`, callback returns the residue), so it lowers on
+  **every** target — including JS (residue splice = string concat).
+- **Writer / builder families** need `System.IO.TextWriter` / `System.Text.StringBuilder`.
+  `resolveExternalSlots` already resolves these via `ctx.Provider.TryLookupType`: a `TyClass` (CLR:
+  resolved) ⇒ lowerable; an unresolved by-name `TyConst` (JS: no such type) ⇒ **not** lowerable, so
+  the gate raises a diagnostic (`ctx.Diagnostics.Add`, `Severity.Error`) — there is no cold path to
+  fall back to once FSharp.Core is dropped.
+
+The **`sprintf`-lowers-but-`printf`-diagnoses asymmetry on JS** is the proof that printf lowering is
+genuinely driven by backend-declared capability (the provider's `TryLookupType`), not a hardcoded
+`if target = JS`. Same `%a` specifier, same lowering path; the provider's type resolution is the only
+thing that differs.
 
 **Eventual zero-copy ABI (post-public break; NOT required for the dependency-drop goal).** Because
 Vesper owns the printf types, `'State` can later become the `Formatter` itself (`allows ref struct`
@@ -300,14 +317,23 @@ faithful section format) — both classifier-level, pinned in `FSharpCoreDepsTes
 and capstone preconditions (the capstone must lower or re-error them). The list/option-*literal*
 representation pin is a separate axis (§ Capstone).
 
-**RESUME HERE → D** (`%a`/`%t`) — the hardest remaining track, but the **sink ABI is now decided**
-(§ Track D, 2026-07-05): split by `Family.State` — writer families flush-and-pass their underlying
-`TextWriter`, `sprintf` splices the residue string, `bprintf` uses B2's `StringBuilder` sink; no new
-sink type, JS deferred. So D is now an implementation task (typing rule + callback `HoleForm` +
-per-family emit), not a design pass. The `Formatter`-as-`'State` zero-copy ABI is a later post-public
-break, not required here.
+**Track D IN PROGRESS (2026-07-05)** — design fully resolved (§ Track D): v1 emit is **capture-first**
+(per-family scratch sink → residue string → `AppendLiteral`; `Vesper.Fun` `EmitInvoke`, no
+FSharp.Core), and lowerability is **provider-capability-driven** (`sprintf` lowers everywhere incl.
+JS; writer/builder need `ctx.Provider.TryLookupType(TextWriter/StringBuilder)`, else a diagnostic).
+Implemented in steps:
+- **Step 1 — typing seam. LANDED (`c8233247`).** `argTypes` types `%a` (`'State -> 'T -> 'Residue`
+  plus value `'T`, one shared typar) / `%t` (`'State -> 'Residue`), threading `fam.State`/`fam.Residue`;
+  `tryClassify` untouched so both still route cold. Suites green (711/1223/264).
+- **Step 2 — CLR native + shared machinery (NEXT).** `HoleForm.Callback`; `tryClassify` admits;
+  frozen `FormatSegG` callback-hole case; Freeze capture (callback + value exprs); the provider-
+  capability gate + diagnostic (`InferApp`); CLR capture-first emit (+ `StringWriter` wired into
+  `ClrEnv`); JS gets a temporary reject arm (unreached by tests). CLR parity tests; flip CLR cold pins.
+- **Step 3 — JS asymmetry (proves the model).** Replace the JS reject arm with real `sprintf "%a"`
+  residue-splice emit; confirm writer/builder `%a` on JS diagnoses. JS tests: `sprintf "%a"` runnable
+  + `printf "%a"` → diagnostic.
 
-**Then:** D (`%a`/`%t`) → E1 (const-literal format) → E2 (runtime runner; heaviest) → capstone.
+**Then:** D → E1 (const-literal format) → E2 (runtime runner; heaviest) → capstone.
 F (`%*d`) is a separable feature.
 
 **Working method (established this sprint):** oracle-first — confirm exact bytes and F#-acceptance
