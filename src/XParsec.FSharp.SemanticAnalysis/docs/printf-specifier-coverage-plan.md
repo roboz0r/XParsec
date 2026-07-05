@@ -268,8 +268,63 @@ compiler-synthesised `New PrintfFormat<…>(text)` ctor + `App printf` stands as
 path (`FreezeExpr.fs` handles that ctor; `translatePrintfFormat` `failwith`s on a non-literal format
 arg, so only the *literal* path ever lowers today). Two sub-cases:
 
-- **E1 — compile-time-known literal bound to a `let`** (`let fmt = "…%d…" in printf fmt`): the format
-  IS a literal, just not syntactically at the call site. Medium.
+- **E1 — compile-time-known literal bound to a name** (`let fmt : Printf.StringFormat<int -> string>
+  = "%d" in sprintf fmt 42`): the format IS a literal, just not syntactically at the call site.
+  Medium.
+
+  **Oracle correction (2026-07-05).** The original example above (`let fmt = "%d"`, *unannotated*)
+  **does not compile in F#** — an unannotated `let`-bound string literal is inferred as `string`,
+  and F# does *not* flow the format type back to the binding from the use site (both confirmed via
+  `dotnet fsi`, `tmp/printf_e1.fsx`). The **only** compiling let-bound-literal forms carry an
+  explicit format-type annotation / ascription:
+  ```fsharp
+  let fmt : Printf.StringFormat<int -> string> = "%d"     // binding annotation
+  let fmt = ("%d" : Printf.StringFormat<int -> string>)    // expression ascription
+  let fmt : Printf.StringFormat<_> = "%d"                   // wildcard, printer inferred from specs
+  ```
+  All are byte-identical to the inline form. This reshapes E1 into **two pieces**, and the
+  load-bearing one is *not* the const-prop the earlier draft described:
+
+  - **E1(a) — accept string-literal → `PrintfFormat` at an expected-type position.** Our compiler
+    *rejected* the annotated binding (probe: `Type mismatch: string vs PrintfFormat`4` + downstream
+    unresolved-TyVar) — a **compile error, not a cold degradation**. Fix: type the string literal AS
+    the format when the expected/annotated type is a `PrintfFormat` family
+    (`InferLiterals.tryTypeFormatLiteral`): parse the specifiers (`formatSpecifiers`), compute the
+    *printer* from them + the annotation's own `State`/`Residue`/`Result` slots
+    (`PrintfSpec.printerFromSlots`, reusing `argTypes`/`printerType`), and `unify` **only the printer
+    slot** against the annotation's `Printer` (pinning a `StringFormat<_>` wildcard from the specs).
+    Unifying only the printer slot sidesteps the two `PrintfFormat` faces — annotations resolve to
+    `Vesper.Printf.PrintfFormat`, the gate synthesises `FSharp.Core`'s (so `RuntimeNames.isPrintfFormatKey`
+    now matches **both**). Two additive wiring points, both formerly `unify innerTy annTy`:
+    `inferTypeAnnotation` (`InferTypeOps.fs`, covers ascription *and* `let fmt = (… : Fmt)`) and the
+    no-arg annotated branch of `inferBinding` (`Infer.fs`, covers `let fmt : Fmt = …`).
+  - **E1(b) — const-prop the bound literal to native (the ONLY runnable path).** **Load-bearing
+    correction:** the "existing cold path" the earlier draft assumed **does not exist in the self-host
+    contract**. Verified empirically: constructing a format *value* (`New Vesper.PrintfFormat`) works,
+    but *applying* it to `sprintf`/`printf` `TypeLoad`-fails (`Could not load type 'Vesper.Printf'`) —
+    the printf functions are **inline-lowered intrinsics** with no emittable module body, and this
+    provider carries no FSharp.Core `PrintfModule`. So a bound format has NO runtime unless it lowers
+    natively. E1(a) and E1(b) therefore **cannot be separate landable steps** — (a) alone types and
+    constructs format values but can't *use* them with printf. Implementation: a `BindingSite →
+    format-literal` recovery table (`PrintfFormatLiterals`) populated in `inferBinding` when (a) fires
+    and the binding type is a `PrintfFormat`; a shared `PassContext.TryRecoverFormatLiteral` consulted
+    by BOTH the gate (`tryInferPrintfApp` — recover the literal for `formatSpecifiers`; the gate builds
+    its own `PrintfFormat` shape and never consults the binding's Vesper-faced type, so no face
+    conflict, no cold fallback) and Freeze (`translatePrintfFormat` — recover for the parts walk). The
+    4a *partial* marker is gated off a recovered format (its heap-closure synthesis reads a literal at
+    the format slot). Unannotated `let fmt = "%d"` stays a plain `string` — never recorded (gated on
+    the `PrintfFormat` type), so we never accept F# that real F# rejects.
+
+  **LANDED (2026-07-05).** E1(a)+(b) as one unit. Suites green: **semantic 716 / CLR 1238 / JS 269**
+  (+5 semantic structural + 5 CLR run-parity tests). Bound/ascribed formats — `sprintf`/`printf`/
+  `printfn`, wildcard printer, multi-hole, ascription — lower to the SAME native `TExpr.Format` a
+  syntactic literal does, byte-identical to real F#. Works on JS too (the gate/Freeze recovery is
+  target-neutral). **E1 is NOT a capstone blocker** — it is a source-compat feature (accept valid F#
+  we rejected + lower it natively); the capstone precondition was already met by the prior error.
+  **Library gap noted (separate):** the FSharp.Core `Printf.StringFormat`/`TextWriterFormat`/
+  `BuilderFormat` abbreviations don't exist in `Vesper.Printf` (only `PrintfFormat`4` + the `Format`4`
+  abbreviation), so source uses the `Vesper.Format<…>`/`PrintfFormat<…>` spelling; adding the F#-named
+  abbreviations to `Vesper.Printf` for source-compat is a small library follow-up.
 - **E2 — genuinely dynamic format** (`Printf.StringFormat(runtimeStr)`): the string is computed at
   runtime. Heaviest; likely its own sub-sprint.
 
@@ -496,17 +551,18 @@ for free (nothing hits the real sink until Flush). The existing byte-parity test
 (sprintf/printf/fprintf/bprintf `%a`, `%t`, closure-capture, JS asymmetry) must stay green with **zero
 expectation changes** — behaviour is identical; this is a pure structural refactor. Oracle-first as usual.
 
-**RESUME HERE → Track D refactor (1b, above)**, then E1. Concrete starting point for E1: the gate
-`tryInferPrintfApp` (`InferApp.fs`) reads the format via `formatSpecifiers ctx args.[idx]`
-(`InferLiterals.fs`), which returns `ValueNone` for any non-`Expr.String` node — so `let fmt = "%d"
-in printf fmt` (an `Ident` at the format slot, not a string literal) defers to the cold path. E1 =
-recognise that the format arg *resolves* to a compile-time-known string-literal `let`-binding and
-constant-propagate that literal into the same `formatSpecifiers`/classify path a direct literal
-takes (via `ctx.Bindings`, the binding table the gate already consults at `:272` to reject *shadowed*
-printf names). Everything downstream (typing seam, gate, Freeze, both emits) is unchanged — E1 is a
-front-of-gate format-recovery step, not a new lowering. Medium effort; no design fork open (unlike E2,
-which needs the deferred runtime spec-runner). Confirm with an oracle (`dotnet fsi`) that the
-`let`-bound and inline forms are byte-identical before coding.
+**RESUME HERE → E1 (see the corrected Track E § above).** The Track D refactor (1b) remains a
+separate, independently-schedulable structural cleanup — not an E1 prerequisite. E1's real scope
+(oracle-confirmed 2026-07-05): the plan's original unannotated example does *not* compile; the target
+is a **format-type-annotated / ascribed** binding, which our compiler currently *rejects*. So E1 is a
+two-step **source-compat feature** (not a capstone blocker — the current error already satisfies
+"lowers or errors"):
+- **Step 1 = E1(a)** — accept string-literal → `PrintfFormat` at the two expected-type positions
+  (`inferTypeAnnotation` `InferTypeOps.fs:161`; annotated `inferBinding` `Infer.fs:376`), computing
+  the format type from the specifiers + the annotation's `State`/`Residue`/`Result` via the reused
+  `PrintfSpec.appliedTypeOf`/`formatType`. Compiles + runs via the existing cold path.
+- **Step 2 = E1(b)** — const-prop the let-bound literal into the gate + Freeze (`BindingSite →
+  format-literal` recovery table) so it lowers native.
 
 **Then:** E1 → E2 (runtime runner; heaviest — its own sub-sprint) → capstone (delete the three cold
 recipes + drop the `FSharp.Core` ref; § Capstone). F (`%*d`) is a separable feature already DONE.

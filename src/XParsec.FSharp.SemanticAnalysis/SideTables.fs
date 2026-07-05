@@ -1409,6 +1409,35 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// (that fires only when the call is fully applied). Absence keeps the existing
     /// FSharp.Core path.
     member val PrintfPartial = SideTable<PrintfSpec.PrintfSink>() with get
+    /// E1: a `let`-bound (or ascribed) format-string literal, keyed by its
+    /// BINDING-SITE NodeKey (the head pattern's key — the same key a use-site
+    /// `Ident` resolves to via `Bindings.Binding`). Recorded by `Infer.inferBinding`
+    /// when `tryTypeFormatLiteral` types the literal against a `PrintfFormat`
+    /// annotation. The printf gate (`tryInferPrintfApp`) and Freeze
+    /// (`translatePrintfFormat`) both const-propagate through it: a format position
+    /// holding such an `Ident` recovers the literal and lowers natively, exactly like
+    /// a syntactic literal — there is no cold runtime for a format value in the
+    /// self-host contract (the printf functions are inline-lowered intrinsics), so
+    /// native lowering is the ONLY runnable path.
+    member val PrintfFormatLiterals = SideTable<Expr<SyntaxToken>>() with get
+
+    /// E1 const-propagation: if `argExpr` at a printf format position is an `Ident` /
+    /// `LongIdent` bound to a format-string literal (recorded in
+    /// `PrintfFormatLiterals` by `inferBinding` when `tryTypeFormatLiteral` typed it
+    /// against a `PrintfFormat` annotation), return that underlying `Expr.String` so
+    /// the gate / Freeze can treat it exactly like a syntactic literal. `ValueNone`
+    /// for any other shape — a direct literal (handled by the ordinary path), or a
+    /// non-format binding. Consulted by BOTH the gate (`tryInferPrintfApp`) and Freeze
+    /// (`translatePrintfFormat`), so the two stay in lockstep.
+    member this.TryRecoverFormatLiteral(argExpr: Expr<SyntaxToken>) : Expr<SyntaxToken> voption =
+        match argExpr with
+        | Expr.Ident _
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) ->
+            match this.Bindings.Binding.TryGetValue(CstKeys.ofExpr argExpr) with
+            | ValueSome rb -> this.PrintfFormatLiterals.TryGetValue rb.BindingSite
+            | ValueNone -> ValueNone
+        | _ -> ValueNone
+
     /// The node-keyed value-struct closure verdict. Keyed by a
     /// SOURCE-lambda argument's NodeKey; the `FunVerdict` carries the flat `FunN`
     /// arity (always) and, for a transformer combinator, the result-typar position.

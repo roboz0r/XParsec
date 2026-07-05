@@ -470,4 +470,68 @@ let tests =
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
+
+            // ---- E1: format literal bound to a name / ascribed ----
+            // A `PrintfFormat`-annotated `let` (or `(… : Fmt)` ascription) types the
+            // string literal AS the format (not `string`) — `tryTypeFormatLiteral` —
+            // and records it for const-propagation. A later `sprintf fmt …` recovers
+            // the literal at the gate and lowers to the SAME native `TExpr.Format` a
+            // syntactic literal would, rather than a cold `New PrintfFormat` + `App`
+            // (which has no runtime in the self-host contract).
+
+            test "E1: an annotated format binding types the literal as the PrintfFormat (no mismatch)" {
+                let tast =
+                    analyse
+                        "let fmt : Vesper.Format<int -> string, unit, string, string> = \"%d!\"\nlet s = sprintf fmt 42"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "E1: `sprintf fmt 42` const-props to a native string-sink Format (not a cold App)" {
+                let tast =
+                    analyse
+                        "let fmt : Vesper.Format<int -> string, unit, string, string> = \"%d!\"\nlet s = sprintf fmt 42"
+
+                match lastDeclValue tast with
+                | TExpr.Format(FormatSink.ToString, segs, _, _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Int 42, _, _)); FormatSeg.Lit "!" ] ->
+                        Expect.equal hole.Ty tyInt "the %d hole types as int"
+                    | other -> failtestf "unexpected Format segments: %A" other
+                | other -> failtestf "expected a native string-sink Format, got: %A" other
+            }
+
+            test "E1: a `<_>` wildcard printer is inferred from the specifiers" {
+                let tast =
+                    analyse "let fmt : Vesper.PrintfFormat<_, unit, string, string> = \"x=%d\"\nlet s = sprintf fmt 7"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match lastDeclValue tast with
+                | TExpr.Format(FormatSink.ToString, _, _, _) -> ()
+                | other -> failtestf "expected a native string-sink Format, got: %A" other
+            }
+
+            test "E1: an ascribed format literal (`(… : Fmt)`) const-props to a native Format" {
+                let tast =
+                    analyse
+                        "let fmt = (\"%d\" : Vesper.PrintfFormat<int -> string, unit, string, string>)\nlet s = sprintf fmt 99"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match lastDeclValue tast with
+                | TExpr.Format(FormatSink.ToString, _, _, _) -> ()
+                | other -> failtestf "expected a native string-sink Format, got: %A" other
+            }
+
+            test "E1: an unannotated `let fmt = \"%d\"` stays a plain string (not const-propagated)" {
+                // Real F# rejects `sprintf fmt 42` here (fmt : string). We must NOT
+                // recover the literal: the binding is a plain string, so no
+                // `PrintfFormatLiterals` entry, and the printf gate never fires on it.
+                let tast = analyse "let fmt = \"%d\"\nlet s = fmt"
+
+                match lastDeclValue tast with
+                | TExpr.Format _ -> failtest "a plain-string binding must not lower as a format"
+                | _ -> ()
+            }
         ]

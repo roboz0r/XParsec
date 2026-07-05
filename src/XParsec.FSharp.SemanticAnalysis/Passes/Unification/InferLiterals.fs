@@ -261,3 +261,45 @@ module internal UnificationInferLiterals =
     /// typing walk. `%%` escapes arrive as raw `Text` and never reach here.
     let lowerablePlaceholders (placeholders: FormatPlaceholder list) : bool =
         placeholders |> List.forall (fun p -> (PrintfHoleForm.tryClassify p).IsSome)
+
+    /// E1(a): type a *format-string literal* that sits at a position whose EXPECTED
+    /// type is already a `PrintfFormat<Printer,State,Residue,Result>` family — a
+    /// format-typed `let` annotation (`let fmt : StringFormat<_> = "%d"`) or an
+    /// ascription (`("%d" : Fmt)`). Real F# accepts these (an *unannotated*
+    /// `let fmt = "%d"` is plain `string` and does NOT flow the format type back — so
+    /// only the annotated/ascribed forms reach here); our compiler otherwise rejects
+    /// them (`string` vs `PrintfFormat` mismatch).
+    ///
+    /// Parses the specifiers and computes the *printer* type from them + the
+    /// annotation's own `State`/`Residue`/`Result` slots (`PrintfSpec.printerFromSlots`
+    /// — the same `argTypes`/`printerType` machinery the printf gate uses), then
+    /// unifies it against the expected `Printer` slot (`args.[0]`) — pinning a
+    /// `StringFormat<_>` wildcard printer from the specifiers, and diagnosing a printer
+    /// that disagrees with an explicit annotation (`StringFormat<int->string>` vs a
+    /// `%s` body). Unifying only the printer slot (not a whole synthesised format type)
+    /// sidesteps the two `PrintfFormat` faces: the annotation resolves to
+    /// `Vesper.Printf.PrintfFormat`, the gate synthesises `FSharp.Core`'s. On success
+    /// returns `expected` verbatim, so the caller stamps the annotation's OWN resolved
+    /// format type onto the literal node — the type a downstream `sprintf fmt` (typed
+    /// by the provider) unifies against. `ValueNone` (not a format literal, or the
+    /// expected type isn't a `PrintfFormat`) falls through to the caller's ordinary
+    /// `unify`, so this is strictly additive.
+    let tryTypeFormatLiteral
+        (ctx: PassContext)
+        (key: NodeKey)
+        (litExpr: Expr<SyntaxToken>)
+        (expected: SemType)
+        : SemType voption =
+        match resolveStep expected with
+        | TyClass(fmtKey, args) when RuntimeNames.isPrintfFormatKey fmtKey && args.Length = 4 ->
+            match formatSpecifiers ctx litExpr with
+            | ValueSome specs ->
+                let fresh () = TyVar(freshTyVar ctx)
+
+                match PrintfSpec.printerFromSlots fresh specs args.[1] args.[2] args.[3] with
+                | ValueSome printer ->
+                    unify ctx key printer args.[0]
+                    ValueSome expected
+                | ValueNone -> ValueNone
+            | ValueNone -> ValueNone
+        | _ -> ValueNone

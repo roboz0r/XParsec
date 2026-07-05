@@ -26,6 +26,24 @@ open UnificationInferApp
 
 module UnificationInfer =
 
+    /// Peel paren / ascription wrappers to a binding RHS's underlying format-string
+    /// literal (`let fmt : Fmt = "%d"` → the `"%d"`; `let fmt = ("%d" : Fmt)` → the
+    /// inner `"%d"`). `ValueNone` unless the peeled expr is an `Expr.String` whose
+    /// specifiers parse (`formatSpecifiers`). Drives the E1(b) const-prop registration
+    /// in `inferBinding` — gated there on the binding's type being a `PrintfFormat`,
+    /// so a plain-string `let s = "%d"` (which reaches printf nowhere) is never
+    /// recorded.
+    let rec private peelToFormatString (ctx: PassContext) (e: Expr<SyntaxToken>) : Expr<SyntaxToken> voption =
+        match e with
+        | Expr.EnclosedBlock(expr = inner)
+        | Expr.TypeAnnotation(expr = inner) -> peelToFormatString ctx inner
+        | Expr.String _ ->
+            if (formatSpecifiers ctx e).IsSome then
+                ValueSome e
+            else
+                ValueNone
+        | _ -> ValueNone
+
     let rec infer (ctx: PassContext) (e: Expr<SyntaxToken>) : SemType =
         let key = CstKeys.ofExpr e
         let nodeTv = freshTv ctx key
@@ -375,12 +393,24 @@ module UnificationInfer =
                     match b.returnType with
                     | ValueSome(ReturnType(typ = t)) ->
                         let annTy = translateType ctx t
-                        let bodyTy = infer ctx b.expr
-                        // Annotation reconciliation: `unifyAnnotation` admits the
-                        // value→union assignability (`let x: int | string = 1`) while
-                        // staying symmetric `unify` for every nominal/`obj` annotation.
-                        unifyAnnotation ctx (CstKeys.ofBinding b) bodyTy annTy
-                        annTy
+
+                        // E1(a): a format-string literal bound to a `PrintfFormat`-family
+                        // annotation (`let fmt : StringFormat<_> = "%d"`) types AS the
+                        // format, not `string`. Skip `infer` on the literal (it would type
+                        // it `string`); the helper unifies the specifiers' printer into the
+                        // annotation (pinning a `<_>` wildcard printer), and we stamp the
+                        // annotation's format type onto the literal node.
+                        match tryTypeFormatLiteral ctx (CstKeys.ofBinding b) b.expr annTy with
+                        | ValueSome fmt ->
+                            (freshTv ctx (CstKeys.ofExpr b.expr)).Link <- ValueSome fmt
+                            annTy
+                        | ValueNone ->
+                            let bodyTy = infer ctx b.expr
+                            // Annotation reconciliation: `unifyAnnotation` admits the
+                            // value→union assignability (`let x: int | string = 1`) while
+                            // staying symmetric `unify` for every nominal/`obj` annotation.
+                            unifyAnnotation ctx (CstKeys.ofBinding b) bodyTy annTy
+                            annTy
                     | ValueNone -> infer ctx b.expr
                 else
                     let argTypes = [ for p in b.argumentPats -> inferPat ctx p ]
@@ -399,6 +429,20 @@ module UnificationInfer =
                     List.foldBack (fun a r -> TyFun(a, r)) argTypes bodyTy
 
             unify ctx (CstKeys.ofBinding b) patTy rhsTy
+
+            // E1(b) const-prop registration: a binding whose value is a format-string
+            // literal (possibly paren/ascription-wrapped) AND whose type resolved to a
+            // `PrintfFormat` gets its literal stashed by binding site, so a later
+            // `sprintf fmt …` recovers it and lowers natively (§ `PrintfFormatLiterals`
+            // — there is no cold runtime for a format value in the self-host contract).
+            // Gated on the `PrintfFormat` type so an unannotated plain-string `let`
+            // (which cannot legally reach a printf format slot) is never recorded.
+            match resolveStep patTy with
+            | TyClass(fmtKey, _) when RuntimeNames.isPrintfFormatKey fmtKey ->
+                match peelToFormatString ctx b.expr with
+                | ValueSome lit -> ctx.PrintfFormatLiterals.Set(CstKeys.ofPat b.headPat, lit)
+                | ValueNone -> ()
+            | _ -> ()
         finally
             ctx.Resolution.TyparScope <- savedScope
 

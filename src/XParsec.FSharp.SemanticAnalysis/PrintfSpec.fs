@@ -466,3 +466,40 @@ module PrintfSpec =
                 List.foldBack (fun a r -> TyFun(a, r)) (fam.LeadingArgTypes @ [ fmt ]) printer
 
             ValueSome(fnTy, fmt, printer)
+
+    /// The *printer* type (`arg1 -> … -> result`) a format-string literal's
+    /// specifiers denote when it appears at a position whose expected type already
+    /// fixes the `state`/`residue`/`result` slots — a format-typed `let` annotation
+    /// or `(… : Fmt)` ascription (E1(a)), as opposed to a printf application
+    /// (`appliedTypeOf`, which derives the slots from the family). Argument types are
+    /// read off the specifiers by `argTypes` (the `state`/`residue` feed only
+    /// `%a`/`%t`); the tail is `result` (the 4th `PrintfFormat` arg — `string` for
+    /// `StringFormat`, `unit` for `TextWriterFormat`). The caller `unify`s this
+    /// against the annotation's `Printer` slot, pinning any `StringFormat<_>` wildcard
+    /// printer from the specifiers. Returns the printer ALONE (not a whole
+    /// `PrintfFormat`) so the caller can keep the annotation's own resolved format
+    /// type — the two faces (`Vesper.Printf` vs `FSharp.Core`) never have to
+    /// reconcile. `ValueNone` only if a specifier is untypeable (none is today).
+    /// Synthesises a bare `Family` carrying just those three slots so the identical
+    /// `argTypes`/`printerType` path is reused verbatim.
+    let printerFromSlots
+        (fresh: unit -> SemType)
+        (specs: FormatPlaceholder list)
+        (state: SemType)
+        (residue: SemType)
+        (result: SemType)
+        : SemType voption =
+        let fam =
+            {
+                FormatArgIndex = 0
+                Tail = result
+                State = state
+                Residue = residue
+                Result = result
+                LeadingArgTypes = []
+                ScratchSink = tyUnit
+            }
+
+        match appliedTypeOf fresh specs fam with
+        | ValueSome(_, _, printer) -> ValueSome printer
+        | ValueNone -> ValueNone

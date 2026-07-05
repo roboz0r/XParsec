@@ -146,6 +146,50 @@ let tests =
                 runPrints "PHpHi" "printfn \"hi\"" "hi"
             }
 
+            // ---- E1: a format literal bound to a name / ascribed (const-prop) ----
+            // A `PrintfFormat`-typed `let` (or `(… : Fmt)` ascription) is not a
+            // syntactic literal AT the call site, but the bound literal is recovered
+            // (`PrintfFormatLiterals`) and lowered natively — the ONLY runnable path: a
+            // format *value* applied to the inline-only printf intrinsics has no cold
+            // runtime in the self-host contract (it `TypeLoad`-fails on `Vesper.Printf`).
+            // So each run-parity pass here is also proof the call lowered native, not
+            // cold. Real F#'s `sprintf`/`printf` are the oracle.
+
+            test "E1: `sprintf` on a let-bound annotated format (F# parity)" {
+                runParity
+                    "E1Sprintf"
+                    "let fmt : Vesper.Format<int -> string, unit, string, string> = \"%d!\"\nprintfn \"%s\" (sprintf fmt 42)"
+                    (sprintf "%s" (sprintf "%d!" 42))
+            }
+
+            test "E1: `printf` on a let-bound TextWriter-format (F# parity)" {
+                runParity
+                    "E1Printf"
+                    "let fmt : Vesper.Format<int -> unit, unit, string, unit> = \"n=%d\"\nprintf fmt 7"
+                    (sprintf "n=%d" 7)
+            }
+
+            test "E1: multi-hole `printfn` on a let-bound format (F# parity)" {
+                runParity
+                    "E1Multi"
+                    "open Vesper\nlet fmt : Format<int -> string -> unit, unit, string, unit> = \"%d and %s\"\nprintfn fmt 7 \"x\""
+                    (sprintf "%d and %s" 7 "x")
+            }
+
+            test "E1: a `StringFormat<_>` wildcard printer infers from the specifiers (F# parity)" {
+                runParity
+                    "E1Wildcard"
+                    "open Vesper\nlet fmt : PrintfFormat<_, unit, string, string> = \"%.2f\"\nprintfn \"%s\" (sprintf fmt 3.14159)"
+                    (sprintf "%s" (sprintf "%.2f" 3.14159))
+            }
+
+            test "E1: an ascribed format literal (`(… : Fmt)`) lowers native (F# parity)" {
+                runParity
+                    "E1Ascription"
+                    "open Vesper\nlet fmt = (\"%d\" : PrintfFormat<int -> string, unit, string, string>)\nprintfn \"%s\" (sprintf fmt 99)"
+                    (sprintf "%s" (sprintf "%d" 99))
+            }
+
             test "`printfn \"%s\"` lowers to a single string hole" {
                 match soleDecl "printfn \"%s\" \"world\"" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ->

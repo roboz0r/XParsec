@@ -165,10 +165,23 @@ module internal UnificationInferTypeOps =
         (inner: Expr<SyntaxToken>)
         (t: Type<SyntaxToken>)
         : SemType =
-        let innerTy = infer ctx inner
         let annTy = translateType ctx t
-        unify ctx key innerTy annTy
-        annTy
+
+        // E1(a): a format-string literal ascribed to a `PrintfFormat` family
+        // (`("%d" : Printf.StringFormat<_>)`, and the `let fmt = (… : Fmt)` form that
+        // desugars to it) types AS the format, not `string`. Skip `infer` on the
+        // literal (it would type it `string` and pin the node's TyVar); the helper
+        // unifies the specifiers' printer into the annotation (pinning a `<_>` wildcard
+        // printer), and we stamp the annotation's format type onto the literal node.
+        // Otherwise the ordinary annotation reconciliation.
+        match tryTypeFormatLiteral ctx key inner annTy with
+        | ValueSome fmt ->
+            (freshTv ctx (CstKeys.ofExpr inner)).Link <- ValueSome fmt
+            annTy
+        | ValueNone ->
+            let innerTy = infer ctx inner
+            unify ctx key innerTy annTy
+            annTy
 
     /// `obj` is the top of every reference hierarchy. `subsumes` doesn't model
     /// it (the BCL `System.Object` class isn't in `ctx.Types.Class`), so the

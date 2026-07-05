@@ -96,6 +96,14 @@ module RuntimeNames =
     let printfFormatKey: SymbolKey =
         SymbolKey.TypeKey(Some "FSharp.Core", "Microsoft.FSharp.Core", "PrintfFormat`4")
 
+    /// The Vesper.Printf face of `PrintfFormat`4`. Source-level format annotations
+    /// (`Printf.StringFormat<_>` / `TextWriterFormat<_>`) resolve through the
+    /// provider to THIS key, not the `FSharp.Core` one the format-literal machinery
+    /// synthesises (`printfFormatName`). `isPrintfFormatKey` recognises both faces so
+    /// a bound/ascribed format (E1) is seen as a `PrintfFormat` at every seam.
+    let vesperPrintfFormatKey: SymbolKey =
+        SymbolKey.TypeKey(Some "Vesper.Printf", "Vesper", "PrintfFormat`4")
+
     /// Canonical identity for the BCL `System.Object` — recognised at the unify
     /// boundary (an empty `TyClass` whose key denotes `System.Object` satisfies the
     /// equality/derives predicates). Non-generic. Recogniser-only (no producer mints
@@ -346,7 +354,8 @@ module RuntimeNames =
     /// format type a `printf` / `sprintf` literal freezes to. Asm-blind, matching the
     /// list/object recognisers; replaces the inline `bareName (qualifiedName key) =
     /// PrintfSpec.printfFormatName` rebuild at the codegen / FreezeExpr consumer sites.
-    let isPrintfFormatKey (k: SymbolKey) : bool = sameTypeAsmBlind printfFormatKey k
+    let isPrintfFormatKey (k: SymbolKey) : bool =
+        sameTypeAsmBlind printfFormatKey k || sameTypeAsmBlind vesperPrintfFormatKey k
 
     // --- Built-in primitive type names -----------------------------------------------
 

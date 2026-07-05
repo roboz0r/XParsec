@@ -302,7 +302,20 @@ module internal UnificationInferApp =
                         // `fprintf writer`); defer to standard inference.
                         ValueNone
                     else
-                        match formatSpecifiers ctx args.[idx] with
+                        // E1(b): the format position may hold not a syntactic literal
+                        // but an `Ident` bound to one (`let fmt : Fmt = "%d" in sprintf
+                        // fmt …`). Recover that literal and drive the SAME classify /
+                        // typing / marker path a direct literal takes — the gate builds
+                        // its own `PrintfFormat` shape and never consults the binding's
+                        // (Vesper-faced) type, so there is no cold fallback needed and
+                        // no face conflict. `formatRecovered` gates the 4a *partial*
+                        // marker off (its heap-closure synthesis reads a literal at the
+                        // format slot, which a bound `Ident` is not).
+                        let recoveredFormat = ctx.TryRecoverFormatLiteral args.[idx]
+                        let formatArg = ValueOption.defaultValue args.[idx] recoveredFormat
+                        let formatRecovered = recoveredFormat.IsSome
+
+                        match formatSpecifiers ctx formatArg with
                         | ValueNone -> ValueNone
                         | ValueSome specs ->
                             let fresh () = TyVar(freshTyVar ctx)
@@ -457,6 +470,7 @@ module internal UnificationInferApp =
                                 // (which needs full application).
                                 | ValueSome sink when
                                     idx = 0
+                                    && not formatRecovered
                                     && args.Length = idx + 1
                                     && specs.Length >= 1
                                     && lowerablePlaceholders specs

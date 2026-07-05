@@ -1244,8 +1244,14 @@ module internal FreezeExpr =
         // contract-scrape, `AssemblyName = ""`) ⇒ no type is treated as local.
         let localAsm = SymbolKeyOps.asmOf ctx.AssemblyName
 
+        // E1(b): the format slot may hold an `Ident` bound to a literal; recover it
+        // (via the same `PrintfFormatLiterals` table the gate consulted) so the parts
+        // walk sees the underlying `Expr.String`, exactly as for a syntactic literal.
+        let formatArg =
+            ValueOption.defaultValue args.[idx] (ctx.TryRecoverFormatLiteral args.[idx])
+
         let parts =
-            match args.[idx] with
+            match formatArg with
             | Expr.String(parts = parts) -> parts
             | other -> failwithf "Freeze.translatePrintfFormat: format arg is not a string literal: %A" other
 
