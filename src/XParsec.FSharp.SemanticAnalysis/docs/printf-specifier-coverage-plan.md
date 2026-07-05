@@ -143,20 +143,20 @@ introduced *then*, not now (routing CLR `fprintf` through a Vesper sink now woul
 
 ### Track C — `%A` breadth (relax the gate; the runtime is already total)
 
-- **C1 — admit FSharp.Core-owned + arbitrary types (ToString-degrade).** Relax
-  `structuredArgFaithful` (`FreezeExpr.fs:1149`) so a `%A` hole no longer declines to cold for
-  types the engine renders via `IEnumerable`/`ToString`. Per the locked decision, FSharp.Core
-  types (`FSharpOption`, …) lower to the engine and render via its `ToString` fallback rather than
-  cold. Net effect: the gate trends toward `true` for every concrete nominal; keep declining only
-  where a *runtime* value could still reach FSharp.Core cold (there is none once the engine path
-  is chosen). Verify the emitted `AppendStructured<T>` handles each admitted `T`.
-- **C2 — polymorphic `%A`.** `let f x = printfn "%A" x` (arg is a typar) hits
-  `structuredArgFaithful`'s `_ -> false` (`:1227`) → cold. The runtime dispatcher recovers the
-  boxed runtime type, so the engine path is valid; admit a typar/`TyVar` hole and confirm codegen
-  emits `AppendStructured<!!i>` (generic method-typar) for a method-generic hole. This is the one
-  Track-C item that needs a codegen check, not just a gate relaxation.
-- **Non-goal:** matching F#'s reflective `%A` *output* for FSharp.Core / BCL types — ToString
-  divergence is accepted.
+- **C1 + C2 — LANDED (`134d942b`).** `structuredArgFaithful` (`FreezeExpr.fs`) relaxed: the
+  external-nominal else branch collapsed to `TyUnion _ | TyRecord _ | TyClass _ -> true` (a `TyClass`
+  arm added for BCL types), and `TyVar _ -> true` admits the polymorphic hole. Every concrete
+  nominal — Vesper-compiled, `FSharpOption`, arbitrary BCL class — plus a typar now lowers to the
+  engine and renders via the dispatcher's `IFormattable`/`IEnumerable`/`ToString` tail. Only shapes
+  the CLR encoder can't author a type argument for (`TyUnknown`, `TyOr`/`TyKeyOf`/… type-level
+  constructs a real `%A` never carries) stay cold. **C2 verified end-to-end:** `let f x = printfn
+  "%A" x` — the hole's typar arrives as `FTTypar(Method, i)`, `encodeType` → `!!i`,
+  `appendStructured` emits `AppendStructured<!!i>` cleanly (full IL codegen + node execution). No
+  typar wall. The gate is shared, so JS benefits too (a polymorphic `%A` runs under node at
+  int/string/list). **Non-goal (accepted):** matching F#'s reflective `%A` output for
+  FSharp.Core/BCL types — ToString divergence is the locked decision; tests assert native-ness, not
+  parity. The list/option-*literal* representation pin (`FSharpList` `Cons`/`Empty` from
+  construction) is independent of printf and left in place (see § Capstone adjacency).
 
 ### Track D — `%a` / `%t` callback holes
 
@@ -217,23 +217,24 @@ is measured by *printf* pinning nothing, not by the whole program being FSharp.C
 cleanup (`9498ad84`) → A1a (inert-flag / left-wins forms, `16b69e2f`) → **Track F** (star-width
 `%*d` / precision `%.*f` / `%*A`, `927aaabe`…`416495b2` — a separable feature, landed on top of the
 A1a/A1b-docs commits) → A1b (zero-pad `%u`/`%o`, `dea85b42`) → A2 (float sign/zero-pad forms,
-`ab78a321`). All on branch `semantic-analysis`. **A2 verified 2026-07-05:** clean build, all suites
-green — **CLR 1215** (1191 + 24 new) **/ JS 263 (259 + 4 new) / semantic 710** (+1 skipped). With A2
-in, **Track A is complete** — `tryClassify` is total over every lowerable flag/width/precision form.
-Track F's cold star **residuals** (`%0*d`, `%0*.Nf`, `%-*A`/`%+*A`/`%0*A`) are pinned in
-`FSharpCoreDepsTests.fs` (`test/XParsec.FSharp.Codegen.Clr.Tests/`) and remain a capstone precondition
-(see § Track F). The `%+08.2f` cold pin (sign + zero-pad float, no faithful section format) now guards
-the cold recipes in `FSharpCoreDepsTests`/`SelfHostTests`.
+`ab78a321`) → **Track C** (`%A` gate relax — C1 + C2, `134d942b`). All on branch `semantic-analysis`.
+**Track C verified 2026-07-05:** clean build, all suites green — **CLR 1219** (1215 + 4 new) **/ JS
+264 (263 + 1 new) / semantic 710** (+1 skipped). **Track A is complete** (`tryClassify` total over
+every lowerable flag/width/precision form) and **Track C is complete** (every `%A` hole lowers
+natively). Remaining printf cold residuals: Track F's star forms (`%0*d`, `%0*.Nf`, `%-*A`/`%+*A`/`%0*A`)
+and the deliberate `%+08.2f` (sign + zero-pad float, no faithful section format) — both classifier-level,
+pinned in `FSharpCoreDepsTests.fs`/`SelfHostTests.fs`, and capstone preconditions (the capstone must
+lower or re-error them). The list/option-*literal* representation pin is a separate axis (§ Capstone).
 
-**RESUME HERE → C1/C2** (`%A` gate relax — the big coverage jump; the runtime `%A` dispatcher is
-already total, so this is mostly relaxing `structuredArgFaithful` in `FreezeExpr.fs`, not writing a
-renderer — see § Track C and § The key lever). C2 (polymorphic `%A`) is the one item needing a codegen
-check (generic method-typar hole).
+**RESUME HERE → B2** (`bprintf`) — not in `PrintfSpec.families` at all, so it needs a new `Family` entry
+(`idx = 1`, StringBuilder leading arg) + a `FormatSink.ToBuilder` emission (`EmitFormat.fs` currently
+`failwith`s on `ToBuilder`) driving a new `StringBuilder` sink end-to-end. Larger than B1 (see § Track B).
 
-**Then:** B2 (`bprintf`) → D (`%a`/`%t`, design pass first — sink ABI, largely pre-resolved: split by
-`Family.State`; writer families get a scratch/underlying `TextWriter`, `sprintf` splices the residue
-string; `Formatter`-as-`'State` via `allows ref struct` is the eventual zero-copy ABI break) → E1
-(const-literal format) → E2 (runtime runner; heaviest) → capstone. F (`%*d`) is a separable feature.
+**Then:** D (`%a`/`%t`, design pass first — sink ABI, largely pre-resolved: split by `Family.State`;
+writer families get a scratch/underlying `TextWriter`, `sprintf` splices the residue string;
+`Formatter`-as-`'State` via `allows ref struct` is the eventual zero-copy ABI break — statically-known
+callbacks inline today, only opaque callback *values* wait on it) → E1 (const-literal format) → E2
+(runtime runner; heaviest) → capstone. F (`%*d`) is a separable feature.
 
 **Working method (established this sprint):** oracle-first — confirm exact bytes and F#-acceptance
 with `dotnet fsi tmp/printf_a1.fsx` before coding a batch; one subagent per step implementing +
