@@ -534,6 +534,34 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
+            // A `%A` of an `FSharpOption` no longer forces the whole format cold: the
+            // structural engine renders it via the runtime dispatcher's `ToString` tail
+            // (its bytes may diverge from F#'s reflective `%A` — accepted), so the hole
+            // lowers to a `Structured` node like any other nominal.
+            test "`%A` of an FSharpOption lowers to a Structured hole (ToString-degrade)" {
+                let tast = analyse "printfn \"%A\" (Some 1)"
+
+                match tast.Decls with
+                | EqList [ TDecl.Expression(TExpr.Format(_, segs, _, _), _) ] ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal (kindOf hole) PrintfSpec.HoleKind.Structured "%A of an option is Structured"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a single Format-node decl, got: %A" other
+            }
+
+            // A `%A` of an arbitrary BCL type (a `System.Guid`) likewise lowers on the
+            // engine — the dispatcher's `IFormattable` / `ToString` arm renders it.
+            test "`%A` of a BCL type lowers to a Structured hole (ToString-degrade)" {
+                match soleDecl "printfn \"%A\" System.Guid.Empty" with
+                | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.Hole(hole, _) ] ->
+                        Expect.equal (kindOf hole) PrintfSpec.HoleKind.Structured "%A of a Guid is Structured"
+                    | other -> failtestf "unexpected segments: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
             test "`%.2A` (precision) lowers to a Structured hole carrying a size budget" {
                 match soleDecl "printfn \"%.2A\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->

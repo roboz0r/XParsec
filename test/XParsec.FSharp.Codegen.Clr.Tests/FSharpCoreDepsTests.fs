@@ -216,6 +216,36 @@ let tests =
                     (sprintf "the external-union %%A program is BCL-only + Vesper — no FSharp.Core dependency (%A)" deps)
             }
 
+            // `%A` of an arbitrary BCL type (a `System.Guid`) renders via the
+            // dispatcher's `IFormattable` / `ToString` arm — BCL-only, so the whole
+            // program pins *no* FSharp.Core construct.
+            test "`%A` of a BCL type is BCL-only — no FSharp.Core" {
+                let _, artifact = compileSource "DepsBclA" "printfn \"%A\" System.Guid.Empty"
+
+                Expect.isEmpty
+                    artifact.FSharpCoreDependencies
+                    (sprintf "BCL %%A pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
+            }
+
+            // A polymorphic `%A` (`let f x = printfn "%A" x`) has a hole whose type is
+            // the function's own method typar. `freeze` generalises it to
+            // `FTTypar(Method, i)`, the encoder maps it to `!!i`, and `appendStructured`
+            // authors `AppendStructured<!!i>` — so codegen emits cleanly (this test
+            // throws if the typar can't be authored) and the call rides the engine, not
+            // the FSharp.Core cold path.
+            test "polymorphic `%A` (`let f x = printfn \"%A\" x`) lowers on the engine (no cold-path pin)" {
+                let _, artifact = compileSource "DepsPolyA" "let f x = printfn \"%A\" x\nf 42"
+                let deps = artifact.FSharpCoreDependencies
+
+                Expect.isFalse
+                    (deps |> Seq.contains "Microsoft.FSharp.Core.PrintfModule.PrintFormatLine")
+                    "polymorphic %A does NOT take the PrintFormatLine cold path"
+
+                Expect.isFalse
+                    (deps |> Seq.contains "Microsoft.FSharp.Core.PrintfFormat`4 (.ctor)")
+                    "polymorphic %A constructs no PrintfFormat"
+            }
+
             test "a list literal pins FSharpList" {
                 let _, artifact =
                     compileSource "DepsList" "let nums = [1; 2; 3]\nprintfn \"%A\" nums"

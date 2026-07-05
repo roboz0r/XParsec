@@ -57,6 +57,26 @@ let tests =
                         "tuple parens; list brackets with `; ` separators; empty list"
             }
 
+            // A polymorphic `%A` (`let f x = printfn "%A" x`) has a hole typed as the
+            // function's own typar. The gate admits it to the structural engine (the
+            // runtime dispatcher recovers each boxed value's type), so the JS emission is
+            // a plain `structuralFormat` call over the argument — the same total runtime
+            // as every other `%A`. Exercise it at three runtime shapes through one
+            // generic function to prove node renders each without throwing.
+            test "polymorphic `%A` (`let f x = printfn \"%A\" x`) runs under node at every runtime type" {
+                let prog = "let f x = printfn \"%A\" x\nf 42\nf \"hi\"\nf [1; 2; 3]"
+
+                match runJs "fmt-poly" prog with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+
+                    Expect.equal
+                        out
+                        "42\n\"hi\"\n[1; 2; 3]"
+                        "the typar hole renders int / quoted string / list structurally at each call"
+            }
+
             test "`%A` works in a mixed format with literal text and other holes" {
                 let prog = "printfn \"x = %A, n = %d\" (Some 3) 7"
 

@@ -1135,17 +1135,21 @@ module internal FreezeExpr =
 
             result
 
-    /// Whether `%A` of an argument of this (zonked) type renders faithfully on the
-    /// structural engine. Faithful shapes are: primitives, `string` / `char` /
-    /// `bool` (special-cased), arrays and the cons-list (the `IEnumerable` arm),
-    /// tuples (recursively over element/payload types), and every *Vesper-compiled*
-    /// record / DU — local (home = the target assembly) or external (a `.Record` /
-    /// `.Union` shape from a referenced Vesper package, which carries the same
-    /// synthesised `Format`). A non-Vesper structural type (FSharpOption, a BCL
-    /// type) is NOT faithful — it has no Vesper `Format`, so it stays on the
-    /// reflective FSharp.Core cold path. A single non-faithful `%A` hole forces the
-    /// *whole* format cold (`translatePrintfFormat` returns `ValueNone`) — additive,
-    /// no regression.
+    /// Whether `%A` of an argument of this (zonked) type may lower to the structural
+    /// engine. The runtime `%A` dispatcher is *total* and reflection-free: a
+    /// Vesper-compiled record / DU renders via its synthesised `IStructuralFormattable`,
+    /// a list / array / tuple via the `IEnumerable` / `ITuple` arm, a BCL scalar via
+    /// `IFormattable`, and *anything else* — an `FSharpOption`, an arbitrary BCL class,
+    /// a runtime-boxed polymorphic value — falls to the `value.ToString()` tail. So the
+    /// engine can lower **every concrete nominal**; the maintainer decision is that a
+    /// non-Vesper structural type degrades down the `%A` hierarchy to `.ToString()` on
+    /// the engine rather than riding the FSharp.Core cold path, even where its bytes
+    /// diverge from F#'s reflective `%A`. The only holes that stay off the engine are
+    /// the ones the backend can't author an `AppendStructured<T>` type argument for: an
+    /// unresolved nominal (`TyUnknown`), an anonymous union / type-level computation
+    /// (external vocabulary that a real `%A` hole never carries). A hole the engine
+    /// can't take forces the *whole* format cold (`translatePrintfFormat` returns
+    /// `ValueNone`) — additive, no regression.
     and private structuredArgFaithful (ctx: PassContext) (localAsm: string option) (t: SemType) : bool =
         match t with
         | TyConst(name, args) ->
@@ -1174,56 +1178,33 @@ module internal FreezeExpr =
         | TyUnion(key, args)
         | TyRecord(key, args) when RuntimeNames.isVesperListKey key || RuntimeNames.isFsharpCoreListKey key ->
             EqArray.forall (structuredArgFaithful ctx localAsm) args
-        // Every Vesper-compiled record / DU — *local or external* — carries a
-        // synthesised `IStructuralFormattable.Format` (step-3 `NominalEmit`), so the
-        // engine renders it faithfully. We deliberately do NOT recurse into its
-        // fields — the gate is only a cold-vs-engine switch, not a per-field
-        // renderer, and the runtime dispatcher already routes each field correctly,
-        // matching real F# `%A` in every reachable case:
-        //   * a field that is another Vesper record / union (local *or* an external
-        //     package) carries `IStructuralFormattable` too — every Vesper-compiled
-        //     type does — so the dispatcher's interface arm renders it structurally,
-        //     exactly as F#'s reflective `%A` recurses into any F#-reflectable type;
-        //   * a BCL scalar / collection field hits the `ISpanFormattable` / `ToString`
-        //     / `IEnumerable` arm — and F# `%A` `ToString`s / enumerates the same.
-        // Recursing here would *regress* this: the BCL-leaf arms above return
-        // non-faithful, so a recurse would force a record with one `System.Uri`
-        // field onto the cold path even though F# and the engine render that field
-        // identically (`ToString`).
-        | TyUnion(key, _)
-        | TyRecord(key, _) ->
-            // Local types match the compilation's target assembly outright.
-            if localAsm.IsSome && SymbolKeyOps.keyAsm key = localAsm then
-                true
-            // A self-host build (no FSharp.Core — the JS in-memory front end runs with
-            // an empty `AssemblyName`, so `localAsm` is `None`) has no reflective cold
-            // path to fall back to, and a locally-declared record / DU is unambiguously
-            // Vesper-compiled — its key carries no home assembly (an *external* type's
-            // key always does), so a `None` home marks it local. The structural runtime
-            // (the CLR synthesised `Format`, or the JS shape-keyed `structuralFormat`)
-            // renders it faithfully, so it stays on the engine path.
-            elif ctx.DefaultListIsVesper && (SymbolKeyOps.keyAsm key).IsNone then
-                true
-            else
-                // An *external* record / DU is faithful iff it too was Vesper-compiled
-                // — the engine needs no codegen change for it: the emitted
-                // `AppendStructured<T>` is type-agnostic, the reflection-free runtime
-                // dispatcher devirtualises on the `IStructuralFormattable` the type
-                // implements, and the value's package is already a bundle dependency.
-                // The discriminator is the resolved *shape*: the Vesper `.fsi`
-                // extractor is the ONLY producer of `.Record` / `.Union` shapes — the
-                // .NET metadata provider models every BCL nominal as `.Class` — so a
-                // `.Record` / `.Union` shape uniquely marks a Vesper structural type.
-                // FSharp.Core is excluded outright: even where a prim-types contract
-                // models `option` as a `.Union`, the runtime `FSharpOption` carries no
-                // Vesper `Format`, so it must stay on the reflective cold path.
-                SymbolKeyOps.keyAsm key <> Some "FSharp.Core"
-                && (
-                    match ExternalSymbols.tryLookupType ctx.Provider key with
-                    | ValueSome(ExternalTypeShape.Record _)
-                    | ValueSome(ExternalTypeShape.Union _) -> true
-                    | _ -> false
-                )
+        // Every nominal record / DU / class renders on the engine — a Vesper-compiled
+        // type via its synthesised `IStructuralFormattable.Format` (step-3
+        // `NominalEmit`), an `FSharpOption` / arbitrary BCL type via the dispatcher's
+        // `IFormattable` / `IEnumerable` / `ToString` tail. We do NOT recurse into
+        // fields: the gate is a cold-vs-engine switch, not a per-field renderer, and
+        // the runtime dispatcher already routes each field (a Vesper field via its own
+        // `IStructuralFormattable`, a BCL field via `ToString` / `IEnumerable`). The
+        // backend authors `AppendStructured<T>` for any of these — a project-local
+        // nominal off its emitted `TypeDef`, an external one off its `TypeRef` — so the
+        // only reason to decline is a hole type the encoder can't author, handled by
+        // the final arm. (`ctx` / `localAsm` are still threaded through the recursive
+        // array / tuple / cons-list arms above.)
+        | TyUnion _
+        | TyRecord _
+        | TyClass _ -> true
+        // A polymorphic hole (`let f x = printfn "%A" x`) zonks to a still-free `TyVar`
+        // here; `freeze` generalises it to a method typar (`FTTypar(Method, i)`), which
+        // the CLR encoder maps to `!!i` and `appendStructured` authors as the
+        // `AppendStructured<!!i>` type argument (verified: `let f x = printfn "%A" x`
+        // emits cleanly). The runtime dispatcher recovers the boxed runtime type, so the
+        // engine renders the argument whatever it turns out to be.
+        | TyVar _ -> true
+        // The residual shapes (`TyUnknown`, `TyOr`, `TyKeyOf` / `TyIndexedAccess` /
+        // `TyConditional`, `TyEnum`) are either unresolved-nominal errors the front end
+        // rejects before the backend, or external-vocabulary type-level constructs a
+        // real `%A` hole never carries — the encoder can't author a type argument for
+        // them, so they stay cold.
         | _ -> false
 
     /// Lower a marked printf call (`Unification.tryInferPrintfApp` recorded a
