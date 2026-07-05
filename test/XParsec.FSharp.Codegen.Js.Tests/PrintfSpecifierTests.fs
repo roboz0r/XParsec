@@ -30,6 +30,63 @@ let tests =
     testList
         "Codegen.Js printf format specifiers"
         [
+            // ─── `%a` / `%t` callback holes (Track D, step 3) ────────────────────
+            // The asymmetry proof: `sprintf`'s `%a`/`%t` (`State = unit`, callback
+            // returns the residue string) lower on EVERY target incl. JS — a residue
+            // splice = string concat — while the writer/builder families diagnose on JS
+            // (their sink type is unresolvable through the JS provider). Same specifier,
+            // opposite outcome, decided purely by provider-declared capability.
+
+            // `%a`: the curried callback is invoked `cb(unit)(value)`; its residue string
+            // splices at the hole. Runs under Node, byte-exact with F# (a plain residue).
+            test "`sprintf \"%a\"` invokes the callback and splices its residue string" {
+                runsLines
+                    "callback-a"
+                    "printfn \"%s\" (sprintf \"%a\" (fun (s: unit) (x: int) -> sprintf \"%d\" x) 42)"
+                    [ "42" ]
+            }
+
+            // `%t`: no value arg — `cb(unit)` yields the residue directly.
+            test "`sprintf \"%t\"` invokes the value-less callback" {
+                runsLines "callback-t" "printfn \"%s\" (sprintf \"%t\" (fun (s: unit) -> \"hi\"))" [ "hi" ]
+            }
+
+            // A callback that captures an outer `let` — confirms JS closure capture works
+            // through the callback hole (the escape-walk ripple that step 2 wired).
+            test "`sprintf \"%a\"` callback closes over an outer local" {
+                runsLines
+                    "callback-closure"
+                    (String.concat
+                        "\n"
+                        [
+                            "let prefix = \"n=\""
+                            "printfn \"%s\" (sprintf \"%a\" (fun (s: unit) (x: int) -> prefix + sprintf \"%d\" x) 7)"
+                        ])
+                    [ "n=7" ]
+            }
+
+            // A callback hole spliced ALONGSIDE other segments (multi-segment path):
+            // the residue rides a `JsRawSeg.Hole` in the `+`-concatenation.
+            test "`sprintf \"%a\"` splices inside a multi-segment format" {
+                runsLines
+                    "callback-multi"
+                    "printfn \"%s\" (sprintf \"[%a]\" (fun (s: unit) (x: int) -> sprintf \"%d\" x) 9)"
+                    [ "[9]" ]
+            }
+
+            // The other half of the asymmetry: a writer-family (`printf`, `State =
+            // TextWriter`) `%a` targeting JS can't resolve its `System.IO.TextWriter`
+            // sink through the JS provider, so the gate raises the sink-type diagnostic —
+            // no cold fallback, no Format node. Same `%a` specifier `sprintf` lowers above.
+            test "`printf \"%a\"` on JS diagnoses the missing sink type" {
+                let ds = analyseWith jsProvider.Value "printf \"%a\" (fun s (x: int) -> ()) 42"
+
+                Expect.stringContains
+                    (errorText ds)
+                    "requires a sink type"
+                    "writer-family %a diagnoses on a target whose provider lacks TextWriter"
+            }
+
             // Emission: a lone `%x` hole splices its operand once into the radix form
             // as real `JsExpr` nodes (inline: no runtime import, no IIFE, no `.NET`
             // format-string round trip — the operand is referenced once).

@@ -340,9 +340,20 @@ Implemented in steps:
   sprintf/printf/fprintf/bprintf `%a`, sprintf/fprintf `%t`, + a closure-over-local parity test proving
   the escape-walk ripple). No `%a`/`%t` cold pins existed to flip (the cold-recipe guard stays `%+08.2f`).
   Suites green: **CLR 1233** (1223 + 10) **/ JS 264 / semantic 711** (+1 skipped).
-- **Step 3 — JS asymmetry (proves the model).** Replace the JS reject arm with real `sprintf "%a"`
-  residue-splice emit; confirm writer/builder `%a` on JS diagnoses. JS tests: `sprintf "%a"` runnable
-  + `printf "%a"` → diagnostic.
+- **Step 3 — JS asymmetry (proves the model). LANDED (2026-07-05).** JS `EmitJs.buildCallbackHole`
+  invokes the curried `Vesper.Fun` via the ordinary `JsExpr.Call` shape (`cb(undefined)[(v)]`; `unit`
+  = `undefined`) and splices its residue string; only the `ToString` sink is reachable (non-`ToString`
+  callback holes are a defensive `failwithf` — the gate diagnoses writer/builder `%a` before Freeze,
+  confirmed empirically: the JS provider surfaces no `System.IO.TextWriter`/`StringBuilder`). 5 new JS
+  tests: `sprintf "%a"`/`%t`/closure-over-local/multi-segment run byte-exact under Node, and
+  `printf "%a"` on JS asserts the *"requires a sink type"* diagnostic — the two-outcome proof in one
+  file. **Incidental gap closed:** plain `sprintf` (the `ToString` sink) was entirely unwired in JS
+  emit (`failwithf "unsupported format sink"`); added `| ToString -> arg`, so ALL `sprintf` now lowers
+  on JS, not just `%a`. Suites green: **JS 269** (264 + 5) **/ CLR 1233 / semantic 711** (+1 skipped).
+
+**Track D is COMPLETE** — `%a`/`%t` lower natively (CLR every family; JS `sprintf`), writer/builder
+`%a` on JS diagnoses via the provider-capability gate. Only the `TextWriter`-shim future increment
+(above) would extend JS to the writer families.
 
 **Future increment (not this sprint): JS writer-family `%a` via a `TextWriter` shim.** The step-2
 gate diagnoses writer/builder `%a` on JS purely because `ctx.Provider.TryLookupType` doesn't surface
