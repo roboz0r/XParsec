@@ -165,13 +165,43 @@ introduced *then*, not now (routing CLR `fprintf` through a Vesper sink now woul
 
 ### Track D — `%a` / `%t` callback holes
 
-`argType` returns `ValueNone` for `FormatFunction`/`Text` (`PrintfSpec.fs:145-146`), so any format
+`argType` returns `ValueNone` for `FormatFunction`/`Text` (`PrintfSpec.fs:182-183`), so any format
 containing them defers (and raises a diagnostic). Two mechanical pieces still to build:
-- A **typing** rule: `%a` consumes a printer `(State -> 'T -> unit)` **and** a value `'T`; `%t`
-  consumes `(State -> unit)`. `State` is the family's sink type (below) — the same `Family.State`
-  slot the printf rule already threads.
+- A **typing** rule: `%a` consumes a printer `('State -> 'T -> 'Residue)` **and** a value `'T`; `%t`
+  consumes `('State -> 'Residue)`. Both are slots the printf rule already carries: `'State =
+  Family.State`, `'Residue = Family.Residue` — `unit` for the writer/builder families, `string` for
+  `sprintf`. (The `'Residue` slot is load-bearing: the `sprintf` splice below reads a *real residue
+  string*, so the rule is `'State -> 'T -> 'Residue`, not the `… -> unit` an earlier draft wrote.)
 - A **Format segment / `HoleForm`** kind for a callback hole that, at emit, invokes the user
   callback and splices its output at the hole position.
+
+**Where the typing rule actually lands (scouted 2026-07-05).** It is larger than "a rule" — it
+widens the per-hole typing seam, but needs *no* new inference/unification machinery:
+- **Shared typar by node-sharing.** `%a`'s two arg entries `['State -> 'T -> 'Residue; 'T]` must
+  reference the *same* `'T`. Mint **one** `fresh ()` per `%a` hole and reuse the returned `TyVar`
+  node in both entries; the App-loop unification (`InferApp.fs` ~`:321-343`) then pins both
+  occurrences with nothing added — identical to how `%A` shares its single fresh today. The callback
+  lambda's 2nd parameter unifies with `'T` through its printer-arrow domain; the value arg unifies
+  with the same node; F# already requires the two to agree.
+- **Construct it in `argTypes`, not `argType`.** `argType` (`:166`) is single-`fresh`/single-return
+  and has no `Family`, so it can express neither two entries nor the `'State`/`'Residue` dependency.
+  `argTypes` (`:191`) must branch at the top for `FormatFunction`/`Text`, returning the callback
+  list directly and bypassing the `starDim … @ [value]` path (F# `%a`/`%t` carry no width/precision,
+  so there is zero star interaction).
+- **Signature ripple.** `argTypes` gains the family (or just `state`/`residue`). Callers:
+  `appliedTypeOf` (`:359`) already holds `fam` — thread it through the `argTypes` call at `:368`;
+  `totalArity` (`:345`) must now count `%a` = 2 / `%t` = 1 (the full-application gate reads
+  `args.Length = totalArity + idx + 1`, so a miscount mis-fires). The count is type-independent, so
+  `totalArity` can stay fam-free via a small arity helper if threading `fam` there is noisy.
+- **`'State` is already the resolved type here.** `resolveExternalSlots` (`InferApp.fs:290-296`)
+  rewrites `fam.State` to the provider `TyClass(TextWriter)` / `TyClass(StringBuilder)` *before*
+  `appliedTypeOf` runs, so a callback parameter `(w: TextWriter)` unifies with the printer's `'State`
+  slot directly — B1's writer-slot `TyClass` cleanup carries Track D for free.
+- **Partials stay cold** (fully-applied only, like B1/B2): leave `hasConcreteArgType` /
+  `isUnaryConcreteHole` returning `false` for `FormatFunction`/`Text` so `%a`/`%t` never enter the 4a
+  value-struct lowering. Only `PrintfHoleForm.tryClassify` gains a case (the new callback `HoleForm`),
+  which is what flips `lowerablePlaceholders` to admit them. Stale in-code comments to correct when
+  this lands: `PrintfSpec.fs:157-165` ("`%a`/`%t` aren't modelled yet") and `:204-208`.
 
 **ABI decision (maintainer, 2026-07-05) — RESOLVED; no longer an open design item.** `State` is
 **not** uniformly `TextWriter`: it is already family-dependent in `PrintfSpec.Family` (writer

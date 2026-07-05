@@ -115,27 +115,55 @@ let tests =
                         FormatType.UnsignedOctal
                         FormatType.UnsignedBinary
                     ] do
-                    Expect.equal (PrintfSpec.argTypes fresh (ph t)) (ValueSome [ tyInt ]) (sprintf "%A : int" t)
+                    Expect.equal
+                        (PrintfSpec.argTypes fresh tyUnit tyUnit (ph t))
+                        (ValueSome [ tyInt ])
+                        (sprintf "%A : int" t)
             }
 
             test "argTypes: %A and %O both consume one fresh (polymorphic) arg" {
                 let fresh () = TyConst("FRESH", EqArray.empty)
 
                 Expect.equal
-                    (PrintfSpec.argTypes fresh (ph FormatType.Structured))
+                    (PrintfSpec.argTypes fresh tyUnit tyUnit (ph FormatType.Structured))
                     (ValueSome [ TyConst("FRESH", EqArray.empty) ])
                     "%A poly"
 
                 Expect.equal
-                    (PrintfSpec.argTypes fresh (ph FormatType.Object))
+                    (PrintfSpec.argTypes fresh tyUnit tyUnit (ph FormatType.Object))
                     (ValueSome [ TyConst("FRESH", EqArray.empty) ])
                     "%O poly"
             }
 
-            test "argTypes: %a / %t are not typed in v1" {
-                let fresh () = TyConst("FRESH", EqArray.empty)
-                Expect.equal (PrintfSpec.argTypes fresh (ph FormatType.FormatFunction)) ValueNone "%a deferred"
-                Expect.equal (PrintfSpec.argTypes fresh (ph FormatType.Text)) ValueNone "%t deferred"
+            test "argTypes: %a consumes printer + value sharing one fresh typar; %t consumes just the printer" {
+                let mutable n = 0
+
+                let fresh () =
+                    n <- n + 1
+                    TyConst("FRESH" + string n, EqArray.empty)
+
+                let state = tyString
+                let residue = tyInt
+
+                // %a : the printer `state -> tv -> residue` and the value `tv` — the
+                // SAME typar node in both slots, so exactly one fresh is minted.
+                match PrintfSpec.argTypes fresh state residue (ph FormatType.FormatFunction) with
+                | ValueSome [ TyFun(s, TyFun(tv1, r)); tv2 ] ->
+                    Expect.equal s state "printer's state arg"
+                    Expect.equal r residue "printer's residue result"
+                    Expect.equal tv1 tv2 "value arg is the same typar as the printer's inner arg"
+                    Expect.equal n 1 "%a mints exactly one fresh typar"
+                | other -> failtestf "unexpected %%a shape: %A" other
+
+                // %t : just the printer `state -> residue`, no value, no fresh.
+                n <- 0
+
+                Expect.equal
+                    (PrintfSpec.argTypes fresh state residue (ph FormatType.Text))
+                    (ValueSome [ TyFun(state, residue) ])
+                    "%t printer"
+
+                Expect.equal n 0 "%t mints no fresh typar"
             }
 
             test "argTypes: star dims prepend an int per star, width before precision" {
@@ -146,19 +174,19 @@ let tests =
 
                 // %*d : width int, then value int.
                 Expect.equal
-                    (PrintfSpec.argTypes fresh (star FormatDim.Star FormatDim.Absent FormatType.DecimalInt))
+                    (PrintfSpec.argTypes fresh tyUnit tyUnit (star FormatDim.Star FormatDim.Absent FormatType.DecimalInt))
                     (ValueSome [ tyInt; tyInt ])
                     "%*d"
 
                 // %.*f : precision int, then value float.
                 Expect.equal
-                    (PrintfSpec.argTypes fresh (star FormatDim.Absent FormatDim.Star FormatType.FloatDecimal))
+                    (PrintfSpec.argTypes fresh tyUnit tyUnit (star FormatDim.Absent FormatDim.Star FormatType.FloatDecimal))
                     (ValueSome [ tyInt; tyFloat ])
                     "%.*f"
 
                 // %*.*f : width int, precision int, value float.
                 Expect.equal
-                    (PrintfSpec.argTypes fresh (star FormatDim.Star FormatDim.Star FormatType.FloatDecimal))
+                    (PrintfSpec.argTypes fresh tyUnit tyUnit (star FormatDim.Star FormatDim.Star FormatType.FloatDecimal))
                     (ValueSome [ tyInt; tyInt; tyFloat ])
                     "%*.*f"
 
@@ -166,6 +194,8 @@ let tests =
                 Expect.equal
                     (PrintfSpec.argTypes
                         fresh
+                        tyUnit
+                        tyUnit
                         (star (FormatDim.Literal(bigint 5)) FormatDim.Absent FormatType.DecimalInt))
                     (ValueSome [ tyInt ])
                     "%5d"

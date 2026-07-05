@@ -155,10 +155,12 @@ module PrintfSpec =
         | Structured
 
     /// SemType of the *value* argument a type letter consumes, or `ValueNone`
-    /// for the letters v1 doesn't type. `%A`/`%O` both consume a polymorphic
-    /// argument (a fresh type variable); the `%A`-vs-`%O` distinction, irrelevant
-    /// to typing, stays in the `FormatType` for codegen. `%a`/`%t` aren't modelled
-    /// yet, so they return `ValueNone`.
+    /// for the letters this single-value helper can't express. `%A`/`%O` both
+    /// consume a polymorphic argument (a fresh type variable); the `%A`-vs-`%O`
+    /// distinction, irrelevant to typing, stays in the `FormatType` for codegen.
+    /// `%a`/`%t` still return `ValueNone` here: their shape (two entries for `%a`;
+    /// a `'State`/`'Residue` dependency for both) can't fit one `SemType` with no
+    /// `Family` in scope — `argTypes` types them directly instead.
     ///
     /// Private: no cross-pass signature carries a bare `FormatType` — star-ness
     /// lives on the placeholder, so callers go through `argTypes`, which folds in
@@ -184,28 +186,41 @@ module PrintfSpec =
 
     /// Every argument a placeholder consumes, in *application* order: a leading
     /// `int` per `Star` dimension (width before precision, matching F#'s
-    /// `sprintf "%*.*f" width precision value`), then the value argument. `ValueNone`
-    /// iff the type letter is untypeable (`%a`/`%t`), in which case the caller
-    /// defers to standard inference. This is the per-hole typing seam: arity is
-    /// `List.length`, never a hole count.
-    let argTypes (fresh: unit -> SemType) (p: FormatPlaceholder) : SemType list voption =
-        match argType fresh p.Type with
-        | ValueNone -> ValueNone
-        | ValueSome value ->
-            let starDim d =
-                match d with
-                | FormatDim.Star -> [ tyInt ]
-                | FormatDim.Absent
-                | FormatDim.Literal _ -> []
+    /// `sprintf "%*.*f" width precision value`), then the value argument. `%a`/`%t`
+    /// depend on the family's `state`/`residue`, so those are passed in explicitly
+    /// (the `Family` record is declared below this helper, so threading the two
+    /// SemTypes avoids a forward reference). `%a` (`FormatFunction`) consumes a
+    /// printer `'State -> 'T -> 'Residue` *and* the value `'T` — the SAME fresh
+    /// typar node in both positions, so they unify to one type; `%t` (`Text`)
+    /// consumes just `'State -> 'Residue`. Neither carries width/precision in F#,
+    /// so both branch out at the top and skip the star-fold. This is the per-hole
+    /// typing seam: arity is `List.length`, never a hole count.
+    let argTypes (fresh: unit -> SemType) (state: SemType) (residue: SemType) (p: FormatPlaceholder) : SemType list voption =
+        match p.Type with
+        | FormatType.FormatFunction ->
+            let tv = fresh ()
+            ValueSome [ TyFun(state, TyFun(tv, residue)); tv ]
+        | FormatType.Text -> ValueSome [ TyFun(state, residue) ]
+        | _ ->
+            match argType fresh p.Type with
+            | ValueNone -> ValueNone
+            | ValueSome value ->
+                let starDim d =
+                    match d with
+                    | FormatDim.Star -> [ tyInt ]
+                    | FormatDim.Absent
+                    | FormatDim.Literal _ -> []
 
-            ValueSome(starDim p.Width @ starDim p.Precision @ [ value ])
+                ValueSome(starDim p.Width @ starDim p.Precision @ [ value ])
 
     /// True when the specifier consumes an argument of a *fixed concrete* type.
-    /// Excludes `%a`/`%t` (`FormatFunction`/`Text` — no arg type at all) and
-    /// `%A`/`%O` (`Object`/`Structured` — a fresh typar, which is unpinned when the
-    /// printf partial is left unapplied). A fully-unapplied partial over such a hole
-    /// would be a *generic* value struct, out of scope for the 4a heap-closure
-    /// lowering; `argType` returns `fresh ()`/`ValueNone` for exactly these.
+    /// Excludes `%a`/`%t` (`FormatFunction`/`Text`) and `%A`/`%O`
+    /// (`Object`/`Structured` — a fresh typar, which is unpinned when the printf
+    /// partial is left unapplied). Though `argTypes` now types `%a`/`%t` (a printer
+    /// arrow over the family's `'State`/`'Residue`, plus a fresh value typar for
+    /// `%a`), they are still not *concrete*: a fully-unapplied partial over such a
+    /// hole would be a *generic* value struct, out of scope for the 4a heap-closure
+    /// lowering, so they must stay `false` here and route cold.
     let hasConcreteArgType (t: FormatType) : bool =
         match t with
         | FormatType.Object
@@ -338,21 +353,22 @@ module PrintfSpec =
     /// Total number of curried arguments the placeholders consume — the sum of
     /// per-hole `argTypes` lengths. The happy-path marker gate reads this
     /// (`args.Length = totalArity + 1`) instead of a hole count: a star hole
-    /// consumes 2–3 args, so holes = args no longer holds. The value type is
-    /// irrelevant to the count, so a constant `fresh` mints no type var. Untypeable
-    /// letters (`%a`/`%t`) count 0, but the gate only runs after `appliedTypeOf`
-    /// succeeded, where every hole is typeable.
+    /// consumes 2–3 args, so holes = args no longer holds. Only the arg COUNT is
+    /// read here, and it's type-independent (2 for `%a`, 1 for `%t`, N for a star
+    /// hole), so the constant `fresh` and the dummy `tyUnit` state/residue are
+    /// safe — `List.length` never inspects the SemTypes.
     let totalArity (specs: FormatPlaceholder list) : int =
         specs
         |> List.sumBy (fun p ->
-            match argTypes (fun () -> tyUnit) p with
+            match argTypes (fun () -> tyUnit) tyUnit tyUnit p with
             | ValueSome ts -> ts.Length
             | ValueNone -> 0
         )
 
     /// Shape: `leading… -> PrintfFormat<printer,…> -> printer`, plus the format
-    /// type and printer type computed along the way. `ValueNone` when any
-    /// placeholder isn't typeable in v1 (`%a` / `%t`) — the caller then defers to
+    /// type and printer type computed along the way. `ValueNone` only when a
+    /// placeholder isn't typeable (no letter is left untypeable now that `argTypes`
+    /// covers `%a`/`%t` from `fam.State`/`fam.Residue`) — the caller then defers to
     /// standard inference. Star dimensions concat their leading `int`s into the
     /// printer arrow via `argTypes`, so the printer curries width/precision before
     /// the value.
@@ -365,7 +381,7 @@ module PrintfSpec =
             match specs with
             | [] -> ValueSome(List.rev acc)
             | p :: rest ->
-                match argTypes fresh p with
+                match argTypes fresh fam.State fam.Residue p with
                 | ValueSome ts -> mapAll (List.rev ts @ acc) rest
                 | ValueNone -> ValueNone
 

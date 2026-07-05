@@ -122,9 +122,19 @@ module internal UnificationInferLiteralExpr =
                                     Severity = Severity.Error
                                 }
 
-                        match PrintfSpec.argTypes (fun () -> TyVar(freshTyVar ctx)) p with
-                        | ValueSome ts -> unify ctx (CstKeys.ofExpr e) holeTy (List.last ts)
-                        | ValueNone -> ()
+                        // `%a`/`%t` consume a printf callback curried from the
+                        // format, not a plain value — an interpolation hole has
+                        // none (same reason star dims are rejected above), so skip
+                        // the value-type recovery for them. State/residue are
+                        // irrelevant here: only the final value type is read, and
+                        // it's a plain-value letter by this point.
+                        match p.Type with
+                        | FormatType.FormatFunction
+                        | FormatType.Text -> ()
+                        | _ ->
+                            match PrintfSpec.argTypes (fun () -> TyVar(freshTyVar ctx)) BuiltinTypes.tyUnit BuiltinTypes.tyUnit p with
+                            | ValueSome ts -> unify ctx (CstKeys.ofExpr e) holeTy (List.last ts)
+                            | ValueNone -> ()
                     | ValueNone -> ()
                 | ValueNone -> ()
             | _ -> ()
