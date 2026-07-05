@@ -1392,6 +1392,13 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// sink, every specifier `PrintfHoleForm.tryClassify` accepts). Absence keeps
     /// the existing FSharp.Core path.
     member val PrintfApp = SideTable<PrintfSpec.PrintfSink>() with get
+    /// Keyed by the same `Expr.App` NodeKey as `PrintfApp`; present only for a
+    /// fully-applied `%a`/`%t` call on a *writer/builder* family (a `Writer` /
+    /// `Builder` sink whose scratch type the provider resolves). Carries the
+    /// resolved scratch class + `ToString` key Freeze splices into the capture-first
+    /// residue block. `sprintf` `%a`/`%t` has no entry — its residue is the
+    /// callback's returned string; absence means "no scratch needed".
+    member val PrintfCallbackScratch = SideTable<PrintfSpec.CallbackScratch>() with get
     /// Keyed by an `Expr.App` NodeKey; present only for a *fully-unapplied*
     /// lowerable printf partial (`printfn "%d"`, `printf "%d %s"`, …) — a literal
     /// format, `idx = 0`, a `StdOut`/`StdErr`/`StringResult` sink, `1..K` holes,

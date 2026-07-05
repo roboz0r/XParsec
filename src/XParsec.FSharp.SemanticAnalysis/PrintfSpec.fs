@@ -58,6 +58,9 @@ module PrintfSpec =
     let private tyStringBuilder: SemType =
         TyConst(RuntimeNames.stringBuilderTypeName, EqArray.empty)
 
+    let private tyStringWriter: SemType =
+        TyConst(RuntimeNames.stringWriterTypeName, EqArray.empty)
+
     /// Target-agnostic classification of a printf entry point's output sink,
     /// resolved from the entry-point name. Recorded on `PassContext.PrintfApp`
     /// for the calls P1 lowers inline.
@@ -267,6 +270,14 @@ module PrintfSpec =
             Residue: SemType
             Result: SemType
             LeadingArgTypes: SemType list
+            /// The concrete sink a `%a`/`%t` capture-first hole instantiates as a
+            /// per-hole scratch. The writer families' `State` is the *abstract*
+            /// `TextWriter` (can't be `new`d), so their scratch is the concrete
+            /// `StringWriter`; `bprintf`'s scratch is its own `StringBuilder` `State`;
+            /// `sprintf` needs none (`unit` — its callback returns the residue string
+            /// directly). Rewritten to a provider-resolved `TyClass` by
+            /// `resolveExternalSlots` exactly as `State` is.
+            ScratchSink: SemType
         }
 
     let private writerFamily (formatArgIndex: int) (leading: SemType list) : Family =
@@ -277,6 +288,7 @@ module PrintfSpec =
             Residue = tyUnit
             Result = tyUnit
             LeadingArgTypes = leading
+            ScratchSink = tyStringWriter
         }
 
     let private builderFamily (formatArgIndex: int) (leading: SemType list) : Family =
@@ -287,6 +299,7 @@ module PrintfSpec =
             Residue = tyUnit
             Result = tyUnit
             LeadingArgTypes = leading
+            ScratchSink = tyStringBuilder
         }
 
     let private stringFamily: Family =
@@ -297,6 +310,7 @@ module PrintfSpec =
             Residue = tyString
             Result = tyString
             LeadingArgTypes = []
+            ScratchSink = tyUnit
         }
 
     /// Keyed by source short name. The `k*`-continuation family is out of scope —
@@ -348,11 +362,14 @@ module PrintfSpec =
                 resolveName RuntimeNames.textWriterTypeName
             elif t = tyStringBuilder then
                 resolveName RuntimeNames.stringBuilderTypeName
+            elif t = tyStringWriter then
+                resolveName RuntimeNames.stringWriterTypeName
             else
                 t
 
         { fam with
             State = sub fam.State
+            ScratchSink = sub fam.ScratchSink
             LeadingArgTypes = fam.LeadingArgTypes |> List.map sub
         }
 
@@ -367,6 +384,35 @@ module PrintfSpec =
         match fam.State with
         | TyClass _ -> true
         | s -> s = tyUnit
+
+    /// Whether a `%a`/`%t` call on this family lowers *capture-first into a scratch
+    /// sink* (writer/builder) rather than splicing the callback's returned string
+    /// (`sprintf`). `sprintf` alone has `ScratchSink = unit`; every other family
+    /// instantiates a concrete scratch. This is the sole legitimate reason a
+    /// fully-applied callback call has *no* `PassContext.PrintfCallbackScratch`
+    /// entry — so the gate resolves a scratch iff this is true, and Freeze can read
+    /// "absence ⇒ sprintf" as an invariant rather than a coincidence.
+    let familyNeedsScratch (fam: Family) : bool = fam.ScratchSink <> tyUnit
+
+    /// The resolved scratch-sink facts a *writer/builder* `%a`/`%t` call needs to
+    /// lower capture-first: everything Freeze splices into the residue block
+    /// `{ let s = new ScratchClassName() in cb s [value]; s.ToString() }`. The gate
+    /// (which holds `ctx.Provider`) resolves these once per call and stashes them on
+    /// `PassContext.PrintfCallbackScratch`; Freeze reads them with no provider access.
+    /// `sprintf` has no entry — its residue is the callback's returned string.
+    type CallbackScratch =
+        {
+            /// The concrete scratch class (`System.IO.StringWriter` /
+            /// `System.Text.StringBuilder`) — the `TExpr.New` className.
+            ScratchClassName: string
+            /// The provider-resolved scratch `TyClass` — the `TExpr.New` result type
+            /// (codegen routes the external ctor off its key) and the receiver type
+            /// of the `ToString` call.
+            ScratchTy: SemType
+            /// The interned `ToString()` member key, stamped into the synthesised
+            /// `TExpr.ExternalMember` so codegen mints the ref off the node.
+            ToStringKey: SymbolKey
+        }
 
     let formatType (printer: SemType) (fam: Family) : SemType =
         TyClass(RuntimeNames.printfFormatKey, EqArray.ofList [ printer; fam.State; fam.Residue; fam.Result ])

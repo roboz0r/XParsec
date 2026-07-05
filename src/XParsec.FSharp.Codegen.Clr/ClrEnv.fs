@@ -217,11 +217,6 @@ type internal ClrEnv
     let eTextWriter =
         lazy (toEntity (ctx.TypeRef(coreRef.Value, "System.IO", "TextWriter")))
 
-    // `System.IO.StringWriter` — the per-hole scratch sink the writer-family `%a`/`%t`
-    // callback writes into (a `TextWriter`), then `ToString()`d and `AppendLiteral`d.
-    let eStringWriter =
-        lazy (toEntity (ctx.TypeRef(coreRef.Value, "System.IO", "StringWriter")))
-
     // `System.Text.StringBuilder` — the `bprintf` write-through sink (the leading
     // arg + the third `Formatter` ctor param). In the ref pack it lives in the same
     // core assembly as `TextWriter` (`System.Runtime`), so `coreRef`.
@@ -585,7 +580,6 @@ type internal ClrEnv
     member _.EEnum = eEnum
     member _.EIsByRefLikeAttrCtor = eIsByRefLikeAttrCtor
     member _.ETextWriter = eTextWriter
-    member _.EStringWriter = eStringWriter
     member _.EStringBuilder = eStringBuilder
     member _.EConsole = eConsole
     member _.EFormatter = eFormatter

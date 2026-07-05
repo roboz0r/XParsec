@@ -307,8 +307,7 @@ module TastLower =
                                 Precision = ValueOption.map f d.Precision
                                 Value = f d.Value
                             }
-                    | FormatSegG.CallbackHole(spec, callback, value) ->
-                        FormatSegG.CallbackHole(spec, f callback, ValueOption.map f value)
+                    | FormatSegG.CallbackHole(spec, residue) -> FormatSegG.CallbackHole(spec, f residue)
                 )
 
             TExprG.Format(sink, segs, t, tk)

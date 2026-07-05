@@ -723,37 +723,52 @@ let tests =
                     "7 and x"
             }
 
-            // Track D — `%a` / `%t` callback holes. The callback is a `Vesper.Fun`
-            // (often a closure), invoked via the native `EmitInvoke` path (NOT
-            // `FSharpFunc.Invoke`, so no FSharp.Core). Capture-first emit invokes it
-            // against a per-family scratch sink and `AppendLiteral`s the residue.
-            // `%a` = a printer + a value; `%t` = a printer alone. Parity is against the
+            // Track D — `%a` / `%t` callback holes. Freeze lowers each callback hole to
+            // an ordinary residue-*string* expr (the callback is a `Vesper.Fun`, applied
+            // through the native path — no FSharp.Core): `sprintf` splices the callback's
+            // returned string (`cb unit [value]`); the writer/builder families splice a
+            // `{ let s = new Scratch() in cb s [value]; s.ToString() }` block. Both
+            // backends emit the residue exactly like a `%s` hole. Parity is against the
             // test process's own F# `%a`/`%t` with the identical callback.
 
-            test "sprintf `%a` lowers to a ToString Format with a value-carrying CallbackHole" {
+            test "sprintf `%a` lowers to a ToString Format; residue is the applied callback (value-carrying)" {
+                // `%a` residue = `cb unit value` — a double application (the value is the
+                // outer arg), so the residue's head is `App(App(_, _), _)`.
                 match soleDecl "sprintf \"%a\" (fun (s: unit) (x: int) -> sprintf \"%d\" x) 42" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToString, segs, _, _), _) ->
                     match EqArray.toList segs with
-                    | [ FormatSeg.CallbackHole(_, _, ValueSome _) ] -> ()
-                    | other -> failtestf "expected one CallbackHole carrying a value, got: %A" other
+                    | [ FormatSeg.CallbackHole(_, TExpr.App(TExpr.App _, _, _, _)) ] -> ()
+                    | other ->
+                        failtestf "expected a CallbackHole whose residue applies the callback to a value, got: %A" other
                 | other -> failtestf "expected a ToString Format node, got: %A" other
             }
 
-            test "sprintf `%t` lowers to a Format with a value-less CallbackHole" {
+            test "sprintf `%t` lowers to a Format; residue is the value-less callback application" {
+                // `%t` residue = `cb unit` — a single application (no value arg).
                 match soleDecl "sprintf \"%t\" (fun (s: unit) -> \"hi\")" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToString, segs, _, _), _) ->
                     match EqArray.toList segs with
-                    | [ FormatSeg.CallbackHole(_, _, ValueNone) ] -> ()
-                    | other -> failtestf "expected one value-less CallbackHole, got: %A" other
+                    | [ FormatSeg.CallbackHole(_, TExpr.App(fn, _, _, _)) ] ->
+                        match fn with
+                        | TExpr.App _ ->
+                            failtestf "expected a single (value-less) application for %%t, got a nested one"
+                        | _ -> ()
+                    | other ->
+                        failtestf
+                            "expected a CallbackHole whose residue is a single callback application, got: %A"
+                            other
                 | other -> failtestf "expected a ToString Format node, got: %A" other
             }
 
-            test "`printf \"%a\"` lowers to a ToStdOut Format with a CallbackHole" {
+            test "`printf \"%a\"` (writer family) lowers to a ToStdOut Format; residue is the scratch block" {
+                // A writer-family `%a` residue is the capture-first block Freeze synthesises:
+                // `{ let s = new StringWriter() in …; s.ToString() }` — a `Let`.
                 match soleDecl "printf \"%a\" (fun (w: System.IO.TextWriter) (x: int) -> fprintf w \"%d\" x) 42" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToStdOut false, segs, _, _), _) ->
                     match EqArray.toList segs with
-                    | [ FormatSeg.CallbackHole(_, _, ValueSome _) ] -> ()
-                    | other -> failtestf "expected one CallbackHole carrying a value, got: %A" other
+                    | [ FormatSeg.CallbackHole(_, TExpr.Let _) ] -> ()
+                    | other ->
+                        failtestf "expected a CallbackHole whose residue is the scratch `let` block, got: %A" other
                 | other -> failtestf "expected a ToStdOut Format node, got: %A" other
             }
 

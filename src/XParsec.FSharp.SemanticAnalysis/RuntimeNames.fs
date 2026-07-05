@@ -135,6 +135,13 @@ module RuntimeNames =
     /// here so the coupling is named rather than a bare literal in the printf spec.
     let stringBuilderTypeName: string = "System.Text.StringBuilder"
 
+    /// The BCL `System.IO.StringWriter` nominal name — the concrete `TextWriter`
+    /// the writer families' `%a`/`%t` capture-first lowering instantiates as a
+    /// per-hole scratch sink (the abstract `TextWriter` `State` can't be `new`d).
+    /// Resolved through the provider like `textWriterTypeName`; a CLR contract with
+    /// no JS analogue (writer-family `%a` diagnoses on JS at the capability gate).
+    let stringWriterTypeName: string = "System.IO.StringWriter"
+
     /// The canonical identity name for a rank-`rank` array, sourced from the
     /// `prim-types-min.fs` declaration `type 'T ``[]`` ` (rank 1 → `"[]"`;
     /// rank N → `"[" + (N-1) commas + "]"`, e.g. `"[,]"` for 2-D). Arrays are a

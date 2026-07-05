@@ -391,6 +391,62 @@ module internal UnificationInferApp =
                                             )))
                                     ->
                                     ctx.PrintfApp.Set(key, sink)
+
+                                    // Capture-first `%a`/`%t` on a *writer/builder family* lowers to
+                                    // a residue block `{ let s = new Scratch() in cb s [v];
+                                    // s.ToString() }`. A family needs a scratch iff it is not
+                                    // `sprintf` (`PrintfSpec.familyNeedsScratch`) — keyed on the FAMILY
+                                    // (writer families → `StringWriter`, `bprintf` → `StringBuilder`),
+                                    // NOT the sink kind: `printf`/`eprintf` are writer families with a
+                                    // `StdOut`/`StdErr` sink and still need a scratch. `sprintf`
+                                    // (`ScratchSink = unit`) splices the callback's returned string, so
+                                    // it gets NO entry — and that absence is Freeze's sole signal to
+                                    // take the sprintf path. Resolve the scratch + its *parameterless*
+                                    // `ToString` ONCE here (the gate owns `ctx.Provider`) and stash it
+                                    // for Freeze, which has none.
+                                    //
+                                    // A scratch-needing family is only reached with `not
+                                    // rejectCallback`, i.e. `callbackSinkAvailable` already saw its
+                                    // `State` resolve to a provider `TyClass`; a `ScratchSink` that then
+                                    // fails to resolve — or a resolved scratch class with no
+                                    // parameterless `ToString` (impossible for `StringWriter` /
+                                    // `StringBuilder`) — is a broken invariant, NOT a silent fall
+                                    // through to sprintf, which would pass `unit` where the callback's
+                                    // `State` sink is required.
+                                    if hasCallbackHole && PrintfSpec.familyNeedsScratch fam then
+                                        match fam.ScratchSink with
+                                        | TyClass(scratchKey, _) as scratchTy ->
+                                            let scratchName = SymbolKeyOps.qualifiedName scratchKey
+
+                                            // `ToString` is overloaded (`StringBuilder.ToString(int,
+                                            // int)`); pick the parameterless override, not the
+                                            // most-params one `TryLookupMember` would return.
+                                            let toString =
+                                                ctx.Provider.TryLookupMembers(scratchName, "ToString")
+                                                |> Array.tryFind (fun m ->
+                                                    match m.Key with
+                                                    | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length = 0
+                                                    | _ -> false
+                                                )
+
+                                            match toString with
+                                            | Some m ->
+                                                ctx.PrintfCallbackScratch.Set(
+                                                    key,
+                                                    {
+                                                        ScratchClassName = scratchName
+                                                        ScratchTy = scratchTy
+                                                        ToStringKey = m.Key
+                                                    }
+                                                )
+                                            | None ->
+                                                failwithf
+                                                    "InferApp: writer/builder %%a/%%t scratch sink %s resolved to a class with no parameterless ToString — cannot lower capture-first"
+                                                    scratchName
+                                        | other ->
+                                            failwithf
+                                                "InferApp: writer/builder %%a/%%t scratch sink is unresolved (%A) though callbackSinkAvailable passed the State gate — resolveExternalSlots and the gate disagree"
+                                                other
                                 // 4a partial-application marker: a *fully-unapplied* lowerable
                                 // literal partial (`printfn "%d"`, `printf "%d %s"`) — only the
                                 // format is supplied (`args.Length = idx + 1`), `1..K` holes,

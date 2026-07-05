@@ -419,13 +419,15 @@ and [<RequireQualifiedAccess>] FormatSegG<'ty, 'tok> =
     /// with which of `Width`/`Precision` are present — all constructed from the same
     /// placeholder.
     | DynHole of DynFormatHoleG<'ty, 'tok>
-    /// A `%a` / `%t` printer-callback hole (`HoleForm.Callback`). `callback` is a
-    /// `Vesper.Fun` value (often a CLOSURE) invoked via the native `EmitInvoke` path;
-    /// `value` is the extra `'T` argument `%a` consumes (`ValueNone` for `%t`). Both
-    /// ride here so every TAST traversal — closure/escape analysis especially — walks
-    /// them exactly as it walks `Hole`'s value expr. Capture-first emit invokes the
-    /// callback against a per-family scratch sink and `AppendLiteral`s the residue.
-    | CallbackHole of spec: HoleSpecG<'ty, 'tok> * callback: TExprG<'ty, 'tok> * value: TExprG<'ty, 'tok> voption
+    /// A `%a` / `%t` printer-callback hole (`HoleForm.Callback`), lowered
+    /// capture-first to an ordinary residue-*string* expression Freeze synthesises:
+    /// `sprintf` splices the callback's returned string (`cb unit [value]`); the
+    /// writer/builder families splice `{ let s = new Scratch() in cb s [value]; s.ToString() }`.
+    /// `residue` is therefore just a `string`-typed `TExpr` (the callback + value ride
+    /// inside it as ordinary sub-exprs, so every traversal walks it with no special
+    /// arm), and both backends emit it exactly as a `%s` hole — no sink knowledge in
+    /// codegen. The segment stays distinct only to record `%a`/`%t` provenance.
+    | CallbackHole of spec: HoleSpecG<'ty, 'tok> * residue: TExprG<'ty, 'tok>
 
 /// A `FormatSegG.DynHole` payload: the hole's spec + value, plus whichever
 /// dimension args the curried application supplies at runtime. `Width` is present

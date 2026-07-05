@@ -260,16 +260,79 @@ everywhere. It divides into an easy half available *today* and a hard half that 
   never substitute for the concrete `TextWriter` class; it is relevant only for this Vesper-native
   `Formatter`-as-`State` surface (or a future JS `%a`).
 
-### Track E — format-as-value / non-literal format
+### Track E — format-as-value / non-literal format  (NEXT — start fresh session here)
 
 `formatSpecifiers` (`InferLiterals.fs`) returns `ValueNone` for a non-`Expr.String` format (its
-final `| _ -> ValueNone`), so a `PrintfFormat`-typed value used at the call site defers. Two sub-cases:
-- **E1 — compile-time-known literal bound to a `let`** (`let fmt = ... in printf fmt` where `fmt`
-  is a literal): constant-propagate the format to the call site and lower normally. Medium.
-- **E2 — genuinely dynamic format** (computed at runtime): needs the **runtime spec-runner** this
-  project deferred (`printf-architecture.md`) — a `static readonly` parsed-spec + a runtime loop
-  over the handler. The heaviest item; likely its own sub-sprint. Until it lands, E2 is the last
-  shape that can force cold, so the capstone's ordering must account for it.
+final `| _ -> ValueNone`), so a `PrintfFormat`-typed value used at the call site defers — the
+compiler-synthesised `New PrintfFormat<…>(text)` ctor + `App printf` stands as the FSharp.Core cold
+path (`FreezeExpr.fs` handles that ctor; `translatePrintfFormat` `failwith`s on a non-literal format
+arg, so only the *literal* path ever lowers today). Two sub-cases:
+
+- **E1 — compile-time-known literal bound to a `let`** (`let fmt = "…%d…" in printf fmt`): the format
+  IS a literal, just not syntactically at the call site. Medium.
+- **E2 — genuinely dynamic format** (`Printf.StringFormat(runtimeStr)`): the string is computed at
+  runtime. Heaviest; likely its own sub-sprint.
+
+**Load-bearing semantic fact (confirmed 2026-07-05) — E2 is never runtime-variadic.** F#'s
+`PrintfFormat<'Printer,'State,'Residue,'Result>` type argument *statically pins* the arity and every
+hole's type; the only way to obtain a runtime format is to construct that type from a non-literal
+string, which forces an explicit annotation that fixes the shape:
+```fsharp
+let f : Printf.StringFormat<int -> string> = Printf.StringFormat(runtimeStr)  // shape fixed by the type
+sprintf f 42   // runtimeStr may be "%d" | "%x" | "n=%d!", but MUST consume exactly one int
+```
+So for **every** sub-case — literal, E1, and E2 — the *apply signature* (arity + hole types) is
+compile-time-known from the `PrintfFormat` type. Only the *body* (which literal chunks, `%d`-vs-`%x`
+per typed hole) is runtime, and only in E2.
+
+**Recommended architecture — one typed `Apply`, two body strategies (the D↔E bridge).**
+Model each format's semantics as a single canonical **typed `Apply`** whose parameters are the holes
+(one typar per hole, from the `PrintfFormat` type — never variadic; per-format monomorphised). Then:
+- **literal / E1** → the `Apply` body is *generated straight-line* (today's capture-first segment
+  emit, wrapped as a body) and produced as a **synthetic inline template**;
+- **E2** → the same typed `Apply` interface, body *deferred to a runtime interpreter* (the
+  `static readonly` parsed-spec + handler loop from `printf-architecture.md`).
+
+This subsumes the current per-hole segment IR (`Lit`/`Hole`/`DynHole`/`CallbackHole`) into "how the
+compile-time `Apply` body is generated": `%a`/`%t` stop being a TAST-level special case — the callback
+becomes an ordinary typed parameter applied *inside* the body, and the capture-first scratch logic
+becomes ordinary code every pass already walks (this is why finding-#1's capability gate — see
+`callbackSinkAvailable` / `familyNeedsScratch` — is representation-independent and survives the move
+intact, just relocated into the `Apply` body).
+
+**Why this is an *extension* of existing machinery, not a new inliner.** `Passes/InlineExpansion.fs` +
+`Inline.fs` already do the load-bearing parts on the pre-freeze `TyVar` tree: saturated call-site
+expansion, beta reduction against actual args, typar substitution, NodeKey freshening, static-opt
+resolution. Two existing behaviours give the escape model for free:
+- **inline templates are dropped by codegen unless referenced as a value** ⇒ a fully-applied literal
+  call expands to straight-line code and the template husk is DCE'd with *no new machinery* — this is
+  today's zero-emit fast path, recovered;
+- **escape ⇒ eta-reify the function value** (`InlineExpansion` marks this "left to codegen") ⇒ **E1**
+  is exactly "the format escapes as a value, so the template survives as a reified singleton" (a
+  singleton is one alloc for the program lifetime; the per-call cost delta vs. inlined is only the
+  call/devirt, not allocation).
+
+The genuinely new piece narrows to: **synthesise an inline template from a format string** (holes →
+typars; the whole-format capacity precompute `litLen`/`holeCount` baked into the template prologue as
+constants) and hand *that* to the existing expander, instead of reading a user-written `let inline`
+body.
+
+**The one feasibility spike, do this FIRST.** Can a *synthesised* inline template ride
+`Passes.InlineExpansion` down to straight-line code as tight as today's hand-melt (direct
+`Formatter.AppendLiteral`/`AppendFormatted`, capacity constants preserved, husk dropped)? printf is
+the hottest surface in the language — if the expander leaves a frame or pessimises the constants on
+the fully-applied literal path, the unification is a net loss and E1 should instead be done as plain
+**const-propagation** (resolve the `let`-bound literal back to the call site and reuse the existing
+literal path verbatim). Answer this with a spike before committing to the `Apply` model.
+
+**E2 is deferrable via diagnose-and-reject.** Because E2's boundary is *typed* and the un-lowered
+`New PrintfFormat(nonLiteral)` path already exists, E2 can be **diagnosed** (a `Severity.Error` at the
+gate, exactly the `rejectCallback` posture Track D uses for JS writer-family `%a`) rather than
+interpreted — until a real use case demands the runtime runner. A *diagnosed* E2 still satisfies the
+capstone precondition (**printf pins nothing** — every reachable form either lowers or errors), so the
+runtime interpreter is **not** on the critical path to removing `FSharp.Core.dll`. Sequence: spike →
+E1 (template-or-const-prop per the spike) → capstone with E2 diagnosed → runtime interpreter as a
+later, independently-scheduled sub-sprint.
 
 ### Track F — star-width `%*d`
 
@@ -373,7 +436,67 @@ calls PascalCase `.ToString()`/`Write`, so the shim's compiler-facing surface mu
 `Console.Out`'s line-buffer/flush semantics vs the `Formatter`'s single terminal flush is a parity
 call to pin with an oracle.
 
-**RESUME HERE → E1** (`let`-bound const-literal format; § Track E). Concrete starting point: the gate
+**Track D refactor — dissolve the capture-first emit special case (designed 2026-07-05; chosen: 1b).**
+Track D's CLR emit (`EmitFormat.callbackHole`) and JS emit (`EmitJs.buildCallbackHole`) are a *bespoke*
+per-family sequence that hand-wires the scratch sink as a by-name `FTConst("System.IO.StringWriter")` /
+`FTConst("System.Text.StringBuilder")` — a **second spelling** of two BCL types the general external
+path already resolves on demand. It drags in a cluster that carries no real weight: bespoke `ClrEncoder`
+arms, the `eStringWriter` `ClrEnv` entity, four `FormatHandles` fields
+(`NewStringWriter`/`StringWriterToString`/`NewStringBuilder`/`StringBuilderToString`), and two
+`ClrRecipes` helpers (`parameterlessCtor`/`toStringOf`). `StringWriter` in particular is pure
+capture-first scratch (`new; write; ToString()`) with no Formatter-ctor tie justifying hand-wiring —
+unlike `Vesper.Formatter` / `System.HashCode`, which are genuine ABI machinery.
+
+**Decision: lower writer/builder `%a`/`%t` to an ordinary residue-string block in Freeze; the emit
+special case disappears.** Both BCL types resolve on demand through
+`MetadataSymbols.resolveTypeLocked` (`mlc.CoreAssembly.GetType(name)` — true for any pipeline that
+could compile at all), so the scratch is an *ordinary* external object. Freeze synthesises, for a
+writer/builder callback hole:
+```
+{ let s = new <Scratch>() in (cb s [value] |> ignore); s.ToString() }
+```
+— every node of which Freeze already mints: `TExpr.New` (`FreezeExpr.fs:735`; reference-type ctor
+routes through the general external path by className + result `FTClass` key, `EmitConstruct.fs:21`),
+curried `TExpr.App` of the `Vesper.Fun` callback (lowers via the same native
+`applyFunViaInvoke`/`TryEmitInvoke`, `EmitCall.fs:55` — NO FSharp.Core), `TExpr.ExternalMember` for
+`.ToString()` (`FreezeExpr.fs:48,511,979`), and `TExpr.Let` (`FreezeExpr.fs:1796`). `sprintf` stays the
+trivial case: its residue *is* `cb unit [value]` (a returned string), no block.
+
+**Frozen shape collapses.** `FormatSeg.CallbackHole(spec, callback, value voption)` →
+`CallbackHole(spec, residue: TExpr)` — a single residue-string expression. Both emits degenerate to
+"evaluate `residue`, `AppendLiteral` its string" (mechanically identical to a `%s` `Hole`), so
+`EmitFormat.callbackHole` and `EmitJs.buildCallbackHole` delete outright. The escape/region/type walks
+see the callback + value as ordinary sub-exprs of `residue`, so the two-field `CallbackHole` arms in
+`TastWalk`/`TastConvert`/`TastLower`/`Regions`/`ResolvedTypes`/`PlatformTypes` collapse to "walk/map one
+expr", and the `HoleForm.Callback` "reached the projection (unreachable)" failwith arms
+(`EmitFormat`/`EmitJs.buildHole`) go away.
+
+**Resolution flow — all upstream, emit is pure consumption.** The abstract→concrete scratch mapping is
+one fact (writer family's abstract `TextWriter` `State` ⇒ concrete `StringWriter`; builder's scratch
+*is* its `StringBuilder` `State`; `sprintf` none), modelled as a `Family.ScratchSink: SemType` field
+(by-name `TyConst(StringWriter/StringBuilder)`, or `unit`) rewritten to a resolved `TyClass` by the
+*same* `resolveExternalSlots` callback that already resolves `State` (`PrintfSpec.fs:340`). The gate
+(`InferApp`, holds `ctx.Provider`) resolves the scratch `TyClass` **and** the `ToString` `SymbolKey`
+(via `ctx.Provider.TryLookupMember`) and threads them through the `ctx.PrintfApp` marker (today a bare
+`PrintfSink`; enrich to carry the resolved scratch). Freeze reads the marker and synthesises the block —
+it needs no provider access. `callbackSinkAvailable` is unchanged: the JS diagnostic still fires (JS
+resolves no `TextWriter` ⇒ no scratch ⇒ no writer/builder lowering there).
+
+**Deletion list (net −surface):** `EmitFormat.callbackHole`, `EmitJs.buildCallbackHole`, both
+`ClrEncoder` `FTConst(StringWriter/StringBuilder)` arms, `eStringWriter`, the four `FormatHandles`
+scratch fields, the two `ClrRecipes` helpers, both `HoleForm.Callback` unreachable-projection failwiths.
+**Added:** `Family.ScratchSink` + its `resolveExternalSlots` rewrite, the gate's ToString-key resolution
++ marker enrichment, Freeze's block synthesis in `addCallbackSeg`.
+
+**Verify during impl (low-risk premises):** (1) the semantic `ctx.Provider.TryLookupMember(scratchName,
+"ToString")` returns a usable `MemberKey` (member lookup is a core provider capability, symmetric with
+the `TryLookupType` the gate already calls); (2) the `new`/invoke sequence orders before its
+`AppendLiteral` against the `Formatter`'s single terminal flush — the block-expr sequencing gives this
+for free (nothing hits the real sink until Flush). The existing byte-parity tests
+(sprintf/printf/fprintf/bprintf `%a`, `%t`, closure-capture, JS asymmetry) must stay green with **zero
+expectation changes** — behaviour is identical; this is a pure structural refactor. Oracle-first as usual.
+
+**RESUME HERE → Track D refactor (1b, above)**, then E1. Concrete starting point for E1: the gate
 `tryInferPrintfApp` (`InferApp.fs`) reads the format via `formatSpecifiers ctx args.[idx]`
 (`InferLiterals.fs`), which returns `ValueNone` for any non-`Expr.String` node — so `let fmt = "%d"
 in printf fmt` (an `Ident` at the format slot, not a string literal) defers to the cold path. E1 =

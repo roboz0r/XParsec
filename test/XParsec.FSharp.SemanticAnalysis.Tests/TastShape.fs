@@ -507,16 +507,9 @@ type private Renderer() =
 
                     this.Expr d.Value
                     push "}"
-                | FormatSeg.CallbackHole(_, callback, value) ->
+                | FormatSeg.CallbackHole(_, residue) ->
                     push "{cb="
-                    this.Expr callback
-
-                    value
-                    |> ValueOption.iter (fun v ->
-                        push " val="
-                        this.Expr v
-                    )
-
+                    this.Expr residue
                     push "}"
             )
 

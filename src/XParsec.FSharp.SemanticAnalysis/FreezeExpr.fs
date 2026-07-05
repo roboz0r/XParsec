@@ -1263,32 +1263,92 @@ module internal FreezeExpr =
         // (a record / DU / unknown). Forces the whole format onto the cold path.
         let mutable cold = false
 
-        // Consume the args for a `%a`/`%t` callback hole and append its segment. The
-        // printer callback (a `Vesper.Fun`, often a closure) is captured positionally,
-        // then — for `%a` — the value it consumes. Application order is callback FIRST,
-        // then value (see `PrintfSpec.argTypes`). No width/precision (F# `%a`/`%t` carry
-        // none), and never cold (capture-first lowers on every resolved sink).
+        // Consume the args for a `%a`/`%t` callback hole and append its segment,
+        // lowered capture-first to an ordinary residue-*string* expression. The
+        // callback (a `Vesper.Fun`, often a closure) is applied FIRST to the sink,
+        // then — for `%a` — to the value (curried order, see `PrintfSpec.argTypes`);
+        // `%a`/`%t` carry no width/precision and never go cold. `sprintf` splices the
+        // callback's returned string; writer/builder splice a block that runs the
+        // callback into a fresh scratch and reads its buffer — every node of which is
+        // ordinary TAST codegen already lowers, so no backend knows about sinks.
         let addCallbackSeg t holeForm hasValue =
-            let callbackExpr = args.[holeIdx]
+            let callbackT = translateExpr ctx args.[holeIdx]
             holeIdx <- holeIdx + 1
-            let callbackT = translateExpr ctx callbackExpr
 
-            let valueExpr =
+            let valueT =
                 if hasValue then
-                    let v = args.[holeIdx]
+                    let v = translateExpr ctx args.[holeIdx]
                     holeIdx <- holeIdx + 1
                     ValueSome v
                 else
                     ValueNone
 
-            let valueT = valueExpr |> ValueOption.map (translateExpr ctx)
+            // The callback's OWN arrow type (`'State -> 'T -> 'Residue`, or `'State ->
+            // 'Residue` for `%t`) drives each `App`'s result type — independent of the
+            // concrete arg pushed (a writer family passes a `StringWriter` where the
+            // callback's domain is the abstract `TextWriter`; a base-reference push is
+            // implicitly compatible).
+            let funcTy = Unification.zonk (TastWalk.exprTy callbackT)
 
-            // The spec `Ty` is not load-bearing for capture-first emit (the residue is
-            // spliced as a literal): the `%a` value's zonked type, `unit` for `%t`.
+            let applyCallback (stateArg: TExpr) : TExpr =
+                match funcTy with
+                | TyFun(_, afterState) ->
+                    let appState = TExpr.App(callbackT, stateArg, afterState, t)
+
+                    match valueT with
+                    | ValueSome v ->
+                        match afterState with
+                        | TyFun(_, residueTy) -> TExpr.App(appState, v, residueTy, t)
+                        | _ -> failwithf "Freeze.addCallbackSeg: %%a callback lacks a value arrow: %A" funcTy
+                    | ValueNone -> appState
+                | _ -> failwithf "Freeze.addCallbackSeg: callback is not a function type: %A" funcTy
+
+            let residue =
+                match ctx.PrintfCallbackScratch.TryGetValue key with
+                | ValueNone ->
+                    // `sprintf` (`'State = unit`): the callback returns the residue
+                    // string directly.
+                    applyCallback (TExpr.Const(TConstValue.Unit, BuiltinTypes.tyUnit, t))
+                | ValueSome scratch ->
+                    // Writer/builder: `{ let s = new Scratch() in (cb s [v]); s.ToString() }`.
+                    // The callback writes into `s` (its `unit` residue discarded by the
+                    // `Sequential`); the block yields `s`'s buffered text.
+                    let sKey = NodeKey.ofSynthetic t.StartIndex NodeKind.SynthLambdaBody
+                    let sVar () = TExpr.Var(sKey, scratch.ScratchTy, t)
+
+                    let newScratch =
+                        TExpr.New(scratch.ScratchClassName, EqArray.empty, scratch.ScratchTy, t)
+
+                    let toStringCall =
+                        TExpr.App(
+                            TExpr.ExternalMember(
+                                ValueSome(sVar ()),
+                                scratch.ToStringKey,
+                                "ToString",
+                                MemberStorage.Method,
+                                TyFun(BuiltinTypes.tyUnit, BuiltinTypes.tyString),
+                                t
+                            ),
+                            TExpr.Const(TConstValue.Unit, BuiltinTypes.tyUnit, t),
+                            BuiltinTypes.tyString,
+                            t
+                        )
+
+                    let seq =
+                        TExpr.Sequential(
+                            EqArray.ofList [ applyCallback (sVar ()); toStringCall ],
+                            BuiltinTypes.tyString,
+                            t
+                        )
+
+                    TExpr.Let(TPat.NamedSimple(sKey, scratch.ScratchTy, t), newScratch, seq, BuiltinTypes.tyString, t)
+
+            // `spec.Ty` records the `%a` value type (`unit` for `%t`) for provenance;
+            // the residue is a `string` expr the backends splice like a `%s` hole.
             let specTy =
-                match valueExpr with
-                | ValueSome v -> Unification.zonk (typeOfKey ctx (CstKeys.ofExpr v))
-                | ValueNone -> TyConst("unit", EqArray.empty)
+                match valueT with
+                | ValueSome v -> Unification.zonk (TastWalk.exprTy v)
+                | ValueNone -> BuiltinTypes.tyUnit
 
             let spec =
                 {
@@ -1297,7 +1357,7 @@ module internal FreezeExpr =
                     Tok = t
                 }
 
-            segments.Add(FormatSeg.CallbackHole(spec, callbackT, valueT))
+            segments.Add(FormatSeg.CallbackHole(spec, residue))
 
         // Consume the args for a plain value hole (optionally star-dimensioned) and
         // append its `Hole` / `DynHole` segment. A star *width* (`%*d`, `%*A`) then a

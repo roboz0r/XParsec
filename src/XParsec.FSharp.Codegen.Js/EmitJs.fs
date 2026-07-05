@@ -780,7 +780,7 @@ module EmitJs =
         | TExprG.ILIntrinsic(opCode, _, args, _, _) -> JsExpr.Raw(expandTemplate ctx opCode (EqArray.toList args), loc)
 
         | TExprG.Format(sink, segments, _, _) ->
-            let arg = buildFormatArg ctx sink segments
+            let arg = buildFormatArg ctx segments
 
             match sink with
             | FormatSinkG.ToStdOut true -> JsExpr.Call(console "log", [ arg ], loc)
@@ -850,12 +850,15 @@ module EmitJs =
 
     /// Build the single argument a `console.log`/`error` call prints from format segments.
     /// Mixed formats are concatenations seeded with `""` so every `+` is string-valued.
-    and private buildFormatArg (ctx: WalkCtx) (sink: Frozen.FormatSink) (segments: EqArray<Frozen.FormatSeg>) : JsExpr =
+    and private buildFormatArg (ctx: WalkCtx) (segments: EqArray<Frozen.FormatSeg>) : JsExpr =
         match EqArray.toList segments with
         | [ FormatSegG.Lit s ] -> JsExpr.Literal(JsLiteral.String s, ValueNone)
         | [ FormatSegG.Hole(hole, operand) ] -> buildHole ctx hole operand ValueNone ValueNone
         | [ FormatSegG.DynHole d ] -> buildHole ctx d.Spec d.Value d.Width d.Precision
-        | [ FormatSegG.CallbackHole(_, callback, value) ] -> buildCallbackHole ctx sink callback value
+        // `%a`/`%t`: Freeze lowered the callback to an ordinary residue-string expr; the
+        // splice is just that expr (on JS only `sprintf`'s `cb(undefined)[(v)]` reaches
+        // here — writer/builder `%a` diagnoses at the capability gate before Freeze).
+        | [ FormatSegG.CallbackHole(_, residue) ] -> buildExpr ctx residue
         | segs ->
             let pieces = ResizeArray<JsRawSeg>()
             // Seed with `""` so the first `+` already concatenates strings, even
@@ -872,42 +875,9 @@ module EmitJs =
                 | FormatSegG.Hole(hole, operand) ->
                     pieces.Add(JsRawSeg.Hole(buildHole ctx hole operand ValueNone ValueNone))
                 | FormatSegG.DynHole d -> pieces.Add(JsRawSeg.Hole(buildHole ctx d.Spec d.Value d.Width d.Precision))
-                | FormatSegG.CallbackHole(_, callback, value) ->
-                    pieces.Add(JsRawSeg.Hole(buildCallbackHole ctx sink callback value))
+                | FormatSegG.CallbackHole(_, residue) -> pieces.Add(JsRawSeg.Hole(buildExpr ctx residue))
 
             JsExpr.Raw(List.ofSeq pieces, ValueNone)
-
-    /// A `%a`/`%t` callback hole (capture-first, JS): invoke the user callback (a curried
-    /// `Vesper.Fun`) and splice its residue string at the hole. Only the `ToString` sink
-    /// (`sprintf`, `State = unit`) is reachable here — the provider-capability gate
-    /// (`InferApp`) diagnoses writer/builder `%a`/`%t` on a target whose provider can't
-    /// resolve `System.IO.TextWriter` / `System.Text.StringBuilder` (JS), so no
-    /// `ToWriter`/`ToBuilder`/`ToStdOut` callback hole ever reaches Freeze, let alone here.
-    and private buildCallbackHole
-        (ctx: WalkCtx)
-        (sink: Frozen.FormatSink)
-        (callback: Frozen.TExpr)
-        (value: Frozen.TExpr voption)
-        : JsExpr =
-        match sink with
-        | FormatSinkG.ToString ->
-            // The callback returns the residue string directly. Invoke the curried
-            // `Vesper.Fun` through the same unary-`Call` shape every JS application uses
-            // (NOT a hand-rolled call): `cb(unit)(value)` for `%a`, `cb(unit)` for `%t`.
-            // `'State = unit` is `undefined` (the JS unit value).
-            let applied =
-                JsExpr.Call(buildExpr ctx callback, [ constExpr TConstValue.Unit ValueNone ], ValueNone)
-
-            match value with
-            | ValueSome v -> JsExpr.Call(applied, [ buildExpr ctx v ], ValueNone)
-            | ValueNone -> applied
-        | FormatSinkG.ToStdOut _
-        | FormatSinkG.ToStdErr _
-        | FormatSinkG.ToWriter _
-        | FormatSinkG.ToBuilder _ ->
-            failwithf
-                "EmitJs: %%a/%%t on a writer/builder sink cannot reach the JS backend (gate diagnoses it); sink=%A"
-                sink
 
     /// The runtime entry for a `%A` (`Structured`) hole: the shape-keyed structural
     /// formatter in `Vesper.Printf.mjs` (Printf owns `%A`; the JS analogue of the
@@ -1350,8 +1320,9 @@ module EmitJs =
                 | PrintfHoleForm.Alignment.Star leftJustify -> Option.Some(padDyn leftJustify)
 
             wrapDims (emitField fmt wrap)
-        // `%a`/`%t` callback holes ride their own `FormatSegG.CallbackHole` segment
-        // (emitted by `buildCallbackHole`); a callback spec never reaches `buildHole`.
+        // `%a`/`%t` callback holes ride a `FormatSegG.CallbackHole` whose residue string
+        // is spliced directly; a callback spec's `HoleForm` is provenance only and never
+        // reaches this per-hole projection.
         | HoleSpecSource.Classified(HoleForm.Callback _) ->
             failwith "EmitJs: callback hole reached buildHole (unreachable)"
 
