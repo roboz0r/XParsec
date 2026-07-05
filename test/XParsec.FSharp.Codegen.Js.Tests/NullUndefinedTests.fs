@@ -99,6 +99,26 @@ let tests =
     testList
         "NullUndefined"
         [
+            test "the `undefined` VALUE splices to bare `undefined` — no definition, no import" {
+                // Route C: `Vesper.undefined` is a module `let` bound to a single
+                // zero-operand intrinsic (`(# "undefined" #)`). The JS backend treats it
+                // as a compile-time alias — `InlineExpansion` splices the intrinsic at the
+                // reference, so the binding `let u = undefined` lowers to `const u =
+                // undefined` (the RHS is the spliced bare `undefined`), with NO
+                // `const undefined = undefined` self-definition and NO import for it.
+                let js = emitJs "let u = undefined\n"
+
+                Expect.stringContains js "undefined" (sprintf "expected the spliced `undefined`, got:\n%s" js)
+
+                Expect.isFalse
+                    (js.Contains "const undefined")
+                    (sprintf "the alias must emit no `const undefined` definition, got:\n%s" js)
+
+                Expect.isFalse
+                    (js.Contains "import")
+                    (sprintf "the intrinsic alias must pull in no import, got:\n%s" js)
+            }
+
             test "`T | null` and `T | undefined` survive JS emit and round-trip under Node" {
                 // The emit itself proves the types survive `PlatformTypes` (no
                 // "no representation on the target" reject) and JS lowering.

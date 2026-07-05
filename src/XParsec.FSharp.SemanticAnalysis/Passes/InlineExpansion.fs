@@ -619,6 +619,19 @@ module InlineExpansion =
                                             [ for (a, t, tok) in spineArgs -> walk a, t, tok ]
                                     )
                             | TExpr.Var(k, _, _) when localInlines.ContainsKey k -> ValueSome(walk (expandLocal k))
+                            // A BARE (non-applied) reference to a cross-package `let`
+                            // value whose body is a single zero-operand intrinsic
+                            // (`undefined`): splice the intrinsic body in place of the
+                            // `External` reference, so codegen emits the bare intrinsic
+                            // (`undefined`) with no import and never a `const undefined =
+                            // undefined` definition. The body is a leaf (no operands, no
+                            // binders, no typars), so it needs neither beta-reduction nor
+                            // freshening. A nullary intrinsic value cannot be applied, so
+                            // this never collides with the `App`-head inline paths above.
+                            | TExpr.External(name, keyOpt, _, _) ->
+                                match lookupExternal keyOpt name with
+                                | ValueSome ib -> Inline.nullaryIntrinsicValueBody ib.Decl
+                                | ValueNone -> ValueNone
                             | _ -> ValueNone
                 }
 

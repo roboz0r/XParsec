@@ -122,6 +122,11 @@ inline-bodies = [
 inline-bodies-js = [
     "ops-platform.js.fs",
     "ops-std.fs",
+    # The `undefined` VALUE (`let undefined = (# "undefined" #)`) — a zero-operand
+    # intrinsic the JS backend treats as a compile-time alias (spliced at each use,
+    # no `const undefined = undefined` definition). Its `.js.fsi` `val` is the contract;
+    # this `.js.fs` body is served cross-package as the splice source.
+    "prim-types-undefined.js.fs",
     # The `dynamic` operator bodies (`retype`/`dynamic`/`(?)`/`(?<-)`) — JS-only
     # (`$0[$1]` computed-member templates), spliced at each `?` use site.
     "ops-dynamic.js.fs",

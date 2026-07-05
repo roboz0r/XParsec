@@ -1032,24 +1032,29 @@ module internal FreezeExpr =
 
         curr
 
-    /// A trailing optional argument the call omitted, synthesised as a literal node
-    /// from the constant default `Unification` recorded in `ExternalOptionalFill`.
+    /// A trailing optional argument the call omitted, synthesised from the constant
+    /// default recorded in `ExternalOptionalFill`. A real constant default
+    /// (`Int`/`String`/…) becomes its literal `Const`. The omitted-optional marker
+    /// (`TConstValue.Unit`, minted only by the TS provider for a `T?` slot the call
+    /// dropped) instead becomes an HONEST `undefined` value — a zero-operand
+    /// `(# "undefined" #)` intrinsic the JS backend emits as bare `undefined` — NOT a
+    /// `unit` `Const` exploiting the coincidental shared `unit`→`undefined` repr. The
+    /// fill is post-inference (never re-unified against the parameter type), so typing
+    /// the node `undefined` rather than `unit` is sound. (The CLR optional-fill path
+    /// never mints `TConstValue.Unit`, so this case is JS-only.)
     and private optionalDefaultNode (cv: TConstValue) (tok: SyntaxToken) : TExpr =
-        let ty =
-            match cv with
-            | TConstValue.Int _ -> BuiltinTypes.tyInt
-            | TConstValue.UInt _ -> BuiltinTypes.tyUInt32
-            | TConstValue.Int64 _ -> BuiltinTypes.tyInt64
-            | TConstValue.Byte _ -> BuiltinTypes.tyByte
-            | TConstValue.Float _ -> BuiltinTypes.tyFloat
-            | TConstValue.Float32 _ -> BuiltinTypes.tyFloat32
-            | TConstValue.Bool _ -> BuiltinTypes.tyBool
-            | TConstValue.Char _ -> BuiltinTypes.tyChar
-            | TConstValue.Decimal _ -> BuiltinTypes.tyDecimal
-            | TConstValue.String _ -> BuiltinTypes.tyString
-            | TConstValue.Unit -> BuiltinTypes.tyUnit
-
-        TExpr.Const(cv, ty, tok)
+        match cv with
+        | TConstValue.Unit -> TExpr.ILIntrinsic("undefined", ValueNone, EqArray.empty, BuiltinTypes.tyUndefined, tok)
+        | TConstValue.Int _ -> TExpr.Const(cv, BuiltinTypes.tyInt, tok)
+        | TConstValue.UInt _ -> TExpr.Const(cv, BuiltinTypes.tyUInt32, tok)
+        | TConstValue.Int64 _ -> TExpr.Const(cv, BuiltinTypes.tyInt64, tok)
+        | TConstValue.Byte _ -> TExpr.Const(cv, BuiltinTypes.tyByte, tok)
+        | TConstValue.Float _ -> TExpr.Const(cv, BuiltinTypes.tyFloat, tok)
+        | TConstValue.Float32 _ -> TExpr.Const(cv, BuiltinTypes.tyFloat32, tok)
+        | TConstValue.Bool _ -> TExpr.Const(cv, BuiltinTypes.tyBool, tok)
+        | TConstValue.Char _ -> TExpr.Const(cv, BuiltinTypes.tyChar, tok)
+        | TConstValue.Decimal _ -> TExpr.Const(cv, BuiltinTypes.tyDecimal, tok)
+        | TConstValue.String _ -> TExpr.Const(cv, BuiltinTypes.tyString, tok)
 
     /// Dispatch an application head through the optional-argument fill iff
     /// `Unification.tryFillOptionalCall` recorded omitted trailing optionals for it.

@@ -90,6 +90,17 @@ module SymbolProviders =
                         }
                     )
                 | None -> ()
+            // A non-inline `let` value bound to a single zero-operand intrinsic
+            // (`let undefined = (# "undefined" #)`) is served as an inline body too: it
+            // has no CLR-style `let inline`, but the JS backend treats it as a
+            // compile-time alias for its intrinsic (`Inline.nullaryIntrinsicValueBody`) —
+            // the consumer's `InlineExpansion` splices the intrinsic at each reference so
+            // no `const undefined = undefined` definition or import is emitted. No param
+            // attrs (a nullary value has no parameters).
+            | TDecl.Let(TPat.NamedSimple(k, _, _), _, false, _) when (Inline.nullaryIntrinsicValueBody d).IsSome ->
+                match Map.tryFind k tast.ModuleMembers with
+                | Some info -> acc.Add(info.Name, { Decl = d; ParamAttrs = [||] })
+                | None -> ()
             | _ -> ()
 
         List.ofSeq acc

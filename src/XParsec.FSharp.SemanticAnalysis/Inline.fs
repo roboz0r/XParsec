@@ -26,6 +26,24 @@ open XParsec.FSharp.Parser
 
 module Inline =
 
+    /// A module-level `let` value whose body is EXACTLY one intrinsic expression with
+    /// NO operands (`let undefined : undefined = (# "undefined" : undefined #)`).
+    /// Returns the intrinsic body to splice, else `ValueNone`.
+    ///
+    /// Such a binding is a compile-time ALIAS for the intrinsic's emitted form: with no
+    /// operands there is nothing to substitute, and it carries no typars, so the body IS
+    /// the splice. The JS backend treats it as inline — it emits NO lowered definition
+    /// (a `const undefined = undefined` would be both nonsensical and self-referential),
+    /// and every reference splices the intrinsic body (`(# "undefined" #)` → bare
+    /// `undefined`). The shape is deliberately narrow (one intrinsic, zero operands) so
+    /// the alias can never lose or duplicate an operand. `InlineExpansion` splices it at
+    /// each `External` reference; `SymbolProviders.collectInlineBodies` registers it as a
+    /// cross-package `InlineBody` so a consumer's provider serves the body.
+    let nullaryIntrinsicValueBody (decl: TDecl) : TExpr voption =
+        match decl with
+        | TDecl.Let(_, (TExpr.ILIntrinsic(_, _, args, _, _) as body), _, _) when args.Length = 0 -> ValueSome body
+        | _ -> ValueNone
+
     /// Quantified typars of an inline binding, in the canonical order codegen
     /// must use when supplying type arguments to `inlineExpand`: first
     /// occurrence in a pre-order walk of the binding's generalised type. This

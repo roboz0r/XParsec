@@ -18,3 +18,14 @@ namespace Vesper
 ///
 /// <category>Basic Types</category>
 type undefined = extern
+
+/// The value-level companion of the `undefined` TYPE — the single honest source of
+/// the JS absence value. `[<AutoOpen>]` so it is usable unqualified exactly like the
+/// type. Bound to the zero-operand `(# "undefined" #)` intrinsic in the `.js.fs`
+/// companion; the JS backend inlines it (no lowered definition, each reference
+/// splices bare `undefined`), so it never appears as an import or a runtime `const`.
+[<AutoOpen>]
+module Undefined =
+
+    /// The JS <c>undefined</c> absence value — a runtime global with no CLR analog.
+    val undefined: undefined
