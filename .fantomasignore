@@ -1,5 +1,9 @@
 test/XParsec.FSharp.Tests/data/
 bench/XParsec.FSharp.Benchmarks/fixtures/
+# widget codegen-js fixture — the `.fsi` uses `type widget = extern with member …`
+# and the `.js.fs` an abbrev-with-members `(# "object" #)` intrinsic body; both are
+# XParsec-dialect forms FCS/Fantomas can't parse (same stance as Vesper.Core).
+test/XParsec.FSharp.Codegen.Js.Tests/fixtures/widget/
 src/XParsec/Readables.fs
 # FSharp.Core port — uses --compiling-fslib / inline-IL constructs Fantomas can't parse.
 src/XParsec.FSharp.Lib/

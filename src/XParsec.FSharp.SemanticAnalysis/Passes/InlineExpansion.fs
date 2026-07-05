@@ -609,6 +609,42 @@ module InlineExpansion =
                                         ValueSome(
                                             TastWalk.rebuildApp head [ for (a, t, tok) in spineArgs -> walk a, t, tok ]
                                         )
+                                // A dotted member call on an external type — the same
+                                // head `x.get_Item(2)` / `w.Poke 41` lowers to. The
+                                // member-keyed inline store forks call-vs-splice here:
+                                //   * `ValueSome ib` — a concrete `(# … #)`-bodied member
+                                //     (harvested `this`-first). SPLICE it. The receiver is
+                                //     a FIELD of the head, not a spine arg, so PREPEND it
+                                //     onto the spine (`this`→receiver); a STATIC member
+                                //     (`receiver = ValueNone`) prepends nothing. Then
+                                //     splice via the SAME path the `External` arm uses —
+                                //     `expandExternalAt` / `reduceApplication` consume the
+                                //     spine POSITIONALLY, so with `this` at curried
+                                //     position 0 each `pi` aligns to `argi`.
+                                //   * `ValueNone` — a real CLR/JS method with no inline
+                                //     body: keep the call, walking the receiver (inside the
+                                //     head) and the args, exactly the `_` catch-all rule.
+                                | TExpr.ExternalMember(receiver, key, _, _, _, memberTok) ->
+                                    match provider.TryLookupInlineBody key with
+                                    | ValueSome ib ->
+                                        let fullSpine =
+                                            match receiver with
+                                            | ValueSome r -> (r, TastWalk.exprTy r, memberTok) :: spineArgs
+                                            | ValueNone -> spineArgs
+
+                                        ValueSome(
+                                            reduceApplication
+                                                walk
+                                                ib.ParamAttrs
+                                                (expandExternalAt ib.Decl fullSpine)
+                                                fullSpine
+                                        )
+                                    | ValueNone ->
+                                        ValueSome(
+                                            TastWalk.rebuildApp
+                                                (walk head)
+                                                [ for (a, t, tok) in spineArgs -> walk a, t, tok ]
+                                        )
                                 // A non-external, non-local-inline head (e.g. a
                                 // higher-order parameter): lower the head and args,
                                 // keeping the spine intact.

@@ -6,6 +6,7 @@ open XParsec.FSharp.Lexer.Lexing
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
+open XParsec.FSharp.Codegen.Js
 
 // W9 Stage 1b — CAPTURE + STORE of a concrete `(# … #)`-bodied member on an
 // intrinsic/`extern` type as a MEMBER-KEYED inline body. Pins the load-bearing
@@ -132,11 +133,52 @@ let private serving
         member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
     }
 
+// ─── Stage 1c: end-to-end SPLICE proof over the loadable `widget` fixture ────
+//
+// The fixture package (`fixtures/widget/`) carries BOTH the `.fsi` contract AND the
+// `.js.fs` harvest source under `inline-bodies-js`, so the JS-native provider closes
+// `TryLookupInlineBody(TryLookupMember("widget","Poke").Key)` against real elaboration.
+// Stacked AHEAD of `jsManifests` (which carry Vesper.Core, so `int` resolves).
+
+/// `fixtures/widget/manifest.toml`.
+let private widgetManifest: string =
+    System.IO.Path.Combine(__SOURCE_DIRECTORY__, "fixtures", "widget", "manifest.toml")
+
+/// The JS-native provider stack with the `widget` fixture layered ahead of the standard
+/// JS manifests — so widget's Class + `Poke` member AND the harvested member inline body
+/// (keyed under the finalized member key) are all present.
+let private widgetProvider: Lazy<IExternalSymbolProvider> =
+    lazy JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) (widgetManifest :: TestHelpers.jsManifests)
+
+/// Emit a consumer snippet through the widget-inclusive provider. No runtime module is
+/// injected: `widget`'s member is fully spliced, so the emitted `usePoke` imports nothing.
+let private emitWidget (input: string) : string =
+    TestHelpers.emitWith widgetProvider.Value Map.empty false input
+
 [<Tests>]
 let tests =
     testList
         "ExternMemberInline"
         [
+            // THE Stage 1c end-to-end assertion: a consumer call `w.Poke 41` on the
+            // loadable fixture SPLICES its member body (`41 + 1`) — no `.Poke(` method
+            // call survives, and `widget`'s harvest-only `Class` decl never reaches emit.
+            test "`w.Poke 41` splices to `41 + 1` end-to-end (no `.Poke`, no `class widget`)" {
+                let js = emitWidget "let usePoke (w: widget) : int = w.Poke 41\n"
+
+                // The spliced body: the `$0 + 1` template with `$0` ← the arg `41`
+                // (the operand parenthesises to `(41)`).
+                Expect.stringContains js "(41) + 1" (sprintf "expected the spliced `(41) + 1` body, got:\n%s" js)
+
+                // No method call survived — the member was spliced, not called.
+                Expect.isFalse (js.Contains ".Poke") (sprintf "a `.Poke` method call leaked into emit:\n%s" js)
+
+                // The harvest-only `Class` decl (widget's `.js.fs` `TDecl.Type(Class)`) must
+                // NEVER reach emit — it lives only in the inline-bodies file. Pins the
+                // 1b-elab flag that a harvest-only Class decl is not emitted.
+                Expect.isFalse (js.Contains "class widget") (sprintf "widget's Class decl leaked into emit:\n%s" js)
+            }
+
             test "harvestMemberBody mints a `this`-first curried inline TDecl.Let" {
                 match SymbolProviders.harvestMemberBody "widget" (pokeMember ()) with
                 | Some mb ->
