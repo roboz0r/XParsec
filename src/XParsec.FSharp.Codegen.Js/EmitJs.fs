@@ -852,6 +852,8 @@ module EmitJs =
         | [ FormatSegG.Lit s ] -> JsExpr.Literal(JsLiteral.String s, ValueNone)
         | [ FormatSegG.Hole(hole, operand) ] -> buildHole ctx hole operand ValueNone ValueNone
         | [ FormatSegG.DynHole d ] -> buildHole ctx d.Spec d.Value d.Width d.Precision
+        | [ FormatSegG.CallbackHole _ ] ->
+            failwithf "EmitJs: %%a/%%t callback holes are not yet supported on the JS backend"
         | segs ->
             let pieces = ResizeArray<JsRawSeg>()
             // Seed with `""` so the first `+` already concatenates strings, even
@@ -868,6 +870,8 @@ module EmitJs =
                 | FormatSegG.Hole(hole, operand) ->
                     pieces.Add(JsRawSeg.Hole(buildHole ctx hole operand ValueNone ValueNone))
                 | FormatSegG.DynHole d -> pieces.Add(JsRawSeg.Hole(buildHole ctx d.Spec d.Value d.Width d.Precision))
+                | FormatSegG.CallbackHole _ ->
+                    failwithf "EmitJs: %%a/%%t callback holes are not yet supported on the JS backend"
 
             JsExpr.Raw(List.ofSeq pieces, ValueNone)
 
@@ -1312,6 +1316,10 @@ module EmitJs =
                 | PrintfHoleForm.Alignment.Star leftJustify -> Option.Some(padDyn leftJustify)
 
             wrapDims (emitField fmt wrap)
+        // `%a`/`%t` callback holes ride their own `FormatSegG.CallbackHole` segment, so a
+        // callback spec never reaches `buildHole`; this arm only satisfies exhaustiveness.
+        | HoleSpecSource.Classified(HoleForm.Callback _) ->
+            failwithf "EmitJs: %%a/%%t callback holes are not yet supported on the JS backend"
 
     /// Compile a pattern against a pure scrutinee-access expression `access` into a
     /// refutability test (`None` ⇒ irrefutable) and the `const` bindings its named

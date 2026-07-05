@@ -419,6 +419,13 @@ and [<RequireQualifiedAccess>] FormatSegG<'ty, 'tok> =
     /// with which of `Width`/`Precision` are present — all constructed from the same
     /// placeholder.
     | DynHole of DynFormatHoleG<'ty, 'tok>
+    /// A `%a` / `%t` printer-callback hole (`HoleForm.Callback`). `callback` is a
+    /// `Vesper.Fun` value (often a CLOSURE) invoked via the native `EmitInvoke` path;
+    /// `value` is the extra `'T` argument `%a` consumes (`ValueNone` for `%t`). Both
+    /// ride here so every TAST traversal — closure/escape analysis especially — walks
+    /// them exactly as it walks `Hole`'s value expr. Capture-first emit invokes the
+    /// callback against a per-family scratch sink and `AppendLiteral`s the residue.
+    | CallbackHole of spec: HoleSpecG<'ty, 'tok> * callback: TExprG<'ty, 'tok> * value: TExprG<'ty, 'tok> voption
 
 /// A `FormatSegG.DynHole` payload: the hole's spec + value, plus whichever
 /// dimension args the curried application supplies at runtime. `Width` is present

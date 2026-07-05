@@ -132,7 +132,13 @@ module internal UnificationInferLiteralExpr =
                         | FormatType.FormatFunction
                         | FormatType.Text -> ()
                         | _ ->
-                            match PrintfSpec.argTypes (fun () -> TyVar(freshTyVar ctx)) BuiltinTypes.tyUnit BuiltinTypes.tyUnit p with
+                            match
+                                PrintfSpec.argTypes
+                                    (fun () -> TyVar(freshTyVar ctx))
+                                    BuiltinTypes.tyUnit
+                                    BuiltinTypes.tyUnit
+                                    p
+                            with
                             | ValueSome ts -> unify ctx (CstKeys.ofExpr e) holeTy (List.last ts)
                             | ValueNone -> ()
                     | ValueNone -> ()

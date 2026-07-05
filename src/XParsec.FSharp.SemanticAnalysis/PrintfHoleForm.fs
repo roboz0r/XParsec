@@ -147,6 +147,13 @@ module PrintfHoleForm =
     type HoleForm =
         | PercentA of width: PrintWidth * size: PrintSize
         | Field of fmt: FieldFormat * alignment: Alignment
+        /// `%a` (`hasValue = true`) / `%t` (`hasValue = false`) — a printer callback
+        /// hole. `%a` consumes a callback `('State -> 'T -> 'Residue)` AND a value
+        /// `'T`; `%t` just `('State -> 'Residue)`. Classified purely syntactically
+        /// (no flags/width/precision — F# `%a`/`%t` carry none); whether it actually
+        /// *lowers* on a given target is decided at the gate by whether the family's
+        /// `'State` sink type is available on that target's provider.
+        | Callback of hasValue: bool
 
     /// Resolve a *static* `%A` width budget to the concrete column count the engines
     /// take (the 80-column default lives here, not duplicated across backends).
@@ -520,6 +527,10 @@ module PrintfHoleForm =
                     ValueNone
                 else
                     field FieldFormat.Verbatim
-            | FormatType.Structured
-            | FormatType.FormatFunction
-            | FormatType.Text -> ValueNone
+            | FormatType.Structured -> ValueNone
+            // `%a` / `%t` callback holes: classified syntactically. `%a`
+            // (`FormatFunction`) carries a value arg, `%t` (`Text`) does not. The gate
+            // (which holds the provider) decides whether the family's sink type is
+            // available on this target and so whether the hole actually lowers.
+            | FormatType.FormatFunction -> ValueSome(HoleForm.Callback true)
+            | FormatType.Text -> ValueSome(HoleForm.Callback false)

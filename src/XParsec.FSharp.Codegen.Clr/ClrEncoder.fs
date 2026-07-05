@@ -25,6 +25,8 @@ type internal ClrEncoder(env: ClrEnv) =
     let eUnit = env.EUnit
     let eValueTuple = env.EValueTuple
     let eTextWriter = env.ETextWriter
+    let eStringWriter = env.EStringWriter
+    let eStringBuilder = env.EStringBuilder
     let eFormatter = env.EFormatter
     let eHashCode = env.EHashCode
     let eDecimal = env.EDecimal
@@ -117,6 +119,10 @@ type internal ClrEncoder(env: ClrEnv) =
         // Mirrors the `obj` arm + the `.Object()` override recipes.
         | FTClass(key, _) when RuntimeNames.isSystemObjectKey key -> te.Object()
         | FTConst("System.IO.TextWriter", _) -> te.Type(eTextWriter.Value, false)
+        // The `%a`/`%t` capture-first scratch sinks (writer / builder families): the
+        // callback writes into a fresh `StringWriter` / `StringBuilder` local.
+        | FTConst("System.IO.StringWriter", _) -> te.Type(eStringWriter.Value, false)
+        | FTConst("System.Text.StringBuilder", _) -> te.Type(eStringBuilder.Value, false)
         | FTConst("Vesper.Formatter", _) -> te.Type(eFormatter.Value, true)
         | FTConst("System.HashCode", _) -> te.Type(eHashCode.Value, true)
         // Only scalar (argless) intrinsics rekey off their repr string. A generic

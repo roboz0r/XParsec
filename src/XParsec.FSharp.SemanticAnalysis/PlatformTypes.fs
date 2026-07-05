@@ -94,6 +94,10 @@ module PlatformTypes =
                                 d.Width |> ValueOption.iter (TastWalk.iterExpr it)
                                 d.Precision |> ValueOption.iter (TastWalk.iterExpr it)
                                 TastWalk.iterExpr it d.Value
+                            | FormatSeg.CallbackHole(spec, callback, value) ->
+                                addUnrepresentable ctx acc spec.Ty
+                                TastWalk.iterExpr it callback
+                                value |> ValueOption.iter (TastWalk.iterExpr it)
 
                         false
                     | _ -> true

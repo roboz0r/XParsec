@@ -1297,66 +1297,105 @@ module internal FreezeExpr =
                     | ValueNone ->
                         failwith "Freeze.translatePrintfFormat: unsupported specifier (marker invariant broken)"
 
-                // A star *width* (`%*d`, `%*A`) then a star *precision* (`%.*f`, `%.*e`,
-                // `%.*A`) each consume a leading `int` arg, evaluated before the value in
-                // curried application order (width first, then precision — the source arg
-                // order). The happy-path marker guarantees full application
-                // (`totalArity`), so the indices line up. Walk args by per-hole arity.
-                let widthExpr =
-                    if placeholder.Width = FormatDim.Star then
-                        let w = translateExpr ctx args.[holeIdx]
-                        holeIdx <- holeIdx + 1
-                        ValueSome w
-                    else
-                        ValueNone
+                match holeForm with
+                | PrintfHoleForm.HoleForm.Callback hasValue ->
+                    // `%a` / `%t`: capture the printer callback (a `Vesper.Fun`, often a
+                    // closure) positionally, then — for `%a` — the value it consumes.
+                    // Application order is callback FIRST, then value (see
+                    // `PrintfSpec.argTypes`). No width/precision (F# `%a`/`%t` carry
+                    // none), and never cold (capture-first lowers on every resolved sink).
+                    let callbackExpr = args.[holeIdx]
+                    holeIdx <- holeIdx + 1
+                    let callbackT = translateExpr ctx callbackExpr
 
-                let precisionExpr =
-                    if placeholder.Precision = FormatDim.Star then
-                        let pr = translateExpr ctx args.[holeIdx]
-                        holeIdx <- holeIdx + 1
-                        ValueSome pr
-                    else
-                        ValueNone
+                    let valueExpr =
+                        if hasValue then
+                            let v = args.[holeIdx]
+                            holeIdx <- holeIdx + 1
+                            ValueSome v
+                        else
+                            ValueNone
 
-                let argExpr = args.[holeIdx]
-                holeIdx <- holeIdx + 1
-                let argT = translateExpr ctx argExpr
-                // Zonk before the faithfulness check: a union-case application
-                // (`S 3`) leaves a metavar that only resolves to `TyUnion` after
-                // zonking (a record literal is concrete immediately), and an
-                // unzonked `TyVar` would wrongly read as non-faithful (cold).
-                let holeTy = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr argExpr))
+                    let valueT = valueExpr |> ValueOption.map (translateExpr ctx)
 
-                // `%A` of a non-engine-faithful arg (a non-Vesper structural type —
-                // FSharpOption / a BCL type — or an unknown) can't be rendered by the
-                // structural engine, so the hole stays off the `Format` path and the
-                // generic printf call stands; every Vesper-compiled record / DU (local
-                // or external) is faithful now that step-3 synthesises their `Format`.
-                if
-                    placeholder.Type = FormatType.Structured
-                    && not (structuredArgFaithful ctx localAsm holeTy)
-                then
-                    cold <- true
+                    // The spec `Ty` is not load-bearing for capture-first emit (the
+                    // residue is spliced as a literal): the `%a` value's zonked type,
+                    // `unit` for `%t`.
+                    let specTy =
+                        match valueExpr with
+                        | ValueSome v -> Unification.zonk (typeOfKey ctx (CstKeys.ofExpr v))
+                        | ValueNone -> TyConst("unit", EqArray.empty)
 
-                let spec =
-                    {
-                        Ty = holeTy
-                        Source = HoleSpecSource.Classified holeForm
-                        Tok = t
-                    }
+                    let spec =
+                        {
+                            Ty = specTy
+                            Source = HoleSpecSource.Classified holeForm
+                            Tok = t
+                        }
 
-                match widthExpr, precisionExpr with
-                | ValueNone, ValueNone -> segments.Add(FormatSeg.Hole(spec, argT))
+                    segments.Add(FormatSeg.CallbackHole(spec, callbackT, valueT))
                 | _ ->
-                    segments.Add(
-                        FormatSeg.DynHole
-                            {
-                                Width = widthExpr
-                                Precision = precisionExpr
-                                Spec = spec
-                                Value = argT
-                            }
-                    )
+
+                    // A star *width* (`%*d`, `%*A`) then a star *precision* (`%.*f`, `%.*e`,
+                    // `%.*A`) each consume a leading `int` arg, evaluated before the value in
+                    // curried application order (width first, then precision — the source arg
+                    // order). The happy-path marker guarantees full application
+                    // (`totalArity`), so the indices line up. Walk args by per-hole arity.
+                    let widthExpr =
+                        if placeholder.Width = FormatDim.Star then
+                            let w = translateExpr ctx args.[holeIdx]
+                            holeIdx <- holeIdx + 1
+                            ValueSome w
+                        else
+                            ValueNone
+
+                    let precisionExpr =
+                        if placeholder.Precision = FormatDim.Star then
+                            let pr = translateExpr ctx args.[holeIdx]
+                            holeIdx <- holeIdx + 1
+                            ValueSome pr
+                        else
+                            ValueNone
+
+                    let argExpr = args.[holeIdx]
+                    holeIdx <- holeIdx + 1
+                    let argT = translateExpr ctx argExpr
+                    // Zonk before the faithfulness check: a union-case application
+                    // (`S 3`) leaves a metavar that only resolves to `TyUnion` after
+                    // zonking (a record literal is concrete immediately), and an
+                    // unzonked `TyVar` would wrongly read as non-faithful (cold).
+                    let holeTy = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr argExpr))
+
+                    // `%A` of a non-engine-faithful arg (a non-Vesper structural type —
+                    // FSharpOption / a BCL type — or an unknown) can't be rendered by the
+                    // structural engine, so the hole stays off the `Format` path and the
+                    // generic printf call stands; every Vesper-compiled record / DU (local
+                    // or external) is faithful now that step-3 synthesises their `Format`.
+                    if
+                        placeholder.Type = FormatType.Structured
+                        && not (structuredArgFaithful ctx localAsm holeTy)
+                    then
+                        cold <- true
+
+                    let spec =
+                        {
+                            Ty = holeTy
+                            Source = HoleSpecSource.Classified holeForm
+                            Tok = t
+                        }
+
+                    match widthExpr, precisionExpr with
+                    | ValueNone, ValueNone -> segments.Add(FormatSeg.Hole(spec, argT))
+                    | _ ->
+                        segments.Add(
+                            FormatSeg.DynHole
+                                {
+                                    Width = widthExpr
+                                    Precision = precisionExpr
+                                    Spec = spec
+                                    Value = argT
+                                }
+                        )
             | StringPart.Expr _
             | StringPart.OrphanFormatSpecifier _
             | StringPart.InvalidText _ ->

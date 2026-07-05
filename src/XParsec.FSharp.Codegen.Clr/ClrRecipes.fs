@@ -32,6 +32,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let ePrintfFormat4 = env.EPrintfFormat4
     let eUnit = env.EUnit
     let eTextWriter = env.ETextWriter
+    let eStringWriter = env.EStringWriter
     let eStringBuilder = env.EStringBuilder
     let ePrintfModule = env.EPrintfModule
     let eFun2 = env.EFun2
@@ -811,6 +812,32 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
             toEntity (ctx.MemberRef(eFormatter.Value, "AppendDynamicPrecisionSignedFloat", s))
 
+        // `%a`/`%t` capture-first scratch sinks: a parameterless ctor + the buffer
+        // `ToString()` on `StringWriter` (writer families) / `StringBuilder` (`bprintf`).
+        let parameterlessCtor (parent: EntityHandle) : EntityHandle =
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = true)
+                .Parameters(0, (fun (ret: ReturnTypeEncoder) -> ret.Void()), (fun (_: ParametersEncoder) -> ()))
+
+            toEntity (ctx.MemberRef(parent, ".ctor", s))
+
+        // `instance string T::ToString()` — `StringWriter`/`StringBuilder` both override
+        // `Object.ToString` to return the buffered text; `callvirt` dispatches to it.
+        let toStringOf (parent: EntityHandle) : EntityHandle =
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(isInstanceMethod = true)
+                .Parameters(
+                    0,
+                    (fun (ret: ReturnTypeEncoder) -> ret.Type().String()),
+                    (fun (_: ParametersEncoder) -> ())
+                )
+
+            toEntity (ctx.MemberRef(parent, "ToString", s))
+
         let consoleGetter (name: string) : EntityHandle =
             let s = BlobBuilder()
 
@@ -899,6 +926,10 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             AppendLiteral = appendLiteral
             Flush = flush
             ToStringAndClear = toStringAndClear
+            NewStringWriter = parameterlessCtor eStringWriter.Value
+            StringWriterToString = toStringOf eStringWriter.Value
+            NewStringBuilder = parameterlessCtor eStringBuilder.Value
+            StringBuilderToString = toStringOf eStringBuilder.Value
             ConsoleOut = consoleGetter "get_Out"
             ConsoleError = consoleGetter "get_Error"
             AppendFormatted = appendFormatted

@@ -147,6 +147,8 @@ module TastConvert =
                     Spec = hole f d.Spec
                     Value = expr f d.Value
                 }
+        | FormatSegG.CallbackHole(spec, callback, value) ->
+            FormatSegG.CallbackHole(hole f spec, expr f callback, ValueOption.map (expr f) value)
 
     and clause (f: 'a -> 'b) (c: TStaticOptClauseG<'a, 'tok>) : TStaticOptClauseG<'b, 'tok> =
         {

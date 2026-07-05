@@ -309,6 +309,8 @@ module TastWalk =
                                     Spec = { d.Spec with Ty = f d.Spec.Ty }
                                     Value = pe d.Value
                                 }
+                        | FormatSeg.CallbackHole(spec, callback, value) ->
+                            FormatSeg.CallbackHole({ spec with Ty = f spec.Ty }, pe callback, ValueOption.map pe value)
                     )
 
                 TExpr.Format(sink, segs, f ty, tok)
@@ -497,6 +499,9 @@ module TastWalk =
                         ValueOption.iter walk d.Width
                         ValueOption.iter walk d.Precision
                         walk d.Value
+                    | FormatSeg.CallbackHole(_, callback, value) ->
+                        walk callback
+                        ValueOption.iter walk value
             // Default walk skips constraints (no expr children) — the
             // constraint typars are the binding's own quantified typars,
             // already known to passes that care (ResolvedTypes adds them to

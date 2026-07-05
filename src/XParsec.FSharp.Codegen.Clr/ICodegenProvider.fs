@@ -200,6 +200,15 @@ type FormatHandles =
         AppendLiteral: EntityHandle
         Flush: EntityHandle
         ToStringAndClear: EntityHandle
+        /// `%a`/`%t` capture-first scratch sinks. Writer families invoke the callback
+        /// against a fresh `StringWriter` (`NewStringWriter`), then `AppendLiteral` its
+        /// `ToString()` (`StringWriterToString`); `bprintf` uses a fresh `StringBuilder`
+        /// (`NewStringBuilder` / `StringBuilderToString`). `sprintf` needs neither — its
+        /// callback returns the residue string directly.
+        NewStringWriter: EntityHandle
+        StringWriterToString: EntityHandle
+        NewStringBuilder: EntityHandle
+        StringBuilderToString: EntityHandle
         ConsoleOut: EntityHandle
         ConsoleError: EntityHandle
         /// Instantiates `<T = ty>` and picks the overload from

@@ -39,7 +39,8 @@ module EmitFormat =
             match seg with
             | FormatSegG.Lit s -> litLen <- litLen + s.Length
             | FormatSegG.Hole _
-            | FormatSegG.DynHole _ -> holeCount <- holeCount + 1
+            | FormatSegG.DynHole _
+            | FormatSegG.CallbackHole _ -> holeCount <- holeCount + 1
 
         // Construct in place: `ldloca h; ldc litLen; ldc holeCount; <sink?>; call .ctor`.
         b.Add(ILInstr.Ldloca slot)
@@ -268,6 +269,10 @@ module EmitFormat =
                 // A `{x:fmt}` interpolation custom-format clause: a verbatim CLR .NET
                 // format string with no printf placeholder.
                 field PrintfSpec.HoleKind.Formatted fmt Alignment.None
+            | HoleSpecSource.Classified(HoleForm.Callback _) ->
+                // `%a`/`%t` callback holes ride their own `CallbackHole` segment, emitted
+                // by `callbackHole`; a callback spec never reaches `emitHole`.
+                failwith "Emit: callback hole reached the Field projection (unreachable)"
             | HoleSpecSource.Classified(HoleForm.PercentA(width, size)) -> percentA width size
             | HoleSpecSource.Classified(HoleForm.Field(fmt, alignment)) ->
                 match dynFloatOf fmt, starPrecLocal with
@@ -283,6 +288,101 @@ module EmitFormat =
                         let kind, format, align = ClrHoleFormat.toDotNetFormat fmt alignment
                         field kind format align
 
+        // A `%a`/`%t` callback hole: capture-first. Invoke the user callback (a
+        // `Vesper.Fun`, applied via the native `EmitInvoke` recipe — NO FSharp.Core) and
+        // splice its residue at the hole. `sprintf` invokes `cb(unit)[(value)]` and
+        // `AppendLiteral`s the returned string directly; the writer / builder families
+        // invoke `cb(scratch)[(value)]` into a fresh `StringWriter` / `StringBuilder`
+        // (residue is `unit`, discarded), then `AppendLiteral(scratch.ToString())`.
+        let callbackHole (callback: Frozen.TExpr) (value: Frozen.TExpr voption) =
+            // Apply the function value on the stack to one arg already pushed above it,
+            // advancing the threaded arrow type (`FTFun(dom, cod) -> cod`).
+            let invoke (ft: FrozenType) : FrozenType =
+                match ft with
+                | FTFun(_, cod) ->
+                    match env.Provider.TryEmitInvoke ft with
+                    | ValueSome r -> b.Add(ILInstr.Recipe r)
+                    | ValueNone -> failwithf "EmitFormat: cannot invoke %%a/%%t callback of type %A" ft
+
+                    cod
+                | _ -> failwithf "EmitFormat: %%a/%%t callback is not a function type: %A" ft
+
+            let funcTy0 = typeOfExpr callback
+
+            match sink with
+            | FormatSinkG.ToString ->
+                // sprintf: the callback returns the residue string; `AppendLiteral` it.
+                b.Add(ILInstr.Ldloca slot)
+                buildExpr env b callback
+                EmitTypes.buildUnitValue env b // `'State = unit`
+                let ft1 = invoke funcTy0 // %a: -> Fun<'T,string>; %t: -> string
+
+                match value with
+                | ValueSome v ->
+                    buildExpr env b v
+                    invoke ft1 |> ignore // -> string
+                | ValueNone -> () // %t: `ft1` is already the residue string
+
+                b.Add(ILInstr.Call(fh.AppendLiteral, 2, 0))
+            | FormatSinkG.ToStdOut _
+            | FormatSinkG.ToStdErr _
+            | FormatSinkG.ToWriter _
+            | FormatSinkG.ToBuilder _ ->
+                // Writer / builder families: the callback writes into a fresh scratch
+                // sink; splice its buffered text. `%a`'s residue is `unit` (discarded).
+                let isBuilder =
+                    match sink with
+                    | FormatSinkG.ToBuilder _ -> true
+                    | _ -> false
+
+                let scratchTy =
+                    if isBuilder then
+                        FTConst("System.Text.StringBuilder", EqArray.empty)
+                    else
+                        FTConst("System.IO.StringWriter", EqArray.empty)
+
+                let scratch = b.Local scratchTy
+
+                b.Add(
+                    ILInstr.Newobj(
+                        (if isBuilder then
+                             fh.NewStringBuilder
+                         else
+                             fh.NewStringWriter),
+                        0
+                    )
+                )
+
+                b.Add(ILInstr.Stloc scratch)
+
+                buildExpr env b callback
+                b.Add(ILInstr.Ldloc scratch) // `'State = the scratch sink`
+                let ft1 = invoke funcTy0 // %a: -> Fun<'T,unit>; %t: -> unit
+
+                (match value with
+                 | ValueSome v ->
+                     buildExpr env b v
+                     invoke ft1 |> ignore // -> unit
+                 | ValueNone -> ())
+
+                b.Add(ILInstr.Pop) // discard the `unit` residue
+
+                b.Add(ILInstr.Ldloca slot)
+                b.Add(ILInstr.Ldloc scratch)
+
+                b.Add(
+                    ILInstr.Callvirt(
+                        (if isBuilder then
+                             fh.StringBuilderToString
+                         else
+                             fh.StringWriterToString),
+                        1,
+                        1
+                    )
+                )
+
+                b.Add(ILInstr.Call(fh.AppendLiteral, 2, 0))
+
         for seg in segments do
             match seg with
             | FormatSegG.Lit s ->
@@ -290,6 +390,7 @@ module EmitFormat =
                 b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
                 b.Add(ILInstr.Call(fh.AppendLiteral, 2, 0))
             | FormatSegG.Hole(hole, arg) -> emitHole hole arg None None
+            | FormatSegG.CallbackHole(_, callback, value) -> callbackHole callback value
             | FormatSegG.DynHole d ->
                 // Curried application evaluates the dimension args *before* the value,
                 // but the handler members take them *after* the value — so spill each

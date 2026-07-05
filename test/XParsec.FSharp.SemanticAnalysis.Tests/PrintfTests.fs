@@ -174,19 +174,31 @@ let tests =
 
                 // %*d : width int, then value int.
                 Expect.equal
-                    (PrintfSpec.argTypes fresh tyUnit tyUnit (star FormatDim.Star FormatDim.Absent FormatType.DecimalInt))
+                    (PrintfSpec.argTypes
+                        fresh
+                        tyUnit
+                        tyUnit
+                        (star FormatDim.Star FormatDim.Absent FormatType.DecimalInt))
                     (ValueSome [ tyInt; tyInt ])
                     "%*d"
 
                 // %.*f : precision int, then value float.
                 Expect.equal
-                    (PrintfSpec.argTypes fresh tyUnit tyUnit (star FormatDim.Absent FormatDim.Star FormatType.FloatDecimal))
+                    (PrintfSpec.argTypes
+                        fresh
+                        tyUnit
+                        tyUnit
+                        (star FormatDim.Absent FormatDim.Star FormatType.FloatDecimal))
                     (ValueSome [ tyInt; tyFloat ])
                     "%.*f"
 
                 // %*.*f : width int, precision int, value float.
                 Expect.equal
-                    (PrintfSpec.argTypes fresh tyUnit tyUnit (star FormatDim.Star FormatDim.Star FormatType.FloatDecimal))
+                    (PrintfSpec.argTypes
+                        fresh
+                        tyUnit
+                        tyUnit
+                        (star FormatDim.Star FormatDim.Star FormatType.FloatDecimal))
                     (ValueSome [ tyInt; tyInt; tyFloat ])
                     "%*.*f"
 
@@ -390,11 +402,12 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            test "v1 does not type %a — it falls through (and surfaces a diagnostic)" {
-                // %a needs a callback printer; not modelled in v1, so the
-                // special-case defers and the literal can't match PrintfFormat.
+            test "%a demands a callback printer — a bare value is a type error" {
+                // `%a` types as a printer `'State -> 'T -> 'Residue`, so the first
+                // trailing arg must be a callback; here `42` (an `int`) unifies against
+                // that arrow and is rejected.
                 let tast = analyse "let r = printfn \"%a\" 42"
-                Expect.isNonEmpty tast.Diagnostics "unsupported %a is flagged, not silently mistyped"
+                Expect.isNonEmpty tast.Diagnostics "a non-callback %a argument is flagged, not silently mistyped"
             }
 
             test "a local binding shadowing `printfn` is an ordinary function" {

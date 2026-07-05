@@ -41,6 +41,11 @@ let private triple (hole: HoleSpecG<'ty, 'tok>) : PrintfSpec.HoleKind * string o
             | PrintfHoleForm.PrintSize.Star -> None
 
         PrintfSpec.HoleKind.Structured, sizeSlot, widthSlot
+    | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Callback _) ->
+        // `%a`/`%t` callback holes carry no CLR `(HoleKind, format, alignment)` triple —
+        // they ride a `FormatSeg.CallbackHole`, not a `Hole`; these projection assertions
+        // never inspect one.
+        failwith "triple: callback hole has no field projection"
 
 let private kindOf hole =
     let k, _, _ = triple hole
@@ -716,6 +721,99 @@ let tests =
                     "PHpBBuilderMulti"
                     "let sb = System.Text.StringBuilder()\nbprintf sb \"%d and %s\" 7 \"x\"\nprintf \"%s\" (sb.ToString())"
                     "7 and x"
+            }
+
+            // Track D — `%a` / `%t` callback holes. The callback is a `Vesper.Fun`
+            // (often a closure), invoked via the native `EmitInvoke` path (NOT
+            // `FSharpFunc.Invoke`, so no FSharp.Core). Capture-first emit invokes it
+            // against a per-family scratch sink and `AppendLiteral`s the residue.
+            // `%a` = a printer + a value; `%t` = a printer alone. Parity is against the
+            // test process's own F# `%a`/`%t` with the identical callback.
+
+            test "sprintf `%a` lowers to a ToString Format with a value-carrying CallbackHole" {
+                match soleDecl "sprintf \"%a\" (fun (s: unit) (x: int) -> sprintf \"%d\" x) 42" with
+                | TDecl.Expression(TExpr.Format(FormatSink.ToString, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.CallbackHole(_, _, ValueSome _) ] -> ()
+                    | other -> failtestf "expected one CallbackHole carrying a value, got: %A" other
+                | other -> failtestf "expected a ToString Format node, got: %A" other
+            }
+
+            test "sprintf `%t` lowers to a Format with a value-less CallbackHole" {
+                match soleDecl "sprintf \"%t\" (fun (s: unit) -> \"hi\")" with
+                | TDecl.Expression(TExpr.Format(FormatSink.ToString, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.CallbackHole(_, _, ValueNone) ] -> ()
+                    | other -> failtestf "expected one value-less CallbackHole, got: %A" other
+                | other -> failtestf "expected a ToString Format node, got: %A" other
+            }
+
+            test "`printf \"%a\"` lowers to a ToStdOut Format with a CallbackHole" {
+                match soleDecl "printf \"%a\" (fun (w: System.IO.TextWriter) (x: int) -> fprintf w \"%d\" x) 42" with
+                | TDecl.Expression(TExpr.Format(FormatSink.ToStdOut false, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.CallbackHole(_, _, ValueSome _) ] -> ()
+                    | other -> failtestf "expected one CallbackHole carrying a value, got: %A" other
+                | other -> failtestf "expected a ToStdOut Format node, got: %A" other
+            }
+
+            test "sprintf `%a` invokes the callback and splices its residue (F# parity)" {
+                let expected = sprintf "%a" (fun (s: unit) (x: int) -> sprintf "%d" x) 42
+
+                runParity
+                    "PHpSprintfA"
+                    "printf \"%s\" (sprintf \"%a\" (fun (s: unit) (x: int) -> sprintf \"%d\" x) 42)"
+                    expected
+            }
+
+            test "sprintf `%t` invokes the no-value callback (F# parity)" {
+                let expected = sprintf "%t" (fun (s: unit) -> "hi")
+                runParity "PHpSprintfT" "printf \"%s\" (sprintf \"%t\" (fun (s: unit) -> \"hi\"))" expected
+            }
+
+            test "`%a` callback closing over a local captures it (closure-walk, F# parity)" {
+                // The callback is a closure over `y`; if the CallbackHole sub-exprs were
+                // not walked by free-variable/escape analysis, `y` would go unregistered
+                // and this would fault at runtime. Parity value proves the capture works.
+                let y = 42
+                let expected = sprintf "%a" (fun (s: unit) (x: int) -> sprintf "%d" (x + y)) 5
+
+                runParity
+                    "PHpSprintfAClosure"
+                    "let y = 42\nprintf \"%s\" (sprintf \"%a\" (fun (s: unit) (x: int) -> sprintf \"%d\" (x + y)) 5)"
+                    expected
+            }
+
+            test "`printf \"%a\"` writes the callback residue to stdout" {
+                runPrints
+                    "PHpPrintfA"
+                    "printf \"%a\" (fun (w: System.IO.TextWriter) (x: int) -> fprintf w \"%d\" x) 42"
+                    "42"
+            }
+
+            test "`fprintf` `%a` invokes the callback against the writer sink" {
+                runPrints
+                    "PHpFprintfA"
+                    "fprintf System.Console.Out \"%a\" (fun (w: System.IO.TextWriter) (x: int) -> fprintf w \"%d\" x) 42"
+                    "42"
+            }
+
+            test "`fprintf` `%t` invokes the no-value callback against the writer sink" {
+                runPrints
+                    "PHpFprintfT"
+                    "fprintf System.Console.Out \"%t\" (fun (w: System.IO.TextWriter) -> fprintf w \"%s\" \"hi\")"
+                    "hi"
+            }
+
+            test "`bprintf` `%a` invokes the callback against the builder sink (F# parity)" {
+                let sb = System.Text.StringBuilder()
+                Printf.bprintf sb "%a" (fun (b: System.Text.StringBuilder) (x: int) -> Printf.bprintf b "%d" x) 42
+                let expected = sb.ToString()
+
+                runParity
+                    "PHpBprintfA"
+                    "let sb = System.Text.StringBuilder()\nbprintf sb \"%a\" (fun (b: System.Text.StringBuilder) (x: int) -> bprintf b \"%d\" x) 42\nprintf \"%s\" (sb.ToString())"
+                    expected
             }
 
             // `%A` runtime oracle is the structural spec (copy-pasteable source), not

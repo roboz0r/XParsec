@@ -195,7 +195,12 @@ module PrintfSpec =
     /// consumes just `'State -> 'Residue`. Neither carries width/precision in F#,
     /// so both branch out at the top and skip the star-fold. This is the per-hole
     /// typing seam: arity is `List.length`, never a hole count.
-    let argTypes (fresh: unit -> SemType) (state: SemType) (residue: SemType) (p: FormatPlaceholder) : SemType list voption =
+    let argTypes
+        (fresh: unit -> SemType)
+        (state: SemType)
+        (residue: SemType)
+        (p: FormatPlaceholder)
+        : SemType list voption =
         match p.Type with
         | FormatType.FormatFunction ->
             let tv = fresh ()

@@ -325,13 +325,39 @@ Implemented in steps:
 - **Step 1 — typing seam. LANDED (`c8233247`).** `argTypes` types `%a` (`'State -> 'T -> 'Residue`
   plus value `'T`, one shared typar) / `%t` (`'State -> 'Residue`), threading `fam.State`/`fam.Residue`;
   `tryClassify` untouched so both still route cold. Suites green (711/1223/264).
-- **Step 2 — CLR native + shared machinery (NEXT).** `HoleForm.Callback`; `tryClassify` admits;
-  frozen `FormatSegG` callback-hole case; Freeze capture (callback + value exprs); the provider-
-  capability gate + diagnostic (`InferApp`); CLR capture-first emit (+ `StringWriter` wired into
-  `ClrEnv`); JS gets a temporary reject arm (unreached by tests). CLR parity tests; flip CLR cold pins.
+- **Step 2 — CLR native + shared machinery. LANDED (2026-07-05).** `HoleForm.Callback of hasValue`;
+  `tryClassify` admits `%a`→`Callback true` / `%t`→`Callback false`; frozen `FormatSegG.CallbackHole`
+  (spec + callback + `value voption`), walked by every TAST traversal incl. escape/free-var
+  (`TastWalk`/`TastConvert`/`TastLower`/`Regions`/`ResolvedTypes`/`PlatformTypes`); Freeze captures the
+  callback + (for `%a`) value exprs positionally. Provider-capability gate + diagnostic in `InferApp`
+  (`sinkAvailable = fam.State is unit or a resolved TyClass`; `rejectCallback` blocks the marker + adds
+  a `Severity.Error`). CLR capture-first emit (`EmitFormat.callbackHole`): `sprintf` invokes
+  `cb(unit)[(v)]`→residue string→`AppendLiteral`; writer/builder invoke `cb(scratch)[(v)]` into a fresh
+  `StringWriter`/`StringBuilder` (discard the unit residue), then `AppendLiteral(scratch.ToString())`;
+  callback applied via the native `EmitInvoke` recipe (no FSharp.Core). `StringWriter` TypeRef +
+  scratch ctor/ToString member refs wired (`ClrEnv`/`ClrEncoder`/`ClrRecipes`/`FormatHandles`). JS got a
+  temporary `failwithf` reject arm (unreached by tests). 10 new CLR tests (shape + byte-parity for
+  sprintf/printf/fprintf/bprintf `%a`, sprintf/fprintf `%t`, + a closure-over-local parity test proving
+  the escape-walk ripple). No `%a`/`%t` cold pins existed to flip (the cold-recipe guard stays `%+08.2f`).
+  Suites green: **CLR 1233** (1223 + 10) **/ JS 264 / semantic 711** (+1 skipped).
 - **Step 3 — JS asymmetry (proves the model).** Replace the JS reject arm with real `sprintf "%a"`
   residue-splice emit; confirm writer/builder `%a` on JS diagnoses. JS tests: `sprintf "%a"` runnable
   + `printf "%a"` → diagnostic.
+
+**Future increment (not this sprint): JS writer-family `%a` via a `TextWriter` shim.** The step-2
+gate diagnoses writer/builder `%a` on JS purely because `ctx.Provider.TryLookupType` doesn't surface
+`System.IO.TextWriter` there — a *capability-absent* state, not a dead end. A platform-specific
+`.js.fs`/`.fsi` shim (a `TextWriter`-compatible class — `Write`/`Flush`/`ToString`, plus a
+`StringWriter` and a `Console.Out`-equivalent), registered through the JS symbol provider via the
+dual-face `Class` mechanism (`ExternalSymbols.resolveCapabilities`, canonical `System.IO.TextWriter`
+↔ platform face), flips that capability: the *same* gate then admits writer `%a` on JS with **zero
+changes** to `SemanticAnalysis` or the gate, and the step-2 capture-first CLR emit transliterates
+straight onto the JS `StringWriter`. Keeping the surface type `System.IO.TextWriter` (rather than a
+separate JS-only `ITextSink`) is what makes `fprintf (w: TextWriter) "%a" …` source-identical on both
+targets — it supersedes the earlier B-track "JS gets an `ITextSink`" note. Wrinkles for then: the emit
+calls PascalCase `.ToString()`/`Write`, so the shim's compiler-facing surface must be PascalCase; and
+`Console.Out`'s line-buffer/flush semantics vs the `Formatter`'s single terminal flush is a parity
+call to pin with an oracle.
 
 **Then:** D → E1 (const-literal format) → E2 (runtime runner; heaviest) → capstone.
 F (`%*d`) is a separable feature.

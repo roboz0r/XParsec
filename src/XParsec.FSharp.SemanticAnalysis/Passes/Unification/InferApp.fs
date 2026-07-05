@@ -353,9 +353,44 @@ module internal UnificationInferApp =
                                 // `FormatSink.ToWriter` / `FormatSink.ToBuilder`. Otherwise the
                                 // FSharp.Core path stands (additive — `%A`, partial application,
                                 // etc. unaffected).
+                                // `%a`/`%t` callback holes lower only where THIS target's
+                                // provider surfaces the family's sink type. `resolveExternalSlots`
+                                // (above) rewrote a resolvable by-name `TyConst(TextWriter/
+                                // StringBuilder)` to a `TyClass`; `sprintf` needs no external sink
+                                // (`State = unit`). So the sink is available iff `fam.State` is
+                                // `unit` (sprintf) or a resolved `TyClass` (writer/builder); a
+                                // still-by-name `TyConst` (e.g. the JS provider) is NOT available.
+                                let hasCallbackHole =
+                                    specs
+                                    |> List.exists (fun p ->
+                                        p.Type = FormatType.FormatFunction || p.Type = FormatType.Text
+                                    )
+
+                                let sinkAvailable =
+                                    match fam.State with
+                                    | TyClass _ -> true
+                                    | s -> s = BuiltinTypes.tyUnit
+
+                                // No cold fallback once FSharp.Core is dropped, and the sink type
+                                // this target can't name — reject rather than silently mis-lower.
+                                // The marker guards below read `not rejectCallback`, so neither
+                                // marker sets and the call stays cold (App path) today.
+                                let rejectCallback = hasCallbackHole && not sinkAvailable
+
+                                if rejectCallback then
+                                    ctx.Diagnostics.Add
+                                        {
+                                            Key = key
+                                            Message =
+                                                "printf %a/%t requires a sink type (System.IO.TextWriter / System.Text.StringBuilder) not available on this target"
+                                            Code = ""
+                                            Severity = Severity.Error
+                                        }
+
                                 match PrintfSpec.sinkOf (qualifiedNameOf ctx fn) with
                                 | ValueSome sink when
-                                    args.Length = PrintfSpec.totalArity specs + idx + 1
+                                    not rejectCallback
+                                    && args.Length = PrintfSpec.totalArity specs + idx + 1
                                     && lowerablePlaceholders specs
                                     && (idx = 0
                                         || (idx = 1

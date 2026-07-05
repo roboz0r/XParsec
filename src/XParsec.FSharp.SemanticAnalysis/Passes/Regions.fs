@@ -496,6 +496,9 @@ module Regions =
                     d.Width |> ValueOption.iter (fun w -> inferRegion s ctx w |> ignore)
                     d.Precision |> ValueOption.iter (fun pr -> inferRegion s ctx pr |> ignore)
                     inferRegion s ctx d.Value |> ignore
+                | FormatSeg.CallbackHole(_, callback, value) ->
+                    inferRegion s ctx callback |> ignore
+                    value |> ValueOption.iter (fun v -> inferRegion s ctx v |> ignore)
 
             RegionId.Unknown
         | TExpr.ILIntrinsic(_, _, args, _, _) ->
