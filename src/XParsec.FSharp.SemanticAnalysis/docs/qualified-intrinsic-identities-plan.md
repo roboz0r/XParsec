@@ -98,10 +98,23 @@ A coordinated multi-file change, NOT a surgical patch:
 
 ## Relationship to W9 / arrays
 W9 keeps array a bare `TyConst("[]")` and resolves `arr.[i]` via members hung on the landed
-`IntrinsicAbbrevHost` (identity unchanged), with local key-agreement on `arityName "[]" 1 = "[]``1"`.
-When THIS milestone lands, array's identity becomes qualified like every other intrinsic and the
-"normal sealed class with an intrinsic name" end-state (and, if wanted, an explicit JS repr / promotion
-toward a nominal) can be revisited — but that is downstream of, and gated by, this identity change.
+`IntrinsicAbbrevHost` (identity unchanged). When THIS milestone lands, array's identity becomes
+qualified like every other intrinsic and the "normal sealed class with an intrinsic name" end-state
+(and, if wanted, an explicit JS repr / promotion toward a nominal) can be revisited — but that is
+downstream of, and gated by, this identity change.
+
+**Array contract-name artifact to unify here (surfaced by W9 Stage 2a).** The array type's runtime
+identity is the CLEAN `RuntimeNames.arrayName 1 = "[]"`, but VesperLib's `nameOfTok` registers its
+type-name under the VERBATIM backtick-escaped source token `` ``[]`` `` (the F# escaping backticks kept
+as part of the identity), and `SymbolKeyOps.arityName`'s backtick-guard then suppresses the `` `1 ``
+suffix — so array's MEMBER-CONTRACT identity is neither `"[]"` nor `"[]``1"` but the raw `` ``[]`` ``.
+W9 Stage 2a bridges this with `RuntimeNames.arrayContractName = "``" + arrayName 1 + "``"` (used at the
+`InferRecordAccess` array branch to look up `get_Item`/… and matched by the harvest store because both
+sides derive the same escaped token) — a localized cost of deferring identity normalization, NOT the
+clean end-state. This milestone should NORMALIZE array naming so the contract identity aligns with the
+runtime `TyConst("[]")` (strip the escaping backticks at registration; decide `"[]"` vs `"[]``1"`), then
+DELETE `arrayContractName` and let array/string share one clean member-lookup path (string already keys
+cleanly as `"string"`). Until then the escaped bridge stands.
 
 ## Relevant memories
 [[feedback_dynamic_intrinsics_over_du_cases]] (real intrinsics over new SemType cases — this change

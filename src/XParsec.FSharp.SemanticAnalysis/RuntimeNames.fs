@@ -162,6 +162,24 @@ module RuntimeNames =
         else
             "[" + System.String(',', rank - 1) + "]"
 
+    /// The rank-1 array's identity as the VesperLib contract extractor AND the self-host
+    /// front end SPELL it in a member-bearing declaration (`array-index.js.fsi` /
+    /// `array-index-body.js.fs`) — the double-backtick-escaped `arrayName 1`, i.e.
+    /// `` ``[]`` ``. F# requires the `[]` type name be written backtick-escaped (`[]` is
+    /// not a bare identifier); `VesperLib.nameOfTok` preserves that RAW token, and
+    /// `SymbolKeyOps.arityName`'s backtick-guard then suppresses the `` `1 `` arity suffix —
+    /// so the array's member store/contract key is the bare `` ``[]`` ``, NOT `arrayName`'s
+    /// clean `"[]"` nor `"[]`1"`. Both the consumer-contract half and the harvest-store
+    /// half derive this SAME string from the identical source spelling, so they agree by
+    /// construction; the receiver-side `TyConst("[]")` indexer lookup
+    /// (`inferIndexedLookup`) must translate to THIS string to meet them. Single-sourced
+    /// here so the one magic coupling to the contract spelling is auditable.
+    ///
+    /// (The clean-`"[]"`-vs-raw-`` ``[]`` `` split is a VesperLib/self-host naming artifact
+    /// the W9 array-index slice routes AROUND rather than fixing; normalising array naming
+    /// across both subsystems is a broader, separate change.)
+    let arrayContractName: string = "``" + arrayName 1 + "``"
+
     /// The canonical identity name for a managed by-ref (`T&`) — a *generic
     /// intrinsic* carried as `TyConst(byrefName, [elem])` / `FTConst(byrefName,
     /// [elem])`, exactly mirroring the array `arrayName` convention rather than a

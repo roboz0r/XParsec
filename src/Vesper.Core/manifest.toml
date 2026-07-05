@@ -74,6 +74,16 @@ files-js = [
     # access, target-typed via `default ^TResult : dynamic`). Bodies in `ops-dynamic.js.fs`
     # (`inline-bodies-js`). Extracted after the `dynamic` type it references.
     "ops-dynamic.js.fsi",
+    # JS-only augmentation of the intrinsic array `'T[]` with a `get_Item` indexer
+    # accessor (W9 array-index READ migration). Declared in the GLOBAL namespace so its
+    # member-contract key is bare — the array's canonical bare `TyConst` identity, spelled
+    # `` ``[]`` `` (RuntimeNames.arrayContractName) — matching the receiver-side lookup and
+    # the harvest store. A SEPARATE contract entry from `prim-types-min.fsi`'s
+    # `type 'T[] = extern`, which stays the `Vesper.``[]``` `Intrinsic` shape untouched.
+    # Its `.js.fs` harvest source is
+    # `array-index-body.js.fs` (deliberately a DIFFERENT base name so the intrinsic-repr
+    # companion harvest never treats it as the array's platform repr).
+    "array-index.js.fsi",
 ]
 
 # Every `.fs` in the package is listed here (one source of truth, no orphaned
@@ -130,6 +140,10 @@ inline-bodies-js = [
     # The `dynamic` operator bodies (`retype`/`dynamic`/`(?)`/`(?<-)`) — JS-only
     # (`$0[$1]` computed-member templates), spliced at each `?` use site.
     "ops-dynamic.js.fs",
+    # The array `get_Item` member body — harvested `this`-first (`harvestMemberBody`)
+    # and served under the finalized member key so `arr.[i]` splices the `ldelem`
+    # exactly as the free `GetArray` did. Companion of `array-index.js.fsi`.
+    "array-index-body.js.fs",
 ]
 
 # Hand-authored JS runtime *asset*: the structural

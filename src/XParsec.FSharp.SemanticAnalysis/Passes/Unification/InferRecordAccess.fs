@@ -638,6 +638,22 @@ module internal UnificationInferRecordAccess =
                 match resolveExternalIndexer clsQual clsArgsArr "get_Item" with
                 | ValueSome resultTy -> resultTy
                 | ValueNone -> getArrayIndex ()
+        // A rank-1 array `'T[]` (a bare `TyConst("[]", [elem])`, NOT a `TyClass`) reads
+        // through the intrinsic array's `get_Item` member accessor — the member-inline
+        // twin of the free `GetArray`. The array's member-contract identity is the bare
+        // `RuntimeNames.arrayContractName` (`` ``[]`` `` — the verbatim backtick-escaped
+        // array token VesperLib and the self-host front end both name it, the arity suffix
+        // suppressed by `arityName`'s backtick-guard), NOT `arrayName 1`'s clean `"[]"`.
+        // The harvest store keys the body under the SAME bare `SymbolKey`, so
+        // `TryLookupMember` lands the identical member on both sides and Freeze lowers it
+        // through `TExpr.ExternalMember(get_Item)` (whose harvested `ldelem` body splices to
+        // the same `arr[i]`). A MISS — the contract half absent (a non-JS target, or a
+        // key disagreement) — falls back to the free `GetArray` path UNCHANGED, so nothing
+        // regresses if resolution doesn't hit.
+        | TyConst(name, elemArgs) when name = RuntimeNames.arrayName 1 ->
+            match resolveExternalIndexer RuntimeNames.arrayContractName (elemArgs.AsSpan().ToArray()) "get_Item" with
+            | ValueSome resultTy -> resultTy
+            | ValueNone -> getArrayIndex ()
         | _ ->
             // An intrinsic receiver mapped to a BCL type — `string` (`s.[i]`), whose
             // indexer accessor is `System.String.get_Chars(int) : char`. When that does

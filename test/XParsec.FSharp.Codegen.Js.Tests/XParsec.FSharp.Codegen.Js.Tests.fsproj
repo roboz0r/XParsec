@@ -65,6 +65,7 @@
     <Compile Include="StructuralWidenE2ETests.fs" />
     <Compile Include="TypeArgNumberTests.fs" />
     <Compile Include="ExternMemberInlineTests.fs" />
+    <Compile Include="ArrayIndexMemberTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
