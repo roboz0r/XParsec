@@ -394,6 +394,10 @@ module UnificationInfer =
                     | ValueSome(ReturnType(typ = t)) ->
                         let annTy = translateType ctx t
 
+                        // Type provenance: a value binding `let x : T = e` writes the
+                        // binder's type explicitly.
+                        ctx.MarkTypeDeclared(CstKeys.ofPat b.headPat, annTy)
+
                         // E1(a): a format-string literal bound to a `PrintfFormat`-family
                         // annotation (`let fmt : StringFormat<_> = "%d"`) types AS the
                         // format, not `string`. Skip `infer` on the literal (it would type
@@ -420,6 +424,13 @@ module UnificationInfer =
                         | ValueSome(ReturnType(typ = t)) ->
                             let annTy = translateType ctx t
                             let bodyTy = infer ctx b.expr
+
+                            // Type provenance: a `let f … : T = body` return annotation
+                            // writes the BODY's type explicitly (each parameter's
+                            // provenance is recorded independently by `inferPat`, so a
+                            // partially-annotated binding is never overstated).
+                            ctx.MarkTypeDeclared(CstKeys.ofExpr b.expr, annTy)
+
                             // Annotation reconciliation against the written return type
                             // — see the no-arg twin above.
                             unifyAnnotation ctx (CstKeys.ofBinding b) bodyTy annTy

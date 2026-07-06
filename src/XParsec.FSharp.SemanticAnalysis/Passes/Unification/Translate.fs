@@ -139,7 +139,13 @@ module internal UnificationTranslate =
         | Type.VarType(Typar.Anon _) ->
             // `_` typar — always fresh, never stored. Distinct per
             // occurrence, same as `Pat.Wildcard`.
-            TyVar(freshTyVar ctx)
+            let tv = freshTyVar ctx
+            // Type provenance: `_` is the one INFERRED position inside an otherwise
+            // written type (`Box<_>` — `Box` declared, this arg inferred). Mark it so a
+            // consumer walking a declared annotation's type can tell the hole apart from
+            // its written structure and from a named typar `'a`.
+            ctx.MarkInferenceHole tv
+            TyVar tv
         | Type.NamedType li when li.Idents.Length = 1 ->
             let name = ctx.NameOf li.Idents.[0]
 

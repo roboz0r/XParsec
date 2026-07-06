@@ -379,6 +379,12 @@ module internal UnificationInferPat =
             // stays symmetric `unify` for a nominal/`obj` annotation, so the binder
             // still grounds to its written type.
             unifyAnnotation ctx key innerTy annTy
+            // Type provenance: a typed pattern `(x : T)` — parameter, `let`-binder, or
+            // nested destructure — writes the binder's type explicitly. Attribute it to
+            // the INNER binder's key (the `Pat.Typed` wrapper is erased in the TAST; a
+            // consumer queries the `NamedSimple`), matching how a value binding marks its
+            // `headPat`.
+            ctx.MarkTypeDeclared(CstKeys.ofPat inner, annTy)
             let nodeTv = freshTv ctx key
             nodeTv.Link <- ValueSome annTy
             annTy
@@ -393,6 +399,9 @@ module internal UnificationInferPat =
             ctx.Resolution.TypeTestTargets.Set(key, tgtTy)
             let innerTy = inferPat ctx inner
             unify ctx (CstKeys.ofPat inner) innerTy tgtTy
+            // Type provenance: `:? T as x` writes the BINDER `x`'s type (the tested
+            // `T`), not this pattern node's (which stays the scrutinee's free type).
+            ctx.MarkTypeDeclared(CstKeys.ofPat inner, tgtTy)
             TyVar(freshTv ctx key)
         | Pat.TypeTest(typ = t) ->
             // `:? T` — the bare type-test (no `as`-binder). Same as `TypeTestAs`

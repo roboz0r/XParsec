@@ -29,6 +29,9 @@ module internal UnificationInferCtor =
         : SemType =
         let receiverTy = translateType ctx t
 
+        // Type provenance: `new T(…)` writes the constructed node's type explicitly.
+        ctx.MarkTypeDeclared(key, receiverTy)
+
         match resolveStep receiverTy with
         | TyClass(clsKey, args) ->
             match TypeRegistry.tryClassByKey ctx.Types clsKey with

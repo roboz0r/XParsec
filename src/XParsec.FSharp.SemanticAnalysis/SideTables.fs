@@ -1438,6 +1438,88 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
             | ValueNone -> ValueNone
         | _ -> ValueNone
 
+    /// Type provenance: the set of nodes whose type was **written by the programmer**
+    /// (a source type annotation fixed it), keyed by the annotated value / pattern /
+    /// binding node. A node's type is DECLARED iff `IsTypeDeclared` — every other
+    /// type-bearing node (list / array / record / DU / object-expression element,
+    /// unannotated `let` / lambda parameter, …) is INFERRED *by absence*, so the two
+    /// classes partition the type-bearing nodes without recording the (far larger)
+    /// inferred set. Recorded by `Infer`/`InferPat`/`InferTypeOps`/… at each
+    /// `translateType`-of-a-source-annotation site (ascription `(e : T)`, annotated
+    /// `let`/return, typed pattern & parameter `(x : T)`, `new T(…)`, `:> T` / `:? T`
+    /// / `:?> T`, `match … :? T as x`). Type *declarations* (`type …`) are always
+    /// explicit and carry no per-node provenance, so they are out of scope.
+    ///
+    /// A DECLARED node's type can still contain INFERRED positions — a `_` wildcard
+    /// (`Box<_>`: `Box` declared, the arg inferred). Those are tracked per-TyVar by
+    /// `inferenceHoles`: read provenance off the node's *un-zonked* annotation type and
+    /// treat a `TyVar` position as inferred iff `IsInferenceHole`, every nominal /
+    /// arrow / tuple / applied-with-concrete-arg position as declared. (A *named* typar
+    /// `'a` in `Box<'a>` is written, so it is NOT a hole — only the anonymous `_` is.)
+    member val private declaredTypeSites = SideTable<unit>() with get
+
+    /// The `_`-wildcard TyVars minted by `translateType` for a source `Type.VarType
+    /// Typar.Anon`. Reference identity: the exact node stored at the wildcard position
+    /// of a declared annotation's type. Query it as it appears in the *un-zonked* type
+    /// (zonking a resolved hole to its inferred fill would erase the marker).
+    member val private inferenceHoles = HashSet<TypeVar>(HashIdentity.Reference) with get
+
+    /// Mark `key`'s type as source-declared (see `declaredTypeSites`), given the
+    /// annotation's translated type `annTy`. A BARE `_` (`let x : _ = …`, `(x : _)`) is
+    /// a request to *infer*, not a declaration, so it is skipped — the node stays
+    /// inferred. Any written structure (`Box<_>`, `int`, `'a`) marks declared, even when
+    /// it contains nested `_` holes (queryable via `HasInferenceHoleIn`). Idempotent.
+    member this.MarkTypeDeclared(key: NodeKey, annTy: SemType) =
+        let isBareHole =
+            match annTy with
+            | TyVar tv -> this.IsInferenceHole tv
+            | _ -> false
+
+        if not isBareHole then
+            this.declaredTypeSites.Set(key, ())
+
+    /// Whether `key`'s type was written in source (`true`) rather than inferred
+    /// (`false` — the default for every type-bearing node with no annotation). Note a
+    /// `true` node may still carry inferred `_`-wildcard positions (`IsInferenceHole`).
+    member this.IsTypeDeclared(key: NodeKey) : bool = this.declaredTypeSites.ContainsKey key
+
+    /// Mark `tv` as a `_`-wildcard inference hole (see `inferenceHoles`). Idempotent.
+    member this.MarkInferenceHole(tv: TypeVar) = this.inferenceHoles.Add tv |> ignore
+
+    /// Whether `tv` is a `_`-wildcard hole — an INFERRED position inside an otherwise
+    /// declared annotation type. Check the TyVar as stored in the un-zonked type.
+    member this.IsInferenceHole(tv: TypeVar) : bool = this.inferenceHoles.Contains tv
+
+    /// Whether `ty` — read from the LIVE (pre-freeze) TyVar graph, e.g.
+    /// `TyVar ctx.Bindings.TypeVar.[key]` — carries any `_`-wildcard hole. Distinguishes
+    /// a fully-written `Box<int>` (`false`) from a partly-inferred `Box<_>` (`true`) at a
+    /// node that `IsTypeDeclared`. Follows a non-hole var's `Link` to reach structure but
+    /// STOPS at a hole (its `Link` is the *inferred fill*, not part of the written type),
+    /// so a resolved `Box<_>` (`_` pinned to `int`) still reports its hole. Freeze zonks
+    /// holes away, so this must run against the pre-zonk graph, not the frozen TAST.
+    member this.HasInferenceHoleIn(ty: SemType) : bool =
+        let seen = HashSet<TypeVar>(HashIdentity.Reference)
+
+        let rec walk t =
+            match t with
+            | TyVar tv when this.IsInferenceHole tv -> true
+            | TyVar tv ->
+                if not (seen.Add tv) then
+                    false
+                else
+                    match tv.Link with
+                    | ValueSome inner -> walk inner
+                    | ValueNone -> false
+            | TyClass(_, args)
+            | TyRecord(_, args)
+            | TyUnion(_, args)
+            | TyConst(_, args) -> args |> EqArray.exists walk
+            | TyFun(a, b) -> walk a || walk b
+            | TyTuple items -> items |> EqArray.exists walk
+            | _ -> false
+
+        walk ty
+
     /// The node-keyed value-struct closure verdict. Keyed by a
     /// SOURCE-lambda argument's NodeKey; the `FunVerdict` carries the flat `FunN`
     /// arity (always) and, for a transformer combinator, the result-typar position.

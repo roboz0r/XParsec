@@ -167,6 +167,9 @@ module internal UnificationInferTypeOps =
         : SemType =
         let annTy = translateType ctx t
 
+        // Type provenance: `(e : T)` writes the node's type explicitly.
+        ctx.MarkTypeDeclared(key, annTy)
+
         // E1(a): a format-string literal ascribed to a `PrintfFormat` family
         // (`("%d" : Printf.StringFormat<_>)`, and the `let fmt = (… : Fmt)` form that
         // desugars to it) types AS the format, not `string`. Skip `infer` on the
@@ -214,6 +217,8 @@ module internal UnificationInferTypeOps =
                 sprintf "Cannot upcast type '%A' to '%A' — no inheritance relationship" (zonk srcTy) (zonk tgtTy)
             )
 
+        // Type provenance: `e :> T` writes the node's (target) type explicitly.
+        ctx.MarkTypeDeclared(key, tgtTy)
         tgtTy
 
     /// `e :? T` — type test. v1 requires the static types to be related in
@@ -277,4 +282,6 @@ module internal UnificationInferTypeOps =
             | SubsumeOutcome.Unrelated ->
                 ctx.Error(key, sprintf "Cannot downcast type '%A' to unrelated type '%A'" (zonk srcTy) (zonk tgtTy))
 
+        // Type provenance: `e :?> T` writes the node's (target) type explicitly.
+        ctx.MarkTypeDeclared(key, tgtTy)
         tgtTy
