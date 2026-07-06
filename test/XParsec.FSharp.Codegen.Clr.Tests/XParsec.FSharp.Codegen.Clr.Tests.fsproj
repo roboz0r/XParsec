@@ -12,6 +12,11 @@
          time (`TestHelpers.compileFixtureFile`); NOT fsc-compiled, so nothing fsc
          builds depends on a committed `Vesper.Core.dll`. -->
     <None Include="StructuralFormatFixtures.fs" />
+    <!-- Standalone to-be-compiled programs for `StructTests.fs`, read as text +
+         compiled fresh through Codegen.Clr at test time (`TestHelpers.dataSource` /
+         `compileSourceData` / `runsDataLines`). NOT fsc-compiled: they use Vesper
+         self-host primitives and `//#include` fragment splicing. -->
+    <None Include="data\**\*.fs" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="TestHelpers.fs" />

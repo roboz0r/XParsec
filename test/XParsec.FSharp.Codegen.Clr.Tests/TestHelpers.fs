@@ -877,6 +877,65 @@ let runsSelfHost (expected: string) (src: string) : unit =
 let runsSelfHostLines (expected: string list) (src: string) : unit =
     runsSelfHost (String.concat "\n" expected) src
 
+// ---- Externalised program sources (`data/*.fs`) ------------------------------
+// The struct / self-host probes' to-be-compiled programs live as standalone `.fs`
+// files under `data/`, read as TEXT and compiled through this repo's backend (never
+// fsc — they use Vesper self-host primitives, so they are `<None Include>`, not
+// `<Compile>`). A `//#include <frag>.fs` line splices in a shared fragment file, so
+// the self-hosted `%A` sink protocol (`_layout-core.fs` / `_frame-sem-types.fs` /
+// `_sink-frame-plumbing.fs` / `_sink-finish-protocol.fs`) stays single-sourced across
+// the layout / structural-format probes rather than hand-copied into each program.
+
+let private dataDir = IO.Path.Combine(__SOURCE_DIRECTORY__, "data")
+
+/// Read `data/<name>.fs`, expanding each `//#include <file>` line (resolved against
+/// `data/`, recursively) into the referenced fragment's lines. Fragments are authored
+/// at column 0 and re-indented to the directive's own column, so a `member`-block
+/// fragment splices cleanly at any nesting (`    //#include …` lands its lines at
+/// 4-space indent inside a type body). A missing target or an include cycle fails with
+/// a pointed message rather than an opaque `FileNotFoundException` / stack overflow.
+let dataSource (name: string) : string =
+    let includePrefix = "//#include "
+
+    let rec expand (indent: string) (ancestors: string list) (fileName: string) : string list =
+        if List.contains fileName ancestors then
+            failwithf "data source %s: include cycle %s -> %s" name (String.concat " -> " (List.rev ancestors)) fileName
+
+        let path = IO.Path.Combine(dataDir, fileName)
+
+        if not (IO.File.Exists path) then
+            failwithf "data source %s: included file not found: %s" name fileName
+
+        IO.File.ReadAllLines path
+        |> Array.toList
+        |> List.collect (fun line ->
+            let trimmed = line.TrimStart()
+
+            if trimmed.StartsWith includePrefix then
+                // The directive's own leading whitespace shifts the whole fragment,
+                // so a `member`-block fragment authored at column 0 lands at the
+                // directive's indent inside the enclosing type body.
+                let directiveIndent = indent + line.Substring(0, line.Length - trimmed.Length)
+                expand directiveIndent (fileName :: ancestors) (trimmed.Substring(includePrefix.Length).Trim())
+            elif trimmed.Length = 0 then
+                [ line ] // keep blank / whitespace-only lines un-indented
+            else
+                [ indent + line ]
+        )
+
+    expand "" [] (name + ".fs") |> String.concat "\n"
+
+/// `compileSource` with the program read from `data/<name>.fs`; the file's base name
+/// doubles as the assembly name.
+let compileSourceData (name: string) : TastFile * ClrArtifact = compileSource name (dataSource name)
+
+/// `runsLines` with the program read from `data/<name>.fs`.
+let runsDataLines (expected: string list) (name: string) : unit = runsLines expected (dataSource name)
+
+/// `runsSelfHostLines` with the program read from `data/<name>.fs`.
+let runsSelfHostDataLines (expected: string list) (name: string) : unit =
+    runsSelfHostLines expected (dataSource name)
+
 /// Compile `src` as a bare program, run it in-process, and assert it threw a
 /// runtime exception whose type-name contains `expectedTypeFragment` (e.g.
 /// `"DivideByZero"`). `runEntryPoint` surfaces a target-invocation failure as a

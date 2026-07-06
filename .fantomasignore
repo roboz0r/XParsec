@@ -1,4 +1,6 @@
 test/XParsec.FSharp.Tests/data/
+# Codegen.Clr self-host test programs
+test/XParsec.FSharp.Codegen.Clr.Tests/data/
 bench/XParsec.FSharp.Benchmarks/fixtures/
 # widget codegen-js fixture — the `.fsi` uses `type widget = extern with member …`
 # and the `.js.fs` an abbrev-with-members `(# "object" #)` intrinsic body; both are
