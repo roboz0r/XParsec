@@ -524,6 +524,20 @@ let tests =
                 | other -> failtestf "expected a native string-sink Format, got: %A" other
             }
 
+            test "E1: a mismatched format annotation diagnoses an error, does not throw" {
+                // `Format<int -> string>` declares one hole but the literal has two —
+                // real F# rejects this. Malformed source must surface an ERROR
+                // diagnostic; elaboration degrades to diagnostics-only rather than
+                // crashing on a Freeze invariant.
+                let tast =
+                    analyse
+                        "open Vesper\nlet fmt : Format<int -> string, unit, string, string> = \"%d %s\"\nlet s = sprintf fmt 1 \"a\""
+
+                Expect.isTrue
+                    (tast.Diagnostics |> List.exists (fun d -> d.Severity = Severity.Error))
+                    "arity-mismatched format annotation → an error diagnostic (not a throw)"
+            }
+
             test "E1: an unannotated `let fmt = \"%d\"` stays a plain string (not const-propagated)" {
                 // Real F# rejects `sprintf fmt 42` here (fmt : string). We must NOT
                 // recover the literal: the binding is a plain string, so no

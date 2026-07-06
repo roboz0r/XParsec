@@ -1803,10 +1803,30 @@ module Elaborate =
         // `TryLookupInlineBody` / `…ByName` members (keyed by the resolved
         // `SymbolKey`) are part of `IExternalSymbolProvider`, served by the
         // contract-stack wrapper `SymbolProviders.buildContract` builds. No cast.
-        let decls =
+        let elaborateDecls () =
             elaborate ctx file
             |> InlineExpansion.run ctx
             |> List.map (fun (d, env) -> freezeTypars env d)
+
+        // Freeze assumes well-typed input: it asserts its invariants with `failwith`
+        // (it never diagnoses). Under an already-diagnosed type error — malformed
+        // source (`let fmt : Format<int -> string> = "%d %s"`, an arity/type mismatch) —
+        // an invariant may not hold, and a raw `failwith` would abort the whole
+        // compilation. Malformed source is expected input, not a reason to throw: when
+        // inference has ALREADY recorded an error the program will not be code-generated,
+        // so degrade elaboration to diagnostics-only (drop the decls, keep the errors)
+        // rather than crash. With NO prior error, elaboration runs unguarded, so a
+        // `failwith` on well-formed input still surfaces loudly as the compiler bug it is.
+        let hasErrors = ctx.Diagnostics |> Seq.exists (fun d -> d.Severity = Severity.Error)
+
+        let decls =
+            if hasErrors then
+                try
+                    elaborateDecls ()
+                with _ ->
+                    []
+            else
+                elaborateDecls ()
 
         {
             Decls = EqArray.ofList decls
