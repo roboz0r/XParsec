@@ -34,6 +34,16 @@ let tests =
                     "printfn \"%d\" (match false with | true -> 1 | false -> 0)", "0"
                     // char scrutinee
                     "printfn \"%d\" (match 'b' with | 'a' -> 1 | _ -> 0)", "0"
+                    // char OR-pattern: every alternative must match, not just the
+                    // leftmost. The middle (`'+'`) and last (`' '`) alternatives are
+                    // the ones a "keep the left arm" lowering silently drops.
+                    "printfn \"%d\" (match '-' with | '-' | '+' | ' ' -> 1 | _ -> 0)", "1"
+                    "printfn \"%d\" (match '+' with | '-' | '+' | ' ' -> 1 | _ -> 0)", "1"
+                    "printfn \"%d\" (match ' ' with | '-' | '+' | ' ' -> 1 | _ -> 0)", "1"
+                    "printfn \"%d\" (match 'x' with | '-' | '+' | ' ' -> 1 | _ -> 0)", "0"
+                    // int OR-pattern alongside a wildcard default
+                    "printfn \"%d\" (match 2 with | 1 | 2 -> 10 | _ -> 0)", "10"
+                    "printfn \"%d\" (match 9 with | 1 | 2 -> 10 | _ -> 0)", "0"
                     // DU constructor patterns: nullary + a payload-binding case.
                     // Let-bound (not inline as the printfn arg): an inline DU-match
                     // in argument position currently trips a Freeze translateApp

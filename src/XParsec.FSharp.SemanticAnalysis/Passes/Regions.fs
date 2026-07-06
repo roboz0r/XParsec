@@ -284,6 +284,9 @@ module Regions =
     let rec private bindersOfTPat (p: TPat) : NodeKey list =
         match p with
         | TPat.NamedSimple(k, _, _) -> [ k ]
+        // An or-pattern binds nothing (name resolution drops its binders), so its
+        // alternatives introduce no regions.
+        | TPat.Or _
         | TPat.Wildcard _
         | TPat.Null _
         | TPat.EnumCase _
@@ -676,6 +679,8 @@ module Regions =
             for sub in fields do
                 recordBindingRegion s ctx sub r
         | TPat.TypeTestAs(_, inner, _, _) -> recordBindingRegion s ctx inner r
+        // An or-pattern binds nothing (name resolution drops its binders).
+        | TPat.Or _
         | TPat.Wildcard _
         | TPat.Null _
         | TPat.EnumCase _

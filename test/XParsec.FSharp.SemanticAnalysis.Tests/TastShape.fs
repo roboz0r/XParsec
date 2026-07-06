@@ -671,6 +671,14 @@ type private Renderer() =
             push (SymbolKeyOps.simpleName enumKey)
             push "."
             push caseName
+        | TPat.Or(alts, _, _) ->
+            alts
+            |> EqArray.iteri (fun i p ->
+                if i > 0 then
+                    push " | "
+
+                this.Pat p
+            )
 
     member this.Decl(d: TDecl) : unit =
         match d with

@@ -137,6 +137,25 @@ let tests =
                     Expect.equal out "2" "Wrap Two short-circuits to the inner tag test"
             }
 
+            test "an OR-pattern arm matches on ANY alternative, not just the leftmost" {
+                match
+                    runJs
+                        "or-pattern"
+                        ("let sign c =\n"
+                         + "    match c with\n"
+                         + "    | '-' | '+' | ' ' -> 1\n"
+                         + "    | _ -> 0\n"
+                         + "printfn \"%d\" (sign '-')\n"
+                         + "printfn \"%d\" (sign '+')\n"
+                         + "printfn \"%d\" (sign ' ')\n"
+                         + "printfn \"%d\" (sign 'x')")
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "1\n1\n1\n0" "every alternative matches; a non-alternative falls to the wildcard"
+            }
+
             test "constant + wildcard arms on a scalar scrutinee (1 → 20, 5 → 99)" {
                 match
                     runJs

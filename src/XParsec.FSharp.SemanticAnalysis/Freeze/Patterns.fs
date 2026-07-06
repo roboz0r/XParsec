@@ -117,10 +117,19 @@ module internal FreezePatterns =
             // Parameter attributes (`[<CallAtMostOnce>]`) are decoded in
             // `Elaborate`; the runtime shape is the wrapped pattern.
             translatePat ctx inner
-        | Pat.Or(left = leftPat) ->
-            // Both sides must bind the same names (Validation's job). Until or-
-            // patterns are first-class in TPat, pick the left arm for shape.
-            translatePat ctx leftPat
+        | Pat.Or _ ->
+            // `p1 | p2 | … | pn` → `TPat.Or [p1; …; pn]`. The parser builds a
+            // left-nested `Or(Or(p1, p2), p3)`; flatten it to one level so the
+            // backend tests a flat alternative list (first match wins). Or-patterns
+            // bind nothing here (name resolution drops their binders), so each
+            // alternative lowers as an independent refutability test.
+            let rec flatten (acc: TPat list) (pat: Pat<SyntaxToken>) : TPat list =
+                match pat with
+                | Pat.Or(left = l; right = r) -> flatten (flatten acc l) r
+                | other -> translatePat ctx other :: acc
+
+            let alts = flatten [] p |> List.rev
+            TPat.Or(EqArray.ofList alts, ty, tok)
         | Pat.EmptyBlock _ -> TPat.Const(TConstValue.Unit, ty, tok)
         | Pat.Record(fieldPats = fieldPats) ->
             let fields =

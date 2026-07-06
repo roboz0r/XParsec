@@ -317,6 +317,30 @@ module EmitPattern =
                 b.Add(ILInstr.Ldloc castSlot)
                 b.Add(ILInstr.Brfalse nextLabel)
                 buildMatchTest env b castSlot nextLabel inner
+        | TPatG.Or(alts, _, _) ->
+            // `p1 | … | pn`: test each alternative against the same scrutinee, in
+            // order. The first that matches falls through to `matchedLabel` (the
+            // arm body); a failing alternative branches to the next alternative's
+            // test; the last alternative's failure is the whole arm's failure
+            // (`nextLabel`). Each `buildMatchTest` is depth-neutral, so no
+            // `SetDepth` is needed between alternatives. Alternatives bind nothing
+            // (name resolution drops or-pattern binders), so there is no binder to
+            // reconcile across the join.
+            let matchedLabel = b.Label()
+            let n = alts.Length
+
+            alts
+            |> EqArray.iteri (fun i alt ->
+                if i = n - 1 then
+                    buildMatchTest env b scrutSlot nextLabel alt
+                else
+                    let altFail = b.Label()
+                    buildMatchTest env b scrutSlot altFail alt
+                    b.Add(ILInstr.Br matchedLabel)
+                    b.Add(ILInstr.Mark altFail)
+            )
+
+            b.Add(ILInstr.Mark matchedLabel)
 
     /// Bind an *irrefutable* pattern against a value already in local `srcSlot` — the
     /// shared destructuring binder for `let` / `for-in` (and, in Step 5, a tuple

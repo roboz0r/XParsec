@@ -102,6 +102,14 @@ type TPatG<'ty, 'tok> =
     /// exhaustiveness is a deferred follow-up: a wildcard-less enum match is the
     /// usual incomplete match (defined-behaviour fallthrough), not an error.
     | EnumCase of enumKey: SymbolKey * caseName: string * ty: 'ty * tok: 'tok
+    /// `p1 | p2 | … | pn` OR-pattern. Refutable: matches iff SOME alternative
+    /// matches (tested left-to-right, first match wins). `alts` has ≥ 2 entries
+    /// (the parser only builds an `Or` for an actual `|`); nested source `|`s are
+    /// flattened into one level here. Binds nothing: name resolution
+    /// (`bindingsOfPat`) drops or-pattern binders, so alternatives are pure
+    /// refutability tests and no binder-correspondence handling is needed. `ty` is
+    /// the shared alternative type (unified in `InferPat`).
+    | Or of alts: EqArray<TPatG<'ty, 'tok>> * ty: 'ty * tok: 'tok
 
 /// A format hole's classified per-value formatting. A hole no longer stores the `(Kind, .NET-format, alignment)` triple
 /// `PrintfSpec.tryHoleFormat` produced — it carries the *classified*, target-neutral

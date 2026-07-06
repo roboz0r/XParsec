@@ -34,6 +34,7 @@ module TastConvert =
         | TPatG.TypeTestAs(testTy, inner, ty, tok) -> TPatG.TypeTestAs(f testTy, pat f inner, f ty, tok)
         | TPatG.Null(ty, tok) -> TPatG.Null(f ty, tok)
         | TPatG.EnumCase(k, n, ty, tok) -> TPatG.EnumCase(k, n, f ty, tok)
+        | TPatG.Or(alts, ty, tok) -> TPatG.Or(EqArray.map (pat f) alts, f ty, tok)
 
     let hole (f: 'a -> 'b) (h: HoleSpecG<'a, 'tok>) : HoleSpecG<'b, 'tok> =
         {

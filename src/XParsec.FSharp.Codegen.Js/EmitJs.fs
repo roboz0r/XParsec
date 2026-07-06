@@ -233,6 +233,18 @@ module EmitJs =
         | [] -> None
         | t :: rest -> Some(List.fold (fun acc x -> JsExpr.Logical("&&", acc, x, ValueNone)) t rest)
 
+    /// Disjoin refutability tests for an or-pattern's alternatives (`t1 || … || tn`).
+    /// A `None` alternative is irrefutable, and an irrefutable alternative makes the
+    /// whole disjunction irrefutable (matches everything) — so any `None` folds the
+    /// result to `None`.
+    let private disjoin (tests: JsExpr option list) : JsExpr option =
+        if List.isEmpty tests || List.exists Option.isNone tests then
+            None
+        else
+            match List.choose id tests with
+            | [] -> None
+            | t :: rest -> Some(List.fold (fun acc x -> JsExpr.Logical("||", acc, x, ValueNone)) t rest)
+
     /// Emit a top-level binding. `reassignable` (the binder is mutated elsewhere in the
     /// module) selects the reassignable form — `export let` / `let` — over the default
     /// `export const` / `const`, so a module-scope `let mutable` write is not an
@@ -1401,6 +1413,17 @@ module EmitJs =
             Some(JsExpr.Binary("===", access, enumCaseAccess ctx enumKey caseName ValueNone, ValueNone)), []
         // `null` pattern: JS loose `== null` matches both `null` and `undefined`.
         | TPatG.Null _ -> Some(JsExpr.Binary("==", access, JsExpr.Identifier("null", ValueNone), ValueNone)), []
+        // `p1 | … | pn`: the arm matches iff SOME alternative matches, so the test
+        // is the disjunction of the alternatives' tests. An irrefutable alternative
+        // (`test = None`) makes the whole or-pattern irrefutable — `disjoin` folds
+        // it to `None`. Alternatives bind nothing (name resolution drops or-pattern
+        // binders), so the binding lists are empty and discarded.
+        | TPatG.Or(alts, _, _) ->
+            let tests =
+                EqArray.toList alts
+                |> List.map (fun alt -> fst (compileMatchPattern ctx access alt))
+
+            disjoin tests, []
 
     /// Build one `match` arm's statements: when the pattern matches (and the guard,
     /// if any, passes) the arm `return`s its body. An always-matching arm

@@ -176,12 +176,15 @@ type Formatter =
             // the gap between it and the digits. A `-` from the formatted magnitude,
             // or a forced `+` / space sign composed by `AppendForcedSignZeroPaddedFloat`
             // (the unsigned / octal callers never produce a leading `+`/space).
-            // NB: written as `||` equality rather than a char OR-pattern
-            // (`| '-' | '+' | ' ' -> …`) because the self-host compiler mis-lowers that
-            // OR-pattern (it fell through to the `_` arm) — keep this boolean form.
-            let lead = if charsWritten > 0 then this.Chars.[startingPos] else '0'
-
-            let signOffset = if lead = '-' || lead = '+' || lead = ' ' then 1 else 0
+            let signOffset =
+                if charsWritten > 0 then
+                    match this.Chars.[startingPos] with
+                    | '-'
+                    | '+'
+                    | ' ' -> 1
+                    | _ -> 0
+                else
+                    0
 
             let insertAt = startingPos + signOffset
 

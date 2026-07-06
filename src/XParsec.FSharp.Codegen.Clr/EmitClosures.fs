@@ -13,6 +13,8 @@ module EmitClosures =
         let rec go p =
             match p with
             | TPatG.NamedSimple(k, _, _) -> acc.Add k
+            // An or-pattern binds nothing (name resolution drops its binders).
+            | TPatG.Or _
             | TPatG.Wildcard _
             | TPatG.Null _
             | TPatG.EnumCase _
