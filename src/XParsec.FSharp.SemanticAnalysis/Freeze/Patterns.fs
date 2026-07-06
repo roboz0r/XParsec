@@ -120,15 +120,34 @@ module internal FreezePatterns =
         | Pat.Or _ ->
             // `p1 | p2 | … | pn` → `TPat.Or [p1; …; pn]`. The parser builds a
             // left-nested `Or(Or(p1, p2), p3)`; flatten it to one level so the
-            // backend tests a flat alternative list (first match wins). Or-patterns
-            // bind nothing here (name resolution drops their binders), so each
-            // alternative lowers as an independent refutability test.
-            let rec flatten (acc: TPat list) (pat: Pat<SyntaxToken>) : TPat list =
+            // backend tests a flat alternative list (first match wins).
+            let rec flatten (acc: Pat<SyntaxToken> list) (pat: Pat<SyntaxToken>) : Pat<SyntaxToken> list =
                 match pat with
                 | Pat.Or(left = l; right = r) -> flatten (flatten acc l) r
-                | other -> translatePat ctx other :: acc
+                | other -> other :: acc
 
-            let alts = flatten [] p |> List.rev
+            let leaves = flatten [] p |> List.rev
+
+            // Or-patterns must bind nothing: every downstream consumer (the CLR/JS
+            // backends, `Regions`, `EmitClosures`) assumes an alternative is a pure
+            // refutability test. A binding alternative (`(1, x) | (2, x)`) would be
+            // miscompiled — `bindingsOfPat` silently drops the binder, and a binder
+            // lowers to an irrefutable test that corrupts the disjunction — so reject
+            // it here rather than emit wrong code. (Binding or-patterns are a deferred
+            // follow-up; this is the boundary the `InferPat` arm defers to.)
+            for leaf in leaves do
+                match NameResolutionScope.bindingsOfPat ctx leaf with
+                | [] -> ()
+                | _ ->
+                    ctx.Diagnostics.Add
+                        {
+                            Key = CstKeys.ofPat leaf
+                            Message = "Or-patterns that bind names (e.g. `(1, x) | (2, x)`) are not supported"
+                            Code = ""
+                            Severity = Severity.Error
+                        }
+
+            let alts = leaves |> List.map (translatePat ctx)
             TPat.Or(EqArray.ofList alts, ty, tok)
         | Pat.EmptyBlock _ -> TPat.Const(TConstValue.Unit, ty, tok)
         | Pat.Record(fieldPats = fieldPats) ->

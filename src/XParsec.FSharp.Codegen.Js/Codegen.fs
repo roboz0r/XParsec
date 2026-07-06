@@ -96,14 +96,14 @@ module Codegen =
             ReferencedProject.runtimeModules "js" manifestPaths
             |> Map.map (fun _ (fileName, source) -> { FileName = fileName; Source = source })
 
-        let resolver: EmitJs.Resolver =
+        let resolver: EmitJsContext.Resolver =
             match project.Source with
-            | Some src -> ValueSome(EmitJs.LineIndex.build src.Content)
+            | Some src -> ValueSome(EmitJsContext.LineIndex.build src.Content)
             | None -> ValueNone
 
         // Source text drives variable naming (recovering source identifiers from binder
         // offsets) independently of whether maps are emitted.
-        let ctx: EmitJs.WalkCtx =
+        let ctx: EmitJsContext.WalkCtx =
             {
                 Resolver = resolver
                 Source =

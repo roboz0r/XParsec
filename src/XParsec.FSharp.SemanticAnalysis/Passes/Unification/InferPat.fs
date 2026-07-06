@@ -432,8 +432,10 @@ module internal UnificationInferPat =
             nodeTv.Link <- ValueSome BuiltinTypes.tyUnit
             BuiltinTypes.tyUnit
         | Pat.Or(left = leftPat; right = rightPat) ->
-            // Validation checks the name set; here we only unify the
-            // patterns' overall types for scrutinee consistency.
+            // Here we only unify the alternatives' overall types for scrutinee
+            // consistency. Binding or-patterns are unsupported — `FreezePatterns`
+            // rejects any alternative that binds a name — so no name-set reconciliation
+            // is needed.
             let leftTy = inferPat ctx leftPat
             let rightTy = inferPat ctx rightPat
             unify ctx key leftTy rightTy

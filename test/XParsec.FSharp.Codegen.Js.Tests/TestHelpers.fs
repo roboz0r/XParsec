@@ -277,7 +277,7 @@ let analyseWith (provider: IExternalSymbolProvider) (input: string) : Diagnostic
 let errorText (ds: Diagnostic list) : string =
     ds |> List.map (fun d -> d.Message) |> String.concat "\n"
 
-/// The ONE shared `EmitJs.WalkCtx` builder, matching production wiring
+/// The ONE shared `EmitJsContext.WalkCtx` builder, matching production wiring
 /// (`Codegen.compileWith`): a real `LineIndex` resolver over the source (the hand-built
 /// test copies wrongly left `Resolver = ValueNone`), `Source` carrying the input, and
 /// all lowering tables empty for `buildProgram` to fill. `runtime` is the injected
@@ -287,9 +287,9 @@ let private jsWalkCtx
     (runtime: Map<string, JsRuntimeModule>)
     (exportTopLevel: bool)
     (input: string)
-    : EmitJs.WalkCtx =
+    : EmitJsContext.WalkCtx =
     {
-        Resolver = ValueSome(EmitJs.LineIndex.build input)
+        Resolver = ValueSome(EmitJsContext.LineIndex.build input)
         Source = ValueSome input
         Records = System.Collections.Generic.Dictionary()
         Unions = System.Collections.Generic.Dictionary()

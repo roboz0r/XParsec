@@ -16,6 +16,9 @@
     <Compile Include="JsFlatFns.fs" />
     <Compile Include="JsExternalMembers.fs" />
     <Compile Include="EmitJsTypes.fs" />
+    <Compile Include="EmitJsContext.fs" />
+    <Compile Include="EmitJsFormat.fs" />
+    <Compile Include="EmitJsMembers.fs" />
     <Compile Include="EmitJs.fs" />
     <Compile Include="Codegen.fs" />
   </ItemGroup>
