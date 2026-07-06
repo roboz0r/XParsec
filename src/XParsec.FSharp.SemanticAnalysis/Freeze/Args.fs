@@ -13,6 +13,13 @@ open XParsec.FSharp.SemanticAnalysis.FreezeResolve
 
 module internal FreezeExprArgs =
 
+    /// The recursive `FreezeExpr.translateExpr` entry point. The sibling `Freeze/`
+    /// modules compile ahead of the knot, so any helper that must recurse into
+    /// expression translation takes it as its first parameter (the same dependency
+    /// injection the `peel*` helpers below use); `FreezeExpr` ties the knot at
+    /// each dispatch site.
+    type TranslateExpr = PassContext -> Expr<SyntaxToken> -> TExpr
+
     /// Round-paren `( … )` or `begin … end` — the only enclosures that *group a
     /// value expression* and so collapse into a call's argument list. A `[ … ]`
     /// / `[| … |]` / `{ … }` / `{| … |}` enclosure is a *literal value* (list,

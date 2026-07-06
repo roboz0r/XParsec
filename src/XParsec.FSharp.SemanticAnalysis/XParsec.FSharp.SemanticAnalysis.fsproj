@@ -70,6 +70,11 @@
     <Compile Include="Freeze\Resolve.fs" />
     <Compile Include="Freeze\Patterns.fs" />
     <Compile Include="Freeze\Args.fs" />
+    <Compile Include="Freeze\Idents.fs" />
+    <Compile Include="Freeze\Strings.fs" />
+    <Compile Include="Freeze\Access.fs" />
+    <Compile Include="Freeze\Apply.fs" />
+    <Compile Include="Freeze\Printf.fs" />
     <Compile Include="FreezeExpr.fs" />
     <Compile Include="Passes\InlineExpansion.fs" />
     <Compile Include="Elaborate.fs" />
