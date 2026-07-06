@@ -10,9 +10,14 @@ open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // Vertical slice toward the zero-allocation struct `Seq` module.
-// These fixtures stand in for the eventual
-// `src/Vesper.Seq` struct types; they stay inline F# until the codegen shape is
-// proven, then graduate to real library source.
+// These fixtures stand in for the eventual `src/Vesper.Seq` struct types until the
+// codegen shape is proven, then graduate to real library source.
+//
+// Each test's to-be-compiled program lives as a standalone file under `data/`,
+// compiled at test time via `compileSourceData` (see `TestHelpers`). The five
+// map/fold-pipeline probes share one struct-seq surface — `data/_struct-seq-types.fs`
+// plus the `ofArray`/`map`/`fold` combinators in `data/_struct-seq-combinators.fs` —
+// so a change to that surface edits one fragment rather than five copied program blobs.
 //
 // The struct pipeline relies on chained `this.field.Method(args)`
 // calls (e.g. `this.Source.GetEnumerator()`, `this.Source.MoveNext()`). Two fixes
@@ -56,21 +61,7 @@ let structSeqTests =
             //      callvirt` slot via `env.Provider.ExternalMemberRefOn` against the
             //      interface's instantiated `TypeSpec`.
             test "a struct closure implementing Vesper.Fun dispatches via constrained callvirt with no box" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "[<Struct>]"
-                            "type Add1 ="
-                            "    val N : int"
-                            "    new(n: int) = { N = n }"
-                            "    interface Fun<int, int> with"
-                            "        member this.Invoke(x: int) : int = x + this.N"
-                            "let apply (f: 'TF when 'TF :> Fun<int, int>) (x: int) : int = f.Invoke x"
-                            "printfn \"%d\" (apply (Add1 1) 41)"
-                        ]
-
-                let _, artifact = compileSource "StructClosureFunDispatch" src
+                let _, artifact = compileSourceData "StructClosureFunDispatch"
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -102,15 +93,7 @@ let structSeqTests =
             // it compiles + runs 42. The no-box/`constrained.` struct-repr IL ideal
             // is asserted in the value-struct test below, NOT here.
             test "source lambda into a constrained 'TF :> Fun slot compiles + runs" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "let apply (f: 'TF when 'TF :> Fun<int, int>) (x: int) : int = f.Invoke x"
-                            "printfn \"%d\" (apply (fun x -> x + 1) 41)"
-                        ]
-
-                let tast, artifact = compileSource "M0SourceLambdaFun" src
+                let tast, artifact = compileSourceData "M0SourceLambdaFun"
 
                 // (1) front-end verdict: does the unifier accept a structural TyFun
                 // at the `'TF :> Fun` slot? Failure here prints the rejecting diagnostic.
@@ -144,15 +127,7 @@ let structSeqTests =
             // constrained-typar shape these tests previously used now lowers to a
             // value-struct; that is the dedicated value-struct test above.)
             test "a non-capturing lambda lowers to a cached singleton (ldsfld at use, newobj in .cctor)" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "let apply (f: int -> int) (x: int) : int = f x"
-                            "printfn \"%d\" (apply (fun x -> x + 1) 41)"
-                        ]
-
-                let tast, artifact = compileSource "StepBCachedSingleton" src
+                let tast, artifact = compileSourceData "StepBCachedSingleton"
                 Expect.isEmpty tast.Diagnostics (sprintf "Step B front-end diagnostics: %A" tast.Diagnostics)
 
                 let bytes = Codegen.toBytes artifact
@@ -181,17 +156,7 @@ let structSeqTests =
             test "the same non-capturing lambda at two sites allocates once" {
                 // Plain arrow `int -> int` parameter ⇒ the heap-caching path (a
                 // constrained typar would take the value-struct path instead).
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "let apply (f: int -> int) (x: int) : int = f x"
-                            "let a = apply (fun x -> x + 1) 41"
-                            "let b = apply (fun x -> x + 1) 9"
-                            "printfn \"%d\" (a + b)"
-                        ]
-
-                let tast, artifact = compileSource "StepBTwoSites" src
+                let tast, artifact = compileSourceData "StepBTwoSites"
                 Expect.isEmpty tast.Diagnostics (sprintf "Step B two-site diagnostics: %A" tast.Diagnostics)
 
                 let bytes = Codegen.toBytes artifact
@@ -224,16 +189,7 @@ let structSeqTests =
             // plain-arrow HOF is the genuine heap path this guard still describes (the
             // dedicated value-struct test above asserts the value-struct shape).
             test "a capturing lambda is NOT cached (still newobjs per construction)" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "let apply (f: int -> int) (x: int) : int = f x"
-                            "let outer (n: int) (x: int) : int = apply (fun y -> y + n) x"
-                            "printfn \"%d\" (outer 1 41)"
-                        ]
-
-                let tast, artifact = compileSource "StepBCapturingNotCached" src
+                let tast, artifact = compileSourceData "StepBCapturingNotCached"
                 Expect.isEmpty tast.Diagnostics (sprintf "Step B capturing diagnostics: %A" tast.Diagnostics)
 
                 let bytes = Codegen.toBytes artifact
@@ -265,19 +221,7 @@ let structSeqTests =
             // give the closure spurious state). Now that the parser admits it, the
             // captureless form compiles and dispatches with no box.
             test "a CAPTURELESS struct closure (no field) dispatches via constrained callvirt with no box" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "[<Struct>]"
-                            "type Add1 ="
-                            "    interface Fun<int, int> with"
-                            "        member _.Invoke(x: int) : int = x + 1"
-                            "let apply (f: 'TF when 'TF :> Fun<int, int>) (x: int) : int = f.Invoke x"
-                            "printfn \"%d\" (apply (Add1()) 41)"
-                        ]
-
-                let _, artifact = compileSource "CapturelessStructClosure" src
+                let _, artifact = compileSourceData "CapturelessStructClosure"
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -309,15 +253,7 @@ let structSeqTests =
             // the source lambda now reaches the SAME no-box shape the hand-written
             // `[<Struct>] Add1` fixture above proves.
             test "a captureless source lambda lowers to a no-box value-struct closure" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "let apply (f: 'TF when 'TF :> Fun<int, int>) (x: int) : int = f.Invoke x"
-                            "printfn \"%d\" (apply (fun x -> x + 1) 41)"
-                        ]
-
-                let tast, artifact = compileSource "StepCValueStructClosure" src
+                let tast, artifact = compileSourceData "StepCValueStructClosure"
                 Expect.isEmpty tast.Diagnostics (sprintf "Step C front-end diagnostics: %A" tast.Diagnostics)
 
                 let bytes = Codegen.toBytes artifact
@@ -376,16 +312,7 @@ let structSeqTests =
             // the capture real (the lambda's `n` is `mk`'s parameter), so the closure
             // has one genuine capture field.
             test "a capturing source lambda lowers to a no-box value-struct closure" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "let apply (f: 'TF when 'TF :> Fun<int, int>) (x: int) : int = f.Invoke x"
-                            "let mk (n: int) (x: int) : int = apply (fun y -> y + n) x"
-                            "printfn \"%d\" (mk 1 41)"
-                        ]
-
-                let tast, artifact = compileSource "StepCM2CapturingValueStruct" src
+                let tast, artifact = compileSourceData "StepCM2CapturingValueStruct"
                 Expect.isEmpty tast.Diagnostics (sprintf "Step C M2 front-end diagnostics: %A" tast.Diagnostics)
 
                 let bytes = Codegen.toBytes artifact
@@ -465,15 +392,7 @@ let structSeqTests =
             // `Fun`-arity verdict threaded like `ClosureReprs`, (c) the 2-param flat
             // `Invoke` emission.
             test "a saturated 2-arg source lambda lowers to a no-box flat-Invoke value-struct" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "let apply2 (f: 'TF when 'TF :> Fun<int, int, int>) (a: int) (b: int) : int = f.Invoke(a, b)"
-                            "printfn \"%d\" (apply2 (fun x y -> x + y) 20 22)"
-                        ]
-
-                let tast, artifact = compileSource "StepCM3Flat2ValueStruct" src
+                let tast, artifact = compileSourceData "StepCM3Flat2ValueStruct"
                 Expect.isEmpty tast.Diagnostics (sprintf "Step C M3 front-end diagnostics: %A" tast.Diagnostics)
 
                 let bytes = Codegen.toBytes artifact
@@ -551,15 +470,7 @@ let structSeqTests =
             // Exercises the arity-parametric peel/encoder/interface-spec path emitting
             // `Vesper.Fun`4<a,b,c,r>`.
             test "a saturated 3-arg source lambda lowers to a no-box flat-Invoke value-struct" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "let apply3 (f: 'TF when 'TF :> Fun<int, int, int, int>) (a: int) (b: int) (c: int) : int = f.Invoke(a, b, c)"
-                            "printfn \"%d\" (apply3 (fun x y z -> x + y + z) 20 22 24)"
-                        ]
-
-                let tast, artifact = compileSource "StepCM3Flat3ValueStruct" src
+                let tast, artifact = compileSourceData "StepCM3Flat3ValueStruct"
                 Expect.isEmpty tast.Diagnostics (sprintf "arity-3 front-end diagnostics: %A" tast.Diagnostics)
 
                 let bytes = Codegen.toBytes artifact
@@ -632,15 +543,7 @@ let structSeqTests =
             // three inner arrows peeled, NO nested inner closures), NO box. Emits
             // `Vesper.Fun`5<a,b,c,d,r>` — the widest flat function value-struct.
             test "a saturated 4-arg source lambda lowers to a no-box flat-Invoke value-struct" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "let apply4 (f: 'TF when 'TF :> Fun<int, int, int, int, int>) (a: int) (b: int) (c: int) (d: int) : int = f.Invoke(a, b, c, d)"
-                            "printfn \"%d\" (apply4 (fun w x y z -> w + x + y + z) 10 20 30 40)"
-                        ]
-
-                let tast, artifact = compileSource "StepCM3Flat4ValueStruct" src
+                let tast, artifact = compileSourceData "StepCM3Flat4ValueStruct"
                 Expect.isEmpty tast.Diagnostics (sprintf "arity-4 front-end diagnostics: %A" tast.Diagnostics)
 
                 let bytes = Codegen.toBytes artifact
@@ -716,26 +619,7 @@ let structSeqTests =
             // a *parameter* receiver). Proves the library can thread `'TFunc` by hand
             // (mirroring its explicit `'S`/`'E` typars) with no new compiler pass.
             test "generic struct field 'TFunc :> Fun<'T,'U> dispatches this.F.Invoke via constrained callvirt" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "[<Struct>]"
-                            "type Add1 ="
-                            "    val N : int"
-                            "    new(n: int) = { N = n }"
-                            "    interface Fun<int, int> with"
-                            "        member this.Invoke(x: int) : int = x + this.N"
-                            "[<Struct>]"
-                            "type Applier<'TFunc, 'T, 'U when 'TFunc :> Fun<'T, 'U>> ="
-                            "    val F : 'TFunc"
-                            "    new(f: 'TFunc) = { F = f }"
-                            "    member this.Apply(x: 'T) : 'U = this.F.Invoke(x)"
-                            "let a = Applier<Add1, int, int>(Add1 1)"
-                            "printfn \"%d\" (a.Apply 41)"
-                        ]
-
-                let _, artifact = compileSource "StructFieldTFuncDispatch" src
+                let _, artifact = compileSourceData "StructFieldTFuncDispatch"
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -759,20 +643,7 @@ let structSeqTests =
             // `CallVia.Interface` node, and codegen emits `constrained. <typar> callvirt`
             // so it RUNS end-to-end.
             test "typar receiver constrained to a local interface dispatches via constrained callvirt" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "type IGetVal ="
-                            "    abstract member GetVal : unit -> int"
-                            "type Holder(n: int) ="
-                            "    interface IGetVal with"
-                            "        member _.GetVal() = n"
-                            "let callIt (x: 'T when 'T :> IGetVal) : int = x.GetVal()"
-                            "printfn \"%d\" (callIt (Holder 7))"
-                        ]
-
-                let _, artifact = compileSource "TyparInterfaceDispatch" src
+                let _, artifact = compileSourceData "TyparInterfaceDispatch"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -788,23 +659,7 @@ let structSeqTests =
             // resolves the struct's impl directly — no boxing. Asserted on `callIt`'s IL:
             // a `constrained.` prefix (0xFE 0x16) is present and there is NO `box` (0x8C).
             test "constrained typar dispatch on a struct arg does not box" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "type IGetVal ="
-                            "    abstract member GetVal : unit -> int"
-                            "[<Struct>]"
-                            "type SBox ="
-                            "    val N : int"
-                            "    new(n: int) = { N = n }"
-                            "    interface IGetVal with"
-                            "        member this.GetVal() = this.N"
-                            "let callIt (x: 'T when 'T :> IGetVal) : int = x.GetVal()"
-                            "printfn \"%d\" (callIt (SBox 9))"
-                        ]
-
-                let _, artifact = compileSource "TyparInterfaceStructDispatch" src
+                let _, artifact = compileSourceData "TyparInterfaceStructDispatch"
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -829,23 +684,7 @@ let structSeqTests =
             // `TypeSpec` (`IBox`1<int>`) rather than the bare definition — the case
             // the struct-dispatch test deferred (`iface.Typars` non-empty).
             test "constrained typar dispatch on a generic interface (concrete arg) does not box" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "type IBox<'T> ="
-                            "    abstract member Get : unit -> 'T"
-                            "[<Struct>]"
-                            "type IntBox ="
-                            "    val N : int"
-                            "    new(n: int) = { N = n }"
-                            "    interface IBox<int> with"
-                            "        member this.Get() = this.N"
-                            "let callIt (x: 'T when 'T :> IBox<int>) : int = x.Get()"
-                            "printfn \"%d\" (callIt (IntBox 5))"
-                        ]
-
-                let _, artifact = compileSource "GenericIfaceConcreteDispatch" src
+                let _, artifact = compileSourceData "GenericIfaceConcreteDispatch"
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
@@ -872,28 +711,7 @@ let structSeqTests =
             // mint the slot on `IBox\`1<!T>` where `!T` is the struct's own typar —
             // the interface instantiation is itself a generic parameter, not concrete.
             test "generic struct dispatches through a typar field constrained to a generic interface (typar arg)" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "type IBox<'T> ="
-                            "    abstract member Get : unit -> 'T"
-                            "[<Struct>]"
-                            "type IntBox ="
-                            "    val N : int"
-                            "    new(n: int) = { N = n }"
-                            "    interface IBox<int> with"
-                            "        member this.Get() = this.N"
-                            "[<Struct>]"
-                            "type Wrap<'S, 'T when 'S :> IBox<'T>> ="
-                            "    val Inner : 'S"
-                            "    new(inner: 'S) = { Inner = inner }"
-                            "    member this.Fetch() : 'T = this.Inner.Get()"
-                            "let w = Wrap<IntBox, int>(IntBox 7)"
-                            "printfn \"%d\" (w.Fetch())"
-                        ]
-
-                let _, artifact = compileSource "GenericStructTyparIface" src
+                let _, artifact = compileSourceData "GenericStructTyparIface"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -909,30 +727,7 @@ let structSeqTests =
             // interface's getter slot, else TypeLoadException "Method 'Current' ...
             // does not have an implementation".
             test "struct implements an interface with an abstract property and dispatches" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "type IStructEnumerator ="
-                            "    abstract member MoveNext : unit -> bool"
-                            "    abstract member Current : int"
-                            "[<Struct>]"
-                            "type ArrayEnumerator ="
-                            "    val Arr : int[]"
-                            "    val mutable Idx : int"
-                            "    new(arr: int[]) = { Arr = arr; Idx = -1 }"
-                            "    interface IStructEnumerator with"
-                            "        member this.MoveNext() : bool ="
-                            "            this.Idx <- this.Idx + 1"
-                            "            this.Idx < this.Arr.Length"
-                            "        member this.Current : int = this.Arr.[this.Idx]"
-                            "let e = ArrayEnumerator([| 10; 20 |])"
-                            "let i = (e :> IStructEnumerator)"
-                            "i.MoveNext() |> ignore"
-                            "printfn \"%d\" i.Current"
-                        ]
-
-                let _, artifact = compileSource "StructIfaceProperty" src
+                let _, artifact = compileSourceData "StructIfaceProperty"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -952,24 +747,7 @@ let structSeqTests =
             // instantiation. Boxing the struct to the interface and calling `Unwrap`
             // is the producer-side proof.
             test "a generic struct implements a generic local interface at its own typar and dispatches" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "type IBox<'E> ="
-                            "    abstract member Unwrap : unit -> 'E"
-                            "[<Struct>]"
-                            "type Box<'T> ="
-                            "    val Value : 'T"
-                            "    new(value: 'T) = { Value = value }"
-                            "    interface IBox<'T> with"
-                            "        member this.Unwrap() : 'T = this.Value"
-                            "let b = Box<int>(42)"
-                            "let i = (b :> IBox<int>)"
-                            "printfn \"%d\" (i.Unwrap())"
-                        ]
-
-                let _, artifact = compileSource "GenericStructGenericIface" src
+                let _, artifact = compileSourceData "GenericStructGenericIface"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -985,21 +763,7 @@ let structSeqTests =
             // interface via the external provider, so a local interface errors with
             // "Type 'IGetVal' is not an interface".
             test "project-local class implements a project-local interface and dispatches" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "type IGetVal ="
-                            "    abstract member GetVal : unit -> int"
-                            "type Holder(n: int) ="
-                            "    interface IGetVal with"
-                            "        member _.GetVal() = n"
-                            "let h = Holder(42)"
-                            "let v = (h :> IGetVal).GetVal()"
-                            "printfn \"%d\" v"
-                        ]
-
-                let _, artifact = compileSource "LocalInterfaceImpl" src
+                let _, artifact = compileSourceData "LocalInterfaceImpl"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "42" "local interface dispatch returns the impl value"
@@ -1010,27 +774,7 @@ let structSeqTests =
             // as a method call, so `Get` is mis-typed as a property and `()` becomes a
             // `Fun::Invoke` over-application → ExecutionEngine at JIT.
             test "chained this.field.Method() call (3-segment) resolves and runs" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "[<Struct>]"
-                            "type Inner ="
-                            "    val Cur : int"
-                            "    new(c: int) = { Cur = c }"
-                            "    member this.Get() : int = this.Cur"
-                            "[<Struct>]"
-                            "type Outer ="
-                            "    val I : Inner"
-                            "    new(i: Inner) = { I = i }"
-                            "    member this.StepGet() : int = this.I.Get()"
-                            "let run () ="
-                            "    let o = Outer(Inner(7))"
-                            "    printfn \"%d\" (o.StepGet())"
-                            "run ()"
-                        ]
-
-                let _, artifact = compileSource "StructFieldGet" src
+                let _, artifact = compileSourceData "StructFieldGet"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "7" "chained method call on a struct field works"
@@ -1040,35 +784,7 @@ let structSeqTests =
             // fields, mutating the innermost — exercises the recursive `ldflda`
             // addressing (`this` → `ldflda A` → `ldflda B` → call by address).
             test "4-segment chained method call through nested struct fields mutates in place" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "[<Struct>]"
-                            "type Leaf ="
-                            "    val mutable N : int"
-                            "    new(n: int) = { N = n }"
-                            "    member this.Bump() : int ="
-                            "        this.N <- this.N + 1"
-                            "        this.N"
-                            "[<Struct>]"
-                            "type Mid ="
-                            "    val mutable L : Leaf"
-                            "    new(l: Leaf) = { L = l }"
-                            "[<Struct>]"
-                            "type Top ="
-                            "    val mutable M : Mid"
-                            "    new(m: Mid) = { M = m }"
-                            "    member this.Step() : int = this.M.L.Bump()"
-                            "let run () ="
-                            "    let mutable t = Top(Mid(Leaf(10)))"
-                            "    let a = t.Step()"
-                            "    let b = t.Step()"
-                            "    printfn \"%d %d\" a b"
-                            "run ()"
-                        ]
-
-                let _, artifact = compileSource "NestedStructChain" src
+                let _, artifact = compileSourceData "NestedStructChain"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -1080,26 +796,7 @@ let structSeqTests =
 
             // A chain headed by an ordinary local (not `this`): `o.I.Get()`.
             test "chained method call headed by a local variable resolves" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "[<Struct>]"
-                            "type Inner ="
-                            "    val Cur : int"
-                            "    new(c: int) = { Cur = c }"
-                            "    member this.Get() : int = this.Cur"
-                            "[<Struct>]"
-                            "type Outer ="
-                            "    val I : Inner"
-                            "    new(i: Inner) = { I = i }"
-                            "let run () ="
-                            "    let o = Outer(Inner(42))"
-                            "    printfn \"%d\" (o.I.Get())"
-                            "run ()"
-                        ]
-
-                let _, artifact = compileSource "LocalHeadedChain" src
+                let _, artifact = compileSourceData "LocalHeadedChain"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "42" "local-headed chained method call works"
@@ -1113,36 +810,7 @@ let structSeqTests =
             // `MoveNext`/`Current`, so the loop body stays the existing by-address struct
             // walk — isolating the new for-in-over-typar-source dispatch.
             test "for-in over a generic typar source via a custom interface (concrete enumerator)" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "[<Struct>]"
-                            "type ArrayEnumerator ="
-                            "    val Arr : int[]"
-                            "    val mutable Idx : int"
-                            "    new(arr: int[]) = { Arr = arr; Idx = -1 }"
-                            "    member this.MoveNext() : bool ="
-                            "        this.Idx <- this.Idx + 1"
-                            "        this.Idx < this.Arr.Length"
-                            "    member this.Current : int = this.Arr.[this.Idx]"
-                            "type ISeq ="
-                            "    abstract member GetEnumerator : unit -> ArrayEnumerator"
-                            "[<Struct>]"
-                            "type ArraySeq ="
-                            "    val Arr : int[]"
-                            "    new(arr: int[]) = { Arr = arr }"
-                            "    interface ISeq with"
-                            "        member this.GetEnumerator() : ArrayEnumerator = ArrayEnumerator(this.Arr)"
-                            "let sumSeq (s: 'S when 'S :> ISeq) : int ="
-                            "    let mutable total = 0"
-                            "    for y in s do"
-                            "        total <- total + y"
-                            "    total"
-                            "printfn \"%d\" (sumSeq (ArraySeq([| 1; 2; 3 |])))"
-                        ]
-
-                let _, artifact = compileSource "TyparSeqSource" src
+                let _, artifact = compileSourceData "TyparSeqSource"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -1159,36 +827,7 @@ let structSeqTests =
             // the slot minted on the instantiated interface `TypeSpec`. The enumerator
             // is concrete so its members stay the by-address struct walk.
             test "for-in over a generic typar source via a generic interface (concrete enumerator)" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "[<Struct>]"
-                            "type ArrayEnumerator ="
-                            "    val Arr : int[]"
-                            "    val mutable Idx : int"
-                            "    new(arr: int[]) = { Arr = arr; Idx = -1 }"
-                            "    member this.MoveNext() : bool ="
-                            "        this.Idx <- this.Idx + 1"
-                            "        this.Idx < this.Arr.Length"
-                            "    member this.Current : int = this.Arr.[this.Idx]"
-                            "type IStructSeq<'E> ="
-                            "    abstract member GetEnumerator : unit -> 'E"
-                            "[<Struct>]"
-                            "type ArraySeq ="
-                            "    val Arr : int[]"
-                            "    new(arr: int[]) = { Arr = arr }"
-                            "    interface IStructSeq<ArrayEnumerator> with"
-                            "        member this.GetEnumerator() : ArrayEnumerator = ArrayEnumerator(this.Arr)"
-                            "let sumSeq (s: 'S when 'S :> IStructSeq<ArrayEnumerator>) : int ="
-                            "    let mutable total = 0"
-                            "    for y in s do"
-                            "        total <- total + y"
-                            "    total"
-                            "printfn \"%d\" (sumSeq (ArraySeq([| 1; 2; 3 |])))"
-                        ]
-
-                let _, artifact = compileSource "GenericIfaceTyparSeqSource" src
+                let _, artifact = compileSourceData "GenericIfaceTyparSeqSource"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -1204,40 +843,7 @@ let structSeqTests =
             // `GetEnumerator` and the enumerator's `MoveNext`/`Current` ALL dispatch via
             // `constrained. callvirt`, with `'E` inferred from `ArraySeq`'s interface impl.
             test "for-in over a fully generic struct seq source" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "type IStructEnumerator ="
-                            "    abstract member MoveNext : unit -> bool"
-                            "    abstract member Current : int"
-                            "type IStructSeq<'E when 'E :> IStructEnumerator> ="
-                            "    abstract member GetEnumerator : unit -> 'E"
-                            "[<Struct>]"
-                            "type ArrayEnumerator ="
-                            "    val Arr : int[]"
-                            "    val mutable Idx : int"
-                            "    new(arr: int[]) = { Arr = arr; Idx = -1 }"
-                            "    interface IStructEnumerator with"
-                            "        member this.MoveNext() : bool ="
-                            "            this.Idx <- this.Idx + 1"
-                            "            this.Idx < this.Arr.Length"
-                            "        member this.Current : int = this.Arr.[this.Idx]"
-                            "[<Struct>]"
-                            "type ArraySeq ="
-                            "    val Arr : int[]"
-                            "    new(arr: int[]) = { Arr = arr }"
-                            "    interface IStructSeq<ArrayEnumerator> with"
-                            "        member this.GetEnumerator() : ArrayEnumerator = ArrayEnumerator(this.Arr)"
-                            "let sumSeq (s: 'S when 'S :> IStructSeq<'E> and 'E :> IStructEnumerator) : int ="
-                            "    let mutable total = 0"
-                            "    for y in s do"
-                            "        total <- total + y"
-                            "    total"
-                            "printfn \"%d\" (sumSeq (ArraySeq([| 1; 2; 3 |])))"
-                        ]
-
-                let _, artifact = compileSource "FullyGenericStructSeq" src
+                let _, artifact = compileSourceData "FullyGenericStructSeq"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -1252,45 +858,7 @@ let structSeqTests =
             // `for y in s` — the value-type-source + chained struct-field
             // dispatch (`this.Source.GetEnumerator()` / `this.Source.MoveNext()`).
             test "concrete struct MapSeq pipeline maps and folds" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "[<Struct>]"
-                            "type ArrayEnumerator ="
-                            "    val Arr : int[]"
-                            "    val mutable Idx : int"
-                            "    new(arr: int[]) = { Arr = arr; Idx = -1 }"
-                            "    member this.MoveNext() : bool ="
-                            "        this.Idx <- this.Idx + 1"
-                            "        this.Idx < this.Arr.Length"
-                            "    member this.Current : int = this.Arr.[this.Idx]"
-                            "[<Struct>]"
-                            "type ArraySeq ="
-                            "    val Arr : int[]"
-                            "    new(arr: int[]) = { Arr = arr }"
-                            "    member this.GetEnumerator() : ArrayEnumerator = ArrayEnumerator(this.Arr)"
-                            "[<Struct>]"
-                            "type MapEnumerator ="
-                            "    val mutable Source : ArrayEnumerator"
-                            "    val F : int -> int"
-                            "    new(source: ArrayEnumerator, f: int -> int) = { Source = source; F = f }"
-                            "    member this.MoveNext() : bool = this.Source.MoveNext()"
-                            "    member this.Current : int = this.F (this.Source.Current)"
-                            "[<Struct>]"
-                            "type MapSeq ="
-                            "    val Source : ArraySeq"
-                            "    val F : int -> int"
-                            "    new(source: ArraySeq, f: int -> int) = { Source = source; F = f }"
-                            "    member this.GetEnumerator() : MapEnumerator = MapEnumerator(this.Source.GetEnumerator(), this.F)"
-                            "let xs = [| 1; 2; 3 |]"
-                            "let s = MapSeq(ArraySeq(xs), fun x -> x * 2)"
-                            "for y in s do"
-                            "    printfn \"%d\" y"
-                            "printfn \"done\""
-                        ]
-
-                let _, artifact = compileSource "StructMapSeq" src
+                let _, artifact = compileSourceData "StructMapSeq"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "2\n4\n6\ndone" "maps the struct pipeline in order"
@@ -1307,48 +875,7 @@ let structSeqTests =
             // The enumerator (`MapEnumerator`) stays concrete to isolate the generic
             // *source* from a generic *enumerator*.
             test "for-in over a generic MapSeq wrapping a concrete ArraySeq" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "[<Struct>]"
-                            "type ArrayEnumerator ="
-                            "    val Arr : int[]"
-                            "    val mutable Idx : int"
-                            "    new(arr: int[]) = { Arr = arr; Idx = -1 }"
-                            "    member this.MoveNext() : bool ="
-                            "        this.Idx <- this.Idx + 1"
-                            "        this.Idx < this.Arr.Length"
-                            "    member this.Current : int = this.Arr.[this.Idx]"
-                            "type IStructSeq<'E> ="
-                            "    abstract member GetEnumerator : unit -> 'E"
-                            "[<Struct>]"
-                            "type ArraySeq ="
-                            "    val Arr : int[]"
-                            "    new(arr: int[]) = { Arr = arr }"
-                            "    interface IStructSeq<ArrayEnumerator> with"
-                            "        member this.GetEnumerator() : ArrayEnumerator = ArrayEnumerator(this.Arr)"
-                            "[<Struct>]"
-                            "type MapEnumerator ="
-                            "    val mutable Source : ArrayEnumerator"
-                            "    val F : int -> int"
-                            "    new(source: ArrayEnumerator, f: int -> int) = { Source = source; F = f }"
-                            "    member this.MoveNext() : bool = this.Source.MoveNext()"
-                            "    member this.Current : int = this.F (this.Source.Current)"
-                            "[<Struct>]"
-                            "type MapSeq<'S when 'S :> IStructSeq<ArrayEnumerator>> ="
-                            "    val Source : 'S"
-                            "    val F : int -> int"
-                            "    new(source: 'S, f: int -> int) = { Source = source; F = f }"
-                            "    member this.GetEnumerator() : MapEnumerator = MapEnumerator(this.Source.GetEnumerator(), this.F)"
-                            "let xs = [| 1; 2; 3 |]"
-                            "let s = MapSeq<ArraySeq>(ArraySeq(xs), fun x -> x * 2)"
-                            "for y in s do"
-                            "    printfn \"%d\" y"
-                            "printfn \"done\""
-                        ]
-
-                let _, artifact = compileSource "GenericMapSeqConcreteSource" src
+                let _, artifact = compileSourceData "GenericMapSeqConcreteSource"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -1367,57 +894,7 @@ let structSeqTests =
             // `MapEnumerator`1<ArrayEnumerator>`. This is the `ArraySeq → map` tree, all
             // generic, the keystone of the fully generic struct seq.
             test "fully generic struct map pipeline chains a generic enumerator" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "type IStructEnumerator ="
-                            "    abstract member MoveNext : unit -> bool"
-                            "    abstract member Current : int"
-                            "type IStructSeq<'E when 'E :> IStructEnumerator> ="
-                            "    abstract member GetEnumerator : unit -> 'E"
-                            "[<Struct>]"
-                            "type ArrayEnumerator ="
-                            "    val Arr : int[]"
-                            "    val mutable Idx : int"
-                            "    new(arr: int[]) = { Arr = arr; Idx = -1 }"
-                            "    interface IStructEnumerator with"
-                            "        member this.MoveNext() : bool ="
-                            "            this.Idx <- this.Idx + 1"
-                            "            this.Idx < this.Arr.Length"
-                            "        member this.Current : int = this.Arr.[this.Idx]"
-                            "[<Struct>]"
-                            "type ArraySeq ="
-                            "    val Arr : int[]"
-                            "    new(arr: int[]) = { Arr = arr }"
-                            "    interface IStructSeq<ArrayEnumerator> with"
-                            "        member this.GetEnumerator() : ArrayEnumerator = ArrayEnumerator(this.Arr)"
-                            "[<Struct>]"
-                            "type MapEnumerator<'E when 'E :> IStructEnumerator> ="
-                            "    val mutable Source : 'E"
-                            "    val F : int -> int"
-                            "    new(source: 'E, f: int -> int) = { Source = source; F = f }"
-                            "    interface IStructEnumerator with"
-                            "        member this.MoveNext() : bool = this.Source.MoveNext()"
-                            "        member this.Current : int = this.F (this.Source.Current)"
-                            "[<Struct>]"
-                            "type MapSeq<'S, 'E when 'S :> IStructSeq<'E> and 'E :> IStructEnumerator> ="
-                            "    val Source : 'S"
-                            "    val F : int -> int"
-                            "    new(source: 'S, f: int -> int) = { Source = source; F = f }"
-                            "    interface IStructSeq<MapEnumerator<'E>> with"
-                            "        member this.GetEnumerator() : MapEnumerator<'E> = MapEnumerator<'E>(this.Source.GetEnumerator(), this.F)"
-                            "let sumSeq (s: 'S when 'S :> IStructSeq<'E> and 'E :> IStructEnumerator) : int ="
-                            "    let mutable total = 0"
-                            "    for y in s do"
-                            "        total <- total + y"
-                            "    total"
-                            "let xs = [| 1; 2; 3 |]"
-                            "let s = MapSeq<ArraySeq, ArrayEnumerator>(ArraySeq(xs), fun x -> x * 2)"
-                            "printfn \"%d\" (sumSeq s)"
-                        ]
-
-                let _, artifact = compileSource "FullyGenericMapPipeline" src
+                let _, artifact = compileSourceData "FullyGenericMapPipeline"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "12" "fully generic map pipeline sums the mapped values"
@@ -1438,87 +915,14 @@ let structSeqTests =
             // declaration + the `IEnumerator<'T> :> IEnumerator` upcast
             // round-trip: the struct upcast to `IEnumerable<int>` enumerates 1,2,3.
             test "generic struct seq implements IEnumerable<'T> escape hatch and enumerates" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "open System.Collections.Generic"
-                            "open System.Collections"
-                            "[<Struct>]"
-                            "type ArrayEnumerator<'T> ="
-                            "    val Arr : 'T[]"
-                            "    val mutable Idx : int"
-                            "    new(arr: 'T[]) = { Arr = arr; Idx = -1 }"
-                            "    interface IEnumerator<'T> with"
-                            "        member this.Current : 'T = this.Arr.[this.Idx]"
-                            "    interface IEnumerator with"
-                            "        member this.MoveNext() : bool ="
-                            "            this.Idx <- this.Idx + 1"
-                            "            this.Idx < this.Arr.Length"
-                            "        member this.Current : obj = box (this.Arr.[this.Idx])"
-                            "        member this.Reset() : unit = ()"
-                            "    interface System.IDisposable with"
-                            "        member this.Dispose() : unit = ()"
-                            "[<Struct>]"
-                            "type ArraySeq<'T> ="
-                            "    val Arr : 'T[]"
-                            "    new(arr: 'T[]) = { Arr = arr }"
-                            "    interface IEnumerable<'T> with"
-                            "        member this.GetEnumerator() : IEnumerator<'T> = (ArrayEnumerator<'T>(this.Arr) :> IEnumerator<'T>)"
-                            "    interface IEnumerable with"
-                            "        member this.GetEnumerator() : IEnumerator = (ArrayEnumerator<'T>(this.Arr) :> IEnumerator)"
-                            "let sum3 (xs: IEnumerable<int>) : int ="
-                            "    let e = xs.GetEnumerator()"
-                            "    let mutable total = 0"
-                            "    while e.MoveNext() do"
-                            "        total <- total + e.Current"
-                            "    total"
-                            "let s = ArraySeq<int>([| 1; 2; 3 |])"
-                            "printfn \"%d\" (sum3 (s :> IEnumerable<int>))"
-                        ]
-
-                let _, artifact = compileSource "StructSeqEscapeHatch" src
+                let _, artifact = compileSourceData "StructSeqEscapeHatch"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "6" "escape-hatch enumerates via IEnumerable<'T>"
             }
 
             test "fold over a fully generic struct seq threads state through a closure" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "type IStructEnumerator ="
-                            "    abstract member MoveNext : unit -> bool"
-                            "    abstract member Current : int"
-                            "type IStructSeq<'E when 'E :> IStructEnumerator> ="
-                            "    abstract member GetEnumerator : unit -> 'E"
-                            "[<Struct>]"
-                            "type ArrayEnumerator ="
-                            "    val Arr : int[]"
-                            "    val mutable Idx : int"
-                            "    new(arr: int[]) = { Arr = arr; Idx = -1 }"
-                            "    interface IStructEnumerator with"
-                            "        member this.MoveNext() : bool ="
-                            "            this.Idx <- this.Idx + 1"
-                            "            this.Idx < this.Arr.Length"
-                            "        member this.Current : int = this.Arr.[this.Idx]"
-                            "[<Struct>]"
-                            "type ArraySeq ="
-                            "    val Arr : int[]"
-                            "    new(arr: int[]) = { Arr = arr }"
-                            "    interface IStructSeq<ArrayEnumerator> with"
-                            "        member this.GetEnumerator() : ArrayEnumerator = ArrayEnumerator(this.Arr)"
-                            "let fold (f: 'State -> int -> 'State) (seed: 'State) (s: 'S when 'S :> IStructSeq<'E> and 'E :> IStructEnumerator) : 'State ="
-                            "    let mutable state = seed"
-                            "    for y in s do"
-                            "        state <- f state y"
-                            "    state"
-                            "let xs = [| 1; 2; 3; 4 |]"
-                            "printfn \"%d\" (fold (fun acc x -> acc + x) 0 (ArraySeq(xs)))"
-                        ]
-
-                let _, artifact = compileSource "StructSeqFold" src
+                let _, artifact = compileSourceData "StructSeqFold"
                 let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
                 Expect.equal exitCode 0 "Main returns 0"
 
@@ -1538,34 +942,7 @@ let structSeqTests =
             // project-local classes) into a flat slot whose `Invoke(a,b)` walks the
             // curried chain `f.Invoke(a).Invoke(b)`.
             test "Fun flat dispatch + curryFun/flatten adapters round-trip" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            // A value-type flat 2-arg closure. A fieldless `[<Struct>]`
-                            // whose body is ONLY an interface impl trips parse recovery
-                            // ("Skipped tokens at module level"); a `val`/`new` preamble
-                            // (the `Add1` shape) parses, so carry a dummy field.
-                            "[<Struct>]"
-                            "type Add2 ="
-                            "    val Z : int"
-                            "    new(z: int) = { Z = z }"
-                            "    interface Fun<int, int, int> with"
-                            "        member this.Invoke(a: int, b: int) : int = a + b + this.Z"
-                            // a genuinely curried value: AddB captures `a`, returns b -> a+b
-                            "type AddB(a: int) ="
-                            "    interface Fun<int, int> with"
-                            "        member this.Invoke(b: int) : int = a + b"
-                            "type AddCurried() ="
-                            "    interface Fun<int, Fun<int, int>> with"
-                            "        member this.Invoke(a: int) : Fun<int, int> = AddB(a) :> Fun<int, int>"
-                            "let flat = (Add2(0) :> Fun<int, int, int>).Invoke(20, 22)"
-                            "let curried = ((curryFun (Add2(0) :> Fun<int, int, int>) 20) :> Fun<int, int>).Invoke(22)"
-                            "let flattened = (flatten (AddCurried() :> Fun<int, Fun<int, int>>)).Invoke(20, 22)"
-                            "printfn \"%d %d %d\" flat curried flattened"
-                        ]
-
-                let tast, artifact = compileSource "FunAdapters" src
+                let tast, artifact = compileSourceData "FunAdapters"
                 let bytes = Codegen.toBytes artifact
                 Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
                 let exitCode, output = runEntryPoint bytes
@@ -1593,77 +970,7 @@ let structSeqTests =
             // `compileSource` (which tolerates the Seq contract not being stacked);
             // the library form is proven separately by `buildPackage "Vesper.Seq"`.
             test "struct-closure-typar map/fold pipeline runs non-allocating" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "type IStructEnumerator<'T> ="
-                            "    abstract member MoveNext : unit -> bool"
-                            "    abstract member Current : 'T"
-                            "type IStructSeq<'T, 'E when 'E :> IStructEnumerator<'T>> ="
-                            "    abstract member GetEnumerator : unit -> 'E"
-                            "[<Struct>]"
-                            "type ArrayEnumerator<'T> ="
-                            "    val Arr : 'T[]"
-                            "    val mutable Idx : int"
-                            "    new(arr: 'T[]) = { Arr = arr; Idx = -1 }"
-                            "    interface IStructEnumerator<'T> with"
-                            "        member this.MoveNext() : bool ="
-                            "            this.Idx <- this.Idx + 1"
-                            "            this.Idx < this.Arr.Length"
-                            "        member this.Current : 'T = this.Arr.[this.Idx]"
-                            "[<Struct>]"
-                            "type ArraySeq<'T> ="
-                            "    val Arr : 'T[]"
-                            "    new(arr: 'T[]) = { Arr = arr }"
-                            "    interface IStructSeq<'T, ArrayEnumerator<'T>> with"
-                            "        member this.GetEnumerator() : ArrayEnumerator<'T> = ArrayEnumerator<'T>(this.Arr)"
-                            "[<Struct>]"
-                            "type MapEnumerator<'E, 'TFunc, 'T, 'U when 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>> ="
-                            "    val mutable Source : 'E"
-                            "    val F : 'TFunc"
-                            "    new(source: 'E, f: 'TFunc) = { Source = source; F = f }"
-                            "    interface IStructEnumerator<'U> with"
-                            "        member this.MoveNext() : bool = this.Source.MoveNext()"
-                            "        member this.Current : 'U = this.F.Invoke(this.Source.Current)"
-                            "[<Struct>]"
-                            "type MapSeq<'S, 'E, 'TFunc, 'T, 'U when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>> ="
-                            "    val Source : 'S"
-                            "    val F : 'TFunc"
-                            "    new(source: 'S, f: 'TFunc) = { Source = source; F = f }"
-                            "    interface IStructSeq<'U, MapEnumerator<'E, 'TFunc, 'T, 'U>> with"
-                            "        member this.GetEnumerator() : MapEnumerator<'E, 'TFunc, 'T, 'U> = MapEnumerator<'E, 'TFunc, 'T, 'U>(this.Source.GetEnumerator(), this.F)"
-                            // hand-written struct closures (each carries a `val`/`new`
-                            // so the [<Struct>] parses — a fieldless impl-only struct
-                            // trips parse recovery).
-                            "[<Struct>]"
-                            "type AddN ="
-                            "    val N : int"
-                            "    new(n: int) = { N = n }"
-                            "    interface Fun<int, int> with"
-                            "        member this.Invoke(x: int) : int = x + this.N"
-                            "[<Struct>]"
-                            "type SumAcc ="
-                            "    val Z : int"
-                            "    new(z: int) = { Z = z }"
-                            "    interface Fun<int, int, int> with"
-                            "        member this.Invoke(state: int, y: int) : int = state + y + this.Z"
-                            "let ofArray (arr: 'T[]) : ArraySeq<'T> = ArraySeq<'T>(arr)"
-                            "let map (f: 'TFunc when 'TFunc :> Fun<'T, 'U>) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : MapSeq<'S, 'E, 'TFunc, 'T, 'U> ="
-                            "    MapSeq<'S, 'E, 'TFunc, 'T, 'U>(source, f)"
-                            "let fold (f: 'TFunc when 'TFunc :> Fun<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
-                            "    let mutable state = seed"
-                            "    for y in source do"
-                            "        state <- f.Invoke(state, y)"
-                            "    state"
-                            "let xs = [| 1; 2; 3; 4 |]"
-                            "let s0 = ofArray xs"
-                            "let s1 = map (AddN 1) s0"
-                            "let total = fold (SumAcc 0) 0 s1"
-                            "printfn \"%d\" total"
-                        ]
-
-                let tast, artifact = compileSource "StructSeqRung4Pipeline" src
+                let tast, artifact = compileSourceData "StructSeqRung4Pipeline"
                 let bytes = Codegen.toBytes artifact
                 Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
                 let exitCode, output = runEntryPoint bytes
@@ -1719,27 +1026,7 @@ let structSeqTests =
             // corrupted the read (`h.F.Invoke 41`). With the fix the field's `'TF` arg is
             // GENERICINST VALUETYPE `<closure>$…` (`15 11 …`) and the round-trip yields 42.
             test "a stored binding's Fun typar slot is laid out as the <closure>$ value-struct" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "[<Struct>]"
-                            "type Holder<'TFunc when 'TFunc :> Fun<int, int>> ="
-                            "    val F : 'TFunc"
-                            "    new(f: 'TFunc) = { F = f }"
-                            "let mk (f: 'TFunc when 'TFunc :> Fun<int, int>) : Holder<'TFunc> = Holder<'TFunc>(f)"
-                            "let apply (f: 'TF when 'TF :> Fun<int, int>) (x: int) : int = f.Invoke x"
-                            // The STORED binding `h` is the target: its `Holder` field
-                            // must lay out `'TFunc` as the `<closure>$` value-struct. The
-                            // closure is then dispatched by passing `h.F` through a typar
-                            // combinator (`apply`) — the constrained-dispatch path —
-                            // which reads `h.F`'s (rewritten) value-struct type for the
-                            // `!TF` MethodSpec, so the read of the stored struct is correct.
-                            "let h = mk (fun x -> x + 1)"
-                            "printfn \"%d\" (apply h.F 41)"
-                        ]
-
-                let tast, artifact = compileSource "M6PaStoredHolder" src
+                let tast, artifact = compileSourceData "M6PaStoredHolder"
                 Expect.isEmpty tast.Diagnostics (sprintf "M6 P-a diagnostics: %A" tast.Diagnostics)
 
                 let bytes = Codegen.toBytes artifact
@@ -1822,62 +1109,7 @@ let structSeqTests =
             //      `<closure>$` value-struct and matches the receiver's impl. No
             //      arrow-equality rewrite (the old `rewriteClosureLeaves` is gone).
             test "SOURCE-lambda map/fold pipeline runs non-allocating (end-to-end)" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "type IStructEnumerator<'T> ="
-                            "    abstract member MoveNext : unit -> bool"
-                            "    abstract member Current : 'T"
-                            "type IStructSeq<'T, 'E when 'E :> IStructEnumerator<'T>> ="
-                            "    abstract member GetEnumerator : unit -> 'E"
-                            "[<Struct>]"
-                            "type ArrayEnumerator<'T> ="
-                            "    val Arr : 'T[]"
-                            "    val mutable Idx : int"
-                            "    new(arr: 'T[]) = { Arr = arr; Idx = -1 }"
-                            "    interface IStructEnumerator<'T> with"
-                            "        member this.MoveNext() : bool ="
-                            "            this.Idx <- this.Idx + 1"
-                            "            this.Idx < this.Arr.Length"
-                            "        member this.Current : 'T = this.Arr.[this.Idx]"
-                            "[<Struct>]"
-                            "type ArraySeq<'T> ="
-                            "    val Arr : 'T[]"
-                            "    new(arr: 'T[]) = { Arr = arr }"
-                            "    interface IStructSeq<'T, ArrayEnumerator<'T>> with"
-                            "        member this.GetEnumerator() : ArrayEnumerator<'T> = ArrayEnumerator<'T>(this.Arr)"
-                            "[<Struct>]"
-                            "type MapEnumerator<'E, 'TFunc, 'T, 'U when 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>> ="
-                            "    val mutable Source : 'E"
-                            "    val F : 'TFunc"
-                            "    new(source: 'E, f: 'TFunc) = { Source = source; F = f }"
-                            "    interface IStructEnumerator<'U> with"
-                            "        member this.MoveNext() : bool = this.Source.MoveNext()"
-                            "        member this.Current : 'U = this.F.Invoke(this.Source.Current)"
-                            "[<Struct>]"
-                            "type MapSeq<'S, 'E, 'TFunc, 'T, 'U when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>> ="
-                            "    val Source : 'S"
-                            "    val F : 'TFunc"
-                            "    new(source: 'S, f: 'TFunc) = { Source = source; F = f }"
-                            "    interface IStructSeq<'U, MapEnumerator<'E, 'TFunc, 'T, 'U>> with"
-                            "        member this.GetEnumerator() : MapEnumerator<'E, 'TFunc, 'T, 'U> = MapEnumerator<'E, 'TFunc, 'T, 'U>(this.Source.GetEnumerator(), this.F)"
-                            "let ofArray (arr: 'T[]) : ArraySeq<'T> = ArraySeq<'T>(arr)"
-                            "let map (f: 'TFunc when 'TFunc :> Fun<'T, 'U>) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : MapSeq<'S, 'E, 'TFunc, 'T, 'U> ="
-                            "    MapSeq<'S, 'E, 'TFunc, 'T, 'U>(source, f)"
-                            "let fold (f: 'TFunc when 'TFunc :> Fun<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
-                            "    let mutable state = seed"
-                            "    for y in source do"
-                            "        state <- f.Invoke(state, y)"
-                            "    state"
-                            "let xs = [| 1; 2; 3; 4 |]"
-                            "let s0 = ofArray xs"
-                            "let s1 = map (fun x -> x + 1) s0"
-                            "let total = fold (fun acc x -> acc + x) 0 s1"
-                            "printfn \"%d\" total"
-                        ]
-
-                let tast, artifact = compileSource "StructSeqRung4M6SourceLambda" src
+                let tast, artifact = compileSourceData "StructSeqRung4M6SourceLambda"
                 let bytes = Codegen.toBytes artifact
                 Expect.isEmpty tast.Diagnostics (sprintf "M6 source-lambda pipeline diagnostics: %A" tast.Diagnostics)
 
@@ -1928,62 +1160,7 @@ let structSeqTests =
             // both rewritten to the `<closure>$` value-struct. Same
             // output (14), same no-box constrained dispatch.
             test "nested-temp source-lambda map/fold pipeline runs non-allocating" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "type IStructEnumerator<'T> ="
-                            "    abstract member MoveNext : unit -> bool"
-                            "    abstract member Current : 'T"
-                            "type IStructSeq<'T, 'E when 'E :> IStructEnumerator<'T>> ="
-                            "    abstract member GetEnumerator : unit -> 'E"
-                            "[<Struct>]"
-                            "type ArrayEnumerator<'T> ="
-                            "    val Arr : 'T[]"
-                            "    val mutable Idx : int"
-                            "    new(arr: 'T[]) = { Arr = arr; Idx = -1 }"
-                            "    interface IStructEnumerator<'T> with"
-                            "        member this.MoveNext() : bool ="
-                            "            this.Idx <- this.Idx + 1"
-                            "            this.Idx < this.Arr.Length"
-                            "        member this.Current : 'T = this.Arr.[this.Idx]"
-                            "[<Struct>]"
-                            "type ArraySeq<'T> ="
-                            "    val Arr : 'T[]"
-                            "    new(arr: 'T[]) = { Arr = arr }"
-                            "    interface IStructSeq<'T, ArrayEnumerator<'T>> with"
-                            "        member this.GetEnumerator() : ArrayEnumerator<'T> = ArrayEnumerator<'T>(this.Arr)"
-                            "[<Struct>]"
-                            "type MapEnumerator<'E, 'TFunc, 'T, 'U when 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>> ="
-                            "    val mutable Source : 'E"
-                            "    val F : 'TFunc"
-                            "    new(source: 'E, f: 'TFunc) = { Source = source; F = f }"
-                            "    interface IStructEnumerator<'U> with"
-                            "        member this.MoveNext() : bool = this.Source.MoveNext()"
-                            "        member this.Current : 'U = this.F.Invoke(this.Source.Current)"
-                            "[<Struct>]"
-                            "type MapSeq<'S, 'E, 'TFunc, 'T, 'U when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>> ="
-                            "    val Source : 'S"
-                            "    val F : 'TFunc"
-                            "    new(source: 'S, f: 'TFunc) = { Source = source; F = f }"
-                            "    interface IStructSeq<'U, MapEnumerator<'E, 'TFunc, 'T, 'U>> with"
-                            "        member this.GetEnumerator() : MapEnumerator<'E, 'TFunc, 'T, 'U> = MapEnumerator<'E, 'TFunc, 'T, 'U>(this.Source.GetEnumerator(), this.F)"
-                            "let ofArray (arr: 'T[]) : ArraySeq<'T> = ArraySeq<'T>(arr)"
-                            "let map (f: 'TFunc when 'TFunc :> Fun<'T, 'U>) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : MapSeq<'S, 'E, 'TFunc, 'T, 'U> ="
-                            "    MapSeq<'S, 'E, 'TFunc, 'T, 'U>(source, f)"
-                            "let fold (f: 'TFunc when 'TFunc :> Fun<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
-                            "    let mutable state = seed"
-                            "    for y in source do"
-                            "        state <- f.Invoke(state, y)"
-                            "    state"
-                            "let xs = [| 1; 2; 3; 4 |]"
-                            // fully nested: NO stored `let s1` — the mapped seq is a temp
-                            // sub-expression of the `total` initialiser.
-                            "let total = fold (fun acc x -> acc + x) 0 (map (fun x -> x + 1) (ofArray xs))"
-                            "printfn \"%d\" total"
-                        ]
-
-                let tast, artifact = compileSource "StructSeqRung4M6PbNested" src
+                let tast, artifact = compileSourceData "StructSeqRung4M6PbNested"
                 let bytes = Codegen.toBytes artifact
                 Expect.isEmpty tast.Diagnostics (sprintf "M6 P-b nested pipeline diagnostics: %A" tast.Diagnostics)
 
@@ -2030,42 +1207,7 @@ let structSeqTests =
             // is recorded at the application site by `subsumes`' caller regardless of
             // whether the head is project-local or external.
             test "a SOURCE lambda through fold's Fun slot lowers to a no-box value-struct" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "type IStructEnumerator<'T> ="
-                            "    abstract member MoveNext : unit -> bool"
-                            "    abstract member Current : 'T"
-                            "type IStructSeq<'T, 'E when 'E :> IStructEnumerator<'T>> ="
-                            "    abstract member GetEnumerator : unit -> 'E"
-                            "[<Struct>]"
-                            "type ArrayEnumerator<'T> ="
-                            "    val Arr : 'T[]"
-                            "    val mutable Idx : int"
-                            "    new(arr: 'T[]) = { Arr = arr; Idx = -1 }"
-                            "    interface IStructEnumerator<'T> with"
-                            "        member this.MoveNext() : bool ="
-                            "            this.Idx <- this.Idx + 1"
-                            "            this.Idx < this.Arr.Length"
-                            "        member this.Current : 'T = this.Arr.[this.Idx]"
-                            "[<Struct>]"
-                            "type ArraySeq<'T> ="
-                            "    val Arr : 'T[]"
-                            "    new(arr: 'T[]) = { Arr = arr }"
-                            "    interface IStructSeq<'T, ArrayEnumerator<'T>> with"
-                            "        member this.GetEnumerator() : ArrayEnumerator<'T> = ArrayEnumerator<'T>(this.Arr)"
-                            "let ofArray (arr: 'T[]) : ArraySeq<'T> = ArraySeq<'T>(arr)"
-                            "let fold (f: 'TFunc when 'TFunc :> Fun<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
-                            "    let mutable state = seed"
-                            "    for y in source do"
-                            "        state <- f.Invoke(state, y)"
-                            "    state"
-                            "let total = fold (fun acc x -> acc + x) 0 (ofArray [| 1; 2; 3; 4 |])"
-                            "printfn \"%d\" total"
-                        ]
-
-                let tast, artifact = compileSource "StepCM3FoldSourceLambda" src
+                let tast, artifact = compileSourceData "StepCM3FoldSourceLambda"
                 Expect.isEmpty tast.Diagnostics (sprintf "M3 fold source-lambda diagnostics: %A" tast.Diagnostics)
                 let bytes = Codegen.toBytes artifact
                 let exitCode, output = runEntryPoint bytes
@@ -2098,63 +1240,7 @@ let structSeqTests =
             // to disambiguate. The closure identity rides through `'S`'s rewritten arg, so
             // the two same-typed `int->int` maps stay distinct.
             test "multi-map chain lowers each closure to its OWN value-struct slot" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "type IStructEnumerator<'T> ="
-                            "    abstract member MoveNext : unit -> bool"
-                            "    abstract member Current : 'T"
-                            "type IStructSeq<'T, 'E when 'E :> IStructEnumerator<'T>> ="
-                            "    abstract member GetEnumerator : unit -> 'E"
-                            "[<Struct>]"
-                            "type ArrayEnumerator<'T> ="
-                            "    val Arr : 'T[]"
-                            "    val mutable Idx : int"
-                            "    new(arr: 'T[]) = { Arr = arr; Idx = -1 }"
-                            "    interface IStructEnumerator<'T> with"
-                            "        member this.MoveNext() : bool ="
-                            "            this.Idx <- this.Idx + 1"
-                            "            this.Idx < this.Arr.Length"
-                            "        member this.Current : 'T = this.Arr.[this.Idx]"
-                            "[<Struct>]"
-                            "type ArraySeq<'T> ="
-                            "    val Arr : 'T[]"
-                            "    new(arr: 'T[]) = { Arr = arr }"
-                            "    interface IStructSeq<'T, ArrayEnumerator<'T>> with"
-                            "        member this.GetEnumerator() : ArrayEnumerator<'T> = ArrayEnumerator<'T>(this.Arr)"
-                            "[<Struct>]"
-                            "type MapEnumerator<'E, 'TFunc, 'T, 'U when 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>> ="
-                            "    val mutable Source : 'E"
-                            "    val F : 'TFunc"
-                            "    new(source: 'E, f: 'TFunc) = { Source = source; F = f }"
-                            "    interface IStructEnumerator<'U> with"
-                            "        member this.MoveNext() : bool = this.Source.MoveNext()"
-                            "        member this.Current : 'U = this.F.Invoke(this.Source.Current)"
-                            "[<Struct>]"
-                            "type MapSeq<'S, 'E, 'TFunc, 'T, 'U when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>> ="
-                            "    val Source : 'S"
-                            "    val F : 'TFunc"
-                            "    new(source: 'S, f: 'TFunc) = { Source = source; F = f }"
-                            "    interface IStructSeq<'U, MapEnumerator<'E, 'TFunc, 'T, 'U>> with"
-                            "        member this.GetEnumerator() : MapEnumerator<'E, 'TFunc, 'T, 'U> = MapEnumerator<'E, 'TFunc, 'T, 'U>(this.Source.GetEnumerator(), this.F)"
-                            "let ofArray (arr: 'T[]) : ArraySeq<'T> = ArraySeq<'T>(arr)"
-                            "let map (f: 'TFunc when 'TFunc :> Fun<'T, 'U>) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : MapSeq<'S, 'E, 'TFunc, 'T, 'U> ="
-                            "    MapSeq<'S, 'E, 'TFunc, 'T, 'U>(source, f)"
-                            "let fold (f: 'TFunc when 'TFunc :> Fun<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
-                            "    let mutable state = seed"
-                            "    for y in source do"
-                            "        state <- f.Invoke(state, y)"
-                            "    state"
-                            "let xs = [| 1; 2; 3; 4 |]"
-                            "let s0 = ofArray xs"
-                            "let s1 = map (fun x -> x + 1) s0"
-                            "let s2 = map (fun x -> x * 2) s1"
-                            "let total = fold (fun acc x -> acc + x) 0 s2"
-                            "printfn \"%d\" total"
-                        ]
-
-                let tast, artifact = compileSource "StructSeqRung4M6PdMultiMap" src
+                let tast, artifact = compileSourceData "StructSeqRung4M6PdMultiMap"
                 let bytes = Codegen.toBytes artifact
                 Expect.isEmpty tast.Diagnostics (sprintf "M6 P-d multi-map diagnostics: %A" tast.Diagnostics)
                 let exitCode, output = runEntryPoint bytes
@@ -2178,64 +1264,7 @@ let structSeqTests =
             // (`EntryPointNotFoundException` class). Only NODE identity disambiguates.
             // Expected output: for [1;2;3;4], each e -> ((e+1)*2)+3 = 7,9,11,13; sum = 40.
             test "three-map chain keeps each same-typed closure in its OWN slot" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "type IStructEnumerator<'T> ="
-                            "    abstract member MoveNext : unit -> bool"
-                            "    abstract member Current : 'T"
-                            "type IStructSeq<'T, 'E when 'E :> IStructEnumerator<'T>> ="
-                            "    abstract member GetEnumerator : unit -> 'E"
-                            "[<Struct>]"
-                            "type ArrayEnumerator<'T> ="
-                            "    val Arr : 'T[]"
-                            "    val mutable Idx : int"
-                            "    new(arr: 'T[]) = { Arr = arr; Idx = -1 }"
-                            "    interface IStructEnumerator<'T> with"
-                            "        member this.MoveNext() : bool ="
-                            "            this.Idx <- this.Idx + 1"
-                            "            this.Idx < this.Arr.Length"
-                            "        member this.Current : 'T = this.Arr.[this.Idx]"
-                            "[<Struct>]"
-                            "type ArraySeq<'T> ="
-                            "    val Arr : 'T[]"
-                            "    new(arr: 'T[]) = { Arr = arr }"
-                            "    interface IStructSeq<'T, ArrayEnumerator<'T>> with"
-                            "        member this.GetEnumerator() : ArrayEnumerator<'T> = ArrayEnumerator<'T>(this.Arr)"
-                            "[<Struct>]"
-                            "type MapEnumerator<'E, 'TFunc, 'T, 'U when 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>> ="
-                            "    val mutable Source : 'E"
-                            "    val F : 'TFunc"
-                            "    new(source: 'E, f: 'TFunc) = { Source = source; F = f }"
-                            "    interface IStructEnumerator<'U> with"
-                            "        member this.MoveNext() : bool = this.Source.MoveNext()"
-                            "        member this.Current : 'U = this.F.Invoke(this.Source.Current)"
-                            "[<Struct>]"
-                            "type MapSeq<'S, 'E, 'TFunc, 'T, 'U when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T> and 'TFunc :> Fun<'T, 'U>> ="
-                            "    val Source : 'S"
-                            "    val F : 'TFunc"
-                            "    new(source: 'S, f: 'TFunc) = { Source = source; F = f }"
-                            "    interface IStructSeq<'U, MapEnumerator<'E, 'TFunc, 'T, 'U>> with"
-                            "        member this.GetEnumerator() : MapEnumerator<'E, 'TFunc, 'T, 'U> = MapEnumerator<'E, 'TFunc, 'T, 'U>(this.Source.GetEnumerator(), this.F)"
-                            "let ofArray (arr: 'T[]) : ArraySeq<'T> = ArraySeq<'T>(arr)"
-                            "let map (f: 'TFunc when 'TFunc :> Fun<'T, 'U>) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : MapSeq<'S, 'E, 'TFunc, 'T, 'U> ="
-                            "    MapSeq<'S, 'E, 'TFunc, 'T, 'U>(source, f)"
-                            "let fold (f: 'TFunc when 'TFunc :> Fun<'State, 'T, 'State>) (seed: 'State) (source: 'S when 'S :> IStructSeq<'T, 'E> and 'E :> IStructEnumerator<'T>) : 'State ="
-                            "    let mutable state = seed"
-                            "    for y in source do"
-                            "        state <- f.Invoke(state, y)"
-                            "    state"
-                            "let xs = [| 1; 2; 3; 4 |]"
-                            "let s0 = ofArray xs"
-                            "let s1 = map (fun x -> x + 1) s0"
-                            "let s2 = map (fun x -> x * 2) s1"
-                            "let s3 = map (fun x -> x + 3) s2"
-                            "let total = fold (fun acc x -> acc + x) 0 s3"
-                            "printfn \"%d\" total"
-                        ]
-
-                let tast, artifact = compileSource "StructSeqRung4M6PdThreeMap" src
+                let tast, artifact = compileSourceData "StructSeqRung4M6PdThreeMap"
                 let bytes = Codegen.toBytes artifact
                 Expect.isEmpty tast.Diagnostics (sprintf "M6 P-d three-map diagnostics: %A" tast.Diagnostics)
                 let exitCode, output = runEntryPoint bytes
@@ -2286,16 +1315,7 @@ let structSeqTests =
             // external call type-checks AND the value-struct closures ride by value — the
             // same payoff the inline test proves, now across the package boundary.
             test "ofArray |> map |> fold from source lambdas against the external Vesper.Seq package (no box)" {
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "open Vesper.Collections"
-                            "let xs = [| 1; 2; 3; 4 |]"
-                            "let total = StructSeq.fold (fun a x -> a + x) 0 (StructSeq.map (fun x -> x + 1) (StructSeq.ofArray xs))"
-                            "printfn \"%d\" total"
-                        ]
-
+                let src = dataSource "external-vesper-seq-pipeline"
                 let (exitCode, output), bytes = runPackagesInspect [ "Vesper.Seq" ] src
                 Expect.equal exitCode 0 "Main returns 0"
                 Expect.equal (output.Replace("\r", "").Trim()) "14" "(x+1) over [1;2;3;4] summed = 14"
