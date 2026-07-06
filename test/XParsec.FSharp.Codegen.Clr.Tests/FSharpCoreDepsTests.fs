@@ -74,6 +74,18 @@ let tests =
                 Expect.isEmpty deps (sprintf "%% A is pure Vesper — no FSharp.Core dependency (%A)" deps)
             }
 
+            // `%+08.2f` (forced sign + zero-pad float) used to be THE cold pin; it now
+            // lowers natively — the forced sign rides a half-to-even `"F2"` body then
+            // zero-pads after the sign (`AppendForcedSignZeroPaddedFloat`), so it pins no
+            // FSharp.Core construct.
+            test "`printfn \"%+08.2f\"` lowers natively — no FSharp.Core (former cold pin)" {
+                let _, artifact = compileSource "DepsPlusZeroF" "printfn \"%+08.2f\" 1234.5"
+
+                Expect.isEmpty
+                    artifact.FSharpCoreDependencies
+                    (sprintf "native %%+08.2f pins no FSharp.Core (%A)" artifact.FSharpCoreDependencies)
+            }
+
             test "`printfn \"%*d\"` (star width) lowers natively — no FSharp.Core" {
                 // Star *width* now lowers to the `Vesper.Formatter` handler (the guarded
                 // runtime width feeds the signed-alignment members), so the whole program

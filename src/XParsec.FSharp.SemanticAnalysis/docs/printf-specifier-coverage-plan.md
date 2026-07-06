@@ -19,8 +19,7 @@ native `TExpr.Format` a syntactic literal does).
 either lowers natively or is a gate `Severity.Error`, so no *valid* program routes printf cold. Next:
 capstone (§2 — delete the recipes; the only remaining reachable-via-degraded-codegen residuals are
 diagnosed errors, plus the printf-independent list/option representation pin). E2 (dynamic format, §3)
-is deferrable and NOT on the critical path. `%+08.2f` lowers natively once §4's forced-sign-float
-rounding fix lands (diagnosed until then).
+is deferrable and NOT on the critical path.
 
 ## Where FSharp.Core is pinned (the capstone target)
 
@@ -47,12 +46,13 @@ gate (a *diagnosed* form pins nothing — `tryInferPrintfApp` names the offendin
   `AppendZeroPadded*` members take a compile-time `Const` width), and `%0*A` is an F# format-parsing
   quirk (the `0` flag forces flat *and* discards the runtime column budget — not behaviour worth
   reproducing).
-- **Re-errored — `%+08.2f` / `% 08.2f`.** Deferred, not declined-forever: the only *section-format*
-  lowering rounds half-away-from-zero, but the engine rounds half-to-even everywhere else (the
-  correct semantics). Lowering these natively is folded into the **forced-sign-float rounding fix**
-  (§4) — route ALL forced-sign floats (`%+.Nf`, `% .Nf`, and the zero-pad forms) through the
-  half-to-even `"F<prec>"`+compose-sign path (as `AppendDynamicPrecisionSignedFloat` already does for
-  `%+.*f`), replacing the half-away section formats in `ClrHoleFormat`.
+- **Lowered natively — `%+08.2f` / `% 08.2f`.** Together with the forced-sign-float rounding fix
+  (below): the fixed forced-sign floats now format a half-to-even `"F<prec>"` body then compose the
+  sign, so `%+.Nf` / `% .Nf` no longer round half-away (they route through
+  `AppendDynamicPrecisionSignedFloat`, not the section format), and the zero-pad forms
+  `%+08.2f` / `% 08.2f` lower through the new `AppendForcedSignZeroPaddedFloat`
+  (format → force sign → `ZeroPadAfterSign`). Only integer `'d'` forced-sign forms still ride a .NET
+  section format (integers carry no rounding).
 
 (`%*%` / `%5%` are *rejected* — an accepted deviation; F# consumes the width and prints a bare `%`.
 Not residuals.)
@@ -95,17 +95,13 @@ genuinely-dynamic case.
 
 ### 4. Optional cleanups & future increments (not blockers)
 
-- **Forced-sign-float rounding fix (unblocks native `%+08.2f`).** `ClrHoleFormat.toDotNetFormat`
-  lowers the fixed forced-sign floats (`%+.Nf` / `% .Nf`) to a .NET *section format*
-  (`"+0.00;-0.00"`), which rounds half-*away*-from-zero — divergent from the half-to-even the engine
-  uses everywhere else (plain `%.Nf` → `"F<prec>"`, the runtime-precision `%+.*f` →
-  `AppendDynamicPrecisionSignedFloat`, which formats `"F<prec>"` then composes the sign). Route the
-  *static* forced-sign fixed floats through that same format-then-compose-sign path (a const
-  precision), delete the section-format arm, and add a forced-sign zero-pad variant
-  (`"F<prec>"` → force sign → `ZeroPadAfterSign`) — which lets `%+08.2f` / `% 08.2f` lower natively
-  and correctly (they are diagnosed residuals until then). Touches `formatter.fs`, `ClrHoleFormat`,
-  `EmitFormat`, `EmitJs`, and the `%+.Nf` shape/parity tests (whose `"+0.00;-0.00"` assertions
-  change).
+- **Forced-sign-float rounding fix — LANDED.** The fixed forced-sign floats no longer ride a
+  half-away .NET *section format*: the static `%+.Nf` / `% .Nf` route through
+  `AppendDynamicPrecisionSignedFloat` (a const precision) and `%+08.2f` / `% 08.2f` through the new
+  `AppendForcedSignZeroPaddedFloat` — both format a half-to-even `"F<prec>"` body then compose the
+  sign (`ZeroPadAfterSign` broadened to treat a leading `+`/` ` as a sign). `ClrHoleFormat`'s
+  `ForcedSign` arm is now integer-`'d'`-only (asserts on a float letter). JS was already
+  section-free (composes the sign off `toFixed`), so only its coverage grew.
 
 - **Track D refactor — dissolve the capture-first emit special case (designed; chosen 1b).** Track
   D's CLR/JS emit (`EmitFormat.callbackHole` / `EmitJs.buildCallbackHole`) hand-wires the scratch sink

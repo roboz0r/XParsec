@@ -1274,24 +1274,42 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            test "`%+.2f` (forced sign float) builds the section format from the precision" {
+            // `%+.Nf` / `% .Nf` no longer project to a .NET *section* format (which rounds
+            // half-away): the CLR emit routes the fixed forced-sign float through the signed
+            // dynamic handler, which formats a half-to-even `"F<prec>"` body then composes
+            // the sign. So the classified form is asserted here; the half-to-even behaviour
+            // is proven by the run-parity tests below.
+            test "`%+.2f` (forced sign float) classifies as a ForcedSign fixed-float, no zero-pad" {
                 match soleDecl "printfn \"%+.2f\" 3.14159" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match EqArray.toList segs with
                     | [ FormatSeg.Hole(hole, _) ] ->
-                        Expect.equal (formatOf hole) (Some "+0.00;-0.00") "%+.2f → \"+0.00;-0.00\""
+                        match hole.Source with
+                        | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.ForcedSign(false,
+                                                                                                                        PrintfHoleForm.Prec.Const 2,
+                                                                                                                        'f',
+                                                                                                                        Option.None),
+                                                                                  PrintfHoleForm.Alignment.None)) -> ()
+                        | other -> failtestf "expected ForcedSign(+, .2, 'f', no zero-pad), got: %A" other
+
                         Expect.equal hole.Ty (TyConst("float", EqArray.empty)) "%f types as float"
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
-            test "`%+8.2f` rides a width as the handler alignment" {
+            test "`%+8.2f` carries its width as a Const alignment on the ForcedSign field" {
                 match soleDecl "printfn \"%+8.2f\" 3.14159" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match EqArray.toList segs with
                     | [ FormatSeg.Hole(hole, _) ] ->
-                        Expect.equal (formatOf hole) (Some "+0.00;-0.00") "section format from precision"
-                        Expect.equal (alignmentOf hole) (Some 8) "width 8 → alignment 8"
+                        match hole.Source with
+                        | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.ForcedSign(false,
+                                                                                                                        PrintfHoleForm.Prec.Const 2,
+                                                                                                                        'f',
+                                                                                                                        Option.None),
+                                                                                  PrintfHoleForm.Alignment.Const 8)) ->
+                            ()
+                        | other -> failtestf "expected a ForcedSign field with Const 8 alignment, got: %A" other
                     | other -> failtestf "unexpected segments: %A" other
                 | other -> failtestf "expected a Format node, got: %A" other
             }
@@ -1318,12 +1336,39 @@ let tests =
                 runParity "PHpPlusF" "printfn \"%+.2f\" 3.14159" (sprintf "%+.2f" 3.14159)
             }
 
+            // Rounds half-to-even, NOT half-away: `0.125` (an exact float) → `+0.12`. The
+            // old .NET *section*-format lowering (`"+0.00;-0.00"`) rounded this to `+0.13`;
+            // the signed dynamic handler's `"F2"` body matches F#'s half-to-even.
+            test "`%+.2f` rounds a float midpoint half-to-even (0.125 → +0.12)" {
+                runParity "PHpPlusFEven" "printfn \"%+.2f\" 0.125" (sprintf "%+.2f" 0.125)
+            }
+
             // A negative *float* can't be produced in the codegen subset (no float
-            // arithmetic / unary negation), so the float `-` section is covered only
-            // by the shape test's `"+0.00;-0.00"` assertion, not a run.
+            // arithmetic / unary negation), so the float `-` path is covered by the
+            // formatter's shared sign-detection, not a run here.
 
             test "`%+8.2f` composes the forced sign with width-as-alignment" {
                 runParity "PHpPlusFAlign" "printfn \"%+8.2f\" 3.14159" (sprintf "%+8.2f" 3.14159)
+            }
+
+            // `%+08.2f` / `% 08.2f` — forced sign, then zero-pad AFTER the sign to a total
+            // field of 8. Formats a half-to-even `"F2"` body, so the midpoint case proves
+            // the rounding as `%+.2f` does. Negatives are out of the codegen subset (as for
+            // `%08.2f` / `%+8.2f`).
+            test "`%+08.2f` zero-pads a positive float through the forced sign" {
+                runParity "PHpPlusZeroF" "printfn \"%+08.2f\" 3.14159" (sprintf "%+08.2f" 3.14159)
+            }
+
+            test "`%+08.2f` of a wider value overflows the field without truncation" {
+                runParity "PHpPlusZeroFOvf" "printfn \"%+08.2f\" 12345.5" (sprintf "%+08.2f" 12345.5)
+            }
+
+            test "`%+08.2f` rounds a float midpoint half-to-even (0.125 → +0000.12)" {
+                runParity "PHpPlusZeroFEven" "printfn \"%+08.2f\" 0.125" (sprintf "%+08.2f" 0.125)
+            }
+
+            test "`% 08.2f` space-signs and zero-pads a positive float" {
+                runParity "PHpSpaceZeroF" "printfn \"% 08.2f\" 3.14159" (sprintf "% 08.2f" 3.14159)
             }
 
             test "`%08.2f` lowers to a ZeroPaddedFloat hole (format body + width)" {

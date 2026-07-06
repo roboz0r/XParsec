@@ -204,6 +204,24 @@ let tests =
                     [ "[+0042]"; "[-0042]"; "[ 0042]"; "[+123456]" ]
             }
 
+            // Sign + zero-pad float (`%+08.2f`/`% 08.2f`): forced sign, then zeros fill
+            // AFTER the sign to a total field of 8 (`padStart` on the post-sign slice) —
+            // byte-exact with F#. Non-midpoint values, since JS `toFixed` is not
+            // byte-identical to F#/.NET at exact float midpoints.
+            test "sign + zero-pad float (`%+08.2f`/`% 08.2f`) match F#" {
+                runsLines
+                    "signzerof"
+                    (String.concat
+                        "\n"
+                        [
+                            "printfn \"[%+08.2f]\" 3.14159"
+                            "printfn \"[%+08.2f]\" (-3.14159)"
+                            "printfn \"[% 08.2f]\" 3.14159"
+                            "printfn \"[%+08.2f]\" 12345.5"
+                        ])
+                    [ "[+0003.14]"; "[-0003.14]"; "[ 0003.14]"; "[+12345.50]" ]
+            }
+
             // Left-align + zero-pad float (`%-05.2f`): F# fills the RIGHT with zeros;
             // `padEnd` reproduces it byte-for-byte (overflow prints unpadded).
             test "left-align + zero-pad float (`%-05.2f`) matches F#" {

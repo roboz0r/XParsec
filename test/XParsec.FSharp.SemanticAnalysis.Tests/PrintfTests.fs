@@ -433,13 +433,12 @@ let tests =
             }
 
             // ---- Cold residuals: re-errored at the gate (no FSharp.Core fallback) ----
-            // A handful of specifiers have no faithful native lowering: the runtime-width
-            // zero-pad forms (`%0*d`, `%0*.Nf`), the `0`-flag-on-`%*A` parsing quirk
-            // (`%0*A` renders flat AND discards the width), and the forced-sign zero-pad
-            // floats (`%+08.2f` / `% 08.2f`, whose only section-format lowering rounds
-            // half-away rather than the engine's half-to-even). With the FSharp.Core cold
-            // printf being removed there is no fallback, so the gate turns each into an
-            // error naming the offending specifier rather than routing it silently.
+            // These specifiers have no faithful native lowering: the runtime-width zero-pad
+            // forms (`%0*d`, `%0*.Nf`) have no handler taking a runtime width, and `%0*A` is
+            // the `0`-flag-on-`%*A` parsing quirk (renders flat AND discards the width).
+            // With the FSharp.Core cold printf being removed there is no fallback, so the
+            // gate turns each into an error naming the offending specifier rather than
+            // routing it silently.
 
             test "`%0*d` (runtime-width zero-pad) is a diagnosed residual" {
                 rejectsResidual "%0*d" "let r = printfn \"%0*d\" 5 42"
@@ -453,18 +452,48 @@ let tests =
                 rejectsResidual "%0*A" "let r = printfn \"%0*A\" 20 42"
             }
 
-            test "`%+08.2f` (forced-sign zero-pad float) is a diagnosed residual" {
-                rejectsResidual "%+08.2f" "let r = printfn \"%+08.2f\" 1234.5"
-            }
-
-            test "`% 08.2f` (space-sign zero-pad float) is a diagnosed residual" {
-                rejectsResidual "% 08.2f" "let r = printfn \"% 08.2f\" 1234.5"
-            }
-
             // A residual mixed with lowerable holes still rejects the whole call — the
             // gate names the FIRST offending specifier.
             test "a residual among lowerable holes still re-errors" {
                 rejectsResidual "%0*d" "let r = printfn \"ok %d then %0*d\" 1 5 42"
+            }
+
+            // ---- `%+08.2f` / `% 08.2f`: forced-sign zero-pad float lowers natively ----
+            // The sign is forced onto a half-to-even `"F<prec>"` body then zero-padded
+            // after it (`FieldFormat.ForcedSign` carrying a `zeroPad` width), so it lowers
+            // rather than routing cold. Byte parity (incl. midpoint rounding) is exercised
+            // by the Codegen PrintfHappyPath run-tests.
+
+            test "`%+08.2f` lowers to a ForcedSign fixed-float carrying its zero-pad width" {
+                let tast = analyse "let r = printfn \"%+08.2f\" 1234.5"
+                Expect.isEmpty tast.Diagnostics "no diagnostics — %+08.2f lowers natively"
+
+                match Lexing.parseFormatSpecifier "%+08.2f" with
+                | ValueSome ph ->
+                    match PrintfHoleForm.tryClassify ph with
+                    | ValueSome(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.ForcedSign(false,
+                                                                                                    PrintfHoleForm.Prec.Const 2,
+                                                                                                    'f',
+                                                                                                    Some 8),
+                                                              PrintfHoleForm.Alignment.None)) -> ()
+                    | other -> failtestf "expected ForcedSign(+, .2, 'f', zeroPad 8), got: %A" other
+                | ValueNone -> failtest "expected a placeholder"
+            }
+
+            test "`% 08.2f` lowers to a space-sign ForcedSign fixed-float" {
+                let tast = analyse "let r = printfn \"% 08.2f\" 1234.5"
+                Expect.isEmpty tast.Diagnostics "no diagnostics — % 08.2f lowers natively"
+
+                match Lexing.parseFormatSpecifier "% 08.2f" with
+                | ValueSome ph ->
+                    match PrintfHoleForm.tryClassify ph with
+                    | ValueSome(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.ForcedSign(true,
+                                                                                                    PrintfHoleForm.Prec.Const 2,
+                                                                                                    'f',
+                                                                                                    Some 8),
+                                                              PrintfHoleForm.Alignment.None)) -> ()
+                    | other -> failtestf "expected ForcedSign(space, .2, 'f', zeroPad 8), got: %A" other
+                | ValueNone -> failtest "expected a placeholder"
             }
 
             // ---- `%-*A` / `%+*A`: the `-`/`+` flags are no-ops on `%A` ----

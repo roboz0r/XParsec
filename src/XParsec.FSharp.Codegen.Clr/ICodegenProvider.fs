@@ -222,6 +222,11 @@ type FormatHandles =
         /// `%-0w.pf`: zero-pad on the RIGHT (left-align + zero-pad float) — no .NET
         /// float format nor field alignment fills the right with zeros.
         AppendRightZeroPaddedFloat: EntityHandle
+        /// `%+0w.pf`/`% 0w.pf`: forced sign, then zero-pad after it to a total field.
+        /// Signature `(value: float, format: string, width: int, space: bool)` — the
+        /// `"F<prec>"` body rounds half-to-even, and the sign is composed in-handler
+        /// (a section format could do neither faithfully).
+        AppendForcedSignZeroPaddedFloat: EntityHandle
         /// `%.*f`/`%*.*f`/`%.*e`/`%.*g`: runtime precision. Signature
         /// `(value: float, typeChar: char, precision: int, alignment: int)` — builds
         /// the .NET format string in-handler from `typeChar` + `precision`.

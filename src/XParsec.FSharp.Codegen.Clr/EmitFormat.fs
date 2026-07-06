@@ -74,17 +74,31 @@ module EmitFormat =
             | FieldFormat.ForcedSign(space, Prec.Star, typeChar, _) -> Some(typeChar, Some space)
             | _ -> None
 
-        // A forced-sign scientific / compact float at a *static* precision
-        // (`%+e`/`% e`/`%+g`/`%+G`): `(typeChar, space, precision)`. Scientific / compact
-        // notation can't ride a .NET section format, so it routes to the signed dynamic
-        // handler with a constant precision (unlike the fixed `'d'`/`'f'` forms, which
-        // project to a section format via `toDotNetFormat`).
-        let constSignedExpCompact (fmt: FieldFormat) : (char * bool * int) option =
+        // A forced-sign FLOAT at a *static* precision, no zero-pad (`%+.Nf`/`% .Nf`/`%+e`/
+        // `% e`/`%+g`/`%+G`, and their width-as-alignment forms): `(typeChar, space,
+        // precision)`. Every float letter routes to the signed dynamic handler with a
+        // constant precision — it formats via a standard `"F<prec>"`/`"e<prec>"` body
+        // (round-half-to-even) then composes the sign, unlike the half-away .NET *section*
+        // format the fixed `'f'` form used to ride. Only the integer `'d'` stays on the
+        // section format (`toDotNetFormat`); integers carry no rounding.
+        let constSignedFloat (fmt: FieldFormat) : (char * bool * int) option =
             match fmt with
             | FieldFormat.ForcedSign(space, Prec.Const n, typeChar, Option.None) when
-                typeChar = 'e' || typeChar = 'E' || typeChar = 'g' || typeChar = 'G'
+                typeChar = 'f'
+                || typeChar = 'e'
+                || typeChar = 'E'
+                || typeChar = 'g'
+                || typeChar = 'G'
                 ->
                 Some(typeChar, space, n)
+            | _ -> None
+
+        // A forced-sign fixed float that *also* zero-pads (`%+08.2f`/`% 08.2f`):
+        // `(space, "F<prec>" body, width)`. Formats the `"F<prec>"` body (half-to-even),
+        // forces the sign, then zero-pads after it to `width` — `AppendForcedSignZeroPaddedFloat`.
+        let constSignedZeroPadFloat (fmt: FieldFormat) : (bool * string * int) option =
+            match fmt with
+            | FieldFormat.ForcedSign(space, Prec.Const n, 'f', Option.Some w) -> Some(space, "F" + string n, w)
             | _ -> None
 
         // Emit one hole's handler call. `starWidthLocal`/`starPrecLocal = Some slot` for
@@ -166,6 +180,18 @@ module EmitFormat =
                 | Option.Some space ->
                     b.Add(ILInstr.LdcI4(if space then 1 else 0))
                     b.Add(ILInstr.Call(fh.AppendDynamicPrecisionSignedFloat, 6, 0))
+
+            // `%+08.2f`/`% 08.2f`: `AppendForcedSignZeroPaddedFloat(value, "F<prec>" body,
+            // width, space)` — formats the body (half-to-even), forces the sign, then
+            // zero-pads after it. The width rides inside the `FieldFormat` (there is no
+            // separate alignment slot for a zero-pad form).
+            let forcedSignZeroPadFloat (space: bool) (body: string) (width: int) =
+                b.Add(ILInstr.Ldloca slot)
+                buildExpr env b arg
+                b.Add(ILInstr.Ldstr(env.Ctx.UserString body))
+                b.Add(ILInstr.LdcI4 width)
+                b.Add(ILInstr.LdcI4(if space then 1 else 0))
+                b.Add(ILInstr.Call(fh.AppendForcedSignZeroPaddedFloat, 5, 0))
 
             // A non-`%A` hole, emitted from its projected
             // `(HoleKind, .NET-format, Alignment)` triple.
@@ -282,12 +308,15 @@ module EmitFormat =
                 | Some _, None ->
                     failwith "Emit: runtime-precision float field without a spilled precision local (invariant broken)"
                 | Option.None, _ ->
-                    match constSignedExpCompact fmt with
-                    | Some(typeChar, space, prec) ->
-                        dynamicFloat typeChar (Some space) alignment (fun () -> b.Add(ILInstr.LdcI4 prec))
+                    match constSignedZeroPadFloat fmt with
+                    | Some(space, body, width) -> forcedSignZeroPadFloat space body width
                     | Option.None ->
-                        let kind, format, align = ClrHoleFormat.toDotNetFormat fmt alignment
-                        field kind format align
+                        match constSignedFloat fmt with
+                        | Some(typeChar, space, prec) ->
+                            dynamicFloat typeChar (Some space) alignment (fun () -> b.Add(ILInstr.LdcI4 prec))
+                        | Option.None ->
+                            let kind, format, align = ClrHoleFormat.toDotNetFormat fmt alignment
+                            field kind format align
 
         for seg in segments do
             match seg with

@@ -173,12 +173,15 @@ type Formatter =
 
         if paddingNeeded > 0 then
             // The sign (if any) stays at the field's left edge; the zeros fill
-            // the gap between it and the digits.
-            let signOffset =
-                if charsWritten > 0 && this.Chars.[startingPos] = '-' then
-                    1
-                else
-                    0
+            // the gap between it and the digits. A `-` from the formatted magnitude,
+            // or a forced `+` / space sign composed by `AppendForcedSignZeroPaddedFloat`
+            // (the unsigned / octal callers never produce a leading `+`/space).
+            // NB: written as `||` equality rather than a char OR-pattern
+            // (`| '-' | '+' | ' ' -> …`) because the self-host compiler mis-lowers that
+            // OR-pattern (it fell through to the `_` arm) — keep this boolean form.
+            let lead = if charsWritten > 0 then this.Chars.[startingPos] else '0'
+
+            let signOffset = if lead = '-' || lead = '+' || lead = ' ' then 1 else 0
 
             let insertAt = startingPos + signOffset
 
@@ -198,6 +201,34 @@ type Formatter =
     member this.AppendZeroPaddedFloat(value: float, format: string, width: int) =
         let startingPos = this.Pos
         this.AppendFormatted(value, format) // the "F<prec>" body, no padding
+        this.ZeroPadAfterSign(startingPos, width)
+
+    /// Writes `value` for an F# `%+0w.pf` / `% 0w.pf` hole: formatted via `format`
+    /// (an `"F<precision>"` string — a *standard* format, so round-half-to-even), a
+    /// forced sign composed on a non-negative number (`+`, or a space when `space`;
+    /// NaN/±∞ get none, mirroring `AppendDynamicPrecisionSignedFloat`), then zero-padded
+    /// AFTER that sign to a total field of `width` chars. Dedicated because no .NET
+    /// float format both forces a sign and zero-pads to a total width — and because the
+    /// custom *section* format that could (`"+0.00;-0.00"`) rounds half-away rather than
+    /// the half-to-even the `"F<prec>"` body gives.
+    member this.AppendForcedSignZeroPaddedFloat(value: float, format: string, width: int, space: bool) =
+        let startingPos = this.Pos
+
+        let str =
+            match box value with
+            | :? IFormattable as f -> f.ToString(format, provider)
+            | _ -> value.ToString()
+
+        let isNumber = not (Double.IsNaN value) && not (Double.IsInfinity value)
+        let isNegative = str.Length > 0 && str.[0] = '-'
+
+        let prefixed =
+            if isNumber && not isNegative then
+                (if space then " " else "+") + str
+            else
+                str
+
+        this.AppendLiteral(prefixed)
         this.ZeroPadAfterSign(startingPos, width)
 
     /// Writes `value` for an F# `%-0w.pf` hole: formatted via `format` (an

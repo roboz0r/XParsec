@@ -471,8 +471,8 @@ let tests =
                 // recipes nor a `Vesper.Printf` reference (unlike a native `%A`, which
                 // would demand `Vesper.Formatter`). This is the dependency-identity vehicle
                 // now that every printf form either lowers natively or is diagnosed (the
-                // forced-sign zero-pad float `%+08.2f` this test used to ride is now a
-                // diagnosed residual, not a cold pin).
+                // forced-sign zero-pad float `%+08.2f` this test used to ride now lowers
+                // natively, so it no longer pins FSharp.Core at all).
                 let src = "let xs = [1; 2; 3]"
                 let lexed, file = parseFile src
                 // Resolve `int` (Vesper.Core) and `printfn` (Vesper.Printf) from the real

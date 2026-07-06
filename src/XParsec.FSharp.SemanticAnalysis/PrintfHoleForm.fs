@@ -117,16 +117,20 @@ module PrintfHoleForm =
         /// body — .NET zero-pads no float to a total width. CLR is byte-exact; JS
         /// inherits the `toExponential`/`toPrecision` approximation.
         | ExpCompactZeroPad of precision: int * width: int * typeChar: char
-        /// `%+d`/`% d`/`%+05d`/`%+.Nf`/`% .Nf`/`%+.*f`/`%+e`/`%+g`: forced-sign. `space`
-        /// ⇒ a leading space on a non-negative value (else a `+`); a negative keeps its
-        /// `-`. `precision` is the fraction / significant digits (`Const 0` ⇒ integer
+        /// `%+d`/`% d`/`%+05d`/`%+.Nf`/`% .Nf`/`%+08.2f`/`%+.*f`/`%+e`/`%+g`: forced-sign.
+        /// `space` ⇒ a leading space on a non-negative value (else a `+`); a negative keeps
+        /// its `-`. `precision` is the fraction / significant digits (`Const 0` ⇒ integer
         /// `%+.0f`, `Star` ⇒ runtime `%+.*f`). `typeChar` is the source letter
-        /// (`'d'`/`'f'`/`'e'`/`'E'`/`'g'`/`'G'`): the section-format-expressible fixed
-        /// forms (`'d'`/`'f'`) lower to a .NET section format; the scientific / compact
-        /// forms (`'e'`…`'G'`) and any runtime precision route to the signed dynamic
-        /// handler instead (no section format can express them). `zeroPad = Some w`
-        /// zero-pads *through* the sign to a total field of `w` (`%+05d`; the section
-        /// format's digit count is `w-1`) — only the fixed integer form uses it.
+        /// (`'d'`/`'f'`/`'e'`/`'E'`/`'g'`/`'G'`). CLR lowering (`ClrHoleFormat` / `EmitFormat`):
+        /// only the *integer* `'d'` form rides a .NET section format; every *float* form
+        /// (`'f'`/`'e'`…`'G'`) formats via a standard `"F<prec>"`/`"e<prec>"` body (which
+        /// rounds half-to-even) and composes the sign in-handler — a static float form
+        /// through `AppendDynamicPrecisionSignedFloat`, a `zeroPad` fixed float through
+        /// `AppendForcedSignZeroPaddedFloat`, and any runtime precision through the same
+        /// dynamic member. `zeroPad = Some w` zero-pads *through* the sign to a total field
+        /// of `w`: the integer `%+05d` (section digit count `w-1`) and the fixed-float
+        /// `%+08.2f` (format-then-sign-then-pad) use it; the scientific / compact and
+        /// runtime-precision forms do not.
         | ForcedSign of space: bool * precision: Prec * typeChar: char * zeroPad: int option
 
     /// A `Field` hole's alignment-slot intent. `Const` keeps today's signed
@@ -384,8 +388,14 @@ module PrintfHoleForm =
                     let align = if zeroPad then Alignment.None else alignment
                     ValueSome(HoleForm.Field(FieldFormat.ForcedSign(space, Prec.Const 0, 'd', zp), align))
             | FormatType.FloatDecimal ->
-                // `%+08.2f` (sign + zero-pad float) has no faithful section format — cold.
-                if zeroPad then
+                // `%+.Nf` / `% .Nf`, and `%+08.2f` / `% 08.2f` (sign + zero-pad). Both
+                // lower to a `ForcedSign` fixed-float form: the CLR emit formats the
+                // magnitude via the standard `"F<prec>"` body (round-half-to-even) then
+                // composes the sign (and, when `zeroPad`, zero-pads after it to `width`).
+                // A star precision (`%+.*f` / `%+08.*f`) rides no static body: the
+                // non-zero-pad form defers to the runtime signed handler, but a star
+                // precision UNDER zero-pad has no handler, so decline it.
+                if zeroPad && precIsStar then
                     ValueNone
                 else
                     let prec =
@@ -394,7 +404,9 @@ module PrintfHoleForm =
                         | FormatDim.Literal pr -> Prec.Const(let n = int pr in if n <= 0 then 0 else n)
                         | FormatDim.Absent -> Prec.Const 6
 
-                    ValueSome(HoleForm.Field(FieldFormat.ForcedSign(space, prec, 'f', None), alignment))
+                    let zp = if zeroPad then Some width.Value else None
+                    let align = if zeroPad then Alignment.None else alignment
+                    ValueSome(HoleForm.Field(FieldFormat.ForcedSign(space, prec, 'f', zp), align))
             | FormatType.FloatExponential ->
                 // `%+e`/`% e`/`%+E`: scientific notation can't ride a .NET section
                 // format, so a *literal* precision routes to the signed dynamic handler.
