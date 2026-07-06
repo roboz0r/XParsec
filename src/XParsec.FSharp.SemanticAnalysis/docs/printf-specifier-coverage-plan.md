@@ -15,8 +15,12 @@ provider-capability gate); star-width `%*d` / `%.*f` / `%*A`; and E1 (a format l
 name or ascribed — `let fmt : Vesper.Format<…> = "%d"`, `(… : PrintfFormat<…>)` — lowers to the same
 native `TExpr.Format` a syntactic literal does).
 
-**Remaining to remove `FSharp.Core.dll`:** lower-or-re-error the cold residuals (§1) → capstone (§2).
-E2 (dynamic format, §3) is deferrable and NOT on the critical path.
+**Remaining to remove `FSharp.Core.dll`:** the cold residuals (§1) are now closed — every printf form
+either lowers natively or is a gate `Severity.Error`, so no *valid* program routes printf cold. Next:
+capstone (§2 — delete the recipes; the only remaining reachable-via-degraded-codegen residuals are
+diagnosed errors, plus the printf-independent list/option representation pin). E2 (dynamic format, §3)
+is deferrable and NOT on the critical path. `%+08.2f` lowers natively once §4's forced-sign-float
+rounding fix lands (diagnosed until then).
 
 ## Where FSharp.Core is pinned (the capstone target)
 
@@ -30,15 +34,25 @@ form that didn't lower natively. Close every such form ⇒ nothing reaches the r
 
 ## Outstanding work
 
-### 1. Cold residuals — lower or re-error (capstone precondition)
+### 1. Cold residuals — lower or re-error (capstone precondition) — LANDED
 
-These still route cold, pinned in `FSharpCoreDepsTests` / `SelfHostTests`. The capstone must lower
-each natively OR turn it into a `Severity.Error` at the gate (a *diagnosed* form pins nothing):
+Resolved: every former cold residual now either lowers natively or is a `Severity.Error` at the
+gate (a *diagnosed* form pins nothing — `tryInferPrintfApp` names the offending specifier via
+`PrintfHoleForm.renderPlaceholder`). Split:
 
-- **Star + flag combos:** `%0*d`, `%0*.Nf` (zero-pad star), and `%-*A` / `%+*A` / `%0*A` (flagged
-  star-`%A`).
-- **`%+08.2f`** — sign + zero-pad float; it has no faithful section format, so no native lowering
-  today.
+- **Lowered natively — `%-*A` / `%+*A`.** The `-`/`+` flags are pure no-ops for `%A` (verified byte-
+  identical to `%*A`), so they take the same `PrintWidth.Star` structural hole. `tryClassify`'s
+  Structured star-width arm now declines only `%0*A`.
+- **Re-errored — `%0*d`, `%0*.Nf`, `%0*A`.** Runtime-width zero-pad has no native handler (the
+  `AppendZeroPadded*` members take a compile-time `Const` width), and `%0*A` is an F# format-parsing
+  quirk (the `0` flag forces flat *and* discards the runtime column budget — not behaviour worth
+  reproducing).
+- **Re-errored — `%+08.2f` / `% 08.2f`.** Deferred, not declined-forever: the only *section-format*
+  lowering rounds half-away-from-zero, but the engine rounds half-to-even everywhere else (the
+  correct semantics). Lowering these natively is folded into the **forced-sign-float rounding fix**
+  (§4) — route ALL forced-sign floats (`%+.Nf`, `% .Nf`, and the zero-pad forms) through the
+  half-to-even `"F<prec>"`+compose-sign path (as `AppendDynamicPrecisionSignedFloat` already does for
+  `%+.*f`), replacing the half-away section formats in `ClrHoleFormat`.
 
 (`%*%` / `%5%` are *rejected* — an accepted deviation; F# consumes the width and prints a bare `%`.
 Not residuals.)
@@ -80,6 +94,18 @@ today's literal path? If not, E1's const-prop generalises and the interpreter is
 genuinely-dynamic case.
 
 ### 4. Optional cleanups & future increments (not blockers)
+
+- **Forced-sign-float rounding fix (unblocks native `%+08.2f`).** `ClrHoleFormat.toDotNetFormat`
+  lowers the fixed forced-sign floats (`%+.Nf` / `% .Nf`) to a .NET *section format*
+  (`"+0.00;-0.00"`), which rounds half-*away*-from-zero — divergent from the half-to-even the engine
+  uses everywhere else (plain `%.Nf` → `"F<prec>"`, the runtime-precision `%+.*f` →
+  `AppendDynamicPrecisionSignedFloat`, which formats `"F<prec>"` then composes the sign). Route the
+  *static* forced-sign fixed floats through that same format-then-compose-sign path (a const
+  precision), delete the section-format arm, and add a forced-sign zero-pad variant
+  (`"F<prec>"` → force sign → `ZeroPadAfterSign`) — which lets `%+08.2f` / `% 08.2f` lower natively
+  and correctly (they are diagnosed residuals until then). Touches `formatter.fs`, `ClrHoleFormat`,
+  `EmitFormat`, `EmitJs`, and the `%+.Nf` shape/parity tests (whose `"+0.00;-0.00"` assertions
+  change).
 
 - **Track D refactor — dissolve the capture-first emit special case (designed; chosen 1b).** Track
   D's CLR/JS emit (`EmitFormat.callbackHole` / `EmitJs.buildCallbackHole`) hand-wires the scratch sink

@@ -1564,7 +1564,9 @@ let tests =
             // value); the padding forms feed it — guarded, then negated for `-` — to
             // the signed-alignment handler members, and `%*A` feeds it (clamped) as the
             // structural print-width budget. Parity oracle IS the test process's own
-            // `sprintf`. Star *precision* / `%0*d` / flagged `%*A` stay cold residuals.
+            // `sprintf`. `%-*A` / `%+*A` also lower here (the `-`/`+` flags are no-ops on
+            // `%A`). Star *precision* and the runtime-width zero-pad forms (`%0*d`, `%0*A`)
+            // are diagnosed residuals — see the front-end PrintfTests.
 
             test "`%*d` freezes to a Format node with a DynHole (width only) segment" {
                 match soleDecl "printfn \"%*d\" 5 42" with
@@ -1613,6 +1615,26 @@ let tests =
                 | other -> failtestf "expected a Format node, got: %A" other
             }
 
+            // `%-*A` / `%+*A` — the `-`/`+` flags are pure no-ops on `%A`, so a flagged
+            // star-`%A` lowers to the SAME `PercentA(Star)` hole as a bare `%*A` and
+            // renders byte-identically. The oracle is the process's own `sprintf`.
+            test "`%-*A` (no-op flag) freezes to the same PercentA(Star) hole as `%*A`" {
+                match soleDecl "printfn \"%-*A\" 1 [1; 2; 3]" with
+                | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
+                    match EqArray.toList segs with
+                    | [ FormatSeg.DynHole d ] ->
+                        match d.Spec.Source with
+                        | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.PercentA(PrintfHoleForm.PrintWidth.Star, _)) ->
+                            ()
+                        | other -> failtestf "expected PercentA(Star), got: %A" other
+                    | other -> failtestf "expected one DynHole, got: %A" other
+                | other -> failtestf "expected a Format node, got: %A" other
+            }
+
+            test "`%-*A` renders identically to `%*A` (F# parity)" {
+                runParity "PHpLeftStarA" "printfn \"%-*A\" 20 [1; 2; 3]" (sprintf "%-*A" 20 [ 1; 2; 3 ])
+            }
+
             // ---- Star precision (`%.*f`, `%*.*f`, `%.*e`, `%.*g`, `%+.*f`, `%.*A`) ----
             // A star *precision* consumes a leading runtime `int` (after any star width,
             // before the value). The float forms build the .NET format string in-handler
@@ -1620,7 +1642,8 @@ let tests =
             // custom-format fallback for garbage precisions; the two-star path clamps to
             // 0..99 (the prec-only path uses the raw precision — a load-bearing asymmetry).
             // `%.*A` feeds the runtime size (`PrintSize`) budget. Oracle IS the process's
-            // own `sprintf`. `%0*.Nf` / flagged star-`%A` stay cold residuals.
+            // own `sprintf`. The runtime-width zero-pad `%0*.Nf` and the `0`-flag `%0*A`
+            // are diagnosed residuals (see the front-end PrintfTests).
 
             test "`%.*f` freezes to a DynHole (precision only) over Fixed(Star)" {
                 match soleDecl "printfn \"%.*f\" 3 3.14" with
@@ -1840,9 +1863,11 @@ let tests =
                 runPrints "PHpPrecOrder" src ("WPV" + sprintf "%*.*f" 8 2 3.14159)
             }
 
-            // Cold residual (still correct via the FSharp.Core path; parity is path-agnostic).
-            test "`%0*d` (star zero-pad) stays correct on the cold path" {
-                runParity "PHpStarZero" "printfn \"%0*d\" 5 42" (sprintf "%0*d" 5 42)
+            // Cold residual: the runtime-width zero-pad `%0*d` has no native handler and
+            // no FSharp.Core fallback once the family lowers natively, so the gate
+            // diagnoses it (naming the specifier) rather than routing it cold.
+            test "`%0*d` (runtime-width zero-pad) is diagnosed, not lowered" {
+                failsWith "%0*d" "printfn \"%0*d\" 5 42"
             }
 
             // The regression test for the width-before-value spill: both the width and

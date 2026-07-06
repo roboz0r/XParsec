@@ -60,23 +60,6 @@ let tests =
                     (sprintf "no FSharp.Core AssemblyRef row in the executable (refs: %A)" refs)
             }
 
-            test "`printfn \"%+08.2f\"` (cold path) pins PrintfModule + PrintfFormat" {
-                // Sign + zero-pad float `%+08.2f` has no faithful section-format mapping
-                // (the zeros must land after the sign, which .NET can't express with a
-                // forced-sign section), so it rides the FSharp.Core cold path. It is the
-                // pin that proves the cold recipes still work.
-                let _, artifact = compileSource "DepsColdPrintf" "printfn \"%+08.2f\" 1234.5"
-                let deps = artifact.FSharpCoreDependencies
-                Expect.isNonEmpty deps "the %+08.2f cold path depends on FSharp.Core"
-
-                Expect.contains
-                    deps
-                    "Microsoft.FSharp.Core.PrintfModule.PrintFormatLine"
-                    "the cold path calls PrintFormatLine"
-
-                Expect.contains deps "Microsoft.FSharp.Core.PrintfFormat`4 (.ctor)" "and constructs a PrintfFormat"
-            }
-
             // `% A` (the space flag on `%A`) used to ride the cold path; it now lowers
             // on the structural engine like plain `%A` (the space flag is a pure no-op
             // for `%A`), so it pins no FSharp.Core construct.
@@ -147,31 +130,25 @@ let tests =
                     "star-precision %.*A does NOT take the PrintFormatLine cold path"
             }
 
-            // The star residuals that stay cold this stage: the star zero-pad width
-            // (`%0*d`) and the *flagged* star-`%A` forms (`%-*A` etc). Each still
-            // constructs a `PrintfFormat` and calls `PrintFormatLine` — the pins that keep
-            // the remaining cold surface tracked.
-            test "star residuals (`%0*d`, `%-*A`) ride the FSharp.Core cold path" {
-                let residuals =
+            // `%-*A` / `%+*A` (flagged star-`%A`) now lower on the structural engine like
+            // a bare `%*A`: the `-`/`+` flags are pure no-ops for `%A`, so they take the
+            // same runtime column budget (`AppendStructured`), off the cold path. (The
+            // runtime-width zero-pad residuals `%0*d` / `%0*A` are diagnosed at the gate —
+            // see the front-end PrintfTests — so no valid program routes them cold.)
+            test "`%-*A` / `%+*A` (flagged star-%A) lower natively — no cold path" {
+                let native =
                     [
-                        "DepsStarZeroPad", "printfn \"%0*d\" 5 42"
                         "DepsStarLeftA", "printfn \"%-*A\" 1 [1; 2; 3]"
+                        "DepsStarPlusA", "printfn \"%+*A\" 1 [1; 2; 3]"
                     ]
 
-                for name, src in residuals do
+                for name, src in native do
                     let _, artifact = compileSource name src
-                    let deps = artifact.FSharpCoreDependencies
-                    Expect.isNonEmpty deps (sprintf "%s stays on the cold path" src)
 
-                    Expect.contains
-                        deps
-                        "Microsoft.FSharp.Core.PrintfModule.PrintFormatLine"
-                        (sprintf "%s calls PrintFormatLine" src)
-
-                    Expect.contains
-                        deps
-                        "Microsoft.FSharp.Core.PrintfFormat`4 (.ctor)"
-                        (sprintf "%s constructs a PrintfFormat" src)
+                    Expect.isFalse
+                        (artifact.FSharpCoreDependencies
+                         |> Seq.contains "Microsoft.FSharp.Core.PrintfModule.PrintFormatLine")
+                        (sprintf "%s does NOT take the PrintFormatLine cold path" src)
             }
 
             // A project-local record / DU carries a synthesised

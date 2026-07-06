@@ -389,6 +389,32 @@ module internal UnificationInferApp =
                                             Severity = Severity.Error
                                         }
 
+                                // Cold residuals — a specifier no backend renders faithfully
+                                // (`%0*d`, `%0*.Nf`, `%0*A` — runtime-width zero-pad forms with no
+                                // native handler, plus the F# `0`-flag quirk on `%*A`; and the
+                                // forced-sign zero-pad floats `%+08.2f` / `% 08.2f`, whose only
+                                // faithful lowering rounds half-away-from-zero rather than the
+                                // half-to-even the engine uses elsewhere). There is no FSharp.Core
+                                // cold fallback once the family lowers natively, so diagnose rather
+                                // than route silently to a path that is being removed. `%a`/`%t`
+                                // classify fine (Callback) and are handled by `rejectCallback`
+                                // above, so any specifier `tryClassify` rejects here is a true
+                                // residual. Additive — the marker guards below read
+                                // `lowerablePlaceholders`, so a residual sets no marker regardless.
+                                match specs |> List.tryFind (fun p -> (PrintfHoleForm.tryClassify p).IsNone) with
+                                | Some p ->
+                                    ctx.Diagnostics.Add
+                                        {
+                                            Key = key
+                                            Message =
+                                                sprintf
+                                                    "printf format specifier %s cannot be lowered on this target"
+                                                    (PrintfHoleForm.renderPlaceholder p)
+                                            Code = ""
+                                            Severity = Severity.Error
+                                        }
+                                | None -> ()
+
                                 match PrintfSpec.sinkOf (qualifiedNameOf ctx fn) with
                                 | ValueSome sink when
                                     not rejectCallback

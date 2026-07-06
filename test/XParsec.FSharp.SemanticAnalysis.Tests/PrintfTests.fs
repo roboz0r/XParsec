@@ -47,6 +47,20 @@ let private ph (t: FormatType) : FormatPlaceholder =
         TypeChar = ' '
     }
 
+/// Assert `src` analyses to an error diagnostic naming `fragment` — a cold
+/// residual the printf gate re-errors rather than lowering (there is no
+/// FSharp.Core fallback once the family lowers natively).
+let private rejectsResidual (fragment: string) (src: string) =
+    let tast = analyse src
+
+    Expect.isTrue
+        (tast.Diagnostics
+         |> List.exists (fun d -> d.Severity = Severity.Error && d.Message.Contains fragment))
+        (sprintf
+            "expected a residual diagnostic naming %s, got: %A"
+            fragment
+            (tast.Diagnostics |> List.map (fun d -> d.Message)))
+
 [<Tests>]
 let tests =
     testList
@@ -416,6 +430,70 @@ let tests =
                 let tast = analyse "let printfn x = x\nlet r = printfn 5"
                 Expect.equal (lastDeclType tast) tyInt "r : int via shadowing identity"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            // ---- Cold residuals: re-errored at the gate (no FSharp.Core fallback) ----
+            // A handful of specifiers have no faithful native lowering: the runtime-width
+            // zero-pad forms (`%0*d`, `%0*.Nf`), the `0`-flag-on-`%*A` parsing quirk
+            // (`%0*A` renders flat AND discards the width), and the forced-sign zero-pad
+            // floats (`%+08.2f` / `% 08.2f`, whose only section-format lowering rounds
+            // half-away rather than the engine's half-to-even). With the FSharp.Core cold
+            // printf being removed there is no fallback, so the gate turns each into an
+            // error naming the offending specifier rather than routing it silently.
+
+            test "`%0*d` (runtime-width zero-pad) is a diagnosed residual" {
+                rejectsResidual "%0*d" "let r = printfn \"%0*d\" 5 42"
+            }
+
+            test "`%0*.2f` (runtime-width zero-pad float) is a diagnosed residual" {
+                rejectsResidual "%0*.2f" "let r = printfn \"%0*.2f\" 8 3.5"
+            }
+
+            test "`%0*A` (0-flag star-%A quirk) is a diagnosed residual" {
+                rejectsResidual "%0*A" "let r = printfn \"%0*A\" 20 42"
+            }
+
+            test "`%+08.2f` (forced-sign zero-pad float) is a diagnosed residual" {
+                rejectsResidual "%+08.2f" "let r = printfn \"%+08.2f\" 1234.5"
+            }
+
+            test "`% 08.2f` (space-sign zero-pad float) is a diagnosed residual" {
+                rejectsResidual "% 08.2f" "let r = printfn \"% 08.2f\" 1234.5"
+            }
+
+            // A residual mixed with lowerable holes still rejects the whole call — the
+            // gate names the FIRST offending specifier.
+            test "a residual among lowerable holes still re-errors" {
+                rejectsResidual "%0*d" "let r = printfn \"ok %d then %0*d\" 1 5 42"
+            }
+
+            // ---- `%-*A` / `%+*A`: the `-`/`+` flags are no-ops on `%A` ----
+            // A flagged star-`%A` renders byte-identically to a bare `%*A`, so it lowers
+            // to the same `PrintWidth.Star` structural hole (no diagnostic), unlike the
+            // declined `%0*A`.
+
+            test "`%-*A` lowers as a PercentA(Star) hole (flag is a no-op)" {
+                let tast = analyse "let r = printfn \"%-*A\" 20 42"
+                Expect.isEmpty tast.Diagnostics "no diagnostics — the `-` flag is inert on %A"
+
+                match Lexing.parseFormatSpecifier "%-*A" with
+                | ValueSome ph ->
+                    match PrintfHoleForm.tryClassify ph with
+                    | ValueSome(PrintfHoleForm.HoleForm.PercentA(PrintfHoleForm.PrintWidth.Star, _)) -> ()
+                    | other -> failtestf "expected PercentA(Star), got: %A" other
+                | ValueNone -> failtest "expected a placeholder"
+            }
+
+            test "`%+*A` lowers as a PercentA(Star) hole (flag is a no-op)" {
+                let tast = analyse "let r = printfn \"%+*A\" 20 42"
+                Expect.isEmpty tast.Diagnostics "no diagnostics — the `+` flag is inert on %A"
+
+                match Lexing.parseFormatSpecifier "%+*A" with
+                | ValueSome ph ->
+                    match PrintfHoleForm.tryClassify ph with
+                    | ValueSome(PrintfHoleForm.HoleForm.PercentA(PrintfHoleForm.PrintWidth.Star, _)) -> ()
+                    | other -> failtestf "expected PercentA(Star), got: %A" other
+                | ValueNone -> failtest "expected a placeholder"
             }
 
             // A fully-applied literal call with lowerable specifiers now freezes

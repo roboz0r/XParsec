@@ -217,6 +217,24 @@ module PrintfHoleForm =
         | HoleForm.Field(fmt, Alignment.Star _) -> isDynamicPrecisionFloat fmt
         | _ -> false
 
+    /// Reconstruct a placeholder's source text (`"%0*d"`, `"%+08.2f"`, `"%-*A"`)
+    /// for diagnostics. Not a round-trip of the raw token (flag order/duplication
+    /// is canonicalised by the lexer), but faithful enough to name the offending
+    /// specifier in an error message.
+    let renderPlaceholder (p: FormatPlaceholder) : string =
+        let dim (d: FormatDim) =
+            match d with
+            | FormatDim.Absent -> ""
+            | FormatDim.Star -> "*"
+            | FormatDim.Literal n -> string n
+
+        let prec =
+            match p.Precision with
+            | FormatDim.Absent -> ""
+            | d -> "." + dim d
+
+        "%" + p.Flags + dim p.Width + prec + string p.TypeChar
+
     /// Classify a placeholder into its target-neutral `HoleForm`, or `ValueNone`
     /// for a specifier no backend renders faithfully (the lowering gate — the
     /// caller then keeps the generic printf call shape, which the CLR backend
@@ -305,11 +323,16 @@ module PrintfHoleForm =
             // (`printf.fs:1085`) consults only plus, zero-pad, width, and
             // precision — never the space flag — so `% A` renders identically to
             // `%A`. A bare `%*A` (or `%*.*A`) takes the runtime column budget
-            // (`PrintWidth.Star`); a *flagged* star form's flag-vs-star layout is
-            // unverified, so it stays cold. The size budget carries a star (`%.*A` /
-            // `%*.*A`) with no clamp — F#'s `%A` sets `PrintSize` raw (`printf.fs:1114`).
+            // (`PrintWidth.Star`); `%-*A` / `%+*A` render byte-identically (the
+            // `-`/`+` flags are pure no-ops for `%A`, verified against F#), so they
+            // take the same `PrintWidth.Star`. `%0*A` is declined: F#'s `0` flag
+            // forces flat AND discards the runtime column budget — an unintended
+            // quirk of F#'s format parsing, not worth reproducing — so it stays a
+            // diagnosed residual (the gate re-errors it). The size budget carries a
+            // star (`%.*A` / `%*.*A`) with no clamp — F#'s `%A` sets `PrintSize` raw
+            // (`printf.fs:1114`).
             if widthIsStar then
-                if zeroPad || leftAlign || plusSign then
+                if zeroPad then
                     ValueNone
                 else
                     ValueSome(HoleForm.PercentA(PrintWidth.Star, sizeDim))
