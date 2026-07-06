@@ -184,17 +184,12 @@ module ConformanceTypars =
         memberSigOf m.IsValueMember m.Signature.Parameters m.Signature.Return
 
     /// The generic members of a frozen type declaration's body, paired with their
-    /// property-ness. Augmentation members ride `Class`/`Union`/`Record`; an
-    /// `Interface`'s abstract methods carry a different (`TAbstractMethodG`) shape and
-    /// are not checked here (no concrete `.fs` impl pairs with them in the same file).
+    /// property-ness. Augmentation members ride `Class`/`Union`/`Record` (the shared
+    /// `TTypeKindG.members`); an `Interface`'s abstract methods carry a different
+    /// (`TAbstractMethodG`) shape and are not checked here (no concrete `.fs` impl pairs
+    /// with them in the same file), and an enum is niladic — both yield no members.
     let private bodyMembers (kind: Frozen.TTypeKind) : Frozen.TTypeMember list =
-        match kind with
-        | TTypeKindG.Class clazz -> EqArray.toList clazz.Members
-        | TTypeKindG.Union(_, members, _) -> EqArray.toList members
-        | TTypeKindG.Record(_, members, _) -> EqArray.toList members
-        | TTypeKindG.Interface _ -> []
-        // An enum is niladic with no augmentation members — no generic member to check.
-        | TTypeKindG.Enum _ -> []
+        EqArray.toList (TTypeKindG.members kind)
 
     /// Check every generic (method-owned-typar) MEMBER of a frozen `.fs` file against
     /// its `.fsi` contract `provider`. For each such member, the published overloads

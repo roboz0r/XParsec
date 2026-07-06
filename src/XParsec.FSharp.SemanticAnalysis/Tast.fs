@@ -945,6 +945,23 @@ type TBaseCtorCall = TBaseCtorCallG<SemType, SyntaxToken>
 type TAbstractMethod = TAbstractMethodG<SemType>
 type TastFile = TastFileG<SemType, SyntaxToken>
 
+[<RequireQualifiedAccess>]
+module TTypeKindG =
+    /// The augmentation / instance members a type kind carries, uniform across the
+    /// three member-bearing kinds (class / union / record). `Interface` (abstract,
+    /// bodyless) and `Enum` (literal cases only) carry none. The single accessor for
+    /// "the members of a type declaration", shared by the member-inline harvest
+    /// (`SymbolProviders.collectInlineBodies`) and `ConformanceTypars.bodyMembers` —
+    /// so neither hard-codes a single kind and a `(# … #)` member on any host is
+    /// harvested, not silently dropped.
+    let members (kind: TTypeKindG<'ty, 'tok>) : EqArray<TTypeMemberG<'ty, 'tok>> =
+        match kind with
+        | TTypeKindG.Class c -> c.Members
+        | TTypeKindG.Union(_, members, _) -> members
+        | TTypeKindG.Record(_, members, _) -> members
+        | TTypeKindG.Interface _
+        | TTypeKindG.Enum _ -> EqArray.empty
+
 // Parallel frozen aliases. Codegen and the freeze step speak these; the bare names
 // above STAY `SemType` (inference, Regions, tests, any non-codegen API).
 

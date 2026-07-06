@@ -3,15 +3,13 @@ namespace global
 // JS-only augmentation of the intrinsic rank-1 array `'T[]` with a `get_Item`
 // indexer accessor — the consumer-side contract half of the W9 array-index
 // migration (`arr.[i]` READ). Declared in the GLOBAL namespace ON PURPOSE: the
-// array's canonical identity is the BARE `TyConst("[]")` (never namespaced), so
-// its member-contract key must be bare (no namespace prefix). The source spelling
-// `type 'T ``[]``` names it — verbatim token — `` ``[]`` ``, and
-// `SymbolKeyOps.arityName`'s backtick-guard suppresses the `` `1 `` arity suffix, so
-// the member key is the bare `` ``[]`` `` (`RuntimeNames.arrayContractName`) — the SAME
-// ordinal string the receiver-side lookup (`inferIndexedLookup`'s array branch) and the
-// harvest store (`array-index-body.js.fs`, keyed by the abbrev host's bare `SymbolKey`)
-// both pass to `TryLookupMember`. A `namespace Vesper` decl would key it
-// `` Vesper.``[]`` `` and silently miss the bare receiver lookup.
+// array's canonical identity is the BARE `TyConst("[]")` (never namespaced), so its
+// member-contract key must be bare. The source spelling `type 'T ``[]``` names it
+// the backtick-escaped `` ``[]`` `` — `RuntimeNames.arrayContractName`, which is the
+// single source of that string and explains why the arity suffix is suppressed and
+// how the contract / harvest-store / receiver-side keys all agree. A `namespace
+// Vesper` decl would key it `` Vesper.``[]`` `` and silently miss the bare receiver
+// lookup.
 //
 // This is a SEPARATE contract entry from the base `prim-types-min.fsi`
 // `type 'T[] = extern` (which stays the `` Vesper.``[]`` `` `Intrinsic` shape,

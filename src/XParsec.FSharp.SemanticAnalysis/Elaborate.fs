@@ -354,6 +354,25 @@ module Elaborate =
 
         { m with ThisTy = selfTy }, methodMarkers
 
+    /// The per-member elaborator every host surfacer (union / record / class /
+    /// intrinsic-abbrev) folds over its members — they differ only in `selfTy`'s
+    /// head. A monomorphic host (`declTypars` empty) keeps
+    /// `translateNominalMember`'s self-type byte-identical; a generic host remaps
+    /// each member's self-type to declaring-typar roots via `elaborateMember` and
+    /// accumulates the surfaced method markers into the decl's freeze `env`.
+    let private mkMemberElaborator
+        (selfTy: SemType)
+        (declTypars: string list)
+        (env: ResizeArray<TypeVar * SemType>)
+        : TTypeMember -> TTypeMember =
+        fun m ->
+            if List.isEmpty declTypars then
+                m
+            else
+                let m, methodMarkers = elaborateMember selfTy m
+                env.AddRange methodMarkers
+                m
+
     /// freezeTypars (member): apply the typar cut `f` (= `remapDeclTypars env`) to
     /// every `SemType` embedded in a member — the deferred half of the old
     /// `remapMemberTypes`. `MethodTypeParams` (whose `TypeVar` roots feed the
@@ -1062,18 +1081,7 @@ module Elaborate =
             let declTypars = [ for (n, _) in info.TypeParams -> n ]
 
             let selfTy = TyUnion(info.Key, declTyparArgs info.TypeParams)
-
-            // A generic union remaps each member's self-type to declaring-typar
-            // roots and folds in its (always-empty here) method markers, exactly
-            // like the class surfacer's `elaborateOne`. A monomorphic union keeps
-            // the `TyUnion(key, [])` self-type byte-identical.
-            let elaborateOne (m: TTypeMember) : TTypeMember =
-                if List.isEmpty declTypars then
-                    m
-                else
-                    let m, methodMarkers = elaborateMember selfTy m
-                    env.AddRange methodMarkers
-                    m
+            let elaborateOne = mkMemberElaborator selfTy declTypars env
 
             let members, interfaces =
                 elaborateHostMembers ctx (info :> IInterfaceImplHost) ext elaborateOne
@@ -1324,18 +1332,7 @@ module Elaborate =
 
             let declTypars = [ for (n, _) in info.TypeParams -> n ]
             let selfTy = TyRecord(info.Key, declTyparArgs info.TypeParams)
-
-            // A generic record remaps each member's self-type to declaring-typar
-            // roots and folds in its method markers, exactly like `tryUnionType`.
-            // A monomorphic record keeps the `TyRecord(key, [])` self-type
-            // byte-identical.
-            let elaborateOne (m: TTypeMember) : TTypeMember =
-                if List.isEmpty declTypars then
-                    m
-                else
-                    let m, methodMarkers = elaborateMember selfTy m
-                    env.AddRange methodMarkers
-                    m
+            let elaborateOne = mkMemberElaborator selfTy declTypars env
 
             let members, interfaces =
                 elaborateHostMembers ctx (info :> IInterfaceImplHost) ext elaborateOne
@@ -1563,8 +1560,14 @@ module Elaborate =
     /// Members surface through the shared host-member path (`elaborateHostMembers` →
     /// `translateNominalMember`), whose `MkSelfType` yields the abbrev's `TyConst` type,
     /// so each member's `ThisTy` is the intrinsic type — NOT a `TyClass`. Every non-member
-    /// `Class` facet is empty (no ctor / fields / base / static-lets / impls); a `Class`
-    /// kind is chosen only because the harvest matches `TTypeKind.Class`.
+    /// `Class` facet is empty (no ctor / fields / base / static-lets / impls). `Class` is
+    /// the container kind because it is the one PROVEN INERT through the non-frozen passes
+    /// this decl still traverses (`Regions` / `RefCellPromotion` / `ResolvedTypes` /
+    /// `PlatformTypes` run before emit): an empty-cases `Union` / empty-fields `Record`
+    /// would route its members through those passes' union/record-specific branches
+    /// (e.g. `PlatformTypes`' `Record | Union` arm) for no gain. The harvest itself is
+    /// kind-agnostic (`TTypeKindG.members`), so the choice is purely which container is
+    /// safest to carry inert.
     let private tryIntrinsicAbbrevType
         (ctx: PassContext)
         (ns: string option)
@@ -1578,18 +1581,7 @@ module Elaborate =
             let env = ResizeArray markers
             let declTypars = [ for (n, _) in info.TypeParams -> n ]
             let selfTy = TyConst(name, declTyparArgs info.TypeParams)
-
-            // Monomorphic host (the W9 fixture): members keep `translateNominalMember`'s
-            // `TyConst(name, [])` self-type untouched. A generic intrinsic host remaps
-            // each member's self-type to declaring-typar roots, exactly like the
-            // union/record surfacers.
-            let elaborateOne (m: TTypeMember) : TTypeMember =
-                if List.isEmpty declTypars then
-                    m
-                else
-                    let m, methodMarkers = elaborateMember selfTy m
-                    env.AddRange methodMarkers
-                    m
+            let elaborateOne = mkMemberElaborator selfTy declTypars env
 
             let members, _ =
                 elaborateHostMembers ctx (info :> IInterfaceImplHost) ext elaborateOne

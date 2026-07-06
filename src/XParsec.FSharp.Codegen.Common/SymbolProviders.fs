@@ -175,26 +175,26 @@ module SymbolProviders =
                 match Map.tryFind k tast.ModuleMembers with
                 | Some info -> acc.Add(info.Name, { Decl = d; ParamAttrs = [||] })
                 | None -> ()
-            // Member-sourced inline bodies: a concrete `(# … #)`-bodied member on a
-            // `Class` mints a `this`-first inline body (the member-sourced twin of
-            // the `let inline` value case). A member with a non-inline-IL body is a
-            // real callable and is skipped by `harvestMemberBody`.
+            // Member-sourced inline bodies: a concrete `(# … #)`-bodied member on ANY
+            // member-bearing host (class / union / record — `TTypeKindG.members`) mints
+            // a `this`-first inline body (the member-sourced twin of the `let inline`
+            // value case). A member with a non-inline-IL body is a real callable and is
+            // skipped by `harvestMemberBody`, so a union/record augmentation with an
+            // ordinary member is unaffected — only its `(# … #)` members are harvested
+            // (not silently dropped as a Class-only match once did).
             | TDecl.Type tdecl ->
-                match tdecl.Kind with
-                | TTypeKind.Class clsG ->
-                    // Key the harvested body by the QUALIFIED compiled name — the store
-                    // (`buildContractCached`) resolves the finalized member key via
-                    // `TryLookupMember(typeName, …)`, which matches by the qualified name
-                    // (`SymbolKeyOps.qualifiedName`), not the simple `tdecl.Name`. A
-                    // namespaced intrinsic (`Vesper.string`, `Widgets.widget`) would
-                    // otherwise miss and fall back to a (non-existent) real method call.
-                    let typeName = SymbolKeyOps.qualifiedName tdecl.Key
+                // Key the harvested body by the QUALIFIED compiled name — the store
+                // (`buildContractCached`) resolves the finalized member key via
+                // `TryLookupMember(typeName, …)`, which matches by the qualified name
+                // (`SymbolKeyOps.qualifiedName`), not the simple `tdecl.Name`. A
+                // namespaced intrinsic (`Vesper.string`, `Widgets.widget`) would
+                // otherwise miss and fall back to a (non-existent) real method call.
+                let typeName = SymbolKeyOps.qualifiedName tdecl.Key
 
-                    for m in clsG.Members do
-                        match harvestMemberBody typeName m with
-                        | Some mb -> memberAcc.Add mb
-                        | None -> ()
-                | _ -> ()
+                for m in TTypeKindG.members tdecl.Kind do
+                    match harvestMemberBody typeName m with
+                    | Some mb -> memberAcc.Add mb
+                    | None -> ()
             | _ -> ()
 
         List.ofSeq acc, List.ofSeq memberAcc

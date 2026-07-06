@@ -16,11 +16,10 @@ namespace global
 // identical `ldelem` the free `GetArray` did — the migration is pure re-plumbing.
 //
 // Declared in the GLOBAL namespace so the abbrev host's `SymbolKey` is bare (no
-// namespace prefix). The source spelling `type 'T ``[]``` names it — verbatim token —
-// `` ``[]`` ``; `SymbolKeyOps.arityName`'s backtick-guard suppresses the `` `1 `` suffix,
-// so the harvest store key is the bare `` ``[]`` `` (`RuntimeNames.arrayContractName`),
-// agreeing ordinal-for-ordinal with the consumer contract key and the receiver-side
-// lookup (see `array-index.js.fsi`).
+// namespace prefix). The source spelling `type 'T ``[]``` names it the bare
+// backtick-escaped `` ``[]`` `` — `RuntimeNames.arrayContractName` (the single source
+// of that string), agreeing ordinal-for-ordinal with the consumer contract key and
+// the receiver-side lookup.
 
 type 'T ``[]`` =
     (# "!0[]" #)
