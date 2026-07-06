@@ -90,9 +90,8 @@ module RuntimeNames =
 
     /// Canonical identity for `PrintfFormat<'Printer,'State,'Residue,'Result>`
     /// (arity 4 ⇒ `` PrintfFormat`4 ``) — the type a format literal freezes to
-    /// (`PrintfSpec.printfFormatName`). Home `FSharp.Core`. The printf *entry
-    /// points* are already key-based (`PrintfSpec.canonicalPrintfShortName`, a
-    /// `ValueKey`); this is the format *type* identity.
+    /// (`PrintfSpec.printfFormatName`). Home `FSharp.Core`; this is the format
+    /// *type* identity.
     let printfFormatKey: SymbolKey =
         SymbolKey.TypeKey(Some "FSharp.Core", "Microsoft.FSharp.Core", "PrintfFormat`4")
 

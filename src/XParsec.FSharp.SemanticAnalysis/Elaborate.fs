@@ -1691,7 +1691,7 @@ module Elaborate =
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
             [
-                for b in bindings ->
+                for b in bindings do
                     let tpat = translatePat ctx b.headPat
 
                     // Inside a named module: record where this binding's static
@@ -1784,7 +1784,14 @@ module Elaborate =
                     // call-site phantom-typar solve (`EmitCall`).
                     recordGenericFnScheme ctx b quantEnv
 
-                    TDecl.Let(tpat, valT, b.inlineToken.IsSome, declTy), quantEnv
+                    // Drop an E1 format-literal alias binding (`let fmt : Format<…> =
+                    // "%d"`): its value froze to a `New PrintfFormat` that is dead —
+                    // every use const-propagates the literal (`PrintfFormatLiterals`),
+                    // and the self-host contract has no cold runtime for a format value,
+                    // so nothing reads it. (A genuinely dynamic read is E2, rejected
+                    // upstream.) Eliding it here keeps `New PrintfFormat` off codegen.
+                    if not (ctx.PrintfFormatLiterals.ContainsKey(CstKeys.ofPat b.headPat)) then
+                        yield TDecl.Let(tpat, valT, b.inlineToken.IsSome, declTy), quantEnv
             ]
         | ModuleElem.Expression e ->
             let eT = translateExpr ctx e

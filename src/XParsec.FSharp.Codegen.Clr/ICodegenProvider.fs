@@ -404,11 +404,6 @@ type ICodegenProvider =
     /// stack (receiver beneath), so the recipe's `ArgCount` is 2.
     abstract TryEmitInvoke: funcTy: FrozenType -> CallRecipe voption
 
-    /// Apply a value that is an FSharp.Core `FSharpFunc` (not a `Vesper.Fun`) —
-    /// `FSharpFunc\`2::Invoke`. R1's one remaining caller is the cold printf
-    /// printer returned by `PrintFormatLine`; the printf engine retargets it.
-    abstract TryEmitFSharpFuncInvoke: funcTy: FrozenType -> CallRecipe voption
-
     /// `EqualityComparer<'T>.Default` getter and its `GetHashCode(!0)` — the
     /// `hash x` use-site's BCL body (no IL opcode hashes, so it rides the comparer,
     /// the same `EqualityComparer<T>` family the DU triple hashes fields through).

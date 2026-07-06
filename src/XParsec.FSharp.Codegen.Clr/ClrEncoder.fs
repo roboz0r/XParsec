@@ -22,7 +22,6 @@ type internal ClrEncoder(env: ClrEnv) =
     let externalRecordRef (key, a) = env.ExternalRecordRef(key, a)
     let externalUnionRef (key, a) = env.ExternalUnionRef(key, a)
 
-    let eUnit = env.EUnit
     let eValueTuple = env.EValueTuple
     let eTextWriter = env.ETextWriter
     let eFormatter = env.EFormatter
@@ -32,7 +31,6 @@ type internal ClrEncoder(env: ClrEnv) =
     let ePrintfFormat4 = env.EPrintfFormat4
     let eVesperList1 = env.EVesperList1
     let eFSharpList1 = env.EFSharpList1
-    let eFSharpFunc2 = env.EFSharpFunc2
 
     /// Single-sourced primitive repr (own intrinsics → provider-harvested `.fs`, no
     /// fallback), as an active pattern over an `FTConst` name. See
@@ -97,8 +95,7 @@ type internal ClrEncoder(env: ClrEnv) =
         // `TextWriter` / `Formatter` / `HashCode` precede the repr-keyed arm because their names
         // aren't in `reprs`. `unit` is NOT special-cased here: it falls through to the repr arm and
         // encodes off its `prim-types-min` binding (`System.ValueTuple`), keeping a `unit`-mentioning
-        // contract BCL-only. `FSharp.Core.Unit` survives only on the cold-printf interop island
-        // (`ClrRecipes.encodeFormatParam`, which names `eUnit` explicitly).
+        // contract BCL-only — no `FSharp.Core.Unit` survives anywhere in the backend.
         // `obj` → `ELEMENT_TYPE_OBJECT`, not `class System.Object`. This matters
         // for interface-impl / override matching: an interface method declared as
         // `CompareTo(object)` / `GetEnumerator()`-returning-`object` is encoded by
@@ -322,26 +319,6 @@ type internal ClrEncoder(env: ClrEnv) =
         // hop out in `toFrozen`) — is unencodable.
         | other -> failwithf "ClrProvider: cannot encode FrozenType: %A" other
 
-    /// Encode mapping each function arrow to FSharp.Core's `FSharpFunc`2` (curried, nested), not
-    /// `Vesper.Fun` — for the FSharp.Core interop islands that leave the old representation (the cold
-    /// printf printer). Non-function leaves delegate to `encodeType`.
-    let rec encodeFSharpFunc (te: SignatureTypeEncoder) (t: FrozenType) : unit =
-        match t with
-        | FTFun(a, b) ->
-            markFSharpCoreDep "Microsoft.FSharp.Core.FSharpFunc`2"
-            let g = te.GenericInstantiation(eFSharpFunc2.Value, 2, false)
-            encodeFSharpFunc (g.AddArgument()) a
-            encodeFSharpFunc (g.AddArgument()) b
-        | FTConst("unit", _) ->
-            // This encoder is exclusively the FSharp.Core interop island (the cold-printf printer):
-            // FSharp.Core's printf machinery types its result/state slots in `FSharp.Core.Unit`, so a
-            // `unit` here must stay `Unit` — NOT the general `System.ValueTuple` the rest of the backend
-            // uses (which would mint a `PrintfFunc`4<…,ValueTuple,…>` the runtime can't cast to its
-            // `…,Unit,…` factory). The general encoder's `unit` arm resolves to `ValueTuple`.
-            markFSharpCoreDep "Microsoft.FSharp.Core.Unit"
-            te.Type(eUnit.Value, false)
-        | other -> encodeType te other
-
     /// Recover both open-typar axes by structurally matching a member's *open*
     /// signature template — carrying self-describing `FTTypar(axis, i)` nodes
     /// against its *instantiated* use-site type (already ground, so
@@ -436,8 +413,6 @@ type internal ClrEncoder(env: ClrEnv) =
 
     member _.EncodeListOf(te, inner) = encodeListOf te inner
     member _.EncodeType(te, t: FrozenType) = encodeType te t
-
-    member _.EncodeFSharpFunc(te, t) = encodeFSharpFunc te t
 
     member _.RecoverOpenTypars(declArity, methodArity, openT, instT) =
         recoverOpenTypars declArity methodArity openT instT

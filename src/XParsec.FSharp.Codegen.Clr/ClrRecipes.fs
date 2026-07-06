@@ -17,7 +17,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         enc.RecoverOpenTypars(declArity, methodArity, openT, instT)
 
     let encodeType te t = enc.EncodeType(te, t)
-    let encodeFSharpFunc te t = enc.EncodeFSharpFunc(te, t)
 
     /// Decurry a `FrozenType` arrow chain into `(params, return)` — the `FrozenType`
     /// analogue of `ClrEnv.decurryTy`, for the open module-function template.
@@ -29,14 +28,10 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let methodSpec handle args = enc.MethodSpec(handle, args)
     let formatterTypeName = env.FormatterTypeName
 
-    let ePrintfFormat4 = env.EPrintfFormat4
-    let eUnit = env.EUnit
     let eTextWriter = env.ETextWriter
     let eStringBuilder = env.EStringBuilder
-    let ePrintfModule = env.EPrintfModule
     let eFun2 = env.EFun2
     let eFlatFun = env.EFlatFun
-    let eFSharpFunc2 = env.EFSharpFunc2
     let eVesperList1 = env.EVesperList1
     let eListModule = env.EListModule
     let eFormatter = env.EFormatter
@@ -46,52 +41,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let eEquatable1 = env.EEquatable1
     let eComparer1 = env.EComparer1
     let eComparable1 = env.EComparable1
-
-    /// `PrintfFormat<!!0, TextWriter, Unit, Unit>` — the parameter type of the generic
-    /// `PrintFormatLine<T>`, where the printer slot is method type parameter 0.
-    let encodeFormatParam (te: SignatureTypeEncoder) : unit =
-        markFSharpCoreDep "Microsoft.FSharp.Core.PrintfFormat`4"
-        markFSharpCoreDep "Microsoft.FSharp.Core.Unit"
-        let g = te.GenericInstantiation(ePrintfFormat4.Value, 4, false)
-        g.AddArgument().GenericMethodTypeParameter(0)
-        g.AddArgument().Type(eTextWriter.Value, false)
-        g.AddArgument().Type(eUnit.Value, false)
-        g.AddArgument().Type(eUnit.Value, false)
-
-    /// `printfn` → `call PrintfModule::PrintFormatLine<printer>(format)`. The `printer` is the *result*
-    /// of the head's curried type `fnTy = PrintfFormat<…> -> printer`.
-    let emitPrintfn (fnTy: FrozenType) : CallRecipe =
-        markFSharpCoreDep "Microsoft.FSharp.Core.PrintfModule.PrintFormatLine"
-
-        let resultTy =
-            match fnTy with
-            | FTFun(_, printer) -> printer
-            | other -> failwithf "ClrProvider: printfn has non-function type %A" other
-
-        let msig = BlobBuilder()
-
-        BlobEncoder(msig)
-            .MethodSignature(genericParameterCount = 1, isInstanceMethod = false)
-            .Parameters(
-                1,
-                (fun (ret: ReturnTypeEncoder) -> ret.Type().GenericMethodTypeParameter(0)),
-                (fun (pars: ParametersEncoder) -> encodeFormatParam (pars.AddParameter().Type()))
-            )
-
-        let memberRef = ctx.MemberRef(ePrintfModule.Value, "PrintFormatLine", msig)
-
-        // The printer is an FSharp.Core `FSharpFunc` (PrintFormatLine builds it), so its arrow encodes
-        // to `FSharpFunc`, not `Vesper.Fun` — this cold path is FSharp.Core interop.
-        let inst = BlobBuilder()
-        let specEnc = BlobEncoder(inst).MethodSpecificationSignature(1)
-        encodeFSharpFunc (specEnc.AddArgument()) resultTy
-        let spec = toEntity (ctx.MethodSpec(toEntity memberRef, inst))
-
-        {
-            Emit = fun il -> il.Encoder.Call spec
-            Arity = CallArity.Flat 1
-            Pushes = 1
-        }
 
     /// `Vesper.Fun`2<a,b>::Invoke(!0) : !1` as a `MemberRef` token — applying a function value.
     /// `Fun` is an interface, so the dispatch stays `callvirt`.
@@ -129,71 +78,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                 Pushes = 1
             }
         | other -> failwithf "ClrProvider: cannot invoke non-function type: %A" other
-
-    /// `FSharpFunc`2<a,b>::Invoke(a) : b` — applying an FSharp.Core `FSharpFunc`, not a `Vesper.Fun`.
-    /// The only such island is the cold printf printer returned by `PrintFormatLine`.
-    let emitFSharpFuncInvoke (funcTy: FrozenType) : CallRecipe =
-        markFSharpCoreDep "Microsoft.FSharp.Core.FSharpFunc`2.Invoke"
-
-        match funcTy with
-        | FTFun(a, b) ->
-            let tsB = BlobBuilder()
-            let te = BlobEncoder(tsB).TypeSpecificationSignature()
-            let g = te.GenericInstantiation(eFSharpFunc2.Value, 2, false)
-            encodeFSharpFunc (g.AddArgument()) a
-            encodeFSharpFunc (g.AddArgument()) b
-            let typeSpec = ctx.TypeSpec tsB
-
-            let msig = BlobBuilder()
-
-            BlobEncoder(msig)
-                .MethodSignature(isInstanceMethod = true)
-                .Parameters(
-                    1,
-                    (fun (ret: ReturnTypeEncoder) -> ret.Type().GenericTypeParameter(1)),
-                    (fun (pars: ParametersEncoder) -> pars.AddParameter().Type().GenericTypeParameter(0))
-                )
-
-            let invokeRef = toEntity (ctx.MemberRef(toEntity typeSpec, "Invoke", msig))
-
-            {
-                Emit =
-                    fun il ->
-                        il.Encoder.OpCode ILOpCode.Callvirt
-                        il.Encoder.Token invokeRef
-                Arity = CallArity.Flat 2
-                Pushes = 1
-            }
-        | other -> failwithf "ClrProvider: cannot invoke non-function type: %A" other
-
-    /// `new PrintfFormat<tyArgs>(string)`. The first type arg is the printer — an FSharp.Core
-    /// `FSharpFunc` (cold path, flows into `PrintFormatLine`), so its arrows encode to `FSharpFunc`.
-    let emitPrintfFormatCtor (tyArgs: FrozenType list) : CtorRecipe =
-        markFSharpCoreDep "Microsoft.FSharp.Core.PrintfFormat`4 (.ctor)"
-        let tsB = BlobBuilder()
-        let te = BlobEncoder(tsB).TypeSpecificationSignature()
-        let g = te.GenericInstantiation(ePrintfFormat4.Value, List.length tyArgs, false)
-
-        for a in tyArgs do
-            encodeFSharpFunc (g.AddArgument()) a
-
-        let typeSpec = ctx.TypeSpec tsB
-        let ctorSig = BlobBuilder()
-
-        BlobEncoder(ctorSig)
-            .MethodSignature(isInstanceMethod = true)
-            .Parameters(
-                1,
-                (fun (ret: ReturnTypeEncoder) -> ret.Void()),
-                (fun (pars: ParametersEncoder) -> pars.AddParameter().Type().String())
-            )
-
-        let ctorRef = ctx.MemberRef(toEntity typeSpec, ".ctor", ctorSig)
-
-        {
-            Handle = toEntity ctorRef
-            ArgCount = 1
-        }
 
     /// `FSharpList`1<elem>` as a member-ref parent `TypeSpec`.
     let listTypeSpec (elem: FrozenType) : EntityHandle =
@@ -1139,10 +1023,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         encodeType te ty
         toEntity (ctx.TypeSpec tsB)
 
-    member _.EmitPrintfn fnTy = emitPrintfn fnTy
     member _.EmitInvoke funcTy = emitInvoke funcTy
-    member _.EmitFSharpFuncInvoke funcTy = emitFSharpFuncInvoke funcTy
-    member _.EmitPrintfFormatCtor tyArgs = emitPrintfFormatCtor tyArgs
     member _.EmitListCons elem = emitListCons elem
     member _.EmitListNil elem = emitListNil elem
     member _.EmitVesperListCons elem = emitVesperListCons elem

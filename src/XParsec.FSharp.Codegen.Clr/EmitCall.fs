@@ -17,26 +17,10 @@ open EmitDispatch
 /// member / function value); the residual spine is applied through `Invoke`.
 module EmitCall =
 
-    /// The cold printf path (`printfn "%A"` …). Its `PrintFormatLine` recipe leaves
-    /// an FSharp.Core `FSharpFunc` printer on the stack, applied via
-    /// `FSharpFunc::Invoke` rather than `Vesper.Fun::Invoke`. Identity is keyed on
-    /// the resolved `SymbolKey` (stamped by `Resolution.ExternalValue`), so a user
-    /// `module MyMod = let printfn x = x` (project-local key) is correctly *not*
-    /// treated as printf. The name fallback only fires for bare `"printfn"` from
-    /// unkeyed call sites (test mocks / pre-key-pipeline paths).
-    let private isColdPrintf (key: SymbolKey voption) (name: string) : bool =
-        match key with
-        | ValueSome k when PrintfSpec.isCanonicalPrintfn k -> true
-        | _ -> name = "printfn"
-
-    /// Apply each remaining argument to the function value on the stack,
-    /// threading the running function type. `tryInvoke` chooses the invocation
-    /// recipe per arg (`Vesper.Fun::Invoke` vs `FSharpFunc::Invoke`); `what`
-    /// names the function kind for the failure diagnostic.
-    let private foldInvokeWith
+    /// Apply remaining arguments to a native `Vesper.Fun` value via its `Invoke`,
+    /// threading the running function type.
+    let foldInvoke
         (recur: Recur)
-        (tryInvoke: FrozenType -> CallRecipe voption)
-        (what: string)
         (env: EmitEnv)
         (b: IlBuilder)
         (funcTy0: FrozenType)
@@ -45,34 +29,12 @@ module EmitCall =
         let mutable funcTy = funcTy0
 
         for (arg, resTy, _) in args do
-            match tryInvoke funcTy with
+            match env.Provider.TryEmitInvoke funcTy with
             | ValueSome recipe ->
                 recur env b arg
                 b.Add(ILInstr.Recipe recipe)
                 funcTy <- resTy
-            | ValueNone -> failwithf "Emit: cannot apply argument to %s value of type %A" what funcTy
-
-    /// Apply remaining arguments to a native `Vesper.Fun` value via its `Invoke`.
-    let foldInvoke
-        (recur: Recur)
-        (env: EmitEnv)
-        (b: IlBuilder)
-        (funcTy0: FrozenType)
-        (args: (Frozen.TExpr * FrozenType * SyntaxToken) list)
-        : unit =
-        foldInvokeWith recur env.Provider.TryEmitInvoke "Vesper.Fun" env b funcTy0 args
-
-    /// Apply a curried FSharp.Core `FSharpFunc` value (the cold printf printer)
-    /// argument by argument via `FSharpFunc::Invoke` — the FSharpFunc twin of
-    /// `foldInvoke` retargeted with the printf engine.
-    let private foldInvokeFSharpFunc
-        (recur: Recur)
-        (env: EmitEnv)
-        (b: IlBuilder)
-        (funcTy0: FrozenType)
-        (args: (Frozen.TExpr * FrozenType * SyntaxToken) list)
-        : unit =
-        foldInvokeWith recur env.Provider.TryEmitFSharpFuncInvoke "FSharpFunc" env b funcTy0 args
+            | ValueNone -> failwithf "Emit: cannot apply argument to Vesper.Fun value of type %A" funcTy
 
     /// An `[| … |]` array literal reaches codegen as `ArrayModule.OfList <chain>`
     /// where `<chain>` is the literal `Cons(e0, … Cons(e_{n-1}, Nil))` FreezeExpr
@@ -274,13 +236,9 @@ module EmitCall =
                     | Some(_, ty, _) -> ty
                     | None -> typeOfExpr head
 
-                // The cold printf printer is an FSharp.Core `FSharpFunc`, so it
-                // is applied via `FSharpFunc::Invoke`; every other recipe result
-                // is a native `Vesper.Fun`.
-                if isColdPrintf key name then
-                    foldInvokeFSharpFunc recur env b funcTy rest
-                else
-                    foldInvoke recur env b funcTy rest
+                // Whatever the recipe left is a native `Vesper.Fun` — apply the
+                // rest of the spine through its `Invoke`.
+                foldInvoke recur env b funcTy rest
             | ValueNone -> failwithf "Emit: no call recipe for external '%s'" name
 
         | TExprG.Var(k, _, _) when env.StaticMethods.ContainsKey k ->

@@ -101,13 +101,9 @@ type internal ClrEnv
                 ctx.AssemblyRef(refOrHost "System.Console" (fun () -> typeof<System.Console>.Assembly.GetName()))
             ))
 
-    let eUnit =
-        lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Core", "Unit")))
-
     // The BCL-only `unit`: the zero-field `System.ValueTuple` struct (the repr
     // `prim-types-min.fs` binds `unit` to). The general `unit` type/value encodes
-    // off this; `eUnit` (`FSharp.Core.Unit`) survives only on the cold-printf
-    // interop island, where the `PrintfFormat` signatures name it explicitly.
+    // off this — no `FSharp.Core.Unit` is referenced anywhere in the backend.
     let eValueTuple =
         lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "ValueTuple")))
 
@@ -135,12 +131,6 @@ type internal ClrEnv
 
     let ePrintfFormat4 =
         lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Core", "PrintfFormat`4")))
-
-    let ePrintfModule =
-        lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Core", "PrintfModule")))
-
-    let eFSharpFunc2 =
-        lazy (toEntity (ctx.TypeRef(fsCoreRef.Value, "Microsoft.FSharp.Core", "FSharpFunc`2")))
 
     // Forcing `eFun2` without a `Vesper.Core` reference is a hard error — `Fun` lives in Vesper.Core,
     // not this assembly and not FSharp.Core.
@@ -561,12 +551,9 @@ type internal ClrEnv
     member _.CoreRef = coreRef
     member _.VesperRef = vesperRef
     member _.ConsoleRef = consoleRef
-    member _.EUnit = eUnit
     member _.EValueTuple = eValueTuple
     member _.EValueTupleN arity = eValueTupleN arity
     member _.EPrintfFormat4 = ePrintfFormat4
-    member _.EPrintfModule = ePrintfModule
-    member _.EFSharpFunc2 = eFSharpFunc2
     member _.VesperCoreRef = vesperCoreRef
     member _.EFun2 = eFun2
     member _.EFlatFun = eFlatFun

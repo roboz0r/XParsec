@@ -15,11 +15,18 @@ provider-capability gate); star-width `%*d` / `%.*f` / `%*A`; and E1 (a format l
 name or ascribed — `let fmt : Vesper.Format<…> = "%d"`, `(… : PrintfFormat<…>)` — lowers to the same
 native `TExpr.Format` a syntactic literal does).
 
-**Remaining to remove `FSharp.Core.dll`:** the cold residuals (§1) are now closed — every printf form
-either lowers natively or is a gate `Severity.Error`, so no *valid* program routes printf cold. Next:
-capstone (§2 — delete the recipes; the only remaining reachable-via-degraded-codegen residuals are
-diagnosed errors, plus the printf-independent list/option representation pin). E2 (dynamic format, §3)
-is deferrable and NOT on the critical path.
+**Capstone (§2) — LANDED.** The three cold recipes (`emitPrintfn`, `emitFSharpFuncInvoke`,
+`emitPrintfFormatCtor`) and their routing are deleted, along with the now-dead FSharp.Core encoder
+surface (`EncodeFSharpFunc`/`FSharpFunc`2`, `encodeFormatParam`, `EPrintfModule`, `FSharp.Core.Unit`,
+the `isCanonicalPrintfn` cluster). One gap the plan hadn't scoped surfaced and was closed: an **E1
+format-literal alias binding** (`let fmt : Format<…> = "%d"`) froze to a `New PrintfFormat` that was
+silently riding `emitPrintfFormatCtor` (an FSharp.Core `PrintfFormat`4` — the Vesper face is
+contract-only, no `.fs`). Since every *use* of such an alias const-propagates the literal
+(`PrintfFormatLiterals`) and the self-host contract has *no cold runtime for a format value*
+(`Infer.fs`), the binding is dead: it is now **elided** at freeze (module-level in `Elaborate`,
+`let … in` in `FreezeExpr.translateLet`), so no `New PrintfFormat` reaches codegen. E2 (dynamic
+format, §3) is deferrable and NOT on the critical path; the printf-independent list/option
+representation pin (below) is a separate axis.
 
 ## Where FSharp.Core is pinned (the capstone target)
 
@@ -57,15 +64,23 @@ gate (a *diagnosed* form pins nothing — `tryInferPrintfApp` names the offendin
 (`%*%` / `%5%` are *rejected* — an accepted deviation; F# consumes the width and prints a bare `%`.
 Not residuals.)
 
-### 2. Capstone — remove `FSharp.Core.dll`
+### 2. Capstone — remove `FSharp.Core.dll` — LANDED
 
-Once §1 leaves no reachable unmarked printf `App`:
-1. Delete `emitPrintfn` / `emitPrintfFormatCtor` / `emitFSharpFuncInvoke` + their `ClrProvider`
-   routing (`isColdPrintf`, `TryEmitFSharpFuncInvoke`).
-2. Flip every `FSharpCoreDepsTests` cold-pin assert to `isEmpty`, and the `PrintfHappyPathTests`
-   `App`-asserting cases to `Format`.
-3. Drop the `FSharp.Core` reference row / on-disk copy from the app-materialisation path where the
-   printf family was its only consumer.
+1. **Done.** Deleted `emitPrintfn` / `emitPrintfFormatCtor` / `emitFSharpFuncInvoke` + their
+   `ClrProvider` routing (`isColdPrintf`, `TryEmitFSharpFuncInvoke`, the `TryEmitCall` /
+   `TryEmitCtor` printf arms) and the dead FSharp.Core encoder surface they were the sole users of.
+2. **Already done before the capstone** — every `FSharpCoreDepsTests` cold pin already asserted
+   `isEmpty` and every `PrintfHappyPathTests` case already asserted `Format`; the only edits were
+   refreshing stale "cold path" comments.
+3. **Dep-driven, no change needed** — `materialiseApp` copies `FSharp.Core.dll` only when
+   `FSharpCoreDependencies` is non-empty, so a zero-dep app already omits it
+   (`FSharpCoreDepsTests`: "omits FSharp.Core.dll for a zero-dependency app").
+
+**Precondition beyond "no unmarked printf `App`":** the plan tracked only printf *App* (call) forms,
+but an E1 format-literal *alias binding* also materialised a `New PrintfFormat` ctor. That is now
+elided at freeze (see Status), so no printf App **or** ctor reaches codegen. (The `encodeType`
+`PrintfFormat` arm + `ePrintfFormat4` are retained defensively — no valid program encodes a
+`PrintfFormat` type now, but the arm marks the dep honestly if one ever did.)
 
 **Adjacent axis (separate — needed for a *full* `rm FSharp.Core.dll`, not for "printf pins
 nothing").** `%A` of a *list/`option` literal* pins FSharp.Core via the list/option *representation*

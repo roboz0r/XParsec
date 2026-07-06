@@ -67,9 +67,9 @@ let private sizeBudgetOf hole =
     | None -> None
 
 // Vesper.Printf happy path: fully-applied literal printf lowered to the
-// `Vesper.Formatter` write-through handler. The lowering is additive — any
-// specifier the happy path doesn't handle keeps the existing FSharp.Core cold
-// path.
+// `Vesper.Formatter` write-through handler. Every lowerable specifier form now
+// lowers natively — there is no FSharp.Core cold path left to fall back to (the
+// only un-lowered forms are diagnosed `Severity.Error`s at the gate).
 
 let private soleDecl (src: string) : TDecl =
     let tast = analyse src
@@ -694,9 +694,7 @@ let tests =
                 Expect.equal (output.TrimEnd()) "   42" "right-justified in a width-5 field (3 leading spaces)"
             }
 
-            test "`printfn \"100%%\"` prints a literal percent (via cold path)" {
-                runPrints "PHpPercent" "printfn \"100%%\"" "100%"
-            }
+            test "`printfn \"100%%\"` prints a literal percent" { runPrints "PHpPercent" "printfn \"100%%\"" "100%" }
 
             test "`sprintf` result feeds another printf" {
                 runPrints "PHpSprintf" "printfn \"%s\" (sprintf \"%d!\" 42)" "42!"

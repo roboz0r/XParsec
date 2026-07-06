@@ -310,38 +310,20 @@ type ClrProvider
             if compiledName = "List.fold" then
                 ValueSome(recipes.EmitFold(fnTy))
             else
-                // Dispatch by SymbolKey identity when Freeze stamped one: only the canonical
-                // `Vesper.Printf.printfn` trips the cold-printf recipe, so a user `MyMod.printfn` falls
-                // through to the normal external-call path. The name-based fallback only fires on bare
-                // `"printfn"` from unkeyed call sites (test mocks).
-                let isCanonicalPrintfn =
-                    match key with
-                    | ValueSome k when PrintfSpec.isCanonicalPrintfn k -> true
-                    | _ -> compiledName = "printfn"
+                // General external module-function call: route by the Freeze-stamped key to the
+                // declaring module (`ns`) + method (`name`), and mint
+                // a `call` (+ `MethodSpec` when generic) to the static method our backend emitted into
+                // the referenced package. Only a module-qualified value key (`ns <> ""`) is a module
+                // function; a bare key (an operator-as-value) is not, and operators are expanded to
+                // `TExpr.ILIntrinsic` by `Emit.lower` before emission anyway. `EmitExternalCall`
+                // returns `ValueNone` when the symbol is unknown to the provider, falling through to
+                // the caller's hard error. (Every lowerable printf call is now a `TExpr.Format`
+                // lowered in Freeze, so no `printfn` App reaches here — the cold recipe is gone.)
+                match key with
+                | ValueSome(SymbolKey.ValueKey(_, ns, name)) when ns <> "" -> recipes.EmitExternalCall(ns, name, fnTy)
+                | _ -> ValueNone
 
-                if isCanonicalPrintfn then
-                    ValueSome(recipes.EmitPrintfn(fnTy))
-                else
-                    // General external module-function call: route by the Freeze-stamped key to the
-                    // declaring module (`ns`) + method (`name`), and mint
-                    // a `call` (+ `MethodSpec` when generic) to the static method our backend emitted into
-                    // the referenced package. Only a module-qualified value key (`ns <> ""`) is a module
-                    // function; a bare key (an operator-as-value) is not, and operators are expanded to
-                    // `TExpr.ILIntrinsic` by `Emit.lower` before emission anyway. `EmitExternalCall`
-                    // returns `ValueNone` when the symbol is unknown to the provider, falling through to
-                    // the caller's hard error.
-                    match key with
-                    | ValueSome(SymbolKey.ValueKey(_, ns, name)) when ns <> "" ->
-                        recipes.EmitExternalCall(ns, name, fnTy)
-                    | _ -> ValueNone
-
-        member _.TryEmitCtor(key, tyArgs, argTypes) =
-            // The internal `PrintfFormat` ctor is recognised by key identity (the
-            // node's result `FTClass(printfFormatKey, _)`), not by string name.
-            if RuntimeNames.isPrintfFormatKey key then
-                ValueSome(recipes.EmitPrintfFormatCtor(tyArgs))
-            else
-                ext.ExternalCtor(key, tyArgs, argTypes)
+        member _.TryEmitCtor(key, tyArgs, argTypes) = ext.ExternalCtor(key, tyArgs, argTypes)
 
         member _.TryEmitUnionCons(key, caseName, tyArgs) =
             let elem () =
@@ -452,11 +434,6 @@ type ClrProvider
         member _.TryEmitInvoke(funcTy) =
             match funcTy with
             | FTFun _ as ft -> ValueSome(recipes.EmitInvoke ft)
-            | _ -> ValueNone
-
-        member _.TryEmitFSharpFuncInvoke(funcTy) =
-            match funcTy with
-            | FTFun _ as ft -> ValueSome(recipes.EmitFSharpFuncInvoke ft)
             | _ -> ValueNone
 
         member _.FormatHandles() = recipes.BuildFormatHandles()

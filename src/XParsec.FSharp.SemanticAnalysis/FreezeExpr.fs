@@ -227,12 +227,13 @@ module internal FreezeExpr =
         // precede the generic `App` projection below, like the happy-path arm.
         | Expr.App(_, args) when ctx.PrintfPartial.ContainsKey key -> translatePrintfPartial ctx key args ty tok
         // Printf happy-path call, marked by `Unification.tryInferPrintfApp`. Must
-        // lower to a `TExpr.Format` *before* the `App(printfn, New PrintfFormat …)`
-        // projection below ever runs.
+        // lower to a `TExpr.Format` *before* the generic `App` projection below runs.
         | Expr.App(fn, args) when ctx.PrintfApp.ContainsKey key ->
-            // The marker may still decline (a `%A` of a record / DU — gated until
-            // step-3 synthesis); fall back to the standard external-call path,
-            // which lowers to the FSharp.Core cold printf.
+            // The marker only declines when a `%A` hole's argument type is one the
+            // structural engine can't author (`TyUnknown` / type-level vocabulary) —
+            // shapes the front end has already rejected with a diagnostic, so the
+            // resulting `App` never reaches a (successful) codegen. There is no cold
+            // printf recipe to fall back to: every lowerable form is a `TExpr.Format`.
             match translatePrintfFormat ctx key args ty tok with
             | ValueSome node -> node
             | ValueNone -> translateApp ctx fn args tok
@@ -1877,20 +1878,31 @@ module internal FreezeExpr =
 
         for i = bindings.Length - 1 downto 0 do
             let b = bindings.[i]
-            let tpat = translatePat ctx b.headPat
-            let valT = translateBinding ctx b
-            // The let/use node's source anchor is its binder pattern's first token.
-            let bindTok = CstKeys.firstTokenOfPat b.headPat
 
-            result <-
-                if isUse then
-                    // An external (BCL) binder's keyed `Dispose` is recorded by
-                    // Unification under the head-pattern's key; a project-local binder
-                    // has none and codegen takes the duck-typed direct call (§4.3).
-                    let dispose = ctx.Resolution.UseDispose.TryGetValue(CstKeys.ofPat b.headPat)
-                    TExpr.Use(tpat, valT, result, dispose, resultTy, bindTok)
-                else
-                    TExpr.Let(tpat, valT, result, resultTy, bindTok)
+            // Drop an E1 format-literal alias binding (`let fmt : Format<…> = "%d" in
+            // …`): its value froze to a `New PrintfFormat` that is dead — every use
+            // const-propagates the literal (`PrintfFormatLiterals`), and the self-host
+            // contract has no cold runtime for a format value. Fold it out, keeping the
+            // body, so no `New PrintfFormat` reaches codegen. (`use` never binds a
+            // format, so it is never an alias.)
+            if not isUse && ctx.PrintfFormatLiterals.ContainsKey(CstKeys.ofPat b.headPat) then
+                ()
+            else
+
+                let tpat = translatePat ctx b.headPat
+                let valT = translateBinding ctx b
+                // The let/use node's source anchor is its binder pattern's first token.
+                let bindTok = CstKeys.firstTokenOfPat b.headPat
+
+                result <-
+                    if isUse then
+                        // An external (BCL) binder's keyed `Dispose` is recorded by
+                        // Unification under the head-pattern's key; a project-local binder
+                        // has none and codegen takes the duck-typed direct call (§4.3).
+                        let dispose = ctx.Resolution.UseDispose.TryGetValue(CstKeys.ofPat b.headPat)
+                        TExpr.Use(tpat, valT, result, dispose, resultTy, bindTok)
+                    else
+                        TExpr.Let(tpat, valT, result, resultTy, bindTok)
 
         result
 
