@@ -480,7 +480,7 @@ module EmitTypes =
     /// `printfn` flush — funnels through here so the BCL-only representation stays
     /// consistent (and the local's `unit` type encodes off the same repr).
     let buildUnitValue (env: EmitEnv) (b: IlBuilder) : unit =
-        let slot = b.Local(FTConst("unit", EqArray.empty))
+        let slot = b.Local(FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty))
         b.Add(ILInstr.Ldloca slot)
-        b.Add(ILInstr.Initobj(env.Provider.TypeToken(FTConst("unit", EqArray.empty))))
+        b.Add(ILInstr.Initobj(env.Provider.TypeToken(FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty))))
         b.Add(ILInstr.Ldloc slot)

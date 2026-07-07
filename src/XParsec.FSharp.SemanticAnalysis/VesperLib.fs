@@ -119,13 +119,13 @@ module VesperLib =
 
                 let parameters, ret =
                     if isProperty then
-                        FTConst("unit", EqArray.empty), frozen
+                        FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty), frozen
                     else
                         match frozen with
                         | FTFun(p, r) -> p, r
                         // A non-property member whose sig isn't a `FTFun` is folded as
                         // a nullary value rather than fabricating a parameter slot.
-                        | other -> FTConst("unit", EqArray.empty), other
+                        | other -> FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty), other
 
                 ValueSome(ExternalSignature.make (declaringArity, methodArityNow (), parameters, ret))
             | Error _ -> ValueNone
@@ -134,7 +134,7 @@ module VesperLib =
                 ExternalSignature.make (
                     declaringArity,
                     methodArityNow (),
-                    FTConst("unit", EqArray.empty),
+                    FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty),
                     ExternalSymbols.unfreezable
                 )
             )
@@ -340,7 +340,7 @@ module VesperLib =
     /// `new: … -> T` constructor without reaching across the codegen-layer boundary.
     let private frozenParamsOf (ps: FrozenType[]) : FrozenType =
         match ps.Length with
-        | 0 -> FTConst("unit", EqArray.empty)
+        | 0 -> FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty)
         | 1 -> ps.[0]
         | _ -> FTTuple(EqArray.ofArray ps)
 

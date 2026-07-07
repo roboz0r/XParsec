@@ -24,7 +24,7 @@ type private CountingProvider(name: string) =
             lookupHits <- lookupHits + 1
 
             if n = name then
-                ValueSome(ExternalSymbols.monoFrozen n (FTConst("tag", EqArray.empty)))
+                ValueSome(ExternalSymbols.monoFrozen n (FTConst(BuiltinTypes.intrinsicKey "tag", EqArray.empty)))
             else
                 ValueNone
 
@@ -58,7 +58,8 @@ let tests =
                 match cached.TryLookup "known" with
                 | ValueSome s ->
                     match ExternalSymbols.instantiateSymbol s 0 with
-                    | TyConst(tag, _) -> Expect.equal tag "tag" "the inner symbol's payload survives"
+                    | TyConst(key, _) ->
+                        Expect.equal (SymbolKeyOps.simpleName key) "tag" "the inner symbol's payload survives"
                     | other -> failtestf "unexpected realised type %A" other
                 | ValueNone -> failtest "known should resolve through the cache"
             }

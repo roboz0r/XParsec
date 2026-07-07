@@ -186,7 +186,7 @@ module EmitMember =
         // A `unit`-returning instance method is emitted `void` (`NominalEmit`).
         let returnsUnit =
             match ty with
-            | FTConst("unit", _) -> true
+            | FTConst(key, _) when SymbolKeyOps.simpleName key = "unit" -> true
             | _ -> false
 
         let resultCount = if returnsUnit then 0 else 1
@@ -313,7 +313,7 @@ module EmitMember =
             // detect it from the call's result type so the call declares 0 results.
             let returnsUnit =
                 match ty with
-                | FTConst("unit", _) -> true
+                | FTConst(key, _) when SymbolKeyOps.simpleName key = "unit" -> true
                 | _ -> false
 
             emitInstanceMember recur env b via receiver receiverTy handle args returnsUnit
@@ -365,7 +365,7 @@ module EmitMember =
 
                     let paramTy =
                         match argTys with
-                        | [] -> FTConst("unit", EqArray.empty)
+                        | [] -> FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty)
                         | [ single ] -> single
                         | many -> FTTuple(EqArray.ofList many)
 
@@ -381,7 +381,7 @@ module EmitMember =
             // instance path (`emitInstanceMember`) does.
             let returnsUnit =
                 match ty with
-                | FTConst("unit", _) -> true
+                | FTConst(key, _) when SymbolKeyOps.simpleName key = "unit" -> true
                 | _ -> false
 
             let resultCount = if returnsUnit then 0 else 1

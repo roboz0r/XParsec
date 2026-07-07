@@ -32,14 +32,15 @@ module NumberCovariance =
 
         let familyUnion =
             match Map.tryFind NumberToken inner.IntrinsicReverseCanon with
-            | Some(_ :: _ as canons) -> FrozenType.MkUnion(seq { for c in canons -> FTConst(c, EqArray.empty) })
-            | _ -> FTConst(NumberToken, EqArray.empty)
+            | Some(_ :: _ as canons) ->
+                FrozenType.MkUnion(seq { for c in canons -> FTConst(BuiltinTypes.intrinsicKey c, EqArray.empty) })
+            | _ -> FTConst(BuiltinTypes.intrinsicKey NumberToken, EqArray.empty)
 
         let resolveNumber (v: Variance) (t: FrozenType) : FrozenType voption =
             match t with
-            | FTConst(name, args) when name = NumberToken && args.Length = 0 ->
+            | FTConst(key, args) when SymbolKeyOps.simpleName key = NumberToken && args.Length = 0 ->
                 match v with
-                | Variance.Co -> ValueSome(FTConst(FloatCanon, EqArray.empty))
+                | Variance.Co -> ValueSome(FTConst(BuiltinTypes.intrinsicKey FloatCanon, EqArray.empty))
                 | Variance.Inv -> ValueSome familyUnion
                 | Variance.Contra -> ValueSome t
             | _ -> ValueNone

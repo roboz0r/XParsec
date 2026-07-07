@@ -106,8 +106,9 @@ module Inline =
     let rec private staticOptTypesMatch (a: SemType) (b: SemType) : bool =
         match a, b with
         | TyVar x, TyVar y -> System.Object.ReferenceEquals(UnionFind.find x, UnionFind.find y)
-        | TyConst(n1, xs), TyConst(n2, ys) ->
-            canonPrimName n1 = canonPrimName n2 && EqArray.forall2 staticOptTypesMatch xs ys
+        | TyConst(k1, xs), TyConst(k2, ys) ->
+            canonPrimName (SymbolKeyOps.intrinsicName k1) = canonPrimName (SymbolKeyOps.intrinsicName k2)
+            && EqArray.forall2 staticOptTypesMatch xs ys
         | TyFun(a1, r1), TyFun(a2, r2) -> staticOptTypesMatch a1 a2 && staticOptTypesMatch r1 r2
         | TyTuple xs, TyTuple ys -> EqArray.forall2 staticOptTypesMatch xs ys
         | TyRecord(n1, xs), TyRecord(n2, ys)
@@ -120,8 +121,20 @@ module Inline =
     /// detection on user types awaits the attribute walker.
     let private isStructType (t: SemType) : bool =
         match t with
-        | TyConst(("int" | "int32" | "int64" | "byte" | "uint8" | "float" | "double" | "float64" | "bool" | "char" | "decimal"),
-                  _) -> true
+        | TyConst(key, _) ->
+            match SymbolKeyOps.intrinsicName key with
+            | "int"
+            | "int32"
+            | "int64"
+            | "byte"
+            | "uint8"
+            | "float"
+            | "double"
+            | "float64"
+            | "bool"
+            | "char"
+            | "decimal" -> true
+            | _ -> false
         | _ -> false
 
     /// The declaring `SymbolKey` of a project-local nominal (class / union /

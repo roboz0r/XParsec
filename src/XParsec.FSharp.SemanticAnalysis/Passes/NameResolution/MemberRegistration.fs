@@ -703,7 +703,7 @@ module NameResolutionMemberRegistration =
         | "string" -> BuiltinTypes.tyString
         | "int64" -> BuiltinTypes.tyInt64
         | "byte" -> BuiltinTypes.tyByte
-        | _ when ctx.Types.IntrinsicReprTypes.ContainsKey name -> TyConst(name, args)
+        | _ when ctx.Types.IntrinsicReprTypes.ContainsKey name -> TyConst(BuiltinTypes.intrinsicKey name, args)
         | _ ->
             // Nominal heads carry their resolved `SymbolKey`; take it
             // off the registry `info` rather than re-stringing the name.
@@ -715,7 +715,7 @@ module NameResolutionMemberRegistration =
                 | false, _ ->
                     match TypeRegistry.tryClass ctx.Types name with
                     | ValueSome info -> TyClass(info.Key, args)
-                    | ValueNone -> TyConst(name, EqArray.empty)
+                    | ValueNone -> TyConst(BuiltinTypes.intrinsicKey name, EqArray.empty)
 
     /// Resolve an `inherit` clause's parent type to a `TyClass` under the derived
     /// class's typar scope. Diagnoses (and returns `ValueNone`) when the parent is

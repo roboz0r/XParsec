@@ -54,7 +54,7 @@ module internal UnificationInferControlFlow =
         match moveNext, current with
         | Some mn, Some cur ->
             match ExternalSymbols.openSignature mn enumArgs with
-            | TyFun(_, TyConst("bool", _)) ->
+            | TyFun(_, TyBool) ->
                 // F# parity: the `finally` exists only when `E : IDisposable`. Disposal
                 // is always the `System.IDisposable::Dispose` interface slot (codegen
                 // mints it), so only the bool matters here, not a member key. (For the
@@ -136,7 +136,7 @@ module internal UnificationInferControlFlow =
         match moveNext, current with
         | Some mn, Some cur ->
             match inst mn.Type with
-            | TyFun(_, TyConst("bool", _)) ->
+            | TyFun(_, TyBool) ->
                 // F# parity: a `finally` exists only when `E : IDisposable`. Scan the
                 // user enumerator's interface impls for `System.IDisposable`; codegen
                 // disposes through the interface slot regardless of where the member is
@@ -173,7 +173,7 @@ module internal UnificationInferControlFlow =
     /// back to `%A`.
     let rec private describeUnionMember (m: SemType) : string =
         match resolveStep m with
-        | TyConst(n, args) when args.IsEmpty -> n
+        | TyConst(key, args) when args.IsEmpty -> SymbolKeyOps.simpleName key
         | TyOr inner ->
             inner.Members
             |> EqSet.toList
@@ -548,7 +548,7 @@ module internal UnificationInferControlFlow =
                             with
                             | ValueSome mnTy, ValueSome curTy ->
                                 match zonk mnTy with
-                                | TyFun(_, TyConst("bool", _)) ->
+                                | TyFun(_, TyBool) ->
                                     // `Current` is a property — its type IS the element type.
                                     ValueSome(
                                         zonk curTy,
@@ -784,7 +784,7 @@ module internal UnificationInferControlFlow =
         // patterns carry an unresolved TyVar into the TAST, which
         // `ResolvedTypes` correctly flags.
         let resultTy = infer ctx body
-        let exnTy = TyConst("exn", EqArray.empty)
+        let exnTy = TyConst(BuiltinTypes.intrinsicKey "exn", EqArray.empty)
         inferRules infer ctx key exnTy resultTy rules
         resultTy
 

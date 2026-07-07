@@ -274,7 +274,7 @@ module UnificationSubsume =
         // DIRECTIONAL — the converse (plain `string` into a literal) is NOT admitted
         // here (a `string` source hits `subsumesNominal` → `Unrelated`); the only
         // inward path is the syntactic-constant consultation at the external-arg seam.
-        | TyLiteral v, TyConst(n, _) when n = v.BaseName -> SubsumeOutcome.Subtype
+        | TyLiteral v, TyConst(key, _) when SymbolKeyOps.intrinsicName key = v.BaseName -> SubsumeOutcome.Subtype
         // The arrow↔`Fun` correspondence: a structural arrow
         // `TyFun(a, …)` IS a subtype of the canonical `Vesper.Fun`(k+1)<a1..ak, r>`
         // interface. This is the ONE place the two layers meet — the unifier keeps

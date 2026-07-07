@@ -160,7 +160,7 @@ module internal UnificationTranslate =
                 // (`ExternalTypeShape.Intrinsic` → `TyConst name`), or the opaque
                 // fallback below — all of which yield `TyConst name`, identical to
                 // the retired hardcoded arms.
-                TyConst(name, EqArray.empty)
+                TyConst(BuiltinTypes.intrinsicKey name, EqArray.empty)
             | _ ->
                 match ctx.Types.Abbreviation.TryGetValue name with
                 | true, info ->
@@ -214,7 +214,7 @@ module internal UnificationTranslate =
                                     // opaque fallback. See `tryResolveExternalType`.
                                     match tryResolveExternalType ctx name EqArray.empty with
                                     | ValueSome ty -> ty
-                                    | ValueNone -> TyConst(name, EqArray.empty)
+                                    | ValueNone -> TyConst(BuiltinTypes.intrinsicKey name, EqArray.empty)
         | Type.NamedType li ->
             // Multi-segment named type (`System.Text.StringBuilder`). Project-local
             // types are single-segment, so a dotted name is either external or
@@ -321,14 +321,18 @@ module internal UnificationTranslate =
             // signature typar rather than a fresh var (which left the annotation
             // unable to constrain the element and broke `Seq.toArray`'s `'T`).
             let rank = commas.Length + 1
-            TyConst(RuntimeNames.arrayName rank, EqArray.singleton (translateType ctx baseTy))
+
+            TyConst(
+                BuiltinTypes.intrinsicKey (RuntimeNames.arrayName rank),
+                EqArray.singleton (translateType ctx baseTy)
+            )
         | Type.Null _ ->
             // The `null` literal type — a real *member* of an anonymous union
             // (`T | null`), not a nominal type. Resolves to the reserved
             // `TyConst "null"` (RuntimeNames); erased per backend at
             // codegen. Bare `null` outside a union is just `TyConst "null"` — its
             // (lack of) assignability is decided later, like any other member.
-            TyConst(RuntimeNames.nullTypeName, EqArray.empty)
+            TyConst(BuiltinTypes.intrinsicKey RuntimeNames.nullTypeName, EqArray.empty)
         | Type.UnionType(left = l; right = r) ->
             // TypeScript-style anonymous structural union (`X | Y`). The
             // CST is a binary node (left-nested for `a | b | c`); translate both
@@ -401,7 +405,7 @@ module internal UnificationTranslate =
             // element type stays structural;
             // an argless primitive referenced with stray args degenerates to the
             // same `TyConst(name, [])` an argless reference produces.
-            TyConst(name, translatedArgs)
+            TyConst(BuiltinTypes.intrinsicKey name, translatedArgs)
         else
             match ctx.Types.Abbreviation.TryGetValue name with
             | true, info ->
@@ -446,7 +450,7 @@ module internal UnificationTranslate =
                     | ValueNone ->
                         // Unknown name with type args — opaque TyConst, args
                         // ignored (matches the bare-name arm).
-                        TyConst(name, EqArray.empty)
+                        TyConst(BuiltinTypes.intrinsicKey name, EqArray.empty)
 
     /// Resolve a named/generic type reference that missed every project-local
     /// registry against the external provider — the type-annotation analogue of
@@ -526,7 +530,7 @@ module internal UnificationTranslate =
                         // never by dealiasing here.
                         | ExternalTypeShape.Intrinsic _ ->
                             let short = key.Substring(key.LastIndexOf('.') + 1)
-                            Some(TyConst(short, EqArray.empty))
+                            Some(TyConst(BuiltinTypes.intrinsicKey short, EqArray.empty))
                         // A transparent abbreviation dealiases to its body: `int32 =
                         // int` (`int = (# "System.Int32" #)`) resolves to `TyConst
                         // "int"`, the form codegen actually encodes — without this an

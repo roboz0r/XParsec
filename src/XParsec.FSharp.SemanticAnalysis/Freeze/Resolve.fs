@@ -217,7 +217,8 @@ module internal FreezeResolve =
     // per-argument parameter SemTypes; `wrapObjArg`/`wrapObjArgsEq` apply the rule.
 
     /// `obj` SemType for a synthesised `Upcast` target.
-    let objTy: SemType = TyConst(RuntimeNames.objAbbrevName, EqArray.empty)
+    let objTy: SemType =
+        TyConst(BuiltinTypes.intrinsicKey RuntimeNames.objAbbrevName, EqArray.empty)
 
     let private isObjTy (t: SemType) : bool =
         UnificationEngine.isObjType (Unification.zonk t)
@@ -813,7 +814,7 @@ module internal FreezeResolve =
         // `ops-platform.fs`, spliced here by `InlineExpansion`). `array.Length`
         // parses as a local-headed LongIdent field chain (not `DotLookup`), so this
         // `fieldStep` arm is the one that fires; mirrors the `DotLookup` array guard.
-        | TyConst(name, _) when name = RuntimeNames.arrayName 1 && segName = "Length" ->
+        | TyArray _ when segName = "Length" ->
             TExpr.App(TExpr.External("GetArrayLength", ValueNone, TyFun(recvTy, stepTy), tok), receiver, stepTy, tok)
         | _ -> TExpr.FieldGet(receiver, segName, stepTy, tok)
 

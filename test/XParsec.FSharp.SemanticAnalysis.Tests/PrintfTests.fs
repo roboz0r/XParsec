@@ -119,7 +119,8 @@ let tests =
             }
 
             test "argTypes: every integer base types as one int" {
-                let fresh () = TyConst("FRESH", EqArray.empty)
+                let fresh () =
+                    TyConst(BuiltinTypes.intrinsicKey "FRESH", EqArray.empty)
 
                 for t in
                     [
@@ -136,16 +137,17 @@ let tests =
             }
 
             test "argTypes: %A and %O both consume one fresh (polymorphic) arg" {
-                let fresh () = TyConst("FRESH", EqArray.empty)
+                let fresh () =
+                    TyConst(BuiltinTypes.intrinsicKey "FRESH", EqArray.empty)
 
                 Expect.equal
                     (PrintfSpec.argTypes fresh tyUnit tyUnit (ph FormatType.Structured))
-                    (ValueSome [ TyConst("FRESH", EqArray.empty) ])
+                    (ValueSome [ TyConst(BuiltinTypes.intrinsicKey "FRESH", EqArray.empty) ])
                     "%A poly"
 
                 Expect.equal
                     (PrintfSpec.argTypes fresh tyUnit tyUnit (ph FormatType.Object))
-                    (ValueSome [ TyConst("FRESH", EqArray.empty) ])
+                    (ValueSome [ TyConst(BuiltinTypes.intrinsicKey "FRESH", EqArray.empty) ])
                     "%O poly"
             }
 
@@ -154,7 +156,7 @@ let tests =
 
                 let fresh () =
                     n <- n + 1
-                    TyConst("FRESH" + string n, EqArray.empty)
+                    TyConst(BuiltinTypes.intrinsicKey ("FRESH" + string n), EqArray.empty)
 
                 let state = tyString
                 let residue = tyInt
@@ -181,7 +183,9 @@ let tests =
             }
 
             test "argTypes: star dims prepend an int per star, width before precision" {
-                let fresh () = TyConst("FRESH", EqArray.empty)
+                let fresh () =
+                    TyConst(BuiltinTypes.intrinsicKey "FRESH", EqArray.empty)
+
                 let tyFloat = BuiltinTypes.tyFloat
 
                 let star (w: FormatDim) (p: FormatDim) (t: FormatType) = { ph t with Width = w; Precision = p }
@@ -356,7 +360,7 @@ let tests =
 
                 Expect.equal
                     (lastDeclType tast)
-                    (TyFun(TyConst("System.IO.TextWriter", EqArray.empty), tyUnit))
+                    (TyFun(TyConst(BuiltinTypes.intrinsicKey "System.IO.TextWriter", EqArray.empty), tyUnit))
                     "TextWriter -> unit"
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"

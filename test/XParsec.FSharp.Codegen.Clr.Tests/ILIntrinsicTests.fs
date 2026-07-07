@@ -25,13 +25,13 @@ let tests =
                 | EqList [ TDecl.Let(TPat.NamedSimple _,
                                      TExpr.Lambda(_,
                                                   TExpr.Lambda(_,
-                                                               TExpr.ILIntrinsic("ceq", _, args, TyConst("bool", _), _),
+                                                               TExpr.ILIntrinsic("ceq", _, args, TyConst(key, _), _),
                                                                _,
                                                                _),
                                                   _,
                                                   _),
                                      true,
-                                     _) ] ->
+                                     _) ] when SymbolKeyOps.simpleName key = "bool" ->
                     match args with
                     | EqList [ TExpr.Var _; TExpr.Var _ ] -> ()
                     | other -> failtestf "expected two Var operands, got %A" other

@@ -859,11 +859,11 @@ module Unification =
     /// `inherit`-less classes here; a class deriving a project-local base that
     /// declares its own virtuals is a later slice.
     let private checkObjectOverrideConformance (ctx: PassContext) (info: ClassTypeInfo) : unit =
-        let objTy = TyConst("obj", EqArray.empty)
-        let boolTy = TyConst("bool", EqArray.empty)
-        let intTy = TyConst("int", EqArray.empty)
-        let unitTy = TyConst("unit", EqArray.empty)
-        let stringTy = TyConst("string", EqArray.empty)
+        let objTy = TyConst(BuiltinTypes.intrinsicKey "obj", EqArray.empty)
+        let boolTy = TyConst(BuiltinTypes.intrinsicKey "bool", EqArray.empty)
+        let intTy = TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty)
+        let unitTy = TyConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty)
+        let stringTy = TyConst(BuiltinTypes.intrinsicKey "string", EqArray.empty)
 
         for mInfo in info.Members do
             if mInfo.IsOverride && mInfo.Kind = ClassMemberKind.Method then

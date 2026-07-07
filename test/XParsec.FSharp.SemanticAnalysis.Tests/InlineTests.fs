@@ -90,10 +90,11 @@ let tests =
                 // `id`'s body is `fun x -> x`; instantiating 'a := int makes
                 // every position concrete int.
                 match expanded with
-                | TExpr.Lambda(TPat.NamedSimple(_, TyConst("int", _), _),
-                               TExpr.Var(_, TyConst("int", _), _),
-                               TyFun(TyConst("int", _), TyConst("int", _)),
-                               _) -> ()
+                | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k1, _), _),
+                               TExpr.Var(_, TyConst(k2, _), _),
+                               TyFun(TyConst(k3, _), TyConst(k4, _)),
+                               _) when [ k1; k2; k3; k4 ] |> List.forall (fun k -> SymbolKeyOps.simpleName k = "int") ->
+                    ()
                 | other -> failtestf "expected fully-int `fun x -> x`, got %A" other
             }
 
@@ -111,7 +112,10 @@ let tests =
                     let again = Inline.inlineExpand decl [| BuiltinTypes.tyBool |]
 
                     match again with
-                    | TExpr.Lambda(TPat.NamedSimple(_, TyConst("bool", _), _), _, _, _) -> ()
+                    | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k, _), _), _, _, _) when
+                        SymbolKeyOps.simpleName k = "bool"
+                        ->
+                        ()
                     | other -> failtestf "second expansion at bool failed: %A" other
                 | other -> failtestf "unexpected %A" other
             }
@@ -137,10 +141,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls with
-                | EqList [ TDecl.Let(TPat.NamedSimple _,
-                                     TExpr.Lambda _,
-                                     true,
-                                     TyFun(TyConst("int", _), TyConst("int", _)))
+                | EqList [ TDecl.Let(TPat.NamedSimple _, TExpr.Lambda _, true, TyFun(TyConst(k1, _), TyConst(k2, _)))
                            TDecl.Expression(TExpr.Let(TPat.NamedSimple _,
                                                       TExpr.Const(TConstValue.Int 41, _, _),
                                                       TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _, _),
@@ -152,7 +153,10 @@ let tests =
                                                                 _),
                                                       _,
                                                       _),
-                                            _) ] -> ()
+                                            _) ] when
+                    SymbolKeyOps.simpleName k1 = "int" && SymbolKeyOps.simpleName k2 = "int"
+                    ->
+                    ()
                 | _ -> failtestf "unexpected shape: %A" tast.Decls
             }
 
@@ -163,16 +167,17 @@ let tests =
                 // succ is monomorphic (int -> int) — expansion is a no-op
                 // substitution returning the retained `fun x -> x + 1` body.
                 match Inline.inlineExpand succDecl [||] with
-                | TExpr.Lambda(TPat.NamedSimple(_, TyConst("int", _), _),
+                | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k1, _), _),
                                TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _, _),
-                                                   TExpr.Var(_, TyConst("int", _), _),
+                                                   TExpr.Var(_, TyConst(k2, _), _),
                                                    _,
                                                    _),
                                          TExpr.Const(TConstValue.Int 1, _, _),
                                          _,
                                          _),
-                               TyFun(TyConst("int", _), TyConst("int", _)),
-                               _) -> ()
+                               TyFun(TyConst(k3, _), TyConst(k4, _)),
+                               _) when [ k1; k2; k3; k4 ] |> List.forall (fun k -> SymbolKeyOps.simpleName k = "int") ->
+                    ()
                 | other -> failtestf "expected `fun x -> x + 1` body, got %A" other
             }
 

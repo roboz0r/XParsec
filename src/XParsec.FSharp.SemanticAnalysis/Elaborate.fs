@@ -1580,7 +1580,7 @@ module Elaborate =
             let markers = mkDeclTyparEnv info.TypeParams
             let env = ResizeArray markers
             let declTypars = [ for (n, _) in info.TypeParams -> n ]
-            let selfTy = TyConst(name, declTyparArgs info.TypeParams)
+            let selfTy = TyConst(BuiltinTypes.intrinsicKey name, declTyparArgs info.TypeParams)
             let elaborateOne = mkMemberElaborator selfTy declTypars env
 
             let members, _ =

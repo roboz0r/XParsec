@@ -26,7 +26,10 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 let listTy =
-                    SemType.TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton (TyConst("int", EqArray.empty)))
+                    SemType.TyRecord(
+                        RuntimeNames.fsharpCoreListKey,
+                        EqArray.singleton (TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
+                    )
 
                 match tast.Decls with
                 | EqList [ TDecl.Expression(TExpr.Format(_, segs, _, _), _) ] ->

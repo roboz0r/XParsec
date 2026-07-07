@@ -77,7 +77,7 @@ module internal UnificationInferLiteralExpr =
             unify ctx key itemTy elemTy
 
         if isArray then
-            TyConst(RuntimeNames.arrayName 1, EqArray.singleton elemTy)
+            TyConst(BuiltinTypes.intrinsicKey (RuntimeNames.arrayName 1), EqArray.singleton elemTy)
         else
             listLiteralTy ctx key elemTy
 
@@ -86,7 +86,7 @@ module internal UnificationInferLiteralExpr =
         let elemTy = TyVar(freshTyVar ctx)
 
         if isArray then
-            TyConst(RuntimeNames.arrayName 1, EqArray.singleton elemTy)
+            TyConst(BuiltinTypes.intrinsicKey (RuntimeNames.arrayName 1), EqArray.singleton elemTy)
         else
             listLiteralTy ctx key elemTy
 

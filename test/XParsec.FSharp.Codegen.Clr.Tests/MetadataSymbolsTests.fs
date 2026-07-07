@@ -66,7 +66,9 @@ let tests =
                 match provider.TryLookupType "System.Collections.Generic.List`1" with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     let impls =
-                        ExternalSymbols.instantiateInterfaces info [| TyConst("int", EqArray.empty) |]
+                        ExternalSymbols.instantiateInterfaces
+                            info
+                            [| TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty) |]
                         |> Array.map fst
                         |> Set.ofArray
 
@@ -117,12 +119,17 @@ let tests =
 
                     // Instantiated at `'T = int`, the property type is
                     // `EqualityComparer<int>` (the §7.3 per-use substitution).
-                    match ExternalSymbols.instantiateSignature m [| TyConst("int", EqArray.empty) |] 0 with
+                    match
+                        ExternalSymbols.instantiateSignature
+                            m
+                            [| TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty) |]
+                            0
+                    with
                     | TyClass(key, args) when
                         args.Length = 1
                         && (
                             match args.[0] with
-                            | TyConst("int", _) -> true
+                            | TyConst(k, _) -> SymbolKeyOps.simpleName k = "int"
                             | _ -> false
                         )
                         ->
@@ -138,8 +145,16 @@ let tests =
                     Expect.equal m.Storage MemberStorage.Method "a method, not a property"
 
                     // Instantiated at `'T = int`: `int -> int`.
-                    match ExternalSymbols.instantiateSignature m [| TyConst("int", EqArray.empty) |] 0 with
-                    | TyFun(TyConst("int", _), TyConst("int", _)) -> ()
+                    match
+                        ExternalSymbols.instantiateSignature
+                            m
+                            [| TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty) |]
+                            0
+                    with
+                    | TyFun(TyConst(k1, _), TyConst(k2, _)) when
+                        SymbolKeyOps.simpleName k1 = "int" && SymbolKeyOps.simpleName k2 = "int"
+                        ->
+                        ()
                     | other -> failtestf "expected int -> int, got %A" other
                 | ValueNone -> failtest "GetHashCode did not resolve"
             }
@@ -155,7 +170,7 @@ let tests =
                     Expect.isTrue m.IsStatic "Empty is static"
 
                     match ExternalSymbols.instantiateSignature m [||] 0 with
-                    | TyConst("string", _) -> ()
+                    | TyConst(key, _) when SymbolKeyOps.simpleName key = "string" -> ()
                     | other -> failtestf "Empty should be typed string, got %A" other
                 | ValueNone -> failtest "String.Empty did not resolve as a field"
             }
@@ -169,7 +184,7 @@ let tests =
                 // signature instantiates without throwing.
                 match provider.TryLookupType "System.Collections.Generic.List`1" with
                 | ValueSome(ExternalTypeShape.Class info) ->
-                    let intArg = [| TyConst("int", EqArray.empty) |]
+                    let intArg = [| TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty) |]
 
                     // Interfaces: `IEnumerable<int>` once `'T := int` is substituted.
                     match
@@ -177,7 +192,10 @@ let tests =
                         |> Array.tryFind (fun (n, _) -> n = "System.Collections.Generic.IEnumerable`1")
                     with
                     | Some(_, args) ->
-                        Expect.equal args [| TyConst("int", EqArray.empty) |] "IEnumerable<int> after 'T := int"
+                        Expect.equal
+                            args
+                            [| TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty) |]
+                            "IEnumerable<int> after 'T := int"
                     | None -> failtest "List<int> should implement IEnumerable<int>"
 
                     // Base type: `System.Object` (`List<'T> : Object`).

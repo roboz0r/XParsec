@@ -521,7 +521,9 @@ let tests =
                 | true, info ->
                     Expect.equal
                         info.BaseType
-                        (ValueSome(TyClass("Box", EqArray.singleton (TyConst("int", EqArray.empty)))))
+                        (ValueSome(
+                            TyClass("Box", EqArray.singleton (TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty)))
+                        ))
                         "IntBox inherits Box<int>"
                 | false, _ -> failtest "class type IntBox not registered"
             }

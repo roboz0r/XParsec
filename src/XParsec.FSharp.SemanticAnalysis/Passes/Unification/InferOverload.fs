@@ -75,7 +75,7 @@ module UnificationInferOverload =
         // literal-`'*'` overload over a same-position typar); a literal vs a non-literal
         // falls through to `false` (a plain `string` is not a specific literal).
         | TyLiteral v1, TyLiteral v2 -> v1 = v2
-        | TyConst(n1, xs), TyConst(n2, ys) -> n1 = n2 && EqArray.forall2 applicabilityMatches xs ys
+        | TyConst(k1, xs), TyConst(k2, ys) -> k1 = k2 && EqArray.forall2 applicabilityMatches xs ys
         | TyVar x, TyVar y -> System.Object.ReferenceEquals(UnionFind.find x, UnionFind.find y)
         | TyFun(a1, r1), TyFun(a2, r2) -> applicabilityMatches a1 a2 && applicabilityMatches r1 r2
         | TyTuple xs, TyTuple ys -> EqArray.forall2 applicabilityMatches xs ys
@@ -89,7 +89,7 @@ module UnificationInferOverload =
     and isObjectTy (t: SemType) : bool =
         match zonk t with
         | TyClass(n, args) when args.IsEmpty && RuntimeNames.isSystemObjectKey n -> true
-        | TyConst("obj", _) -> true
+        | TyObj -> true
         | _ -> false
 
     and argAssignable (argTy: SemType) (paramTy: SemType) : bool =
@@ -111,7 +111,7 @@ module UnificationInferOverload =
 
         match zonk (ExternalSymbols.openSignature m typeArgs) with
         | TyFun(TyTuple elems, _) when n >= 2 && elems.Length = n -> EqArray.toList elems
-        | TyFun(TyConst("unit", _), _) when n = 0 -> []
+        | TyFun(TyUnit, _) when n = 0 -> []
         | TyFun(p, _) -> [ p ]
         | _ -> []
 

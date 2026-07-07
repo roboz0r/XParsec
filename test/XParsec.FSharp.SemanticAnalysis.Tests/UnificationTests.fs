@@ -76,7 +76,11 @@ let tests =
                 let ctx = analyse "let f (x: undefined) : unit = x"
                 // `x : undefined`, pat at offset 7.
                 let patKey = NodeKey.ofSource 7 NodeKind.PatIdent
-                Expect.equal (typeOf ctx patKey) (TyConst("undefined", EqArray.empty)) "x : undefined"
+
+                Expect.equal
+                    (typeOf ctx patKey)
+                    (TyConst(BuiltinTypes.intrinsicKey "undefined", EqArray.empty))
+                    "x : undefined"
 
                 let hasMismatch =
                     ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
@@ -701,7 +705,7 @@ let tests =
                 let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
 
                 let expected =
-                    TyConst(RuntimeNames.arrayName 1, EqArray.singleton BuiltinTypes.tyInt)
+                    TyConst(BuiltinTypes.intrinsicKey (RuntimeNames.arrayName 1), EqArray.singleton BuiltinTypes.tyInt)
 
                 Expect.equal (typeOf ctx patKey) expected "xs : int[]"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
@@ -1040,7 +1044,7 @@ let tests =
 
                     Expect.contains
                         (EqSet.toList ms.Members)
-                        (TyConst(RuntimeNames.nullTypeName, EqArray.empty))
+                        (TyConst(BuiltinTypes.intrinsicKey RuntimeNames.nullTypeName, EqArray.empty))
                         "the reserved `null` literal type is a member"
                 | other -> failtestf "expected int | null to be a TyOr, got %A" other
             }

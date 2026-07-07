@@ -643,7 +643,7 @@ module internal NominalEmit =
             // `unit`-returning call as void + a reified `unit`.
             let returnsVoid =
                 match mem.ReturnTy with
-                | FTConst("unit", _) -> true
+                | FTConst(key, _) when SymbolKeyOps.simpleName key = "unit" -> true
                 | _ -> false
 
             let bodyOffset =
@@ -856,7 +856,7 @@ module internal NominalEmit =
                         SelfTy = selfTyMarkers
                         TagField = tagFieldRef ()
                         Fields = structuralFields ()
-                        IntType = FTConst("int", EqArray.empty)
+                        IntType = FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty)
                         ComparerDefault = fun t -> provider.EqualityComparerDefault t
                         ComparerEquals = fun t -> provider.EqualityComparerEquals t
                         HashCodeLocal = provider.HashCodeType

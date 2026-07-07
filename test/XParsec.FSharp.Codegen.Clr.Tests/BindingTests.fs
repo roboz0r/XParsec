@@ -55,7 +55,11 @@ let tests =
                         match EqArray.toList segs with
                         | [ FormatSeg.Hole(hole, TExpr.Var(kxUse, _, _)) ] ->
                             Expect.equal kxUse kx "the hole's `Var` references the let-bound NodeKey"
-                            Expect.equal hole.Ty (TyConst("int", EqArray.empty)) "the %d hole types as int"
+
+                            Expect.equal
+                                hole.Ty
+                                (TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
+                                "the %d hole types as int"
                         | other -> failtestf "unexpected Format segments: %A" other
                     | _ -> failtestf "unexpected let-decl TAST: %A" (EqArray.toList tast.Decls)
                 }

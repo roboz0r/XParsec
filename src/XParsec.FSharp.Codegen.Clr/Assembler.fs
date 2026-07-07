@@ -699,7 +699,9 @@ type internal Assembler
     member this.PrepareStructEnums() =
         for sed in structEnumDecls do
             let td = sed.Decl
-            let fieldTy = FTConst((if sed.IsMixed then "obj" else "string"), EqArray.empty)
+
+            let fieldTy =
+                FTConst(BuiltinTypes.intrinsicKey (if sed.IsMixed then "obj" else "string"), EqArray.empty)
 
             // `caseLits` (the registry's case → literal map) feeds the `| E.A`
             // pattern's field equality, not the `.cctor` — here the literals come

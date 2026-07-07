@@ -437,7 +437,7 @@ module TastLower =
 
     let private isUnitFrozen (t: FrozenType) : bool =
         match t with
-        | FTConst("unit", args) -> args.Length = 0
+        | FTUnit -> true
         | _ -> false
 
     /// Peel up to `n` top-level `->` arrows off a frozen type (all of them when
@@ -463,7 +463,7 @@ module TastLower =
         | FTClass(key, args) -> FTClass(key, f args)
         | FTRecord(key, args) -> FTRecord(key, f args)
         | FTUnion(key, args) -> FTUnion(key, f args)
-        | FTConst(name, args) -> FTConst(name, f args)
+        | FTConst(key, args) -> FTConst(key, f args)
         | FTTuple items -> FTTuple(f items)
         | _ -> t
 

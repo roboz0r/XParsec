@@ -228,7 +228,8 @@ type ClrProvider
     member _.ValueTupleRefs(elemTys: FrozenType list) : ValueTupleHandles = enc.ValueTupleRefs elemTys
 
     /// The `System.HashCode` accumulator local type for a union's `GetHashCode`.
-    member _.HashCodeType: FrozenType = FTConst("System.HashCode", EqArray.empty)
+    member _.HashCodeType: FrozenType =
+        FTConst(BuiltinTypes.intrinsicKey "System.HashCode", EqArray.empty)
 
     member _.EqualityComparerDefault(elem: FrozenType) : EntityHandle = recipes.EqualityComparerDefault elem
 

@@ -202,7 +202,7 @@ module internal UnificationInferTypeOps =
     /// `set.fs:988` `(that :?> Set<'T>).Tree` site relies on this.
     and isObjTy (t: SemType) : bool =
         match resolveStep t with
-        | TyConst("obj", _) -> true
+        | TyObj -> true
         | _ -> false
 
     /// `e :> T` — explicit upcast. `src` must instantiate `T`'s nominal (itself

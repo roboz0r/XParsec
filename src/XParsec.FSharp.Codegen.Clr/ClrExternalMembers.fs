@@ -88,7 +88,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             // argSig length 1 and stays one parameter). Arity ≤ 1 / `unit` unchanged.
             let paramTys =
                 match paramsT with
-                | FTConst("unit", _) -> []
+                | FTConst(key, _) when SymbolKeyOps.simpleName key = "unit" -> []
                 | FTTuple elems when argSigLen >= 2 && elems.Length = argSigLen -> EqArray.toList elems
                 | p -> [ p ]
 
@@ -105,14 +105,16 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     // `void` directly here (`IDisposable.Dispose`, `List.Add`).
                     (fun (ret: ReturnTypeEncoder) ->
                         match retT with
-                        | FTConst("unit", _) -> ret.Void()
+                        | FTConst(key, _) when SymbolKeyOps.simpleName key = "unit" -> ret.Void()
                         // A by-ref return (`Span<T>.get_Item : T&`) emits the
                         // `ELEMENT_TYPE_BYREF` prefix via the *return* encoder's
                         // `isByRef` flag, then the element — byref is not a standalone
                         // `SignatureTypeEncoder` shape, it rides the param/return seam.
                         // The member-ref signature must match the BCL method's
                         // by-ref return exactly or it fails to bind at JIT.
-                        | FTConst(n, args) when n = RuntimeNames.byrefName && args.Length = 1 ->
+                        | FTConst(key, args) when
+                            SymbolKeyOps.simpleName key = RuntimeNames.byrefName && args.Length = 1
+                            ->
                             encodeType (ret.Type(true)) args.[0]
                         | _ -> encodeType (ret.Type()) retT
                     ),
@@ -135,7 +137,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                             // MetadataSymbols.fs) and emit it here via
                             // `CustomModifiers(...).Type(true)`. No printf-port consumer needs
                             // it (TryFormat/TryParse use `out` + by-value spans).
-                            | FTConst(n, args) when n = RuntimeNames.byrefName && args.Length = 1 ->
+                            | FTConst(key, args) when
+                                SymbolKeyOps.simpleName key = RuntimeNames.byrefName && args.Length = 1
+                                ->
                                 encodeType (pars.AddParameter().Type(true)) args.[0]
                             | _ -> encodeType (pars.AddParameter().Type()) p
                     )
@@ -441,7 +445,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             | Some tag ->
                 let parent = externalTypeSpec key tref args
                 let s = BlobBuilder()
-                encodeType (BlobEncoder(s).FieldSignature()) (FTConst("int", EqArray.empty))
+                encodeType (BlobEncoder(s).FieldSignature()) (FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
                 ValueSome(toEntity (ctx.MemberRef(parent, "_tag", s)), tag)
 
     /// Mint the `MemberRef` for one field of one case on a referenced-package union — the `<caseName>_<i>`
@@ -531,7 +535,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 // `argSig` length, exactly as `mintMemberRef` does.
                 let paramTys =
                     match chosen.Signature.Parameters with
-                    | FTConst("unit", _) -> []
+                    | FTConst(key, _) when SymbolKeyOps.simpleName key = "unit" -> []
                     | FTTuple elems when argSigLen >= 2 && elems.Length = argSigLen -> EqArray.toList elems
                     | p -> [ p ]
 

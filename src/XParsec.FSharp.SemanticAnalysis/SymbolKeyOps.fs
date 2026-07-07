@@ -113,6 +113,21 @@ module SymbolKeyOps =
 
         bareName n
 
+    /// The key's `name` component with the namespace dropped but the `` `N `` arity
+    /// suffix PRESERVED — the non-lossy, IDENTITY counterpart to `simpleName` (which
+    /// strips arity for human display). Use this where a name feeds a canonical
+    /// string-keyed repr map (`canonName` / `IntrinsicForwardRepr` /
+    /// `IntrinsicReverseCanon` / the SRTP `primitiveSupports`) — the codegen/repr axis
+    /// that is canon-name-keyed BY DESIGN and must NOT lose arity. For a *comparison*
+    /// against a well-known intrinsic prefer the `TyBool`/`TyUnit`/`TyArray`/… active
+    /// patterns (identity match) over `intrinsicName key = "…"`; reserve `simpleName`
+    /// for human-facing diagnostics and backend name mangling.
+    let intrinsicName (k: SymbolKey) : string =
+        match k with
+        | SymbolKey.TypeKey(_, _, n)
+        | SymbolKey.ValueKey(_, _, n) -> n
+        | SymbolKey.MemberKey(_, n, _, _) -> n
+
     /// The fully-qualified compiled name for an EXTERNAL nominal lookup
     /// (`externalUnionRef` / `externalRecordRef` / `externalClassRef`): `ns.name`
     /// with the arity suffix retained. The lookups normalise bare-vs-suffixed

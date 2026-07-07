@@ -93,7 +93,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                     // `unit` methods keep the `unit`-as-`ValueTuple` convention.
                     (fun (ret: ReturnTypeEncoder) ->
                         match retTy with
-                        | FTConst("unit", _) when not isStatic -> ret.Void()
+                        | FTConst(key, _) when not isStatic && SymbolKeyOps.simpleName key = "unit" -> ret.Void()
                         | _ -> encodeType (ret.Type()) retTy
                     ),
                     (fun (pars: ParametersEncoder) ->
@@ -222,7 +222,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                     // intra-/cross-assembly instance call binds the void `MethodDef`.
                     (fun (ret: ReturnTypeEncoder) ->
                         match retTy with
-                        | FTConst("unit", _) when not isStatic -> ret.Void()
+                        | FTConst(key, _) when not isStatic && SymbolKeyOps.simpleName key = "unit" -> ret.Void()
                         | _ -> encodeType (ret.Type()) retTy
                     ),
                     (fun (pars: ParametersEncoder) ->

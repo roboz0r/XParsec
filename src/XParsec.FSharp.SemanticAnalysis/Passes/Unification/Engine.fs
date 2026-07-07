@@ -190,7 +190,7 @@ module UnificationEngine =
     /// The universal supertype — every value implicitly upcasts (boxing) into it.
     let isObjType (t: SemType) : bool =
         match t with
-        | TyConst(n, a) when a.IsEmpty && n = RuntimeNames.objAbbrevName -> true
+        | TyObj -> true
         | TyClass(k, a) when a.IsEmpty && RuntimeNames.isSystemObjectKey k -> true
         | _ -> false
 
@@ -216,7 +216,7 @@ module UnificationEngine =
     let rec normalizeObj (t: SemType) : SemType =
         match t with
         | TyClass(n, args) when args.IsEmpty && RuntimeNames.isSystemObjectKey n ->
-            TyConst(RuntimeNames.objAbbrevName, EqArray.empty)
+            TyConst(BuiltinTypes.intrinsicKey RuntimeNames.objAbbrevName, EqArray.empty)
         // Pure child recursion. `mapChildren` routes `TyOr` through the smart
         // constructor: normalising a member to `obj` can collapse the set
         // (`System.Object | obj` → `obj`).
@@ -245,10 +245,12 @@ module UnificationEngine =
     /// general `unify`/`subsumes` edge, so nothing widens outside a foreign-call arg.
     let private numericFamilyOr (ctx: PassContext) (ty: SemType) : SemType voption =
         match resolveStep ty with
-        | TyConst(name, args) when args.Length = 0 ->
-            match ctx.IntrinsicReverseCanon.Value.TryGetValue name with
+        | TyConst(key, args) when args.Length = 0 ->
+            match ctx.IntrinsicReverseCanon.Value.TryGetValue(SymbolKeyOps.intrinsicName key) with
             | true, (_ :: _ :: _ as canons) ->
-                ValueSome(SemType.MkUnion(seq { for c in canons -> TyConst(c, EqArray.empty) }))
+                ValueSome(
+                    SemType.MkUnion(seq { for c in canons -> TyConst(BuiltinTypes.intrinsicKey c, EqArray.empty) })
+                )
             | _ -> ValueNone
         | _ -> ValueNone
 
@@ -264,10 +266,10 @@ module UnificationEngine =
     /// value flows. Confined to that seam, never a general `subsumes`/`unify` edge.
     let private reprSiblings (ctx: PassContext) (a: SemType) (b: SemType) : bool =
         match resolveStep a, resolveStep b with
-        | TyConst(n1, a1), TyConst(n2, a2) when a1.Length = 0 && a2.Length = 0 ->
+        | TyConst(k1, a1), TyConst(k2, a2) when a1.Length = 0 && a2.Length = 0 ->
             let fwd = ctx.Provider.IntrinsicForwardRepr
 
-            match Map.tryFind n1 fwd, Map.tryFind n2 fwd with
+            match Map.tryFind (SymbolKeyOps.intrinsicName k1) fwd, Map.tryFind (SymbolKeyOps.intrinsicName k2) fwd with
             | Some r1, Some r2 -> r1 = r2
             | _ -> false
         | _ -> false
@@ -347,7 +349,7 @@ module UnificationEngine =
                     "Type '%s' could not be resolved during contract extraction — is a package dependency missing?"
                     name
             )
-        | TyConst(n1, a1), TyConst(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
+        | TyConst(k1, a1), TyConst(k2, a2) when k1 = k2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
         | TyRecord(n1, a1), TyRecord(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
         | TyUnion(n1, a1), TyUnion(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
         | TyClass(n1, a1), TyClass(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
@@ -698,7 +700,7 @@ module UnificationEngine =
         // Genuine delegation (not a copy of the `TyConst` arm) so EVERY kind — including
         // `Coercion`, whose arm sits below and decides via `subsumes` — is judged
         // exactly as the base primitive would be.
-        | _, TyLiteral v -> checkConstraint ctx c (TyConst(v.BaseName, EqArray.empty))
+        | _, TyLiteral v -> checkConstraint ctx c (TyConst(BuiltinTypes.intrinsicKey v.BaseName, EqArray.empty))
         | SemanticConstraintKind.Coercion target, _ ->
             // `'e :> exn`: now that `'e` has a nominal head, does it subsume to
             // the required supertype? `subsumes` walks user AND external (BCL)
@@ -711,8 +713,8 @@ module UnificationEngine =
             | SubsumeOutcome.Equal
             | SubsumeOutcome.Subtype -> Satisfied
             | SubsumeOutcome.Unrelated -> Violated
-        | k, TyConst(name, _) ->
-            match primitiveSupports k name with
+        | k, TyConst(nameKey, _) ->
+            match primitiveSupports k (SymbolKeyOps.intrinsicName nameKey) with
             | ValueSome true -> Satisfied
             | ValueSome false -> Violated
             | ValueNone -> Defer
@@ -963,7 +965,7 @@ module UnificationEngine =
             // erroring "string has no op_Addition" — the spurious diagnostic that
             // surfaced compiling `structural-printer.fs` (the first library to use
             // string `+`; bare programs emit it too but never gate on diagnostics).
-            let t = TyConst("string", EqArray.empty)
+            let t = TyConst(BuiltinTypes.intrinsicKey "string", EqArray.empty)
             ValueSome(TyFun(TyTuple(EqArray.ofList [ t; t ]), t))
         elif not (Set.contains primName numericPrimitives) then
             ValueNone
@@ -972,18 +974,18 @@ module UnificationEngine =
             && (Set.contains memberName arithmeticBinaryOps
                 || Set.contains memberName bitwiseBinaryOps)
         then
-            let t = TyConst(primName, EqArray.empty)
+            let t = TyConst(BuiltinTypes.intrinsicKey primName, EqArray.empty)
             ValueSome(TyFun(TyTuple(EqArray.ofList [ t; t ]), t))
         elif argCount = 2 && Set.contains memberName shiftOps then
             // `value: ^T -> shift: int32 -> ^T` — the shift amount is always int32.
-            let t = TyConst(primName, EqArray.empty)
-            ValueSome(TyFun(TyTuple(EqArray.ofList [ t; TyConst("int", EqArray.empty) ]), t))
+            let t = TyConst(BuiltinTypes.intrinsicKey primName, EqArray.empty)
+            ValueSome(TyFun(TyTuple(EqArray.ofList [ t; TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty) ]), t))
         elif argCount = 1 && Set.contains memberName unaryPrimitiveOps then
-            let t = TyConst(primName, EqArray.empty)
+            let t = TyConst(BuiltinTypes.intrinsicKey primName, EqArray.empty)
             ValueSome(TyFun(t, t))
         elif argCount = 2 && Set.contains memberName comparisonBinaryOps then
-            let t = TyConst(primName, EqArray.empty)
-            ValueSome(TyFun(TyTuple(EqArray.ofList [ t; t ]), TyConst("bool", EqArray.empty)))
+            let t = TyConst(BuiltinTypes.intrinsicKey primName, EqArray.empty)
+            ValueSome(TyFun(TyTuple(EqArray.ofList [ t; t ]), TyConst(BuiltinTypes.intrinsicKey "bool", EqArray.empty)))
         else
             ValueNone
 
@@ -1036,7 +1038,9 @@ module UnificationEngine =
                     ()
                 else
                     match resolveStep linkTarget with
-                    | TyConst(primName, _) ->
+                    | TyConst(primKey, _) ->
+                        let primName = SymbolKeyOps.intrinsicName primKey
+
                         match tryPrimitiveTraitCandidate b.MemberName primName b.ArgTypes.Length with
                         | ValueSome candTy ->
                             b.Resolved <- true

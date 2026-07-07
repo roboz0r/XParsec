@@ -44,12 +44,12 @@ let tests =
                                      TExpr.Lambda(_,
                                                   TExpr.StaticOptimization(clauses,
                                                                            TExpr.Const(TConstValue.Int -1, _, _),
-                                                                           TyConst("int", _),
+                                                                           TyConst(key, _),
                                                                            _),
                                                   _,
                                                   _),
                                      true,
-                                     _) ] ->
+                                     _) ] when SymbolKeyOps.simpleName key = "int" ->
                     Expect.equal clauses.Length 3 "three when-clauses, in source order"
 
                     // First clause is `when ^T : int = 1` — one constraint, body `1`.

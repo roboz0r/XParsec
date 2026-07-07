@@ -56,11 +56,14 @@ let tests =
                     // The instance access is a method value `int -> int`; applying
                     // `5` yields `int`.
                     match Unification.zonk ghTy with
-                    | TyFun(TyConst("int", _), TyConst("int", _)) -> ()
+                    | TyFun(TyConst(k1, _), TyConst(k2, _)) when
+                        SymbolKeyOps.simpleName k1 = "int" && SymbolKeyOps.simpleName k2 = "int"
+                        ->
+                        ()
                     | other -> failtestf "GetHashCode should be typed int -> int, got %A" other
 
                     match Unification.zonk resultTy with
-                    | TyConst("int", _) -> ()
+                    | TyConst(key, _) when SymbolKeyOps.simpleName key = "int" -> ()
                     | other -> failtestf "the application should be typed int, got %A" other
 
                     // GetHashCode(T) — an instance method on the open type, its
@@ -82,7 +85,7 @@ let tests =
                             args.Length = 1
                             && (
                                 match args.[0] with
-                                | TyConst("int", _) -> true
+                                | TyConst(key, _) -> SymbolKeyOps.simpleName key = "int"
                                 | _ -> false
                             )
                             ->
@@ -163,11 +166,14 @@ let tests =
                                       resultTy,
                                       _)) ->
                     match Unification.zonk ghTy with
-                    | TyFun(TyConst("int", _), TyConst("int", _)) -> ()
+                    | TyFun(TyConst(k1, _), TyConst(k2, _)) when
+                        SymbolKeyOps.simpleName k1 = "int" && SymbolKeyOps.simpleName k2 = "int"
+                        ->
+                        ()
                     | other -> failtestf "GetHashCode should be typed int -> int, got %A" other
 
                     match Unification.zonk resultTy with
-                    | TyConst("int", _) -> ()
+                    | TyConst(key, _) when SymbolKeyOps.simpleName key = "int" -> ()
                     | other -> failtestf "the application should be typed int, got %A" other
 
                     match ghKey with

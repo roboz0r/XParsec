@@ -165,7 +165,7 @@ module internal FreezeAccess =
         // `GetArrayLength` inline function — the `ldlen` mnemonic lives in
         // `ops-platform.fs`, spliced by `InlineExpansion`. Mirrors the
         // `fieldStep` array guard (the LongIdent-chain form).
-        | TyConst(name, _) when name = RuntimeNames.arrayName 1 && memberName = "Length" ->
+        | TyArray _ when memberName = "Length" ->
             TExpr.App(TExpr.External("GetArrayLength", ValueNone, TyFun(rTy, ty), tok), receiver, ty, tok)
         | _ -> TExpr.FieldGet(receiver, memberName, ty, tok)
 
@@ -217,18 +217,20 @@ module internal FreezeAccess =
             // value-position element; the call's static type is `elem&`
             // (`TyConst(byrefName, [elem])`), which `ldobj` loads.
             let idxTy = typeOfKey ctx (CstKeys.ofExpr idx)
-            let memberName = SymbolKeyOps.simpleName info.Key
+            let memberName = SymbolKeyOps.intrinsicName info.Key
 
             // A byref-returning accessor (`Span<char>.get_Item : T&`) needs the
             // `ldobj` deref; a by-value one (`string.get_Chars : char`) is a plain
             // call. Read the declared return off the recorded signature.
             let retIsByref =
                 match Unification.zonk info.Signature with
-                | TyFun(_, TyConst(n, _)) when n = RuntimeNames.byrefName -> true
+                | TyFun(_, TyByref _) -> true
                 | _ -> false
 
             if retIsByref then
-                let byrefTy = TyConst(RuntimeNames.byrefName, EqArray.singleton ty)
+                let byrefTy =
+                    TyConst(BuiltinTypes.intrinsicKey RuntimeNames.byrefName, EqArray.singleton ty)
+
                 let memberFnTy = TyFun(idxTy, byrefTy)
 
                 let getItem =
@@ -272,7 +274,7 @@ module internal FreezeAccess =
             // WHETHER the receiver has an index signature, never WHICH entry matched.
             let getName =
                 match Unification.zonk arrTy with
-                | TyConst("string", _) -> "GetString"
+                | TyString -> "GetString"
                 | TyClass(clsKey, _) when
                     not (
                         ctx.Provider.TryLookupIndexSignature(SymbolKeyOps.qualifiedName clsKey)

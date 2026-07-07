@@ -169,7 +169,7 @@ module ConformanceTypars =
     /// 1 ⇒ itself, N ⇒ a tuple), so the two sides compare directly.
     let private tupledParams (ps: EqArray<NodeKey * FrozenType>) : FrozenType =
         match ps.Length with
-        | 0 -> FTConst("unit", EqArray.empty)
+        | 0 -> FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty)
         | 1 -> snd ps.[0]
         | _ -> FTTuple(EqArray.ofSeq (seq { for kv in ps -> snd kv }))
 

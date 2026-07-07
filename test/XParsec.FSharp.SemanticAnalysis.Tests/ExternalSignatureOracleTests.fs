@@ -27,8 +27,8 @@ open XParsec.FSharp.SemanticAnalysis
 /// reference-identity `TyVar` leaves to defeat `=`).
 let private groundArgs: SemType[] =
     [|
-        TyConst("int", EqArray.empty)
-        TyConst("string", EqArray.empty)
+        TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty)
+        TyConst(BuiltinTypes.intrinsicKey "string", EqArray.empty)
         TyClass(SymbolKeyOps.qualifiedTypeKey "Test.Widget" 0, EqArray.empty)
     |]
 
@@ -46,13 +46,19 @@ let private d (i: int) : FrozenType = FTTypar(TyparAxis.Declaring, i)
 /// the method axis is exercised by the member tests below.
 let private declaringTemplates: (string * int * FrozenType * SemType) list =
     [
-        "argless const", 0, FTConst("bool", EqArray.empty), TyConst("bool", EqArray.empty)
+        "argless const",
+        0,
+        FTConst(BuiltinTypes.intrinsicKey "bool", EqArray.empty),
+        TyConst(BuiltinTypes.intrinsicKey "bool", EqArray.empty)
         "identity typar", 1, d 0, groundArgs.[0]
-        "array of typar", 1, FTConst("[]", EqArray.singleton (d 0)), TyConst("[]", EqArray.singleton groundArgs.[0])
+        "array of typar",
+        1,
+        FTConst(BuiltinTypes.intrinsicKey "[]", EqArray.singleton (d 0)),
+        TyConst(BuiltinTypes.intrinsicKey "[]", EqArray.singleton groundArgs.[0])
         "curried fun over two typars",
         2,
-        FTFun(d 0, FTFun(d 1, FTConst("unit", EqArray.empty))),
-        TyFun(groundArgs.[0], TyFun(groundArgs.[1], TyConst("unit", EqArray.empty)))
+        FTFun(d 0, FTFun(d 1, FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty))),
+        TyFun(groundArgs.[0], TyFun(groundArgs.[1], TyConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty)))
         "tupled fun",
         2,
         FTFun(FTTuple(EqArray.ofList [ d 0; d 1 ]), d 0),
@@ -61,8 +67,8 @@ let private declaringTemplates: (string * int * FrozenType * SemType) list =
         "union of typar", 1, FTUnion(kUnion, EqArray.singleton (d 0)), TyUnion(kUnion, EqArray.singleton groundArgs.[0])
         "nested generic intrinsic",
         1,
-        FTConst("[]", EqArray.singleton (FTUnion(kUnion, EqArray.singleton (d 0)))),
-        TyConst("[]", EqArray.singleton (TyUnion(kUnion, EqArray.singleton groundArgs.[0])))
+        FTConst(BuiltinTypes.intrinsicKey "[]", EqArray.singleton (FTUnion(kUnion, EqArray.singleton (d 0)))),
+        TyConst(BuiltinTypes.intrinsicKey "[]", EqArray.singleton (TyUnion(kUnion, EqArray.singleton groundArgs.[0])))
         "unknown head", 0, FTUnknown "Unresolved.Head", TyUnknown "Unresolved.Head"
     ]
 
@@ -129,7 +135,10 @@ let tests =
                     let m0b = outs.[0]
                     let m1 = outs.[1]
 
-                    Expect.equal declaring (TyConst("int", EqArray.empty)) "declaring arg substituted"
+                    Expect.equal
+                        declaring
+                        (TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
+                        "declaring arg substituted"
 
                     let asTyVar label (t: SemType) =
                         match t with
@@ -206,8 +215,17 @@ let tests =
                         false
                         0
                         0
-                        (TestHelpers.mkSignature 0 0 (FTConst("unit", EqArray.empty)) (FTConst("int", EqArray.empty)))
-                        (Some(TyFun(TyConst("unit", EqArray.empty), TyConst("int", EqArray.empty))))
+                        (TestHelpers.mkSignature
+                            0
+                            0
+                            (FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty))
+                            (FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty)))
+                        (Some(
+                            TyFun(
+                                TyConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty),
+                                TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty)
+                            )
+                        ))
 
                     // 1-param method over a declaring typar: `'T0 -> bool`.
                     memberOracle
@@ -215,8 +233,8 @@ let tests =
                         false
                         1
                         0
-                        (TestHelpers.mkSignature 1 0 (d 0) (FTConst("bool", EqArray.empty)))
-                        (Some(TyFun(groundArgs.[0], TyConst("bool", EqArray.empty))))
+                        (TestHelpers.mkSignature 1 0 (d 0) (FTConst(BuiltinTypes.intrinsicKey "bool", EqArray.empty)))
+                        (Some(TyFun(groundArgs.[0], TyConst(BuiltinTypes.intrinsicKey "bool", EqArray.empty))))
 
                     // N≥2 params: one tupled arg.
                     memberOracle
@@ -228,11 +246,11 @@ let tests =
                             2
                             0
                             (FTTuple(EqArray.ofList [ d 0; d 1 ]))
-                            (FTConst("unit", EqArray.empty)))
+                            (FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty)))
                         (Some(
                             TyFun(
                                 TyTuple(EqArray.ofList [ groundArgs.[0]; groundArgs.[1] ]),
-                                TyConst("unit", EqArray.empty)
+                                TyConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty)
                             )
                         ))
 
@@ -245,7 +263,7 @@ let tests =
                         (TestHelpers.mkSignature
                             1
                             0
-                            (FTConst("unit", EqArray.empty))
+                            (FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty))
                             (FTClass(kRec, EqArray.singleton (d 0))))
                         (Some(TyClass(kRec, EqArray.singleton groundArgs.[0])))
 
@@ -258,11 +276,14 @@ let tests =
                         (TestHelpers.mkSignature
                             1
                             0
-                            (FTTuple(EqArray.ofList [ d 0; FTConst("int", EqArray.empty) ]))
+                            (FTTuple(EqArray.ofList [ d 0; FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty) ]))
                             (FTRecord(kRec, EqArray.singleton (d 0))))
                         (Some(
                             TyFun(
-                                TyTuple(EqArray.ofList [ groundArgs.[0]; TyConst("int", EqArray.empty) ]),
+                                TyTuple(
+                                    EqArray.ofList
+                                        [ groundArgs.[0]; TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty) ]
+                                ),
                                 TyRecord(kRec, EqArray.singleton groundArgs.[0])
                             )
                         ))

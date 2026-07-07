@@ -14,7 +14,7 @@ open XParsec.FSharp.SemanticAnalysis
 // bare marker.
 
 let private origin = SymbolOrigin.Empty
-let private marker = FTConst("M", EqArray.empty)
+let private marker = FTConst(BuiltinTypes.intrinsicKey "M", EqArray.empty)
 
 let private witness (v: Variance) : FrozenType =
     let name =
@@ -23,7 +23,7 @@ let private witness (v: Variance) : FrozenType =
         | Variance.Contra -> "contra"
         | Variance.Inv -> "inv"
 
-    FTConst(name, EqArray.empty)
+    FTConst(BuiltinTypes.intrinsicKey name, EqArray.empty)
 
 /// Resolve ONLY the marker, to a witness of the variance the surface was mapped at;
 /// pass every other node through. A witness in the output ⇒ that surface was reached

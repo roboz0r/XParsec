@@ -55,7 +55,7 @@ module UnificationEngineCore =
     let argElemsOf (argTy: SemType) : SemType list =
         match zonk argTy with
         | TyTuple xs -> EqArray.toList xs
-        | TyConst("unit", _) -> []
+        | TyUnit -> []
         | single -> [ single ]
 
     /// The call-site argument arity of a (shallow-resolved) .NET-style tupled
@@ -65,7 +65,7 @@ module UnificationEngineCore =
     let argArityOf (argTy: SemType) : int =
         match resolveStep argTy with
         | TyTuple xs -> xs.Length
-        | TyConst("unit", _) -> 0
+        | TyUnit -> 0
         | _ -> 1
 
     /// The single SemType a parameter list presents as a function argument:
@@ -497,8 +497,9 @@ module UnificationEngineCore =
         // key — its members ride dedicated backend paths, so honour the documented
         // "keeps its own path" and decline BEFORE consulting the platform name (which
         // would otherwise differ from `name` and mis-route the lookup onto `"!0[]"`).
-        | TyConst(name, _) when RuntimeNames.isStructuralConstructorName name -> ValueNone
-        | TyConst(name, typeArgs) ->
+        | TyStructuralCtor -> ValueNone
+        | TyConst(key, typeArgs) ->
+            let name = SymbolKeyOps.intrinsicName key
             let platformQual = intrinsicPlatformName ctx name
 
             if platformQual <> name then
@@ -525,7 +526,7 @@ module UnificationEngineCore =
         // `interface … with` impls (surfaced by `subtypeInterfacesOf` via
         // `tryInterfaceImplHostByKey`) admit `(r :> ISomeIface)` exactly like a class's.
         | TyRecord(n, args) -> ValueSome(struct (canonName ctx (SymbolKeyOps.qualifiedName n), args))
-        | TyConst(n, args) -> ValueSome(struct (canonName ctx n, args))
+        | TyConst(key, args) -> ValueSome(struct (canonName ctx (SymbolKeyOps.intrinsicName key), args))
         | _ -> ValueNone
 
     // The project-local registry key of a nominal `SemType` (`TyClass` / `TyUnion` /
@@ -617,9 +618,20 @@ module UnificationEngineCore =
         | ValueNone ->
             match ctx.Provider.TryLookupType name with
             | ValueSome(ExternalTypeShape.Class shape) ->
+                // A class's implemented interfaces are NOMINAL types — surface them as
+                // `TyClass`, exactly as they appear as a value's static type everywhere
+                // else (an interface is an `ExternalTypeShape.Class` with `IsInterface`)
+                // and exactly as the local branch above yields via `instantiateMember`.
+                // `qualifiedTypeKey` keeps the `` `N `` arity in the key's `name`, so the
+                // walk's `TyClass` arm (`subtypeNominalOf`, via `qualifiedName`) matches
+                // the target nominal by full arity-qualified canon. (`asm = None`: the
+                // interface's home isn't threaded through `instantiateInterfaces`, and the
+                // walk's canon match is asm-agnostic; a local impl-host lookup keys on the
+                // exact `asm=Some` registry key, so this external key falls through to the
+                // provider unchanged.)
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
                 |> Array.toList
-                |> List.map (fun (n, ta) -> TyConst(n, EqArray.ofArray ta))
+                |> List.map (fun (n, ta) -> TyClass(SymbolKeyOps.qualifiedTypeKey n 0, EqArray.ofArray ta))
             | _ -> []
 
     /// Find the instantiation of `src` (or one of its bases / interfaces) whose

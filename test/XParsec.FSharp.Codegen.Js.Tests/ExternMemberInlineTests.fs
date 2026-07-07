@@ -100,7 +100,7 @@ let private pokeMember () : TTypeMember =
         IsOverride = false
         ThisKey = ValueSome thisKey
         BaseKey = ValueNone
-        ThisTy = TyConst("widget", EqArray.empty)
+        ThisTy = TyConst(BuiltinTypes.intrinsicKey "widget", EqArray.empty)
         Params = EqArray.ofList [ (xKey, BuiltinTypes.tyInt) ]
         Body = body
         ReturnTy = BuiltinTypes.tyInt
@@ -188,19 +188,32 @@ let tests =
                     match mb.Body.Decl with
                     | TDecl.Let(_, TExpr.Lambda(TPat.NamedSimple(_, thisTy, _), inner, _, _), true, declTy) ->
                         // Outermost lambda binds `this : widget`.
-                        Expect.equal thisTy (TyConst("widget", EqArray.empty)) "outer param is `this : widget`"
+                        Expect.equal
+                            thisTy
+                            (TyConst(BuiltinTypes.intrinsicKey "widget", EqArray.empty))
+                            "outer param is `this : widget`"
 
                         // Inner lambda binds the value param; its body is the IL intrinsic.
                         match inner with
-                        | TExpr.Lambda(TPat.NamedSimple(_, TyConst("int", _), _),
+                        | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k1, _), _),
                                        TExpr.ILIntrinsic _,
-                                       TyFun(TyConst("int", _), TyConst("int", _)),
-                                       _) -> ()
+                                       TyFun(TyConst(k2, _), TyConst(k3, _)),
+                                       _) when
+                            SymbolKeyOps.simpleName k1 = "int"
+                            && SymbolKeyOps.simpleName k2 = "int"
+                            && SymbolKeyOps.simpleName k3 = "int"
+                            ->
+                            ()
                         | other -> failtestf "expected inner `fun x -> (# … #)`, got %A" other
 
                         // `declTy` is the full curried arrow `widget -> int -> int`.
                         match declTy with
-                        | TyFun(TyConst("widget", _), TyFun(TyConst("int", _), TyConst("int", _))) -> ()
+                        | TyFun(TyConst(k1, _), TyFun(TyConst(k2, _), TyConst(k3, _))) when
+                            SymbolKeyOps.simpleName k1 = "widget"
+                            && SymbolKeyOps.simpleName k2 = "int"
+                            && SymbolKeyOps.simpleName k3 = "int"
+                            ->
+                            ()
                         | other -> failtestf "declTy is not `widget -> int -> int`: %A" other
 
                         // ParamAttrs aligned to curried position: leading `this` + value param.
@@ -220,11 +233,14 @@ let tests =
                 | Some mb ->
                     match mb.Body.Decl with
                     | TDecl.Let(_,
-                                TExpr.Lambda(TPat.NamedSimple(_, TyConst("int", _), _), TExpr.ILIntrinsic _, _, _),
+                                TExpr.Lambda(TPat.NamedSimple(_, TyConst(k0, _), _), TExpr.ILIntrinsic _, _, _),
                                 true,
-                                declTy) ->
+                                declTy) when SymbolKeyOps.simpleName k0 = "int" ->
                         match declTy with
-                        | TyFun(TyConst("int", _), TyConst("int", _)) -> ()
+                        | TyFun(TyConst(k1, _), TyConst(k2, _)) when
+                            SymbolKeyOps.simpleName k1 = "int" && SymbolKeyOps.simpleName k2 = "int"
+                            ->
+                            ()
                         | other -> failtestf "static declTy is not `int -> int`: %A" other
 
                         Expect.equal mb.Body.ParamAttrs.Length 1 "one curried ParamAttr (x only, no this)"
@@ -305,7 +321,10 @@ let tests =
                     Expect.equal mb.TypeName "widget" "harvested under the abbrev's name"
 
                     match mb.Body.Decl with
-                    | TDecl.Let(_, TExpr.Lambda(TPat.NamedSimple(_, TyConst("widget", _), _), _, _, _), true, _) -> ()
+                    | TDecl.Let(_, TExpr.Lambda(TPat.NamedSimple(_, TyConst(key, _), _), _, _, _), true, _) when
+                        SymbolKeyOps.simpleName key = "widget"
+                        ->
+                        ()
                     | other -> failtestf "expected a `this : widget`-first inline lambda, got %A" other
                 | None -> failtestf "harvest produced no Poke body; harvested: %A" harvested
             }

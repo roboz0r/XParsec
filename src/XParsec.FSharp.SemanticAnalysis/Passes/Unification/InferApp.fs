@@ -665,7 +665,7 @@ module internal UnificationInferApp =
             // resolution is wired; only the `&` prefix is). `Formatter`/printf needs
             // neither (its byref returns come from BCL `Span.get_Item`), so the
             // producer side is unbuilt.
-            TyConst(RuntimeNames.byrefName, EqArray.singleton operandTy)
+            TyConst(BuiltinTypes.intrinsicKey RuntimeNames.byrefName, EqArray.singleton operandTy)
         | ValueSome(DesugaredForm.OpName name) ->
             match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
             | ValueSome sym ->

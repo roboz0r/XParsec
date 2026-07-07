@@ -25,7 +25,7 @@ module DynamicEscape =
     /// falls back to the structural render.
     let private shown (t: SemType) : string =
         match t with
-        | TyConst(name, _) -> name
+        | TyConst(key, _) -> SymbolKeyOps.simpleName key
         | TyClass(n, _) -> SymbolKeyOps.qualifiedName n
         | other -> sprintf "%A" other
 
@@ -35,7 +35,7 @@ module DynamicEscape =
                 match Unification.zonk (TyVar site.Root) with
                 // Default fired (stayed `dynamic`) or still open (a genuine leak is
                 // ResolvedTypes' concern) — no unchecked escape.
-                | TyConst("dynamic", _)
+                | TyDynamic -> ()
                 | TyVar _ -> ()
                 | escaped ->
                     let name = shown escaped

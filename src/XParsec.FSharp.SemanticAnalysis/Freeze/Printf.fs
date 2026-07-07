@@ -31,7 +31,8 @@ module internal FreezePrintf =
     /// `ValueNone`) — additive, no regression.
     let rec private structuredArgFaithful (ctx: PassContext) (localAsm: string option) (t: SemType) : bool =
         match t with
-        | TyConst(name, args) ->
+        | TyConst(key, args) ->
+            let name = SymbolKeyOps.intrinsicName key
             // The array intrinsic (`'T[]` ≡ `TyConst("[]", [elem])`) renders via
             // the `IEnumerable` arm — faithful iff its element type is.
             if name = "[]" then

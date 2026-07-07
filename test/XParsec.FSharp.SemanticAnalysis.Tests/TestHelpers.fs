@@ -102,7 +102,12 @@ let mkMember: ExternalMember =
         Name = ""
         IsStatic = true
         Storage = MemberStorage.Method
-        Signature = mkSignature 0 0 (FTConst("unit", EqArray.empty)) (FTConst("unit", EqArray.empty))
+        Signature =
+            mkSignature
+                0
+                0
+                (FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty))
+                (FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty))
         MethodArity = 0
         Origin = SymbolOrigin.Empty
         Key = SymbolKeyOps.valueKeyOf None ""

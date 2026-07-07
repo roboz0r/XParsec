@@ -63,7 +63,7 @@ let tests =
 
                             // Self-type is the INTRINSIC type, not a TyClass.
                             match m.ThisTy with
-                            | TyConst("widget", _) -> ()
+                            | TyConst(key, _) when SymbolKeyOps.simpleName key = "widget" -> ()
                             | other -> failtestf "member ThisTy is not `TyConst widget`: %A" other
 
                             match m.Body with
@@ -86,7 +86,10 @@ let tests =
                     )
 
                 match idWTy with
-                | Some(TyFun(TyConst("widget", _), TyConst("widget", _))) -> ()
+                | Some(TyFun(TyConst(k1, _), TyConst(k2, _))) when
+                    SymbolKeyOps.simpleName k1 = "widget" && SymbolKeyOps.simpleName k2 = "widget"
+                    ->
+                    ()
                 | Some other -> failtestf "idW type is not `widget -> widget` over TyConst: %A" other
                 | None -> failtestf "no `idW` let decl found, decls: %A" tast.Decls
             }

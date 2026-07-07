@@ -102,7 +102,7 @@ type internal ClrEncoder(env: ClrEnv) =
         // the BCL metadata with the primitive `object` token, so a user member
         // implementing it must match that encoding (see the `.Object()` recipes the
         // synthesised structural-equality triple already uses).
-        | FTConst(n, _) when n = RuntimeNames.objAbbrevName -> te.Object()
+        | FTConst(key, _) when SymbolKeyOps.simpleName key = RuntimeNames.objAbbrevName -> te.Object()
         // `System.Object` arriving as an external CLASS — a BCL method's `object`
         // parameter read from metadata as a class `TypeRef` rather than the primitive
         // `obj` (e.g. `IEqualityComparer.GetHashCode(object)` /
@@ -113,16 +113,19 @@ type internal ClrEncoder(env: ClrEnv) =
         // System.Object` fails signature match at JIT time (`MissingMethodException`).
         // Mirrors the `obj` arm + the `.Object()` override recipes.
         | FTClass(key, _) when RuntimeNames.isSystemObjectKey key -> te.Object()
-        | FTConst("System.IO.TextWriter", _) -> te.Type(eTextWriter.Value, false)
-        | FTConst("Vesper.Formatter", _) -> te.Type(eFormatter.Value, true)
-        | FTConst("System.HashCode", _) -> te.Type(eHashCode.Value, true)
+        | FTConst(key, _) when SymbolKeyOps.simpleName key = "System.IO.TextWriter" -> te.Type(eTextWriter.Value, false)
+        | FTConst(key, _) when SymbolKeyOps.simpleName key = "Vesper.Formatter" -> te.Type(eFormatter.Value, true)
+        | FTConst(key, _) when SymbolKeyOps.simpleName key = "System.HashCode" -> te.Type(eHashCode.Value, true)
         // Only scalar (argless) intrinsics rekey off their repr string. A generic
         // intrinsic (the array `[]`, `args ≠ []`) has no `!n`-substituting encoder
         // yet, so it falls through to
         // the catch-all "cannot encode" error — the green suite proves none reaches here.
-        | FTConst((name & PrimitiveRepr repr), args) when args.IsEmpty ->
+        | FTConst(key, args) when args.IsEmpty && ((|PrimitiveRepr|_|) (SymbolKeyOps.simpleName key)).IsSome ->
             // Key the IL type off the representation string the name maps to (`"int"` →
             // `"System.Int32"` → `i4`), not the Vesper name.
+            let name = SymbolKeyOps.simpleName key
+            let repr = ((|PrimitiveRepr|_|) name).Value
+
             if IntrinsicRepr.tryEncodeValueType te repr then
                 ()
             elif repr = "System.Decimal" then
@@ -134,7 +137,8 @@ type internal ClrEncoder(env: ClrEnv) =
                 failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
         // The array intrinsic `[]<elem>` (`'T[]`) → an SZArray (rank-1 vector) of
         // the element. Higher-rank arrays (`[,]`) aren't emitted yet.
-        | FTConst("[]", args) when args.Length = 1 -> encodeType (te.SZArray()) args.[0]
+        | FTConst(key, args) when args.Length = 1 && SymbolKeyOps.simpleName key = "[]" ->
+            encodeType (te.SZArray()) args.[0]
         | FTFun(a, b) ->
             let g = te.GenericInstantiation(eFun2.Value, 2, false)
             encodeType (g.AddArgument()) a
@@ -282,7 +286,7 @@ type internal ClrEncoder(env: ClrEnv) =
         // recursive type encoder means it appears as a field / generic argument —
         // illegal in CLR metadata — so flag it explicitly rather than via the opaque
         // catch-all.
-        | FTConst(n, _) when n = RuntimeNames.byrefName ->
+        | FTConst(key, _) when SymbolKeyOps.simpleName key = RuntimeNames.byrefName ->
             failwithf
                 "ClrProvider: by-ref type '%A' in a non-param/return position (illegal as a field or generic argument)"
                 t
@@ -304,7 +308,7 @@ type internal ClrEncoder(env: ClrEnv) =
         // runtime value already IS the literal) — re-encode as that primitive rather
         // than hit the catch-all. External-vocabulary only (a TS/JS concern), so a
         // literal rarely reaches the CLR encoder, but erasing keeps it honest.
-        | FTLiteral v -> encodeType te (FTConst(v.BaseName, EqArray.empty))
+        | FTLiteral v -> encodeType te (FTConst(BuiltinTypes.intrinsicKey v.BaseName, EqArray.empty))
         // A carried type-level computation (keyof / indexed-access / conditional) is a
         // JS-seam construct that must be GROUND-EVALUATED by the front end (step 3)
         // before codegen — it has no CLR runtime repr in its unevaluated form. Like the

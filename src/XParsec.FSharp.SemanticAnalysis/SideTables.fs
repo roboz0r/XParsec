@@ -380,7 +380,8 @@ type IntrinsicAbbrevInfo(name: string, typeParams: EqArray<string * TypeVar>, de
         // The load-bearing choice: the member self-type is the abbrev's INTRINSIC
         // type (`TyConst name args`), preserving `X`'s `TyConst` identity — not a
         // `TyClass`. `translateNominalMember` stamps this onto each member's `ThisTy`.
-        member _.MkSelfType args = TyConst(name, args)
+        member _.MkSelfType args =
+            TyConst(BuiltinTypes.intrinsicKey name, args)
 
 /// An enum type declaration (`type E = | C1 = v1 | …`). Unlike unions/records,
 /// an enum is non-generic and carries no member side tables: it is a closed,

@@ -106,7 +106,7 @@ module EmitResolve =
     /// parameter accepts any argument — so it has no head here.
     let private headOf (t: FrozenType) : string =
         match t with
-        | FTConst(n, _) -> SymbolKeyOps.bareName n
+        | FTConst(key, _) -> SymbolKeyOps.simpleName key
         | FTClass(k, _)
         | FTUnion(k, _)
         | FTRecord(k, _)
@@ -401,10 +401,10 @@ module EmitResolve =
     /// underlying upstream, so the residual arm is a "can't happen" invariant.
     let enumIntLoad (v: TConstValue) : ILInstr * FrozenType =
         match v with
-        | TConstValue.Int n -> ILInstr.LdcI4 n, FTConst("int", EqArray.empty)
-        | TConstValue.Byte b -> ILInstr.LdcI4(int b), FTConst("byte", EqArray.empty)
-        | TConstValue.UInt u -> ILInstr.LdcI4(int u), FTConst("uint32", EqArray.empty)
-        | TConstValue.Int64 i -> ILInstr.LdcI8 i, FTConst("int64", EqArray.empty)
+        | TConstValue.Int n -> ILInstr.LdcI4 n, FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty)
+        | TConstValue.Byte b -> ILInstr.LdcI4(int b), FTConst(BuiltinTypes.intrinsicKey "byte", EqArray.empty)
+        | TConstValue.UInt u -> ILInstr.LdcI4(int u), FTConst(BuiltinTypes.intrinsicKey "uint32", EqArray.empty)
+        | TConstValue.Int64 i -> ILInstr.LdcI8 i, FTConst(BuiltinTypes.intrinsicKey "int64", EqArray.empty)
         | other -> failwithf "Emit: enum case carries a non-integral literal %A" other
 
     /// Push a string/mixed enum case literal as the wrapper `.ctor`'s single

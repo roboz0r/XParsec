@@ -76,11 +76,10 @@ let tests =
                     Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                     match tast.Decls with
-                    | EqList [ TDecl.Let(TPat.NamedSimple _,
-                                         TExpr.Lambda _,
-                                         true,
-                                         TyFun(TyConst("int", _), TyConst("int", _)))
-                               TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ] ->
+                    | EqList [ TDecl.Let(TPat.NamedSimple _, TExpr.Lambda _, true, TyFun(TyConst(k1, _), TyConst(k2, _)))
+                               TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ] when
+                        SymbolKeyOps.simpleName k1 = "int" && SymbolKeyOps.simpleName k2 = "int"
+                        ->
                         match EqArray.toList segs with
                         | [ FormatSeg.Hole(_,
                                            TExpr.Let(TPat.NamedSimple _, TExpr.Const(TConstValue.Int 41, _, _), _, _, _)) ] ->

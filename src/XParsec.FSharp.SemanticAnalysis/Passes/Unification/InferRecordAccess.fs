@@ -437,7 +437,7 @@ module internal UnificationInferRecordAccess =
                 memberSig
             else
                 errorTy ctx diagKey (sprintf "Type '%s' has no instance member '%s'" clsQual memberName)
-        | TyConst(name, _) when name = RuntimeNames.arrayName 1 && memberName = "Length" ->
+        | TyArray _ when memberName = "Length" ->
             match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "GetArrayLength" with
             | ValueSome sym ->
                 let resultTy = TyVar(freshTyVar ctx)
@@ -516,7 +516,7 @@ module internal UnificationInferRecordAccess =
         // everything else (arrays, still-free metavars) to `GetArray`.
         let stringOrArrayIndex () =
             match resolveStep recvTy with
-            | TyConst("string", _) -> getStringIndex ()
+            | TyString -> getStringIndex ()
             | _ -> getArrayIndex ()
 
         // An indexer on an *external* receiver is its BCL `get_Item` (or, for a
@@ -548,14 +548,14 @@ module internal UnificationInferRecordAccess =
                 // The accessor is `idx -> ret`; `ret` is `T&` (byref) or `T` (value).
                 let retIsByref =
                     match memberSig with
-                    | TyFun(_, TyConst(n, _)) when n = RuntimeNames.byrefName -> true
+                    | TyFun(_, TyByref _) -> true
                     | _ -> false
 
                 let resultTy = TyVar(freshTyVar ctx)
 
                 let rhsRet =
                     if retIsByref then
-                        TyConst(RuntimeNames.byrefName, EqArray.singleton resultTy)
+                        TyConst(BuiltinTypes.intrinsicKey RuntimeNames.byrefName, EqArray.singleton resultTy)
                     else
                         resultTy
 
@@ -593,11 +593,11 @@ module internal UnificationInferRecordAccess =
                     | _ ->
                         let matched =
                             match resolveStep idxTy with
-                            | TyConst(idxName, _) ->
+                            | TyConst(idxKey, _) ->
                                 realised
                                 |> List.tryFind (fun (k, _) ->
                                     match resolveStep k with
-                                    | TyConst(kn, _) -> kn = idxName
+                                    | TyConst(kKey, _) -> kKey = idxKey
                                     | _ -> false
                                 )
                             | _ -> None
@@ -649,8 +649,8 @@ module internal UnificationInferRecordAccess =
         // same `arr[i]`). A MISS — the contract half absent (a non-JS target, or a key
         // disagreement) — falls back to the free `GetArray` path UNCHANGED, so nothing
         // regresses if resolution doesn't hit.
-        | TyConst(name, elemArgs) when name = RuntimeNames.arrayName 1 ->
-            match resolveExternalIndexer RuntimeNames.arrayContractName (elemArgs.AsSpan().ToArray()) "get_Item" with
+        | TyArray elem ->
+            match resolveExternalIndexer RuntimeNames.arrayContractName [| elem |] "get_Item" with
             | ValueSome resultTy -> resultTy
             | ValueNone -> getArrayIndex ()
         | _ ->

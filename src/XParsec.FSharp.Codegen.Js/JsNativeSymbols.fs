@@ -28,8 +28,12 @@ module JsNativeSymbols =
         SymbolKey.TypeKey(Some RuntimeAssembly, "", "Error")
 
     let private errorTy: FrozenType = FTClass(errorKey, EqArray.empty)
-    let private stringTy: FrozenType = FTConst("string", EqArray.empty)
-    let private unitTy: FrozenType = FTConst("unit", EqArray.empty)
+
+    let private stringTy: FrozenType =
+        FTConst(BuiltinTypes.intrinsicKey "string", EqArray.empty)
+
+    let private unitTy: FrozenType =
+        FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty)
 
     /// `new Error(message: string)` — the JS `Error` constructor as an `ExternalMember`.
     let private errorCtor: ExternalMember =
@@ -75,7 +79,9 @@ module JsNativeSymbols =
     // needs a shape to resolve against, and retrofitting `seq` onto the capability
     // mechanism is out of scope.
 
-    let private boolTy: FrozenType = FTConst("bool", EqArray.empty)
+    let private boolTy: FrozenType =
+        FTConst(BuiltinTypes.intrinsicKey "bool", EqArray.empty)
+
     /// The single declaring typar `'T` (axis Declaring, index 0).
     let private selfTypar: FrozenType = FTTypar(TyparAxis.Declaring, 0)
 

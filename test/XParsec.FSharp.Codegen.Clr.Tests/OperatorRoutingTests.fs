@@ -38,14 +38,14 @@ let tests =
                                                            TExprG.ILIntrinsic("ceq",
                                                                               _,
                                                                               EqList [ TExprG.Var _; TExprG.Var _ ],
-                                                                              FTConst("bool", _),
+                                                                              FTConst(key, _),
                                                                               _),
                                                            _,
                                                            _),
                                              _,
                                              _),
                                false,
-                               _) ] -> ()
+                               _) ] when SymbolKeyOps.simpleName key = "bool" -> ()
                 | other -> failtestf "expected `=` to lower to a ceq ILIntrinsic, got %A" other
             }
 

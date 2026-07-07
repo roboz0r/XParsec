@@ -414,3 +414,122 @@ module RuntimeNames =
                 "single"
                 "decimal"
             ]
+
+    /// The declaring namespace every built-in intrinsic identity carries — the
+    /// `namespace Vesper` of `prim-types-*.fs`. Rides in the intrinsic's `SymbolKey`
+    /// so its identity is qualified like every nominal; codegen still reads the bare
+    /// name via `SymbolKeyOps.simpleName`.
+    [<Literal>]
+    let intrinsicNamespace = "Vesper"
+
+    /// The non-numeric intrinsic identity names (the numeric core is `numericTypeNames`
+    /// above). Together with the numeric core and the structural constructors
+    /// (`isStructuralConstructorName` — array, by-ref) these are the names that carry the
+    /// `Vesper` namespace; anything else routed through `intrinsicKey` is treated as
+    /// origin-less (`ns = ""`) — an unresolved/opaque fallback name (`null`, an unknown
+    /// bare type, or a bare-carried BCL sink name like a printf `TextWriter`).
+    let private knownIntrinsicNames: Set<string> =
+        Set.ofList
+            [
+                "bigint"
+                "bool"
+                "char"
+                "string"
+                "unit"
+                "obj"
+                "objnull"
+                "voidptr"
+                "exn"
+                "undefined"
+                "seq<int>"
+            ]
+
+    /// Mint the qualified `SymbolKey` identity for an intrinsic named `name` (the
+    /// verbatim bare identity string, e.g. `"int"`, `"[]"`). The SINGLE source every
+    /// `TyConst`/`FTConst` producer routes through so all mints of one intrinsic compare
+    /// EQUAL (unification depends on it). Known intrinsics carry the `Vesper` namespace;
+    /// a name that is none of them is origin-less (`ns = ""`). `asm = None`: an
+    /// intrinsic's home assembly is target-dependent, so its identity is asm-blind (the
+    /// `sameTypeAsmBlind` convention) and carries no backend/home knowledge. The `name`
+    /// component is kept VERBATIM (no arity suffix), so `SymbolKeyOps.simpleName`
+    /// recovers the bare codegen/repr key unchanged.
+    let intrinsicKey (name: string) : SymbolKey =
+        let ns =
+            if
+                numericTypeNames.Contains name
+                || knownIntrinsicNames.Contains name
+                || isStructuralConstructorName name
+            then
+                intrinsicNamespace
+            else
+                ""
+
+        SymbolKey.TypeKey(None, ns, name)
+
+/// Active patterns recognising the well-known intrinsic `SemType`/`FrozenType`s by KEY
+/// IDENTITY (never a stringified name) — the sanctioned way for the semantic passes to
+/// ask "is this the `bool` / `unit` / `obj` / array / by-ref intrinsic?". Each matches the
+/// canonical key `RuntimeNames.intrinsicKey` mints, so the producers and these recognisers
+/// cannot drift, and arity/namespace are compared structurally rather than stripped. Prefer
+/// these over `SymbolKeyOps.intrinsicName key = "…"`; `SymbolKeyOps.simpleName` stays for
+/// human-facing display only. `AutoOpen` so a pass matches `| TyBool ->` unqualified.
+[<AutoOpen>]
+module IntrinsicTypePatterns =
+
+    let private unitKey = RuntimeNames.intrinsicKey "unit"
+    let private boolKey = RuntimeNames.intrinsicKey "bool"
+    let private objKey = RuntimeNames.intrinsicKey RuntimeNames.objAbbrevName
+    let private stringKey = RuntimeNames.intrinsicKey "string"
+    let private dynamicKey = RuntimeNames.intrinsicKey "dynamic"
+    let private arrayKey1 = RuntimeNames.intrinsicKey (RuntimeNames.arrayName 1)
+    let private byrefKey = RuntimeNames.intrinsicKey RuntimeNames.byrefName
+
+    let (|TyUnit|_|) (ty: SemType) =
+        match ty with
+        | TyConst(k, a) when a.IsEmpty && k = unitKey -> Some()
+        | _ -> None
+
+    let (|TyBool|_|) (ty: SemType) =
+        match ty with
+        | TyConst(k, a) when a.IsEmpty && k = boolKey -> Some()
+        | _ -> None
+
+    let (|TyObj|_|) (ty: SemType) =
+        match ty with
+        | TyConst(k, a) when a.IsEmpty && k = objKey -> Some()
+        | _ -> None
+
+    let (|TyString|_|) (ty: SemType) =
+        match ty with
+        | TyConst(k, a) when a.IsEmpty && k = stringKey -> Some()
+        | _ -> None
+
+    let (|TyDynamic|_|) (ty: SemType) =
+        match ty with
+        | TyConst(k, a) when a.IsEmpty && k = dynamicKey -> Some()
+        | _ -> None
+
+    /// The rank-1 array intrinsic `'T[]`, binding its element type.
+    let (|TyArray|_|) (ty: SemType) =
+        match ty with
+        | TyConst(k, a) when a.Length = 1 && k = arrayKey1 -> Some a.[0]
+        | _ -> None
+
+    /// A managed by-ref `T&`, binding its element type.
+    let (|TyByref|_|) (ty: SemType) =
+        match ty with
+        | TyConst(k, a) when a.Length = 1 && k = byrefKey -> Some a.[0]
+        | _ -> None
+
+    /// A *structural type constructor* — an array of ANY rank (`[]`, `[,]`, …) or a
+    /// by-ref (`&`); the intrinsics that ride dedicated backend paths rather than a
+    /// nominal receiver (mirrors `RuntimeNames.isStructuralConstructorName`).
+    let (|TyStructuralCtor|_|) (ty: SemType) =
+        match ty with
+        | TyConst(k, _) when RuntimeNames.isStructuralConstructorName (SymbolKeyOps.intrinsicName k) -> Some()
+        | _ -> None
+
+    let (|FTUnit|_|) (ft: FrozenType) =
+        match ft with
+        | FTConst(k, a) when a.IsEmpty && k = unitKey -> Some()
+        | _ -> None

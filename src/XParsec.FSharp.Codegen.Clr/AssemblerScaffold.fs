@@ -38,7 +38,7 @@ module internal AssemblerScaffold =
 
     let private isUnitTy t =
         match t with
-        | FTConst("unit", _) -> true
+        | FTConst(key, _) when SymbolKeyOps.simpleName key = "unit" -> true
         | _ -> false
 
     /// The metadata parameter types of an abstract member after F#'s

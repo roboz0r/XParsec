@@ -343,7 +343,7 @@ module EmitFormat =
                     match d.Width with
                     | ValueNone -> None
                     | ValueSome widthExpr ->
-                        let l = b.Local(FTConst("int", EqArray.empty))
+                        let l = b.Local(FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
                         buildExpr env b widthExpr
 
                         let form =
@@ -376,7 +376,7 @@ module EmitFormat =
                     match d.Precision with
                     | ValueNone -> None
                     | ValueSome precExpr ->
-                        let l = b.Local(FTConst("int", EqArray.empty))
+                        let l = b.Local(FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
                         buildExpr env b precExpr
 
                         // `normalizePrecision` (clamp 0..99) applies ONLY on the two-star

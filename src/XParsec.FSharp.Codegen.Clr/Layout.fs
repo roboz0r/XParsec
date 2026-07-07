@@ -732,7 +732,7 @@ module internal Layout =
                                     Key = FieldKey.UnionTag td.Key
                                     Name = "_tag"
                                     Attrs = FieldAttributes.Public
-                                    Ty = FTConst("int", EqArray.empty)
+                                    Ty = FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty)
                                     ClosureScope = ValueNone
                                 }
                             for c in ud.Cases do
@@ -924,7 +924,7 @@ module internal Layout =
                                         FieldAttributes.Public
                                         ||| FieldAttributes.SpecialName
                                         ||| FieldAttributes.RTSpecialName
-                                    Ty = FTConst(ed.Underlying, EqArray.empty)
+                                    Ty = FTConst(BuiltinTypes.intrinsicKey ed.Underlying, EqArray.empty)
                                     ClosureScope = ValueNone
                                 }
                             for (caseName, _) in ed.Cases ->
@@ -957,7 +957,9 @@ module internal Layout =
             [
                 for sed in partitioned.StructEnums ->
                     let td = sed.Decl
-                    let fieldTy = FTConst((if sed.IsMixed then "obj" else "string"), EqArray.empty)
+
+                    let fieldTy =
+                        FTConst(BuiltinTypes.intrinsicKey (if sed.IsMixed then "obj" else "string"), EqArray.empty)
 
                     let fields =
                         [

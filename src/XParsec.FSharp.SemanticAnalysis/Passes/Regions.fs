@@ -164,7 +164,9 @@ module Regions =
     /// constructors (Fun, Tuple).
     let rec private isAllocation (t: SemType) : bool =
         match resolveLink t with
-        | TyConst(name, _) ->
+        | TyConst(key, _) ->
+            let name = SymbolKeyOps.intrinsicName key
+
             match name with
             | "int"
             | "int64"
@@ -219,7 +221,7 @@ module Regions =
     /// an existing value and is not a sink.)
     let private isHeapReprTarget (t: SemType) : bool =
         match resolveLink t with
-        | TyConst("obj", _) -> true
+        | TyObj -> true
         | TyFun _ -> true
         | _ -> false
 

@@ -89,7 +89,7 @@ module JsExternalMembers =
                 | FTClass(key, _)
                 | FTUnion(key, _)
                 | FTRecord(key, _) -> ExternalSymbols.tryLookupType provider key
-                | FTConst(name, _) -> ExternalSymbols.tryRuntimeType provider name
+                | FTConst(key, _) -> ExternalSymbols.tryRuntimeType provider (SymbolKeyOps.simpleName key)
                 | _ -> ValueNone
 
             // Depth cap backstops a malformed cyclic `inherit`; each hop is a strict

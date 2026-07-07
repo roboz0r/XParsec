@@ -58,7 +58,7 @@ let private memberDeclName (key: SymbolKey) : string =
 /// `:?>`). Nominal types render as their name; structural ones approximate.
 let rec private tyName (t: SemType) : string =
     match t with
-    | TyConst(n, _) -> n
+    | TyConst(key, _) -> SymbolKeyOps.simpleName key
     | TyVar _ -> "_"
     | TyFun(a, b) -> tyName a + " -> " + tyName b
     | TyTuple ts -> [ for t in ts -> tyName t ] |> String.concat " * "
@@ -693,7 +693,7 @@ type private Renderer() =
         | TDecl.Type td ->
             let rec tyStr t =
                 match t with
-                | TyConst(n, _) -> n
+                | TyConst(key, _) -> SymbolKeyOps.simpleName key
                 | TyVar _ -> "_"
                 | TyFun(a, b) -> tyStr a + " -> " + tyStr b
                 | TyTuple ts -> [ for t in ts -> tyStr t ] |> String.concat " * "

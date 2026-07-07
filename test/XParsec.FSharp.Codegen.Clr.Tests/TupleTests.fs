@@ -23,7 +23,8 @@ let private ownIntrinsics = Map [ "int", "System.Int32"; "string", "System.Strin
 let private provider () =
     ClrProvider(MetadataContext(), ownIntrinsics, Map.empty, ExternalSymbols.nullProvider, "TupleTest")
 
-let private ftConst (name: string) = FTConst(name, EqArray.empty)
+let private ftConst (name: string) =
+    FTConst(BuiltinTypes.intrinsicKey name, EqArray.empty)
 
 [<Tests>]
 let tests =

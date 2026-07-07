@@ -113,7 +113,7 @@ module EmitBindings =
                         disposeKey,
                         CallVia.Self,
                         EqArray.empty,
-                        FTConst("unit", EqArray.empty),
+                        FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty),
                         tok
                     ))
 
@@ -154,7 +154,10 @@ module EmitBindings =
                         key,
                         false,
                         false,
-                        FTFun(FTConst("unit", EqArray.empty), FTConst("unit", EqArray.empty))
+                        FTFun(
+                            FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty),
+                            FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty)
+                        )
                     )
 
                 b.Add(ILInstr.Ldloc slot)

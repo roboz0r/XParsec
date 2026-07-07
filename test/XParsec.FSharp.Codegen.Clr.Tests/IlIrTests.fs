@@ -91,8 +91,8 @@ let private guardChainEquality (pairs: (int * int) list) : ILBody =
 
 [<Tests>]
 let tests =
-    let tyInt = TyConst("int", EqArray.empty)
-    let tyBool = TyConst("bool", EqArray.empty)
+    let tyInt = TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty)
+    let tyBool = TyConst(BuiltinTypes.intrinsicKey "bool", EqArray.empty)
 
     let cInt n =
         TExpr.Const(TConstValue.Int n, tyInt, dummyTok)
@@ -208,7 +208,7 @@ let tests =
             test "try/finally with no thrown exception runs both halves" {
                 // result = 0; try { result = 42 } finally { result += 100 }; return result
                 let b = IlBuilder()
-                let result = b.Local(FTConst("int", EqArray.empty))
+                let result = b.Local(FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
                 let exitL = b.Label()
                 b.Add(ILInstr.LdcI4 0)
                 b.Add(ILInstr.Stloc result)
@@ -232,7 +232,7 @@ let tests =
             test "verify accepts a try/finally body" {
                 // Same shape as above; just confirms analyze's region rules.
                 let b = IlBuilder()
-                let r = b.Local(FTConst("int", EqArray.empty))
+                let r = b.Local(FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
                 let exitL = b.Label()
                 b.Add(ILInstr.LdcI4 0)
                 b.Add(ILInstr.Stloc r)
@@ -257,7 +257,7 @@ let tests =
                 // `pop` immediately after BeginCatch should not underflow — the
                 // runtime pushes the exception, giving the handler entry depth 1.
                 let b = IlBuilder()
-                let r = b.Local(FTConst("int", EqArray.empty))
+                let r = b.Local(FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
                 let exitL = b.Label()
                 b.Add(ILInstr.LdcI4 0)
                 b.Add(ILInstr.Stloc r)
@@ -306,7 +306,7 @@ let tests =
                 // return result
                 let buildBody (provider: ICodegenProvider) (il: Il) : unit =
                     let b = IlBuilder()
-                    let r = b.Local(FTConst("int", EqArray.empty))
+                    let r = b.Local(FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
                     let outerExit = b.Label()
                     let innerExit = b.Label()
                     b.Add(ILInstr.LdcI4 0)

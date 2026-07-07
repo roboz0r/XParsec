@@ -97,7 +97,7 @@ let tests =
                     Expect.isTrue m.Storage.IsValueMember "a structural field must be a value (property) member"
 
                     match m.Signature.Return with
-                    | FTConst("int", _) -> ()
+                    | FTConst(key, _) when SymbolKeyOps.simpleName key = "int" -> ()
                     | other -> failtestf "field 'x' should carry its int type, got %A" other
                 | ValueNone -> failtestf "field 'x' did not resolve on '%s'" tn
             }

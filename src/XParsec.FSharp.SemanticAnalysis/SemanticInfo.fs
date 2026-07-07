@@ -396,10 +396,12 @@ type LiteralConst =
 /// provisional; revisit before the representation is widely consumed.
 type FrozenType =
     /// A nominal constant in two roles (the `SemType.TyConst` declaring-typar
-    /// marker role moves to `FTTypar`): an argless primitive / intrinsic
-    /// (`FTConst("int", [])`) and a generic intrinsic forwarding its args
-    /// (`'T[]` ≡ `FTConst("[]", [elem])`).
-    | FTConst of name: string * args: EqArray<FrozenType>
+    /// marker role is `FTTypar`): an argless primitive / intrinsic
+    /// (`FTConst(intrinsicKey "int", [])`) and a generic intrinsic forwarding its args
+    /// (`'T[]` ≡ `FTConst(intrinsicKey "[]", [elem])`). Carries the same qualified
+    /// `SymbolKey` its `SemType.TyConst` source does; codegen reads the bare identity
+    /// via `SymbolKeyOps.simpleName key`.
+    | FTConst of key: SymbolKey * args: EqArray<FrozenType>
     /// Curried; multi-arg functions nest `FTFun`.
     | FTFun of arg: FrozenType * result: FrozenType
     /// Flat n-ary tuple — mirrors `SemType.TyTuple`.
@@ -492,15 +494,23 @@ and FTConditionalPayload =
 type SemType =
     /// Call UnionFind.find then read the representative's Link to dereference.
     | TyVar of TypeVar
-    /// A nominal constant spanning three roles: (a) an argless primitive /
-    /// intrinsic binding (`TyConst("int", [])`), (b) a declaring-type typar
-    /// marker the backend's typar encoder consumes (`TyConst("'A", [])` — always
-    /// argless), and (c) a *generic intrinsic* that forwards its type arguments
-    /// (`'T[]` ≡ `TyConst("[]", [elem])` — the array repr `!0[]` is a
-    /// backend-specific encoding, the args are backend-agnostic structure). So `args ≠ []` does NOT
-    /// imply a registry nominal — arrays are the only generic intrinsic in v1.
-    /// Args participate in unification (same arity rule as `TyRecord`).
-    | TyConst of name: string * args: EqArray<SemType>
+    /// A nominal constant in two roles, both carrying a qualified `SymbolKey`
+    /// identity (like `TyRecord`/`TyUnion`/`TyClass` — an intrinsic is no longer the
+    /// one identity class that drops its namespace): (a) an argless primitive /
+    /// intrinsic binding (`TyConst(intrinsicKey "int", [])`, ns `Vesper`), and (b) a
+    /// *generic intrinsic* that forwards its type arguments (`'T[]` ≡
+    /// `TyConst(intrinsicKey "[]", [elem])`, byref `&` likewise — the array repr
+    /// `!0[]` is a backend-specific encoding, the args are backend-agnostic
+    /// structure). So `args ≠ []` does NOT imply a registry nominal — array/byref are
+    /// the only generic intrinsics in v1. The `key`'s `name` component is the verbatim
+    /// bare identity string (`"int"`, `"[]"`). The semantic passes recognise a
+    /// well-known intrinsic by KEY IDENTITY — the `TyBool`/`TyUnit`/`TyObj`/`TyString`/
+    /// `TyArray`/`TyByref`/… active patterns (`IntrinsicTypePatterns`) — never by a
+    /// stringified name; the codegen/repr axis (canon→platform maps) reads the bare
+    /// name via `SymbolKeyOps.intrinsicName` (non-lossy) or `simpleName` (display). Args
+    /// participate in unification (same arity rule as `TyRecord`). (The declaring-type
+    /// typar-marker role this case used to also carry moved to `TyTypar`.)
+    | TyConst of key: SymbolKey * args: EqArray<SemType>
     /// Curried; multi-arg functions nest TyFun.
     | TyFun of arg: SemType * result: SemType
     /// Flat n-ary tuple. Unifies pairwise with same-arity TyTuple; arity
@@ -892,7 +902,7 @@ module FrozenType =
     /// STRUCTURALLY instead of by per-site convention.
     let mapChildren (f: FrozenType -> FrozenType) (t: FrozenType) : FrozenType =
         match t with
-        | FTConst(name, args) -> FTConst(name, EqArray.map f args)
+        | FTConst(key, args) -> FTConst(key, EqArray.map f args)
         | FTFun(arg, result) -> FTFun(f arg, f result)
         | FTTuple items -> FTTuple(EqArray.map f items)
         | FTRecord(key, args) -> FTRecord(key, EqArray.map f args)
@@ -937,7 +947,7 @@ module FrozenType =
             // A parameter is contravariant: flip for the domain, keep variance for the result.
             | FTFun(a, b) -> FTFun(mapVariant leaf v.Flip a, mapVariant leaf v b)
             // Nominal / applied-constructor type ARGUMENTS are invariant slots.
-            | FTConst(name, args) -> FTConst(name, args |> EqArray.map (mapVariant leaf Variance.Inv))
+            | FTConst(key, args) -> FTConst(key, args |> EqArray.map (mapVariant leaf Variance.Inv))
             | FTClass(k, args) -> FTClass(k, args |> EqArray.map (mapVariant leaf Variance.Inv))
             | FTRecord(k, args) -> FTRecord(k, args |> EqArray.map (mapVariant leaf Variance.Inv))
             | FTUnion(k, args) -> FTUnion(k, args |> EqArray.map (mapVariant leaf Variance.Inv))
@@ -1010,7 +1020,7 @@ module FrozenType =
         match a, b with
         | FTTypar _, _
         | _, FTTypar _ -> true
-        | FTConst(n1, _), FTConst(n2, _) -> n1 = n2
+        | FTConst(k1, _), FTConst(k2, _) -> k1 = k2
         | FTRecord(k1, _), FTRecord(k2, _)
         | FTUnion(k1, _), FTUnion(k2, _)
         | FTClass(k1, _), FTClass(k2, _) -> k1 = k2
@@ -1217,7 +1227,7 @@ module FrozenTypeBridge =
         let go = toFrozenWith onVar
 
         match ty with
-        | TyConst(name, args) -> FTConst(name, EqArray.map go args)
+        | TyConst(key, args) -> FTConst(key, EqArray.map go args)
         | TyFun(arg, result) -> FTFun(go arg, go result)
         | TyTuple items -> FTTuple(EqArray.map go items)
         | TyRecord(key, args) -> FTRecord(key, EqArray.map go args)
@@ -1262,7 +1272,7 @@ module FrozenTypeBridge =
         let go = instantiateWith declaring methodVar
 
         match template with
-        | FTConst(name, args) -> TyConst(name, EqArray.map go args)
+        | FTConst(key, args) -> TyConst(key, EqArray.map go args)
         | FTFun(arg, result) -> TyFun(go arg, go result)
         | FTTuple items -> TyTuple(EqArray.map go items)
         | FTRecord(key, args) -> TyRecord(key, EqArray.map go args)

@@ -286,7 +286,7 @@ let tests =
                 match ctx.Bindings.TypeVar.TryGetValue(NodeKey.ofSource rIdx NodeKind.PatIdent) with
                 | ValueSome tv ->
                     match Unification.zonk (TyVar tv) with
-                    | TyConst("int", _) -> ()
+                    | TyConst(k, _) when SymbolKeyOps.simpleName k = "int" -> ()
                     | other -> failtestf "Expected r : int, got %A" other
                 | ValueNone -> failtest "no TypeVar for r"
             }

@@ -466,8 +466,8 @@ module internal TsManifestTranslate =
 
                         FTClass(key, EqArray.ofSeq args)
                     | Schema.RefKind.Alias
-                    | Schema.RefKind.Enum -> FTConst(name, EqArray.ofSeq args)
-                | None -> FTConst(name, EqArray.ofSeq args)
+                    | Schema.RefKind.Enum -> FTConst(BuiltinTypes.intrinsicKey name, EqArray.ofSeq args)
+                | None -> FTConst(BuiltinTypes.intrinsicKey name, EqArray.ofSeq args)
 
         match t with
         | Schema.TypeRef.Named(name, []) -> nominal name [||]
@@ -498,7 +498,7 @@ module internal TsManifestTranslate =
                 }
         // TS `any` → the opaque `dynamic` JS intrinsic (no special unifier behaviour;
         // its only capability is the `?` operator). It is `FTConst "dynamic"` everywhere.
-        | Schema.TypeRef.Dynamic -> FTConst("dynamic", EqArray.empty)
+        | Schema.TypeRef.Dynamic -> FTConst(BuiltinTypes.intrinsicKey "dynamic", EqArray.empty)
         // An anonymous OBJECT shape (`fields` non-empty) freezes to a hash-keyed ERASING
         // nominal: an `FTClass` homed under the reserved synthetic namespace, whose members
         // the provider registers (one Property per field) so `.x` resolves and lowers to a
@@ -520,7 +520,8 @@ module internal TsManifestTranslate =
             | [], [] -> FTUnknown("structural:" + structuralHash printed fields)
             | _ -> FTClass(structuralKey (structuralHash printed fields) |> snd, EqArray.empty)
 
-    let unitFrozen: FrozenType = FTConst("unit", EqArray.empty)
+    let unitFrozen: FrozenType =
+        FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty)
 
     /// .NET-tupled parameter encoding: 0 → unit, 1 → bare, N≥2 → tuple.
     let private paramsFrozen (ctx: TranslateCtx) (ps: Schema.Param list) : FrozenType =

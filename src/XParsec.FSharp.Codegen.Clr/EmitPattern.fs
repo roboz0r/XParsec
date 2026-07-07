@@ -110,7 +110,9 @@ module EmitPattern =
         // Numeric primitives (incl. `decimal`) share `RuntimeNames.numericTypeNames`;
         // `bool` / `char` are the two non-numeric value-type scalars. `string` / `obj`
         // are `TyConst` but reference types, so they're excluded (not in the set).
-        | FTConst(n, _) -> RuntimeNames.numericTypeNames.Contains n || n = "bool" || n = "char"
+        | FTConst(key, _) ->
+            let n = SymbolKeyOps.simpleName key
+            RuntimeNames.numericTypeNames.Contains n || n = "bool" || n = "char"
         // A user-declared `[<Struct>]` type emitted into this assembly:
         // the `EmittedClass.IsValueType` flag drives
         // box-on-`:>` / `unbox.any`-on-`:?>` exactly as for a BCL value type. A
@@ -158,7 +160,8 @@ module EmitPattern =
               {
                   Repr = EmittedEnumRepr.StructEnum(isMixed, backingField, _, caseLits)
               } ->
-                let fieldTy = FTConst((if isMixed then "obj" else "string"), EqArray.empty)
+                let fieldTy =
+                    FTConst(BuiltinTypes.intrinsicKey (if isMixed then "obj" else "string"), EqArray.empty)
 
                 let pushLit =
                     match caseLits.TryGetValue caseName with
@@ -302,7 +305,7 @@ module EmitPattern =
             b.Add(ILInstr.Isinst token)
 
             if isValueType env testTy then
-                let boxedSlot = b.Local(FTConst("obj", EqArray.empty))
+                let boxedSlot = b.Local(FTConst(BuiltinTypes.intrinsicKey "obj", EqArray.empty))
                 b.Add(ILInstr.Stloc boxedSlot)
                 b.Add(ILInstr.Ldloc boxedSlot)
                 b.Add(ILInstr.Brfalse nextLabel)

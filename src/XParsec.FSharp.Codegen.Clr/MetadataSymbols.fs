@@ -41,13 +41,19 @@ module private MetadataMapping =
             // the modifier is threaded through the encoder (paired TODO at
             // `mintMemberRef`, ClrExternalMembers.fs).
             match go (t.GetElementType()) with
-            | Some elem -> Some(FTConst(RuntimeNames.byrefName, EqArray.singleton elem))
+            | Some elem -> Some(FTConst(BuiltinTypes.intrinsicKey RuntimeNames.byrefName, EqArray.singleton elem))
             | None -> None
         elif t.IsPointer then
             None
         elif t.IsArray then
             match go (t.GetElementType()) with
-            | Some elem -> Some(FTConst(RuntimeNames.arrayName (t.GetArrayRank()), EqArray.singleton elem))
+            | Some elem ->
+                Some(
+                    FTConst(
+                        BuiltinTypes.intrinsicKey (RuntimeNames.arrayName (t.GetArrayRank())),
+                        EqArray.singleton elem
+                    )
+                )
             | None -> None
         elif t.IsGenericParameter then
             let pos = t.GenericParameterPosition
@@ -73,7 +79,7 @@ module private MetadataMapping =
         else
             match t.FullName with
             | null -> None // constructed/exotic type with no metadata full name
-            | "System.Void" -> Some(FTConst("unit", EqArray.empty))
+            | "System.Void" -> Some(FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty))
             // Canonicalize a BCL primitive (`System.Int32 → int`) only when it is a
             // SEALED leaf type. The harvested reverse map also carries the unsealed
             // subtype ROOTS (`System.Object → obj`, `System.Exception → exn`) and
@@ -86,7 +92,7 @@ module private MetadataMapping =
                 t.IsSealed
                 && (reverseCanon |> Map.tryFind fullName |> Option.exists (List.isEmpty >> not))
                 ->
-                Some(FTConst(reverseCanon.[fullName] |> List.head, EqArray.empty))
+                Some(FTConst(BuiltinTypes.intrinsicKey (reverseCanon.[fullName] |> List.head), EqArray.empty))
             | fullName ->
                 Some(
                     FTClass(SymbolKeyOps.qualifiedTypeKeyOf (Some(t.Assembly.GetName().Name)) fullName 0, EqArray.empty)
@@ -96,7 +102,7 @@ module private MetadataMapping =
     /// (.NET calling convention — not curried).
     let frozenParams (ps: FrozenType[]) : FrozenType =
         match ps.Length with
-        | 0 -> FTConst("unit", EqArray.empty)
+        | 0 -> FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty)
         | 1 -> ps.[0]
         | _ -> FTTuple(EqArray.ofArray ps)
 
@@ -230,7 +236,7 @@ module private MetadataMapping =
 
     /// Property `ExternalSignature`: `Parameters = unit`, value type in `Return`.
     let propertySignature (declaringArity: int) (valueTy: FrozenType) : ExternalSignature =
-        ExternalSignature.make (declaringArity, 0, FTConst("unit", EqArray.empty), valueTy)
+        ExternalSignature.make (declaringArity, 0, FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty), valueTy)
 
     /// Method/ctor `ExternalSignature` from its `(Parameters, Return)` templates.
     let methodSignature

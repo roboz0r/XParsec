@@ -53,7 +53,9 @@ module PlatformTypes =
     let private addUnrepresentable (ctx: PassContext) (acc: HashSet<string>) (t: SemType) : unit =
         let rec go ty =
             match ty with
-            | TyConst(n, args) ->
+            | TyConst(key, args) ->
+                let n = SymbolKeyOps.intrinsicName key
+
                 if isUnrepresentable ctx n then
                     acc.Add n |> ignore
 

@@ -251,7 +251,10 @@ let tests =
                     let ty = ExternalSymbols.instantiateSymbol sym 0
 
                     match ty with
-                    | TyFun(TyConst("bool", _), TyConst("bool", _)) -> ()
+                    | TyFun(TyConst(k1, _), TyConst(k2, _)) when
+                        SymbolKeyOps.simpleName k1 = "bool" && SymbolKeyOps.simpleName k2 = "bool"
+                        ->
+                        ()
                     | other -> failtestf "Expected bool -> bool, got %A" other
             }
 
@@ -410,9 +413,11 @@ let tests =
 
                 let assertWidgetIntToInt (label: string) (ty: SemType) =
                     match ty with
-                    | TyFun(TyUnion("Dep.Widget`1", args), TyConst("int", _)) when args.Length = 1 ->
+                    | TyFun(TyUnion("Dep.Widget`1", args), TyConst(k, _)) when
+                        args.Length = 1 && SymbolKeyOps.simpleName k = "int"
+                        ->
                         match args.[0] with
-                        | TyConst("int", _) -> ()
+                        | TyConst(k, _) when SymbolKeyOps.simpleName k = "int" -> ()
                         | other -> failtestf "%s: expected Dep.Widget<int>, got arg %A" label other
                     | other -> failtestf "%s: expected (Dep.Widget<int> -> int) with TyUnion head, got %A" label other
 
@@ -471,7 +476,7 @@ let tests =
                         (Seq.toList ctx.Symbols.Keys)
                 | ValueSome ty ->
                     match ty with
-                    | TyFun(TyUnknown name, TyConst("int", _)) ->
+                    | TyFun(TyUnknown name, TyConst(k, _)) when SymbolKeyOps.simpleName k = "int" ->
                         Expect.stringContains name "Thing" "TyUnknown carries the unresolved name"
                     | other -> failtestf "expected (TyUnknown -> int); got %A" other
             }
@@ -533,7 +538,7 @@ let tests =
                     | ValueSome s -> s
                     | ValueNone -> failtestf "val '%s' not extracted. Symbols: %A" suffix (Seq.toList ctx.Symbols.Keys)
 
-                let intF = FTConst("int", EqArray.empty)
+                let intF = FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty)
                 let pairF = FTTuple(EqArray.ofList [ intF; intF ])
 
                 // The compiled form is derived from the captured `ValRepr` on demand —
@@ -1126,14 +1131,16 @@ let tests =
                 | ValueNone -> failtest "Microsoft.FSharp.Core.option shape not found"
                 | ValueSome(ExternalTypeShape.Abbrev(arity, frozen)) ->
                     Expect.equal arity 1 "option has one typar"
-                    let body = instantiateDeclaring frozen [| TyConst("int", EqArray.empty) |]
+
+                    let body =
+                        instantiateDeclaring frozen [| TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty) |]
 
                     match body with
                     | TyUnion(name, args) when
                         args.Length = 1
                         && (
                             match args.[0] with
-                            | TyConst("int", _) -> true
+                            | TyConst(k, _) -> SymbolKeyOps.simpleName k = "int"
                             | _ -> false
                         )
                         ->
@@ -1160,10 +1167,13 @@ let tests =
                     let okFieldType =
                         instantiateDeclaring
                             okCase.FrozenFieldTypes.[0]
-                            [| TyConst("int", EqArray.empty); TyConst("string", EqArray.empty) |]
+                            [|
+                                TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty)
+                                TyConst(BuiltinTypes.intrinsicKey "string", EqArray.empty)
+                            |]
 
                     match okFieldType with
-                    | TyConst("int", _) -> ()
+                    | TyConst(k, _) when SymbolKeyOps.simpleName k = "int" -> ()
                     | _ ->
                         match okFieldType with
                         | TyVar tv when tv.Level = 0 -> ()
@@ -1190,7 +1200,7 @@ let tests =
 
                 /// Ground args for an arity-`n` declaring substitution.
                 let argsFor (n: int) : SemType[] =
-                    Array.init n (fun i -> TyConst(sprintf "g%d" i, EqArray.empty))
+                    Array.init n (fun i -> TyConst(BuiltinTypes.intrinsicKey (sprintf "g%d" i), EqArray.empty))
 
                 /// Assert a finalized type-shape template is real (not the deferred
                 /// sentinel) and instantiates without throwing.
@@ -1283,7 +1293,7 @@ let tests =
                     Expect.notEqual frozen unfreezable "objnull did not freeze to the <unfreezable> sentinel"
 
                     match frozen with
-                    | FTConst("obj", _) -> ()
+                    | FTConst(k, _) when SymbolKeyOps.simpleName k = "obj" -> ()
                     | other -> failtestf "expected objnull to freeze to FTConst(\"obj\"); got %A" other
                 | ValueSome other -> failtestf "expected an Abbrev shape for objnull; got %A" other
                 | ValueNone ->
@@ -1641,7 +1651,7 @@ let tests =
                 match ctx.Bindings.TypeVar.TryGetValue patKey with
                 | ValueSome tv ->
                     match Unification.zonk (TyVar tv) with
-                    | TyConst("int", _) -> ()
+                    | TyConst(k, _) when SymbolKeyOps.simpleName k = "int" -> ()
                     | other -> failtestf "Expected int, got %A" other
                 | ValueNone -> failtest "no TypeVar for x"
             }
