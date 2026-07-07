@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Concurrent
+open System.Collections.Generic
 
 // The full FSharp.Core (+) story (SRTPs + static-optimisation clauses +
 // per-target inline IL) is firmly future work — the resolved operator's compiled
@@ -482,12 +483,12 @@ type ExternalClassFlags =
 /// `ExternalTypeShape.Intrinsic`, reconciles to a platform type while ALSO
 /// publishing a member surface (so a Vesper type can author `interface disposable`
 /// BCL-free, yet a metadata type implementing `System.IDisposable` still matches).
-/// `Canon` is the `.fsi` short name (`"disposable"`); `Platform` is the `.fs`
-/// `(# … #)` repr (`"System.IDisposable"`). The reverse-canon builder emits
-/// `{ Platform -> Canon }` just as for an `Intrinsic`, so it reconciles by the same
-/// `exn === System.Exception` path. Carried only on a target whose `.fs` binds the
-/// repr (CLR); `ValueNone` on JS, where the anchor is the backend symbol table.
-type CapabilityPlatformFace = { Canon: string; Platform: string }
+/// `Canon` is the qualified `.fsi`-short-name identity (`Vesper.disposable`);
+/// `Platform` is the `.fs` `(# … #)` repr (`"System.IDisposable"`). The reverse-canon
+/// builder emits `{ Platform -> Canon }` just as for an `Intrinsic`, so it reconciles by
+/// the same `exn === System.Exception` path. Carried only on a target whose `.fs` binds
+/// the repr (CLR); `ValueNone` on JS, where the anchor is the backend symbol table.
+type CapabilityPlatformFace = { Canon: SymbolKey; Platform: string }
 
 /// The shape of an external class or interface. Lifted out of `ExternalTypeShape.Class`
 /// so the DU header stays narrow and the
@@ -640,7 +641,7 @@ type ExternalTypeShape =
     /// `IntrinsicReprTypes` twin (SideTables.fs) stays single-string: it holds a
     /// self-compiled unit's own `platform` repr keyed by the `.fsi` short name (which
     /// is the `canon`).
-    | Intrinsic of canon: string * arity: int * platform: string option
+    | Intrinsic of canon: SymbolKey * arity: int * platform: string option
     /// A nominal type whose *name + arity* the extractor registered but whose
     /// body shape it does not (yet) model: an enum / delegate / type-extension
     /// (v1 defers the body), or a union / record / abbreviation whose body failed
@@ -777,7 +778,7 @@ type IExternalSymbolProvider =
     /// data here. The intrinsic-carrying providers (`ExtractCtx.toProvider`) and their
     /// composite (`ExternalSymbols.stack`) build a real map; metadata / JS-native /
     /// test providers carry no intrinsics and return `Map.empty`.
-    abstract IntrinsicReverseCanon: Map<string, string list>
+    abstract IntrinsicReverseCanon: Map<string, SymbolKey list>
 
     /// The FORWARD intrinsic axis `{ canon -> platform-repr }` (the `.fsi` short name
     /// -> its `.fs` `(# … #)` repr for the compiling target) — the mirror of
@@ -793,7 +794,7 @@ type IExternalSymbolProvider =
     /// repr to `number`) both read it. The intrinsic-carrying providers
     /// (`ExtractCtx.toProvider`) and their composite build a real map on EVERY target;
     /// metadata / JS-native / test providers return `Map.empty`.
-    abstract IntrinsicForwardRepr: Map<string, string>
+    abstract IntrinsicForwardRepr: IReadOnlyDictionary<SymbolKey, string>
 
 /// The open signature of an external module-level function as the codegen
 /// boundary sees it: the curried
@@ -857,7 +858,7 @@ type ICodegenSymbols =
     /// `IExternalSymbolProvider.IntrinsicForwardRepr`): codegen resolves a primitive
     /// canon name (`"int"`) to its `.fs`-declared repr (`"System.Int32"`) here — the
     /// single source of a primitive's representation.
-    abstract IntrinsicForwardRepr: Map<string, string>
+    abstract IntrinsicForwardRepr: IReadOnlyDictionary<SymbolKey, string>
 
 module ExternalSymbols =
 
@@ -867,6 +868,13 @@ module ExternalSymbols =
     // `RuntimeNames` can route through it without depending on the provider
     // surface). This module keeps only the resolution surface that genuinely
     // needs `IExternalSymbolProvider` / `ExternalSymbol`.
+
+    /// The shared empty forward-repr axis for the intrinsic-less providers (metadata /
+    /// JS-native / test fakes / `nullProvider`). `SymbolKey` is equatable-but-not-
+    /// comparable, so the axis is a read-only `Dictionary`, not a `Map` — this is its
+    /// canonical empty value.
+    let emptyForwardRepr: IReadOnlyDictionary<SymbolKey, string> =
+        Dictionary<SymbolKey, string>() :> IReadOnlyDictionary<_, _>
 
     /// Look an external type up by the `SymbolKey` a front-end consumer already holds.
     /// The provider is string-keyed (its metadata / contract leaves own compiled names —
@@ -1289,29 +1297,15 @@ module ExternalSymbols =
             member _.TryLookupInlineBody _ = ValueNone
             member _.TryLookupInlineBodyByName _ = ValueNone
             member _.IntrinsicReverseCanon = Map.empty
-            member _.IntrinsicForwardRepr = Map.empty
+            member _.IntrinsicForwardRepr = emptyForwardRepr
         }
-
-    /// Fold each source's intrinsic `{ k -> v }` map (selected by `project`) into one.
-    /// First-source-wins on a key collision, matching the singular lookups' first-hit
-    /// shadowing order (`Array.rev` so the earliest source's entries are added last).
-    /// The single definition shared by `stack` (both intrinsic axes) and the backend
-    /// leaf-seeding in `Codegen.Common`, so those sites can't drift on precedence.
-    let private mergeIntrinsicMaps
-        (project: IExternalSymbolProvider -> Map<string, string>)
-        (sources: IExternalSymbolProvider seq)
-        : Map<string, string> =
-        let arr = Seq.toArray sources
-
-        (Map.empty, Array.rev arr)
-        ||> Array.fold (fun acc s -> (acc, project s) ||> Map.fold (fun m k v -> Map.add k v m))
 
     /// Merge sources' reverse `{ platform-repr -> [canon] }` maps by UNIONING the canon
     /// lists per platform key (dedup, first-seen order preserved). `Array.rev` folds the
     /// earliest source's entries LAST so its canons lead each list — the same
-    /// first-source-wins precedence `mergeIntrinsicMaps` gives the forward axis, here
+    /// first-source-wins precedence `mergeForwardRepr` gives the forward axis, here
     /// widened to keep every source's canons rather than shadow to one.
-    let mergeReverseCanon (sources: IExternalSymbolProvider seq) : Map<string, string list> =
+    let mergeReverseCanon (sources: IExternalSymbolProvider seq) : Map<string, SymbolKey list> =
         let arr = Seq.toArray sources
 
         (Map.empty, Array.rev arr)
@@ -1325,8 +1319,19 @@ module ExternalSymbols =
         )
 
     /// Merge sources' forward `{ canon -> platform-repr }` maps (first-source-wins).
-    let mergeForwardRepr (sources: IExternalSymbolProvider seq) : Map<string, string> =
-        mergeIntrinsicMaps (fun s -> s.IntrinsicForwardRepr) sources
+    /// `SymbolKey` is equatable-but-not-comparable, so the merged axis is a read-only
+    /// `Dictionary`, not a `Map`. `Array.rev` folds the earliest source LAST so its
+    /// entries overwrite later ones — the same first-source-wins precedence the reverse
+    /// axis and the singular lookups use.
+    let mergeForwardRepr (sources: IExternalSymbolProvider seq) : IReadOnlyDictionary<SymbolKey, string> =
+        let arr = Seq.toArray sources
+        let d = Dictionary<SymbolKey, string>()
+
+        for s in Array.rev arr do
+            for kv in s.IntrinsicForwardRepr do
+                d.[kv.Key] <- kv.Value
+
+        d :> IReadOnlyDictionary<_, _>
 
     /// The single provider-shim primitive: first-hit-wins composition over
     /// `sources`, surfacing `ambient` via `AmbientOpenPrefixes`, optionally

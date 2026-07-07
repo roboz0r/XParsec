@@ -64,9 +64,13 @@ let tests =
 
                 match clr.TryLookupType "Vesper.int" with
                 | ValueSome(ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)) ->
-                    Expect.equal canon "int" "int canon on CLR is the `.fsi` name"
+                    Expect.equal canon (RuntimeNames.intrinsicKey "int") "int canon on CLR is the `.fsi` name"
                     Expect.equal platform "System.Int32" "int platform face on CLR is the BCL repr"
-                    Expect.notEqual canon platform "the two faces diverge on CLR too (identity ≠ runtime repr)"
+
+                    Expect.notEqual
+                        (SymbolKeyOps.intrinsicName canon)
+                        platform
+                        "the two faces diverge on CLR too (identity ≠ runtime repr)"
                 | other -> failtestf "expected Vesper.int as an Intrinsic shape, got %A" other
             }
         ]

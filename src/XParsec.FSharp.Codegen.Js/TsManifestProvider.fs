@@ -266,7 +266,7 @@ module TsManifestProvider =
             member _.TryLookupInlineBody _ = ValueNone
             member _.TryLookupInlineBodyByName _ = ValueNone
             member _.IntrinsicReverseCanon = Map.empty
-            member _.IntrinsicForwardRepr = Map.empty
+            member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
 
     /// Build a provider from an already-parsed manifest.
     let providerOfManifest (man: Schema.PackageManifest) : IExternalSymbolProvider =

@@ -2,6 +2,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.IntrinsicReprConformanceTests
 
 open Expecto
 
+open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 
 // T8 Step 1 — repr-encodability conformance.
@@ -33,6 +34,13 @@ open XParsec.FSharp.Codegen.Clr
 let private forwardRepr =
     (ClrSymbolProviders.buildContract [ TestHelpers.vesperCoreManifest ]).IntrinsicForwardRepr
 
+/// Look a bare canon name up in the forward axis, which is now keyed by the qualified
+/// intrinsic `SymbolKey` (`Vesper.int`) — bridge from the bare `.fsi` name.
+let private tryRepr (canon: string) : string option =
+    match forwardRepr.TryGetValue(RuntimeNames.intrinsicKey canon) with
+    | true, repr -> Some repr
+    | _ -> None
+
 /// The directly-encodable scalar value-type primitives, by their `.fsi` canon name.
 /// Each must harvest a repr `tryEncodeValueType` writes. (Aliases like `int32`/`uint`
 /// are abbreviations that dealias to these, not intrinsics — they carry no own repr.)
@@ -60,7 +68,7 @@ let tests =
         [
             test "every directly-encodable scalar primitive's harvested repr is encodable" {
                 for canon in directScalarCanons do
-                    match Map.tryFind canon forwardRepr with
+                    match tryRepr canon with
                     | Some repr ->
                         Expect.isTrue
                             (IntrinsicRepr.isEncodableValueType repr)
@@ -77,8 +85,8 @@ let tests =
                 // dedicated `TypeRef` arm (`eDecimal` / `eValueTuple`), so they are
                 // deliberately absent from `isEncodableValueType`. Pin the reprs (so a
                 // `.fs` change surfaces) and the not-a-direct-value-type fact.
-                Expect.equal (Map.tryFind "decimal" forwardRepr) (Some "System.Decimal") "decimal → System.Decimal"
-                Expect.equal (Map.tryFind "unit" forwardRepr) (Some "System.ValueTuple") "unit → System.ValueTuple"
+                Expect.equal (tryRepr "decimal") (Some "System.Decimal") "decimal → System.Decimal"
+                Expect.equal (tryRepr "unit") (Some "System.ValueTuple") "unit → System.ValueTuple"
 
                 Expect.isFalse
                     (IntrinsicRepr.isEncodableValueType "System.Decimal")

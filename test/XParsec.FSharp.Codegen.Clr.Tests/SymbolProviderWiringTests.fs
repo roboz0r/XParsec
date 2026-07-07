@@ -58,7 +58,7 @@ let tests =
                 // `Class`.
                 match provider.TryLookupType "Vesper.int" with
                 | ValueSome(ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)) ->
-                    Expect.equal canon "int" "int's canon identity is the `.fsi` name"
+                    Expect.equal canon (RuntimeNames.intrinsicKey "int") "int's canon identity is the `.fsi` name"
 
                     Expect.equal
                         platform

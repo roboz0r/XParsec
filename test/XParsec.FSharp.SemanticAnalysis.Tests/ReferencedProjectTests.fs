@@ -113,7 +113,7 @@ let tests =
                 // `Origin` (it keys off the name, not an assembly ref).
                 match provider.TryLookupType "Vesper.int" with
                 | ValueSome(ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)) ->
-                    Expect.equal canon "int" "int's canon identity is the `.fsi` name"
+                    Expect.equal canon (RuntimeNames.intrinsicKey "int") "int's canon identity is the `.fsi` name"
 
                     Expect.equal
                         platform
@@ -169,9 +169,11 @@ let tests =
                     | ValueSome(ExternalTypeShape.Class shape) ->
                         Expect.isTrue shape.IsInterface (sprintf "%s is an interface Class" lookup)
 
+                        let canonKey = RuntimeNames.intrinsicKey canonExpected
+
                         match shape.CapabilityFace with
                         | ValueSome face ->
-                            Expect.equal face.Canon canonExpected (sprintf "%s canon is its `.fsi` short name" lookup)
+                            Expect.equal face.Canon canonKey (sprintf "%s canon is its `.fsi` short name" lookup)
 
                             Expect.equal
                                 face.Platform
@@ -183,7 +185,7 @@ let tests =
                         | Some canons ->
                             Expect.contains
                                 canons
-                                canonExpected
+                                canonKey
                                 (sprintf "reverse-canon maps %s -> %s" platformExpected canonExpected)
                         | None -> failtestf "reverse-canon is missing the %s entry" platformExpected
                     | other -> failtestf "expected %s as a dual-faced Class shape, got %A" lookup other

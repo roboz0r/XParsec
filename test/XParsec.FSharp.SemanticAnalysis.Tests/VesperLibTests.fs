@@ -1446,7 +1446,11 @@ let tests =
 
                     match shape.CapabilityFace with
                     | ValueSome face ->
-                        Expect.equal face.Canon "disposable" "CapabilityFace canon is the `.fsi` short name"
+                        Expect.equal
+                            face.Canon
+                            (RuntimeNames.intrinsicKey "disposable")
+                            "CapabilityFace canon is the `.fsi` short name"
+
                         Expect.equal face.Platform "System.IDisposable" "CapabilityFace platform is the `.fs` repr"
                     | ValueNone -> failtest "dual-faced Class must carry a CapabilityFace (platform face from the repr)"
                 | other -> failtestf "expected a Class shape for disposable; got %A" other
@@ -1461,7 +1465,10 @@ let tests =
                 // The reverse-canon folds the BCL spelling to the canonical — the exn mechanism.
                 match provider.IntrinsicReverseCanon.TryFind "System.IDisposable" with
                 | Some canons ->
-                    Expect.contains canons "disposable" "reverse-canon folds System.IDisposable -> disposable"
+                    Expect.contains
+                        canons
+                        (RuntimeNames.intrinsicKey "disposable")
+                        "reverse-canon folds System.IDisposable -> disposable"
                 | None -> failtest "reverse-canon is missing the System.IDisposable -> disposable entry"
             }
 
@@ -1520,7 +1527,11 @@ let tests =
                 | ExternalTypeShape.Class shape ->
                     match shape.CapabilityFace with
                     | ValueSome face ->
-                        Expect.equal face.Canon "widget" "CapabilityFace canon is the `.fsi` short name"
+                        Expect.equal
+                            face.Canon
+                            (RuntimeNames.intrinsicKey "widget")
+                            "CapabilityFace canon is the `.fsi` short name"
+
                         Expect.equal face.Platform "System.Widget" "CapabilityFace platform is the `.fs` repr"
                     | ValueNone -> failtest "concrete-member intrinsic Class must carry a CapabilityFace"
                 | other -> failtestf "expected a dual-faced Class for widget; got %A" other

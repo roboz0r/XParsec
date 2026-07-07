@@ -20,7 +20,7 @@ module ClrSymbolProviders =
     /// set. The empty-reverse case reuses the shared singleton.
     let bclMetaTail: SymbolProviders.MetaTailFactory =
         let seeded =
-            System.Collections.Concurrent.ConcurrentDictionary<Map<string, string list>, IExternalSymbolProvider list>(
+            System.Collections.Concurrent.ConcurrentDictionary<Map<string, SymbolKey list>, IExternalSymbolProvider list>(
                 HashIdentity.Structural
             )
 
@@ -46,7 +46,7 @@ module ClrSymbolProviders =
     /// `MetadataSymbols.provider`, whose fallback is correct only for `bclMetaTail`.
     let bclMetaTailWith (dllPaths: string list) : SymbolProviders.MetaTailFactory =
         let seeded =
-            System.Collections.Concurrent.ConcurrentDictionary<Map<string, string list>, IExternalSymbolProvider list>(
+            System.Collections.Concurrent.ConcurrentDictionary<Map<string, SymbolKey list>, IExternalSymbolProvider list>(
                 HashIdentity.Structural
             )
 

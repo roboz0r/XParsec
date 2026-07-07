@@ -460,7 +460,7 @@ let private contractProvider (entries: (string * ExternalSymbol) list) : IExtern
         member _.TryLookupInlineBody _ = ValueNone
         member _.TryLookupInlineBodyByName _ = ValueNone
         member _.IntrinsicReverseCanon = Map.empty
-        member _.IntrinsicForwardRepr = Map.empty
+        member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
     }
 
 /// Run the `.fs` through the real frozen self-host pipeline (so a generic binding's
@@ -588,7 +588,7 @@ let private memberContractProvider (overloads: ExternalMember list) : IExternalS
         member _.TryLookupInlineBody _ = ValueNone
         member _.TryLookupInlineBodyByName _ = ValueNone
         member _.IntrinsicReverseCanon = Map.empty
-        member _.IntrinsicForwardRepr = Map.empty
+        member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
     }
 
 [<Tests>]

@@ -7,6 +7,91 @@ resolver (`SideTables.fs`) with NO fallback — a miss LOUD-FAILS. Every Semanti
 the 17 always-available intrinsics now resolves through the contract; the static `BuiltinTypes.ty*`
 still coexist (used by codegen + the 3 deferred intrinsics) and are deleted in Step 5.
 
+## CANON-AS-SYMBOLKEY REDESIGN — decision & staging (2026-07-07; SUPERSEDES the "Codegen IntrinsicSet" framing of item 1 below)
+
+**Reality check that reframed the work.** Codegen does NOT use `BuiltinTypes.tyX`; it mints
+`FTConst(BuiltinTypes.intrinsicKey "name", …)` (41 CLR + 10 JS sites), and `intrinsicKey` is
+called ~230× repo-wide. The shadow set to kill is the ns-decision *inside* `intrinsicKey`
+(`knownIntrinsicNames ∪ numericTypeNames ∪ isStructuralConstructorName → "Vesper"` else `""`),
+not a codegen-local `tyX` sweep. Codegen also never uses the `IntrinsicTypePatterns` recognizers
+(0 refs) — they are an SA-only concern.
+
+**Decision (confirmed with user).** Go the FULL contract-resolution route (option A), NOT the cheap
+"split `intrinsicKey`" (option B). Intrinsic identity is a qualified `SymbolKey` (`Vesper.int`)
+**resolved from the contract**, and the forward/reverse canon maps are **re-keyed by that
+`SymbolKey`**. Chosen deliberately: the user wants the canon relation `Vesper.int ↔ (# "System.Int32" #)`
+ESTABLISHED at contract-processing time and keyed by identity, and expects the re-key as a
+requirement. FULL propagation through the unifier's nominal canonicalizer (option (1)) — the
+bare-string canon token is eliminated, so identity is a `SymbolKey` everywhere (correct-by-
+construction; `feedback_durable_knowledge_in_code`).
+
+**The relation to establish (both directions, one accessor):** self-host (while `prim-types-*.fs`
+is compiled → local `IntrinsicKeys`/`IntrinsicReprTypes`) OR downstream (Vesper.Core referenced →
+`IExternalSymbolProvider` stack, ambient `open Vesper` locates `type Vesper.int = (# … #)`), a
+consumer asks "repr of `Vesper.int`?" / "canon key of platform `System.Int32`?" local-first,
+provider-fallback (the pattern `canonName` already uses).
+
+### Data model
+- `ExternalTypeShape.Intrinsic(canon: SymbolKey, arity: int, platform: string option)` — `canon`
+  becomes the qualified key. **`arity` STAYS a separate field** — the key is verbatim-name / no
+  arity suffix, so arity (and the type-param count of `'T[]`/`byref`/future N-param intrinsics) is
+  NEVER inferred from the key. Load-bearing invariant (user premise 1).
+- `IExternalSymbolProvider.IntrinsicForwardRepr : IReadOnlyDictionary<SymbolKey,string>` (canonKey →
+  repr). The VALUE stays the opaque platform string (user premise 2). **`Dictionary`, NOT `Map`:**
+  `SymbolKey` is equatable (interning) but NOT comparable — it holds an `EqArray` which is
+  `[<CustomEquality; NoComparison>]` by deliberate design (`EqArray.fs:15`), so `Map<SymbolKey,_>`
+  (ordered) will not compile. Use a read-only `Dictionary`/`IReadOnlyDictionary` (equality + hashing,
+  both present). Do NOT add `CustomComparison` to `EqArray`.
+- `IExternalSymbolProvider.IntrinsicReverseCanon : Map<string, SymbolKey list>` (platform-string
+  key UNCHANGED — a runtime name, not a provider key, and `string` IS comparable so `Map` stays; only
+  the VALUES become canon keys).
+- `ICodegenSymbols.IntrinsicForwardRepr : IReadOnlyDictionary<SymbolKey,string>`.
+- `PassContext.IntrinsicReverseCanon : Lazy<Dictionary<string, SymbolKey list>>`,
+  `IntrinsicCanonCache : Dictionary<SymbolKey, SymbolKey>`.
+- Every canon key minted asm-blind (`asm=None`), verbatim name. Reconciliation predicate is
+  `sameTypeAsmBlind` (`RuntimeNames.fs:259`, already asm- & arity-suffix-blind).
+
+### canonName → canonKey (the hub, widest ripple — accepted)
+`canonName : PassContext -> string -> string` (`EngineCore.fs:423`) is the unifier's GENERAL nominal
+canonicalizer (feeds `TyClass`/`TyUnion`/`TyRecord` qualified names AND `TyConst` intrinsic names,
+reconciling BCL `System.Exception` ↔ intrinsic `exn`). It becomes
+`canonKey : PassContext -> SymbolKey -> SymbolKey`: same 3-tier resolution (local
+`IntrinsicReprTypes`/`IntrinsicKeys` → provider `Intrinsic` canon via ambient open → reverse map),
+returning the canonical `SymbolKey`; a non-reconciled nominal returns its own key. `subtypeNominalOf`
+(`EngineCore.fs:513`) returns `struct(SymbolKey * args)`; `subsumes` compares nominal identity by
+`sameTypeAsmBlind` (cross-asm same-type still matches). Downstream consumers to re-type:
+`Engine.fs:835/868/1145`, `EngineCore.fs:657/706/724`, `Subsume.fs:313`.
+
+### Codegen repr consumption (user premise 2)
+Forward map keyed by `SymbolKey`; `ClrEnv.TryPrimitiveRepr` (`ClrEnv.fs:545`) takes the canon
+`SymbolKey` (codegen already holds `FTConst(key,args)` → uses `key` directly, retiring the
+`intrinsicName`/string-slice bridges at `Translate.fs:531-533`, `MetadataSymbols.fs:95`). The value
+is an OPAQUE platform string — codegen must map it to a known IL/JS type or **emit a diagnostic** on
+an unrecognized repr (no silent mis-emit).
+
+### Staging (each stays GREEN before the next; build/test only via ./claude_tools.cmd)
+1. **Stage 1 — data re-key, unifier BRIDGED.** Flip `Intrinsic.canon` + both provider maps +
+   `ICodegenSymbols` to `SymbolKey`. Producers: `VesperLib.fs:1325` mint uses `compiled` (qualified)
+   not `short`; `CapabilityFace` canon; `TyparCapture.fs:382/411` folds; `mergeReverseCanon`/
+   `mergeForwardRepr`/`stack` (`ExternalSymbols.fs:1314-1329,1352,1487`); JS pass-through decorators
+   (`NumberCovariance` wrap, `mapProviderTypes`, memoise). Consumers keep `canonName` string-typed by
+   bridging (`SymbolKeyOps.intrinsicName`/`qualifiedName`) at the boundary; the string-slice/mint
+   consumers (`MetadataSymbols.fs:95`, `NumberCovariance`, `Engine.numericFamilyOr`) consume the key
+   directly. Compiler-driven: flip the types → FS0001 list IS the worklist. GREEN + tests.
+2. **Stage 2 — full propagation.** `canonName→canonKey`; `subtypeNominalOf→struct(SymbolKey*args)`;
+   `IntrinsicCanonCache`/`PassContext.IntrinsicReverseCanon` re-typed; subsumes `sameTypeAsmBlind`
+   compare; delete the Stage-1 bridges. GREEN + tests.
+3. **Stage 3 — codegen repr validation.** ClrEnv/emit consumer diagnoses an unrecognized repr string.
+   GREEN + tests.
+4. **Stage 4 — shadow set falls out.** Identity is now contract-sourced as a `SymbolKey`, so
+   `intrinsicKey`'s ns-decision is dead on the resolved paths: delete `knownIntrinsicNames`; move the
+   enumerated opaque mints to an explicit `opaqueKey name = TypeKey(None,"",name)`; collapse/retire
+   `intrinsicKey`; delete static `BuiltinTypes.ty*` + `intrinsicNamespace` where every producer
+   resolves. (Absorbs the old Step 4/5 head.)
+
+Residue (unchanged, orthogonal, do LAST): `tySeqInt` delete + range retype; `prim-types-bigint`;
+`objnull`→`TyOr`; numeric-alias-through-alias; `undefined` sites; then delete this doc.
+
 ## FRESH-SESSION ENTRY POINT — remaining work, in order
 
 **Read this section + the two "LANDED" sections (search `LANDED`) and you have the full state.**

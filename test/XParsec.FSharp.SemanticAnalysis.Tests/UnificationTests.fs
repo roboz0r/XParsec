@@ -127,7 +127,7 @@ let tests =
                         member _.TryLookupInlineBody _ = ValueNone
                         member _.TryLookupInlineBodyByName _ = ValueNone
                         member _.IntrinsicReverseCanon = Map.empty
-                        member _.IntrinsicForwardRepr = Map.empty
+                        member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
                     }
 
                 let provider = ExternalSymbols.composite [ brokenProvider; realProvider.Value ]

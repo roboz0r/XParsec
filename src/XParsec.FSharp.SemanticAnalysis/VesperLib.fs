@@ -1322,7 +1322,7 @@ module VesperLib =
                         | true, repr -> Some repr
                         | _ -> None
 
-                    ctx.TypeShapes.[compiled] <- ExternalTypeShape.Intrinsic(short, arity, platform)
+                    ctx.TypeShapes.[compiled] <- ExternalTypeShape.Intrinsic(RuntimeNames.intrinsicKey short, arity, platform)
 
                 match members with
                 | ValueSome(TypeExtensionElementsSignature(_, elems, _)) when not (Seq.isEmpty elems) ->
@@ -1352,7 +1352,10 @@ module VesperLib =
                                 ctx.TypeShapes.[compiled] <-
                                     ExternalTypeShape.Class
                                         { shape with
-                                            CapabilityFace = ValueSome { Canon = short; Platform = platform }
+                                            CapabilityFace =
+                                                ValueSome
+                                                    { Canon = RuntimeNames.intrinsicKey short
+                                                      Platform = platform }
                                         }
                             | _ -> ()
                         | _ -> ()

@@ -2,6 +2,7 @@ module XParsec.FSharp.Codegen.Js.Tests.IntrinsicForwardReprJsTests
 
 open Expecto
 
+open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
 // The forward intrinsic axis `{ canon -> platform-repr }` must be present on the
@@ -17,6 +18,13 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 /// `IntrinsicReprConformanceTests`).
 let private forwardRepr = jsProvider.Value.IntrinsicForwardRepr
 
+/// Look a bare canon name up in the forward axis, which is now keyed by the qualified
+/// intrinsic `SymbolKey` (`Vesper.int`) — bridge from the bare `.fsi` name.
+let private tryRepr (canon: string) : string option =
+    match forwardRepr.TryGetValue(RuntimeNames.intrinsicKey canon) with
+    | true, repr -> Some repr
+    | _ -> None
+
 [<Tests>]
 let tests =
     testList
@@ -28,13 +36,13 @@ let tests =
                 // and the covariant `number -> float` target rests on (forward).
                 for canon in [ "int"; "float"; "float32" ] do
                     Expect.equal
-                        (Map.tryFind canon forwardRepr)
+                        (tryRepr canon)
                         (Some "number")
                         (sprintf "canon '%s' must harvest JS repr 'number'" canon)
             }
 
             test "`bool` reprs to `boolean`" {
-                Expect.equal (Map.tryFind "bool" forwardRepr) (Some "boolean") "bool -> boolean"
+                Expect.equal (tryRepr "bool") (Some "boolean") "bool -> boolean"
             }
 
             test "`float` reprs to `number` — the covariant target's licensing datum" {
@@ -42,7 +50,7 @@ let tests =
                 // naming `float` as `number`'s covariant value-read target is only sound
                 // because `float` itself reprs to `number` on this target.
                 Expect.equal
-                    (Map.tryFind "float" forwardRepr)
+                    (tryRepr "float")
                     (Some "number")
                     "the covariant `number -> float` target requires `float -> number` in the forward axis"
             }

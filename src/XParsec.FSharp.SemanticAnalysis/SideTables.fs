@@ -1552,9 +1552,9 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// self-compiled intrinsics (`IntrinsicReprTypes`, inverted). `lazy` so it is
     /// built once, on the first `canonName` reverse miss in Unification — AFTER
     /// NameResolution has populated `IntrinsicReprTypes`.
-    member val IntrinsicReverseCanon: Lazy<Dictionary<string, string list>> =
+    member val IntrinsicReverseCanon: Lazy<Dictionary<string, SymbolKey list>> =
         lazy
-            (let d = Dictionary<string, string list>()
+            (let d = Dictionary<string, SymbolKey list>()
 
              for KeyValue(platform, canons) in provider.IntrinsicReverseCanon do
                  d.[platform] <- canons
@@ -1562,10 +1562,13 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
              // invert so a raw platform name reconciles with the short identity within
              // a `--compiling-fslib` unit. Skips a degenerate `platform = short`. A local
              // repr wins over the provider's canons for the same platform (self-compiled
-             // identity is authoritative within the unit), so it replaces the entry.
+             // identity is authoritative within the unit), so it replaces the entry. The
+             // canon value is the qualified intrinsic identity (`Vesper.short`), minted
+             // through the single `intrinsicKey` producer so it compares EQUAL to the
+             // forward/provider canons.
              for KeyValue(short, platform) in types.IntrinsicReprTypes do
                  if platform <> short then
-                     d.[platform] <- [ short ]
+                     d.[platform] <- [ RuntimeNames.intrinsicKey short ]
 
              d) with get
 

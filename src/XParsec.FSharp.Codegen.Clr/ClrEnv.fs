@@ -545,7 +545,10 @@ type internal ClrEnv
     member _.TryPrimitiveRepr(name: string) : string option =
         match reprs.TryFind name with
         | Some _ as hit -> hit
-        | None -> Map.tryFind name symbols.IntrinsicForwardRepr
+        | None ->
+            match symbols.IntrinsicForwardRepr.TryGetValue(RuntimeNames.intrinsicKey name) with
+            | true, repr -> Some repr
+            | _ -> None
 
     member _.FsCoreRef = fsCoreRef
     member _.CoreRef = coreRef

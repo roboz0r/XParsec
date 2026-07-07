@@ -426,7 +426,7 @@ module UnificationEngineCore =
         | _ ->
             let providerCanon (c: string) : string voption =
                 match ctx.Provider.TryLookupType c with
-                | ValueSome(ExternalTypeShape.Intrinsic(canon = canon)) -> ValueSome canon
+                | ValueSome(ExternalTypeShape.Intrinsic(canon = canon)) -> ValueSome(SymbolKeyOps.intrinsicName canon)
                 | _ -> ValueNone
 
             let repr =
@@ -450,7 +450,7 @@ module UnificationEngineCore =
                         // path fires) is always the sole/head canon. An empty list reads
                         // as a miss.
                         match ctx.IntrinsicReverseCanon.Value.TryGetValue n with
-                        | true, (canon :: _) -> canon
+                        | true, (canon :: _) -> SymbolKeyOps.intrinsicName canon
                         | _ -> n
 
             ctx.IntrinsicCanonCache.[n] <- repr

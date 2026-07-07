@@ -248,9 +248,7 @@ module UnificationEngine =
         | TyConst(key, args) when args.Length = 0 ->
             match ctx.IntrinsicReverseCanon.Value.TryGetValue(SymbolKeyOps.intrinsicName key) with
             | true, (_ :: _ :: _ as canons) ->
-                ValueSome(
-                    SemType.MkUnion(seq { for c in canons -> TyConst(BuiltinTypes.intrinsicKey c, EqArray.empty) })
-                )
+                ValueSome(SemType.MkUnion(seq { for c in canons -> TyConst(c, EqArray.empty) }))
             | _ -> ValueNone
         | _ -> ValueNone
 
@@ -269,8 +267,8 @@ module UnificationEngine =
         | TyConst(k1, a1), TyConst(k2, a2) when a1.Length = 0 && a2.Length = 0 ->
             let fwd = ctx.Provider.IntrinsicForwardRepr
 
-            match Map.tryFind (SymbolKeyOps.intrinsicName k1) fwd, Map.tryFind (SymbolKeyOps.intrinsicName k2) fwd with
-            | Some r1, Some r2 -> r1 = r2
+            match fwd.TryGetValue k1, fwd.TryGetValue k2 with
+            | (true, r1), (true, r2) -> r1 = r2
             | _ -> false
         | _ -> false
 

@@ -122,13 +122,17 @@ let tests =
                 // Identity axis — the canon faces ARE the `.fsi` names, platform-
                 // INVARIANT (a JS build never sees a BCL name) and distinct, so the
                 // unifier never conflates `int` with `float`.
-                Expect.equal intCanon "int" "int canon identity is the `.fsi` name"
-                Expect.equal floatCanon "float" "float canon identity is the `.fsi` name"
+                Expect.equal intCanon (RuntimeNames.intrinsicKey "int") "int canon identity is the `.fsi` name"
+                Expect.equal floatCanon (RuntimeNames.intrinsicKey "float") "float canon identity is the `.fsi` name"
                 Expect.notEqual intCanon floatCanon "int and float MUST keep distinct canon identities"
 
                 Expect.equal intPlat "number" "int platform face repoints to JS `number`"
                 Expect.equal floatPlat "number" "float platform face repoints to JS `number`"
-                Expect.notEqual intCanon intPlat "the two faces genuinely diverge on JS (identity ≠ runtime repr)"
+
+                Expect.notEqual
+                    (SymbolKeyOps.intrinsicName intCanon)
+                    intPlat
+                    "the two faces genuinely diverge on JS (identity ≠ runtime repr)"
             }
 
             test "JS target: unit -> undefined, int64/uint64 -> bigint (canon = `.fsi` name)" {
@@ -141,8 +145,12 @@ let tests =
                     | ValueSome(ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)) -> canon, platform
                     | other -> failtestf "expected %s as an Intrinsic shape with a JS repr, got %A" name other
 
-                Expect.equal (facesOf "Vesper.unit") ("unit", "undefined") "unit -> undefined on JS"
-                Expect.equal (facesOf "Vesper.int64") ("int64", "bigint") "int64 -> bigint on JS"
-                Expect.equal (facesOf "Vesper.uint64") ("uint64", "bigint") "uint64 -> bigint on JS"
+                Expect.equal (facesOf "Vesper.unit") (RuntimeNames.intrinsicKey "unit", "undefined") "unit -> undefined on JS"
+                Expect.equal (facesOf "Vesper.int64") (RuntimeNames.intrinsicKey "int64", "bigint") "int64 -> bigint on JS"
+
+                Expect.equal
+                    (facesOf "Vesper.uint64")
+                    (RuntimeNames.intrinsicKey "uint64", "bigint")
+                    "uint64 -> bigint on JS"
             }
         ]

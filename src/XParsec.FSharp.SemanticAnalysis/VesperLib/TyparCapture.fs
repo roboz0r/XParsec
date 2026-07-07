@@ -379,9 +379,13 @@ module VesperLibTyparCapture =
                 ctx.TypeShapes
                 |> Seq.choose (fun kv ->
                     match kv.Value with
-                    | ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform) when platform <> canon ->
+                    | ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform) when
+                        platform <> SymbolKeyOps.intrinsicName canon
+                        ->
                         Some(platform, canon)
-                    | ExternalTypeShape.Class { CapabilityFace = ValueSome face } when face.Platform <> face.Canon ->
+                    | ExternalTypeShape.Class { CapabilityFace = ValueSome face } when
+                        face.Platform <> SymbolKeyOps.intrinsicName face.Canon
+                        ->
                         Some(face.Platform, face.Canon)
                     | _ -> None
                 )
@@ -405,14 +409,19 @@ module VesperLibTyparCapture =
             // (`ClrEncoder` `PrimitiveRepr` arm) and fail, where its absence falls the
             // name through to nominal encoding.
             let intrinsicForward =
-                ctx.TypeShapes
-                |> Seq.choose (fun kv ->
+                // `SymbolKey` is equatable-but-not-comparable, so the canon-keyed forward
+                // axis is a read-only `Dictionary`, not a `Map`.
+                let d = System.Collections.Generic.Dictionary<SymbolKey, string>()
+
+                for kv in ctx.TypeShapes do
                     match kv.Value with
-                    | ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform) when platform <> canon ->
-                        Some(canon, platform)
-                    | _ -> None
-                )
-                |> Map.ofSeq
+                    | ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform) when
+                        platform <> SymbolKeyOps.intrinsicName canon
+                        ->
+                        d.[canon] <- platform
+                    | _ -> ()
+
+                d :> System.Collections.Generic.IReadOnlyDictionary<_, _>
 
             { new IExternalSymbolProvider with
                 member _.TryLookup(name) =

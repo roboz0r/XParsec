@@ -238,7 +238,7 @@ module JsNativeSymbols =
             member _.TryLookupInlineBody _ = ValueNone
             member _.TryLookupInlineBodyByName _ = ValueNone
             member _.IntrinsicReverseCanon = Map.empty
-            member _.IntrinsicForwardRepr = Map.empty
+            member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
         }
 
     /// The JS-native layer-2 leaf factory: the JS-native tail instead of BCL reflection,
