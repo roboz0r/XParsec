@@ -32,10 +32,14 @@ module internal NominalEmit =
         /// No `inherit` clause (a plain class chains to `Object`; a struct extends
         /// `System.ValueType` — handled at the `extends` site, not here).
         | NoBase
-        /// A non-generic HERITABLE external base (`inherit Attribute`, where
-        /// `Attribute = (# class "System.Attribute" #)`): `extends` its raw external
-        /// `TypeRef`; the primary ctor chains to its parameterless `.ctor()`. `key`
-        /// mints that base ctor; `tref` is the resolved `extends` token.
+        /// A non-generic HERITABLE external base — an external `FTClass`
+        /// (`inherit Attribute`, where `Attribute = (# class "System.Attribute" #)`)
+        /// or an intrinsic-class canon resolved to its platform class
+        /// (`inherit exn` → `System.Exception`): `extends` its raw external
+        /// `TypeRef`; the primary ctor chains to its `.ctor` — the overload picked
+        /// from the `inherit` args, or the parameterless `.ctor()` when there are
+        /// none. `key` (the PLATFORM key) mints that base ctor; `tref` is the
+        /// resolved `extends` token.
         | ExternalBase of key: SymbolKey * tref: EntityHandle
         /// A non-generic project-local base: `extends` its `TypeDefinition` token.
         | LocalMono of key: SymbolKey
@@ -388,6 +392,14 @@ module internal NominalEmit =
                     match icodegen.ExternalClassTypeRef baseKey with
                     | ValueSome tref -> BaseShape.ExternalBase(baseKey, tref)
                     | ValueNone -> BaseShape.LocalMono baseKey
+                // An intrinsic-class parent (`inherit exn`) arrives as the canon
+                // `FTConst`, not an `FTClass` — resolve it to its platform external
+                // class (`System.Exception`), whose key mints the base-ctor and whose
+                // raw `TypeRef` is the `extends` token.
+                | ValueSome(FTConst(canonKey, args) as bt) when args.IsEmpty ->
+                    match icodegen.IntrinsicClassBase canonKey with
+                    | ValueSome(platformKey, tref) -> BaseShape.ExternalBase(platformKey, tref)
+                    | ValueNone -> BaseShape.Generic bt
                 | ValueSome bt -> BaseShape.Generic bt
 
             // The IL `TypeDefinition.BaseType` (`extends`) column. A non-generic
@@ -440,12 +452,15 @@ module internal NominalEmit =
                 ]
 
             // The primary `.ctor` body, one arm per base species:
-            //  * `ExternalBase` (`inherit Attribute`, `Attribute = (# class … #)`): the
-            //    base is external, not in the project-local `classes` registry. Chain to
-            //    its parameterless `.ctor()` (minted directly off the external `TypeRef`)
-            //    instead of `System.Object::.ctor`. v1 supports only a parameterless
-            //    external base (attribute bases take no ctor args), so any
-            //    `inherit Base(args)` here ignores the args.
+            //  * `ExternalBase` with `inherit Base(args)` args (`inherit exn(msg)`): the
+            //    base is external, so its `.ctor` overload is re-picked from the
+            //    call-site arg types through the same external-ctor resolution a
+            //    `new System.Exception(...)` uses (`TryEmitCtor`), then chained with
+            //    the `inherit` args before the field stores.
+            //  * `ExternalBase`, no args (`inherit Attribute`, `Attribute = (# class … #)`):
+            //    chain to its parameterless `.ctor()` (minted directly off the external
+            //    `TypeRef` — a protected base ctor need not be in the member harvest)
+            //    instead of `System.Object::.ctor`.
             //  * `inherit Base(args)` on a project-local base (`baseCtorCall`): chain to
             //    the parent's `.ctor` with the `inherit` args before the field stores —
             //    its `Def` token (mono parent) or a `MemberRef` on the parent's
@@ -454,6 +469,23 @@ module internal NominalEmit =
             //  * otherwise: chain to `System.Object::.ctor` (the record/closure recipe).
             let ctorBody =
                 match baseShape, baseCtorCall with
+                | BaseShape.ExternalBase(baseKey, _), ValueSome bcc when not bcc.Args.IsEmpty ->
+                    let argTypes = [ for a in bcc.Args -> TastLower.typeOfExpr a ]
+
+                    match icodegen.TryEmitCtor(baseKey, [], argTypes) with
+                    | ValueSome recipe ->
+                        Emit.buildClassBaseCtor
+                            emitCtx
+                            recipe.Handle
+                            (EqArray.toList bcc.Args)
+                            (EqArray.toList bcc.CtorParams)
+                            ctorFieldRefs
+                    | ValueNone ->
+                        failwithf
+                            "Emit: class '%s' inherits external base %A but no '.ctor' overload matches its %d base-ctor argument(s)"
+                            td.Name
+                            baseKey
+                            bcc.Args.Length
                 | BaseShape.ExternalBase(baseKey, _), _ ->
                     match icodegen.ExternalParameterlessBaseCtor baseKey with
                     | ValueSome extCtor -> Emit.buildClassBaseCtor emitCtx extCtor [] [] ctorFieldRefs

@@ -610,6 +610,29 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
     member _.ExternalParameterlessBaseCtor(key) = externalParameterlessBaseCtor key
 
+    /// Resolve an intrinsic-CLASS `inherit` parent — an `FTConst` canon (`exn`) whose
+    /// platform repr is a heritable BCL reference class — to its platform external
+    /// key (`System.Exception`, the identity base-ctor `MemberRef`s are minted
+    /// against) plus its raw `TypeRef` (the derived type's `extends` token). A
+    /// value-type repr (`int` → `System.Int32`) is never a heritable base, so it
+    /// returns `ValueNone`, as does a non-intrinsic key.
+    member _.IntrinsicClassBase(canon: SymbolKey) : struct (SymbolKey * EntityHandle) voption =
+        match env.TryPrimitiveRepr(SymbolKeyOps.simpleName canon) with
+        // `isEncodableValueType` misses the two `TypeRef`-backed value reprs
+        // (`System.Decimal` / `System.ValueTuple` — see `IntrinsicRepr`), so name
+        // them explicitly: no value type is a heritable base.
+        | Some repr when
+            not (IntrinsicRepr.isEncodableValueType repr)
+            && repr <> "System.Decimal"
+            && repr <> "System.ValueTuple"
+            ->
+            let platformKey = SymbolKeyOps.qualifiedTypeKeyOf None repr 0
+
+            match externalClassRef platformKey with
+            | ValueSome tref -> ValueSome(struct (platformKey, tref))
+            | ValueNone -> ValueNone
+        | _ -> ValueNone
+
     /// The raw external `TypeRef` for `key` (an external class), the token a derived
     /// type's `extends` (base-type) column names. A raw `TypeRef` — not a
     /// `TypeSpec`-wrapped one (`TypeToken`) — because the Extends column wants the

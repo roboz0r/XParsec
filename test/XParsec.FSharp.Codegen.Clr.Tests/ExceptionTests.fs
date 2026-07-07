@@ -130,10 +130,7 @@ let tests =
             //     not applied at an annotation-coercion site). Enabled once metadata surfaces the
             //     roots as canon identities (stage 3).
 
-            // Now resolves through SA (the `IntrinsicClass` `inherit exn` path); still pending on
-            // CODEGEN — `ClrEncoder` must encode `exn`'s repr `System.Exception` as a reference-class
-            // TypeRef (`extends`), not via the value-type `PrimitiveRepr` path. Flip to `test` then.
-            ptest "a user type inheriting exn raises as its own type, a subclass of System.Exception" {
+            test "a user type inheriting exn raises as its own type, a subclass of System.Exception" {
                 let ex =
                     thrownBy
                         "ExnInheritUser"
@@ -146,6 +143,7 @@ let tests =
 
                 Expect.equal (ex.GetType().Name) "MyErr" "the raised value keeps its own runtime type"
                 Expect.isTrue (typeof<Exception>.IsAssignableFrom(ex.GetType())) "MyErr is a System.Exception subclass"
+                Expect.equal ex.Message "boom" "the message chains through the exn(msg) base ctor, not dropped"
             }
 
             ptest "a BCL exception upcasts to exn and to obj without diagnostics" {

@@ -149,14 +149,22 @@ intact). Done:
   base `TyConst(exn)`.
 - `exn`/`obj` `.fsi` contract members re-added (`inherit obj` + `new:` on `exn`; `new:` on `obj`).
 
-**REMAINING (next increment) — codegen reference-class encoding for `inherit exn`.** The `inherit exn`
-acceptance test now RESOLVES through SA (no more "unknown type") and reaches codegen, where it errors:
-`ClrEncoder.encodeType` routes `exn`'s repr `System.Exception` through the value-type `PrimitiveRepr`
-path ("no IL encoding for intrinsic representation System.Exception"). `exn`/`obj` are REFERENCE
-classes — an `FTConst(exn)` used as a base (or any encoded position) must emit a class **TypeRef**
-(`extends [runtime]System.Exception`), via the forward repr, not the value-type encoder. `obj` already
-dodges this (`System.Object → ELEMENT_TYPE_OBJECT`); `exn` needs the reference-class path. Until then
-the `inherit exn` test stays `ptest` (with a note); the upcast test stays `ptest` for stage 3.
+**CODEGEN — reference-class ENCODING done; base-CTOR chaining remains.**
+- ✅ `ClrEncoder.encodeType`: a reference-class intrinsic (`exn`'s repr `System.Exception`, not a
+  value type) now encodes a class `TypeRef` via `externalClassRef (qualifiedTypeKeyOf None repr 0)`
+  instead of failing in the value-type `PrimitiveRepr` arm. This is the `extends`/param/field token.
+  (`obj` still dodges via its `ELEMENT_TYPE_OBJECT` arm, which precedes `PrimitiveRepr`.) With this,
+  `inherit exn`'s base-type `extends System.Exception` emits.
+- ✅ **Base-ctor chaining DONE (Clr 1252 green, `inherit exn` acceptance test flipped to `test`).**
+  (a) `baseShape` classifies an argless `FTConst` base via the new
+  `ICodegenProvider.IntrinsicClassBase` (canon → platform external key + raw `TypeRef`,
+  implemented off `TryPrimitiveRepr` in `ClrExternalMembers`; value-type reprs excluded) →
+  `BaseShape.ExternalBase(platformKey, tref)`; and (b) the `ExternalBase` ctor arm with `inherit`
+  args re-picks the base `.ctor` overload from the call-site arg types via `TryEmitCtor` (the same
+  external-ctor resolution `new System.Exception(...)` uses) and chains it via
+  `Emit.buildClassBaseCtor` with `bcc.Args` — the message round-trip is asserted in the test. The
+  argless path keeps `ExternalParameterlessBaseCtor` (protected base ctors need no member harvest).
+- The upcast test stays `ptest` for stage 3 (metadata reconciliation).
 
 ## Target architecture
 

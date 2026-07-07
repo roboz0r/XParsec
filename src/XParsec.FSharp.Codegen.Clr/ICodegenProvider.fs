@@ -465,6 +465,14 @@ type ICodegenProvider =
     /// did not resolve to an external class.
     abstract ExternalClassTypeRef: key: SymbolKey -> EntityHandle voption
 
+    /// Resolve an intrinsic-CLASS `inherit` parent — an `FTConst` canon (`exn`)
+    /// whose platform repr is a heritable BCL reference class — to its platform
+    /// external key (`System.Exception`, the identity `TryEmitCtor` /
+    /// `ExternalParameterlessBaseCtor` mint base-ctor `MemberRef`s against) plus
+    /// its raw `TypeRef` (the derived type's `extends` token). `ValueNone` ⇒ not an
+    /// intrinsic, or a value-type repr (never a heritable base).
+    abstract IntrinsicClassBase: canon: SymbolKey -> struct (SymbolKey * EntityHandle) voption
+
     abstract ObjectType: EntityHandle
 
     /// A `TypeDefOrRefOrSpec` token for an arbitrary `FrozenType`, for the operand

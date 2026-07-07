@@ -283,6 +283,7 @@ type ClrProvider
         member _.ObjectType = env.EObject.Value
         member _.ExternalParameterlessBaseCtor(key) = ext.ExternalParameterlessBaseCtor(key)
         member _.ExternalClassTypeRef(key) = ext.ExternalClassTypeRef(key)
+        member _.IntrinsicClassBase(canon) = ext.IntrinsicClassBase(canon)
         member _.TypeToken(ty) = recipes.TypeToken(ty)
         member _.ValueTupleRefs(elemTys) = enc.ValueTupleRefs elemTys
         member _.IsExternalValueType(key) = env.ExternalIsValueType key

@@ -134,7 +134,15 @@ type internal ClrEncoder(env: ClrEnv) =
                 // `unit` — the zero-field BCL struct; a value type with no external ref of its own.
                 te.Type(eValueTuple.Value, true)
             else
-                failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
+                // A REFERENCE-class intrinsic (`exn` → `System.Exception`): its repr is not a
+                // value-type primitive but a heritable BCL class (an `IntrinsicClass`). Encode a
+                // class `TypeRef` to the platform type, exactly as an `FTClass` external would —
+                // this is the `extends`/parameter/field token for `inherit exn`, `new exn`, etc.
+                // (`obj` never reaches here — its `ELEMENT_TYPE_OBJECT` arm precedes `PrimitiveRepr`.)
+                match externalClassRef (SymbolKeyOps.qualifiedTypeKeyOf None repr 0) with
+                | ValueSome tref -> te.Type(tref, false)
+                | ValueNone ->
+                    failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
         // The array intrinsic `[]<elem>` (`'T[]`) → an SZArray (rank-1 vector) of
         // the element. Higher-rank arrays (`[,]`) aren't emitted yet.
         | FTConst(key, args) when args.Length = 1 && SymbolKeyOps.simpleName key = "[]" ->
