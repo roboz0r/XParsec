@@ -563,6 +563,12 @@ module NameResolutionTypeRegistration =
                     match rhs with
                     | Type.ILIntrinsic(kindTag = tag; instrParts = parts) ->
                         ctx.Types.IntrinsicReprTypes.[name] <- ilIntrinsicString ctx parts
+                        // Contract-source the intrinsic's identity: mint its qualified key
+                        // from the declaring namespace (VERBATIM name, no arity suffix — the
+                        // name field is the identity string, arity rides in the `TyConst`
+                        // args), so `Translate` resolves `int` to `Vesper.int` from the
+                        // contract rather than re-deriving the namespace by name.
+                        ctx.Types.IntrinsicKeys.[name] <- SymbolKey.TypeKey(None, declNs, name)
                         registerMemberHostIfAny ()
 
                         match tag with

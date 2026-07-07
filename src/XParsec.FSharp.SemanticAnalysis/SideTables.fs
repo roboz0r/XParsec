@@ -787,6 +787,16 @@ type PassContextTypes =
         /// represents* the type, not an alias to expand. Input to the
         /// `encodeType` rekey.
         IntrinsicReprTypes: Dictionary<string, string>
+        /// The name → qualified `SymbolKey` index for this unit's own intrinsics,
+        /// populated at registration from the declaring `namespace` (`Vesper`). The
+        /// intrinsic's identity is CONTRACT-SOURCED: `Translate` reads the resolved key
+        /// here instead of re-deriving the namespace from a hardcoded name set. The key
+        /// keeps the VERBATIM intrinsic name (`"int"`, `"[]"`) with NO arity suffix — the
+        /// name field IS the identity string, arity rides in the `TyConst` args. Mirror of
+        /// the arity-suffixed `SymbolKey` a record/union stamps, minus the suffix.
+        /// `IntrinsicReprTypes` stays a pure name → target-repr side-table; this carries
+        /// identity.
+        IntrinsicKeys: Dictionary<string, SymbolKey>
         /// Names of intrinsic-repr types declared as HERITABLE external reference
         /// bases (`type Attribute = (# class "System.Attribute" #)`), the `class`/
         /// `interface`-tagged subset of `IntrinsicReprTypes`. A name here may appear as
@@ -851,6 +861,7 @@ module PassContextTypes =
             FieldIndex = Dictionary<_, _>()
             ClassMemberIndex = Dictionary<_, _>()
             IntrinsicReprTypes = Dictionary<_, _>()
+            IntrinsicKeys = Dictionary<_, _>()
             HeritableExternBases = HashSet<_>()
             IntrinsicAbbrevHost = Dictionary<_, _>()
             UnionBareArity = Dictionary<_, _>()
@@ -874,6 +885,19 @@ module TypeRegistry =
     /// `SymbolKeyOps.arityName` so the registry key and the stamped `SymbolKey`
     /// name share one rule.
     let keyFor (name: string) (arity: int) : string = SymbolKeyOps.arityName name arity
+
+    /// The contract-sourced identity key for a locally-declared intrinsic (`int`,
+    /// `[]`, a user intrinsic-abbrev): the qualified `SymbolKey` registration stamped
+    /// from the declaring `namespace` (`IntrinsicKeys`), so the namespace comes from the
+    /// contract rather than a hardcoded name set. The single source EVERY local-intrinsic
+    /// mint routes through, so a use-site (`Translate`) and a member/self-type mint
+    /// (`MemberRegistration`) of the same intrinsic cannot diverge on the namespace. Falls
+    /// back to the by-name mint only for a name in `IntrinsicReprTypes` without a stamped
+    /// key (defensive — registration populates both together).
+    let intrinsicKeyOf (types: PassContextTypes) (name: string) : SymbolKey =
+        match types.IntrinsicKeys.TryGetValue name with
+        | true, k -> k
+        | _ -> RuntimeNames.intrinsicKey name
 
     // --- Arity-overload mechanism (shared by Union and Class) --------------------
     // F# / .NET overload a type *name* by generic arity (`Choice\`2`/`Choice\`3`,

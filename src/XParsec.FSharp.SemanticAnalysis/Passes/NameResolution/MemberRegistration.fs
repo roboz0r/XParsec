@@ -703,7 +703,7 @@ module NameResolutionMemberRegistration =
         | "string" -> BuiltinTypes.tyString
         | "int64" -> BuiltinTypes.tyInt64
         | "byte" -> BuiltinTypes.tyByte
-        | _ when ctx.Types.IntrinsicReprTypes.ContainsKey name -> TyConst(BuiltinTypes.intrinsicKey name, args)
+        | _ when ctx.Types.IntrinsicReprTypes.ContainsKey name -> TyConst(TypeRegistry.intrinsicKeyOf ctx.Types name, args)
         | _ ->
             // Nominal heads carry their resolved `SymbolKey`; take it
             // off the registry `info` rather than re-stringing the name.

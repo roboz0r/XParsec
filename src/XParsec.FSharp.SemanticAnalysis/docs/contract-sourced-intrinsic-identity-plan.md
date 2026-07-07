@@ -1,0 +1,239 @@
+# Contract-sourced intrinsic identity (kill the front-end shadow set)
+
+**Status: DESIGN CONFIRMED — starting step 1.** Cross-file visibility premise VERIFIED (whole-unit
+single-`PassContext` compilation, registration pre-pass — see below). Residue decisions RESOLVED.
+Full arc in scope. One open point deferred to step 2: how the resolver obtains the qualified key
+(ns-augment the local table vs. unify with nominal resolution).
+
+Successor to `qualified-intrinsic-identities-plan.md` (LANDED): that milestone gave
+intrinsics a qualified `SymbolKey` but sourced the `Vesper` namespace from a **hardcoded**
+front-end set (`RuntimeNames.knownIntrinsicNames ∪ numericTypeNames ∪
+isStructuralConstructorName`, glued by `intrinsicNamespace = "Vesper"`). This milestone
+deletes that shadow set: an intrinsic's identity is **resolved from the `prim-types-*`
+contract through ordinary name resolution**, exactly like a user nominal `Widgets.widget`.
+
+## The wart chain that motivates this
+
+1. `SymbolKeyOps.intrinsicName` (last commit) claims to be a "non-lossy" projection but is
+   byte-identical to `simpleName` over its whole domain (no intrinsic key's `name` carries a
+   `` `N `` suffix, so `bareName n = n`). It is a leaf symptom.
+2. The real loss both projections incur is **namespace/assembly**, not arity. Every consumer
+   that feeds a bare string into a string-keyed repr map has already thrown away the `Vesper`
+   the migration just added.
+3. The reason the namespace has to be re-invented downstream at all is that it is **dropped at
+   every producer** and re-synthesized from a hardcoded list:
+   - self-host `TypeRegistration.registerAbbreviationDefn`: `declNs` (`namespace Vesper`) is in
+     hand but `IntrinsicReprTypes.[name] <- repr` is keyed by the **bare** name;
+   - harvest `VesperLib.fs:1325`: the shape is stored under the **qualified** `compiled`
+     (`Vesper.int`) but its payload is `Intrinsic(short, arity, platform)` with `canon = short`
+     (bare); the forward/reverse canon maps (`TyparCapture.fs`) are built from that bare `canon`;
+   - `RuntimeNames.intrinsicKey` then re-invents `ns` from `knownIntrinsicNames`.
+4. `knownIntrinsicNames` is therefore a hand-maintained mirror of the `.fsi` `extern`
+   declarations — the exact `feedback_mockbuiltins_is_a_trap` failure mode. Add
+   `type widen = extern` to a contract and forget the mirror ⇒ its `TyConst` silently gets
+   `ns = ""`, with no compiler backstop.
+
+## The full intrinsic set is already in the contract (verified)
+
+Every `BuiltinTypes.ty*` maps 1:1 onto an `extern` declaration in a `prim-types-*.fsi`:
+`int/sbyte/byte/int16/uint16/uint32/int64/uint64` (`prim-types-int.fsi`),
+`float32/float` (`-float`), `decimal` (`-decimal`), `char/string` (`-string`), `obj`
+(`-object`), `exn` (`-exn`), `nativeint/unativeint/voidptr` (`-nativeint`), `bool/unit/int`
+and the array (`-min`), the nd-array ranks (`-nd-array`), `undefined`/`dynamic` (JS `.js.fsi`).
+So a name-resolution lookup for any of these through ambient `open Vesper` **can** find its
+qualified identity. The mirror carries no information the contract lacks.
+
+## Target architecture
+
+**Intrinsic identity is resolved, never authored.** The front end holds no static intrinsic
+`SymbolKey`s and no name→namespace table. Instead:
+
+- A single resolver builds the intrinsic identity bag **once per compilation**, from the same
+  type environment ordinary nominal resolution uses (local cumulative registry for self-host
+  Vesper.Core; the `IExternalSymbolProvider` via ambient `open Vesper` downstream). Store it on
+  `PassContext` (e.g. `ctx.Intrinsics : IntrinsicSet` with fields `Int`, `String`, `Bool`, …).
+- `BuiltinTypes` stops being a bag of module-init constants and becomes the **builder** of that
+  bag: `BuiltinTypes.resolve (env) : IntrinsicSet`, resolving each intrinsic by name through the
+  environment. Resolution failure (contract lacks the name) is a **loud** pipeline-start error —
+  this replaces option (B)'s separate load-time assertion: the contract is authoritative and the
+  check is just "did resolution find it," enforced by the same machinery as every other name.
+- The 188 `BuiltinTypes.tyX` sites become `ctx.Intrinsics.X` (mechanical rename; resolution
+  happens once, not per site — keeps the ergonomics and the perf of a field read).
+
+This makes intrinsic-ness fall out of the resolved shape (`ExternalTypeShape.Intrinsic` /
+local `IntrinsicReprTypes` membership → `TyConst`, per existing `Translate.fs`), so there is no
+separate "is this an intrinsic" predicate to keep in sync.
+
+### Carry the namespace through the two producers (prerequisite)
+
+- `ExternalTypeShape.Intrinsic`'s `canon` face carries the **qualified** identity (or gains an
+  origin/ns field). The extractor has `compiled` (`Vesper.int`) at the mint site
+  (`VesperLib.fs:1325`); feed that instead of bare `short`. Forward/reverse canon maps and
+  `canonName` then key on the qualified identity — the canonicalization is established in the
+  backend from the contract, as intended.
+- Self-host `IntrinsicReprTypes` records the `declNs` already passed into
+  `registerAbbreviationDefn` and dropped today.
+
+## How far it goes: what is eliminated vs the irreducible language floor
+
+**Eliminated (becomes contract-resolved):**
+- `RuntimeNames.knownIntrinsicNames`, `intrinsicNamespace`, the ns-decision inside
+  `intrinsicKey` (the mint helper collapses to a plain resolver hit, or is deleted if every
+  producer resolves).
+- `SymbolKeyOps.intrinsicName` (deleted; the repr-bridge feeds use `simpleName`, the pure-
+  identity checks compare resolved keys / `IntrinsicTypePatterns`).
+- The static `BuiltinTypes.ty*` constants (become `ctx.Intrinsics.*`).
+- `numericTypeNames`/`knownIntrinsicNames` **as namespace sources** (they may survive only if
+  still needed as a language-rule enumeration — see floor).
+
+**Irreducible language floor (stays front-end — this is syntax/semantics, NOT type identity):**
+- **Literal lexeme → canonical name**: `Token.NumInt32 → "int"`, `KWTrue → "bool"`,
+  `CharLiteral → "char"`, string → `"string"`, `() → "unit"`, float → `"float"`. This is the
+  language's literal grammar — platform-INVARIANT. `literalCarrier` gains `ctx` and returns
+  `ctx.Intrinsics.<name>`; the token→name map is language knowledge, the identity is resolved.
+  **Per-platform representability is NOT part of this map** — it falls out of the existing
+  `PlatformTypes` gate: `float32`'s canon identity always resolves (it *is* declared in
+  `prim-types-float.fsi`), but on JS there is no `prim-types-float.js.fs` binding for it, so its
+  `ExternalTypeShape.Intrinsic` carries `platform = None` and `PlatformTypes` already rejects it
+  (the same path that catches `decimal`/`nativeint` on JS). So `3.0f` on a JS target resolves
+  cleanly as `float32` and is rejected at the platform gate — wire the source token through so
+  the diagnostic reads "`3.0f` cannot be compiled: `float32` is not supported on this platform"
+  rather than a bare type-name message. The lexeme map itself never becomes platform-aware.
+- **Language-semantic constraint verdicts** (`primitiveSupports`: value types are structurally
+  equatable/comparable; `string` is an equatable reference type). The *verdict* is a language
+  rule the passes own (the provider is a dumb oracle — `feedback` on capability predicates). The
+  *key* becomes the resolved identity (compare against `ctx.Intrinsics.*`, not a bare-name set).
+  **Frontier:** the value-type/equatable *enumeration* could later be contract-derived if
+  `prim-types-*.fsi` declared capability interfaces on the primitives (`int with interface
+  IEquatable`), read via `FrozenInterfaces`. Out of scope here; flag as future.
+- **Structural-constructor lowering** (array/byref get a structural backend repr): backend
+  concern, legitimately not an identity question.
+
+## Bootstrap / ordering argument — VERIFIED, no hazard
+
+A project's ordered files are **concatenated into one source string and compiled as a single
+`PassContext`** (`Pipeline.fs:23`; driver concatenation `ClrDriver.fs`, `TestHelpers.fs:301-318`).
+Type registration is a **whole-unit pre-pass** (`NameResolution.fs:438-476`, `TypeRegistration.fs:7-10`)
+that registers every `type` in the one cumulative `ctx.Types` **before any body is walked** —
+so intra-project type visibility is order-INDEPENDENT (even forward references resolve). The
+provider stack (`ExternalSymbols.stack`) is **cross-project only** (`SideTables.fs:1397-1401`);
+a project's own files are never provider entries.
+
+Consequences for the resolver:
+- **Local-first, then provider** — the exact pattern `canonName` uses (`SideTables.fs:1400-1401`):
+  self-host finds `int` in `ctx.Types`, downstream finds it in the provider via ambient `open Vesper`.
+- **Build `ctx.Intrinsics` lazily after the registration pre-pass** (first access during body
+  resolution). There is a clean phase boundary, so it can never race ahead of the declaration.
+  No per-file ordering assumption is needed — the earlier "prim-types-min is first" argument is
+  moot; whole-unit registration makes all intrinsics present before any literal is typed.
+
+### How the resolver obtains the QUALIFIED key (the one open design point)
+
+For `int` to "resolve like a user nominal `Widgets.widget`," its registration must carry the
+qualified `SymbolKey` (`TypeKey(None, "Vesper", "int")`, asm-blind per `sameTypeAsmBlind`). Today
+the local intrinsic table `IntrinsicReprTypes` is **bare-keyed** (name → platform repr) and lives
+*apart* from the nominal `SymbolKey` registry, and `Translate.fs` resolves an intrinsic via
+`IntrinsicReprTypes.ContainsKey name -> bare TyConst`. Two ways to make resolution yield the
+qualified key (decide at step 2):
+- **(i) ns-augment the local table.** `IntrinsicReprTypes` (and the harvested `Intrinsic` canon,
+  step 1) carry the ns; `Translate`'s intrinsic branch and the resolver read it. Smaller change.
+- **(ii) unify with nominal resolution.** Register intrinsics in the same name→`SymbolKey` index
+  as nominals with an "intrinsic" marker, so `int` flows through the *identical* lookup path as
+  `widget` and the `IntrinsicReprTypes` table degrades to a pure repr side-table. Most faithful to
+  the stated goal; larger blast radius. **Lean (ii) if cheap once (i)'s ns plumbing exists.**
+
+### Remaining risks (smaller, handle during implementation)
+- **ctx availability at every `BuiltinTypes.ty*` site.** Literal typing (`InferLiterals`),
+  unification, Freeze all have `ctx`. Codegen reads the provider. Test fakes need an `IntrinsicSet`
+  seeded from a minimal fake provider — the one place to add plumbing.
+- **Freeze boundary.** Identity must be resolved and stamped by Freeze; post-freeze `FTConst`
+  consumers read the baked key. Codegen equality checks (`= BuiltinTypes.tyInt`) compare against a
+  resolved-once reference, not a fresh mint.
+
+## byref: the *type* is `byref`, `&` is the operator that makes one (user, confirmed)
+Current `RuntimeNames.byrefName = "&"` conflates the type with its constructor operator. Correct
+model: declare `type byref<'T> = (# "!0&" #)` (and `byref<'T,'Kind>`) in a new `prim-types-byref.fsi`/
+`.fs` under `namespace Vesper` ⇒ type identity `Vesper.byref` (verbatim `"byref"`, arity in args, no
+suffix). `&` becomes an OPERATOR (produces a byref from an lvalue), separate from the type — the prefix
+address-of `let inline (~&) (obj: 'T) : byref<'T> = (# ... : byref<'T> #)` (goes in the byref impl
+file alongside the type). Byref is the LAST name to migrate: it keeps its current
+hardcoded `byrefName`/structural-ctor handling until its contract file + operator split land, so
+nothing breaks meanwhile. Recognizers (`TyByref`, `isStructuralConstructorName`) move from `"&"` to
+`"byref"` at that point.
+
+## Two implementation subtleties (verified)
+- **Uniqueness gate is safe.** Routing intrinsics through the nominal key path (`SymbolKeyOrigins`)
+  asserts key-uniqueness, but `.js.fs`/target companions are harvested for the platform face
+  (`buildProviderWith`/`targetOverrideFs`), NOT compiled into the impl unit — the base `.fs` is the
+  sole impl source, so `type int` is declared once per compilation. No double-declare, gate won't fire.
+- **Generic intrinsics mint verbatim (no arity suffix).** `stampLocalTypeKey` arity-suffixes
+  (`Point` → `Point`2`); intrinsics must NOT (`[]` stays `"[]"`, `byref` stays `"byref"`; arity rides
+  in `args`). So (ii) mints `TypeKey(None, declNs, name)` directly for intrinsics rather than reusing
+  `stampLocalTypeKey` verbatim.
+- **Transition is behaviour-preserving.** The registered key `TypeKey(None, declNs, name)` equals
+  `intrinsicKey name` for every contract intrinsic (their `declNs` IS `Vesper` = `intrinsicNamespace`),
+  so resolved keys unify with the still-static `BuiltinTypes.ty*` until the step-3 sweep retires them.
+- **Storage is additive.** `IntrinsicReprTypes` is already a pure name→repr side-table; identity is
+  synthesized at use via `intrinsicKey`. (ii) adds a name→`SymbolKey` index (`IntrinsicKeys`) populated
+  at registration with `declNs`; `Translate` reads it instead of `intrinsicKey`. `IntrinsicReprTypes`
+  unchanged.
+
+## Residue (names in the front-end sets with no clean 1:1 contract extern) — RESOLVED
+- `seq<int>` (`tySeqInt`) — **DELETE.** An early hack (range-expr result pending generics), not a
+  real intrinsic. Remove `tySeqInt` and retype range expressions (`1..10`, `1..2..10`) properly;
+  track that retyping as part of this work (it is the only consumer that must change behaviour, not
+  just resolve differently).
+- `bigint` — a **real intrinsic**: declare `type bigint = extern` in the contract with platform
+  reprs `System.Numerics.BigInteger` (CLR, `prim-types-*.fs`) and `bigint` (JS, `.js.fs`). Then it
+  resolves through the contract like every other primitive; drop it from the hardcoded set.
+- `objnull` — **NOT a primitive.** It is `type objnull = obj | null`, a `TyOr` **alias**. Remove
+  from `knownIntrinsicNames` / `BuiltinTypes`; it resolves through ordinary alias resolution to a
+  `TyOr`, no intrinsic identity of its own.
+- Numeric aliases (`uint`/`int8`/`uint8`/`double`/`single`) — F# spelling aliases, **resolve
+  through alias** to their canonical intrinsic (`uint→uint32`, `int8→sbyte`, `uint8→byte`,
+  `double→float`, `single→float32`). No distinct identity.
+
+## LANDED SO FAR (green: SemanticAnalysis 762, Codegen.Clr 1251, Codegen.Js 348, Vesper 49)
+
+The **local (self-host) resolution path is now contract-sourced**:
+- `PassContextTypes.IntrinsicKeys : Dictionary<string, SymbolKey>` added (`SideTables.fs`), a
+  name→qualified-key index. `IntrinsicReprTypes` stays the pure name→repr side-table.
+- `TypeRegistration.registerAbbreviationDefn` (the `Type.ILIntrinsic` branch) populates
+  `IntrinsicKeys.[name] <- TypeKey(None, declNs, name)` — VERBATIM name, no arity suffix — beside the
+  existing `IntrinsicReprTypes` write.
+- `TypeRegistry.intrinsicKeyOf (types) (name)` (`SideTables.fs`) is the single resolver: reads
+  `IntrinsicKeys`, falls back to `RuntimeNames.intrinsicKey` (defensive). Every pass can call it.
+- Guarded local-intrinsic mint sites now route through it: `Translate.fs` (both the nullary ~163 and
+  generic ~408 arms) and `MemberRegistration.fs:706`.
+
+Behaviour-identical for the real Vesper intrinsics (`declNs = "Vesper"` = `intrinsicKey`'s ns).
+
+### NOT yet done / known-deferred (start here)
+- **Provider (downstream) path** `Translate.fs:531-533` still mints `intrinsicKey short` from the
+  qualified `key`. Behaviour-identical today. To contract-source it: build the key from the qualified
+  `key` string (split ns/name, VERBATIM name, no `arityName` suffix) — but FIRST verify the harvested
+  `ExternalTypeShape` key is qualified (`Vesper.[]`, not bare `[]`) for the array/byref generics, else
+  ns diverges. See the array/byref landmine note above.
+- **Intrinsic-abbrev self-type sites** `Elaborate.fs:1583` and `SideTables.fs:384` (`MkSelfType`) still
+  mint `intrinsicKey name`. Would split-brain vs the use-site for a NON-Vesper user intrinsic-abbrev
+  (`type widget = (# "object" #)` in some other namespace); currently UN-EXERCISED (suite green). Route
+  them through `intrinsicKeyOf` (they need `PassContextTypes` in hand, or store the resolved key on
+  `IntrinsicAbbrevInfo`, which already carries a `stampLocalTypeKey` key — note that one IS arity-suffixed).
+- **Opaque/external fallback mints** stay on `intrinsicKey` intentionally (`ns=""` is the opaque
+  identity): `Translate.fs:228,464`, `MemberRegistration.fs:718`, `VesperLib/TypeTranslate.fs:570`,
+  `Codegen.Js/TsManifestTypes.fs:469-470`. Do NOT convert these — the name is not a registered intrinsic.
+
+## Migration path (staged, each stays green)
+1. Producers carry ns: `Intrinsic` canon qualified + self-host `IntrinsicReprTypes` ns. Canon
+   maps re-keyed. (No consumer change yet; `intrinsicName`/`simpleName` still work.)
+2. Add the resolver + `ctx.Intrinsics`; build once; loud-fail on miss. Seed test fakes.
+3. Mechanical `BuiltinTypes.tyX → ctx.Intrinsics.X` sweep (188 sites, disjoint file sets).
+4. `primitiveSupports` + pure-identity checks key on resolved identity.
+5. Delete `knownIntrinsicNames`, `intrinsicNamespace`, `intrinsicName`, static `BuiltinTypes`
+   constants. Delete this doc (`feedback_plan_docs_ephemeral`).
+
+## Relevant memories
+`feedback_mockbuiltins_is_a_trap` (the shadow set is the trap), `feedback_redesign_doc_first`
+(this doc), `feedback_freeze_no_backend_knowledge` (identity asm-blind; platform repr stays in
+backend), `feedback_dynamic_intrinsics_over_du_cases` (still one `TyConst` case, just resolved),
+`feedback_plan_docs_ephemeral` (delete on landing).

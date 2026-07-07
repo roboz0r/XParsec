@@ -160,7 +160,7 @@ module internal UnificationTranslate =
                 // (`ExternalTypeShape.Intrinsic` → `TyConst name`), or the opaque
                 // fallback below — all of which yield `TyConst name`, identical to
                 // the retired hardcoded arms.
-                TyConst(BuiltinTypes.intrinsicKey name, EqArray.empty)
+                TyConst(TypeRegistry.intrinsicKeyOf ctx.Types name, EqArray.empty)
             | _ ->
                 match ctx.Types.Abbreviation.TryGetValue name with
                 | true, info ->
@@ -405,7 +405,7 @@ module internal UnificationTranslate =
             // element type stays structural;
             // an argless primitive referenced with stray args degenerates to the
             // same `TyConst(name, [])` an argless reference produces.
-            TyConst(BuiltinTypes.intrinsicKey name, translatedArgs)
+            TyConst(TypeRegistry.intrinsicKeyOf ctx.Types name, translatedArgs)
         else
             match ctx.Types.Abbreviation.TryGetValue name with
             | true, info ->
