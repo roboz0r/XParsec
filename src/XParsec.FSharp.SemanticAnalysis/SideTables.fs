@@ -1393,6 +1393,78 @@ module PassContextResolution =
 /// to attribute the warning and to match a suppressing `(d?foo : T)` ascription.
 type DynamicEscapeSite = { Root: TypeVar; Key: NodeKey }
 
+/// The primitive-intrinsic identity bag, the `SemType` analogue of `ctx.CapabilityIds`:
+/// `int`/`string`/`bool`/… resolved ONCE from the `prim-types-*` contract (never authored),
+/// so the front end carries no static intrinsic `SemType`s. Each field resolves lazily on first
+/// access and caches — laziness matters because a self-host unit's own intrinsics
+/// (`IntrinsicKeys`) are only populated by the NameResolution pre-pass AFTER the `PassContext`
+/// is built, and because a test that never types an `int` never forces its resolution (so a
+/// minimal fake provider need only satisfy the intrinsics its test actually exercises). A
+/// resolution miss falls back to the by-name mint transitionally (removed once every producer
+/// resolves); it is never a hard failure while the static `BuiltinTypes.ty*` still coexist.
+type IntrinsicSet(resolve: string -> SemType) =
+    let cache = Dictionary<string, SemType>(System.StringComparer.Ordinal)
+
+    let get (name: string) : SemType =
+        match cache.TryGetValue name with
+        | true, t -> t
+        | _ ->
+            let t = resolve name
+            cache.[name] <- t
+            t
+
+    member _.Int = get "int"
+    member _.Int64 = get "int64"
+    member _.Byte = get "byte"
+    member _.SByte = get "sbyte"
+    member _.Int16 = get "int16"
+    member _.UInt16 = get "uint16"
+    member _.UInt32 = get "uint32"
+    member _.UInt64 = get "uint64"
+    member _.NativeInt = get "nativeint"
+    member _.UNativeInt = get "unativeint"
+    member _.BigInt = get "bigint"
+    member _.Float = get "float"
+    member _.Float32 = get "float32"
+    member _.Bool = get "bool"
+    member _.Char = get "char"
+    member _.Decimal = get "decimal"
+    member _.Unit = get "unit"
+    member _.String = get "string"
+    member _.Undefined = get "undefined"
+
+/// Resolve ONE intrinsic name to its `SemType` the way a written `int` annotation resolves:
+/// this unit's own registered intrinsics first (`IntrinsicKeys`, self-host), else the provider
+/// through its ambient-open prefixes (`AmbientOpenPrefixes` carries `Vesper`, so the namespace
+/// is contract-sourced, never a hardcoded `"Vesper." + name`). Falls back to the by-name mint
+/// (`RuntimeNames.intrinsicKey`) only when neither resolves — transitional, while the contract
+/// for a name may be absent (`bigint`) and the static `BuiltinTypes.ty*` still provide the same
+/// key. The resolved key equals `intrinsicKey name` for every current contract intrinsic
+/// (their declaring `namespace` IS `Vesper`), so this is behaviour-identical today.
+module internal IntrinsicResolve =
+
+    let resolveIntrinsicType
+        (provider: IExternalSymbolProvider)
+        (types: PassContextTypes)
+        (name: string)
+        : SemType =
+        let key =
+            match types.IntrinsicKeys.TryGetValue name with
+            | true, k -> k
+            | _ ->
+                let fromProvider =
+                    provider.AmbientOpenPrefixes
+                    |> List.tryPick (fun p ->
+                        match provider.TryLookupType(p + "." + name) with
+                        | ValueSome(ExternalTypeShape.Intrinsic _) -> Some(SymbolKey.TypeKey(None, p, name))
+                        | _ -> None)
+
+                match fromProvider with
+                | Some k -> k
+                | None -> RuntimeNames.intrinsicKey name
+
+        TyConst(key, EqArray.empty)
+
 /// **Thread-safety:** a `PassContext` is single-threaded — its side tables,
 /// `Diagnostics` channel, and the `TypeVar` graph it owns all mutate in
 /// place and are not safe to access from multiple threads. Parallelism
@@ -1452,6 +1524,14 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     // labels, so only this annotation needs the qualifier.
     member val Diagnostics = ResizeArray<XParsec.FSharp.SemanticAnalysis.Diagnostic>() with get
     member val Types = types with get
+
+    /// The primitive-intrinsic identities (`int`/`string`/…) resolved from the
+    /// `prim-types-*` contract — the `SemType` analogue of `CapabilityIds`, so the passes
+    /// carry no static intrinsic `SemType`s. Each field resolves lazily/cached (see
+    /// `IntrinsicSet`), reading this unit's own `IntrinsicKeys` (populated by the
+    /// NameResolution pre-pass) first, then the provider via ambient `open`.
+    member val Intrinsics =
+        IntrinsicSet(fun name -> IntrinsicResolve.resolveIntrinsicType provider types name) with get
     /// PassContext-lifetime memo of intrinsic-name → canonical repr, populated
     /// lazily by `subsumes.canonName`. `subsumes`' recursive walk would otherwise
     /// round-trip the composite provider / MetadataLoadContext per node to read

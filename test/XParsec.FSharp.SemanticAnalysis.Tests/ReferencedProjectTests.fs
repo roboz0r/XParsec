@@ -122,6 +122,32 @@ let tests =
                 | other -> failtestf "expected Vesper.int as an Intrinsic shape, got %A" other
             }
 
+            test "ctx.Intrinsics resolves each primitive from the contract to the static BuiltinTypes key" {
+                // The contract-sourced identity bag: each `ctx.Intrinsics.*` resolves its name
+                // through the provider's ambient `open Vesper` (no hardcoded namespace) and must
+                // equal the static `BuiltinTypes.ty*` it is slated to replace — the green
+                // guardrail for the consumer sweep (every mint stays byte-identical).
+                let provider, _ = builtProvider.Value
+                let input = ""
+
+                let lexed =
+                    match XParsec.FSharp.Lexer.Lexing.lexString input with
+                    | Result.Error e -> failtestf "lex failed: %A" e
+                    | Result.Ok lexed -> lexed
+
+                let ctx = PassContext(provider, input, lexed)
+
+                Expect.equal ctx.Intrinsics.Int BuiltinTypes.tyInt "int"
+                Expect.equal ctx.Intrinsics.Int64 BuiltinTypes.tyInt64 "int64"
+                Expect.equal ctx.Intrinsics.Byte BuiltinTypes.tyByte "byte"
+                Expect.equal ctx.Intrinsics.Float BuiltinTypes.tyFloat "float"
+                Expect.equal ctx.Intrinsics.Float32 BuiltinTypes.tyFloat32 "float32"
+                Expect.equal ctx.Intrinsics.Bool BuiltinTypes.tyBool "bool"
+                Expect.equal ctx.Intrinsics.Char BuiltinTypes.tyChar "char"
+                Expect.equal ctx.Intrinsics.Unit BuiltinTypes.tyUnit "unit"
+                Expect.equal ctx.Intrinsics.String BuiltinTypes.tyString "string"
+            }
+
             test "the language-capability anchors resolve as dual-faced interface Classes carrying their CLR repr" {
                 // On a CLR-target build `capabilities.fsi` declares
                 // `disposable`/`equatable`/`comparable` as `extern with abstract member …`,

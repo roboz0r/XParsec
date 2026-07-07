@@ -1,9 +1,11 @@
 # Contract-sourced intrinsic identity (kill the front-end shadow set)
 
-**Status: DESIGN CONFIRMED — starting step 1.** Cross-file visibility premise VERIFIED (whole-unit
-single-`PassContext` compilation, registration pre-pass — see below). Residue decisions RESOLVED.
-Full arc in scope. One open point deferred to step 2: how the resolver obtains the qualified key
-(ns-augment the local table vs. unify with nominal resolution).
+**Status: STEPS 1, 1b, 2 LANDED & GREEN. Next: Step 3 (consumer sweep).** All premises VERIFIED
+(cross-file visibility; bootstrap-in-tests — tests carry the real contract via `realProvider`).
+Residue decisions RESOLVED. Resolver-key question RESOLVED = (ii)-flavoured: local `IntrinsicKeys`
+first, else provider via `AmbientOpenPrefixes`. `ctx.Intrinsics` exists and is proven byte-identical
+to the static `BuiltinTypes.ty*` (`ReferencedProjectTests` prove-it test). The statics still coexist;
+Step 3 migrates consumers to `ctx.Intrinsics.X`, Step 5 deletes the statics + shadow set.
 
 Successor to `qualified-intrinsic-identities-plan.md` (LANDED): that milestone gave
 intrinsics a qualified `SymbolKey` but sourced the `Vesper` namespace from a **hardcoded**
@@ -155,11 +157,14 @@ Current `RuntimeNames.byrefName = "&"` conflates the type with its constructor o
 model: declare `type byref<'T> = (# "!0&" #)` (and `byref<'T,'Kind>`) in a new `prim-types-byref.fsi`/
 `.fs` under `namespace Vesper` ⇒ type identity `Vesper.byref` (verbatim `"byref"`, arity in args, no
 suffix). `&` becomes an OPERATOR (produces a byref from an lvalue), separate from the type — the prefix
-address-of `let inline (~&) (obj: 'T) : byref<'T> = (# ... : byref<'T> #)` (goes in the byref impl
+address-of `let inline (~&) (obj: 'T) : byref<'T> = (# "ld*a" : byref<'T> #)` (goes in the byref impl
 file alongside the type). Byref is the LAST name to migrate: it keeps its current
 hardcoded `byrefName`/structural-ctor handling until its contract file + operator split land, so
 nothing breaks meanwhile. Recognizers (`TyByref`, `isStructuralConstructorName`) move from `"&"` to
-`"byref"` at that point.
+`"byref"` at that point. `"ld*a"` is selected as there's no one IL op-code to choose from. Codegen.Clr
+must see `"ld*a"` in context and choose from `ldloca/ldloca.s/ldflda/ldsflda/ldarga/ldarga.s/ldelema`.
+The semantic analyzer must strictly enforce that the argument passed to `~&` is an actual **lvalue**
+(a field, a local, an array element, or an argument).
 
 ## Two implementation subtleties (verified)
 - **Uniqueness gate is safe.** Routing intrinsics through the nominal key path (`SymbolKeyOrigins`)
@@ -222,6 +227,39 @@ Behaviour-identical for the real Vesper intrinsics (`declNs = "Vesper"` = `intri
 - **Opaque/external fallback mints** stay on `intrinsicKey` intentionally (`ns=""` is the opaque
   identity): `Translate.fs:228,464`, `MemberRegistration.fs:718`, `VesperLib/TypeTranslate.fs:570`,
   `Codegen.Js/TsManifestTypes.fs:469-470`. Do NOT convert these — the name is not a registered intrinsic.
+
+## Step 2 — finalized spec (bootstrap-in-tests premise VERIFIED)
+
+Investigation confirmed: SA unit tests carry the real contract on the `PassContext` provider
+(`test/…SemanticAnalysis.Tests/TestHelpers.fs:32-36` `realProvider`); `MockBuiltins` is gone.
+`int` is resolvable as **`Vesper.int`** (`ReferencedProjectTests.fs:114-122`); bare
+`TryLookupType "int"` MISSES (`:235`) — bare names resolve via the ambient-open prefix set
+(`AmbientOpenPrefixes` includes `Vesper`, `:238-249`). So:
+
+- **Resolver = reuse existing name resolution, do NOT hardcode `"Vesper." + name`.** For each
+  intrinsic name, resolve it the way a written `int` annotation resolves: local
+  `IntrinsicReprTypes`/`IntrinsicKeys` first (self-host), else the provider through the ambient
+  open scope (`OpenScope.tryResolve ctx.Resolution.OpenScope … name`, as `EngineCore.canonName`
+  does; or `tryResolveExternalType`). The resolved key is `Vesper.int` either way — behaviour-
+  identical to today's `BuiltinTypes.intrinsicKey name`, which is the green guardrail.
+- **Safe increment: add `ctx.Intrinsics` ALONGSIDE the static `BuiltinTypes.ty*`; do NOT delete
+  the statics in Step 2.** Both mint `Vesper.int`, so they unify — green. The deletion happens in
+  Step 5 after the Step 3 sweep retires every consumer.
+- **Laziness / failure timing.** Prefer lazy PER-FIELD resolution (`ctx.Intrinsics.Int` resolves
+  on first use) over eager-build-all: a test that never types an `int` never triggers its
+  resolution, so the two empty-map fake providers only need seeding for the intrinsics they
+  actually exercise. Resolution miss = loud error at the use-site (correct — fails exactly where a
+  missing intrinsic is needed).
+- **`IntrinsicSet` fields** = the current `BuiltinTypes.ty*` minus `tySeqInt` (deleted, Step 5):
+  Int, Int64, Byte, SByte, Int16, UInt16, UInt32, UInt64, NativeInt, UNativeInt, BigInt, Float,
+  Float32, Bool, Char, Decimal, Unit, String, Undefined. (`bigint` needs its contract first —
+  Step 5 — or resolve it via the fallback until then.)
+- **Prove-it before the sweep:** a targeted test asserting `ctx.Intrinsics.Int = BuiltinTypes.tyInt`
+  (and a few others) under `realProvider` — verifies the resolver yields the identical key without
+  touching the 188 consumers. Seed the two fake-provider tests.
+- **Fake-provider seed:** `UnificationTests.fs:129-130`, `MemoizeTests.fs:46-47` (empty
+  `IntrinsicForwardRepr`/`IntrinsicReverseCanon`) — give them an `IntrinsicSet` (or delegate to
+  `realProvider`) so any intrinsic they touch resolves.
 
 ## Migration path (staged, each stays green)
 1. Producers carry ns: `Intrinsic` canon qualified + self-host `IntrinsicReprTypes` ns. Canon
