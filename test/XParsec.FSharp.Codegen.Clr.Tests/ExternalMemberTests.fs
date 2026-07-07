@@ -106,7 +106,10 @@ let tests =
                 // The node's interned key must equal what the provider resolves the
                 // member to directly — Freeze stamps the resolver's verdict, it does
                 // not re-derive a key.
-                let provider = ClrSymbolProviders.build []
+                // Vesper.Core layers the `prim-types` intrinsics over the BCL leaf so
+                // the `int` literal/annotation resolve; the BCL `EqualityComparer`
+                // member key it asserts on is unaffected by the added intrinsics.
+                let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
 
                 let expected =
                     match provider.TryLookupMember(eqComparer, "GetHashCode") with
@@ -191,7 +194,9 @@ let tests =
             }
 
             test "short-name key equals the fully-qualified form's resolved key" {
-                let provider = ClrSymbolProviders.build []
+                // Vesper.Core supplies the `int` intrinsic the literal/annotation
+                // resolve through; the asserted BCL member key is unaffected.
+                let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
 
                 let expected =
                     match provider.TryLookupMember(eqComparer, "GetHashCode") with
@@ -269,7 +274,9 @@ let tests =
             }
 
             test "a fully-qualified type annotation resolves to the external TyClass (not a fresh TyVar)" {
-                let provider = ClrSymbolProviders.build []
+                // Vesper.Core supplies the `int` intrinsic the literal RHS resolves
+                // through; the external `EqualityComparer` annotation is unaffected.
+                let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
 
                 // Before the fix a multi-segment annotation fell to a fresh `TyVar`,
                 // which unifies silently with `5 : int` (no error). Now it resolves to

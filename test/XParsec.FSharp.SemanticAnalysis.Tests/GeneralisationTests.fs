@@ -110,13 +110,15 @@ let tests =
                         1
                         []
 
-                let provider: IExternalSymbolProvider =
+                // Only `myId` is custom; everything else (including the `int`/`bool`
+                // literal intrinsics the RHS types through) resolves against the real
+                // contract underneath. Layer the one-symbol stub OVER `realProvider`
+                // via `composite` (first-hit-wins) rather than hand-delegating each
+                // channel — so the intrinsic surface stays honest.
+                let myIdStub: IExternalSymbolProvider =
                     { new IExternalSymbolProvider with
                         member _.TryLookup name =
-                            if name = "myId" then
-                                ValueSome myIdSymbol
-                            else
-                                realProvider.Value.TryLookup name
+                            if name = "myId" then ValueSome myIdSymbol else ValueNone
 
                         member _.TryLookupType _ = ValueNone
                         member _.TryLookupMember(_, _) = ValueNone
@@ -129,6 +131,8 @@ let tests =
                         member _.IntrinsicReverseCanon = Map.empty
                         member _.IntrinsicForwardRepr = Map.empty
                     }
+
+                let provider = ExternalSymbols.composite [ myIdStub; realProvider.Value ]
 
                 let input = "let r = let f = myId in f 1, f true"
                 let lexed, file = parseFile input

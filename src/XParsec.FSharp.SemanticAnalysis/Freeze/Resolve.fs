@@ -107,7 +107,7 @@ module internal FreezeResolve =
                 match shape with
                 | ExternalTypeShape.Class _ -> ValueSome(SymbolKeyOps.arityName qualified arity)
                 | ExternalTypeShape.Abbrev(a, frozen) ->
-                    match FrozenTypeBridge.instantiateDeclaring frozen (Array.create a BuiltinTypes.tyUnit) with
+                    match FrozenTypeBridge.instantiateDeclaring frozen (Array.create a ctx.Intrinsics.Unit) with
                     | TyClass(key, _) -> ValueSome(SymbolKeyOps.qualifiedName key)
                     | _ -> ValueNone
                 | _ -> ValueNone

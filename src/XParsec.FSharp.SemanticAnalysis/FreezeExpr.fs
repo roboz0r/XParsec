@@ -639,7 +639,7 @@ module internal FreezeExpr =
             match elseB with
             | ValueSome(ElseBranch(expr = e)) -> translateExpr ctx e
             // Synthesised `else ()` (no source token) — anchor at the `if`'s token.
-            | ValueNone -> TExpr.Const(TConstValue.Unit, BuiltinTypes.tyUnit, tok)
+            | ValueNone -> TExpr.Const(TConstValue.Unit, ctx.Intrinsics.Unit, tok)
 
         for i = elifs.Length - 1 downto 0 do
             let elifCond, elifThen =

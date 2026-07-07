@@ -1399,19 +1399,28 @@ type DynamicEscapeSite = { Root: TypeVar; Key: NodeKey }
 /// access and caches — laziness matters because a self-host unit's own intrinsics
 /// (`IntrinsicKeys`) are only populated by the NameResolution pre-pass AFTER the `PassContext`
 /// is built, and because a test that never types an `int` never forces its resolution (so a
-/// minimal fake provider need only satisfy the intrinsics its test actually exercises). A
-/// resolution miss falls back to the by-name mint transitionally (removed once every producer
-/// resolves); it is never a hard failure while the static `BuiltinTypes.ty*` still coexist.
-type IntrinsicSet(resolve: string -> SemType) =
+/// minimal fake provider need only satisfy the intrinsics its test actually exercises).
+/// `tryResolve` is HONEST — `None` means "the prim-types contract in scope does not name this
+/// intrinsic"; there is no silent by-name fallback that would keep the hardcoded shadow set alive
+/// or mask a genuine contract gap. The miss POLICY lives here in one place: `get` raises a loud,
+/// named error. A contract that lacks a primitive the compiler needs (`int`) is a build-config
+/// fault, not a user error, so failing loudly is correct — and an intrinsic with no contract yet
+/// (`bigint`, until `prim-types-bigint` lands) simply must not be requested through here until then.
+type IntrinsicSet(tryResolve: string -> SemType option) =
     let cache = Dictionary<string, SemType>(System.StringComparer.Ordinal)
 
     let get (name: string) : SemType =
         match cache.TryGetValue name with
         | true, t -> t
         | _ ->
-            let t = resolve name
-            cache.[name] <- t
-            t
+            match tryResolve name with
+            | Some t ->
+                cache.[name] <- t
+                t
+            | None ->
+                failwithf
+                    "intrinsic '%s' is not resolvable from the prim-types contract in scope (no local binding, no ambient-open provider entry)"
+                    name
 
     member _.Int = get "int"
     member _.Int64 = get "int64"
@@ -1433,37 +1442,32 @@ type IntrinsicSet(resolve: string -> SemType) =
     member _.String = get "string"
     member _.Undefined = get "undefined"
 
-/// Resolve ONE intrinsic name to its `SemType` the way a written `int` annotation resolves:
+/// Try to resolve ONE intrinsic name to its `SemType` the way a written `int` annotation resolves:
 /// this unit's own registered intrinsics first (`IntrinsicKeys`, self-host), else the provider
-/// through its ambient-open prefixes (`AmbientOpenPrefixes` carries `Vesper`, so the namespace
-/// is contract-sourced, never a hardcoded `"Vesper." + name`). Falls back to the by-name mint
-/// (`RuntimeNames.intrinsicKey`) only when neither resolves — transitional, while the contract
-/// for a name may be absent (`bigint`) and the static `BuiltinTypes.ty*` still provide the same
-/// key. The resolved key equals `intrinsicKey name` for every current contract intrinsic
-/// (their declaring `namespace` IS `Vesper`), so this is behaviour-identical today.
+/// through its ambient-open prefixes (`AmbientOpenPrefixes` carries `Vesper`, so the namespace is
+/// contract-sourced, never a hardcoded `"Vesper." + name`). `None` when neither names it — the
+/// honest answer, so the miss policy stays with the one caller (`IntrinsicSet.get`) rather than a
+/// silent by-name mint here. The resolved key equals `intrinsicKey name` for every current
+/// contract intrinsic (their declaring `namespace` IS `Vesper`), so this is behaviour-identical.
 module internal IntrinsicResolve =
 
-    let resolveIntrinsicType
+    let tryResolveIntrinsicType
         (provider: IExternalSymbolProvider)
         (types: PassContextTypes)
         (name: string)
-        : SemType =
-        let key =
+        : SemType option =
+        let keyOpt =
             match types.IntrinsicKeys.TryGetValue name with
-            | true, k -> k
+            | true, k -> Some k
             | _ ->
-                let fromProvider =
-                    provider.AmbientOpenPrefixes
-                    |> List.tryPick (fun p ->
-                        match provider.TryLookupType(p + "." + name) with
-                        | ValueSome(ExternalTypeShape.Intrinsic _) -> Some(SymbolKey.TypeKey(None, p, name))
-                        | _ -> None)
+                provider.AmbientOpenPrefixes
+                |> List.tryPick (fun p ->
+                    match provider.TryLookupType(p + "." + name) with
+                    | ValueSome(ExternalTypeShape.Intrinsic _) -> Some(SymbolKey.TypeKey(None, p, name))
+                    | _ -> None
+                )
 
-                match fromProvider with
-                | Some k -> k
-                | None -> RuntimeNames.intrinsicKey name
-
-        TyConst(key, EqArray.empty)
+        keyOpt |> Option.map (fun k -> TyConst(k, EqArray.empty))
 
 /// **Thread-safety:** a `PassContext` is single-threaded — its side tables,
 /// `Diagnostics` channel, and the `TypeVar` graph it owns all mutate in
@@ -1531,7 +1535,8 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// `IntrinsicSet`), reading this unit's own `IntrinsicKeys` (populated by the
     /// NameResolution pre-pass) first, then the provider via ambient `open`.
     member val Intrinsics =
-        IntrinsicSet(fun name -> IntrinsicResolve.resolveIntrinsicType provider types name) with get
+        IntrinsicSet(fun name -> IntrinsicResolve.tryResolveIntrinsicType provider types name) with get
+
     /// PassContext-lifetime memo of intrinsic-name → canonical repr, populated
     /// lazily by `subsumes.canonName`. `subsumes`' recursive walk would otherwise
     /// round-trip the composite provider / MetadataLoadContext per node to read

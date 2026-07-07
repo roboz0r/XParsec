@@ -71,9 +71,9 @@ module UnificationEngineCore =
     /// The single SemType a parameter list presents as a function argument:
     /// `unit` for none, the bare type for one, a tuple for many. Inverse of
     /// `argElemsOf`.
-    let tupleOrSingle (paramTys: SemType list) : SemType =
+    let tupleOrSingle (ctx: PassContext) (paramTys: SemType list) : SemType =
         match paramTys with
-        | [] -> BuiltinTypes.tyUnit
+        | [] -> ctx.Intrinsics.Unit
         | [ t ] -> t
         | many -> TyTuple(EqArray.ofList many)
 

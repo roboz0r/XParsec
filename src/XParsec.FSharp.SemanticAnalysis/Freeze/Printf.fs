@@ -195,7 +195,7 @@ module internal FreezePrintf =
                 | ValueNone ->
                     // `sprintf` (`'State = unit`): the callback returns the residue
                     // string directly.
-                    applyCallback (TExpr.Const(TConstValue.Unit, BuiltinTypes.tyUnit, t))
+                    applyCallback (TExpr.Const(TConstValue.Unit, ctx.Intrinsics.Unit, t))
                 | ValueSome scratch ->
                     // Writer/builder: `{ let s = new Scratch() in (cb s [v]); s.ToString() }`.
                     // The callback writes into `s` (its `unit` residue discarded by the
@@ -213,29 +213,29 @@ module internal FreezePrintf =
                                 scratch.ToStringKey,
                                 "ToString",
                                 MemberStorage.Method,
-                                TyFun(BuiltinTypes.tyUnit, BuiltinTypes.tyString),
+                                TyFun(ctx.Intrinsics.Unit, ctx.Intrinsics.String),
                                 t
                             ),
-                            TExpr.Const(TConstValue.Unit, BuiltinTypes.tyUnit, t),
-                            BuiltinTypes.tyString,
+                            TExpr.Const(TConstValue.Unit, ctx.Intrinsics.Unit, t),
+                            ctx.Intrinsics.String,
                             t
                         )
 
                     let seq =
                         TExpr.Sequential(
                             EqArray.ofList [ applyCallback (sVar ()); toStringCall ],
-                            BuiltinTypes.tyString,
+                            ctx.Intrinsics.String,
                             t
                         )
 
-                    TExpr.Let(TPat.NamedSimple(sKey, scratch.ScratchTy, t), newScratch, seq, BuiltinTypes.tyString, t)
+                    TExpr.Let(TPat.NamedSimple(sKey, scratch.ScratchTy, t), newScratch, seq, ctx.Intrinsics.String, t)
 
             // `spec.Ty` records the `%a` value type (`unit` for `%t`) for provenance;
             // the residue is a `string` expr the backends splice like a `%s` hole.
             let specTy =
                 match valueT with
                 | ValueSome v -> Unification.zonk (TastWalk.exprTy v)
-                | ValueNone -> BuiltinTypes.tyUnit
+                | ValueNone -> ctx.Intrinsics.Unit
 
             let spec =
                 {

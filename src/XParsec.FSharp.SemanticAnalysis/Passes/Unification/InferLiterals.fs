@@ -31,63 +31,65 @@ module internal UnificationInferLiterals =
 
     /// Pulled out of `inferConst` so the measured-literal arm can stamp this
     /// onto a TyVar's `Link` while the measure rides on `Units`.
-    let literalCarrier (t: SyntaxToken) : SemType =
+    let literalCarrier (ctx: PassContext) (t: SyntaxToken) : SemType =
         match t.Token with
         | Token.KWTrue
-        | Token.KWFalse -> BuiltinTypes.tyBool
-        | Token.CharLiteral -> BuiltinTypes.tyChar
+        | Token.KWFalse -> ctx.Intrinsics.Bool
+        | Token.CharLiteral -> ctx.Intrinsics.Char
         | Token.NumSByte
         | Token.NumSByteHex
         | Token.NumSByteOctal
-        | Token.NumSByteBinary -> BuiltinTypes.tySByte
+        | Token.NumSByteBinary -> ctx.Intrinsics.SByte
         | Token.NumByte
         | Token.NumByteHex
         | Token.NumByteOctal
-        | Token.NumByteBinary -> BuiltinTypes.tyByte
+        | Token.NumByteBinary -> ctx.Intrinsics.Byte
         | Token.NumInt16
         | Token.NumInt16Hex
         | Token.NumInt16Octal
-        | Token.NumInt16Binary -> BuiltinTypes.tyInt16
+        | Token.NumInt16Binary -> ctx.Intrinsics.Int16
         | Token.NumUInt16
         | Token.NumUInt16Hex
         | Token.NumUInt16Octal
-        | Token.NumUInt16Binary -> BuiltinTypes.tyUInt16
+        | Token.NumUInt16Binary -> ctx.Intrinsics.UInt16
         | Token.NumInt32
         | Token.NumInt32Hex
         | Token.NumInt32Octal
-        | Token.NumInt32Binary -> BuiltinTypes.tyInt
+        | Token.NumInt32Binary -> ctx.Intrinsics.Int
         | Token.NumUInt32
         | Token.NumUInt32Hex
         | Token.NumUInt32Octal
-        | Token.NumUInt32Binary -> BuiltinTypes.tyUInt32
+        | Token.NumUInt32Binary -> ctx.Intrinsics.UInt32
         | Token.NumInt64
         | Token.NumInt64Hex
         | Token.NumInt64Octal
-        | Token.NumInt64Binary -> BuiltinTypes.tyInt64
+        | Token.NumInt64Binary -> ctx.Intrinsics.Int64
         | Token.NumUInt64
         | Token.NumUInt64Hex
         | Token.NumUInt64Octal
-        | Token.NumUInt64Binary -> BuiltinTypes.tyUInt64
+        | Token.NumUInt64Binary -> ctx.Intrinsics.UInt64
         | Token.NumNativeInt
         | Token.NumNativeIntHex
         | Token.NumNativeIntOctal
-        | Token.NumNativeIntBinary -> BuiltinTypes.tyNativeInt
+        | Token.NumNativeIntBinary -> ctx.Intrinsics.NativeInt
         | Token.NumUNativeInt
         | Token.NumUNativeIntHex
         | Token.NumUNativeIntOctal
-        | Token.NumUNativeIntBinary -> BuiltinTypes.tyUNativeInt
+        | Token.NumUNativeIntBinary -> ctx.Intrinsics.UNativeInt
         | Token.NumIEEE32
         | Token.NumIEEE32Hex
         | Token.NumIEEE32Octal
-        | Token.NumIEEE32Binary -> BuiltinTypes.tyFloat32
+        | Token.NumIEEE32Binary -> ctx.Intrinsics.Float32
         | Token.NumIEEE64
         | Token.NumIEEE64Hex
         | Token.NumIEEE64Octal
-        | Token.NumIEEE64Binary -> BuiltinTypes.tyFloat
+        | Token.NumIEEE64Binary -> ctx.Intrinsics.Float
         | Token.NumDecimal
         | Token.NumDecimalHex
         | Token.NumDecimalOctal
-        | Token.NumDecimalBinary -> BuiltinTypes.tyDecimal
+        | Token.NumDecimalBinary -> ctx.Intrinsics.Decimal
+        // `bigint` has no `prim-types` contract yet, so `ctx.Intrinsics.BigInt` would loud-fail;
+        // keep the static mint until `prim-types-bigint` lands (Step 5), then migrate this arm.
         | Token.NumBigIntegerQ
         | Token.NumBigIntegerR
         | Token.NumBigIntegerZ
@@ -98,9 +100,9 @@ module internal UnificationInferLiterals =
 
     let inferConst (ctx: PassContext) (c: Constant<SyntaxToken>) : SemType =
         match c with
-        | Constant.Literal t -> literalCarrier t
+        | Constant.Literal t -> literalCarrier ctx t
         | Constant.MeasuredLiteral(value = t; measure = m) ->
-            let carrier = literalCarrier t
+            let carrier = literalCarrier ctx t
             let diagKey = NodeKey.ofToken t NodeKind.ExprConst
             let mt = translateMeasure ctx diagKey m
             let tv = freshTyVar ctx
@@ -201,7 +203,7 @@ module internal UnificationInferLiterals =
             | "op_Division", ValueSome m, ValueNone -> Some(TyVar(freshTyVarWith ctx carrier (ValueSome m)))
             | "op_Division", ValueNone, ValueSome m ->
                 Some(TyVar(freshTyVarWith ctx carrier (ValueSome(MeasureTerm.inv m))))
-            | name, ValueSome m1, ValueSome m2 when isComparisonOp name && m1.Equals m2 -> Some BuiltinTypes.tyBool
+            | name, ValueSome m1, ValueSome m2 when isComparisonOp name && m1.Equals m2 -> Some ctx.Intrinsics.Bool
             | name, ValueSome m1, ValueSome m2 when isComparisonOp name ->
                 ctx.Diagnostics.Add
                     {
@@ -211,7 +213,7 @@ module internal UnificationInferLiterals =
                         Severity = Severity.Error
                     }
 
-                Some BuiltinTypes.tyBool
+                Some ctx.Intrinsics.Bool
             | name, ValueSome m, ValueNone
             | name, ValueNone, ValueSome m when isComparisonOp name ->
                 ctx.Diagnostics.Add
@@ -222,7 +224,7 @@ module internal UnificationInferLiterals =
                         Severity = Severity.Error
                     }
 
-                Some BuiltinTypes.tyBool
+                Some ctx.Intrinsics.Bool
             | _ -> None
 
     /// Reuses the lexer's canonical placeholder parser

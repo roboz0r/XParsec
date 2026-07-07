@@ -80,7 +80,7 @@ module UnificationInfer =
             | Expr.EmptyBlock(lParen = ParenKind.Array _; rParen = rTok) ->
                 checkLiteralClose ctx key rTok Token.KWRArrayBracket "|]"
                 emptyListLikeLiteral ctx key true
-            | Expr.EmptyBlock _ -> BuiltinTypes.tyUnit
+            | Expr.EmptyBlock _ -> ctx.Intrinsics.Unit
             | Expr.While(condition = cond; body = body) -> inferWhile infer ctx key cond body
             | Expr.ForTo(ident = ident; startExpr = startE; endExpr = endE; body = body) ->
                 inferForTo infer ctx key ident startE endE body

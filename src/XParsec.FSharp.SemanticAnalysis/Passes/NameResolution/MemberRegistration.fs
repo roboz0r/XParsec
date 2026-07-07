@@ -696,14 +696,15 @@ module NameResolutionMemberRegistration =
 
     and private resolveInheritArgName (ctx: PassContext) (name: string) (args: EqArray<SemType>) : SemType =
         match name with
-        | "int" -> BuiltinTypes.tyInt
-        | "bool" -> BuiltinTypes.tyBool
-        | "unit" -> BuiltinTypes.tyUnit
-        | "float" -> BuiltinTypes.tyFloat
-        | "string" -> BuiltinTypes.tyString
-        | "int64" -> BuiltinTypes.tyInt64
-        | "byte" -> BuiltinTypes.tyByte
-        | _ when ctx.Types.IntrinsicReprTypes.ContainsKey name -> TyConst(TypeRegistry.intrinsicKeyOf ctx.Types name, args)
+        | "int" -> ctx.Intrinsics.Int
+        | "bool" -> ctx.Intrinsics.Bool
+        | "unit" -> ctx.Intrinsics.Unit
+        | "float" -> ctx.Intrinsics.Float
+        | "string" -> ctx.Intrinsics.String
+        | "int64" -> ctx.Intrinsics.Int64
+        | "byte" -> ctx.Intrinsics.Byte
+        | _ when ctx.Types.IntrinsicReprTypes.ContainsKey name ->
+            TyConst(TypeRegistry.intrinsicKeyOf ctx.Types name, args)
         | _ ->
             // Nominal heads carry their resolved `SymbolKey`; take it
             // off the registry `info` rather than re-stringing the name.

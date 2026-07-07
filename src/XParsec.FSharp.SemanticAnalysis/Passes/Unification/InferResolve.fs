@@ -61,7 +61,7 @@ module internal UnificationInferResolve =
                 info.CtorParams
                 |> Array.map (fun p -> substituteWith subst p.Type)
                 |> Array.toList
-                |> tupleOrSingle
+                |> tupleOrSingle ctx
 
             ValueSome(TyFun(arg, receiverTy))
         | false, _ -> ValueNone

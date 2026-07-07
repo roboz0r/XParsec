@@ -153,7 +153,7 @@ module internal FreezeStrings =
                 TExpr.New(
                     PrintfSpec.printfFormatName,
                     EqArray.singleton (
-                        TExpr.Const(TConstValue.String(stitchLiteralString ctx parts), BuiltinTypes.tyString, tok)
+                        TExpr.Const(TConstValue.String(stitchLiteralString ctx parts), ctx.Intrinsics.String, tok)
                     ),
                     ty,
                     tok

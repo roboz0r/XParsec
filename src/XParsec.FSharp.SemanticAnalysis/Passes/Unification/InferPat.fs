@@ -429,8 +429,8 @@ module internal UnificationInferPat =
             listTy
         | Pat.EmptyBlock _ ->
             let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome BuiltinTypes.tyUnit
-            BuiltinTypes.tyUnit
+            nodeTv.Link <- ValueSome ctx.Intrinsics.Unit
+            ctx.Intrinsics.Unit
         | Pat.Or(left = leftPat; right = rightPat) ->
             // Here we only unify the alternatives' overall types for scrutinee
             // consistency. Binding or-patterns are unsupported — `FreezePatterns`

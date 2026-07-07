@@ -154,17 +154,17 @@ let tests =
                 Expect.equal added 0 "TyVar bound by the matching scheme is allowed"
             }
 
-            // No-provider regression: with the hardcoded `"int" -> BuiltinTypes.tyInt`
-            // arms deleted from
+            // With the hardcoded `"int" -> BuiltinTypes.tyInt` arms deleted from
             // `translateType`, a primitive type annotation must still pin to
-            // `TyConst("int", EqArray.empty)` even when NO provider supplies an `Intrinsic` shape —
-            // via the opaque fallback (`TyConst name`). Uses the true
-            // `nullProvider` (every `TryLookupType` is `ValueNone`) so nothing but
-            // the fallback can produce the type.
-            test "primitive annotations pin to TyConst via the opaque fallback with a null provider" {
+            // `TyConst("int", EqArray.empty)` — now resolved through the real
+            // `prim-types-*` contract (`ExternalTypeShape.Intrinsic` → `TyConst
+            // name`) rather than a hardcoded arm. Resolves against `realProvider`
+            // (the same contract the literal RHS `1`/`true` resolves its intrinsic
+            // through), so the annotation and the literal agree on `Vesper.int`.
+            test "primitive annotations pin to TyConst through the real contract" {
                 let bindingTy (src: string) : SemType =
                     let lexed, file = parseFile src
-                    let tast = Pipeline.analyseSem ExternalSymbols.nullProvider src lexed file
+                    let tast = Pipeline.analyseSem realProvider.Value src lexed file
 
                     match tast.Decls with
                     | EqList [ TDecl.Let(TPat.NamedSimple(_, ty, _), _, _, _) ] -> ty

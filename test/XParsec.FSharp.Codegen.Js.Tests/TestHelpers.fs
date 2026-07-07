@@ -245,7 +245,12 @@ let stackJs (ambient: string list) (sources: IExternalSymbolProvider list) : IEx
     |> NumberCovariance.wrap
     |> ExternalSymbols.memoize
 
-let private stackWithAmbient (sources: IExternalSymbolProvider list) : IExternalSymbolProvider =
+/// `stackJs` with the ambient prefix set AGGREGATED from the sources (mirroring
+/// production `TsManifestProvider.buildContractFor`). A hand-built stack MUST use
+/// this rather than `stackJs []` whenever it layers over a Vesper contract source:
+/// dropping ambient hides the `Vesper` open-prefix the intrinsic resolver needs to
+/// find `Vesper.unit`/`Vesper.int` (`ctx.Intrinsics`) beneath the TS manifest.
+let stackWithAmbient (sources: IExternalSymbolProvider list) : IExternalSymbolProvider =
     let ambient = sources |> List.collect (fun s -> s.AmbientOpenPrefixes)
     stackJs ambient sources
 

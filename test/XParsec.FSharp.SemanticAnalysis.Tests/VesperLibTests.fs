@@ -36,6 +36,19 @@ let private builtProvider =
          | Result.Error e -> failwithf "buildProvider failed: %s" e
          | Result.Ok r -> r)
 
+/// The FSharp.Core-port lib provider (`builtProvider`) layered OVER the real
+/// `Vesper.*` contract base (`realProvider`). The lib port publishes its
+/// primitives under `Microsoft.FSharp.*` and canonicalises `int`→`int32`, so it
+/// does NOT expose the `Vesper.int`/`Vesper.unit` `prim-types` intrinsics the
+/// literal/`unit` inference now resolves through `ctx.Intrinsics`. Composing the
+/// real base underneath (first-hit-wins keeps every lib symbol — operators,
+/// defaulting, cons-list — winning) makes those intrinsics resolvable without
+/// hand-seeding, exactly the "compose the stub over the real base" wiring.
+let private libWithIntrinsics =
+    lazy
+        (let libProvider, _ = builtProvider.Value
+         ExternalSymbols.composite [ libProvider; realProvider.Value ])
+
 [<Tests>]
 let tests =
     testList
@@ -1637,7 +1650,7 @@ let tests =
                 // links the result to `int` before quantification. Without
                 // the defaulting pass, `x` would generalise as `∀'a. 'a` and
                 // this test would fail.
-                let libProvider, _ = builtProvider.Value
+                let libProvider = libWithIntrinsics.Value
 
                 let input = "let x = 1 + 2"
                 let lexed, file = parseFile input
@@ -1665,7 +1678,7 @@ let tests =
                 // static-member return type. End result: `let r = V() +
                 // V()` types as `V` through a lib-only provider (no
                 // MockBuiltins in the chain).
-                let libProvider, _ = builtProvider.Value
+                let libProvider = libWithIntrinsics.Value
 
                 let input =
                     "type V() =\n    static member (+) (a: V, b: V) = V()\nlet r = V() + V()"

@@ -537,16 +537,16 @@ module internal UnificationInferApp =
         // Tiny subset: endpoints (and step) constrained to int, result the
         // `seq<int>` placeholder. Real F# is generic over the `..` overload.
         let fromTy = infer ctx fromE
-        unify ctx key fromTy BuiltinTypes.tyInt
+        unify ctx key fromTy ctx.Intrinsics.Int
 
         match stepE with
         | ValueSome s ->
             let stepTy = infer ctx s
-            unify ctx key stepTy BuiltinTypes.tyInt
+            unify ctx key stepTy ctx.Intrinsics.Int
         | ValueNone -> ()
 
         let toTy = infer ctx toE
-        unify ctx key toTy BuiltinTypes.tyInt
+        unify ctx key toTy ctx.Intrinsics.Int
         BuiltinTypes.tySeqInt
 
     and inferInfix
@@ -610,7 +610,7 @@ module internal UnificationInferApp =
                 ctx
                 key
                 (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel)
-                (TyFun(recvTy, TyFun(BuiltinTypes.tyString, resultTy)))
+                (TyFun(recvTy, TyFun(ctx.Intrinsics.String, resultTy)))
 
             // Record for the post-settle escape sweep: if context pins `resultVar` to a
             // concrete non-`dynamic` type the `default : dynamic` never fires — an
@@ -638,9 +638,9 @@ module internal UnificationInferApp =
                 ctx
                 key
                 (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel)
-                (TyFun(recvTy, TyFun(BuiltinTypes.tyString, TyFun(valueTy, BuiltinTypes.tyUnit))))
+                (TyFun(recvTy, TyFun(ctx.Intrinsics.String, TyFun(valueTy, ctx.Intrinsics.Unit))))
 
-            BuiltinTypes.tyUnit
+            ctx.Intrinsics.Unit
         | ValueNone ->
             errorTy ctx key "dynamic-set operator '?<-' (op_DynamicAssignment) is not in scope (Vesper.Core missing?)"
 

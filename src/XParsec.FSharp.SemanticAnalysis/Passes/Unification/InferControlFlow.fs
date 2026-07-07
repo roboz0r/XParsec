@@ -265,7 +265,7 @@ module internal UnificationInferControlFlow =
         (elseB: ElseBranch<SyntaxToken> voption)
         : SemType =
         let condTy = infer ctx cond
-        unify ctx key condTy BuiltinTypes.tyBool
+        unify ctx key condTy ctx.Intrinsics.Bool
 
         let thenTy = infer ctx thenE
 
@@ -276,7 +276,7 @@ module internal UnificationInferControlFlow =
                 | ElifBranch.ElseIf(condition = c; expr = e) -> c, e
 
             let elifCondTy = infer ctx elifCond
-            unify ctx key elifCondTy BuiltinTypes.tyBool
+            unify ctx key elifCondTy ctx.Intrinsics.Bool
             let elifTy = infer ctx elifExpr
             unify ctx key thenTy elifTy
 
@@ -290,8 +290,8 @@ module internal UnificationInferControlFlow =
             // expression is `unit` (F# spec — a missing else is `else ()`). The elif
             // branches above were already unified with `thenTy`, so this one `unify`
             // forces all branches to `unit`.
-            unify ctx key thenTy BuiltinTypes.tyUnit
-            BuiltinTypes.tyUnit
+            unify ctx key thenTy ctx.Intrinsics.Unit
+            ctx.Intrinsics.Unit
 
     and inferFun
         (infer: Infer)
@@ -313,11 +313,11 @@ module internal UnificationInferControlFlow =
         (items: ImmutableArray<Expr<SyntaxToken>>)
         : SemType =
         if items.Length = 0 then
-            BuiltinTypes.tyUnit
+            ctx.Intrinsics.Unit
         else
             for i = 0 to items.Length - 2 do
                 let ty = infer ctx items.[i]
-                unify ctx key ty BuiltinTypes.tyUnit
+                unify ctx key ty ctx.Intrinsics.Unit
 
             infer ctx items.[items.Length - 1]
 
@@ -329,10 +329,10 @@ module internal UnificationInferControlFlow =
         (body: Expr<SyntaxToken>)
         : SemType =
         let condTy = infer ctx cond
-        unify ctx key condTy BuiltinTypes.tyBool
+        unify ctx key condTy ctx.Intrinsics.Bool
         let bodyTy = infer ctx body
-        unify ctx key bodyTy BuiltinTypes.tyUnit
-        BuiltinTypes.tyUnit
+        unify ctx key bodyTy ctx.Intrinsics.Unit
+        ctx.Intrinsics.Unit
 
     and inferForTo
         (infer: Infer)
@@ -344,15 +344,15 @@ module internal UnificationInferControlFlow =
         (body: Expr<SyntaxToken>)
         : SemType =
         let startTy = infer ctx startE
-        unify ctx key startTy BuiltinTypes.tyInt
+        unify ctx key startTy ctx.Intrinsics.Int
         let endTy = infer ctx endE
-        unify ctx key endTy BuiltinTypes.tyInt
+        unify ctx key endTy ctx.Intrinsics.Int
         let varKey = CstKeys.ofForToVar ident
         let varTv = freshTv ctx varKey
-        varTv.Link <- ValueSome BuiltinTypes.tyInt
+        varTv.Link <- ValueSome ctx.Intrinsics.Int
         let bodyTy = infer ctx body
-        unify ctx key bodyTy BuiltinTypes.tyUnit
-        BuiltinTypes.tyUnit
+        unify ctx key bodyTy ctx.Intrinsics.Unit
+        ctx.Intrinsics.Unit
 
     /// The §4.4 duck-typed enumerator probe: C#'s pattern-based `foreach` accepts
     /// any source exposing a public parameterless `GetEnumerator()` whose return
@@ -691,7 +691,7 @@ module internal UnificationInferControlFlow =
 
         if isRangeSource then
             unify ctx key srcTy BuiltinTypes.tySeqInt
-            unify ctx key patTy BuiltinTypes.tyInt
+            unify ctx key patTy ctx.Intrinsics.Int
         else
             match tryForInEnumerator ctx srcTy with
             | ValueSome(elemTy, shape) ->
@@ -704,8 +704,8 @@ module internal UnificationInferControlFlow =
                 )
 
         let bodyTy = infer ctx body
-        unify ctx key bodyTy BuiltinTypes.tyUnit
-        BuiltinTypes.tyUnit
+        unify ctx key bodyTy ctx.Intrinsics.Unit
+        ctx.Intrinsics.Unit
 
     and inferRules
         (infer: Infer)
@@ -732,7 +732,7 @@ module internal UnificationInferControlFlow =
                 match guard with
                 | ValueSome(PatternGuard(expr = g)) ->
                     let gTy = infer ctx g
-                    unify ctx key gTy BuiltinTypes.tyBool
+                    unify ctx key gTy ctx.Intrinsics.Bool
                 | ValueNone -> ()
 
                 let bodyTy = infer ctx body
@@ -797,7 +797,7 @@ module internal UnificationInferControlFlow =
         : SemType =
         let resultTy = infer ctx body
         let finallyTy = infer ctx finallyE
-        unify ctx key finallyTy BuiltinTypes.tyUnit
+        unify ctx key finallyTy ctx.Intrinsics.Unit
         resultTy
 
     and inferAssignment
@@ -811,4 +811,4 @@ module internal UnificationInferControlFlow =
         let leftTy = infer ctx left
         let rightTy = infer ctx right
         unify ctx key leftTy rightTy
-        BuiltinTypes.tyUnit
+        ctx.Intrinsics.Unit

@@ -92,7 +92,7 @@ module internal UnificationInferTypeOps =
 
         match returnType with
         | ValueSome(ReturnType(typ = t)) -> translateType ctx t
-        | ValueNone -> BuiltinTypes.tyUnit
+        | ValueNone -> ctx.Intrinsics.Unit
 
     /// `expr when ^T : Type [and ^U : Type]* = optimizedExpr` — one clause of an
     /// F# library-only static optimization. Type the default `baseE` (its type is
@@ -257,7 +257,7 @@ module internal UnificationInferTypeOps =
                 sprintf "Type test of '%A' against unrelated type '%A' is always false" (zonk srcTy) (zonk tgtTy)
             )
 
-        BuiltinTypes.tyBool
+        ctx.Intrinsics.Bool
 
     /// `e :?> T` — explicit downcast. The target must be a strict descendant of
     /// the source (`subsumes tgt src = Subtype`); an equal static type warns

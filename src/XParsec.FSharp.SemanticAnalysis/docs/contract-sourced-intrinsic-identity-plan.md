@@ -1,11 +1,47 @@
 # Contract-sourced intrinsic identity (kill the front-end shadow set)
 
-**Status: STEPS 1, 1b, 2 LANDED & GREEN. Next: Step 3 (consumer sweep).** All premises VERIFIED
-(cross-file visibility; bootstrap-in-tests — tests carry the real contract via `realProvider`).
-Residue decisions RESOLVED. Resolver-key question RESOLVED = (ii)-flavoured: local `IntrinsicKeys`
-first, else provider via `AmbientOpenPrefixes`. `ctx.Intrinsics` exists and is proven byte-identical
-to the static `BuiltinTypes.ty*` (`ReferencedProjectTests` prove-it test). The statics still coexist;
-Step 3 migrates consumers to `ctx.Intrinsics.X`, Step 5 deletes the statics + shadow set.
+**Status: STEPS 1, 1b, 2 + Step-3 SA-HALF LANDED & GREEN (SA 763, Clr 1251, Js 348, Vesper 49).**
+All premises VERIFIED. All design questions RESOLVED (the `(i)/(ii)` and "Step 2 finalized spec"
+sections below are now HISTORY — implemented). `ctx.Intrinsics` is live: an honest `tryResolve`
+resolver (`SideTables.fs`) with NO fallback — a miss LOUD-FAILS. Every SemanticAnalysis consumer of
+the 17 always-available intrinsics now resolves through the contract; the static `BuiltinTypes.ty*`
+still coexist (used by codegen + the 3 deferred intrinsics) and are deleted in Step 5.
+
+## FRESH-SESSION ENTRY POINT — remaining work, in order
+
+**Read this section + the two "LANDED" sections (search `LANDED`) and you have the full state.**
+Everything below those is design rationale/history, kept for reference; do not re-litigate it.
+
+Code handles: `ctx.Intrinsics` = `IntrinsicSet` + `IntrinsicResolve.tryResolveIntrinsicType`
+(`SideTables.fs`, local `IntrinsicKeys` first, else provider via `AmbientOpenPrefixes`, else
+`None`→loud-fail in `IntrinsicSet.get`); `TypeRegistry.intrinsicKeyOf` (local-mint resolver);
+`PassContextTypes.IntrinsicKeys`. Build/test ONLY via `./claude_tools.cmd -Action Build|Test`
+(never raw dotnet). **Do NOT reintroduce a resolver fallback** — retiring fakes / composing test
+providers over the real contract is the sanctioned fix when a test loud-fails.
+
+1. **Codegen `IntrinsicSet` (Step 3 remainder).** Codegen.Clr/Js have NO `PassContext`; their
+   `BuiltinTypes.ty*` sites (~half the original 188) still use the statics. Give codegen its OWN
+   `IntrinsicSet` fed its provider/env (reuse `IntrinsicResolve.tryResolveIntrinsicType`). FIRST
+   trace how Codegen.Clr/Js hold their provider/env to decide where the set hangs (one shared handle
+   vs per-emit-context). Heavy files: Clr `EmitLoops.fs`(9)/`MetadataSymbols.fs`(6)/`EmitResolve.fs`(4)/
+   `Layout.fs`,`EmitBindings.fs`(3); Js `TsManifestTypes.fs`(4)/`NumberCovariance.fs`,`JsNativeSymbols.fs`(3).
+   Same defer list (below): bigint / undefined (JS-only, no CLR contract) / seq<int> stay static.
+2. **Step 4** — `primitiveSupports` + pure-identity checks key on resolved identity; delete
+   `SymbolKeyOps.intrinsicName` (repr-bridge feeds use `simpleName`, identity checks use
+   `IntrinsicTypePatterns` / resolved keys).
+3. **Step 5 (residue + delete the shadow set)** — add `prim-types-bigint` contract (CLR
+   `System.Numerics.BigInteger`, JS `bigint`) then migrate BigInt sites; delete `tySeqInt` +
+   retype range exprs; reclassify `objnull` as an `obj|null` `TyOr` alias; numeric aliases
+   resolve-through-alias; migrate `undefined` sites once safe; then DELETE the static
+   `BuiltinTypes.ty*`, `RuntimeNames.knownIntrinsicNames`, `intrinsicNamespace`. Compiler-driven:
+   comment/delete a static → `./claude_tools.cmd -Action Build` → the FS0039 list IS the worklist.
+4. **byref migration (LAST)** — see the byref section; new `prim-types-byref` contract + `~&`
+   operator + lvalue enforcement + move recognizers off `"&"` onto `"byref"`.
+5. **Lower-priority Step-1b cleanups** (behaviour-identical today, safe to defer): provider mint
+   path `Translate.fs:531-533`; intrinsic-abbrev self-type `Elaborate.fs:1583` / `SideTables.fs`
+   `MkSelfType`. See "NOT yet done / known-deferred".
+6. **Restore coverage:** a dedicated opaque-fallback test (genuinely-unknown NON-primitive name)
+   for `Translate.fs:217` — a literal RHS no longer exercises it (see the SA-half LANDED note).
 
 Successor to `qualified-intrinsic-identities-plan.md` (LANDED): that milestone gave
 intrinsics a qualified `SymbolKey` but sourced the `Vesper` namespace from a **hardcoded**
@@ -129,7 +165,7 @@ Consequences for the resolver:
   No per-file ordering assumption is needed — the earlier "prim-types-min is first" argument is
   moot; whole-unit registration makes all intrinsics present before any literal is typed.
 
-### How the resolver obtains the QUALIFIED key (the one open design point)
+### How the resolver obtains the QUALIFIED key  [RESOLVED — implemented additively: `IntrinsicKeys` index (i-flavoured), see LANDED Step 1/1b]
 
 For `int` to "resolve like a user nominal `Widgets.widget`," its registration must carry the
 qualified `SymbolKey` (`TypeKey(None, "Vesper", "int")`, asm-blind per `sameTypeAsmBlind`). Today
@@ -157,7 +193,7 @@ Current `RuntimeNames.byrefName = "&"` conflates the type with its constructor o
 model: declare `type byref<'T> = (# "!0&" #)` (and `byref<'T,'Kind>`) in a new `prim-types-byref.fsi`/
 `.fs` under `namespace Vesper` ⇒ type identity `Vesper.byref` (verbatim `"byref"`, arity in args, no
 suffix). `&` becomes an OPERATOR (produces a byref from an lvalue), separate from the type — the prefix
-address-of `let inline (~&) (obj: 'T) : byref<'T> = (# "ld*a" : byref<'T> #)` (goes in the byref impl
+address-of `let inline (~&) ([<LocatorValue>] obj: 'T) : byref<'T> = (# "ld*a" : byref<'T> #)` (goes in the byref impl
 file alongside the type). Byref is the LAST name to migrate: it keeps its current
 hardcoded `byrefName`/structural-ctor handling until its contract file + operator split land, so
 nothing breaks meanwhile. Recognizers (`TyByref`, `isStructuralConstructorName`) move from `"&"` to
@@ -198,7 +234,7 @@ The semantic analyzer must strictly enforce that the argument passed to `~&` is 
   through alias** to their canonical intrinsic (`uint→uint32`, `int8→sbyte`, `uint8→byte`,
   `double→float`, `single→float32`). No distinct identity.
 
-## LANDED SO FAR (green: SemanticAnalysis 762, Codegen.Clr 1251, Codegen.Js 348, Vesper 49)
+## LANDED — Step 1/1b (local mint-site contract-sourcing)
 
 The **local (self-host) resolution path is now contract-sourced**:
 - `PassContextTypes.IntrinsicKeys : Dictionary<string, SymbolKey>` added (`SideTables.fs`), a
@@ -228,7 +264,7 @@ Behaviour-identical for the real Vesper intrinsics (`declNs = "Vesper"` = `intri
   identity): `Translate.fs:228,464`, `MemberRegistration.fs:718`, `VesperLib/TypeTranslate.fs:570`,
   `Codegen.Js/TsManifestTypes.fs:469-470`. Do NOT convert these — the name is not a registered intrinsic.
 
-## Step 2 — finalized spec (bootstrap-in-tests premise VERIFIED)
+## Step 2 — finalized spec  [DONE — implemented; kept for rationale] (bootstrap-in-tests premise VERIFIED)
 
 Investigation confirmed: SA unit tests carry the real contract on the `PassContext` provider
 (`test/…SemanticAnalysis.Tests/TestHelpers.fs:32-36` `realProvider`); `MockBuiltins` is gone.
@@ -260,6 +296,59 @@ Investigation confirmed: SA unit tests carry the real contract on the `PassConte
 - **Fake-provider seed:** `UnificationTests.fs:129-130`, `MemoizeTests.fs:46-47` (empty
   `IntrinsicForwardRepr`/`IntrinsicReverseCanon`) — give them an `IntrinsicSet` (or delegate to
   `realProvider`) so any intrinsic they touch resolves.
+
+## Step 3 — triage (from the compiler worklist: comment the `ty*` block, build)
+
+**SA project: ~92 distinct sites / 15 files** (`ty*` FS0039 count when the statics are commented):
+- `Passes/Unification/InferControlFlow.fs` (21), `InferApp.fs` (8), `InferLiteralExpr.fs` (3),
+  `InferPat.fs` (2), `InferTypeOps.fs` (2), `Infer.fs` (1), `EngineCore.fs` (1) — **have `ctx`**,
+  pure `BuiltinTypes.tyX → ctx.Intrinsics.X` renames.
+- `Passes/Unification/InferLiterals.fs` (19) — `literalCarrier`; **needs `ctx` threaded** (takes only
+  a `SyntaxToken` today; thread `ctx` to it and its call sites, then `ctx.Intrinsics.<name>`).
+- `Passes/NameResolution/MemberRegistration.fs` (7) — has `ctx`.
+- `Freeze/Apply.fs` (13), `Freeze/Printf.fs` (8), `Freeze/Access.fs` (4), `Freeze/Strings.fs` (1),
+  `Freeze/Resolve.fs` (1), `FreezeExpr.fs` (1) — **verify the Freeze context handle**; Freeze runs
+  post-unification, confirm whether it carries `ctx`/an `IntrinsicSet` before renaming.
+- `tySeqInt` sites (4, across the above) — **Step 5 DELETION, not a rename** (retype range exprs).
+- `tyBigInt` (2 sites) — **DEFER to Step 5.** `IntrinsicSet` now loud-fails on an unresolvable name
+  (no silent fallback), and there is no `type bigint = extern` contract yet, so `ctx.Intrinsics.BigInt`
+  throws until `prim-types-bigint` lands. Keep these two on the static `BuiltinTypes.tyBigInt` until then.
+  (Verify the other intrinsics — `decimal`/`exn`/`obj`/`nativeint`/`voidptr`/`undefined` — DO have a
+  contract before migrating their sites; the SA prove-it test only covers the common nine.)
+
+**Codegen.Clr / Codegen.Js: the other ~half of the 188 — NO `PassContext`.** They cannot use
+`ctx.Intrinsics`. Codegen carries its own env + provider, so it needs its OWN `IntrinsicSet` built
+from that provider (the same `resolveIntrinsicType` shape, fed the codegen provider). This is a
+distinct sub-task, sequenced AFTER the SA sweep (codegen won't build until SA is green anyway).
+Heavy files (from a `BuiltinTypes.ty` grep): `Codegen.Clr/EmitLoops.fs` (9), `MetadataSymbols.fs`
+(6), `EmitResolve.fs` (4), `Layout.fs`/`EmitBindings.fs` (3); `Codegen.Js/TsManifestTypes.fs` (4),
+`NumberCovariance.fs`/`JsNativeSymbols.fs` (3).
+
+**Execution order:** (a) thread `ctx` into `literalCarrier` + confirm the Freeze handle; (b) fan out
+the SA renames per-file to subagents (edits only), build SA centrally, iterate the FS0039 list to
+zero; (c) give codegen its own `IntrinsicSet`, repeat for Clr then Js; (d) only THEN delete the
+statics (Step 5). Keep `tySeqInt` until its Step-5 retype.
+
+### Step 3 — SA half LANDED & GREEN (SA 763, Clr 1251, Js 348, Vesper 49)
+- 17 intrinsics migrated `BuiltinTypes.tyX → ctx.Intrinsics.X` across the SA project. `bigint`,
+  `undefined` (JS-only, no CLR contract), `seq<int>` (deletion) left static — deferred to Step 5.
+- Leaf helpers threaded with `ctx`: `Passes/Unification/InferLiterals.literalCarrier`,
+  `Passes/Unification/EngineCore.tupleOrSingle` (7 call sites), `Freeze/Apply.optionalDefaultNode`.
+- The honest no-fallback resolver surfaced ~18 tests using ad-hoc fake providers that never exposed
+  the stdlib intrinsics. Fixed test-only, in the "retire the fakes" direction: composed each fake
+  OVER the real contract (`ExternalSymbols.composite [ stub; realProvider ]`) or replaced it with the
+  real provider (`realProvider` / `ClrSymbolProviders.build [vesperCoreManifest]` / the JS
+  `stackWithAmbient` that keeps the ambient `Vesper` prefix). No production fallback reintroduced.
+- **Coverage gap to restore later:** `ResolvedTypesTests "primitive annotations pin to TyConst"` used
+  to exercise `translateType`'s opaque-fallback branch (`Translate.fs:217`) via `nullProvider`; a
+  literal RHS now routes through `ctx.Intrinsics`, so that test moved to the real Intrinsic path. Add a
+  dedicated opaque-fallback test using a genuinely-unknown NON-primitive name to re-cover that branch.
+
+### Step 3 — REMAINING: codegen `IntrinsicSet` (Codegen.Clr / Codegen.Js)
+Codegen has no `PassContext`; its `BuiltinTypes.ty*` sites (the other ~half of the original 188) keep
+using the statics and stay green for now. To let Step 5 DELETE the statics, codegen needs its own
+`IntrinsicSet` fed its provider/env (same `tryResolveIntrinsicType` shape). Until then the statics +
+`intrinsicKey` + `knownIntrinsicNames` survive for codegen only.
 
 ## Migration path (staged, each stays green)
 1. Producers carry ns: `Intrinsic` canon qualified + self-host `IntrinsicReprTypes` ns. Canon

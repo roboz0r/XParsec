@@ -392,7 +392,7 @@ module internal UnificationInferExternalCall =
                                 | single -> [ single ]
 
                             let resultTy = TyVar(freshTyVar ctx)
-                            unifyAppliedSig ctx key (TyFun(argTy, resultTy)) (TyFun(tupleOrSingle leading, ret))
+                            unifyAppliedSig ctx key (TyFun(argTy, resultTy)) (TyFun(tupleOrSingle ctx leading, ret))
                             // The omitted defaults are the last `fullCount - suppliedCount`
                             // of the optional suffix; Freeze appends them.
                             let omitted = optDefaults |> List.skip (suppliedCount - requiredCount)

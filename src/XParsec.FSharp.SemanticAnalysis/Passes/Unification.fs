@@ -687,7 +687,7 @@ module Unification =
                     unifyArg ctx (CstKeys.ofExpr argExpr) argTy expected
                 | Expr.App(argExprs = argExprs) ->
                     let argTys = [ for a in argExprs -> infer ctx a ]
-                    unifyArg ctx (CstKeys.ofExpr e) (tupleOrSingle argTys) expected
+                    unifyArg ctx (CstKeys.ofExpr e) (tupleOrSingle ctx argTys) expected
                 | _ -> infer ctx e |> ignore
             | AdditionalConstrInitExpr.Delegated(expr = e) -> infer ctx e |> ignore
             // Explicit field-init `{ f = e; … }`: infer each
@@ -722,7 +722,10 @@ module Unification =
 
             try
                 let expected =
-                    info.CtorParams |> Array.map (fun p -> p.Type) |> Array.toList |> tupleOrSingle
+                    info.CtorParams
+                    |> Array.map (fun p -> p.Type)
+                    |> Array.toList
+                    |> tupleOrSingle ctx
 
                 // Declared field types (ctor-param backing fields + explicit `val`
                 // fields), keyed by name, so an explicit field-init `{ f = e }`
@@ -774,7 +777,7 @@ module Unification =
                     baseInfo.CtorParams
                     |> Array.map (fun p -> substituteWith subst p.Type)
                     |> Array.toList
-                    |> tupleOrSingle
+                    |> tupleOrSingle ctx
 
                 enterLevel ctx
 

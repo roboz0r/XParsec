@@ -125,10 +125,10 @@ module internal FreezeAccess =
             let valTy = typeOfKey ctx (CstKeys.ofExpr right)
 
             let nameLit =
-                TExpr.Const(TConstValue.String(ctx.NameOf idTok), BuiltinTypes.tyString, tok)
+                TExpr.Const(TConstValue.String(ctx.NameOf idTok), ctx.Intrinsics.String, tok)
 
             let valuePartial = TyFun(valTy, ty)
-            let namePartial = TyFun(BuiltinTypes.tyString, valuePartial)
+            let namePartial = TyFun(ctx.Intrinsics.String, valuePartial)
 
             let opExpr =
                 TExpr.External("op_DynamicAssignment", ValueNone, TyFun(recvTy, namePartial), tok)
@@ -184,9 +184,9 @@ module internal FreezeAccess =
         let recvTy = typeOfKey ctx (CstKeys.ofExpr r)
 
         let nameLit =
-            TExpr.Const(TConstValue.String(ctx.NameOf idTok), BuiltinTypes.tyString, tok)
+            TExpr.Const(TConstValue.String(ctx.NameOf idTok), ctx.Intrinsics.String, tok)
 
-        let partialTy = TyFun(BuiltinTypes.tyString, ty)
+        let partialTy = TyFun(ctx.Intrinsics.String, ty)
         let opExpr = TExpr.External("op_Dynamic", ValueNone, TyFun(recvTy, partialTy), tok)
         let app1 = TExpr.App(opExpr, translateExpr ctx r, partialTy, tok)
         TExpr.App(app1, nameLit, ty, tok)

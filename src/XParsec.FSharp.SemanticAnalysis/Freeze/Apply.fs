@@ -25,19 +25,21 @@ module internal FreezeApply =
     /// fill is post-inference (never re-unified against the parameter type), so typing
     /// the node `undefined` rather than `unit` is sound. (The CLR optional-fill path
     /// never mints `TConstValue.Unit`, so this case is JS-only.)
-    let optionalDefaultNode (cv: TConstValue) (tok: SyntaxToken) : TExpr =
+    let optionalDefaultNode (ctx: PassContext) (cv: TConstValue) (tok: SyntaxToken) : TExpr =
         match cv with
+        // `undefined` is a JS-only intrinsic (no CLR contract), so it stays on the
+        // static `BuiltinTypes.tyUndefined` until its contract lands.
         | TConstValue.Unit -> TExpr.ILIntrinsic("undefined", ValueNone, EqArray.empty, BuiltinTypes.tyUndefined, tok)
-        | TConstValue.Int _ -> TExpr.Const(cv, BuiltinTypes.tyInt, tok)
-        | TConstValue.UInt _ -> TExpr.Const(cv, BuiltinTypes.tyUInt32, tok)
-        | TConstValue.Int64 _ -> TExpr.Const(cv, BuiltinTypes.tyInt64, tok)
-        | TConstValue.Byte _ -> TExpr.Const(cv, BuiltinTypes.tyByte, tok)
-        | TConstValue.Float _ -> TExpr.Const(cv, BuiltinTypes.tyFloat, tok)
-        | TConstValue.Float32 _ -> TExpr.Const(cv, BuiltinTypes.tyFloat32, tok)
-        | TConstValue.Bool _ -> TExpr.Const(cv, BuiltinTypes.tyBool, tok)
-        | TConstValue.Char _ -> TExpr.Const(cv, BuiltinTypes.tyChar, tok)
-        | TConstValue.Decimal _ -> TExpr.Const(cv, BuiltinTypes.tyDecimal, tok)
-        | TConstValue.String _ -> TExpr.Const(cv, BuiltinTypes.tyString, tok)
+        | TConstValue.Int _ -> TExpr.Const(cv, ctx.Intrinsics.Int, tok)
+        | TConstValue.UInt _ -> TExpr.Const(cv, ctx.Intrinsics.UInt32, tok)
+        | TConstValue.Int64 _ -> TExpr.Const(cv, ctx.Intrinsics.Int64, tok)
+        | TConstValue.Byte _ -> TExpr.Const(cv, ctx.Intrinsics.Byte, tok)
+        | TConstValue.Float _ -> TExpr.Const(cv, ctx.Intrinsics.Float, tok)
+        | TConstValue.Float32 _ -> TExpr.Const(cv, ctx.Intrinsics.Float32, tok)
+        | TConstValue.Bool _ -> TExpr.Const(cv, ctx.Intrinsics.Bool, tok)
+        | TConstValue.Char _ -> TExpr.Const(cv, ctx.Intrinsics.Char, tok)
+        | TConstValue.Decimal _ -> TExpr.Const(cv, ctx.Intrinsics.Decimal, tok)
+        | TConstValue.String _ -> TExpr.Const(cv, ctx.Intrinsics.String, tok)
 
     /// Lower an external method call that omitted a suffix of the member's trailing
     /// optional parameters (`Unification.tryFillOptionalCall` recorded the omitted
@@ -62,7 +64,7 @@ module internal FreezeApply =
             else
                 EqArray.ofSeq (seq { for a in args -> translateExpr ctx a })
 
-        let defaults = [ for cv in omitted -> optionalDefaultNode cv tok ]
+        let defaults = [ for cv in omitted -> optionalDefaultNode ctx cv tok ]
         let filled = (EqArray.toList supplied) @ defaults
 
         // The full tupled parameter domain (for the synthesised tuple's type and the
@@ -74,7 +76,7 @@ module internal FreezeApply =
                 match Unification.zonk info.Signature with
                 | TyFun(d, r) -> d, r
                 | other -> other, other
-            | ValueNone -> BuiltinTypes.tyUnit, BuiltinTypes.tyUnit
+            | ValueNone -> ctx.Intrinsics.Unit, ctx.Intrinsics.Unit
 
         let argNode =
             match filled with

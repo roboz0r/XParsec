@@ -60,7 +60,7 @@ module internal UnificationInferCtor =
                         info.CtorParams
                         |> Array.map (fun p -> substituteWith subst p.Type)
                         |> Array.toList
-                    |> tupleOrSingle
+                    |> tupleOrSingle ctx
 
                 unifyArg ctx (CstKeys.ofExpr argExpr) argTy expected
                 receiverTy
@@ -311,5 +311,5 @@ module internal UnificationInferCtor =
                         let paramTys =
                             sc.Params |> Array.map (fun p -> substituteWith subst p.Type) |> Array.toList
 
-                        unify ctx key (tupleOrSingle paramTys) argTy
+                        unify ctx key (tupleOrSingle ctx paramTys) argTy
                         ValueSome receiverTy

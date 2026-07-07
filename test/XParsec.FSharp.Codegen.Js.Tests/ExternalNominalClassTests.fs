@@ -106,8 +106,11 @@ let private boxProviderRaw: IExternalSymbolProvider =
     TsManifestProvider.providerOfManifest boxManifest
 
 /// Layered over the JS provider so `int`/`unit` resolve in the front-end test.
+/// Ambient AGGREGATED from the sources (not `stackJs []`): the intrinsic resolver
+/// reaches `Vesper.unit`/`Vesper.int` (carried by `jsProvider`'s Vesper.Core) only
+/// through the `Vesper` open-prefix, which a dropped ambient would hide.
 let private boxProvider: IExternalSymbolProvider =
-    stackJs [] [ boxProviderRaw; jsProvider.Value ]
+    stackWithAmbient [ boxProviderRaw; jsProvider.Value ]
 
 /// The frozen RETURN of a manifest free function (its `Scheme` is `FTFun(_, ret)`).
 let private returnOf (name: string) : FrozenType =

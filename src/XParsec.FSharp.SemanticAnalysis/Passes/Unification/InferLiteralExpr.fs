@@ -134,8 +134,8 @@ module internal UnificationInferLiteralExpr =
                             match
                                 PrintfSpec.argTypes
                                     (fun () -> TyVar(freshTyVar ctx))
-                                    BuiltinTypes.tyUnit
-                                    BuiltinTypes.tyUnit
+                                    ctx.Intrinsics.Unit
+                                    ctx.Intrinsics.Unit
                                     p
                             with
                             | ValueSome ts -> unify ctx (CstKeys.ofExpr e) holeTy (List.last ts)
@@ -144,4 +144,4 @@ module internal UnificationInferLiteralExpr =
                 | ValueNone -> ()
             | _ -> ()
 
-        BuiltinTypes.tyString
+        ctx.Intrinsics.String
