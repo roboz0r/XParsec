@@ -798,17 +798,49 @@ module NameResolutionMemberRegistration =
                     | false, _ ->
                         failwithf "Internal error: heritable external base '%s' has no recorded intrinsic repr" name
                 | false, _ ->
-                    if
-                        ctx.Types.Record.ContainsKey name
-                        || ctx.Types.Union.ContainsKey name
-                        || ctx.Types.Abbreviation.ContainsKey name
-                        || ctx.Types.IntrinsicReprTypes.ContainsKey name
-                    then
-                        diagnose diagKey (sprintf "Cannot inherit from type '%s' — only classes are inheritable" name)
-                    else
-                        diagnose diagKey (sprintf "Cannot inherit from unknown type '%s'" name)
+                    // A referenced heritable primitive (`exn`): the provider publishes it as
+                    // an `IntrinsicClass` (contract `inherit obj` + ctors). Resolve it through
+                    // the ambient opens to its intrinsic identity and admit it as a `TyConst`
+                    // base — the derived class's chain then continues through `subtypeParentOf`'s
+                    // `IntrinsicClass` arm, and `inherit exn(m)` resolves the base `.ctor` off
+                    // the provider's member index. (Distinct from a *local* heritable extern,
+                    // handled by `HeritableExternBases` above.)
+                    let providerIntrinsicClassCanon =
+                        let probe (candidate: string) =
+                            match ctx.Provider.TryLookupType candidate with
+                            | ValueSome(ExternalTypeShape.IntrinsicClass(canon = canon)) -> ValueSome canon
+                            | _ -> ValueNone
 
-                    ValueNone
+                        match probe name with
+                        | ValueSome _ as hit -> hit
+                        | ValueNone ->
+                            match
+                                ctx.Provider.AmbientOpenPrefixes
+                                |> List.tryPick (fun p ->
+                                    match probe (p + "." + name) with
+                                    | ValueSome canon -> Some canon
+                                    | ValueNone -> None
+                                )
+                            with
+                            | Some canon -> ValueSome canon
+                            | None -> ValueNone
+
+                    match providerIntrinsicClassCanon with
+                    | ValueSome canon -> ValueSome(TyConst(canon, EqArray.ofList targs))
+                    | ValueNone ->
+                        if
+                            ctx.Types.Record.ContainsKey name
+                            || ctx.Types.Union.ContainsKey name
+                            || ctx.Types.Abbreviation.ContainsKey name
+                            || ctx.Types.IntrinsicReprTypes.ContainsKey name
+                        then
+                            diagnose
+                                diagKey
+                                (sprintf "Cannot inherit from type '%s' — only classes are inheritable" name)
+                        else
+                            diagnose diagKey (sprintf "Cannot inherit from unknown type '%s'" name)
+
+                        ValueNone
 
     /// Stamp `BaseType` / `BaseCtorArgs` on each class with an `inherit` clause.
     /// Runs after `registerClassTypes` so a forward / out-of-order parent

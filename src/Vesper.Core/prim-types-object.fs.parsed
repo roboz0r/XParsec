@@ -5,19 +5,20 @@ namespace              'namespace'       KWNamespace         tok=   0  pos=   0
     =                  '='               OpEquality          tok=  21  pos= 164
       ILIntrinsic:
         (#             '(#'              KWLHashParen        tok=  23  pos= 166
-        StringLiteral  '"'               StringOpen          tok=  25  pos= 169
+        class          'class'           KWClass             tok=  25  pos= 169
+        StringLiteral  '"'               StringOpen          tok=  27  pos= 175
         Parts:
-          Text         'System.Obj...'   StringFragment      tok=  26  pos= 170
-                       '"'               StringClose         tok=  27  pos= 183
-        #)             '#)'              KWRHashParen        tok=  29  pos= 185
+          Text         'System.Obj...'   StringFragment      tok=  28  pos= 176
+                       '"'               StringClose         tok=  29  pos= 189
+        #)             '#)'              KWRHashParen        tok=  31  pos= 191
   TypeDefn.Abbrev:
-    TypeName           'objnull'         Identifier          tok=  33  pos= 193
-    =                  '='               OpEquality          tok=  35  pos= 201
+    TypeName           'objnull'         Identifier          tok=  35  pos= 199
+    =                  '='               OpEquality          tok=  37  pos= 207
       UnionType:
         NamedType:
-          Ident        'obj'             Identifier          tok=  37  pos= 203
-        |              '|'               OpBar               tok=  39  pos= 207
-        null           'null'            KWNull              tok=  41  pos= 209
+          Ident        'obj'             Identifier          tok=  39  pos= 209
+        |              '|'               OpBar               tok=  41  pos= 213
+        null           'null'            KWNull              tok=  43  pos= 215
 ---
 WarnDirectives:
   #nowarn 42 (Ln 2)

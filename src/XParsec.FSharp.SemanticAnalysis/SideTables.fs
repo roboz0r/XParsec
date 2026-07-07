@@ -1463,7 +1463,8 @@ module internal IntrinsicResolve =
                 provider.AmbientOpenPrefixes
                 |> List.tryPick (fun p ->
                     match provider.TryLookupType(p + "." + name) with
-                    | ValueSome(ExternalTypeShape.Intrinsic _) -> Some(SymbolKey.TypeKey(None, p, name))
+                    | ValueSome(ExternalTypeShape.Intrinsic _)
+                    | ValueSome(ExternalTypeShape.IntrinsicClass _) -> Some(SymbolKey.TypeKey(None, p, name))
                     | _ -> None
                 )
 

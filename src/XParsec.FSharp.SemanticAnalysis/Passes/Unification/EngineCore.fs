@@ -426,7 +426,9 @@ module UnificationEngineCore =
         | _ ->
             let providerCanon (c: string) : string voption =
                 match ctx.Provider.TryLookupType c with
-                | ValueSome(ExternalTypeShape.Intrinsic(canon = canon)) -> ValueSome(SymbolKeyOps.intrinsicName canon)
+                | ValueSome(ExternalTypeShape.Intrinsic(canon = canon))
+                | ValueSome(ExternalTypeShape.IntrinsicClass(canon = canon)) ->
+                    ValueSome(SymbolKeyOps.intrinsicName canon)
                 | _ -> ValueNone
 
             let repr =
@@ -470,7 +472,8 @@ module UnificationEngineCore =
         | _ ->
             let providerPlatform (c: string) : string voption =
                 match ctx.Provider.TryLookupType c with
-                | ValueSome(ExternalTypeShape.Intrinsic(platform = Some platform)) -> ValueSome platform
+                | ValueSome(ExternalTypeShape.Intrinsic(platform = Some platform))
+                | ValueSome(ExternalTypeShape.IntrinsicClass(platform = Some platform)) -> ValueSome platform
                 // `platform = None`: a primitive with no repr on the compiling target
                 // (`decimal` on JS) has no platform type name to key a member lookup on.
                 | _ -> ValueNone
@@ -579,6 +582,10 @@ module UnificationEngineCore =
             match ctx.Provider.TryLookupType name with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 ExternalSymbols.instantiateBaseType shape (args.AsSpan().ToArray())
+            // A heritable primitive (`exn`)'s declared `inherit` parent (`obj`), so the
+            // subtype walk continues `exn → obj → ⊥` off the contract chain.
+            | ValueSome(ExternalTypeShape.IntrinsicClass(baseType = bt)) ->
+                ExternalSymbols.instantiateBaseTypeFrozen bt (args.AsSpan().ToArray())
             | _ -> ValueNone
 
     // The interfaces a nominal `(name, args)` declares, surfaced as instantiated

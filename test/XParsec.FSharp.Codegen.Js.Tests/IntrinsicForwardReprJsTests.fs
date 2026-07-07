@@ -41,9 +41,7 @@ let tests =
                         (sprintf "canon '%s' must harvest JS repr 'number'" canon)
             }
 
-            test "`bool` reprs to `boolean`" {
-                Expect.equal (tryRepr "bool") (Some "boolean") "bool -> boolean"
-            }
+            test "`bool` reprs to `boolean`" { Expect.equal (tryRepr "bool") (Some "boolean") "bool -> boolean" }
 
             test "`float` reprs to `number` — the covariant target's licensing datum" {
                 // The exact fact the G1 covariant relocation asserts at construction:

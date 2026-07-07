@@ -115,4 +115,51 @@ let tests =
                 Expect.equal argEx.ParamName "x" "the argument name is carried as ParamName"
                 Expect.stringContains argEx.Message "must be positive" "the message is carried through"
             }
+
+            // --- Milestone acceptance tests: `exn`/`obj` as contract-sourced heritable roots ---
+            // These are the target behaviour of the resolution-time-intrinsic-reconciliation
+            // milestone (see docs/resolution-time-intrinsic-reconciliation-plan.md). They FAIL on
+            // the current tree and are `ptest` (pending) — flip each to `test` as its enabling
+            // stage lands, so the milestone has a committed, green-by-the-end checklist:
+            //   * `inherit exn` downstream: fails today ("Cannot inherit from unknown type 'exn'")
+            //     because `HeritableExternBases` is self-host-only — `exn` surfaces to a referencing
+            //     unit as `ExternalTypeShape.Intrinsic`, not a heritable `Class`. Enabled by the
+            //     Intrinsic→faced-Class flip (stage 2) + the `inherit obj` contract declaration.
+            //     (The message round-trip additionally needs the contract `.ctor`, stage 2.)
+            //   * upcast to the roots: fails today (the `System.Exception ↔ exn` reconciliation is
+            //     not applied at an annotation-coercion site). Enabled once metadata surfaces the
+            //     roots as canon identities (stage 3).
+
+            // Now resolves through SA (the `IntrinsicClass` `inherit exn` path); still pending on
+            // CODEGEN — `ClrEncoder` must encode `exn`'s repr `System.Exception` as a reference-class
+            // TypeRef (`extends`), not via the value-type `PrimitiveRepr` path. Flip to `test` then.
+            ptest "a user type inheriting exn raises as its own type, a subclass of System.Exception" {
+                let ex =
+                    thrownBy
+                        "ExnInheritUser"
+                        (lines
+                            [
+                                "type MyErr(m: string) ="
+                                "    inherit exn(m)"
+                                "let boom (n: int) : int = raise (MyErr \"boom\")"
+                            ])
+
+                Expect.equal (ex.GetType().Name) "MyErr" "the raised value keeps its own runtime type"
+                Expect.isTrue (typeof<Exception>.IsAssignableFrom(ex.GetType())) "MyErr is a System.Exception subclass"
+            }
+
+            ptest "a BCL exception upcasts to exn and to obj without diagnostics" {
+                let tast, _ =
+                    compileSource
+                        "ExnUpcastRoots"
+                        (lines
+                            [
+                                "let toExn (e: System.InvalidOperationException) : exn = e"
+                                "let toObj (e: System.InvalidOperationException) : obj = e"
+                            ])
+
+                Expect.isEmpty
+                    (tast.Diagnostics |> List.map (fun d -> d.Message))
+                    "upcasting a BCL exception to the exn / obj roots type-checks"
+            }
         ]

@@ -379,7 +379,11 @@ module VesperLibTyparCapture =
                 ctx.TypeShapes
                 |> Seq.choose (fun kv ->
                     match kv.Value with
-                    | ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform) when
+                    // Both intrinsic shapes reconcile a platform repr back to canon — the
+                    // scalar (`int`/`System.Int32`) and the heritable primitive
+                    // (`exn`/`System.Exception`, `obj`/`System.Object`).
+                    | ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)
+                    | ExternalTypeShape.IntrinsicClass(canon = canon; platform = Some platform) when
                         platform <> SymbolKeyOps.intrinsicName canon
                         ->
                         Some(platform, canon)
@@ -415,7 +419,11 @@ module VesperLibTyparCapture =
 
                 for kv in ctx.TypeShapes do
                     match kv.Value with
-                    | ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform) when
+                    // A heritable primitive (`IntrinsicClass`: `obj`/`exn`) carries a codegen
+                    // repr just like a scalar `Intrinsic` — it IS emitted as a value/type ref
+                    // (`System.Object`/`System.Exception`), unlike a capability interface face.
+                    | ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)
+                    | ExternalTypeShape.IntrinsicClass(canon = canon; platform = Some platform) when
                         platform <> SymbolKeyOps.intrinsicName canon
                         ->
                         d.[canon] <- platform

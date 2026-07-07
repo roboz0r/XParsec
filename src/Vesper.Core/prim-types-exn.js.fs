@@ -8,4 +8,4 @@ namespace Vesper
 // repr harvest (`ReferencedProject.buildProviderWith (Some "js")`), the
 // intrinsic-repr analogue of the manifest's `inline-bodies-js` override.
 
-type exn = (# "Error" #)
+type exn = (# class "Error" #)

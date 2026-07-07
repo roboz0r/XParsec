@@ -642,6 +642,30 @@ type ExternalTypeShape =
     /// self-compiled unit's own `platform` repr keyed by the `.fsi` short name (which
     /// is the `canon`).
     | Intrinsic of canon: SymbolKey * arity: int * platform: string option
+    /// A primitive that is ALSO a heritable class — `obj` (`System.Object`) / `exn`
+    /// (`System.Exception`). It keeps the intrinsic identity of an `Intrinsic`: a use
+    /// site resolves to `TyConst canon`, and instance members route to the PLATFORM
+    /// type per-target via `IntrinsicBclMember` (so `obj.ToString` / `exn.Message` are
+    /// NOT contracted — they are CLR-only and resolve through the platform, merging
+    /// with the contract members below). But it ALSO carries the class surface a scalar
+    /// primitive lacks:
+    /// - `baseType` — the declared `inherit` parent (`exn`'s is `obj`; `obj`'s is
+    ///   `ValueNone`, the root), with the declaring typars baked as `FTTypar(Declaring,i)`.
+    /// - `members` — the contract `.ctor`s (`new: string -> exn`), frozen exactly as a
+    ///   `Class`'s ctors, so `InferCtor` / `new exn "…"` resolve them off the shape.
+    /// `canon`/`arity`/`platform` mirror `Intrinsic`. This lets a downstream unit
+    /// `inherit exn` and construct it through the ordinary provider paths WHILE the
+    /// value identity stays `TyConst` — so the pervasive `obj`/`exn` value sites are
+    /// untouched (no `TyClass` churn). Distinct from a faced capability `Class` (an
+    /// INTERFACE that resolves to `TyClass`); an `IntrinsicClass` resolves to `TyConst`,
+    /// so every `match` that treats `Intrinsic` must treat this the same way for the
+    /// identity axis — the compiler enumerates those sites (a new case ⇒ FS0025).
+    | IntrinsicClass of
+        canon: SymbolKey *
+        arity: int *
+        platform: string option *
+        baseType: FrozenType voption *
+        members: ExternalMember[]
     /// A nominal type whose *name + arity* the extractor registered but whose
     /// body shape it does not (yet) model: an enum / delegate / type-extension
     /// (v1 defers the body), or a union / record / abbreviation whose body failed
@@ -1080,9 +1104,14 @@ module ExternalSymbols =
 
     /// Realise a class's declared base type, if any. The data-form replacement
     /// for `shape.BaseType |> ValueOption.map (fun b -> b args)`.
+    /// Instantiate a declared base `FrozenType` template over the receiver's args —
+    /// the shape-agnostic core shared by `ExternalClassShape` (`instantiateBaseType`)
+    /// and `ExternalTypeShape.IntrinsicClass` (whose `baseType` is the same template).
+    let instantiateBaseTypeFrozen (baseType: FrozenType voption) (declaringArgs: SemType[]) : SemType voption =
+        baseType |> ValueOption.map (fun ft -> instantiateDeclaring ft declaringArgs)
+
     let instantiateBaseType (shape: ExternalClassShape) (declaringArgs: SemType[]) : SemType voption =
-        shape.FrozenBaseType
-        |> ValueOption.map (fun ft -> instantiateDeclaring ft declaringArgs)
+        instantiateBaseTypeFrozen shape.FrozenBaseType declaringArgs
 
     // --- The overload-identity `argSig` spelling grammar (ONE renderer) ----
     //
@@ -1417,6 +1446,10 @@ module ExternalSymbols =
                     | ExternalTypeShape.Enum(cases, _) -> ExternalTypeShape.Enum(cases, o)
                     | ExternalTypeShape.Abbrev _
                     | ExternalTypeShape.Intrinsic _
+                    // `IntrinsicClass` carries no `Origin` (its identity is the intrinsic
+                    // canon, asm-blind), so origin stamping leaves it unchanged, exactly
+                    // like `Intrinsic`.
+                    | ExternalTypeShape.IntrinsicClass _
                     | ExternalTypeShape.Opaque _ -> shape
 
         // Mirror `stampType`'s Union arm: the extractor records the declaring
@@ -1584,6 +1617,16 @@ module ExternalSymbols =
                 ExternalTypeShape.Record(arity, fields |> Array.map (fun f -> { f with Frozen = co f.Frozen }), origin)
             | ExternalTypeShape.Union(arity, cases, ifaces, origin) ->
                 ExternalTypeShape.Union(arity, cases |> Array.map mapCase, mapInterfaces ifaces, origin)
+            // Same value-flow surface as `Class` (a `.ctor`'s params are contravariant
+            // reads, the base a covariant chain) — map its members + base identically.
+            | ExternalTypeShape.IntrinsicClass(canon, arity, platform, baseType, members) ->
+                ExternalTypeShape.IntrinsicClass(
+                    canon,
+                    arity,
+                    platform,
+                    baseType |> ValueOption.map inv,
+                    members |> Array.map mapMember
+                )
             // No value-flow FrozenType surface (Abbrev: no intrinsic variance — see header).
             | ExternalTypeShape.Abbrev _
             | ExternalTypeShape.Enum _

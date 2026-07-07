@@ -107,7 +107,10 @@ module private MetadataMapping =
         | _ -> FTTuple(EqArray.ofArray ps)
 
     /// `(Parameters, Return)` templates for a method. `None` if any type doesn't map.
-    let tryMethodSignature (reverseCanon: Map<string, SymbolKey list>) (m: MethodInfo) : (FrozenType * FrozenType) option =
+    let tryMethodSignature
+        (reverseCanon: Map<string, SymbolKey list>)
+        (m: MethodInfo)
+        : (FrozenType * FrozenType) option =
         let paramTys =
             m.GetParameters()
             |> Array.map (fun p -> tryBuildType reverseCanon p.ParameterType)

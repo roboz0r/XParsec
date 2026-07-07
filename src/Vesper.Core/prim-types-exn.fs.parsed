@@ -5,11 +5,12 @@ namespace              'namespace'       KWNamespace         tok=   0  pos=   0
     =                  '='               OpEquality          tok=  21  pos= 139
       ILIntrinsic:
         (#             '(#'              KWLHashParen        tok=  23  pos= 141
-        StringLiteral  '"'               StringOpen          tok=  25  pos= 144
+        class          'class'           KWClass             tok=  25  pos= 144
+        StringLiteral  '"'               StringOpen          tok=  27  pos= 150
         Parts:
-          Text         'System.Exc...'   StringFragment      tok=  26  pos= 145
-                       '"'               StringClose         tok=  27  pos= 161
-        #)             '#)'              KWRHashParen        tok=  29  pos= 163
+          Text         'System.Exc...'   StringFragment      tok=  28  pos= 151
+                       '"'               StringClose         tok=  29  pos= 167
+        #)             '#)'              KWRHashParen        tok=  31  pos= 169
 ---
 WarnDirectives:
   #nowarn 42 (Ln 2)

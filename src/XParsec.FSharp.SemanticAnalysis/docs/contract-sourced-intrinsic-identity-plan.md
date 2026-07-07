@@ -1,11 +1,17 @@
 # Contract-sourced intrinsic identity (kill the front-end shadow set)
 
-**Status: STEPS 1, 1b, 2 + Step-3 SA-HALF LANDED & GREEN (SA 763, Clr 1251, Js 348, Vesper 49).**
+**Status: STEPS 1, 1b, 2 + Step-3 SA-HALF LANDED & GREEN. Canon-as-SymbolKey STAGE 1 LANDED
+(commit b4e8bc85); STAGE 2 IN PROGRESS.** (Test counts SA 763 / Clr 1251 / Js 348 / Vesper 49
+predate the Canon work — re-verify after Stage 2.)
 All premises VERIFIED. All design questions RESOLVED (the `(i)/(ii)` and "Step 2 finalized spec"
 sections below are now HISTORY — implemented). `ctx.Intrinsics` is live: an honest `tryResolve`
 resolver (`SideTables.fs`) with NO fallback — a miss LOUD-FAILS. Every SemanticAnalysis consumer of
 the 17 always-available intrinsics now resolves through the contract; the static `BuiltinTypes.ty*`
 still coexist (used by codegen + the 3 deferred intrinsics) and are deleted in Step 5.
+
+**The Canon-as-SymbolKey "Staging" list (search `### Staging`) is now the AUTHORITATIVE roadmap.
+The "FRESH-SESSION ENTRY POINT" and "Migration path" sections further down are SUPERSEDED by it —
+kept only for the design rationale they carry; do not follow their step ordering.**
 
 ## CANON-AS-SYMBOLKEY REDESIGN — decision & staging (2026-07-07; SUPERSEDES the "Codegen IntrinsicSet" framing of item 1 below)
 
@@ -70,17 +76,18 @@ is an OPAQUE platform string — codegen must map it to a known IL/JS type or **
 an unrecognized repr (no silent mis-emit).
 
 ### Staging (each stays GREEN before the next; build/test only via ./claude_tools.cmd)
-1. **Stage 1 — data re-key, unifier BRIDGED.** Flip `Intrinsic.canon` + both provider maps +
-   `ICodegenSymbols` to `SymbolKey`. Producers: `VesperLib.fs:1325` mint uses `compiled` (qualified)
-   not `short`; `CapabilityFace` canon; `TyparCapture.fs:382/411` folds; `mergeReverseCanon`/
-   `mergeForwardRepr`/`stack` (`ExternalSymbols.fs:1314-1329,1352,1487`); JS pass-through decorators
-   (`NumberCovariance` wrap, `mapProviderTypes`, memoise). Consumers keep `canonName` string-typed by
-   bridging (`SymbolKeyOps.intrinsicName`/`qualifiedName`) at the boundary; the string-slice/mint
-   consumers (`MetadataSymbols.fs:95`, `NumberCovariance`, `Engine.numericFamilyOr`) consume the key
-   directly. Compiler-driven: flip the types → FS0001 list IS the worklist. GREEN + tests.
-2. **Stage 2 — full propagation.** `canonName→canonKey`; `subtypeNominalOf→struct(SymbolKey*args)`;
-   `IntrinsicCanonCache`/`PassContext.IntrinsicReverseCanon` re-typed; subsumes `sameTypeAsmBlind`
-   compare; delete the Stage-1 bridges. GREEN + tests.
+1. **Stage 1 — data re-key, unifier BRIDGED. ✅ LANDED (commit b4e8bc85).** Flipped `Intrinsic.canon`
+   + both provider maps + `ICodegenSymbols` to `SymbolKey`. Consumers keep `canonName` string-typed by
+   bridging (`SymbolKeyOps.intrinsicName`/`qualifiedName`) at the boundary.
+   **Divergence from the original prescription (handle in Stage 4):** the `VesperLib.fs:1325` mint did
+   NOT switch to `compiled`; it mints `Intrinsic(RuntimeNames.intrinsicKey short, arity, platform)` —
+   behaviourally identical (the bridge invariant `intrinsicKey X = compiled` for real intrinsics) but
+   the canon key is STILL shadow-set-derived at this producer. Stage 4 must re-source it from `compiled`
+   (or the local `IntrinsicKeys`) when it deletes `knownIntrinsicNames`, else this producer keeps the
+   shadow set alive. NOT currently listed in Stage 4's cleanup — add it there.
+2. **Stage 2 — full propagation. ← IN PROGRESS.** `canonName→canonKey`;
+   `subtypeNominalOf→struct(SymbolKey*args)`; `IntrinsicCanonCache`/`PassContext.IntrinsicReverseCanon`
+   re-typed; subsumes `sameTypeAsmBlind` compare; delete the Stage-1 bridges. GREEN + tests.
 3. **Stage 3 — codegen repr validation.** ClrEnv/emit consumer diagnoses an unrecognized repr string.
    GREEN + tests.
 4. **Stage 4 — shadow set falls out.** Identity is now contract-sourced as a `SymbolKey`, so

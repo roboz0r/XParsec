@@ -44,7 +44,11 @@ module PlatformTypes =
     /// match `Intrinsic`-only — do NOT broaden it to flag interface `Class`es.
     let private isUnrepresentable (ctx: PassContext) (name: string) : bool =
         match ExternalSymbols.tryRuntimeType ctx.Provider name with
-        | ValueSome(ExternalTypeShape.Intrinsic(arity = 0; platform = None)) -> true
+        | ValueSome(ExternalTypeShape.Intrinsic(arity = 0; platform = None))
+        // A heritable primitive with no repr on this target is unrepresentable too — same
+        // as a scalar `Intrinsic`. (It is NOT an interface `Class`, so this respects the
+        // "do NOT broaden to interface Classes" caution above.)
+        | ValueSome(ExternalTypeShape.IntrinsicClass(arity = 0; platform = None)) -> true
         | _ -> false
 
     /// Add every nominal name in `t` (and its type args) with no target representation

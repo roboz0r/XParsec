@@ -5,4 +5,11 @@ namespace Vesper
 /// <summary>An abbreviation for the CLI type <see cref="T:System.Exception"/>.</summary>
 ///
 /// <category>Basic Types</category>
-type exn = extern
+type exn = extern class with
+    inherit obj
+
+    /// <summary>Creates an exception carrying a message.</summary>
+    new: message: string -> exn
+
+    /// <summary>Creates an exception with no message.</summary>
+    new: unit -> exn

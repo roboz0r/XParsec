@@ -47,6 +47,7 @@ module NameResolutionScope =
             | ExternalTypeShape.Record(arity = a)
             | ExternalTypeShape.Union(arity = a)
             | ExternalTypeShape.Abbrev(arity = a)
+            | ExternalTypeShape.IntrinsicClass(arity = a)
             | ExternalTypeShape.Opaque(arity = a) -> a
 
         // Mint from the matched shape's origin where one exists (Class/Union/Record
@@ -60,6 +61,9 @@ module NameResolutionScope =
             | ExternalTypeShape.Enum(origin = o) -> SymbolKeyOps.externalTypeKey o compiled arity
             | ExternalTypeShape.Abbrev _
             | ExternalTypeShape.Intrinsic _
+            // Identity is the intrinsic canon (asm-blind), keyed off the compiled name
+            // like `Intrinsic` — the base/ctor surface does not change the key.
+            | ExternalTypeShape.IntrinsicClass _
             | ExternalTypeShape.Opaque _ -> SymbolKeyOps.qualifiedTypeKey compiled arity
 
         let lookup (candidate: string) : SymbolKey voption =

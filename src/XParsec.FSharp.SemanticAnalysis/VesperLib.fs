@@ -1288,7 +1288,7 @@ module VesperLib =
                 ctx.TypeShapes.[compiled] <-
                     ExternalTypeShape.Class(ExternalClassShape.basic (arity, true, SymbolOrigin.Empty))
 
-        | TypeSignature.Extern(typeName = typeName; members = members) ->
+        | TypeSignature.Extern(typeName = typeName; kindTag = kindTag; members = members) ->
             // An `extern` type is either an intrinsic-repr primitive (its sibling
             // `.fs` carries `type x = (# "<repr>" #)`, harvested into
             // `ctx.IntrinsicReprs` before extraction) or an opaque abstract type
@@ -1322,7 +1322,8 @@ module VesperLib =
                         | true, repr -> Some repr
                         | _ -> None
 
-                    ctx.TypeShapes.[compiled] <- ExternalTypeShape.Intrinsic(RuntimeNames.intrinsicKey short, arity, platform)
+                    ctx.TypeShapes.[compiled] <-
+                        ExternalTypeShape.Intrinsic(RuntimeNames.intrinsicKey short, arity, platform)
 
                 match members with
                 | ValueSome(TypeExtensionElementsSignature(_, elems, _)) when not (Seq.isEmpty elems) ->
@@ -1349,14 +1350,35 @@ module VesperLib =
                         | true, platform ->
                             match ctx.TypeShapes.TryGetValue compiled with
                             | true, ExternalTypeShape.Class shape ->
-                                ctx.TypeShapes.[compiled] <-
-                                    ExternalTypeShape.Class
-                                        { shape with
-                                            CapabilityFace =
-                                                ValueSome
-                                                    { Canon = RuntimeNames.intrinsicKey short
-                                                      Platform = platform }
-                                        }
+                                match kindTag with
+                                // `extern class with …` (obj/exn): a heritable PRIMITIVE.
+                                // Republish as `IntrinsicClass` — the intrinsic identity
+                                // (`TyConst`, so value sites are untouched) PLUS the extracted
+                                // base + ctors, the heritable/constructible surface. (Contrast a
+                                // capability INTERFACE below, which stays a faced `Class`.)
+                                | ValueSome(ExternKind.Class _) ->
+                                    ctx.TypeShapes.[compiled] <-
+                                        ExternalTypeShape.IntrinsicClass(
+                                            RuntimeNames.intrinsicKey short,
+                                            arity,
+                                            Some platform,
+                                            shape.FrozenBaseType,
+                                            shape.Members
+                                        )
+                                // A capability interface (`disposable`): keep the dual-faced
+                                // `Class` so it reconciles to its BCL spelling yet stays a
+                                // `TyClass` constraint.
+                                | _ ->
+                                    ctx.TypeShapes.[compiled] <-
+                                        ExternalTypeShape.Class
+                                            { shape with
+                                                CapabilityFace =
+                                                    ValueSome
+                                                        {
+                                                            Canon = RuntimeNames.intrinsicKey short
+                                                            Platform = platform
+                                                        }
+                                            }
                             | _ -> ()
                         | _ -> ()
                 | _ ->

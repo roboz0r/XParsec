@@ -490,6 +490,7 @@ module internal UnificationTranslate =
             | ExternalTypeShape.Class info -> info.Arity
             | ExternalTypeShape.Intrinsic _ -> 0
             | ExternalTypeShape.Enum _ -> 0 // enums are never generic
+            | ExternalTypeShape.IntrinsicClass(arity = a)
             | ExternalTypeShape.Record(arity = a)
             | ExternalTypeShape.Union(arity = a)
             | ExternalTypeShape.Abbrev(arity = a)
@@ -504,6 +505,17 @@ module internal UnificationTranslate =
                         // Mint the nominal's `SymbolKey` from the resolved shape's
                         // origin + the matched compiled name. `asm = Some` marks it external.
                         match shape with
+                        // An `IntrinsicClass` (`obj`/`exn`) is a heritable PRIMITIVE: its
+                        // `baseType`/`.ctor` surface rides the shape, but its NOMINAL IDENTITY
+                        // is the intrinsic canon `TyConst Vesper.obj` (=== the platform
+                        // `System.Object`), exactly like `Intrinsic`. Preserving the `TyConst`
+                        // keeps intrinsic member routing intact — `obj.ToString` / `exn.Message`
+                        // resolve through the PLATFORM type (`IntrinsicBclMember`), which is
+                        // per-target and which the contract deliberately does NOT name (ToString
+                        // is CLR-only); member resolution thus MERGES the contract ctors with the
+                        // platform type's members. A faced capability `Class` (`disposable`) is an
+                        // INTERFACE, a constraint not a value type, so it stays a `TyClass` below.
+                        | ExternalTypeShape.IntrinsicClass(canon = canon) -> Some(TyConst(canon, translatedArgs))
                         | ExternalTypeShape.Class info ->
                             Some(TyClass(SymbolKeyOps.externalTypeKey info.Origin key arity, translatedArgs))
                         | ExternalTypeShape.Record(origin = origin) ->

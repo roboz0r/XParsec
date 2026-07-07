@@ -145,8 +145,15 @@ let tests =
                     | ValueSome(ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)) -> canon, platform
                     | other -> failtestf "expected %s as an Intrinsic shape with a JS repr, got %A" name other
 
-                Expect.equal (facesOf "Vesper.unit") (RuntimeNames.intrinsicKey "unit", "undefined") "unit -> undefined on JS"
-                Expect.equal (facesOf "Vesper.int64") (RuntimeNames.intrinsicKey "int64", "bigint") "int64 -> bigint on JS"
+                Expect.equal
+                    (facesOf "Vesper.unit")
+                    (RuntimeNames.intrinsicKey "unit", "undefined")
+                    "unit -> undefined on JS"
+
+                Expect.equal
+                    (facesOf "Vesper.int64")
+                    (RuntimeNames.intrinsicKey "int64", "bigint")
+                    "int64 -> bigint on JS"
 
                 Expect.equal
                     (facesOf "Vesper.uint64")
