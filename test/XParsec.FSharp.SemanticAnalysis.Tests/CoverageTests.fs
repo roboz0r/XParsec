@@ -23,6 +23,14 @@ let private declType (tast: TastFile) : SemType =
     | [ TDecl.Let(_, _, _, ty) ] -> ty
     | other -> failwithf "expected single TDecl.Let, got %A" other
 
+/// A range materialises no seq value in this compiler, so it is legal ONLY as the
+/// direct source of a `for i in a..b do` counted loop; using one as a first-class
+/// value (or a stepped range, which has no counted lowering) is rejected at
+/// elaboration (`FreezeExpr`).
+let private hasRangeValueError (tast: TastFile) =
+    tast.Diagnostics
+    |> Seq.exists (fun d -> d.Message.Contains "first-class value")
+
 [<Tests>]
 let tests =
     testList
@@ -274,16 +282,24 @@ let tests =
                 Expect.isTrue hasMismatch "applying an int triggers mismatch"
             }
 
-            test "`1..10` types as seq<int>" {
-                let tast = analyse "let r = 1..10"
-                Expect.equal (declType tast) BuiltinTypes.tySeqInt "r : seq<int>"
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            test "`for i in 1..10` counted loop is accepted (no range diagnostic)" {
+                let tast = analyse "let f () = for i in 1..10 do ()"
+                Expect.isFalse (hasRangeValueError tast) "a direct range for-in source is supported"
             }
 
-            test "stepped range `1..2..10` types as seq<int>" {
+            test "`1..10` as a value is rejected (no first-class range)" {
+                let tast = analyse "let r = 1..10"
+                Expect.isTrue (hasRangeValueError tast) "range bound to a value is unsupported"
+            }
+
+            test "stepped range `1..2..10` as a value is rejected" {
                 let tast = analyse "let r = 1..2..10"
-                Expect.equal (declType tast) BuiltinTypes.tySeqInt "r : seq<int>"
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                Expect.isTrue (hasRangeValueError tast) "stepped range value is unsupported"
+            }
+
+            test "stepped range `for i in 1..2..10` is rejected (no counted lowering)" {
+                let tast = analyse "let f () = for i in 1..2..10 do ()"
+                Expect.isTrue (hasRangeValueError tast) "a stepped range has no counted lowering"
             }
 
             test "range endpoints must be int" {
@@ -305,12 +321,13 @@ let tests =
             }
 
             test "range constrains adjacent context: `let r = (1..n) ; n + 0` forces n : int" {
-                // The variable `n` flows through both the range endpoint
-                // (forcing int) and the use site `n + 0` (also int).
+                // The variable `n` flows through both the range endpoint (forcing int)
+                // and the use site `n + 0` (also int) — the endpoint constraint holds
+                // even though binding the range to `r` is itself rejected as a value.
                 let tast = analyse "let f n = let r = 1..n in n + 0"
                 let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
                 Expect.equal (declType tast) intToInt "f : int -> int"
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                Expect.isTrue (hasRangeValueError tast) "binding the range to a value is unsupported"
             }
 
             test "range TAST shape" {
@@ -993,5 +1010,25 @@ let tests =
 
             test "alias double resolves to float" {
                 aliasResolvesTo "let r = (5.0 : double)" BuiltinTypes.tyFloat "double = float"
+            }
+
+            // A written `bigint` annotation resolves to the CONTRACT intrinsic
+            // (`prim-types-bigint`, canon `Vesper.bigint`) — before its contract landed the
+            // name fell to an opaque `TyConst(ns="")`. The identity is read off the resolved
+            // shape via the provider, not minted front-end. (A bigint LITERAL like `42I` is a
+            // custom numeric literal — F#'s `NumericLiteralI`, a CONSTRUCTED value — not a
+            // primitive constant, so it can't freeze via `parseConst`; that mechanism is its
+            // own pending stage. Annotation-only here so it exercises just the type contract.)
+            test "written `bigint` annotation resolves to the contract intrinsic" {
+                let tast = analyse "let f (x: bigint) = x"
+
+                match declType tast with
+                | TyFun(TyConst(a, aArgs), TyConst(b, bArgs)) ->
+                    Expect.isTrue (aArgs.IsEmpty && bArgs.IsEmpty) "bigint is nullary"
+                    Expect.equal (SymbolKeyOps.simpleName a) "bigint" "param : bigint"
+                    Expect.equal (SymbolKeyOps.simpleName b) "bigint" "result : bigint"
+                | other -> failtestf "expected bigint -> bigint, got %A" other
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
         ]

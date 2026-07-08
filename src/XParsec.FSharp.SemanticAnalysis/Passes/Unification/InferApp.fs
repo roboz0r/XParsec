@@ -534,8 +534,15 @@ module internal UnificationInferApp =
         (stepE: Expr<SyntaxToken> voption)
         (toE: Expr<SyntaxToken>)
         : SemType =
-        // Tiny subset: endpoints (and step) constrained to int, result the
-        // `seq<int>` placeholder. Real F# is generic over the `..` overload.
+        // A range's endpoints (and step) are constrained to int. Its result type is
+        // NOT modelled: a range materialises no seq value in this compiler, so it is
+        // legal ONLY as a `for … in` source (which types its own source and lowers to
+        // a counted `ForTo` — `InferControlFlow.inferForIn`). Reaching this function
+        // at all is therefore a range in VALUE position; the type is left `TyUnknown`
+        // (concrete, so a surviving `TExpr.Range` freezes cleanly) and the unsupported
+        // use is rejected at the lowering choke point, where position is known
+        // (`Freeze/Elaborate.translateExpr`'s `Range` arms). `range-operators-plan.md`
+        // tracks making `(..)` a real seq operator so a range becomes a first-class value.
         let fromTy = infer ctx fromE
         unify ctx key fromTy ctx.Intrinsics.Int
 
@@ -547,7 +554,7 @@ module internal UnificationInferApp =
 
         let toTy = infer ctx toE
         unify ctx key toTy ctx.Intrinsics.Int
-        BuiltinTypes.tySeqInt
+        TyUnknown "range"
 
     and inferInfix
         (infer: Infer)

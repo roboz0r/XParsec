@@ -253,9 +253,13 @@ type TExprG<'ty, 'tok> =
     /// `null` literal. `ty` is left as a free TypeVar in the tiny subset —
     /// real F# would constrain it to a reference type.
     | Null of ty: 'ty * tok: 'tok
-    /// `start..stop` or `start..step..stop`. Endpoints (and step) all type
-    /// as int in the tiny subset; `ty` is `seq<int>` (a TyConst placeholder
-    /// — see [[BuiltinTypes.tySeqInt]]).
+    /// `start..stop` or `start..step..stop`. Endpoints (and step) all type as int.
+    /// This node ONLY survives elaboration for an UNSUPPORTED range (value position,
+    /// a stepped range, or a non-simple for-in binder): the supported form —
+    /// `for i in a..b do` over a unit step with a simple binder — is lowered to a
+    /// counted `ForTo` by `Freeze.translateForIn` and never reaches here. A surviving
+    /// `Range` therefore carries a diagnostic (`FreezeExpr`) and `ty` is `TyUnknown`
+    /// (a range has no first-class value in this compiler; see `range-operators-plan.md`).
     | Range of
         startExpr: TExprG<'ty, 'tok> *
         step: TExprG<'ty, 'tok> option *

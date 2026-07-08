@@ -1814,7 +1814,3 @@ module BuiltinTypes =
     let tyDecimal: SemType = TyConst(RuntimeNames.decimalKey, EqArray.empty)
     let tyUnit: SemType = TyConst(RuntimeNames.unitKey, EqArray.empty)
     let tyString: SemType = TyConst(RuntimeNames.stringKey, EqArray.empty)
-    /// Placeholder for `seq<int>` — the result type of int range expressions
-    /// (`1..10`, `1..2..10`). Until generic types are modelled this is an
-    /// opaque TyConst that only unifies with itself.
-    let tySeqInt: SemType = TyConst(RuntimeNames.primitiveKey "seq<int>", EqArray.empty)

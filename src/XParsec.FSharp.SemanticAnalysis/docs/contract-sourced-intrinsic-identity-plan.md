@@ -6,8 +6,10 @@ rolled up and deleted: `qualified-intrinsic-identities-plan.md` (intrinsics got 
 (`obj`/`exn` became `IntrinsicClass` heritable primitives; `System.Object`/`System.Exception`
 canonicalize eagerly at resolution; `canonName`'s reverse tier, `normalizeObj`, and
 `isSystemObjectKey` are deleted). All suites green: SA 765 / Clr 1253 / Js 348 / Vesper 49.
-Delete this doc when the residue stages (5a bigint / 5b ranges / 5c nullability) and byref land
-(`feedback_plan_docs_ephemeral`).
+Delete this doc when the residue stages (5a bigint — LANDED 2026-07-08 / 5b ranges — LANDED
+2026-07-08 / 5c nullability) and byref land (`feedback_plan_docs_ephemeral`). Custom numeric
+literals — surfaced by 5a — was spun out to its own plan (`custom-numeric-literals-plan.md`); the
+Route-1 seq-operator design surfaced by 5b was spun out to `range-operators-plan.md`.
 
 ## Principle (user, confirmed)
 
@@ -44,10 +46,10 @@ from a hardcoded front-end name set (`feedback_mockbuiltins_is_a_trap`).
   `not t.IsInterface`) and the source-name twin `UnificationTranslate.externalClassTy` (also used
   by the ctor sugar) — no raw BCL nominal enters the unifier; capability INTERFACES keep `TyClass`.
   `unifyAnnotation` admits the concrete-subtype → supertype upcast (strict `Subtype` walk only).
-- **SA static sweep complete.** The only `BuiltinTypes.ty*` left in live code are the deferred
-  two: `tySeqInt` (Tast, InferApp, InferControlFlow — a deletion, not a rename) and `tyBigInt`
-  (InferLiterals — no contract yet). (`tyUndefined` was migrated to `ctx.Intrinsics.Undefined`
-  and deleted once `prim-types-undefined.js` landed — Stage 5, 2026-07-08.)
+- **SA static sweep complete — NO `BuiltinTypes.ty*` remains in live code.** `tySeqInt` was the
+  last one; Stage 5b deleted it (`tyUndefined`/`tyBigInt` had already migrated to
+  `ctx.Intrinsics.*` — Stage 5 / 5a, 2026-07-08). (`BuiltinTypes.tyInt`/`tyBool`/… still exist but
+  are test-only fixtures, not live-code mints.)
 
 **Standing invariants:** `arity` stays a separate field — keys are VERBATIM name, NO arity suffix
 (`"int"`, `"[]"`, `"byref"`; arity rides in the args; user premise). `SymbolKey` is
@@ -222,23 +224,47 @@ The original five residue bullets were unpacked: two landed, three became their 
   `dealiasPrimitiveAbbrev`). Added `CoverageTests` "alias … resolves to …" asserting each unifies
   with its canonical literal (`(5y : int8)` ⇒ `sbyte`, no mismatch). No production change was needed.
 
-**Stage 5a — `prim-types-bigint` contract (own stage, research needed).**
-`bigint` has NO contract; `InferLiterals.fs:98` still mints `BuiltinTypes.tyBigInt` for the
-`NumBigInteger*` literal tokens and there is NO `IntrinsicSet.BigInt`. Requirements to elaborate:
-author `prim-types-bigint.fsi/.fs` (CLR `System.Numerics.BigInteger`, JS `bigint`) — which member
-surface it exposes, whether it needs a `.js.fs` platform face like `float`/`int`, and how it wires
-into the `Vesper.Core` file set — then add `IntrinsicSet.BigInt` and migrate the `InferLiterals`
-arm. This is contract-authoring, not a cleanup.
+**Stage 5a — `prim-types-bigint` contract — LANDED 2026-07-08 (SA 772 / Clr 1253 / Js 348 / Vesper 51).**
+Authored `prim-types-bigint.fsi` (`type bigint = extern`), `.fs` (`(# "System.Numerics.BigInteger" #)`
+canon+CLR repr) and `.js.fs` (`(# "bigint" #)` JS platform face); wired the `.fsi`/`.fs` into
+`manifest.toml` `files`/`impl` (the `.js.fs` is auto-discovered by the `<base>.<target>.fs` sibling
+convention — `ReferencedProject.targetOverrideFs` — so it needs NO manifest entry, matching
+`prim-types-float.js.fs`). Added `IntrinsicSet.BigInt`, migrated the `InferLiterals` `NumBigInteger*`
+arm to `ctx.Intrinsics.BigInt`, and deleted `BuiltinTypes.tyBigInt` + the now-dead
+`RuntimeNames.bigintKey`. `VesperCoreContractTests` gained the two parse goldens; `CoverageTests`
+gained a "written `bigint` annotation resolves to the contract intrinsic" regression (before the
+contract, the name fell to an opaque `TyConst(ns="")`).
 
-**Stage 5b — retype range expressions / delete `tySeqInt` (own stage, design fork).**
-`tySeqInt` is an opaque placeholder `TyConst "seq<int>"` that only unifies with itself; it is "the
-only consumer whose behaviour changes." `seq<'T>` is now a transparent abbrev for `IEnumerable<'T>`
-(`capabilities.fsi`), so the design fork is whether `1..10`/`1..2..10` should type as a real
-`TyClass(IEnumerable, [int])` (via the seq abbrev) and the for-in range path
-(`InferControlFlow.inferForIn`, the `isRangeSource` branch) then collapse into the ordinary
-`tryForInEnumerator` branch. Consumers to retype: `InferApp.inferRange` (result), `InferControlFlow`
-(for-in range source), the `CoverageTests` "types as seq<int>" tests, and the `Tast` doc ref. This
-changes range for-in codegen, so it needs verification, not just a rename.
+Follow-up → its own plan, `custom-numeric-literals-plan.md` (user-confirmed 2026-07-08). A bigint
+LITERAL is NOT a primitive constant: `52I` is F#'s custom-numeric-literal syntax — it desugars
+through a `NumericLiteralI` module (`FromZero`/`FromOne`/`FromInt32`/`FromInt64`/`FromString`, chosen
+by magnitude) to a CONSTRUCTED value, which is exactly why `Freeze.parseConst` rejects it ("non-
+representable literal NumBigIntegerI in constant position" — same wall under the old `tyBigInt`
+mint). 5a correctly made the bigint TYPE (what `NumericLiteralI.From*` returns) a contract-sourced
+intrinsic; wiring the literal through the module is that plan. The `InferLiterals` `NumBigInteger*`
+arm 5a migrated is a pragmatic in-built stand-in — it types all six suffix tokens (`I/N/Z/Q/R/G`) as
+`bigint`, which over-claims (only `I` is bigint) and skips the value construction; that plan corrects it.
+
+**Stage 5b — delete `tySeqInt` / range expressions — LANDED 2026-07-08 (SA 774 / Clr 1253 /
+Js 348 / Vesper 51).** The design fork (make `1..10` a real `TyClass(IEnumerable,[int])` seq value —
+"Route 1" — vs. keep it a for-in-only construct — "Route 2") was decided **Route 2** (user,
+2026-07-08): a range materialises no seq value in this compiler, and a range-as-value would
+type-check but die at the codegen catch-all (`Emit`/`EmitJs: unsupported expression`), so the honest
+move is to reject any non-lowerable range up front. What landed:
+- `tySeqInt` DELETED (the last live `BuiltinTypes.ty*`). `InferApp.inferRange` now returns
+  `TyUnknown "range"` (concrete → a surviving `TExpr.Range` freezes cleanly) after pinning endpoints
+  to int; `InferControlFlow.inferForIn`'s `isRangeSource` branch dropped the `unify srcTy tySeqInt`
+  and just pins the pattern to int (the counted-`ForTo` lowering in `Freeze.translateForIn` is
+  syntactic and was always independent of the range's type).
+- Rejection is emitted at the ELABORATION choke point (`FreezeExpr.translateExpr`'s `Range` arms),
+  which fire ONLY for a range NOT consumed by the `ForTo` lowering — value position, a stepped range,
+  or a non-simple for-in binder — all genuinely unsupported. Inference can't tell a for-in source
+  from a value, so the position-aware place is lowering. `for i in 1..10` (unit step, simple binder)
+  is unaffected — it never reaches the `Range` arm.
+- `CoverageTests` retyped: the two "types as seq<int>" tests became "range-as-value rejected"; a
+  "counted loop accepted" and "stepped for-in rejected" test added; `Tast`/`Intrinsics` doc refs
+  updated. Route 1 (real `(..)` seq operator + counted-loop peephole) spun out to
+  `range-operators-plan.md`.
 
 **Stage 5c — `objnull` / `TyOr` nullability (own stage; effort assessed 2026-07-08).**
 Goal: `objnull` is NOT a primitive — it is the ordinary `obj | null` union. Making *TyOr
@@ -292,6 +318,13 @@ enforce that `~&`'s argument is an actual **lvalue** (field, local, array elemen
 Byref keeps its current hardcoded `byrefName`/structural-ctor handling until the contract + the
 operator split land; the recognizers (`TyByref`, `isStructuralConstructorName`) move from `"&"`
 to `"byref"` at that point.
+
+### 6. Custom numeric literals — SPUN OUT to `custom-numeric-literals-plan.md` (2026-07-08)
+
+Surfaced by 5a (a bigint LITERAL is a custom numeric literal, not a primitive constant) and split
+to its own plan. `bigint` the TYPE stays the Stage-5a `prim-types` intrinsic; the literal mechanism
+(`NumericLiteral<suffix>` resolution + syntactic desugaring, replacing the `InferLiterals`
+`NumBigInteger*` stand-in) is tracked there.
 
 ## Deferred / verify (recorded, not scheduled)
 

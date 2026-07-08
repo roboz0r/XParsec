@@ -305,8 +305,19 @@ module internal FreezeExpr =
         | Expr.DynamicLookup(expr = r; ident = idTok) ->
             FreezeAccess.translateDynamicLookup translateExpr ctx r idTok ty tok
         | Expr.Null _ -> TExpr.Null(ty, tok)
-        | Expr.Range(fromExpr = a; toExpr = b) -> TExpr.Range(translateExpr ctx a, None, translateExpr ctx b, ty, tok)
+        // A range reaches these arms ONLY when it was NOT consumed by `translateForIn`'s
+        // counted-`ForTo` lowering (the unit-step, simple-binder for-in source). That
+        // leaves value position, a stepped range, and a non-simple loop binder — all
+        // unsupported, because a range materialises no seq value in this compiler. This
+        // is the lowering choke point where the range's POSITION is known, so the
+        // unsupported use is diagnosed here rather than in inference (`inferRange` cannot
+        // tell a for-in source from a value). `range-operators-plan.md` tracks making
+        // `(..)` a real seq operator, which would delete these arms.
+        | Expr.Range(fromExpr = a; toExpr = b) ->
+            ctx.Error(key, "a range expression is only supported as the source of a 'for i in a..b do' counted loop; it has no first-class value")
+            TExpr.Range(translateExpr ctx a, None, translateExpr ctx b, ty, tok)
         | Expr.SteppedRange(fromExpr = a; stepExpr = s; toExpr = b) ->
+            ctx.Error(key, "a range expression is only supported as the source of a 'for i in a..b do' counted loop; it has no first-class value")
             TExpr.Range(translateExpr ctx a, Some(translateExpr ctx s), translateExpr ctx b, ty, tok)
         | Expr.IndexedLookup(expr = r; indexExpr = idx) ->
             FreezeAccess.translateIndexedLookup translateExpr ctx key r idx ty tok

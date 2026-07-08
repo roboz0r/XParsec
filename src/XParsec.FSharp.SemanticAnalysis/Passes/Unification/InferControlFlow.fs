@@ -673,7 +673,9 @@ module internal UnificationInferControlFlow =
         (src: Expr<SyntaxToken>)
         (body: Expr<SyntaxToken>)
         : SemType =
-        // Int-range source: element type is int. Any other source must be an
+        // Int-range source: element type is int (`inferRange` already pinned the
+        // endpoints to int; the range materialises no seq, so its own type is unused
+        // here — only the loop pattern is pinned). Any other source must be an
         // `IEnumerable<'T>` (a BCL collection in v1, B-6) — the element type is
         // recovered from its interface set and the loop pattern unified with it.
         let srcTy = infer ctx src
@@ -690,7 +692,6 @@ module internal UnificationInferControlFlow =
             | _ -> false
 
         if isRangeSource then
-            unify ctx key srcTy BuiltinTypes.tySeqInt
             unify ctx key patTy ctx.Intrinsics.Int
         else
             match tryForInEnumerator ctx srcTy with
