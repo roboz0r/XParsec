@@ -401,6 +401,21 @@ module VesperLib =
                             FrozenBaseType = baseOpt |> ValueOption.map (freezeBodyType ctx dc)
                             FrozenInterfaces = freezeInterfaces ctx dc ifaces
                         }
+                // A heritable primitive (`obj`/`exn`) was republished as `IntrinsicClass`
+                // at extraction time, BEFORE this pass froze its deferred `inherit` —
+                // the republish snapshot has `baseType = ValueNone`. Freeze the declared
+                // base now (`exn → obj`), exactly as the `Class` arm above does; the
+                // `.ctor` members ride the ctor loop below and are refreshed onto the
+                // shape after it.
+                | ExternalTypeShape.IntrinsicClass(canon, arity, platform, _, members),
+                  (true, DeferredBody.Class(dc, baseOpt, _, _)) ->
+                    ExternalTypeShape.IntrinsicClass(
+                        canon,
+                        arity,
+                        platform,
+                        baseOpt |> ValueOption.map (freezeBodyType ctx dc),
+                        members
+                    )
                 | _ -> shape
 
             ctx.TypeShapes.[k] <- finalized
@@ -494,6 +509,7 @@ module VesperLib =
                 let arity =
                     match ctx.TypeShapes.TryGetValue k with
                     | true, ExternalTypeShape.Class shape -> shape.Arity
+                    | true, ExternalTypeShape.IntrinsicClass(arity = a) -> a
                     | _ -> 0
 
                 let declKey = SymbolKeyOps.qualifiedTypeKeyOf None k arity
@@ -521,6 +537,18 @@ module VesperLib =
                     | _ -> ResizeArray<ExternalMember>(ctorMembers)
 
                 ctx.TypeMembers.[k] <- merged
+
+                // An `IntrinsicClass` (heritable primitive: `obj`/`exn`) carries its
+                // contract `.ctor`s ON the shape too (`ExternalTypeShape.IntrinsicClass.members`
+                // — the constructible surface read alongside the member index). The
+                // extraction-time republish snapshotted an empty array (the ctors were
+                // still deferred), so refresh it from the just-frozen members.
+                match ctx.TypeShapes.TryGetValue k with
+                | true, ExternalTypeShape.IntrinsicClass(canon, arity, platform, bt, _) ->
+                    let frozenCtors = merged |> Seq.filter (fun m -> m.Name = ".ctor") |> Seq.toArray
+
+                    ctx.TypeShapes.[k] <- ExternalTypeShape.IntrinsicClass(canon, arity, platform, bt, frozenCtors)
+                | _ -> ()
             | _ -> ()
 
         // Vals last: a val signature / constraint target may name an abbreviation,

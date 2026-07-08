@@ -1171,15 +1171,17 @@ module UnificationEngine =
 
     /// Reconcile an inferred type against a *written annotation* (a `let` return
     /// type, a parameter `Pat.Typed`). Checking-mode, but narrower than `unifyArg`:
-    /// the ONLY assignability admitted is value→union — when the annotation is a
+    /// the assignability admitted is value→union — when the annotation is a
     /// `TyOr` the actual subsumes into, accept *without* unifying, so `let x: int |
-    /// string = 1` checks and the actual's typar stays free (the no-pin discipline).
-    /// Every other annotation — `obj`, a base class, a
-    /// plain nominal — falls through to symmetric `unify`, so a binder annotated
-    /// `obj` still GROUNDS to `obj` (unlike `unifyArg`, whose `absorbsAsObj` accept
-    /// would leave the binder's var unresolved and break signature encoding). The
-    /// no-unify branch is reached only when `subsumes` already succeeds, i.e. the
-    /// actual is concrete enough to subsume — so nothing is left ungrounded. The
+    /// string = 1` checks and the actual's typar stays free (the no-pin discipline) —
+    /// plus the nominal upcast of a CONCRETE subtype actual into a supertype
+    /// annotation (`: exn = e`, `: obj = e` — the read-only `subsumes` walk, strict
+    /// `Subtype` only). Every other annotation — a same-nominal, an unrelated type —
+    /// falls through to symmetric `unify`, so a binder annotated `obj` whose actual
+    /// is a still-free var GROUNDS to `obj` (unlike `unifyArg`, whose `absorbsAsObj`
+    /// accept would leave the binder's var unresolved and break signature encoding).
+    /// The no-unify branches are reached only when `subsumes` already succeeds, i.e.
+    /// the actual is concrete enough to subsume — so nothing is left ungrounded. The
     /// principality rule holds: a union enters only by an annotation, and `unify`
     /// never synthesises one.
     let unifyAnnotation (ctx: PassContext) (key: NodeKey) (actual: SemType) (expected: SemType) : unit =
@@ -1208,4 +1210,13 @@ module UnificationEngine =
             && subsumes ctx actual expected <> SubsumeOutcome.Unrelated
             ->
             ()
+        // NOMINAL upcast admission: a concrete nominal actual annotated to a strict
+        // SUPERTYPE (`let toExn (e: InvalidOperationException) : exn = e`, `: obj = e`)
+        // coerces by the read-only subtype walk. STRICTLY `Subtype`, never `Equal` — a
+        // same-nominal annotation still grounds via `unify` so its type args link. The
+        // walk succeeds only through genuine declared/metadata heritage (a struct /
+        // primitive actual has no chain to `obj`), so this admits no value→`obj` boxing
+        // seam; and a `TyVar` actual has no nominal identity (`subtypeNominalOf` misses),
+        // so an unresolved binder still GROUNDS via `unify` below.
+        | _ when subsumes ctx actual expected = SubsumeOutcome.Subtype -> ()
         | _ -> unify ctx key actual expected

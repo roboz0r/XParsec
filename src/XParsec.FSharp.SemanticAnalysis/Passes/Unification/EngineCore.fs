@@ -579,7 +579,13 @@ module UnificationEngineCore =
             | ValueSome parentTy -> ValueSome(instantiateMember (info.TypeParams, args) parentTy)
             | ValueNone -> ValueNone
         | ValueNone ->
-            match ctx.Provider.TryLookupType name with
+            // An intrinsic canon surfaces its SHORT `.fsi` name (`"exn"`) while the
+            // provider is keyed by qualified compiled name (`"Vesper.exn"`), so the
+            // lookup routes through the open-scope funnel: the name as written first
+            // (an already-qualified BCL name resolves identically to a direct lookup),
+            // then the file's explicit opens, then the ambient platform prefixes —
+            // `PassContext` seeds the ambient tail into `OpenScope` at construction.
+            match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookupType name with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 ExternalSymbols.instantiateBaseType shape (args.AsSpan().ToArray())
             // A heritable primitive (`exn`)'s declared `inherit` parent (`obj`), so the

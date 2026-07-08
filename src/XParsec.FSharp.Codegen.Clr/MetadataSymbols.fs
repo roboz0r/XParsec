@@ -80,16 +80,17 @@ module private MetadataMapping =
             match t.FullName with
             | null -> None // constructed/exotic type with no metadata full name
             | "System.Void" -> Some(FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty))
-            // Canonicalize a BCL primitive (`System.Int32 → int`) only when it is a
-            // SEALED leaf type. The harvested reverse map also carries the unsealed
-            // subtype ROOTS (`System.Object → obj`, `System.Exception → exn`) and
-            // capability interfaces; those must keep their BCL nominal form here so
-            // ctor / `new` / subtype resolution still keys on it — they reconcile to
-            // their canon at the unification bridge (`Engine.canonName`), not eagerly.
-            // Scalar primitives + `string` are sealed; `obj`/`exn`/interfaces are not,
-            // so `IsSealed` partitions them exactly (and dynamically — no name list).
+            // Canonicalize a BCL type with a harvested canon eagerly at surfacing —
+            // both the sealed scalar leaves (`System.Int32 → int`) and the unsealed
+            // subtype ROOTS (`System.Object → obj`, `System.Exception → exn`). The
+            // roots' canon identities are now class-shaped (`IntrinsicClass` carries
+            // base + `.ctor`s), so ctor / `new` / subtype resolution keys on the canon
+            // directly — no unify-time string reconciliation. Capability INTERFACES
+            // (`System.IDisposable → disposable`) are the one reverse-map family that
+            // still reconciles late (their canon is a faced `Class`, resolved to
+            // `TyClass`, not a `TyConst` identity), so `IsInterface` is the partition.
             | fullName when
-                t.IsSealed
+                not t.IsInterface
                 && (reverseCanon |> Map.tryFind fullName |> Option.exists (List.isEmpty >> not))
                 ->
                 Some(FTConst(reverseCanon.[fullName] |> List.head, EqArray.empty))

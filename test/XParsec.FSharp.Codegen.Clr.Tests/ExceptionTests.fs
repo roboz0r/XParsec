@@ -117,18 +117,13 @@ let tests =
             }
 
             // --- Milestone acceptance tests: `exn`/`obj` as contract-sourced heritable roots ---
-            // These are the target behaviour of the resolution-time-intrinsic-reconciliation
-            // milestone (see docs/resolution-time-intrinsic-reconciliation-plan.md). They FAIL on
-            // the current tree and are `ptest` (pending) — flip each to `test` as its enabling
-            // stage lands, so the milestone has a committed, green-by-the-end checklist:
-            //   * `inherit exn` downstream: fails today ("Cannot inherit from unknown type 'exn'")
-            //     because `HeritableExternBases` is self-host-only — `exn` surfaces to a referencing
-            //     unit as `ExternalTypeShape.Intrinsic`, not a heritable `Class`. Enabled by the
-            //     Intrinsic→faced-Class flip (stage 2) + the `inherit obj` contract declaration.
-            //     (The message round-trip additionally needs the contract `.ctor`, stage 2.)
-            //   * upcast to the roots: fails today (the `System.Exception ↔ exn` reconciliation is
-            //     not applied at an annotation-coercion site). Enabled once metadata surfaces the
-            //     roots as canon identities (stage 3).
+            //   * `inherit exn(msg)` downstream: the provider publishes `exn` as an
+            //     `IntrinsicClass` (contract `inherit obj` + `new:` ctors); codegen chains the
+            //     parameterized external base ctor (`System.Exception::.ctor(string)`), so the
+            //     message must round-trip, never be dropped.
+            //   * upcast to the roots: metadata surfaces `System.Exception`/`System.Object` as
+            //     the canon `exn`/`obj` identities, and the annotation seam admits a concrete
+            //     nominal subtype into a supertype annotation via the subtype walk.
 
             test "a user type inheriting exn raises as its own type, a subclass of System.Exception" {
                 let ex =
@@ -146,7 +141,7 @@ let tests =
                 Expect.equal ex.Message "boom" "the message chains through the exn(msg) base ctor, not dropped"
             }
 
-            ptest "a BCL exception upcasts to exn and to obj without diagnostics" {
+            test "a BCL exception upcasts to exn and to obj without diagnostics" {
                 let tast, _ =
                     compileSource
                         "ExnUpcastRoots"
@@ -156,8 +151,8 @@ let tests =
                                 "let toObj (e: System.InvalidOperationException) : obj = e"
                             ])
 
-                Expect.isEmpty
-                    (tast.Diagnostics |> List.map (fun d -> d.Message))
-                    "upcasting a BCL exception to the exn / obj roots type-checks"
+                let msgs = tast.Diagnostics |> List.map (fun d -> d.Message)
+
+                Expect.isEmpty msgs (sprintf "upcasting a BCL exception to the exn / obj roots type-checks: %A" msgs)
             }
         ]

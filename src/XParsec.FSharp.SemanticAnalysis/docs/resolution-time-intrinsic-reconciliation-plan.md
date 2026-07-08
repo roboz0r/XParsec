@@ -340,9 +340,31 @@ reason that tier and that comparator exist for the two subtype roots.** Sequenci
    `translateType`, `tryExternalReceiver`, `intrinsicPlatformName`, codegen repr). Compiler-driven:
    the flip changes the shape, so the incomplete-match warnings + test failures ARE the worklist.
    GREEN — this stage alone must hold before touching the unifier.
-3. **Eager-canonicalize the roots in `tryBuildType`** (drop the `IsSealed` partition,
-   `MetadataSymbols.fs:91-95`): every `reverseCanon` hit maps to canon at surfacing, sealed or not,
-   so `System.Exception`/`System.Object` surface as `exn`/`obj`. GREEN.
+3. **Eager-canonicalize the roots in `tryBuildType` — DONE (all suites green: SA 763, Clr 1253,
+   Js 348, Vesper 49; the upcast acceptance test flipped to `test`).** The partition is now
+   `not t.IsInterface` (NOT dropped wholesale): the sealed leaves AND the unsealed class roots
+   canonicalize eagerly; capability INTERFACES stay BCL-nominal (their canon is a faced `Class`
+   → `TyClass`, explicitly out of scope). Landing this surfaced four co-requisite fixes:
+   - `MetadataSymbolsTests` base expectation updated (`List<'T>` base = canon `obj` `TyConst`).
+   - **`unifyAnnotation` nominal-upcast admission** (`Engine.fs`): a concrete nominal actual
+     annotated to a strict SUPERTYPE (`: exn = e`, `: obj = e`) is admitted via the read-only
+     `subsumes` walk (strict `Subtype` only — `Equal` still grounds via `unify` so same-nominal
+     args link; a `TyVar` actual has no nominal identity, so unresolved binders still ground).
+     The walk-only admission means no value→`obj` boxing seam opens (a struct/primitive has no
+     heritage chain to `obj`).
+   - **`subtypeParentOf` open-scope funnel** (`EngineCore.fs`): the walk surfaces an
+     intrinsic's SHORT canon name (`"exn"`) but the provider is keyed by qualified compiled name
+     (`"Vesper.exn"`); the provider lookup now routes through `OpenScope.tryResolve` — the name
+     as written, then file-local opens, then the ambient platform prefixes (`PassContext` seeds
+     the provider's `AmbientOpenPrefixes` into the `OpenScope` tail at construction, so the one
+     funnel covers all three tiers) — so the `exn → obj` hop resolves the `IntrinsicClass` arm
+     downstream.
+   - **`VesperLib.finalizeDeferred` fills the `IntrinsicClass` shape** — the extraction-time
+     republish (`Class → IntrinsicClass`) snapshotted the shape BEFORE finalize froze the
+     deferred `inherit`/`new:`, so downstream `exn` published `baseType = ValueNone, members =
+     [||]` (latent until the `exn → obj` hop first exercised it). Finalize now freezes the
+     declared base into the `IntrinsicClass` (mirroring the `Class` arm) and refreshes the
+     shape's `.ctor` members after the ctor-freeze loop.
 4. **Retire `canonName`'s reverse tier** (`EngineCore.fs:452`) for the roots; confirm dead (no test
    relies on it — `numericFamilyOr` keeps its own use). GREEN. First removed `sameTypeAsmBlind`-era
    caller.

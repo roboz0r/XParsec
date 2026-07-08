@@ -198,11 +198,13 @@ let tests =
                             "IEnumerable<int> after 'T := int"
                     | None -> failtest "List<int> should implement IEnumerable<int>"
 
-                    // Base type: `System.Object` (`List<'T> : Object`).
+                    // Base type: `List<'T> : Object`, surfaced EAGERLY as the canon
+                    // `obj` identity (`TyConst`), not the BCL-nominal `TyClass` —
+                    // metadata canonicalizes the subtype roots at surfacing.
                     match ExternalSymbols.instantiateBaseType info intArg with
-                    | ValueSome(TyClass(k, _)) ->
-                        Expect.equal (SymbolKeyOps.qualifiedName k) "System.Object" "List bases on Object"
-                    | other -> failtestf "expected List base = Object, got %A" other
+                    | ValueSome(TyConst(k, _)) ->
+                        Expect.equal (SymbolKeyOps.qualifiedName k) "Vesper.obj" "List bases on the canon obj root"
+                    | other -> failtestf "expected List base = canon obj, got %A" other
 
                     // Every member's signature instantiates without throwing — the
                     // declaring typar resolves and any method typar freshens.
