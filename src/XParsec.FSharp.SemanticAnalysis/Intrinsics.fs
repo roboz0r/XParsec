@@ -57,9 +57,9 @@ module internal IntrinsicResolve =
 /// or mask a genuine contract gap. The miss POLICY lives here in one place: `get` raises a loud,
 /// named error. A contract that lacks a primitive the compiler needs (`int`) is a build-config
 /// fault, not a user error, so failing loudly is correct. An intrinsic with no contract yet has
-/// NO member here (`bigint` until `prim-types-bigint`, `undefined` until its contract story
-/// settles — their consumers stay on the static `BuiltinTypes.ty*` mints); a member is added the
-/// moment its contract lands, so this surface never offers a guaranteed loud-fail.
+/// NO member here (`bigint` until `prim-types-bigint` — its consumer stays on the static
+/// `BuiltinTypes.ty*` mint); a member is added the moment its contract lands (as `undefined` was,
+/// once `prim-types-undefined.js` landed), so this surface never offers a guaranteed loud-fail.
 type IntrinsicSet(tryResolve: string -> SemType option) =
     let cache = Dictionary<string, SemType>(System.StringComparer.Ordinal)
 
@@ -93,3 +93,8 @@ type IntrinsicSet(tryResolve: string -> SemType option) =
     member _.Decimal = get "decimal"
     member _.Unit = get "unit"
     member _.String = get "string"
+    /// The JS-only absence sentinel `undefined`, resolved from `prim-types-undefined.js`
+    /// (a `files-js` contract with no CLR analog). Forcing this on a stack that has not
+    /// loaded the JS contract is a loud fail BY DESIGN — every consumer that reaches for it
+    /// (the omitted-optional fill) is JS-only, so the contract is always in scope there.
+    member _.Undefined = get "undefined"

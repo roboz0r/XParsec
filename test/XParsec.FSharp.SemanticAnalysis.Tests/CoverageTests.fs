@@ -958,4 +958,40 @@ let tests =
                 let last = EqArray.toList tast.Decls |> List.last
                 Expect.stringContains (TastShape.prettyDecl last) ":? D" "type test rendered"
             }
+
+            // --- Numeric spelling aliases resolve-through-alias to their canonical
+            // intrinsic identity (no distinct `TyConst`). A written alias annotation
+            // (`int8`) unifies cleanly with the canonical literal (`5y : sbyte`),
+            // proving `Translate.tryResolveExternalType` dealiases the abbreviation to
+            // the canon `TyConst` a literal produces — a mismatch here would mean the
+            // alias leaked as its own identity.
+
+            let aliasResolvesTo (src: string) (canonical: SemType) (label: string) =
+                let tast = analyse src
+                Expect.isEmpty tast.Diagnostics (label + ": no mismatch")
+                Expect.equal (declType tast) canonical label
+
+            test "alias int8 resolves to sbyte" {
+                aliasResolvesTo "let r = (5y : int8)" BuiltinTypes.tySByte "int8 = sbyte"
+            }
+
+            test "alias uint8 resolves to byte" {
+                aliasResolvesTo "let r = (5uy : uint8)" BuiltinTypes.tyByte "uint8 = byte"
+            }
+
+            test "alias uint resolves to uint32" {
+                aliasResolvesTo "let r = (5u : uint)" BuiltinTypes.tyUInt32 "uint = uint32"
+            }
+
+            test "alias int32 resolves to int" {
+                aliasResolvesTo "let r = (5 : int32)" BuiltinTypes.tyInt "int32 = int"
+            }
+
+            test "alias single resolves to float32" {
+                aliasResolvesTo "let r = (5.0f : single)" BuiltinTypes.tyFloat32 "single = float32"
+            }
+
+            test "alias double resolves to float" {
+                aliasResolvesTo "let r = (5.0 : double)" BuiltinTypes.tyFloat "double = float"
+            }
         ]

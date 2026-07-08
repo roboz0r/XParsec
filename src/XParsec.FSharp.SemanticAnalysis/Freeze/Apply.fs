@@ -27,9 +27,10 @@ module internal FreezeApply =
     /// never mints `TConstValue.Unit`, so this case is JS-only.)
     let optionalDefaultNode (ctx: PassContext) (cv: TConstValue) (tok: SyntaxToken) : TExpr =
         match cv with
-        // `undefined` is a JS-only intrinsic (no CLR contract), so it stays on the
-        // static `BuiltinTypes.tyUndefined` until its contract lands.
-        | TConstValue.Unit -> TExpr.ILIntrinsic("undefined", ValueNone, EqArray.empty, BuiltinTypes.tyUndefined, tok)
+        // `undefined` is a JS-only intrinsic (no CLR contract). This fill is JS-only
+        // (`TConstValue.Unit` is minted only by the TS provider), so the JS `undefined`
+        // contract is always in scope and `ctx.Intrinsics.Undefined` resolves it.
+        | TConstValue.Unit -> TExpr.ILIntrinsic("undefined", ValueNone, EqArray.empty, ctx.Intrinsics.Undefined, tok)
         | TConstValue.Int _ -> TExpr.Const(cv, ctx.Intrinsics.Int, tok)
         | TConstValue.UInt _ -> TExpr.Const(cv, ctx.Intrinsics.UInt32, tok)
         | TConstValue.Int64 _ -> TExpr.Const(cv, ctx.Intrinsics.Int64, tok)

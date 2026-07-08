@@ -6,7 +6,8 @@ rolled up and deleted: `qualified-intrinsic-identities-plan.md` (intrinsics got 
 (`obj`/`exn` became `IntrinsicClass` heritable primitives; `System.Object`/`System.Exception`
 canonicalize eagerly at resolution; `canonName`'s reverse tier, `normalizeObj`, and
 `isSystemObjectKey` are deleted). All suites green: SA 765 / Clr 1253 / Js 348 / Vesper 49.
-Delete this doc when the residue stage lands (`feedback_plan_docs_ephemeral`).
+Delete this doc when the residue stages (5a bigint / 5b ranges / 5c nullability) and byref land
+(`feedback_plan_docs_ephemeral`).
 
 ## Principle (user, confirmed)
 
@@ -44,8 +45,9 @@ from a hardcoded front-end name set (`feedback_mockbuiltins_is_a_trap`).
   by the ctor sugar) — no raw BCL nominal enters the unifier; capability INTERFACES keep `TyClass`.
   `unifyAnnotation` admits the concrete-subtype → supertype upcast (strict `Subtype` walk only).
 - **SA static sweep complete.** The only `BuiltinTypes.ty*` left in live code are the deferred
-  three: `tySeqInt` (Tast, InferApp, InferControlFlow — a deletion, not a rename), `tyUndefined`
-  (Freeze/Apply — JS-only, no CLR contract), `tyBigInt` (InferLiterals — no contract yet).
+  two: `tySeqInt` (Tast, InferApp, InferControlFlow — a deletion, not a rename) and `tyBigInt`
+  (InferLiterals — no contract yet). (`tyUndefined` was migrated to `ctx.Intrinsics.Undefined`
+  and deleted once `prim-types-undefined.js` landed — Stage 5, 2026-07-08.)
 
 **Standing invariants:** `arity` stays a separate field — keys are VERBATIM name, NO arity suffix
 (`"int"`, `"[]"`, `"byref"`; arity rides in the args; user premise). `SymbolKey` is
@@ -200,17 +202,82 @@ in hand, so `opaqueKey`-everywhere (the plan's premise for them) was wrong:
   front-end bridge dies. Frontier (out of scope): derive the equatable/comparable enumeration from
   contract capability interfaces via `FrozenInterfaces`.
 
-### 4. Stage 5 — residue
+### 4. Stage 5 — residue (unpacked into per-item stages)
 
-- `prim-types-bigint` contract (CLR `System.Numerics.BigInteger`, JS `bigint`) → migrate the
-  `InferLiterals` `tyBigInt` arm.
-- `tySeqInt` — DELETE and retype range expressions (`1..10`, `1..2..10`) properly; the only
-  consumer whose behaviour changes, not just resolves differently.
-- `undefined` — JS-only intrinsic; migrate the two `Freeze/Apply` sites once its contract story
-  is settled (it has no CLR binding by design — `PlatformTypes` gates representability).
-- `objnull` — NOT a primitive: reclassify as the ordinary `obj | null` `TyOr` alias.
-- Numeric spelling aliases (`uint`/`int8`/`uint8`/`double`/`single`) resolve-through-alias to
-  their canonical intrinsic; no distinct identity.
+The original five residue bullets were unpacked: two landed, three became their own stages
+(each needs its own contract-authoring or design work, tracked below).
+
+**LANDED 2026-07-08 (SA 771 / Js 348):**
+
+- **`undefined` migrated to contract.** `prim-types-undefined.js.fsi/.fs` publish `undefined`
+  as an `Intrinsic`; `IntrinsicSet.Undefined` added; `Freeze/Apply.optionalDefaultNode` (the one
+  JS-only omitted-optional fill) now reads `ctx.Intrinsics.Undefined`, and `BuiltinTypes.tyUndefined`
+  is deleted. `Passes/Unification/Translate.fs`'s written-name arm KEEPS its `TyConst(undefinedKey)`
+  mint — that is the deliberate fallback for a stack that has NOT loaded the JS contract (where
+  `ctx.Intrinsics.Undefined` would loud-fail); a JS compilation resolves the name through the
+  provider first.
+- **Numeric spelling aliases verified + regression-locked.** `int8`/`uint8`/`uint`/`int32`/
+  `single`/`double` already resolve-through-alias — the contracts declare them as abbreviations and
+  BOTH translators dealias (`Translate.tryResolveExternalType`'s `Abbrev` arm; VesperLib's
+  `dealiasPrimitiveAbbrev`). Added `CoverageTests` "alias … resolves to …" asserting each unifies
+  with its canonical literal (`(5y : int8)` ⇒ `sbyte`, no mismatch). No production change was needed.
+
+**Stage 5a — `prim-types-bigint` contract (own stage, research needed).**
+`bigint` has NO contract; `InferLiterals.fs:98` still mints `BuiltinTypes.tyBigInt` for the
+`NumBigInteger*` literal tokens and there is NO `IntrinsicSet.BigInt`. Requirements to elaborate:
+author `prim-types-bigint.fsi/.fs` (CLR `System.Numerics.BigInteger`, JS `bigint`) — which member
+surface it exposes, whether it needs a `.js.fs` platform face like `float`/`int`, and how it wires
+into the `Vesper.Core` file set — then add `IntrinsicSet.BigInt` and migrate the `InferLiterals`
+arm. This is contract-authoring, not a cleanup.
+
+**Stage 5b — retype range expressions / delete `tySeqInt` (own stage, design fork).**
+`tySeqInt` is an opaque placeholder `TyConst "seq<int>"` that only unifies with itself; it is "the
+only consumer whose behaviour changes." `seq<'T>` is now a transparent abbrev for `IEnumerable<'T>`
+(`capabilities.fsi`), so the design fork is whether `1..10`/`1..2..10` should type as a real
+`TyClass(IEnumerable, [int])` (via the seq abbrev) and the for-in range path
+(`InferControlFlow.inferForIn`, the `isRangeSource` branch) then collapse into the ordinary
+`tryForInEnumerator` branch. Consumers to retype: `InferApp.inferRange` (result), `InferControlFlow`
+(for-in range source), the `CoverageTests` "types as seq<int>" tests, and the `Tast` doc ref. This
+changes range for-in codegen, so it needs verification, not just a rename.
+
+**Stage 5c — `objnull` / `TyOr` nullability (own stage; effort assessed 2026-07-08).**
+Goal: `objnull` is NOT a primitive — it is the ordinary `obj | null` union. Making *TyOr
+nullability* a realisable feature breaks into three tiers by effort; how far to go is the open
+scope question.
+
+- *Already built (no work):* `TyOr` is a first-class `SemType` (smart ctor `mkUnion`/`MkUnion`,
+  order-insensitive `UnionMembers` EqSet, frozen mirror `FTOr`), with full directional `subsumes`
+  (`T <: T|null` holds via the `src', TyOr ts` arm; `T|null <: T` only when every member subsumes
+  `T`) and match-pattern narrowing (`InferControlFlow.computeArmNarrowing`: `:? T` type-tests shrink
+  a closed union's residual, with an exhaustiveness warning). The FRONT-END `Translate.fs` ALREADY
+  translates a written `T | null` to `TyOr [T; TyConst(opaqueKey "null")]` and bare `null` to that
+  reserved `TyConst`.
+- *Tier A — finish `objnull` representation (small).* The VesperLib EXTRACTION path diverges: it
+  collapses `T | null → T` (`VesperLib/TypeTranslate.fs` `UnionType` arm) and lists `objnull` in
+  `isPrimitiveName`. So `objnull`'s abbrev RHS freezes to `FTConst obj` (null lost), and a written
+  `objnull` dealiases to plain `obj`. Fix: translate `T | null → FTOr [T; null]` in extraction and
+  drop `objnull` from `isPrimitiveName`; rewrite the `VesperLibTests` objnull test (it currently
+  asserts the collapse-to-`obj` this inverts). Then `objnull` = `TyOr [obj; null]` end to end.
+- *Tier B — `null` as a core intrinsic + platform repr (medium).* Today `null` is `opaqueKey "null"`
+  (`ns=""`, not a registered intrinsic, no per-target repr). Per the sibling
+  `codegen-js-symbol-provider-plan.md` (§"`null`/`undefined` as JS-intrinsic types"), `null` should
+  become ONE cross-backend intrinsic with a per-target repr (JS `null`; CLR `ldnull` / F# 9 `T|null`
+  nullable-ref) — sharing the nullable machinery across both targets. Complication: `null` is a
+  reserved keyword, so `type null = extern` cannot parse (cf. the `undefined.js.fsi` note); it needs
+  a built-in registration path, not a contract file. `EmitJs.validatePlatformTypes` must admit `null`
+  / `TyOr [T; null]` members — UNVERIFIED whether a `T | null` program survives JS emit today (the
+  sibling plan flags this as the concrete verification entry point). CLR value-type nullability
+  (`System.Nullable<T>`/`T?`) is a structurally different repr and stays OUT (deferred).
+- *Tier C — flow-sensitive nullability analysis (large; genuinely new).* The "analysis" proper:
+  narrowing on `if x <> null` / `x != null` / `!== undefined` GUARDS (not just match patterns) —
+  flow-sensitive union-member removal along branches, so the then-branch sees `x : obj`. No such
+  flow-typing sub-pass exists today (only the match-pattern `computeArmNarrowing`, a useful template
+  but not guard-flow). This is a new flow environment threaded through `if`/`&&`/`||`/early-return —
+  the biggest chunk, and separable from Tiers A/B.
+
+  Recommendation: Tier A is the direct "objnull is not a primitive" fix and is small; Tier B lights
+  up shared CLR+JS nullable interop and is the prerequisite for `null` surviving codegen; Tier C is a
+  standalone feature that can wait. Decide the target tier before starting.
 
 ### 5. byref migration (LAST)
 

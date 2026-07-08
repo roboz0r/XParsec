@@ -231,14 +231,15 @@ module internal UnificationTranslate =
                                     // opaque fallback. See `tryResolveExternalType`.
                                     match tryResolveExternalType ctx name EqArray.empty with
                                     | ValueSome ty -> ty
-                                    // `undefined` is a JS-only intrinsic with NO CLR repr and a
-                                    // hardcoded identity (`BuiltinTypes.tyUndefined`) pending
-                                    // Stage-5 contract-sourcing: resolve the written name to its
-                                    // canonical `undefinedKey` so it agrees with the optional-
-                                    // default / Freeze form even in a stack that has not loaded the
-                                    // JS `undefined` contract (a JS compilation resolves it through
-                                    // the provider above first). Every other unresolved bare name
-                                    // is genuinely origin-less.
+                                    // `undefined` is a JS-only intrinsic with NO CLR repr. A JS
+                                    // compilation resolves the written name through the provider
+                                    // above (the `prim-types-undefined.js` contract); this arm is
+                                    // the deliberate fallback for a stack that has NOT loaded that
+                                    // contract — mint the canonical `undefinedKey` directly so the
+                                    // written name still agrees with the optional-default / Freeze
+                                    // form. (Not `ctx.Intrinsics.Undefined`, which would loud-fail
+                                    // exactly when the contract is absent — the case this handles.)
+                                    // Every other unresolved bare name is genuinely origin-less.
                                     | ValueNone when name = RuntimeNames.undefinedTypeName ->
                                         TyConst(RuntimeNames.undefinedKey, EqArray.empty)
                                     | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)

@@ -1815,10 +1815,6 @@ module BuiltinTypes =
     let tyDecimal: SemType = TyConst(RuntimeNames.decimalKey, EqArray.empty)
     let tyUnit: SemType = TyConst(RuntimeNames.unitKey, EqArray.empty)
     let tyString: SemType = TyConst(RuntimeNames.stringKey, EqArray.empty)
-    /// The JS-only absence sentinel `undefined` — a DISTINCT identity from `unit`
-    /// (both project to JS `undefined`, but that is a backend repr coincidence). The
-    /// type of the honest omitted-optional fill node (`FreezeExpr.optionalDefaultNode`).
-    let tyUndefined: SemType = TyConst(RuntimeNames.undefinedKey, EqArray.empty)
     /// Placeholder for `seq<int>` — the result type of int range expressions
     /// (`1..10`, `1..2..10`). Until generic types are modelled this is an
     /// opaque TyConst that only unifies with itself.
