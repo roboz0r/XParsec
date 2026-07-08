@@ -239,6 +239,18 @@ module VesperLibTyparCapture =
         /// SEPARATE from `IntrinsicReprs` so a target that omits a primitive does not
         /// demote it to a `Class` and lose its `canon` identity in the unifier.
         member val IntrinsicBaseReprs = Dictionary<string, string>(StringComparer.Ordinal) with get
+
+        /// The heritable primitives (`extern class with …`: `obj`/`exn`) awaiting their
+        /// one-shot finalize-time republish as an `Intrinsic` with a class surface:
+        /// qualified compiled name -> (canon key, platform repr), recorded by the
+        /// `TypeSignature.Extern` arm. A side table because the `extern class` kind
+        /// tag is the discriminator and it is NOT recoverable at finalize
+        /// (`DeferredBody.Class` is shared with capability interfaces and carries no
+        /// kind); the base/`.ctor` surfaces are read off the frozen `Class` shape /
+        /// `TypeMembers` when the republish runs (`VesperLib.finalizeDeferred`).
+        member val PendingIntrinsicClasses =
+            Dictionary<string, struct (SymbolKey * string)>(StringComparer.Ordinal) with get
+
         /// Qualified names of `[<AutoOpen>]` modules encountered during
         /// extraction, in source order (`"Vesper.ArithmeticOperators"`). A
         /// referenced contract surfaces these as its ambient open-prefix set so a
@@ -381,13 +393,15 @@ module VesperLibTyparCapture =
                 ctx.TypeShapes
                 |> Seq.choose (fun kv ->
                     match kv.Value with
-                    // Both intrinsic shapes reconcile a platform repr back to canon — the
+                    // Every intrinsic reconciles its platform repr back to canon — the
                     // scalar (`int`/`System.Int32`) and the heritable primitive
-                    // (`exn`/`System.Exception`, `obj`/`System.Object`).
-                    | ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)
-                    | ExternalTypeShape.IntrinsicClass(canon = canon; platform = Some platform) when
-                        platform <> SymbolKeyOps.intrinsicName canon
-                        ->
+                    // (`exn`/`System.Exception`, `obj`/`System.Object`) alike.
+                    | ExternalTypeShape.Intrinsic {
+                                                      Id = {
+                                                               Canon = canon
+                                                               Platform = Some platform
+                                                           }
+                                                  } when platform <> SymbolKeyOps.intrinsicName canon ->
                         Some(platform, canon)
                     | ExternalTypeShape.Class { CapabilityFace = ValueSome face } when
                         face.Platform <> SymbolKeyOps.intrinsicName face.Canon
@@ -421,13 +435,16 @@ module VesperLibTyparCapture =
 
                 for kv in ctx.TypeShapes do
                     match kv.Value with
-                    // A heritable primitive (`IntrinsicClass`: `obj`/`exn`) carries a codegen
-                    // repr just like a scalar `Intrinsic` — it IS emitted as a value/type ref
-                    // (`System.Object`/`System.Exception`), unlike a capability interface face.
-                    | ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)
-                    | ExternalTypeShape.IntrinsicClass(canon = canon; platform = Some platform) when
-                        platform <> SymbolKeyOps.intrinsicName canon
-                        ->
+                    // Every intrinsic carries a codegen repr — a heritable primitive
+                    // (`obj`/`exn`) IS emitted as a value/type ref
+                    // (`System.Object`/`System.Exception`), unlike a capability
+                    // interface face.
+                    | ExternalTypeShape.Intrinsic {
+                                                      Id = {
+                                                               Canon = canon
+                                                               Platform = Some platform
+                                                           }
+                                                  } when platform <> SymbolKeyOps.intrinsicName canon ->
                         d.[canon] <- platform
                     | _ -> ()
 

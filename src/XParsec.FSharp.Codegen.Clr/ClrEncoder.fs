@@ -125,14 +125,18 @@ type internal ClrEncoder(env: ClrEnv) =
                 te.Type(eValueTuple.Value, true)
             else
                 // A REFERENCE-class intrinsic (`exn` → `System.Exception`): its repr is not a
-                // value-type primitive but a heritable BCL class (an `IntrinsicClass`). Encode a
-                // class `TypeRef` to the platform type, exactly as an `FTClass` external would —
-                // this is the `extends`/parameter/field token for `inherit exn`, `new exn`, etc.
-                // (`obj` never reaches here — its `ELEMENT_TYPE_OBJECT` arm precedes `PrimitiveRepr`.)
-                match externalClassRef (SymbolKeyOps.qualifiedTypeKeyOf None repr 0) with
-                | ValueSome tref -> te.Type(tref, false)
-                | ValueNone ->
-                    failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
+                // value-type primitive but a heritable BCL class. Encode a class `TypeRef` to
+                // the platform type, exactly as an `FTClass` external would — this is the
+                // `extends`/parameter/field token for `inherit exn`, `new exn`, etc. (`obj`
+                // never reaches here — its `ELEMENT_TYPE_OBJECT` arm precedes `PrimitiveRepr`.)
+                // GUARDED to reference classes: a VALUE-type repr with no dedicated arm above
+                // must fail loudly here — encoded as `class X` it would only die at JIT time
+                // with a signature mismatch, far from the cause (no silent mis-emit).
+                let platformKey = SymbolKeyOps.qualifiedTypeKeyOf None repr 0
+
+                match externalClassRef platformKey with
+                | ValueSome tref when not (externalIsValueType platformKey) -> te.Type(tref, false)
+                | _ -> failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
         // The array intrinsic `[]<elem>` (`'T[]`) → an SZArray (rank-1 vector) of
         // the element. Higher-rank arrays (`[,]`) aren't emitted yet.
         | FTConst(key, args) when args.Length = 1 && SymbolKeyOps.simpleName key = "[]" ->

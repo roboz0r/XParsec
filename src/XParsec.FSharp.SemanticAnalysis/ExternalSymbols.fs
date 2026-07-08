@@ -546,6 +546,95 @@ type ExternalClassShape =
             CapabilityFace = ValueNone
         }
 
+/// The platform-invariant identity axis EVERY intrinsic carries — the shared
+/// payload of `ExternalTypeShape.Intrinsic` (and of the planned
+/// `IntrinsicInterface`), so consumers of "any intrinsic canon" read one record
+/// rather than re-matching per kind.
+///
+/// **Two faces** (a single repr string used to do two unrelated jobs at once):
+/// - `Canon` — the platform-INVARIANT nominal-identity key: the qualified
+///   **`.fsi` name** the type was declared under (`Vesper.int`, `Vesper.exn`),
+///   i.e. the front-end identity itself, NOT a BCL name. `subsumes`' `canonName`
+///   uses THIS face; it is distinct per nominal type so `int` ≠ `float`, and it
+///   is the SAME regardless of which backend is compiling — a JS build never
+///   needs to know what the BCL calls `int`.
+/// - `Platform` — the per-target runtime/codegen repr: the platform's *name*
+///   for the type, sourced from the `<base>.<target>.fs` companion's
+///   `type x = (# "<repr>" #)` (`Some "System.Int32"` on CLR, `Some "number"`/
+///   `Some "Error"` on JS). Codegen emission + the `exnReprOf`/`tryRuntimeType`
+///   runtime axis, and the intrinsic-receiver member probe
+///   (`tryExternalReceiver`), read THIS face. Many-to-one and directional — it
+///   must never drive unification. **`None` on a NULLARY intrinsic means the
+///   type is a known scalar primitive but has NO representation on the
+///   compiling target** — e.g. `decimal`/`nativeint` on JS, which ship no
+///   `.js.fs` companion; `SemanticAnalysis.PlatformTypes` rejects that up front.
+///   `None` on a GENERIC intrinsic (`'T []` on JS) is benign — the structural
+///   backend path needs no repr string. On CLR every primitive's base `.fs` IS
+///   its platform repr, so `Platform` is always `Some` there.
+///
+/// `Arity` — the type's generic parameter count. Usually `0` (the scalar
+/// primitives), but NOT always: the structural type constructors are intrinsics
+/// too (`type 'T [] = (# "!0[]" #)`, arity 1; `byref`, nd-array). Load-bearing
+/// for representability: only an `arity = 0` intrinsic with `Platform = None`
+/// is unrepresentable (see `Platform` above).
+type IntrinsicIdentity =
+    {
+        Canon: SymbolKey
+        Arity: int
+        Platform: string option
+    }
+
+/// The class surface a HERITABLE primitive (`obj`/`exn`, declared
+/// `(# class "…" #)` + `extern class with inherit/new:`) carries on top of its
+/// intrinsic identity — the surface a scalar primitive lacks:
+/// - `BaseType` — the declared `inherit` parent (`exn`'s is `obj`; `obj`'s is
+///   `ValueNone`, the root), with the declaring typars baked as
+///   `FTTypar(Declaring,i)`.
+/// - `Members` — the contract `.ctor`s (`new: string -> exn`), frozen exactly as
+///   a `Class`'s ctors: the SINGLE constructible surface both `new exn "…"`
+///   (`InferCtor`) and `inherit exn(…)` (`Unification.fillBaseCtorCall`) check
+///   against — target-agnostic; the explicit platform spelling
+///   (`new System.Exception(…)`) is the opt-in to the platform's wider catalogue.
+///
+/// Instance members (`obj.ToString` / `exn.Message`) are NOT here — they are
+/// per-target and route through the PLATFORM type (`IntrinsicBclMember`),
+/// merging with these contract ctors.
+type IntrinsicClassSurface =
+    {
+        BaseType: FrozenType voption
+        Members: ExternalMember[]
+    }
+
+/// A *referenced* package's intrinsic-representation binding: an `extern` type
+/// whose sibling `.fs` carries `type x = (# "<repr>" #)`. NON-transparent
+/// (unlike `Abbrev`): a use site resolves to the nominal `TyConst Id.Canon`,
+/// never an expanded repr — REGARDLESS of `Class`, so the identity axis is
+/// single-pattern by construction.
+///
+/// `Class = ValueSome` ⇔ a heritable primitive (`obj`/`exn`): the contract's
+/// `class` kind tag IS the predicate, and the added surface lets a downstream
+/// unit `inherit exn` / `new exn` through the ordinary provider paths while the
+/// value identity stays `TyConst` (no `TyClass` churn at the pervasive
+/// `obj`/`exn` value sites). Distinct from a faced capability `Class`
+/// (`disposable`) — an INTERFACE, which resolves to `TyClass`.
+type IntrinsicShape =
+    {
+        Id: IntrinsicIdentity
+        Class: IntrinsicClassSurface voption
+    }
+
+    /// A scalar (non-heritable) intrinsic — the common mint.
+    static member Scalar(canon: SymbolKey, arity: int, platform: string option) : IntrinsicShape =
+        {
+            Id =
+                {
+                    Canon = canon
+                    Arity = arity
+                    Platform = platform
+                }
+            Class = ValueNone
+        }
+
 /// Type-declaration shape carried by `IExternalSymbolProvider.TryLookupType`.
 /// `arity` is the number of declared typars (same length the builder
 /// arrays expect at instantiation).
@@ -593,79 +682,23 @@ type ExternalTypeShape =
     | Class of shape: ExternalClassShape
     /// A *referenced* package's intrinsic-representation binding: an `extern`
     /// type whose sibling `.fs` carries `type x = (# "<repr>" #)`
-    /// (`type exn = (# "System.Exception" #)`, prim-types-exn.fs). NON-transparent
-    /// (unlike `Abbrev`): a use site resolves to the nominal `TyConst name`, never
-    /// an expanded repr.
+    /// (`type exn = (# class "System.Exception" #)`, prim-types-exn.fs) — scalar
+    /// (`int`) or heritable class (`obj`/`exn`). Identity, representability, and
+    /// the optional class surface all ride `IntrinsicShape` (lifted out like
+    /// `ExternalClassShape`, so the DU header stays narrow and the identity axis
+    /// is ONE pattern regardless of heritability — see the record's docs for the
+    /// canon/platform two-faces story).
     ///
-    /// `arity` — the type's generic parameter count. Usually `0` (the scalar
-    /// primitives `int`/`exn`/…), but NOT always: the structural type constructors
-    /// are intrinsics too (`type 'T [] = (# "!0[]" #)`, arity 1; `byref`, nd-array).
-    /// This is load-bearing for representability: a nullary intrinsic needs a
-    /// concrete per-target `platform` repr, so `platform = None` means it is
-    /// genuinely unrepresentable on this target (`decimal` on JS). A GENERIC
-    /// intrinsic is representable BY CONSTRUCTION — its repr is structural, built
-    /// from its argument's repr (`number[]`) by a dedicated backend path
-    /// (`FTConst("[]") → SZArray` on CLR, a JS array) — so a `None` platform on it
-    /// is benign (it never needed a repr string). `PlatformTypes` keys on this:
-    /// only an `arity = 0` intrinsic with `platform = None` is an error.
-    ///
-    /// **Two faces**:
-    /// a single repr string used to do two unrelated jobs at once.
-    /// - `canon` — the platform-INVARIANT nominal-identity key: the **`.fsi` name**
-    ///   the type was declared under (`"int"`, `"float"`, `"exn"`), i.e. the
-    ///   front-end identity itself, NOT a BCL name. `subsumes`' `canonName` uses
-    ///   THIS face; it is distinct per nominal type so `int` ≠ `float`, and it is
-    ///   the SAME regardless of which backend is compiling — a JS build never needs
-    ///   to know what the BCL calls `int`.
-    /// - `platform` — the per-target runtime/codegen repr: the platform's *name*
-    ///   for the type, sourced from the `<base>.<target>.fs` companion's
-    ///   `type x = (# "<repr>" #)` (`Some "System.Int32"` on CLR, `Some "number"`/
-    ///   `Some "Error"` on JS). Codegen emission + the `exnReprOf`/`tryRuntimeType`
-    ///   runtime axis, and the intrinsic-receiver member probe (`tryExternalReceiver`),
-    ///   read THIS face. Many-to-one and directional — it must never drive unification.
-    ///   **`None` on a NULLARY intrinsic means the type is a known scalar primitive
-    ///   (so it stays an `Intrinsic`, not a `Class`, and keeps its `canon` identity)
-    ///   but has NO representation on the compiling target** — e.g. `decimal`/`nativeint`
-    ///   on JS, which ship no `.js.fs` companion. `SemanticAnalysis.PlatformTypes` rejects
-    ///   that up front (a graceful per-decl diagnostic) instead of limping a BCL name onto
-    ///   a JS runtime. `None` on a GENERIC intrinsic (`'T []` on JS, no `.js.fs` overlay)
-    ///   is benign — the structural backend path needs no repr string. On CLR every
-    ///   primitive's base `.fs` IS its platform repr, so `platform` is always `Some` there.
-    ///
-    /// The two **diverge on every target** (CLR: `int`/`Some "System.Int32"`): `canon`
-    /// is `.fsi`-defined, `platform` is `.fs`-defined. An incoming BCL/native runtime
-    /// name on the metadata seam (e.g. `System.Exception` surfaced by a metadata
-    /// `inherit` chain) is reconciled back to its `canon` through the reverse
-    /// `{ platform -> canon }` map (`IExternalSymbolProvider.IntrinsicReverseCanon`), so
-    /// `int`-as-metadata and `int`-as-contract still meet at `"int"`. The *local*
-    /// `IntrinsicReprTypes` twin (SideTables.fs) stays single-string: it holds a
-    /// self-compiled unit's own `platform` repr keyed by the `.fsi` short name (which
-    /// is the `canon`).
-    | Intrinsic of canon: SymbolKey * arity: int * platform: string option
-    /// A primitive that is ALSO a heritable class — `obj` (`System.Object`) / `exn`
-    /// (`System.Exception`). It keeps the intrinsic identity of an `Intrinsic`: a use
-    /// site resolves to `TyConst canon`, and instance members route to the PLATFORM
-    /// type per-target via `IntrinsicBclMember` (so `obj.ToString` / `exn.Message` are
-    /// NOT contracted — they are CLR-only and resolve through the platform, merging
-    /// with the contract members below). But it ALSO carries the class surface a scalar
-    /// primitive lacks:
-    /// - `baseType` — the declared `inherit` parent (`exn`'s is `obj`; `obj`'s is
-    ///   `ValueNone`, the root), with the declaring typars baked as `FTTypar(Declaring,i)`.
-    /// - `members` — the contract `.ctor`s (`new: string -> exn`), frozen exactly as a
-    ///   `Class`'s ctors, so `InferCtor` / `new exn "…"` resolve them off the shape.
-    /// `canon`/`arity`/`platform` mirror `Intrinsic`. This lets a downstream unit
-    /// `inherit exn` and construct it through the ordinary provider paths WHILE the
-    /// value identity stays `TyConst` — so the pervasive `obj`/`exn` value sites are
-    /// untouched (no `TyClass` churn). Distinct from a faced capability `Class` (an
-    /// INTERFACE that resolves to `TyClass`); an `IntrinsicClass` resolves to `TyConst`,
-    /// so every `match` that treats `Intrinsic` must treat this the same way for the
-    /// identity axis — the compiler enumerates those sites (a new case ⇒ FS0025).
-    | IntrinsicClass of
-        canon: SymbolKey *
-        arity: int *
-        platform: string option *
-        baseType: FrozenType voption *
-        members: ExternalMember[]
+    /// The two faces **diverge on every target** (CLR: `int`/`Some "System.Int32"`):
+    /// `Canon` is `.fsi`-defined, `Platform` is `.fs`-defined. An incoming
+    /// BCL/native runtime name on the metadata seam (e.g. `System.Exception`
+    /// surfaced by a metadata `inherit` chain) is reconciled back to its `Canon`
+    /// through the reverse `{ platform -> canon }` map
+    /// (`IExternalSymbolProvider.IntrinsicReverseCanon`), so `int`-as-metadata and
+    /// `int`-as-contract still meet at `"int"`. The *local* `IntrinsicReprTypes`
+    /// twin (SideTables.fs) stays single-string: it holds a self-compiled unit's
+    /// own `platform` repr keyed by the `.fsi` short name (which is the canon).
+    | Intrinsic of shape: IntrinsicShape
     /// A nominal type whose *name + arity* the extractor registered but whose
     /// body shape it does not (yet) model: an enum / delegate / type-extension
     /// (v1 defers the body), or a union / record / abbreviation whose body failed
@@ -910,6 +943,23 @@ module ExternalSymbols =
     let tryLookupType (provider: IExternalSymbolProvider) (key: SymbolKey) : ExternalTypeShape voption =
         provider.TryLookupType(SymbolKeyOps.qualifiedName key)
 
+    /// Resolve an already-RESOLVED intrinsic canon key to its heritable-primitive
+    /// surface (`obj`/`exn`: identity + the contract base/`.ctor`s), when the
+    /// provider publishes one. A DIRECT qualified lookup — the canon is a resolved
+    /// identity, so it must never round-trip through a short-name/ambient re-scan
+    /// (a composited provider could resolve the short name to a DIFFERENT entry
+    /// than the one that minted the key). `ValueNone` is the honest miss: a scalar
+    /// intrinsic, a non-intrinsic key, or a self-host unit whose own primitives
+    /// publish no provider shape — callers no-op or fall to their ordinary error.
+    let tryIntrinsicClass
+        (provider: IExternalSymbolProvider)
+        (canon: SymbolKey)
+        : struct (IntrinsicIdentity * IntrinsicClassSurface) voption =
+        match tryLookupType provider canon with
+        | ValueSome(ExternalTypeShape.Intrinsic { Id = id; Class = ValueSome surface }) ->
+            ValueSome(struct (id, surface))
+        | _ -> ValueNone
+
     /// The **runtime-type** axis of an intrinsic repr — distinct from `canonName`'s
     /// nominal-identity read. Resolve a bare runtime
     /// repr string (`"Error"`) to the concrete `ExternalTypeShape` it names over the
@@ -985,7 +1035,7 @@ module ExternalSymbols =
         // any build whose anchor is still a bare `extern`.
         let resolveAnchor (lookup: string) : RuntimeNames.CapabilityIdentity voption =
             match provider.TryLookupType lookup with
-            | ValueSome(ExternalTypeShape.Intrinsic(platform = Some fqn)) ->
+            | ValueSome(ExternalTypeShape.Intrinsic { Id = { Platform = Some fqn } }) ->
                 ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf None fqn 0))
             | ValueSome(ExternalTypeShape.Class { CapabilityFace = ValueSome face }) ->
                 ValueSome
@@ -1117,14 +1167,14 @@ module ExternalSymbols =
     let instantiateInterfaces (shape: ExternalClassShape) (declaringArgs: SemType[]) : (string * SemType[])[] =
         instantiateInterfacesOf shape.FrozenInterfaces declaringArgs
 
-    /// Realise a class's declared base type, if any. The data-form replacement
-    /// for `shape.BaseType |> ValueOption.map (fun b -> b args)`.
     /// Instantiate a declared base `FrozenType` template over the receiver's args —
     /// the shape-agnostic core shared by `ExternalClassShape` (`instantiateBaseType`)
-    /// and `ExternalTypeShape.IntrinsicClass` (whose `baseType` is the same template).
+    /// and `IntrinsicClassSurface.BaseType` (the same template form).
     let instantiateBaseTypeFrozen (baseType: FrozenType voption) (declaringArgs: SemType[]) : SemType voption =
         baseType |> ValueOption.map (fun ft -> instantiateDeclaring ft declaringArgs)
 
+    /// Realise a class's declared base type, if any. The data-form replacement
+    /// for `shape.BaseType |> ValueOption.map (fun b -> b args)`.
     let instantiateBaseType (shape: ExternalClassShape) (declaringArgs: SemType[]) : SemType voption =
         instantiateBaseTypeFrozen shape.FrozenBaseType declaringArgs
 
@@ -1460,11 +1510,9 @@ module ExternalSymbols =
                         ExternalTypeShape.Union(arity, cases, ifaces, o)
                     | ExternalTypeShape.Enum(cases, _) -> ExternalTypeShape.Enum(cases, o)
                     | ExternalTypeShape.Abbrev _
+                    // An intrinsic carries no `Origin` (its identity is the canon,
+                    // asm-blind), so origin stamping leaves it unchanged.
                     | ExternalTypeShape.Intrinsic _
-                    // `IntrinsicClass` carries no `Origin` (its identity is the intrinsic
-                    // canon, asm-blind), so origin stamping leaves it unchanged, exactly
-                    // like `Intrinsic`.
-                    | ExternalTypeShape.IntrinsicClass _
                     | ExternalTypeShape.Opaque _ -> shape
 
         // Mirror `stampType`'s Union arm: the extractor records the declaring
@@ -1632,16 +1680,19 @@ module ExternalSymbols =
                 ExternalTypeShape.Record(arity, fields |> Array.map (fun f -> { f with Frozen = co f.Frozen }), origin)
             | ExternalTypeShape.Union(arity, cases, ifaces, origin) ->
                 ExternalTypeShape.Union(arity, cases |> Array.map mapCase, mapInterfaces ifaces, origin)
-            // Same value-flow surface as `Class` (a `.ctor`'s params are contravariant
-            // reads, the base a covariant chain) — map its members + base identically.
-            | ExternalTypeShape.IntrinsicClass(canon, arity, platform, baseType, members) ->
-                ExternalTypeShape.IntrinsicClass(
-                    canon,
-                    arity,
-                    platform,
-                    baseType |> ValueOption.map inv,
-                    members |> Array.map mapMember
-                )
+            // A heritable primitive's class surface has the same value-flow surface as
+            // `Class` (a `.ctor`'s params are contravariant reads, the base a covariant
+            // chain) — map it identically; a scalar intrinsic has none to map.
+            | ExternalTypeShape.Intrinsic({ Class = ValueSome surface } as s) ->
+                ExternalTypeShape.Intrinsic
+                    { s with
+                        Class =
+                            ValueSome
+                                { surface with
+                                    BaseType = surface.BaseType |> ValueOption.map inv
+                                    Members = surface.Members |> Array.map mapMember
+                                }
+                    }
             // No value-flow FrozenType surface (Abbrev: no intrinsic variance — see header).
             | ExternalTypeShape.Abbrev _
             | ExternalTypeShape.Enum _

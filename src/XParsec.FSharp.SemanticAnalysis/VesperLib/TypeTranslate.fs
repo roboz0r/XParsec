@@ -464,10 +464,9 @@ module VesperLibTypeTranslate =
             // placeholders. A still-`deferredTemplate` abbrev (one not yet
             // finalized in this pass) degrades to `FTUnknown "<deferred>"`.
             FrozenTypeBridge.substituteDeclaring (args.AsSpan().ToArray()) frozen
-        // Both intrinsic shapes carry the SAME nominal identity — the canon `TyConst`
-        // (`FTConst`); the `IntrinsicClass` base/ctors are an added surface, not a
-        // different identity.
-        | ValueSome(ExternalTypeShape.Intrinsic _ | ExternalTypeShape.IntrinsicClass _) ->
+        // An intrinsic's nominal identity is the canon `TyConst` (`FTConst`)
+        // regardless of the optional base/ctor surface.
+        | ValueSome(ExternalTypeShape.Intrinsic _) ->
             FTConst(BuiltinTypes.intrinsicKey (SymbolKeyOps.shortName compiled), EqArray.empty)
         | ValueSome(ExternalTypeShape.Opaque _) -> raise (BodylessExternalShape compiled)
         | ValueNone ->

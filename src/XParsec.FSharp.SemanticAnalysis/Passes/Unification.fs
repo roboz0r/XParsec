@@ -788,51 +788,33 @@ module Unification =
                     exitLevel ctx
             | ValueNone -> ()
         // An intrinsic-class base (`inherit exn(m)`): the parent's constructible
-        // surface is the CONTRACT `.ctor` set riding the provider's `IntrinsicClass`
-        // shape (`new: message: string -> exn`) — target-agnostic, so the inherit
-        // args are checked HERE, and a mis-typed `inherit exn(42)` is a source
-        // diagnostic rather than a codegen internal error. Overload-picked and
-        // unified exactly as `inferExternalCtorOn` treats a `new` call (the result
-        // side stays free — the base type is already the receiver's declared
-        // parent). A self-host compile of the contract itself resolves its base
-        // off local tables (no provider `IntrinsicClass` shape), so a shape miss
-        // stays a silent no-op, not a diagnostic.
+        // surface is the CONTRACT `.ctor` set riding the provider shape's class
+        // surface (`new: message: string -> exn`) — the SAME set `new exn` checks
+        // (`inferIntrinsicClassCtorCall`), target-agnostic, so the inherit args are
+        // checked HERE and a mis-typed `inherit exn(42)` is a source diagnostic
+        // rather than a codegen internal error. Resolved by DIRECT qualified lookup
+        // off the already-resolved canon key (never a short-name re-scan). A
+        // self-host compile of the contract itself resolves its base off local
+        // tables (no provider shape), so a miss stays a silent no-op, not a
+        // diagnostic.
         | ValueSome(TyConst(canonKey, canonArgs)), ValueSome argExpr ->
-            let intrinsicClassCtors (shape: ExternalTypeShape) =
-                match shape with
-                | ExternalTypeShape.IntrinsicClass(members = ms) -> ValueSome ms
-                | _ -> ValueNone
-
-            match
-                ExternalSymbols.tryPickRuntimeType
-                    ctx.Provider
-                    intrinsicClassCtors
-                    (SymbolKeyOps.intrinsicName canonKey)
-            with
-            | ValueSome members ->
-                let ctors = members |> Array.filter (fun m -> m.Name = ".ctor")
-                let typeArgs = canonArgs.AsSpan().ToArray()
-
+            match ExternalSymbols.tryIntrinsicClass ctx.Provider canonKey with
+            | ValueSome(struct (_, surface)) ->
                 enterLevel ctx
 
                 try
-                    let argTy = infer ctx argExpr
-
-                    match UnificationInferOverload.pickBestOverload typeArgs ctors (argElemsOf argTy) with
-                    | ValueSome chosen ->
-                        let ctorSig = ExternalSymbols.openSignature chosen typeArgs
-                        let resultTy = TyVar(freshTyVar ctx)
-                        unify ctx (CstKeys.ofExpr argExpr) ctorSig (TyFun(argTy, resultTy))
-                    | ValueNone ->
-                        ctx.Error(
-                            CstKeys.ofExpr argExpr,
-                            sprintf
-                                "No applicable constructor on base '%s' for the given 'inherit' arguments"
-                                (SymbolKeyOps.intrinsicName canonKey)
-                        )
+                    UnificationInferCtor.inferIntrinsicClassCtorCall
+                        infer
+                        ctx
+                        (canonArgs.AsSpan().ToArray())
+                        surface
+                        (sprintf
+                            "No applicable constructor on base '%s' for the given 'inherit' arguments"
+                            (SymbolKeyOps.simpleName canonKey))
+                        argExpr
                 finally
                     exitLevel ctx
-            | _ -> ()
+            | ValueNone -> ()
         | _ -> ()
 
     /// Mint the `base` TyVar pre-linked to the parent's instantiated

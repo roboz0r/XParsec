@@ -18,6 +18,32 @@ open UnificationInferDispatch
 
 module internal UnificationInferCtor =
 
+    /// Overload-pick + unify a heritable primitive's CONTRACT `.ctor` set (the
+    /// `IntrinsicClassSurface.Members` riding the provider shape) against `argExpr` —
+    /// the SINGLE constructible surface `new exn "…"` (`inferNew`) and
+    /// `inherit exn(…)` (`Unification.fillBaseCtorCall`) both check, target-agnostic
+    /// by construction. The chosen signature grounds the call's arguments while the
+    /// result side stays a free var (`inferExternalCtorOn`'s authority rule: the
+    /// receiver/declared parent already IS the constructed type). `noOverloadMsg`
+    /// keeps the two syntaxes' diagnostics distinct.
+    let inferIntrinsicClassCtorCall
+        (infer: Infer)
+        (ctx: PassContext)
+        (typeArgs: SemType[])
+        (surface: IntrinsicClassSurface)
+        (noOverloadMsg: string)
+        (argExpr: Expr<SyntaxToken>)
+        : unit =
+        let ctors = surface.Members |> Array.filter (fun m -> m.Name = ".ctor")
+        let argTy = infer ctx argExpr
+
+        match pickBestOverload typeArgs ctors (argElemsOf argTy) with
+        | ValueSome chosen ->
+            let ctorSig = ExternalSymbols.openSignature chosen typeArgs
+            let resultTy = TyVar(freshTyVar ctx)
+            unify ctx (CstKeys.ofExpr argExpr) ctorSig (TyFun(argTy, resultTy))
+        | ValueNone -> ctx.Error(CstKeys.ofExpr argExpr, noOverloadMsg)
+
     /// `new T(args)`. Mirrors a single application against the ctor, kept inline
     /// so a bare `Expr.New` doesn't need to fabricate an `Expr.App` first.
     let rec inferNew
@@ -79,33 +105,48 @@ module internal UnificationInferCtor =
                     ctx.Error(key, sprintf "Unknown class type '%s'" name)
                     infer ctx argExpr |> ignore
                     TyVar(freshTyVar ctx)
-        // A heritable primitive (`new exn "boom"` — or `new System.Exception "boom"`,
-        // canonicalized to the canon `TyConst` at resolution). Its constructible
-        // surface rides the provider's `IntrinsicClass` shape; the `.ctor` lookup
-        // routes through the PLATFORM repr (`System.Exception`) — the same per-target
-        // routing an intrinsic receiver's instance members use, so the full platform
-        // ctor catalogue stays reachable (e.g. the inner-exception overload the
-        // contract deliberately does not declare). The platform repr is resolved
-        // ONCE here, straight off the `IntrinsicClass` shape. A `TyConst` that is not
-        // a provider `IntrinsicClass` (e.g. `new int(...)`) has no platform ctor
-        // surface and falls to the "'new' requires a class type" error.
+        // A heritable primitive typed by its canon (`new exn "boom"`). The
+        // constructible surface is the CONTRACT `.ctor` set riding the shape's
+        // class surface — the SAME set `inherit exn(…)` checks
+        // (`fillBaseCtorCall`), so the two syntaxes cannot diverge; resolved by
+        // DIRECT qualified lookup off the already-resolved canon key, never a
+        // short-name re-scan. A written PLATFORM spelling
+        // (`new System.Exception(msg, inner)`) canonicalizes to the same `TyConst`
+        // at resolution, but the WRITTEN head still names the metadata class —
+        // that spelling is the deliberate opt-in to the platform's wider ctor
+        // catalogue (the app-form sugar `System.Exception msg` already routes
+        // there), at the cost of platform generality; probe it first. A `TyConst`
+        // that is neither (`new int(...)`) falls to the "'new' requires a class
+        // type" error; a self-host compile of the contract itself has no provider
+        // shape and errors the same way.
         | TyConst(canonKey, tyArgs) ->
-            let platform =
-                OpenScope.tryResolve
-                    ctx.Resolution.OpenScope
-                    (fun c ->
-                        match ctx.Provider.TryLookupType c with
-                        | ValueSome(ExternalTypeShape.IntrinsicClass(platform = Some p)) -> ValueSome p
-                        | _ -> ValueNone
-                    )
-                    (SymbolKeyOps.intrinsicName canonKey)
+            let writtenPlatformClass =
+                match t with
+                | Type.NamedType li ->
+                    let written = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
+                    OpenScope.tryQualify ctx.Resolution.OpenScope (isExternalClass ctx) written
+                | _ -> ValueNone
 
-            match platform with
-            | ValueSome platform -> inferExternalCtorOn infer ctx key platform tyArgs receiverTy argExpr
+            match writtenPlatformClass with
+            | ValueSome resolved -> inferExternalCtorOn infer ctx key resolved tyArgs receiverTy argExpr
             | ValueNone ->
-                ctx.Error(key, "'new' requires a class type")
-                infer ctx argExpr |> ignore
-                TyVar(freshTyVar ctx)
+                match ExternalSymbols.tryIntrinsicClass ctx.Provider canonKey with
+                | ValueSome(struct (_, surface)) ->
+                    inferIntrinsicClassCtorCall
+                        infer
+                        ctx
+                        (tyArgs.AsSpan().ToArray())
+                        surface
+                        (sprintf
+                            "No applicable constructor on '%s' for the given arguments"
+                            (SymbolKeyOps.simpleName canonKey))
+                        argExpr
+
+                    receiverTy
+                | ValueNone ->
+                    ctx.Error(key, "'new' requires a class type")
+                    infer ctx argExpr |> ignore
+                    TyVar(freshTyVar ctx)
         | _ ->
             ctx.Error(key, "'new' requires a class type")
             infer ctx argExpr |> ignore

@@ -112,7 +112,12 @@ let tests =
                 // is the CLI repr (what codegen consumes). An intrinsic carries no
                 // `Origin` (it keys off the name, not an assembly ref).
                 match provider.TryLookupType "Vesper.int" with
-                | ValueSome(ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)) ->
+                | ValueSome(ExternalTypeShape.Intrinsic {
+                                                            Id = {
+                                                                     Canon = canon
+                                                                     Platform = Some platform
+                                                                 }
+                                                        }) ->
                     Expect.equal canon (RuntimeNames.intrinsicKey "int") "int's canon identity is the `.fsi` name"
 
                     Expect.equal

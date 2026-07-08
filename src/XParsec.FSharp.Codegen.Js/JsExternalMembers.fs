@@ -99,8 +99,7 @@ module JsExternalMembers =
                     ValueNone
                 else
                     match shapeOf ft with
-                    | ValueSome(ExternalTypeShape.Intrinsic(platform = Some platform))
-                    | ValueSome(ExternalTypeShape.IntrinsicClass(platform = Some platform)) ->
+                    | ValueSome(ExternalTypeShape.Intrinsic { Id = { Platform = Some platform } }) ->
                         // Read the PLATFORM repr, not `canon` — `canon` is the unifier's
                         // identity key (`"System.Exception"`) and has no JS class analogue.
                         match ExternalSymbols.tryRuntimeType provider platform with

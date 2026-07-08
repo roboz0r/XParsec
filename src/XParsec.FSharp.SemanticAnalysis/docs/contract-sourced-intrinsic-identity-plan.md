@@ -26,14 +26,17 @@ from a hardcoded front-end name set (`feedback_mockbuiltins_is_a_trap`).
   loud-fails. Resolution: `IntrinsicResolve.tryResolveIntrinsicKey` = local `IntrinsicKeys` first,
   else `ExternalSymbols.tryPickRuntimeType` (bare name, then ambient prefixes, scanning PAST a
   non-intrinsic hit), reading the authoritative `canon` off the matched shape.
-- **Shapes carry `SymbolKey` canon**: `ExternalTypeShape.Intrinsic(canon: SymbolKey, arity, platform)`
-  and `IntrinsicClass(canon, arity, platform, baseType, members)` — the heritable primitives
-  (`obj`/`exn`, from `(# class "…" #)` + `extern class with inherit/new:`). `IntrinsicClass`
-  resolves to `TyConst(canon)` exactly like `Intrinsic` (value sites untouched, platform member
-  routing intact); its class surface feeds `subtypeParentOf` (base chain), `resolveInheritParent`
-  (downstream `inherit exn`), `Unification.fillBaseCtorCall` (the `inherit exn(args)` arg check
-  against the contract `.ctor`s — target-agnostic), and codegen `IntrinsicClassBase`
-  (heritability = the shape lookup; the `class` kind tag IS the predicate).
+- **Shapes carry `SymbolKey` canon**: ONE case `ExternalTypeShape.Intrinsic of IntrinsicShape`
+  (`{ Id: IntrinsicIdentity; Class: IntrinsicClassSurface voption }`, with
+  `IntrinsicIdentity = { Canon: SymbolKey; Arity; Platform }`). `Class = ValueSome` ⇔ a heritable
+  primitive (`obj`/`exn`, from `(# class "…" #)` + `extern class with inherit/new:`) — the
+  identity axis is single-pattern BY CONSTRUCTION; the class surface (contract base + `.ctor`s)
+  feeds `subtypeParentOf` (base chain), `resolveInheritParent` (downstream `inherit exn`),
+  `inferIntrinsicClassCtorCall` (the ONE contract-ctor check `new exn` and `inherit exn(args)`
+  share — target-agnostic; the explicit platform spelling `new System.Exception(…)` is the
+  opt-in to the platform's wider catalogue), and codegen `IntrinsicClassBase` (heritability =
+  the surface lookup; the `class` kind tag IS the predicate). Resolved-key consumers route
+  through `ExternalSymbols.tryIntrinsicClass` (direct qualified lookup — no short-name re-scan).
 - **Provider maps re-keyed**: forward `IReadOnlyDictionary<SymbolKey, string>` (canon → platform
   repr), reverse `Map<string, SymbolKey list>` (platform runtime name → canons).
 - **Eager canonicalization at resolution**: metadata `MetadataSymbols.tryBuildType` (partition
@@ -53,6 +56,58 @@ Canon keys are minted asm-blind (`asm = None`). Build/test ONLY via
 
 ## Remaining work, in order
 
+### 0. Review cleanup — LANDED 2026-07-07 (all suites green: SA 765 / Clr 1253 / Js 348 / Vesper 49)
+
+Findings from the 2026-07-07 quality review of the landed milestone, all accepted and landed:
+
+1. **Collapse `IntrinsicClass` into `Intrinsic`**: one case `Intrinsic of IntrinsicShape` with
+   `IntrinsicShape = { Id: IntrinsicIdentity; Class: IntrinsicClassSurface voption }`,
+   `IntrinsicIdentity = { Canon: SymbolKey; Arity: int; Platform: string option }`,
+   `IntrinsicClassSurface = { BaseType: FrozenType voption; Members: ExternalMember[] }`.
+   Principle: **a DU case per identity semantics, a field per added capability on the same
+   identity** — heritability is a capability on the same `TyConst` identity, so the ~13
+   dual-pattern identity-axis sites collapse by construction. (`IntrinsicIdentity` is
+   introduced now because `IntrinsicInterface` below will share it.)
+2. **One canonical resolved-key lookup**: `ExternalSymbols.tryIntrinsicClass`
+   (direct `TryLookupType (qualifiedName canon)`, the `ClrExternalMembers.IntrinsicClassBase`
+   idiom; `ExternalSymbols.tryLookupType` is the existing key-accepting front door) replaces
+   the short-name re-scans in `Unification.fillBaseCtorCall` and `InferCtor` — a resolved key
+   must never round-trip through a string scan. VERIFIED (scout, 2026-07-07): these two are the
+   ONLY canon-key re-resolution sites (every other `intrinsicName` use is display / predicate /
+   repr-bridge); all live producers of a HITTING canon are `Vesper`-qualified, matching the
+   provider's `compiled` key, and the self-host shape-miss stays a silent no-op — equivalent.
+   One structural caveat: the extraction mint (`VesperLib` `RuntimeNames.intrinsicKey short`)
+   would stamp `ns=""` for a heritable intrinsic named outside the shadow set — un-exercised
+   today (`obj`/`exn` only) and already scheduled away by Stage 4's producer-mint re-sourcing.
+3. **One constructible surface for `new exn` vs `inherit exn(…)`**: CONTRACT-for-both (user,
+   confirmed 2026-07-07) — both sites read the shape's contract `.ctor`s; `InferCtor` drops its
+   platform-repr routing for the canon spelling. The platform-only overloads (`message * inner`)
+   stay reachable ONLY via the explicit platform spelling (`new System.Exception(…)`) — an
+   opt-in to losing platform generality, not the default surface. Fix the
+   `IntrinsicClass.members` doc comment to match (it currently claims `new exn` reads the
+   shape). Emit-time `contract ⊆ platform` stays an invariant per target binding.
+4. **`ClrEncoder` `PrimitiveRepr` fallback** must not encode an unknown value-type repr as a
+   reference class: gate on `externalIsValueType` and keep the loud `failwithf` (Stage-3
+   principle: no silent mis-emit).
+5. **VesperLib snapshot-then-patch-twice republish**: mint the heritable-primitive shape ONCE
+   at finalization (base + ctors complete) instead of extraction-time snapshot + two patches.
+   VERIFIED feasible (scout, 2026-07-07): `finalizeDeferred` runs to completion BEFORE the
+   provider's eager intrinsic-axis snapshots (`ExtractCtx.toProvider` chains them), and no
+   intermediate reader needs the shape to already be intrinsic-class-shaped (the freeze path
+   short-circuits `obj`/`exn` via `isPrimitiveName` before consulting the shape; the ctor-loop
+   arity read has a `Class` fallback). Two implementation notes: (a) the `ExternKind.Class`
+   tag is NOT recoverable at finalize (`DeferredBody.Class` doesn't carry it) — the Extern arm
+   must record the flagged `compiled` names in a small side set on `ExtractCtx`;
+   (b) the republish must be a DEDICATED finalize step iterating that set (reading the
+   already-frozen `FrozenBaseType` + the frozen `.ctor`s from `TypeMembers`), not a patch
+   inside the base/ctor loops — a contract type with a base but no ctors (or vice versa)
+   enters only one loop. Bonus: this makes the Extern arm's two branches symmetric (both stay
+   faced/plain `Class` until finalize).
+6. **Minor**: delete `IntrinsicSet.BigInt`/`.Undefined` (guaranteed loud-fail until their
+   contracts land); extract `IntrinsicSet`/`IntrinsicResolve` from `SideTables.fs` (decouple
+   `IntrinsicResolve` to take the `IntrinsicKeys` dictionary, not `PassContextTypes`); retire
+   `RuntimeNames.systemObjectKey` if `systemObjectQualifiedName` can stand alone.
+
 ### 1. Stage 2 — `SymbolKey` currency in the unifier
 
 Reframed after the resolution-time milestone and now much smaller than first planned: the roots
@@ -61,7 +116,7 @@ change**, not new resolution logic. Do not rebuild a reverse-map tier into it.
 
 - `canonName : PassContext -> string -> string` (`EngineCore.fs`) becomes
   `canonKey : PassContext -> SymbolKey -> SymbolKey`: local `IntrinsicReprTypes`/`IntrinsicKeys`
-  → provider `Intrinsic`/`IntrinsicClass` canon via the open scope; a non-reconciled nominal
+  → provider `Intrinsic` canon via the open scope; a non-reconciled nominal
   returns its own key.
 - `subtypeNominalOf` returns `struct (SymbolKey * args)`; `subsumes`/compare consumers go exact
   `=` on canonical keys. Compile-driven: flip the signatures and the error list in
@@ -137,7 +192,19 @@ to `"byref"` at that point.
   retiring it.
 - **Capability interfaces** (`disposable`) still reconcile late via `CapabilityFace`; revisit
   reconciling them at resolution the way the roots were (they resolve to `TyClass`, so the churn
-  profile differs).
+  profile differs). Follow-up design (user, confirmed 2026-07-07): introduce
+  `ExternalTypeShape.IntrinsicInterface of { Id: IntrinsicIdentity; Members: ExternalMember[] }`
+  as a DISTINCT case — an interface differs on the identity axis (`TyClass` constraint, not
+  `TyConst` value identity; excluded from the forward-repr harvest and the unrepresentability
+  gate; participates in reverse canon), so per the case-vs-field principle (cleanup item 1) it
+  earns a case, where FS0025 exhaustiveness is a feature. Payoffs: DELETE
+  `CapabilityPlatformFace` + `ExternalClassShape.CapabilityFace` (every plain class drops a
+  mostly-`None` field; `ClrEnv.externalClassRef`'s one-hop face redirect becomes an
+  `IntrinsicInterface` arm), and the `IsInterface` partitions in `MetadataSymbols.tryBuildType`
+  / `UnificationTranslate.externalClassTy` become data-driven off the published shape kind (the
+  "change both or drift" seam disappears). CAUTION: for an interface, `Id.Platform = None`
+  means "anchored by the backend symbol table" (JS), NOT "unrepresentable" — the opposite of a
+  scalar's `None`; needs a sited comment on the field.
 - **`top` vs `obj` split** (JS-only refinement): `obj` conflates the value ⊤ (JS `unknown`) with
   the heritable class root (JS `Object`); CLR collapses both to `System.Object`. Sharpest payoff
   is boxing on JS. The high-frequency ⊤ meaning should keep the default name.

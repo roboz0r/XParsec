@@ -113,7 +113,12 @@ let tests =
 
                 let facesOf name =
                     match js.TryLookupType name with
-                    | ValueSome(ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)) -> canon, platform
+                    | ValueSome(ExternalTypeShape.Intrinsic {
+                                                                Id = {
+                                                                         Canon = canon
+                                                                         Platform = Some platform
+                                                                     }
+                                                            }) -> canon, platform
                     | other -> failtestf "expected %s as an Intrinsic shape with a JS repr, got %A" name other
 
                 let intCanon, intPlat = facesOf "Vesper.int"
@@ -142,7 +147,12 @@ let tests =
 
                 let facesOf name =
                     match js.TryLookupType name with
-                    | ValueSome(ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)) -> canon, platform
+                    | ValueSome(ExternalTypeShape.Intrinsic {
+                                                                Id = {
+                                                                         Canon = canon
+                                                                         Platform = Some platform
+                                                                     }
+                                                            }) -> canon, platform
                     | other -> failtestf "expected %s as an Intrinsic shape with a JS repr, got %A" name other
 
                 Expect.equal

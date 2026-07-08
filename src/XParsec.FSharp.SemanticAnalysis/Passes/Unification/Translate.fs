@@ -505,9 +505,8 @@ module internal UnificationTranslate =
         let shapeArity (shape: ExternalTypeShape) : int =
             match shape with
             | ExternalTypeShape.Class info -> info.Arity
-            | ExternalTypeShape.Intrinsic _ -> 0
+            | ExternalTypeShape.Intrinsic s -> s.Id.Arity
             | ExternalTypeShape.Enum _ -> 0 // enums are never generic
-            | ExternalTypeShape.IntrinsicClass(arity = a)
             | ExternalTypeShape.Record(arity = a)
             | ExternalTypeShape.Union(arity = a)
             | ExternalTypeShape.Abbrev(arity = a)
@@ -522,17 +521,19 @@ module internal UnificationTranslate =
                         // Mint the nominal's `SymbolKey` from the resolved shape's
                         // origin + the matched compiled name. `asm = Some` marks it external.
                         match shape with
-                        // An `IntrinsicClass` (`obj`/`exn`) is a heritable PRIMITIVE: its
-                        // `baseType`/`.ctor` surface rides the shape, but its NOMINAL IDENTITY
-                        // is the intrinsic canon `TyConst Vesper.obj` (=== the platform
-                        // `System.Object`), exactly like `Intrinsic`. Preserving the `TyConst`
-                        // keeps intrinsic member routing intact — `obj.ToString` / `exn.Message`
+                        // A referenced intrinsic — scalar (`exn = (# "System.Exception" #)`)
+                        // or heritable class: NON-transparent, its NOMINAL IDENTITY is the
+                        // shape's canon `TyConst` (`Vesper.int`, `Vesper.exn`) regardless of
+                        // the optional base/ctor surface. Preserving the `TyConst` keeps
+                        // intrinsic member routing intact — `obj.ToString` / `exn.Message`
                         // resolve through the PLATFORM type (`IntrinsicBclMember`), which is
-                        // per-target and which the contract deliberately does NOT name (ToString
-                        // is CLR-only); member resolution thus MERGES the contract ctors with the
-                        // platform type's members. A faced capability `Class` (`disposable`) is an
-                        // INTERFACE, a constraint not a value type, so it stays a `TyClass` below.
-                        | ExternalTypeShape.IntrinsicClass(canon = canon) -> Some(TyConst(canon, translatedArgs))
+                        // per-target and which the contract deliberately does NOT name
+                        // (ToString is CLR-only); member resolution thus MERGES the contract
+                        // ctors with the platform type's members. A faced capability `Class`
+                        // (`disposable`) is an INTERFACE, a constraint not a value type, so
+                        // it stays a `TyClass` below. (The canon is read OFF the shape — the
+                        // resolved identity, not a by-name re-mint.)
+                        | ExternalTypeShape.Intrinsic s -> Some(TyConst(s.Id.Canon, translatedArgs))
                         // A source-written platform repr with a harvested non-interface
                         // canon (`System.Exception` → `exn`, `System.Object` → `obj`,
                         // `System.Int32` → `int`) resolves to the canon `TyConst` (the
@@ -551,19 +552,6 @@ module internal UnificationTranslate =
                         // exactly like the authored `TyEnum`.
                         | ExternalTypeShape.Enum(origin = origin) ->
                             Some(TyEnum(SymbolKeyOps.externalTypeKey origin key 0))
-                        // A referenced intrinsic (`exn = (# "System.Exception" #)`):
-                        // NON-transparent, resolves to the nominal `TyConst <short>` —
-                        // the *unqualified* name, identical to the local arm
-                        // (`IntrinsicReprTypes.ContainsKey name -> TyConst name`) and to
-                        // `BuiltinTypes.tyInt = TyConst "int"`, so an external `int` /
-                        // `string` unifies with literals and keys the codegen repr map
-                        // the same way a locally-declared one does. (The qualified `key`
-                        // is what `subsumes.canonName` re-resolves through the ambient to
-                        // recover the repr.) The repr is consumed by codegen / subsumes,
-                        // never by dealiasing here.
-                        | ExternalTypeShape.Intrinsic _ ->
-                            let short = key.Substring(key.LastIndexOf('.') + 1)
-                            Some(TyConst(BuiltinTypes.intrinsicKey short, EqArray.empty))
                         // A transparent abbreviation dealiases to its body: `int32 =
                         // int` (`int = (# "System.Int32" #)`) resolves to `TyConst
                         // "int"`, the form codegen actually encodes — without this an

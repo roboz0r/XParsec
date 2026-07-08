@@ -42,12 +42,11 @@ module NameResolutionScope =
         let shapeArity (shape: ExternalTypeShape) =
             match shape with
             | ExternalTypeShape.Class info -> info.Arity
-            | ExternalTypeShape.Intrinsic _ -> 0
+            | ExternalTypeShape.Intrinsic s -> s.Id.Arity
             | ExternalTypeShape.Enum _ -> 0 // enums are never generic
             | ExternalTypeShape.Record(arity = a)
             | ExternalTypeShape.Union(arity = a)
             | ExternalTypeShape.Abbrev(arity = a)
-            | ExternalTypeShape.IntrinsicClass(arity = a)
             | ExternalTypeShape.Opaque(arity = a) -> a
 
         // Mint from the matched shape's origin where one exists (Class/Union/Record
@@ -60,10 +59,9 @@ module NameResolutionScope =
             | ExternalTypeShape.Union(origin = o)
             | ExternalTypeShape.Enum(origin = o) -> SymbolKeyOps.externalTypeKey o compiled arity
             | ExternalTypeShape.Abbrev _
+            // An intrinsic's identity is the canon (asm-blind), keyed off the compiled
+            // name — the optional base/ctor surface does not change the key.
             | ExternalTypeShape.Intrinsic _
-            // Identity is the intrinsic canon (asm-blind), keyed off the compiled name
-            // like `Intrinsic` — the base/ctor surface does not change the key.
-            | ExternalTypeShape.IntrinsicClass _
             | ExternalTypeShape.Opaque _ -> SymbolKeyOps.qualifiedTypeKey compiled arity
 
         let lookup (candidate: string) : SymbolKey voption =

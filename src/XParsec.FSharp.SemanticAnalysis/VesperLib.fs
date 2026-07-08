@@ -401,21 +401,6 @@ module VesperLib =
                             FrozenBaseType = baseOpt |> ValueOption.map (freezeBodyType ctx dc)
                             FrozenInterfaces = freezeInterfaces ctx dc ifaces
                         }
-                // A heritable primitive (`obj`/`exn`) was republished as `IntrinsicClass`
-                // at extraction time, BEFORE this pass froze its deferred `inherit` —
-                // the republish snapshot has `baseType = ValueNone`. Freeze the declared
-                // base now (`exn → obj`), exactly as the `Class` arm above does; the
-                // `.ctor` members ride the ctor loop below and are refreshed onto the
-                // shape after it.
-                | ExternalTypeShape.IntrinsicClass(canon, arity, platform, _, members),
-                  (true, DeferredBody.Class(dc, baseOpt, _, _)) ->
-                    ExternalTypeShape.IntrinsicClass(
-                        canon,
-                        arity,
-                        platform,
-                        baseOpt |> ValueOption.map (freezeBodyType ctx dc),
-                        members
-                    )
                 | _ -> shape
 
             ctx.TypeShapes.[k] <- finalized
@@ -509,7 +494,6 @@ module VesperLib =
                 let arity =
                     match ctx.TypeShapes.TryGetValue k with
                     | true, ExternalTypeShape.Class shape -> shape.Arity
-                    | true, ExternalTypeShape.IntrinsicClass(arity = a) -> a
                     | _ -> 0
 
                 let declKey = SymbolKeyOps.qualifiedTypeKeyOf None k arity
@@ -537,18 +521,41 @@ module VesperLib =
                     | _ -> ResizeArray<ExternalMember>(ctorMembers)
 
                 ctx.TypeMembers.[k] <- merged
+            | _ -> ()
 
-                // An `IntrinsicClass` (heritable primitive: `obj`/`exn`) carries its
-                // contract `.ctor`s ON the shape too (`ExternalTypeShape.IntrinsicClass.members`
-                // — the constructible surface read alongside the member index). The
-                // extraction-time republish snapshotted an empty array (the ctors were
-                // still deferred), so refresh it from the just-frozen members.
-                match ctx.TypeShapes.TryGetValue k with
-                | true, ExternalTypeShape.IntrinsicClass(canon, arity, platform, bt, _) ->
-                    let frozenCtors = merged |> Seq.filter (fun m -> m.Name = ".ctor") |> Seq.toArray
+        // Heritable primitives (`extern class with …`: `obj`/`exn`): republish ONCE,
+        // now that BOTH surfaces are complete — the base frozen by the shape loop,
+        // the `.ctor`s by the ctor loop (a dedicated step, not a patch inside either
+        // loop: a contract type with a base but no ctors, or ctors but no base,
+        // enters only one of them). Recorded at the `TypeSignature.Extern` arm
+        // (`PendingIntrinsicClasses`) because the `extern class` kind tag is the
+        // discriminator and is not recoverable from `DeferredBody`. Runs before the
+        // provider's eager intrinsic-axis snapshots (`toProvider` chains this pass
+        // first), so the published axes see the final shape.
+        for KeyValue(compiled, struct (canon, platform)) in ctx.PendingIntrinsicClasses do
+            match ctx.TypeShapes.TryGetValue compiled with
+            | true, ExternalTypeShape.Class shape ->
+                let ctors =
+                    match ctx.TypeMembers.TryGetValue compiled with
+                    | true, ms -> ms |> Seq.filter (fun m -> m.Name = ".ctor") |> Seq.toArray
+                    | _ -> [||]
 
-                    ctx.TypeShapes.[k] <- ExternalTypeShape.IntrinsicClass(canon, arity, platform, bt, frozenCtors)
-                | _ -> ()
+                ctx.TypeShapes.[compiled] <-
+                    ExternalTypeShape.Intrinsic
+                        {
+                            Id =
+                                {
+                                    Canon = canon
+                                    Arity = shape.Arity
+                                    Platform = Some platform
+                                }
+                            Class =
+                                ValueSome
+                                    {
+                                        BaseType = shape.FrozenBaseType
+                                        Members = ctors
+                                    }
+                        }
             | _ -> ()
 
         // Vals last: a val signature / constraint target may name an abbreviation,
@@ -1351,7 +1358,9 @@ module VesperLib =
                         | _ -> None
 
                     ctx.TypeShapes.[compiled] <-
-                        ExternalTypeShape.Intrinsic(RuntimeNames.intrinsicKey short, arity, platform)
+                        ExternalTypeShape.Intrinsic(
+                            IntrinsicShape.Scalar(RuntimeNames.intrinsicKey short, arity, platform)
+                        )
 
                 match members with
                 | ValueSome(TypeExtensionElementsSignature(_, elems, _)) when not (Seq.isEmpty elems) ->
@@ -1379,20 +1388,18 @@ module VesperLib =
                             match ctx.TypeShapes.TryGetValue compiled with
                             | true, ExternalTypeShape.Class shape ->
                                 match kindTag with
-                                // `extern class with …` (obj/exn): a heritable PRIMITIVE.
-                                // Republish as `IntrinsicClass` — the intrinsic identity
-                                // (`TyConst`, so value sites are untouched) PLUS the extracted
-                                // base + ctors, the heritable/constructible surface. (Contrast a
-                                // capability INTERFACE below, which stays a faced `Class`.)
+                                // `extern class with …` (obj/exn): a heritable PRIMITIVE. Its
+                                // base/`.ctor` surfaces are still deferred CSTs here, so only
+                                // RECORD it; the one-shot republish as an `Intrinsic` with a
+                                // class surface runs in `finalizeDeferred`, once both surfaces
+                                // are frozen. Until then the shape stays the plain `Class`
+                                // `extractBodiedClassLike` registered — safe, because the
+                                // freeze path never reads the shape for a primitive name
+                                // (`isPrimitiveName` short-circuits first). (Contrast a
+                                // capability INTERFACE below, whose face is complete now.)
                                 | ValueSome(ExternKind.Class _) ->
-                                    ctx.TypeShapes.[compiled] <-
-                                        ExternalTypeShape.IntrinsicClass(
-                                            RuntimeNames.intrinsicKey short,
-                                            arity,
-                                            Some platform,
-                                            shape.FrozenBaseType,
-                                            shape.Members
-                                        )
+                                    ctx.PendingIntrinsicClasses.[compiled] <-
+                                        struct (RuntimeNames.intrinsicKey short, platform)
                                 // A capability interface (`disposable`): keep the dual-faced
                                 // `Class` so it reconciles to its BCL spelling yet stays a
                                 // `TyClass` constraint.

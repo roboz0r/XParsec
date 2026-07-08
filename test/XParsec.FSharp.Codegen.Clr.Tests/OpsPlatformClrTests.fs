@@ -63,7 +63,12 @@ let tests =
                 let clr = ClrSymbolProviders.buildContractFor None [ vesperCoreManifest ]
 
                 match clr.TryLookupType "Vesper.int" with
-                | ValueSome(ExternalTypeShape.Intrinsic(canon = canon; platform = Some platform)) ->
+                | ValueSome(ExternalTypeShape.Intrinsic {
+                                                            Id = {
+                                                                     Canon = canon
+                                                                     Platform = Some platform
+                                                                 }
+                                                        }) ->
                     Expect.equal canon (RuntimeNames.intrinsicKey "int") "int canon on CLR is the `.fsi` name"
                     Expect.equal platform "System.Int32" "int platform face on CLR is the BCL repr"
 

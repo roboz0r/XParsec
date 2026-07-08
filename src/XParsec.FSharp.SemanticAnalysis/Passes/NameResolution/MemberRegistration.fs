@@ -698,7 +698,7 @@ module NameResolutionMemberRegistration =
         // An intrinsic's identity is resolved (local registration first, then the provider
         // through ambient opens), never enumerated by name. `args` are empty for the scalar
         // intrinsics, so a uniform arm is behaviour-identical to the old per-name arms.
-        match IntrinsicResolve.tryResolveIntrinsicKey ctx.Provider ctx.Types name with
+        match IntrinsicResolve.tryResolveIntrinsicKey ctx.Provider ctx.Types.IntrinsicKeys name with
         | Some k -> TyConst(k, args)
         | None ->
             // Nominal heads carry their resolved `SymbolKey`; take it
@@ -794,15 +794,19 @@ module NameResolutionMemberRegistration =
                         failwithf "Internal error: heritable external base '%s' has no recorded intrinsic repr" name
                 | false, _ ->
                     // A referenced heritable primitive (`exn`): the provider publishes it as
-                    // an `IntrinsicClass` (contract `inherit obj` + ctors). Resolve it through
-                    // the provider (bare name, then ambient opens, scanning past a non-intrinsic
-                    // hit) to its intrinsic identity — read the authoritative `canon` off the
-                    // shape — and admit it as a `TyConst` base; the derived class's chain then
-                    // continues through `subtypeParentOf`'s `IntrinsicClass` arm. (Distinct from
-                    // a *local* heritable extern, handled by `HeritableExternBases` above.)
+                    // an `Intrinsic` with a class surface (contract `inherit obj` + ctors).
+                    // Resolve it through the provider (bare name, then ambient opens, scanning
+                    // past a non-intrinsic hit) to its intrinsic identity — read the
+                    // authoritative canon off the shape — and admit it as a `TyConst` base; the
+                    // derived class's chain then continues through `subtypeParentOf`'s
+                    // class-surface arm. (Distinct from a *local* heritable extern, handled by
+                    // `HeritableExternBases` above.)
                     let intrinsicClassCanon (shape: ExternalTypeShape) =
                         match shape with
-                        | ExternalTypeShape.IntrinsicClass(canon = c) -> ValueSome c
+                        | ExternalTypeShape.Intrinsic {
+                                                          Id = { Canon = c }
+                                                          Class = ValueSome _
+                                                      } -> ValueSome c
                         | _ -> ValueNone
 
                     match ExternalSymbols.tryPickRuntimeType ctx.Provider intrinsicClassCanon name with

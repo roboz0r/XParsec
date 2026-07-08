@@ -615,13 +615,16 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// key (`System.Exception`, the identity base-ctor `MemberRef`s are minted
     /// against) plus its raw `TypeRef` (the derived type's `extends` token).
     /// Heritable-ness is CONTRACT-sourced: only a `(# class "…" #)`-tagged primitive
-    /// is published as `IntrinsicClass`, so the shape lookup IS the predicate — a
-    /// value-repr intrinsic (`int`, `decimal`, `unit`) is a plain `Intrinsic` and
-    /// never matches. (An own-unit heritable extern never arrives here: it resolves
-    /// to an `FTClass` base, the `ExternalClassTypeRef` path.)
+    /// carries a class surface, so the shape lookup IS the predicate — a value-repr
+    /// intrinsic (`int`, `decimal`, `unit`) has none and never matches. (An own-unit
+    /// heritable extern never arrives here: it resolves to an `FTClass` base, the
+    /// `ExternalClassTypeRef` path.)
     member _.IntrinsicClassBase(canon: SymbolKey) : struct (SymbolKey * EntityHandle) voption =
         match env.Symbols.TryLookupType(SymbolKeyOps.qualifiedName canon) with
-        | ValueSome(ExternalTypeShape.IntrinsicClass(platform = Some repr)) ->
+        | ValueSome(ExternalTypeShape.Intrinsic {
+                                                    Id = { Platform = Some repr }
+                                                    Class = ValueSome _
+                                                }) ->
             let platformKey = SymbolKeyOps.qualifiedTypeKeyOf None repr 0
 
             match externalClassRef platformKey with

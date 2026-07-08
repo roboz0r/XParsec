@@ -103,14 +103,6 @@ module RuntimeNames =
     let vesperPrintfFormatKey: SymbolKey =
         SymbolKey.TypeKey(Some "Vesper.Printf", "Vesper", "PrintfFormat`4")
 
-    /// Canonical identity for the BCL `System.Object`. No longer recognised at the
-    /// unify boundary — metadata surfacing eagerly canonicalizes `System.Object` to
-    /// the canon `obj` intrinsic (`TyConst`, matched by `=` via `TyObj`), so no
-    /// `TyClass System.Object` reaches the predicates. Kept solely as the source of
-    /// `systemObjectQualifiedName` (the rendered-string consumers), so `private`.
-    let private systemObjectKey: SymbolKey =
-        SymbolKey.TypeKey(Some "System.Runtime", "System", "Object")
-
     /// The user-facing abbreviation for the object root — `obj` — declared in
     /// `prim-types-object.fs` as `type obj = (# "System.Object" #)`. The front end
     /// carries it as `TyConst("obj", _)` (what `translateType` produces); codegen as
@@ -122,11 +114,12 @@ module RuntimeNames =
     let objAbbrevName: string = "obj"
 
     /// The intrinsic the `obj` abbreviation binds to — `System.Object`, the
-    /// `(# "System.Object" #)` of `prim-types-object.fs`. Derived from the canonical
-    /// `systemObjectKey` so the qualified string and the key identity can never
-    /// drift. Used where the param model is a *rendered* signature string rather than
-    /// a `SymbolKey` (an external member's `argSig`).
-    let systemObjectQualifiedName: string = SymbolKeyOps.qualifiedName systemObjectKey
+    /// `(# "System.Object" #)` of `prim-types-object.fs`. Used where the param model
+    /// is a *rendered* signature string rather than a `SymbolKey` (an external
+    /// member's `argSig`). No `SymbolKey` twin remains — `System.Object` is no
+    /// longer recognised at the unify boundary (metadata surfacing eagerly
+    /// canonicalizes it to the `obj` intrinsic), so the string is the whole story.
+    let systemObjectQualifiedName: string = "System.Object"
 
     /// The BCL `System.IO.TextWriter` nominal name, carried as the `SemType` of a
     /// printf writer *sink* (`fprintf`, `PrintfSpec.tyTextWriter`). A CLR

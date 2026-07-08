@@ -34,6 +34,7 @@
     <Compile Include="ReferencedProject.fs" />
     <Compile Include="ConformancePass.fs" />
     <Compile Include="ConformanceTypars.fs" />
+    <Compile Include="Intrinsics.fs" />
     <Compile Include="SideTables.fs" />
     <Compile Include="StringLiterals.fs" />
     <Compile Include="Inline.fs" />
