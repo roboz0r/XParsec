@@ -406,13 +406,19 @@ module RuntimeNames =
             ]
 
     /// The non-numeric built-in primitive type names — the scalar/reference primitives
-    /// (`bool`/`char`/`string` and the reference roots `unit`/`obj`/`objnull`/`voidptr`/
-    /// `exn`). The companion to `numericTypeNames`: the single source the name-classifying
+    /// (`bool`/`char`/`string` and the reference roots `unit`/`obj`/`voidptr`/`exn`).
+    /// The companion to `numericTypeNames`: the single source the name-classifying
     /// recognisers share for the non-numeric core, so it grows in one place instead of
     /// each recogniser carrying its own inline copy. Consumers union this with
     /// `numericTypeNames` (and any use-site-only extras) at the call site.
+    ///
+    /// `objnull` is deliberately NOT here: it is the ordinary `obj | null` union
+    /// (`nullKey`), not a scalar primitive, so it must EXPAND its abbreviation to
+    /// `FTOr [obj; null]` rather than be recognised as a primitive that dealiases to
+    /// bare `obj` — the extractor's `isPrimitiveName` gate would otherwise drop the
+    /// `null` member (`objnull`/`TyOr` nullability).
     let referencePrimitiveNames: Set<string> =
-        Set.ofList [ "bool"; "char"; "string"; "unit"; "obj"; "objnull"; "voidptr"; "exn" ]
+        Set.ofList [ "bool"; "char"; "string"; "unit"; "obj"; "voidptr"; "exn" ]
 
     /// The declaring namespace every built-in intrinsic identity carries — the
     /// `namespace Vesper` of `prim-types-*.fs`. Rides in the intrinsic's `SymbolKey`
@@ -478,6 +484,18 @@ module RuntimeNames =
     let arrayKey (rank: int) : SymbolKey = primitiveKey (arrayName rank)
     let dynamicKey: SymbolKey = primitiveKey "dynamic"
 
+    /// The `null` absence-sentinel TYPE — the cross-backend nullable member of a
+    /// `T | null` union (JS `null`; the CLR reference-null / F# 9 `T | null` interop).
+    /// The single identity a written `null` type, a `T | null` union member (front
+    /// end, contract extractor, TS manifest), and any per-target lowering all key on.
+    /// Unlike every other intrinsic `null` is NOT a `namespace Vesper` type: it is a
+    /// reserved KEYWORD (`Token.KWNull`), so `type null = extern` cannot parse and it
+    /// has no declaring namespace — its identity is the BARE `null` (`ns = ""`, an
+    /// `opaqueKey`), never `Vesper.null`. A DISTINCT type from `unit` (an absence
+    /// sentinel, not the inhabited `()`). Single-sourced here so the three producers
+    /// and any consumer share one constant instead of re-spelling `opaqueKey "null"`.
+    let nullKey: SymbolKey = opaqueKey nullTypeName
+
 /// Active patterns recognising the well-known intrinsic `SemType`/`FrozenType`s by KEY
 /// IDENTITY (never a stringified name) — the sanctioned way for the semantic passes to
 /// ask "is this the `bool` / `unit` / `obj` / array / by-ref intrinsic?". Each matches the
@@ -495,6 +513,7 @@ module IntrinsicTypePatterns =
     let private dynamicKey = RuntimeNames.dynamicKey
     let private arrayKey1 = RuntimeNames.arrayKey 1
     let private byrefKey = RuntimeNames.byrefKey
+    let private nullKey = RuntimeNames.nullKey
 
     let (|TyUnit|_|) (ty: SemType) =
         match ty with
@@ -521,6 +540,14 @@ module IntrinsicTypePatterns =
         | TyConst(k, a) when a.IsEmpty && k = dynamicKey -> Some()
         | _ -> None
 
+    /// The `null` absence-sentinel member of a `T | null` union (`RuntimeNames.nullKey`).
+    /// The canonical way to recognise a written/extracted `null`, e.g. to erase it at a
+    /// CLR reference-null seam (`stripReferenceNull`, `ClrEncoder`).
+    let (|TyNull|_|) (ty: SemType) =
+        match ty with
+        | TyConst(k, a) when a.IsEmpty && k = nullKey -> Some()
+        | _ -> None
+
     /// The rank-1 array intrinsic `'T[]`, binding its element type.
     let (|TyArray|_|) (ty: SemType) =
         match ty with
@@ -544,4 +571,11 @@ module IntrinsicTypePatterns =
     let (|FTUnit|_|) (ft: FrozenType) =
         match ft with
         | FTConst(k, a) when a.IsEmpty && k = unitKey -> Some()
+        | _ -> None
+
+    /// Frozen mirror of `(|TyNull|_|)` — the `null` member of a frozen `T | null`
+    /// union, recognised at CLR emit (`ClrEncoder`'s `FTOr` reference-null erasure).
+    let (|FTNull|_|) (ft: FrozenType) =
+        match ft with
+        | FTConst(k, a) when a.IsEmpty && k = nullKey -> Some()
         | _ -> None

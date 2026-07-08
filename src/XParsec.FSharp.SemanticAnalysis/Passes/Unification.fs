@@ -860,7 +860,13 @@ module Unification =
                     match required |> Array.tryFind (fun em -> em.Name = mInfo.Name) with
                     | Some em ->
                         let expected = ExternalSymbols.openSignature em argArr
-                        unify ctx mInfo.DeclKey mInfo.Type expected
+                        // Conformance is a CLR-ABI match: a member declared with a
+                        // nullable-reference param/return (`CompareTo(that: objnull)`)
+                        // satisfies the non-null slot (`IComparable.CompareTo(obj)`) —
+                        // `obj | null` and `obj` are the same `System.Object` slot — so
+                        // erase reference-nullability on BOTH sides before the invariant
+                        // unify (the interface slot may itself be nullable-annotated).
+                        unify ctx mInfo.DeclKey (stripReferenceNull mInfo.Type) (stripReferenceNull expected)
                     | None ->
                         ctx.Error(
                             mInfo.DeclKey,
@@ -908,7 +914,10 @@ module Unification =
                     | _ -> ValueNone
 
                 match expected with
-                | ValueSome expectedTy -> unify ctx mInfo.DeclKey mInfo.Type expectedTy
+                // Erase reference-nullability so an `override Equals(that: objnull)`
+                // conforms to the `Equals(obj)` Object slot (ABI-level match, as in
+                // `checkInterfaceConformance`).
+                | ValueSome expectedTy -> unify ctx mInfo.DeclKey (stripReferenceNull mInfo.Type) expectedTy
                 | ValueNone -> ()
 
     /// Interface-impl resolution pre-pass: resolve

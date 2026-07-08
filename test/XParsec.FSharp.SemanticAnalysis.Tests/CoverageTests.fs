@@ -966,6 +966,30 @@ let tests =
                 Expect.stringContains (TastShape.prettyDecl last) ":?> D" "downcast rendered"
             }
 
+            // A nullable-reference source `T | null` downcasts EXACTLY as its non-null
+            // part `T` (reference-null erasure). `obj | null` downcasts like `obj`,
+            // which HAS proper subtypes, so `(x: obj | null) :?> C` is admitted — the
+            // `objnull ≡ obj` ABI story; mirrors `Vesper.Set`'s `(that: objnull) :?>
+            // Set<'T>`.
+            test "`:?>` from `obj | null` is permitted (downcasts as `obj`)" {
+                let tast =
+                    analyse "type C() =\n    member this.X = 1\nlet g (x: obj | null) = x :?> C\n"
+
+                Expect.isEmpty tast.Diagnostics "nullable-obj downcast is admitted"
+            }
+
+            // `string | null` downcasts as `string`, which is sealed / has no proper
+            // subtypes, so the coercion is impossible — matching F#'s FS0016 ("does not
+            // have any proper subtypes"). The `null` member does NOT rescue it.
+            test "`:?>` from `string | null` is rejected (downcasts as sealed `string`)" {
+                let tast =
+                    analyse "type C() =\n    member this.X = 1\nlet g (x: string | null) = x :?> C\n"
+
+                Expect.isTrue
+                    (tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "downcast"))
+                    "a nullable-string downcast to an unrelated type is rejected"
+            }
+
             test "TAST: `:?` shapes as TypeTest" {
                 let tast =
                     analyse

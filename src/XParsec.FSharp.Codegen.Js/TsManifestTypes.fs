@@ -439,7 +439,11 @@ module internal TsManifestTranslate =
                     || RuntimeNames.referencePrimitiveNames.Contains name
                     // Use-site extras beyond the shared cores: `undefined` (JS-only) and
                     // `bigint` — both are contract intrinsics spellable by a manifest
-                    // param but absent from the numeric/reference cores.
+                    // param but absent from the numeric/reference cores. `null` is NOT
+                    // here: it is a reserved keyword with no `Vesper` namespace, so a
+                    // manifest `null` member mints the BARE `nullKey` (`opaqueKey "null"`)
+                    // via the opaque branch below — the SAME identity the front end and
+                    // extractor mint, so a `T | null` union unifies across all three.
                     || name = "undefined"
                     || name = "bigint"
 

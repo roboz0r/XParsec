@@ -29,6 +29,31 @@ module UnificationEngineCore =
             | _ -> TyVar root
         | _ -> t
 
+    /// Erase reference-type nullability (`T | null → T`) throughout `t`: drop the
+    /// `null` member (`RuntimeNames.nullKey`) from every anonymous union, collapsing a
+    /// resulting singleton (`obj | null → obj`). This is the CLR-ABI view of a nullable
+    /// reference — `obj | null` and `obj` are the same `System.Object` slot — applied
+    /// ONLY at ABI-matching seams (interface/override conformance), NOT in general
+    /// typing, where the union is kept so `subsumes` still tracks `T <: T | null`. A
+    /// value-type `int | null` (⇒ `System.Nullable<int>`, a distinct repr) is out of
+    /// scope and erases to `int`, which the self-host never exercises.
+    let rec stripReferenceNull (t: SemType) : SemType =
+        // Resolve at each node first: an annotated `objnull` param can arrive behind a
+        // `TyVar` Link, and `mapChildren` treats a `TyVar` as a leaf, so a raw walk
+        // would miss the union.
+        match resolveStep t with
+        | TyOr members ->
+            members.Members
+            |> EqSet.toList
+            |> List.filter (
+                function
+                | TyNull -> false
+                | _ -> true
+            )
+            |> List.map stripReferenceNull
+            |> mkUnion
+        | resolved -> SemType.mapChildren stripReferenceNull resolved
+
     /// Fully resolve a SemType: walk all TyVar chains AND recurse into
     /// compound shapes. A measure-bearing TyVar (`Units` set on its root)
     /// is preserved as a TyVar rather than collapsed into its carrier —

@@ -273,18 +273,26 @@ module internal UnificationInferTypeOps =
         let srcTy = infer ctx inner
         let tgtTy = translateType ctx t
 
+        // A nullable-reference source `T | null` downcasts EXACTLY as its non-null part
+        // `T` does — F# governs the coercion by the non-null type's proper-subtype
+        // structure (`obj | null :?> C` is fine because `obj` has proper subtypes;
+        // `string | null :?> C` is FS0016 because `string` is sealed). So erase the
+        // `null` member and run the ordinary downcast check on the remainder. (The
+        // diagnostics still show the original `srcTy` so the user sees `string | null`.)
+        let checkSrc = stripReferenceNull srcTy
+
         // A still-unresolved source TyVar is admitted (runtime-checked, like `obj`):
         // an interface/override member's unannotated param (`that` in
         // `IStructuralEquatable.Equals`) is pinned to `obj` only by the *conformance*
         // unify that runs after the body — so the operand is a free var here. We
         // can't prove unrelatedness of an unknown type, so no static error (G21).
         let isUnresolvedVar =
-            match resolveStep srcTy with
+            match resolveStep checkSrc with
             | TyVar _ -> true
             | _ -> false
 
-        if not (isObjTy srcTy) && not isUnresolvedVar then
-            match subsumes ctx tgtTy srcTy with
+        if not (isObjTy checkSrc) && not isUnresolvedVar then
+            match subsumes ctx tgtTy checkSrc with
             | SubsumeOutcome.Subtype -> ()
             | SubsumeOutcome.Equal ->
                 ctx.Warn(key, sprintf "Downcast is redundant — the static type '%A' already matches" (zonk srcTy))

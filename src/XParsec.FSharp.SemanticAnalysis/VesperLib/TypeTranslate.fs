@@ -629,13 +629,19 @@ module VesperLibTypeTranslate =
 
         | Type.UnionType(left, _, right) ->
             // A nullable reference type `T | null` (F# nullable refs, e.g.
-            // `type objnull = obj | null`). Vesper SemTypes carry no nullability
-            // axis, so the nullable form collapses to its non-null part `T`.
-            // Any other union shape (not `… | null`) is genuinely unrepresentable.
+            // `type objnull = obj | null`). It freezes to the anonymous union
+            // `FTOr [T; null]` — the `null` member is the cross-backend `nullKey`
+            // intrinsic, matching the front end's `Type.Null` mint so an extracted
+            // `objnull` unifies with a written `T | null`. `FrozenType.MkUnion`
+            // canonicalises (flatten/dedup/singleton-collapse). Any other union shape
+            // (not `… | null`) is genuinely unrepresentable.
             match right with
-            | Type.Null _ -> translateType ctx lexed input opens typars constraints left
+            | Type.Null _ ->
+                match translateType ctx lexed input opens typars constraints left with
+                | Error e -> Error e
+                | Ok fl -> Ok(FrozenType.MkUnion [ fl; FTConst(RuntimeNames.nullKey, EqArray.empty) ])
             | _ -> Error "Union types (e.g. `obj | null`) not supported"
-        | Type.Null _ -> Error "Null types not supported"
+        | Type.Null _ -> Ok(FTConst(RuntimeNames.nullKey, EqArray.empty))
         | Type.ILIntrinsic _ -> Error "Inline IL not supported"
         | Type.MeasureType _ -> Error "Measure types not supported"
         | Type.AnonRecordType _ -> Error "Anonymous record types not supported"

@@ -352,12 +352,14 @@ module internal UnificationTranslate =
 
             TyConst(RuntimeNames.arrayKey rank, EqArray.singleton (translateType ctx baseTy))
         | Type.Null _ ->
-            // The `null` literal type — a real *member* of an anonymous union
-            // (`T | null`), not a nominal type. Resolves to the reserved
-            // `TyConst "null"` (RuntimeNames); erased per backend at
-            // codegen. Bare `null` outside a union is just `TyConst "null"` — its
-            // (lack of) assignability is decided later, like any other member.
-            TyConst(RuntimeNames.opaqueKey RuntimeNames.nullTypeName, EqArray.empty)
+            // The `null` type — a real *member* of an anonymous union (`T | null`),
+            // not a nominal type. Resolves to the cross-backend `nullKey` intrinsic
+            // (`Vesper.null`) — the SAME identity the contract extractor and the TS
+            // manifest mint for a `null` member, so all three unify — with a per-target
+            // repr the backend erases (JS `null`; CLR reference-null). Bare `null`
+            // outside a union is just `TyConst nullKey`; its (lack of) assignability is
+            // decided later, like any other member.
+            TyConst(RuntimeNames.nullKey, EqArray.empty)
         | Type.UnionType(left = l; right = r) ->
             // TypeScript-style anonymous structural union (`X | Y`). The
             // CST is a binary node (left-nested for `a | b | c`); translate both

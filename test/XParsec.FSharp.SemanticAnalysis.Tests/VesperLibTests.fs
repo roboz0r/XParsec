@@ -1244,17 +1244,18 @@ let tests =
                 | _ -> ()
             }
 
-            test "objnull abbrev (`obj | null`) extracts to obj" {
+            test "objnull abbrev (`obj | null`) extracts to the union `FTOr [obj; null]`" {
                 // `type objnull = obj | null` (prim-types-object.fsi) is a *nullable
                 // reference type*; its abbrev RHS parses to `Type.UnionType(obj, |,
-                // null)`. The contract extractor's `translateType` used to refuse every
-                // `UnionType`, so the abbrev froze to the `<unfreezable external
-                // template>` sentinel and every consumer reference thawed to a
-                // `TyUnknown` that `unify` rejects (set.fs:906 `IComparable.CompareTo`'s
-                // `that: objnull`). The fix collapses the `T | null` form to its
-                // non-null part `T` — Vesper SemTypes carry no nullability axis. Gated
-                // through the synthetic-`.fsi` extract+finalize path (sibling to
-                // "finalize fills real templates", which guards the dual sentinel).
+                // null)`. `objnull` is NOT a primitive — it is the ordinary `obj | null`
+                // union, so its abbrev body freezes to the anonymous union `FTOr [obj;
+                // null]` (the `null` member is the cross-backend `nullKey` intrinsic),
+                // matching the front end's `Type.Null` mint so an extracted `objnull`
+                // unifies with a written `T | null`. (Earlier this collapsed to the
+                // non-null part `obj`, dropping the `null` member; the union is the
+                // faithful representation.) Gated through the synthetic-`.fsi`
+                // extract+finalize path (sibling to "finalize fills real templates",
+                // which guards the dual sentinel).
                 let input =
                     "namespace App\n\nmodule M =\n    type objnull = obj | null\n    val f: objnull -> int\n"
 
@@ -1289,8 +1290,9 @@ let tests =
 
                 let unfreezable = FTUnknown "<unfreezable external template>"
 
-                // The abbrev body, post-finalize, must be the non-null part `obj` —
-                // not the sentinel the blanket UnionType-refusal used to leave.
+                // The abbrev body, post-finalize, must be the union `FTOr [obj; null]` —
+                // not the sentinel the blanket UnionType-refusal used to leave, nor the
+                // collapse to bare `obj`.
                 let objnullShape =
                     let mutable found = ValueNone
 
@@ -1306,8 +1308,18 @@ let tests =
                     Expect.notEqual frozen unfreezable "objnull did not freeze to the <unfreezable> sentinel"
 
                     match frozen with
-                    | FTConst(k, _) when SymbolKeyOps.simpleName k = "obj" -> ()
-                    | other -> failtestf "expected objnull to freeze to FTConst(\"obj\"); got %A" other
+                    | FTOr members ->
+                        let names =
+                            EqSet.toList members
+                            |> List.map (fun ft ->
+                                match ft with
+                                | FTConst(k, _) -> SymbolKeyOps.simpleName k
+                                | other -> failtestf "expected FTConst members in objnull union; got %A" other
+                            )
+                            |> List.sort
+
+                        Expect.equal names [ "null"; "obj" ] "objnull is the union of `obj` and `null`"
+                    | other -> failtestf "expected objnull to freeze to FTOr [obj; null]; got %A" other
                 | ValueSome other -> failtestf "expected an Abbrev shape for objnull; got %A" other
                 | ValueNone ->
                     failtestf "objnull abbrev registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)

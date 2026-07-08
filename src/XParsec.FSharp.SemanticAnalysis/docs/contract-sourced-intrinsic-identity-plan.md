@@ -7,9 +7,11 @@ rolled up and deleted: `qualified-intrinsic-identities-plan.md` (intrinsics got 
 canonicalize eagerly at resolution; `canonName`'s reverse tier, `normalizeObj`, and
 `isSystemObjectKey` are deleted). All suites green: SA 765 / Clr 1253 / Js 348 / Vesper 49.
 Delete this doc when the residue stages (5a bigint — LANDED 2026-07-08 / 5b ranges — LANDED
-2026-07-08 / 5c nullability) and byref land (`feedback_plan_docs_ephemeral`). Custom numeric
+2026-07-08 / 5c nullability — Tiers A+B LANDED 2026-07-08, Tier C flow-narrowing SPUN OUT) and
+byref land (`feedback_plan_docs_ephemeral`). Custom numeric
 literals — surfaced by 5a — was spun out to its own plan (`custom-numeric-literals-plan.md`); the
-Route-1 seq-operator design surfaced by 5b was spun out to `range-operators-plan.md`.
+Route-1 seq-operator design surfaced by 5b was spun out to `range-operators-plan.md`; the Tier-C
+flow-sensitive nullability analysis was spun out to `nullability-analysis-plan.md`.
 
 ## Principle (user, confirmed)
 
@@ -266,44 +268,49 @@ move is to reject any non-lowerable range up front. What landed:
   updated. Route 1 (real `(..)` seq operator + counted-loop peephole) spun out to
   `range-operators-plan.md`.
 
-**Stage 5c — `objnull` / `TyOr` nullability (own stage; effort assessed 2026-07-08).**
-Goal: `objnull` is NOT a primitive — it is the ordinary `obj | null` union. Making *TyOr
-nullability* a realisable feature breaks into three tiers by effort; how far to go is the open
-scope question.
+**Stage 5c — `objnull` / `TyOr` nullability. Tiers A + B LANDED 2026-07-08
+(SA 774 / Clr 1253 / Js 348 / Vesper 51). Tier C remains.**
+Goal: `objnull` is NOT a primitive — it is the ordinary `obj | null` union.
 
 - *Already built (no work):* `TyOr` is a first-class `SemType` (smart ctor `mkUnion`/`MkUnion`,
   order-insensitive `UnionMembers` EqSet, frozen mirror `FTOr`), with full directional `subsumes`
   (`T <: T|null` holds via the `src', TyOr ts` arm; `T|null <: T` only when every member subsumes
   `T`) and match-pattern narrowing (`InferControlFlow.computeArmNarrowing`: `:? T` type-tests shrink
-  a closed union's residual, with an exhaustiveness warning). The FRONT-END `Translate.fs` ALREADY
-  translates a written `T | null` to `TyOr [T; TyConst(opaqueKey "null")]` and bare `null` to that
-  reserved `TyConst`.
-- *Tier A — finish `objnull` representation (small).* The VesperLib EXTRACTION path diverges: it
-  collapses `T | null → T` (`VesperLib/TypeTranslate.fs` `UnionType` arm) and lists `objnull` in
-  `isPrimitiveName`. So `objnull`'s abbrev RHS freezes to `FTConst obj` (null lost), and a written
-  `objnull` dealiases to plain `obj`. Fix: translate `T | null → FTOr [T; null]` in extraction and
-  drop `objnull` from `isPrimitiveName`; rewrite the `VesperLibTests` objnull test (it currently
-  asserts the collapse-to-`obj` this inverts). Then `objnull` = `TyOr [obj; null]` end to end.
-- *Tier B — `null` as a core intrinsic + platform repr (medium).* Today `null` is `opaqueKey "null"`
-  (`ns=""`, not a registered intrinsic, no per-target repr). Per the sibling
-  `codegen-js-symbol-provider-plan.md` (§"`null`/`undefined` as JS-intrinsic types"), `null` should
-  become ONE cross-backend intrinsic with a per-target repr (JS `null`; CLR `ldnull` / F# 9 `T|null`
-  nullable-ref) — sharing the nullable machinery across both targets. Complication: `null` is a
-  reserved keyword, so `type null = extern` cannot parse (cf. the `undefined.js.fsi` note); it needs
-  a built-in registration path, not a contract file. `EmitJs.validatePlatformTypes` must admit `null`
-  / `TyOr [T; null]` members — UNVERIFIED whether a `T | null` program survives JS emit today (the
-  sibling plan flags this as the concrete verification entry point). CLR value-type nullability
-  (`System.Nullable<T>`/`T?`) is a structurally different repr and stays OUT (deferred).
-- *Tier C — flow-sensitive nullability analysis (large; genuinely new).* The "analysis" proper:
-  narrowing on `if x <> null` / `x != null` / `!== undefined` GUARDS (not just match patterns) —
-  flow-sensitive union-member removal along branches, so the then-branch sees `x : obj`. No such
-  flow-typing sub-pass exists today (only the match-pattern `computeArmNarrowing`, a useful template
-  but not guard-flow). This is a new flow environment threaded through `if`/`&&`/`||`/early-return —
-  the biggest chunk, and separable from Tiers A/B.
-
-  Recommendation: Tier A is the direct "objnull is not a primitive" fix and is small; Tier B lights
-  up shared CLR+JS nullable interop and is the prerequisite for `null` surviving codegen; Tier C is a
-  standalone feature that can wait. Decide the target tier before starting.
+  a closed union's residual, with an exhaustiveness warning).
+- *Tier A — `objnull` representation — LANDED.* The VesperLib EXTRACTION path
+  (`VesperLib/TypeTranslate.fs` `UnionType` arm) now translates `T | null → FrozenType.MkUnion [T;
+  null]` (was collapse-to-`T`), and `objnull` was dropped from `RuntimeNames.referencePrimitiveNames`
+  (so `isPrimitiveName "objnull"` is false and a written `objnull` EXPANDS its abbrev instead of
+  dealiasing to bare `obj`). `objnull` = `TyOr [obj; null]` end to end; the `VesperLibTests` objnull
+  test asserts the `FTOr [obj; null]` union.
+- *Tier B — `null` identity + CLR reference-null erasure — LANDED (adjusted).* `null` got ONE
+  canonical cross-backend identity, `RuntimeNames.nullKey`, single-sourced and wired into all three
+  producers (front-end `Translate.fs` `Type.Null`, the extractor, `TsManifestTypes`). **Correction to
+  the original sketch (user, 2026-07-08):** `null` is a language KEYWORD, not a `namespace Vesper`
+  type, so `nullKey` is the BARE `null` (`opaqueKey`, `ns=""`) — NOT `Vesper.null`. It is deliberately
+  NOT registered in any provider: `PlatformTypes.run` (the real `validatePlatformTypes`) only rejects a
+  type the provider resolves to an `Intrinsic{Platform=None}`, so `null` survives JS emit PRECISELY
+  because it stays unregistered — registering it would trip that gate (verified: `T | null`/`T |
+  undefined` round-trip under Node, `NullUndefinedTests`). "Per-target repr" is the existing VALUE
+  lowering (JS literal `null`; CLR `ldnull`), not a new registered type-repr — there is no consumer of
+  a null-type repr. The real, previously-unscoped work Tier A forced: **CLR reference-null erasure**
+  (`T | null → T`, `obj | null` ≡ the `System.Object` slot), applied at the three CLR-ABI seams so
+  `objnull` behaves as `obj` there — (1) `UnificationEngineCore.stripReferenceNull` on both sides of
+  interface/Object-override conformance (`Unification.checkInterfaceConformance` /
+  `checkObjectOverrideConformance`); (2) `InferTypeOps.inferDynamicDowncast` erases the source's `null`
+  member so `(x: T|null) :?> U` is governed by `T` exactly as F# governs it (`obj | null` downcasts
+  like `obj` — admitted; `string | null` like sealed `string` — FS0016 "no proper subtypes"); (3)
+  `ClrEncoder.encodeType`'s new `FTOr` arm erases the `null` member and encodes the single reference
+  survivor. CLR VALUE-type nullability (`int | null` ⇒ `System.Nullable<int>`) stays OUT — it
+  would wrongly erase to `int`, but the self-host emits none.
+- *Tier C — flow-sensitive nullability analysis — SPUN OUT to `nullability-analysis-plan.md`
+  (2026-07-08).* The "analysis" proper: narrowing on `if x <> null` / `x != null` / `!== undefined`
+  GUARDS (not just match patterns) — flow-sensitive union-member removal along branches, so the
+  then-branch sees `x : obj`. No such flow-typing sub-pass exists today (only the match-pattern
+  `computeArmNarrowing`, a useful template but not guard-flow); it is a new flow environment threaded
+  through `if`/`&&`/`||`/early-return — the biggest chunk, and a standalone feature that can wait
+  (Tiers A/B, landed, do not need it). Moved to its own plan since it needs nothing from this doc
+  beyond the representation Tiers A/B landed.
 
 ### 5. byref migration (LAST)
 

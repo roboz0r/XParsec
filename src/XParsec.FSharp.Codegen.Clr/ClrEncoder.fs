@@ -321,6 +321,30 @@ type internal ClrEncoder(env: ClrEnv) =
             failwithf
                 "ClrProvider: cannot encode unevaluated type-level computation %A — keyof/indexed-access/conditional are a JS-target concern and must be ground-evaluated before CLR emit"
                 t
+        // A nullable REFERENCE union `T | null` IS the CLR reference-null repr of
+        // `T` — `obj | null` and `obj` are the same `System.Object` slot — so erase
+        // the `null` member (`nullKey`) and encode the surviving reference. A single
+        // survivor (`T`) encodes as itself; a genuine multi-member value union (`int
+        // | string`, or `T | U` with no null) has no anonymous-union IL repr and
+        // falls to the loud error below. (Value-type nullability `int | null` ⇒
+        // `System.Nullable<int>` is out of scope; it would wrongly erase to `int`,
+        // but the self-host never emits one.)
+        | FTOr members ->
+            let nonNull =
+                members
+                |> EqSet.toList
+                |> List.filter (
+                    function
+                    | FTNull -> false
+                    | _ -> true
+                )
+
+            match nonNull with
+            | [ single ] -> encodeType te single
+            | _ ->
+                failwithf
+                    "ClrProvider: cannot encode anonymous union %A — only a nullable reference `T | null` is representable on CLR (erased to `T`)"
+                    t
         // The residual case — a stray `TyVar` can no longer reach here (it fails one
         // hop out in `toFrozen`) — is unencodable.
         | other -> failwithf "ClrProvider: cannot encode FrozenType: %A" other

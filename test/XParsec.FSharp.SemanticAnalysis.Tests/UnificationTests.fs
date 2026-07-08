@@ -1062,7 +1062,7 @@ let tests =
 
                     Expect.contains
                         (EqSet.toList ms.Members)
-                        (TyConst(RuntimeNames.opaqueKey RuntimeNames.nullTypeName, EqArray.empty))
+                        (TyConst(RuntimeNames.nullKey, EqArray.empty))
                         "the reserved `null` literal type is a member"
                 | other -> failtestf "expected int | null to be a TyOr, got %A" other
             }
