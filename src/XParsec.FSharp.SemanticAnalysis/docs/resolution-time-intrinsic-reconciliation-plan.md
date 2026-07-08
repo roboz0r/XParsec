@@ -381,8 +381,20 @@ reason that tier and that comparator exist for the two subtype roots.** Sequenci
    - CLR `EmitConstruct.buildNew`: an external construction typed `FTConst(canon)` resolves via
      `IntrinsicClassBase → TryEmitCtor(platformKey)` — the same resolution as base-ctor chaining.
    `numericFamilyOr` keeps its reverse-map use. First removed `sameTypeAsmBlind`-era caller.
-5. **Re-key `isSystemObjectKey` + equality/derives predicates** to compare canon `obj` by `=`
-   (metadata now surfaces `System.Object` as `obj`). GREEN.
+5. **Re-key `isSystemObjectKey` + equality/derives predicates — DONE (all suites green: SA 763,
+   Clr 1253, Js 348, Vesper 49).** With stages 3/4 canonicalizing every `System.Object` producer
+   (metadata `tryBuildType` routes ALL member param/return types, plus the source-name seams), no
+   `TyClass`/`FTClass System.Object` reaches any predicate — so rather than re-keying, the dead
+   arms retired outright:
+   - `Engine.isObjType` / `InferOverload.isObjectTy`: dropped the `TyClass … isSystemObjectKey`
+     arm; the canon `TyObj` (`=` on `intrinsicKey "obj"`) is the whole predicate.
+   - `Engine.normalizeObj` (the signature bridge) deleted; its two call sites
+     (interface-conformance `openSignature`, the deferred external-class dot-access drain) use
+     the opened signature directly.
+   - `ClrEncoder.encodeType`: the `FTClass(System.Object) → te.Object()` arm deleted (BCL `object`
+     params now freeze as `FTConst(obj)`, handled by the existing `obj` arm).
+   - `RuntimeNames.isSystemObjectKey` deleted (no callers); `systemObjectKey` stays `private`,
+     solely as the source of `systemObjectQualifiedName`.
 6. **Then** proceed to the parent plan's Stage 2 currency change, now reverse-map-free for the roots.
 
 ## Out of scope (recorded, deferred)

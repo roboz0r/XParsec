@@ -88,7 +88,6 @@ module UnificationInferOverload =
     /// hierarchy, so a non-`object` param only matches an arg it equals.
     and isObjectTy (t: SemType) : bool =
         match zonk t with
-        | TyClass(n, args) when args.IsEmpty && RuntimeNames.isSystemObjectKey n -> true
         | TyObj -> true
         | _ -> false
 

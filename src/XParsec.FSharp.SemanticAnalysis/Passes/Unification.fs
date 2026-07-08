@@ -831,7 +831,7 @@ module Unification =
                 for mInfo in impl.Members do
                     match required |> Array.tryFind (fun em -> em.Name = mInfo.Name) with
                     | Some em ->
-                        let expected = normalizeObj (ExternalSymbols.openSignature em argArr)
+                        let expected = ExternalSymbols.openSignature em argArr
                         unify ctx mInfo.DeclKey mInfo.Type expected
                     | None ->
                         ctx.Error(

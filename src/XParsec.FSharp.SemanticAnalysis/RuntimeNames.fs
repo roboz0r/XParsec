@@ -103,11 +103,11 @@ module RuntimeNames =
     let vesperPrintfFormatKey: SymbolKey =
         SymbolKey.TypeKey(Some "Vesper.Printf", "Vesper", "PrintfFormat`4")
 
-    /// Canonical identity for the BCL `System.Object` — recognised at the unify
-    /// boundary (an empty `TyClass` whose key denotes `System.Object` satisfies the
-    /// equality/derives predicates). Non-generic. Recogniser-only (no producer mints
-    /// it; `System.Object` arrives via external resolution), and the home assembly is
-    /// a don't-care here (`isSystemObjectKey` is asm-blind), so `private`.
+    /// Canonical identity for the BCL `System.Object`. No longer recognised at the
+    /// unify boundary — metadata surfacing eagerly canonicalizes `System.Object` to
+    /// the canon `obj` intrinsic (`TyConst`, matched by `=` via `TyObj`), so no
+    /// `TyClass System.Object` reaches the predicates. Kept solely as the source of
+    /// `systemObjectQualifiedName` (the rendered-string consumers), so `private`.
     let private systemObjectKey: SymbolKey =
         SymbolKey.TypeKey(Some "System.Runtime", "System", "Object")
 
@@ -118,7 +118,7 @@ module RuntimeNames =
     /// abbreviation name, so `obj ≡ System.Object` is decided in one place rather
     /// than re-spelled at each predicate (the `arrayName`/`prim-types-min.fs`
     /// precedent above). Pairs with `systemObjectQualifiedName` (the intrinsic it
-    /// binds to) and `isSystemObjectKey` (the same identity by `SymbolKey`).
+    /// binds to).
     let objAbbrevName: string = "obj"
 
     /// The intrinsic the `obj` abbreviation binds to — `System.Object`, the
@@ -362,10 +362,6 @@ module RuntimeNames =
     /// qualified name. Asm-blind, matching the list/object recognisers.
     let isStructuralFormattableKey (k: SymbolKey) : bool =
         sameTypeAsmBlind structuralFormattableKey k
-
-    /// True iff `k` denotes the BCL `System.Object`. Asm-blind (the consumers — the
-    /// unify equality/derives predicates — never compared the home assembly).
-    let isSystemObjectKey (k: SymbolKey) : bool = sameTypeAsmBlind systemObjectKey k
 
     /// True iff `k` denotes `PrintfFormat<'Printer,'State,'Residue,'Result>` — the
     /// format type a `printf` / `sprintf` literal freezes to. Asm-blind, matching the

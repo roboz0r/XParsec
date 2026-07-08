@@ -185,13 +185,14 @@ module UnificationEngine =
         | _ -> ()
 #endif
 
-    /// `obj` (either the user-facing `TyConst "obj"` `translateType` produces, or
-    /// the provider's `TyClass "System.Object"` before `normalizeObj` bridges it).
+    /// The canon `obj` intrinsic (`TyConst "obj"`) — the ONLY form the root takes
+    /// past resolution: `translateType` produces it for source, and metadata
+    /// surfacing (`tryBuildType`) eagerly canonicalizes a BCL `System.Object` to it,
+    /// so no `TyClass "System.Object"` reaches the unify boundary.
     /// The universal supertype — every value implicitly upcasts (boxing) into it.
     let isObjType (t: SemType) : bool =
         match t with
         | TyObj -> true
-        | TyClass(k, a) when a.IsEmpty && RuntimeNames.isSystemObjectKey k -> true
         | _ -> false
 
     /// THE obj-absorption policy: `true` when `expected` is the universal `obj`
@@ -204,23 +205,6 @@ module UnificationEngine =
     /// coercion walkers exist only because they sit either side of `tryCoerceUpcast`
     /// in declaration order, not because the policy differs.
     let absorbsAsObj (expected: SemType) : bool = isObjType (resolveStep expected)
-
-    /// Bridge an external signature's `System.Object` (minted by the provider as
-    /// `TyClass("System.Object", [])`, since `obj` is not a harvested primitive repr)
-    /// to the user-facing `TyConst "obj"` that `translateType` produces — without
-    /// this an external method's `obj` parameter (`IEqualityComparer.Equals(obj,
-    /// obj)`) fails to unify with an `obj`-typed argument. Shared by the deferred
-    /// drain here and `Unification`'s interface-conformance path; defined here so
-    /// both — the drain upstream of that module and the conformance check — can
-    /// normalise the external signatures they open.
-    let rec normalizeObj (t: SemType) : SemType =
-        match t with
-        | TyClass(n, args) when args.IsEmpty && RuntimeNames.isSystemObjectKey n ->
-            TyConst(BuiltinTypes.intrinsicKey RuntimeNames.objAbbrevName, EqArray.empty)
-        // Pure child recursion. `mapChildren` routes `TyOr` through the smart
-        // constructor: normalising a member to `obj` can collapse the set
-        // (`System.Object | obj` → `obj`).
-        | t -> SemType.mapChildren normalizeObj t
 
     /// Matches a carried type-level node (`keyof`/`T[K]`/conditional) that
     /// ground-folds to a CONCRETE (non-carrier) type, binding the folded result —
@@ -566,7 +550,7 @@ module UnificationEngine =
                 for d in pending do
                     match ctx.Provider.TryLookupMember(qualName, d.MemberName) with
                     | ValueSome m when not m.IsStatic ->
-                        let memberSig = normalizeObj (ExternalSymbols.openSignature m argArr)
+                        let memberSig = ExternalSymbols.openSignature m argArr
 
                         ctx.Resolution.ExternalAccess.Set(
                             d.UseKey,
