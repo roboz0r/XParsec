@@ -230,7 +230,7 @@ module UnificationEngine =
     let private numericFamilyOr (ctx: PassContext) (ty: SemType) : SemType voption =
         match resolveStep ty with
         | TyConst(key, args) when args.Length = 0 ->
-            match ctx.IntrinsicReverseCanon.Value.TryGetValue(SymbolKeyOps.intrinsicName key) with
+            match ctx.IntrinsicReverseCanon.Value.TryGetValue(SymbolKeyOps.simpleName key) with
             | true, (_ :: _ :: _ as canons) ->
                 ValueSome(SemType.MkUnion(seq { for c in canons -> TyConst(c, EqArray.empty) }))
             | _ -> ValueNone
@@ -849,7 +849,8 @@ module UnificationEngine =
                 | SemanticConstraintKind.Coercion target ->
                     match subtypeNominalOf ctx (zonk target), resolveStep linkTarget with
                     | ValueSome(struct (tname, targs)), TyFun(a, b) when
-                        funSlotArityOfArgs (SymbolKeyOps.bareName tname) targs.Length |> Option.isSome
+                        funSlotArityOfArgs (SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tname)) targs.Length
+                        |> Option.isSome
                         ->
                         // `peelFunSpine` (shared with `subsumes`) yields the `k+1` types
                         // aligned to `targs` — a too-short spine grounds NOTHING. The

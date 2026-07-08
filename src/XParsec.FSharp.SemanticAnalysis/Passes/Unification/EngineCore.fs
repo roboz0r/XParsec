@@ -9,7 +9,7 @@ open XParsec.FSharp.SemanticAnalysis
 
 /// The unification SUBSTRATE: resolution/zonking, occurs/level adjustment,
 /// substitution + member instantiation, and the nominal subtype walks
-/// (`canonName`, `tryUpcastWitness`). Charter: everything the directional and
+/// (`canonKey`, `tryUpcastWitness`). Charter: everything the directional and
 /// mutating layers stand on, with NO dependency on `subsumes` or `unify`.
 /// The dependency rule is one-way — `UnificationEngineCore` <- `UnificationSubsume`
 /// <- `UnificationEngine`; nothing in the lower layers calls back into `unify`.
@@ -397,50 +397,56 @@ module UnificationEngineCore =
 
         go 0 a b []
 
-    // Canonical nominal name for subtype comparison: the type's platform-INVARIANT
-    // front-end identity — the `.fsi` name itself (`int`, `exn`), NOT a BCL name.
-    // A primitive intrinsic binding (`type exn = (# "System.Exception" #)`,
-    // prim-types-exn.fs) stays a *non-transparent* `TyConst "exn"` (Translate.fs);
-    // `canonName "exn"` is just `"exn"`. The `exn === System.Exception`
-    // reconciliation does NOT live here: it happens once, at resolution
-    // (`MetadataSymbols.tryBuildType` maps every non-interface `reverseCanon` hit —
-    // sealed leaf or unsealed root — to its canon identity at surfacing time), so no
-    // raw BCL name reaches this walk to reconcile. This keeps a JS build free of BCL
-    // names — the base `.fs` repr only ever marks primitive-ness on JS, never the
-    // `platform` face.
+    // Canonical nominal IDENTITY for subtype comparison: the type's platform-INVARIANT
+    // front-end `SymbolKey` — the `.fsi` identity (`Vesper.int`, `Vesper.exn`), NOT a BCL
+    // name. A primitive intrinsic binding (`type exn = (# "System.Exception" #)`,
+    // prim-types-exn.fs) stays a *non-transparent* `TyConst exnKey` (Translate.fs); the
+    // `exn === System.Exception` reconciliation does NOT live here — it happens once, at
+    // resolution (`MetadataSymbols.tryBuildType` maps every non-interface `reverseCanon`
+    // hit — sealed leaf or unsealed root — to its canon identity at surfacing time), so no
+    // raw BCL key reaches this walk to reconcile. This keeps a JS build free of BCL names —
+    // the base `.fs` repr only ever marks primitive-ness on JS, never the `platform` face.
     //
-    // Resolution order:
-    //   1. the compiled unit's OWN intrinsics (`ctx.Types.IntrinsicReprTypes`) — a
-    //      self-compiled `extern`'s key is its `.fsi` short name, which IS the canon;
-    //   2. a *referenced* package's intrinsics, riding the provider as
-    //      `ExternalTypeShape.Intrinsic` (its `canon` face = the short name).
-    // `n` is usually the unqualified nominal (`translateType` strips an external
-    // intrinsic to its short name); the provider tier also collapses a qualified
-    // `Vesper.exn` to the short `exn` via its `canon` face. Memoized per
-    // `PassContext`: `canonName` runs inside the subtype recursive walk. A name that
-    // is none of the above caches its own identity.
-    let private canonName (ctx: PassContext) (n: string) : string =
-        match ctx.IntrinsicCanonCache.TryGetValue n with
-        | true, repr -> repr
+    // A **currency-only** map (`SymbolKey -> SymbolKey`): the reverse tier is gone, so a
+    // key only ever routes FORWARD to an already-published intrinsic canon, else returns
+    // itself. Resolution order:
+    //   1. the compiled unit's OWN intrinsics (`ctx.Types.IntrinsicReprTypes`, keyed by
+    //      short `.fsi` name) — its contract-stamped qualified key (`intrinsicKeyOf`) IS
+    //      the canon;
+    //   2. a *referenced* package's intrinsic, riding the provider as
+    //      `ExternalTypeShape.Intrinsic` (whose `Id.Canon` is the authoritative key),
+    //      resolved through the open scope so a bare short name reaches its `Vesper`-
+    //      qualified shape.
+    // The SHORT `.fsi` name keys the local table; the QUALIFIED name feeds the provider
+    // open-scope resolve (guarding a user nominal whose SIMPLE name coincides with an
+    // intrinsic — its qualified name misses the provider). Memoized per `PassContext`:
+    // `canonKey` runs inside the subtype recursive walk. A key that is none of the above
+    // caches its own identity.
+    let private canonKey (ctx: PassContext) (key: SymbolKey) : SymbolKey =
+        match ctx.IntrinsicCanonCache.TryGetValue key with
+        | true, canon -> canon
         | _ ->
-            let providerCanon (c: string) : string voption =
+            let providerCanon (c: string) : SymbolKey voption =
                 match ctx.Provider.TryLookupType c with
-                | ValueSome(ExternalTypeShape.Intrinsic { Id = { Canon = canon } }) ->
-                    ValueSome(SymbolKeyOps.intrinsicName canon)
+                | ValueSome(ExternalTypeShape.Intrinsic { Id = { Canon = canon } }) -> ValueSome canon
                 | _ -> ValueNone
 
-            let repr =
-                if ctx.Types.IntrinsicReprTypes.ContainsKey n then
-                    // A self-compiled intrinsic: the short name it was declared under
-                    // is the canonical identity (the dict's value is the platform repr).
-                    n
-                else
-                    match OpenScope.tryResolve ctx.Resolution.OpenScope providerCanon n with
-                    | ValueSome canon -> canon
-                    | ValueNone -> n
+            let short = SymbolKeyOps.simpleName key
 
-            ctx.IntrinsicCanonCache.[n] <- repr
-            repr
+            let canon =
+                if ctx.Types.IntrinsicReprTypes.ContainsKey short then
+                    // A self-compiled intrinsic: its contract-stamped qualified identity
+                    // (`IntrinsicKeys`, stamped from the declaring `namespace`) is the canon.
+                    TypeRegistry.intrinsicKeyOf ctx.Types short
+                else
+                    match
+                        OpenScope.tryResolve ctx.Resolution.OpenScope providerCanon (SymbolKeyOps.qualifiedName key)
+                    with
+                    | ValueSome canon -> canon
+                    | ValueNone -> key
+
+            ctx.IntrinsicCanonCache.[key] <- canon
+            canon
 
     /// The **platform** face of an intrinsic name: the runtime/BCL repr its
     /// `(# "…" #)` binding records (`"string"` ⇒ `"System.String"` on CLR,
@@ -449,7 +455,7 @@ module UnificationEngineCore =
     /// name passes through). Lets the dot-access resolvers (`resolveFieldStep`, the
     /// external instance-method probe) route an intrinsic *receiver*'s instance
     /// members through the provider keyed on the platform type name — distinct from
-    /// `canonName`'s identity axis (which now stays on the short `.fsi` name).
+    /// `canonKey`'s identity axis (which stays on the `.fsi` `SymbolKey`).
     let intrinsicPlatformName (ctx: PassContext) (n: string) : string =
         match ctx.Types.IntrinsicReprTypes.TryGetValue n with
         | true, platform -> platform
@@ -494,25 +500,25 @@ module UnificationEngineCore =
                 ValueNone
         | _ -> ValueNone
 
-    // Surface a nominal `(name, args)` for the comparison. Covers `TyConst`
-    // (so the `exn` bound participates), not just `TyClass`.
-    let subtypeNominalOf (ctx: PassContext) (ty: SemType) : struct (string * EqArray<SemType>) voption =
+    // Surface a nominal `(canonKey, args)` for the comparison. Covers `TyConst` (so the
+    // `exn` bound participates), not just `TyClass`. The surfaced `SymbolKey` is the
+    // canonical intrinsic identity (`canonKey`), so two spellings of ONE intrinsic compare
+    // EQUAL by exact `=`, and a non-reconciled nominal surfaces its own key. Consumers that
+    // need the qualified STRING (a provider lookup, `funSlotArityOfArgs`) project it back
+    // via `SymbolKeyOps.qualifiedName` at the boundary — the genuine string seam.
+    let subtypeNominalOf (ctx: PassContext) (ty: SemType) : struct (SymbolKey * EqArray<SemType>) voption =
         match resolveStep ty with
-        // Surface the *qualified* canonical name so an external `TyClass`
-        // (`System.Exception`) reconciles with the `exn` `TyConst` through
-        // `canonName`'s repr map. `parentOf` splits the simple segment back off
-        // for the project-local class lookup.
-        | TyClass(n, args) -> ValueSome(struct (canonName ctx (SymbolKeyOps.qualifiedName n), args))
+        | TyClass(n, args) -> ValueSome(struct (canonKey ctx n, args))
         // A named DU enters the nominal subtype walk too, so its declared
         // `interface … with` impls (surfaced by `subtypeInterfacesOf` via
         // `tryInterfaceImplHostByKey`) admit `(u :> ISomeIface)` exactly like a class's.
         // (Anonymous `TyOr` unions resolve structurally in `subsumes`, never here.)
-        | TyUnion(n, args) -> ValueSome(struct (canonName ctx (SymbolKeyOps.qualifiedName n), args))
+        | TyUnion(n, args) -> ValueSome(struct (canonKey ctx n, args))
         // A named record enters the nominal subtype walk too, so its declared
         // `interface … with` impls (surfaced by `subtypeInterfacesOf` via
         // `tryInterfaceImplHostByKey`) admit `(r :> ISomeIface)` exactly like a class's.
-        | TyRecord(n, args) -> ValueSome(struct (canonName ctx (SymbolKeyOps.qualifiedName n), args))
-        | TyConst(key, args) -> ValueSome(struct (canonName ctx (SymbolKeyOps.intrinsicName key), args))
+        | TyRecord(n, args) -> ValueSome(struct (canonKey ctx n, args))
+        | TyConst(key, args) -> ValueSome(struct (canonKey ctx key, args))
         | _ -> ValueNone
 
     // The project-local registry key of a nominal `SemType` (`TyClass` / `TyUnion` /
@@ -546,11 +552,11 @@ module UnificationEngineCore =
         (name: string)
         (args: EqArray<SemType>)
         : SemType voption =
-        // `name` is the qualified canonical name `subtypeNominalOf` surfaces (so it
-        // feeds `canonName`'s repr map and the provider lookup). `localKey` is the same
-        // nominal's registry key when it came from a `TyClass`/`TyUnion`/`TyRecord`;
-        // the local class table is keyed by that arity-qualified key, the provider by
-        // the qualified name.
+        // `name` is the qualified canonical name — `subtypeNominalOf` surfaces the canon
+        // `SymbolKey`, projected here via `qualifiedName` for the provider lookup.
+        // `localKey` is the same nominal's registry key when it came from a
+        // `TyClass`/`TyUnion`/`TyRecord`; the local class table is keyed by that
+        // arity-qualified key, the provider by the qualified name.
         let localInfo =
             match localKey with
             | ValueSome k -> TypeRegistry.tryClassByKey ctx.Types k
@@ -562,12 +568,12 @@ module UnificationEngineCore =
             | ValueSome parentTy -> ValueSome(instantiateMember (info.TypeParams, args) parentTy)
             | ValueNone -> ValueNone
         | ValueNone ->
-            // An intrinsic canon surfaces its SHORT `.fsi` name (`"exn"`) while the
-            // provider is keyed by qualified compiled name (`"Vesper.exn"`), so the
-            // lookup routes through the open-scope funnel: the name as written first
-            // (an already-qualified BCL name resolves identically to a direct lookup),
-            // then the file's explicit opens, then the ambient platform prefixes —
-            // `PassContext` seeds the ambient tail into `OpenScope` at construction.
+            // `name` is the QUALIFIED canon (`"Vesper.exn"`), which the provider (keyed by
+            // qualified compiled name) resolves as written. The open-scope funnel is kept
+            // for the residual bare form: the name as written first, then the file's
+            // explicit opens, then the ambient platform prefixes (which `PassContext` seeds
+            // at construction) — so a still-unqualified opaque intrinsic name reaches its
+            // `Vesper`-qualified shape.
             match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookupType name with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 ExternalSymbols.instantiateBaseType shape (args.AsSpan().ToArray())
@@ -618,28 +624,37 @@ module UnificationEngineCore =
                 // `TyClass`, exactly as they appear as a value's static type everywhere
                 // else (an interface is an `ExternalTypeShape.Class` with `IsInterface`)
                 // and exactly as the local branch above yields via `instantiateMember`.
-                // `qualifiedTypeKey` keeps the `` `N `` arity in the key's `name`, so the
-                // walk's `TyClass` arm (`subtypeNominalOf`, via `qualifiedName`) matches
-                // the target nominal by full arity-qualified canon. (`asm = None`: the
-                // interface's home isn't threaded through `instantiateInterfaces`, and the
-                // walk's canon match is asm-agnostic; a local impl-host lookup keys on the
-                // exact `asm=Some` registry key, so this external key falls through to the
-                // provider unchanged.)
+                // Mint each interface's key through the SAME `externalTypeKey origin` path
+                // every external-type producer uses (a written `A<int>` annotation
+                // included), so the surfaced supertype key compares EXACTLY EQUAL — home
+                // assembly and all — now that the walk's identity is a `SymbolKey` `=`, not
+                // an asm-agnostic string. The interface's home is re-resolved off its OWN
+                // provider shape (it may live in a different package than the implementing
+                // class, so the class's origin won't do); a name the provider does not
+                // surface as a class (an intrinsic / opaque) keeps the asm-blind mint.
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
                 |> Array.toList
-                |> List.map (fun (n, ta) -> TyClass(SymbolKeyOps.qualifiedTypeKey n 0, EqArray.ofArray ta))
+                |> List.map (fun (n, ta) ->
+                    let key =
+                        match ctx.Provider.TryLookupType n with
+                        | ValueSome(ExternalTypeShape.Class ifaceShape) ->
+                            SymbolKeyOps.externalTypeKey ifaceShape.Origin n ta.Length
+                        | _ -> SymbolKeyOps.qualifiedTypeKey n 0
+
+                    TyClass(key, EqArray.ofArray ta)
+                )
             | _ -> []
 
     /// Find the instantiation of `src` (or one of its bases / interfaces) whose
-    /// canonical nominal name is `tgtName`, returning that supertype's type
-    /// args; `ValueNone` if `src` does not subtype `tgtName`. Reflexive — `src`
-    /// itself when its name is `tgtName`. Read-only (it only *reads* the class
+    /// canonical nominal identity is `tgtKey`, returning that supertype's type
+    /// args; `ValueNone` if `src` does not subtype `tgtKey`. Reflexive — `src`
+    /// itself when its canon key is `tgtKey`. Read-only (it only *reads* the class
     /// table / provider, like `subsumes`); the caller `unify`s the returned args
     /// against the target's so a free var in the target is pinned. The single
     /// authoritative subtype walk: direct interfaces at each level (class→interface),
     /// then up the `inherit` chain (class→base, user + BCL); `subsumes`
     /// is layered on top of it. `seen` short-circuits a cyclic `inherit` chain.
-    let tryUpcastWitness (ctx: PassContext) (src: SemType) (tgtName: string) : EqArray<SemType> voption =
+    let tryUpcastWitness (ctx: PassContext) (src: SemType) (tgtKey: SymbolKey) : EqArray<SemType> voption =
         // Walk the nominal `SemType`: an interface supertype surfaced by
         // `subtypeInterfacesOf` is itself walked for its OWN `extends`-interfaces.
         // An external `interface C extends B`, `interface B extends A<int>` reaches
@@ -647,13 +662,15 @@ module UnificationEngineCore =
         // sees just `B`) would miss it. The metadata layer papers over this because
         // `GetInterfaces()` pre-flattens the transitive set; the TS-manifest layer
         // stores heritage un-flattened, so the walk must recurse. Staying on `SemType`
-        // (not a bare `(name, args)` pair) lets each level recompute its own
+        // (not a bare `(key, args)` pair) lets each level recompute its own
         // `nominalKeyOf`, so the local base / interface-impl lookups resolve per-arity.
-        let rec walk (seen: HashSet<string>) (cur: SemType) : EqArray<SemType> voption =
+        // `seen` is keyed on the canon `SymbolKey`; the base / interface-impl lookups take
+        // the qualified string (`SymbolKeyOps.qualifiedName s`) — the genuine string seam.
+        let rec walk (seen: HashSet<SymbolKey>) (cur: SemType) : EqArray<SemType> voption =
             match subtypeNominalOf ctx cur with
             | ValueNone -> ValueNone
             | ValueSome(struct (s, sa)) ->
-                if s = tgtName then
+                if s = tgtKey then
                     ValueSome sa
                 elif not (seen.Add s) then
                     ValueNone
@@ -661,6 +678,7 @@ module UnificationEngineCore =
                     // `localKey` is this nominal's registry key so the local base /
                     // interface-impl lookups resolve per-arity, not by bare name.
                     let localKey = nominalKeyOf cur
+                    let name = SymbolKeyOps.qualifiedName s
 
                     let rec pick =
                         function
@@ -670,14 +688,14 @@ module UnificationEngineCore =
                             | ValueSome _ as found -> found
                             | ValueNone -> pick rest
 
-                    match pick (subtypeInterfacesOf ctx localKey s sa) with
+                    match pick (subtypeInterfacesOf ctx localKey name sa) with
                     | ValueSome _ as viaIface -> viaIface
                     | ValueNone ->
-                        match subtypeParentOf ctx localKey s sa with
+                        match subtypeParentOf ctx localKey name sa with
                         | ValueSome parentInstance -> walk seen parentInstance
                         | ValueNone -> ValueNone
 
-        walk (HashSet<string>()) src
+        walk (HashSet<SymbolKey>()) src
 
     /// Find an instance member `memberName` on an EXTERNAL SUPERTYPE of `receiver`
     /// (its base type / interfaces, transitively), returning the member paired with the
@@ -703,15 +721,16 @@ module UnificationEngineCore =
             | ValueNone -> []
             | ValueSome(struct (s, sa)) ->
                 let localKey = nominalKeyOf node
+                let name = SymbolKeyOps.qualifiedName s
 
                 [
-                    yield! subtypeInterfacesOf ctx localKey s sa
-                    match subtypeParentOf ctx localKey s sa with
+                    yield! subtypeInterfacesOf ctx localKey name sa
+                    match subtypeParentOf ctx localKey name sa with
                     | ValueSome parent -> yield parent
                     | ValueNone -> ()
                 ]
 
-        let seen = HashSet<string>()
+        let seen = HashSet<SymbolKey>()
 
         let rec walk (nodes: SemType list) : struct (ExternalMember * EqArray<SemType>) voption =
             match nodes with
@@ -723,7 +742,7 @@ module UnificationEngineCore =
                     if not (seen.Add s) then
                         walk rest
                     else
-                        match ctx.Provider.TryLookupMember(s, memberName) with
+                        match ctx.Provider.TryLookupMember(SymbolKeyOps.qualifiedName s, memberName) with
                         | ValueSome m when not m.IsStatic -> ValueSome(struct (m, sa))
                         // Breadth-first across the heritage graph: this node's supertypes are
                         // appended AFTER the remaining siblings, so a member on a nearer

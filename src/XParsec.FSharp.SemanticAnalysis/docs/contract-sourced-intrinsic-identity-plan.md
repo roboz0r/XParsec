@@ -108,29 +108,38 @@ Findings from the 2026-07-07 quality review of the landed milestone, all accepte
    `IntrinsicResolve` to take the `IntrinsicKeys` dictionary, not `PassContextTypes`); retire
    `RuntimeNames.systemObjectKey` if `systemObjectQualifiedName` can stand alone.
 
-### 1. Stage 2 — `SymbolKey` currency in the unifier
+### 1. Stage 2 — `SymbolKey` currency in the unifier — LANDED 2026-07-08 (SA 765 / Clr 1253 / Js 348 / Vesper 49)
 
-Reframed after the resolution-time milestone and now much smaller than first planned: the roots
-canonicalize at resolution and `canonName`'s reverse tier is already gone, so this is a **currency
-change**, not new resolution logic. Do not rebuild a reverse-map tier into it.
+A pure **currency change** — the roots canonicalize at resolution and `canonName`'s reverse tier
+was already gone, so no reverse-map tier was rebuilt. What landed:
 
-- `canonName : PassContext -> string -> string` (`EngineCore.fs`) becomes
-  `canonKey : PassContext -> SymbolKey -> SymbolKey`: local `IntrinsicReprTypes`/`IntrinsicKeys`
-  → provider `Intrinsic` canon via the open scope; a non-reconciled nominal
-  returns its own key.
-- `subtypeNominalOf` returns `struct (SymbolKey * args)`; `subsumes`/compare consumers go exact
-  `=` on canonical keys. Compile-driven: flip the signatures and the error list in
-  `Engine`/`EngineCore`/`Subsume` IS the worklist.
-- Re-key `PassContext.IntrinsicCanonCache` to `Dictionary<SymbolKey, SymbolKey>`.
-  `numericFamilyOr` (the JS `number`-family widening — the reverse map's one unify-time reader)
-  drops its `intrinsicName` stringify at the lookup; the reverse map's KEYS stay `string`
-  (platform runtime names, the genuine string boundary).
-- Delete the `SymbolKeyOps.intrinsicName` bridges as each goes dead; end state deletes
-  `intrinsicName` itself (repr-bridge feeds use `simpleName`; identity checks compare resolved
-  keys / recognizers).
-- **`sameTypeAsmBlind` retirement tail**: with resolution canonicalizing every producer and the
-  compare sites on exact `=`, its domain shrinks to any residual genuinely-cross-asm BCL face —
-  audit what is left and delete it if empty.
+- `canonName : PassContext -> string -> string` became `canonKey : PassContext -> SymbolKey ->
+  SymbolKey` (`EngineCore.fs`): local `IntrinsicReprTypes` (keyed by `simpleName`, ⇒
+  `TypeRegistry.intrinsicKeyOf`) first, else provider `Intrinsic` canon via the open scope on the
+  QUALIFIED name (a user nominal whose SIMPLE name coincides with an intrinsic misses the provider),
+  else the key itself.
+- `subtypeNominalOf` returns `struct (SymbolKey * args)`. Identity compares (`tryUpcastWitness`,
+  `subsumesNominal`) go exact `=`; the `seen` sets are `HashSet<SymbolKey>`. The string-needing
+  boundaries (`subtypeParentOf`/`subtypeInterfacesOf` provider lookups, `tryExternalInheritedMember`'s
+  `TryLookupMember`, `funSlotArityOfArgs`) project `SymbolKeyOps.qualifiedName` at the seam —
+  `subtypeParentOf`/`subtypeInterfacesOf` keep their `name: string` params, fed the qualified canon.
+- `PassContext.IntrinsicCanonCache` re-keyed to `Dictionary<SymbolKey, SymbolKey>`. `numericFamilyOr`
+  now stringifies with `simpleName` (the reverse map's KEYS stay `string` platform names).
+- Bridges deleted where they died: `canonKey`'s provider read returns the canon KEY (no
+  `intrinsicName canon`); `subtypeNominalOf`'s `TyConst` arm and `numericFamilyOr` dropped their
+  `intrinsicName`. `SymbolKeyOps.intrinsicName` itself STAYS — its other feeds (Freeze/Printf,
+  Freeze/Access, Regions, Inline, VesperLib, `TyStructuralCtor`, Subsume's `v.BaseName` compare,
+  Engine `primitiveSupports`, `tryExternalReceiver`) are Stage-4 work.
+- **`sameTypeAsmBlind` audit — NOT empty, so it stays.** But its domain does NOT include the subtype
+  walk: the ONE cross-asm hazard the currency change exposed was `subtypeInterfacesOf` surfacing an
+  external interface with `asm = None` (matched only asm-agnostically by the old string compare) vs a
+  written `A<int>` param carrying `asm = Some home`. Fixed by CANONICALIZING the producer — the
+  surfaced interface key is now minted through `SymbolKeyOps.externalTypeKey ifaceShape.Origin`
+  (re-resolving the interface's OWN home off its provider shape, since it may live in a different
+  package than the implementing class), so exact `=` holds. `sameTypeAsmBlind` survives only for the
+  `RuntimeNames` well-known-singleton recognizers (`isVesperListKey`, `CapabilityIdentity.Matches`,
+  `isPrintfFormatKey`, …), which are asm-blind BY DESIGN for origin-less mints (test helpers,
+  asm-blind codegen paths) — a distinct concern from the walk, not retired here.
 
 ### 2. Stage 3 — codegen repr validation
 

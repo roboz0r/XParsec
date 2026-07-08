@@ -554,7 +554,7 @@ type ExternalClassShape =
 /// **Two faces** (a single repr string used to do two unrelated jobs at once):
 /// - `Canon` — the platform-INVARIANT nominal-identity key: the qualified
 ///   **`.fsi` name** the type was declared under (`Vesper.int`, `Vesper.exn`),
-///   i.e. the front-end identity itself, NOT a BCL name. `subsumes`' `canonName`
+///   i.e. the front-end identity itself, NOT a BCL name. `subsumes`' `canonKey`
 ///   uses THIS face; it is distinct per nominal type so `int` ≠ `float`, and it
 ///   is the SAME regardless of which backend is compiling — a JS build never
 ///   needs to know what the BCL calls `int`.
@@ -960,7 +960,7 @@ module ExternalSymbols =
             ValueSome(struct (id, surface))
         | _ -> ValueNone
 
-    /// The **runtime-type** axis of an intrinsic repr — distinct from `canonName`'s
+    /// The **runtime-type** axis of an intrinsic repr — distinct from `canonKey`'s
     /// nominal-identity read. Resolve a bare runtime
     /// repr string (`"Error"`) to the concrete `ExternalTypeShape` it names over the
     /// *assembled* composite: probe the bare name, then each `AmbientOpenPrefixes` entry

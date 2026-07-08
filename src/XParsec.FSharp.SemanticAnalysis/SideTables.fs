@@ -1422,7 +1422,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     // bindings (`type int = (# "System.Int32" #)`), registered by NameResolution.
     // A *referenced* package's intrinsics are no longer seeded here: they ride
     // the provider as `ExternalTypeShape.Intrinsic` shapes, read local-first /
-    // provider-fallback by `subsumes.canonName`, `translateType`, and codegen.
+    // provider-fallback by `subsumes.canonKey`, `translateType`, and codegen.
     let types = PassContextTypes.empty ()
 
     member val Provider = provider
@@ -1461,19 +1461,19 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     member val Intrinsics =
         IntrinsicSet(fun name -> IntrinsicResolve.tryResolveIntrinsicType provider types.IntrinsicKeys name) with get
 
-    /// PassContext-lifetime memo of intrinsic-name → canonical repr, populated
-    /// lazily by `subsumes.canonName`. `subsumes`' recursive walk would otherwise
-    /// round-trip the composite provider / MetadataLoadContext per node to read
-    /// an `ExternalTypeShape.Intrinsic` repr; the set is tiny and bounded, so a
-    /// per-context cache keyed by name suffices. A name that is neither a local
+    /// PassContext-lifetime memo of nominal `SymbolKey` → canonical intrinsic
+    /// `SymbolKey`, populated lazily by `subsumes.canonKey`. `subsumes`' recursive walk
+    /// would otherwise round-trip the composite provider / MetadataLoadContext per node
+    /// to read an `ExternalTypeShape.Intrinsic` canon; the set is tiny and bounded, so a
+    /// per-context cache keyed by the incoming key suffices. A key that is neither a local
     /// nor a provider intrinsic caches its own identity.
-    member val IntrinsicCanonCache = Dictionary<string, string>() with get
+    member val IntrinsicCanonCache = Dictionary<SymbolKey, SymbolKey>() with get
 
     /// The reverse intrinsic axis `{ platform-repr -> canon }`: a platform runtime
     /// name (`"number"`) -> the `.fsi` canon identities sharing that repr. Its sole
     /// unify-time reader is `numericFamilyOr` (the JS `number`-family contravariant
     /// widening, keyed on the MULTI-canon entries) — the single-canon BCL
-    /// reconciliation (`"System.Exception"` -> `exn`) that `canonName` used to read
+    /// reconciliation (`"System.Exception"` -> `exn`) that `canonKey` used to read
     /// from here now happens eagerly at resolution (`MetadataSymbols.tryBuildType`),
     /// so no BCL name reaches the unifier. Merges the provider's
     /// `IntrinsicReverseCanon` (referenced contracts) with this unit's own
