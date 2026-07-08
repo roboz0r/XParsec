@@ -133,12 +133,15 @@ module EmitConstruct =
                             // its platform external key (`System.Exception`) and mint
                             // the ctor there — the same resolution the `inherit exn(…)`
                             // base-ctor chain uses.
-                            | FTConst(canonKey, _) ->
-                                match env.Provider.IntrinsicClassBase canonKey with
-                                | ValueSome(platformKey, _) ->
-                                    match env.Provider.TryEmitCtor(platformKey, tyArgs, argTypes) with
-                                    | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
-                                    | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
+                            | FTConst(canonKey, args) when args.IsEmpty ->
+                                let recipe =
+                                    env.Provider.IntrinsicClassBase canonKey
+                                    |> ValueOption.bind (fun (struct (platformKey, _)) ->
+                                        env.Provider.TryEmitCtor(platformKey, tyArgs, argTypes)
+                                    )
+
+                                match recipe with
+                                | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
                                 | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
                             | _ -> failwithf "Emit: no constructor recipe for '%s'" className
 

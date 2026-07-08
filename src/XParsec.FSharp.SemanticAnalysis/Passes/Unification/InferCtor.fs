@@ -81,22 +81,31 @@ module internal UnificationInferCtor =
                     TyVar(freshTyVar ctx)
         // A heritable primitive (`new exn "boom"` — or `new System.Exception "boom"`,
         // canonicalized to the canon `TyConst` at resolution). Its constructible
-        // surface rides the provider's `IntrinsicClass` shape; route the `.ctor`
-        // lookup through the PLATFORM repr (`System.Exception`), the same per-target
+        // surface rides the provider's `IntrinsicClass` shape; the `.ctor` lookup
+        // routes through the PLATFORM repr (`System.Exception`) — the same per-target
         // routing an intrinsic receiver's instance members use, so the full platform
         // ctor catalogue stays reachable (e.g. the inner-exception overload the
-        // contract deliberately does not declare).
-        | TyConst(canonKey, tyArgs) when
-            (let isIntrinsicClass (c: string) =
-                match ctx.Provider.TryLookupType c with
-                | ValueSome(ExternalTypeShape.IntrinsicClass _) -> ValueSome c
-                | _ -> ValueNone
+        // contract deliberately does not declare). The platform repr is resolved
+        // ONCE here, straight off the `IntrinsicClass` shape. A `TyConst` that is not
+        // a provider `IntrinsicClass` (e.g. `new int(...)`) has no platform ctor
+        // surface and falls to the "'new' requires a class type" error.
+        | TyConst(canonKey, tyArgs) ->
+            let platform =
+                OpenScope.tryResolve
+                    ctx.Resolution.OpenScope
+                    (fun c ->
+                        match ctx.Provider.TryLookupType c with
+                        | ValueSome(ExternalTypeShape.IntrinsicClass(platform = Some p)) -> ValueSome p
+                        | _ -> ValueNone
+                    )
+                    (SymbolKeyOps.intrinsicName canonKey)
 
-             (OpenScope.tryResolve ctx.Resolution.OpenScope isIntrinsicClass (SymbolKeyOps.intrinsicName canonKey))
-                 .IsSome)
-            ->
-            let platform = intrinsicPlatformName ctx (SymbolKeyOps.intrinsicName canonKey)
-            inferExternalCtorOn infer ctx key platform tyArgs receiverTy argExpr
+            match platform with
+            | ValueSome platform -> inferExternalCtorOn infer ctx key platform tyArgs receiverTy argExpr
+            | ValueNone ->
+                ctx.Error(key, "'new' requires a class type")
+                infer ctx argExpr |> ignore
+                TyVar(freshTyVar ctx)
         | _ ->
             ctx.Error(key, "'new' requires a class type")
             infer ctx argExpr |> ignore
@@ -199,20 +208,13 @@ module internal UnificationInferCtor =
             | ValueSome name ->
                 match OpenScope.tryQualify ctx.Resolution.OpenScope (isExternalClass ctx) name with
                 | ValueSome resolved ->
-                    // Mint the ctor's result with the resolved type's identity: the
-                    // canon `TyConst` when `resolved` is a platform repr with a
-                    // harvested non-interface canon (`System.Exception "boom"` →
-                    // `exn`, mirroring `tryResolveExternalType`), else the external
-                    // `TyClass` keyed on the shape's home assembly so it unifies with
-                    // the same type resolved elsewhere. The `.ctor` lookup stays
-                    // keyed on `resolved` — the platform name owns the ctor catalogue
-                    // either way.
+                    // Mint the ctor's result with the resolved type's identity via
+                    // `externalClassTy` (canon `TyConst` for a platform repr, else the
+                    // external `TyClass`). The `.ctor` lookup stays keyed on `resolved`
+                    // — the platform name owns the ctor catalogue either way.
                     let receiverTy =
                         match ctx.Provider.TryLookupType resolved with
-                        | ValueSome(ExternalTypeShape.Class info) ->
-                            match ctx.IntrinsicReverseCanon.Value.TryGetValue resolved with
-                            | true, (canon :: _) when not info.IsInterface -> TyConst(canon, EqArray.empty)
-                            | _ -> TyClass(SymbolKeyOps.externalTypeKey info.Origin resolved 0, EqArray.empty)
+                        | ValueSome(ExternalTypeShape.Class info) -> externalClassTy ctx resolved info 0 EqArray.empty
                         | _ -> TyClass(SymbolKeyOps.qualifiedTypeKey resolved 0, EqArray.empty)
 
                     ValueSome(inferExternalCtorOn infer ctx key resolved EqArray.empty receiverTy args.[0])

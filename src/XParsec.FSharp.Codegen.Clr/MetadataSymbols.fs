@@ -89,6 +89,8 @@ module private MetadataMapping =
             // (`System.IDisposable → disposable`) are the one reverse-map family that
             // still reconciles late (their canon is a faced `Class`, resolved to
             // `TyClass`, not a `TyConst` identity), so `IsInterface` is the partition.
+            // The source-name twin of this policy is `UnificationTranslate.externalClassTy`
+            // (SemanticAnalysis) — change the partition in both or the two seams drift.
             | fullName when
                 not t.IsInterface
                 && (reverseCanon |> Map.tryFind fullName |> Option.exists (List.isEmpty >> not))

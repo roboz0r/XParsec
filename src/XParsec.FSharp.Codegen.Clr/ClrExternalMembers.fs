@@ -613,19 +613,15 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// Resolve an intrinsic-CLASS `inherit` parent — an `FTConst` canon (`exn`) whose
     /// platform repr is a heritable BCL reference class — to its platform external
     /// key (`System.Exception`, the identity base-ctor `MemberRef`s are minted
-    /// against) plus its raw `TypeRef` (the derived type's `extends` token). A
-    /// value-type repr (`int` → `System.Int32`) is never a heritable base, so it
-    /// returns `ValueNone`, as does a non-intrinsic key.
+    /// against) plus its raw `TypeRef` (the derived type's `extends` token).
+    /// Heritable-ness is CONTRACT-sourced: only a `(# class "…" #)`-tagged primitive
+    /// is published as `IntrinsicClass`, so the shape lookup IS the predicate — a
+    /// value-repr intrinsic (`int`, `decimal`, `unit`) is a plain `Intrinsic` and
+    /// never matches. (An own-unit heritable extern never arrives here: it resolves
+    /// to an `FTClass` base, the `ExternalClassTypeRef` path.)
     member _.IntrinsicClassBase(canon: SymbolKey) : struct (SymbolKey * EntityHandle) voption =
-        match env.TryPrimitiveRepr(SymbolKeyOps.simpleName canon) with
-        // `isEncodableValueType` misses the two `TypeRef`-backed value reprs
-        // (`System.Decimal` / `System.ValueTuple` — see `IntrinsicRepr`), so name
-        // them explicitly: no value type is a heritable base.
-        | Some repr when
-            not (IntrinsicRepr.isEncodableValueType repr)
-            && repr <> "System.Decimal"
-            && repr <> "System.ValueTuple"
-            ->
+        match env.Symbols.TryLookupType(SymbolKeyOps.qualifiedName canon) with
+        | ValueSome(ExternalTypeShape.IntrinsicClass(platform = Some repr)) ->
             let platformKey = SymbolKeyOps.qualifiedTypeKeyOf None repr 0
 
             match externalClassRef platformKey with

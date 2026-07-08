@@ -293,10 +293,11 @@ an intrinsic/`extern` type is now a real, reusable capability, end-to-end (parse
 - GUARDRAIL: only an ILIntrinsic-RHS abbrev may carry members (transparent alias rejected).
 - Array STAYS a bare `TyConst("[]")` — NOT promoted to `TyClass`. `EngineCore.fs:500` /
   `isStructuralConstructorName` stay closed. Member lookup keys DIRECTLY on the array's contract name.
-- **Qualifying intrinsic identities (bare `TyConst("[]")`/`("string")` → namespaced) is DEFERRED to its
-  own milestone** — see [`qualified-intrinsic-identities-plan.md`](qualified-intrinsic-identities-plan.md)
-  (SYSTEMIC: ~205 bare-name sites, `BuiltinTypes` linchpin). W9 lands indexers localized on top of the
-  bare identities.
+- **Qualifying intrinsic identities (bare `TyConst("[]")`/`("string")` → namespaced) LANDED as its
+  own milestone** — intrinsics carry qualified `Vesper.*` `SymbolKey`s; the successor work
+  (contract-sourced resolution, shadow-set deletion) continues in
+  [`contract-sourced-intrinsic-identity-plan.md`](contract-sourced-intrinsic-identity-plan.md).
+  W9 landed indexers localized on top of the then-bare identities.
 - **Array contract-name reality (corrects §3 below):** the key-agreement string is NOT `"[]``1"`.
   VesperLib's `nameOfTok` registers array under its verbatim backtick-escaped token `` ``[]`` `` and
   `arityName`'s backtick-guard suppresses the suffix, so both the consumer contract AND the harvest store

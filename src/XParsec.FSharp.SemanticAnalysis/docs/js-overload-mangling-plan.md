@@ -145,11 +145,11 @@ of the frozen member** (plus the return type — see Decision 2). Consequences:
    nativeint  unativeint
    ```
 
-   The set is **closed** — per `qualified-intrinsic-identities-plan.md` the intrinsic
-   *identities* are slated to gain a namespace (`FTConst("string")` → a qualified
-   `Vesper.string` identity), but that plan does **not** expand the set. So this list
-   is stable across that milestone; only the *identity representation* the hash reads
-   changes, not the membership. The readable token stays the **simple** name
+   The set is **closed** — the qualified-intrinsic-identities milestone (landed; successor:
+   `contract-sourced-intrinsic-identity-plan.md`) gave the intrinsic *identities* a namespace
+   (`FTConst("string")` → the qualified `Vesper.string` identity) but did **not** expand the
+   set. So this list is stable across that milestone; only the *identity representation* the
+   hash reads changed, not the membership. The readable token stays the **simple** name
    (`Vesper.int` → `int`), so qualification never bloats the JS token; the namespace,
    once carried, joins the *hashed* serialization (Decision below), exactly as a
    nominal's `SymbolKey` triple already does. Membership is tested on the simple name
@@ -219,14 +219,13 @@ A deterministic pre-order walk of a `FrozenType` into bytes/string. **Invariant:
 `serialize(t₁) = serialize(t₂)  ⟺  t₁ = t₂` under `FrozenType` structural equality.
 
 - `FTConst(name, args)` → the intrinsic's full identity + serialized `args` in
-  order. Today that identity is the bare `name`; once
-  `qualified-intrinsic-identities-plan.md` lands it carries a namespace, and the
-  serializer must read *whatever the qualified identity is* (so `string` and a
-  hypothetical `Other.string` never collide) — mirroring how nominals serialize
-  their `SymbolKey` triple. This changes the hashed bytes when that milestone lands,
-  hence the emitted names; harmless under the rebuilt-world model (names churn
-  uniformly). Note this is the *serialization* identity — the readable **token** (if
-  taken) stays the simple name regardless.
+  order. The identity carries a namespace (the qualified-intrinsic-identities
+  milestone landed: `Vesper.string`), so the serializer reads *whatever the
+  qualified identity is* (so `string` and a hypothetical `Other.string` never
+  collide) — mirroring how nominals serialize their `SymbolKey` triple. Hashed
+  bytes churn when the identity representation changes is harmless under the
+  rebuilt-world model (names churn uniformly). Note this is the *serialization*
+  identity — the readable **token** (if taken) stays the simple name regardless.
 - `FTFun`, `FTTuple` → order-significant, serialize children in order.
 - `FTRecord/Union/Class/Enum(key, args)` → the `SymbolKey` triple `(asm, ns,
   arity-name)` + serialized `args` in order.

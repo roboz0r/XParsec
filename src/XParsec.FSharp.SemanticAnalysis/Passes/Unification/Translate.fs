@@ -95,6 +95,23 @@ module internal UnificationTranslate =
         | "double" -> true
         | _ -> false
 
+    /// The resolution-time canonicalization seam for a SOURCE-WRITTEN external class
+    /// name: a resolved `Class` whose compiled name has a non-interface reverse-canon
+    /// hit is an intrinsic's platform spelling (`System.Exception` → `exn`), so it
+    /// resolves to the canon `TyConst` — the source-name twin of
+    /// `MetadataSymbols.tryBuildType`'s eager canonicalization — and no raw BCL
+    /// nominal enters the unifier. Capability INTERFACES keep their `TyClass` form.
+    let externalClassTy
+        (ctx: PassContext)
+        (compiled: string)
+        (info: ExternalClassShape)
+        (arity: int)
+        (args: EqArray<SemType>)
+        : SemType =
+        match ctx.IntrinsicReverseCanon.Value.TryGetValue compiled with
+        | true, (canon :: _) when not info.IsInterface -> TyConst(canon, args)
+        | _ -> TyClass(SymbolKeyOps.externalTypeKey info.Origin compiled arity, args)
+
     /// Reads `ctx.Resolution.TyparScope` for `'a` typar resolution; callers open a
     /// fresh scope per signature (binding or type defn) before walking.
     /// Bare references to generic named types back-fill the arg list with
@@ -518,15 +535,10 @@ module internal UnificationTranslate =
                         | ExternalTypeShape.IntrinsicClass(canon = canon) -> Some(TyConst(canon, translatedArgs))
                         // A source-written platform repr with a harvested non-interface
                         // canon (`System.Exception` → `exn`, `System.Object` → `obj`,
-                        // `System.Int32` → `int`) resolves to the canon `TyConst` HERE —
-                        // the source-name twin of `MetadataSymbols.tryBuildType`'s eager
-                        // canonicalization — so no raw BCL nominal enters the unifier
-                        // (whose reverse-map bridge is retired). Capability INTERFACES
-                        // (`System.IDisposable`) keep their `TyClass` nominal form.
-                        | ExternalTypeShape.Class info ->
-                            match ctx.IntrinsicReverseCanon.Value.TryGetValue key with
-                            | true, (canon :: _) when not info.IsInterface -> Some(TyConst(canon, translatedArgs))
-                            | _ -> Some(TyClass(SymbolKeyOps.externalTypeKey info.Origin key arity, translatedArgs))
+                        // `System.Int32` → `int`) resolves to the canon `TyConst` (the
+                        // reverse-map bridge is retired); capability INTERFACES keep
+                        // their `TyClass` form. See `externalClassTy`.
+                        | ExternalTypeShape.Class info -> Some(externalClassTy ctx key info arity translatedArgs)
                         | ExternalTypeShape.Record(origin = origin) ->
                             Some(TyRecord(SymbolKeyOps.externalTypeKey origin key arity, translatedArgs))
                         | ExternalTypeShape.Union(origin = origin) ->

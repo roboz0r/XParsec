@@ -922,19 +922,34 @@ module ExternalSymbols =
     /// Free function (not a new `IExternalSymbolProvider` member): it derives purely from
     /// the existing `TryLookupType` / `AmbientOpenPrefixes` window, so it adds no interface
     /// churn while keeping the provider the one seam to the outside.
-    let tryRuntimeType (provider: IExternalSymbolProvider) (repr: string) : ExternalTypeShape voption =
-        match provider.TryLookupType repr with
-        | ValueSome _ as s -> s
+    /// The chooser-based core of the ambient probe: the bare name, then each
+    /// `AmbientOpenPrefixes` candidate, returning the first shape `choose` ACCEPTS —
+    /// a rejected shape does not stop the scan. That continuation matters when
+    /// several providers are composited and an earlier prefix resolves the same
+    /// short name to a different KIND of shape (an FSharp.Core-lib `int`
+    /// abbreviation shadowing the Vesper `int` intrinsic): a kind-specific consumer
+    /// (the intrinsic resolvers) must keep scanning to the shape it wants, not
+    /// stop at the first name hit.
+    let tryPickRuntimeType
+        (provider: IExternalSymbolProvider)
+        (choose: ExternalTypeShape -> 'a voption)
+        (repr: string)
+        : 'a voption =
+        match provider.TryLookupType repr |> ValueOption.bind choose with
+        | ValueSome _ as hit -> hit
         | ValueNone ->
             provider.AmbientOpenPrefixes
             |> List.tryPick (fun p ->
-                match provider.TryLookupType(p + "." + repr) with
-                | ValueSome s -> Some s
+                match provider.TryLookupType(p + "." + repr) |> ValueOption.bind choose with
+                | ValueSome v -> Some v
                 | ValueNone -> None
             )
             |> function
-                | Some s -> ValueSome s
+                | Some v -> ValueSome v
                 | None -> ValueNone
+
+    let tryRuntimeType (provider: IExternalSymbolProvider) (repr: string) : ExternalTypeShape voption =
+        tryPickRuntimeType provider ValueSome repr
 
     /// Resolve the language-capability identities THROUGH THE PROVIDER, from their
     /// canonical language-level Vesper contract names (`Vesper.disposable` etc. —

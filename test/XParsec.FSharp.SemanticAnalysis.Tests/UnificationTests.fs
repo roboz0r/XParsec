@@ -813,6 +813,27 @@ let tests =
                 Expect.isTrue hasMismatch "string arg vs Box<int>'s int 'a diagnosed"
             }
 
+            // An intrinsic-class base (`exn`): the inherit args are checked against the
+            // CONTRACT `.ctor`s riding the provider's `IntrinsicClass` shape
+            // (`new: message: string -> exn`), so a mis-typed arg is a source diagnostic
+            // here, not a codegen internal error.
+
+            test "inherit exn(message) types against the contract base ctor" {
+                let ctx = analyse "type MyErr(m: string) =\n    inherit exn(m)"
+
+                Expect.isEmpty ctx.Diagnostics "string arg matches exn's `new: string -> exn`"
+            }
+
+            test "inherit exn with a mis-typed argument diagnoses" {
+                let ctx = analyse "type MyErr() =\n    inherit exn(42)"
+
+                let hasCtorError =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "constructor" && d.Message.Contains "exn")
+
+                Expect.isTrue hasCtorError "int arg matches no exn contract ctor (string / unit)"
+            }
+
             // --- Phase 2 / B-4: member-chain lookup + `subsumes` (Step 2.3) ---
             // `resolveFieldStep` / `drainPendingDotAccess` recurse into the
             // parent's members on a derived-class miss; override declarations on

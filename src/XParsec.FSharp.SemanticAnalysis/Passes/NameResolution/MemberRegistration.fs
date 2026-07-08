@@ -695,17 +695,12 @@ module NameResolutionMemberRegistration =
         | _ -> freshTv ()
 
     and private resolveInheritArgName (ctx: PassContext) (name: string) (args: EqArray<SemType>) : SemType =
-        match name with
-        | "int" -> ctx.Intrinsics.Int
-        | "bool" -> ctx.Intrinsics.Bool
-        | "unit" -> ctx.Intrinsics.Unit
-        | "float" -> ctx.Intrinsics.Float
-        | "string" -> ctx.Intrinsics.String
-        | "int64" -> ctx.Intrinsics.Int64
-        | "byte" -> ctx.Intrinsics.Byte
-        | _ when ctx.Types.IntrinsicReprTypes.ContainsKey name ->
-            TyConst(TypeRegistry.intrinsicKeyOf ctx.Types name, args)
-        | _ ->
+        // An intrinsic's identity is resolved (local registration first, then the provider
+        // through ambient opens), never enumerated by name. `args` are empty for the scalar
+        // intrinsics, so a uniform arm is behaviour-identical to the old per-name arms.
+        match IntrinsicResolve.tryResolveIntrinsicKey ctx.Provider ctx.Types name with
+        | Some k -> TyConst(k, args)
+        | None ->
             // Nominal heads carry their resolved `SymbolKey`; take it
             // off the registry `info` rather than re-stringing the name.
             match TypeRegistry.tryRecord ctx.Types name with
@@ -800,32 +795,17 @@ module NameResolutionMemberRegistration =
                 | false, _ ->
                     // A referenced heritable primitive (`exn`): the provider publishes it as
                     // an `IntrinsicClass` (contract `inherit obj` + ctors). Resolve it through
-                    // the ambient opens to its intrinsic identity and admit it as a `TyConst`
-                    // base — the derived class's chain then continues through `subtypeParentOf`'s
-                    // `IntrinsicClass` arm, and `inherit exn(m)` resolves the base `.ctor` off
-                    // the provider's member index. (Distinct from a *local* heritable extern,
-                    // handled by `HeritableExternBases` above.)
-                    let providerIntrinsicClassCanon =
-                        let probe (candidate: string) =
-                            match ctx.Provider.TryLookupType candidate with
-                            | ValueSome(ExternalTypeShape.IntrinsicClass(canon = canon)) -> ValueSome canon
-                            | _ -> ValueNone
+                    // the provider (bare name, then ambient opens, scanning past a non-intrinsic
+                    // hit) to its intrinsic identity — read the authoritative `canon` off the
+                    // shape — and admit it as a `TyConst` base; the derived class's chain then
+                    // continues through `subtypeParentOf`'s `IntrinsicClass` arm. (Distinct from
+                    // a *local* heritable extern, handled by `HeritableExternBases` above.)
+                    let intrinsicClassCanon (shape: ExternalTypeShape) =
+                        match shape with
+                        | ExternalTypeShape.IntrinsicClass(canon = c) -> ValueSome c
+                        | _ -> ValueNone
 
-                        match probe name with
-                        | ValueSome _ as hit -> hit
-                        | ValueNone ->
-                            match
-                                ctx.Provider.AmbientOpenPrefixes
-                                |> List.tryPick (fun p ->
-                                    match probe (p + "." + name) with
-                                    | ValueSome canon -> Some canon
-                                    | ValueNone -> None
-                                )
-                            with
-                            | Some canon -> ValueSome canon
-                            | None -> ValueNone
-
-                    match providerIntrinsicClassCanon with
+                    match ExternalSymbols.tryPickRuntimeType ctx.Provider intrinsicClassCanon name with
                     | ValueSome canon -> ValueSome(TyConst(canon, EqArray.ofList targs))
                     | ValueNone ->
                         if

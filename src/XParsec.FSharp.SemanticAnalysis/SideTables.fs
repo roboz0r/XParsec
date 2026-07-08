@@ -1442,33 +1442,41 @@ type IntrinsicSet(tryResolve: string -> SemType option) =
     member _.String = get "string"
     member _.Undefined = get "undefined"
 
-/// Try to resolve ONE intrinsic name to its `SemType` the way a written `int` annotation resolves:
+/// Try to resolve ONE intrinsic name to its identity the way a written `int` annotation resolves:
 /// this unit's own registered intrinsics first (`IntrinsicKeys`, self-host), else the provider
-/// through its ambient-open prefixes (`AmbientOpenPrefixes` carries `Vesper`, so the namespace is
-/// contract-sourced, never a hardcoded `"Vesper." + name`). `None` when neither names it — the
-/// honest answer, so the miss policy stays with the one caller (`IntrinsicSet.get`) rather than a
-/// silent by-name mint here. The resolved key equals `intrinsicKey name` for every current
-/// contract intrinsic (their declaring `namespace` IS `Vesper`), so this is behaviour-identical.
+/// through `ExternalSymbols.tryPickRuntimeType` (bare name, then each `AmbientOpenPrefixes` entry,
+/// scanning PAST a non-intrinsic hit — a composited FSharp.Core-lib `int` abbreviation must not
+/// shadow the Vesper intrinsic). The resolved key is read OFF the matched shape
+/// (`Intrinsic`/`IntrinsicClass` both carry the authoritative `canon`), never re-minted from the
+/// ambient prefix. `None` when neither names it — the honest answer, so the miss policy stays with
+/// the one caller (`IntrinsicSet.get`) rather than a silent by-name mint here.
 module internal IntrinsicResolve =
+
+    let private intrinsicCanon (shape: ExternalTypeShape) : SymbolKey voption =
+        match shape with
+        | ExternalTypeShape.Intrinsic(canon = c)
+        | ExternalTypeShape.IntrinsicClass(canon = c) -> ValueSome c
+        | _ -> ValueNone
+
+    let tryResolveIntrinsicKey
+        (provider: IExternalSymbolProvider)
+        (types: PassContextTypes)
+        (name: string)
+        : SymbolKey option =
+        match types.IntrinsicKeys.TryGetValue name with
+        | true, k -> Some k
+        | _ ->
+            match ExternalSymbols.tryPickRuntimeType provider intrinsicCanon name with
+            | ValueSome c -> Some c
+            | ValueNone -> None
 
     let tryResolveIntrinsicType
         (provider: IExternalSymbolProvider)
         (types: PassContextTypes)
         (name: string)
         : SemType option =
-        let keyOpt =
-            match types.IntrinsicKeys.TryGetValue name with
-            | true, k -> Some k
-            | _ ->
-                provider.AmbientOpenPrefixes
-                |> List.tryPick (fun p ->
-                    match provider.TryLookupType(p + "." + name) with
-                    | ValueSome(ExternalTypeShape.Intrinsic _)
-                    | ValueSome(ExternalTypeShape.IntrinsicClass _) -> Some(SymbolKey.TypeKey(None, p, name))
-                    | _ -> None
-                )
-
-        keyOpt |> Option.map (fun k -> TyConst(k, EqArray.empty))
+        tryResolveIntrinsicKey provider types name
+        |> Option.map (fun k -> TyConst(k, EqArray.empty))
 
 /// **Thread-safety:** a `PassContext` is single-threaded — its side tables,
 /// `Diagnostics` channel, and the `TypeVar` graph it owns all mutate in
@@ -1568,12 +1576,13 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
              // a `--compiling-fslib` unit. Skips a degenerate `platform = short`. A local
              // repr wins over the provider's canons for the same platform (self-compiled
              // identity is authoritative within the unit), so it replaces the entry. The
-             // canon value is the qualified intrinsic identity (`Vesper.short`), minted
-             // through the single `intrinsicKey` producer so it compares EQUAL to the
-             // forward/provider canons.
+             // canon value is the contract-stamped qualified identity (`IntrinsicKeys`, keyed
+             // from the declaring `namespace`), so it compares EQUAL to the forward/provider
+             // canons; `intrinsicKeyOf` falls back to the by-name mint only for a repr with
+             // no stamped key.
              for KeyValue(short, platform) in types.IntrinsicReprTypes do
                  if platform <> short then
-                     d.[platform] <- [ RuntimeNames.intrinsicKey short ]
+                     d.[platform] <- [ TypeRegistry.intrinsicKeyOf types short ]
 
              d) with get
 
