@@ -28,8 +28,7 @@ let private declType (tast: TastFile) : SemType =
 /// value (or a stepped range, which has no counted lowering) is rejected at
 /// elaboration (`FreezeExpr`).
 let private hasRangeValueError (tast: TastFile) =
-    tast.Diagnostics
-    |> Seq.exists (fun d -> d.Message.Contains "first-class value")
+    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "first-class value")
 
 [<Tests>]
 let tests =

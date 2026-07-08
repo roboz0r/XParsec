@@ -376,8 +376,9 @@ module RuntimeNames =
     ///   * the unifier's SRTP-arithmetic synthesis (`Engine.numericPrimitives`);
     ///   * the `%A` faithfulness gate (`FreezeExpr.structuredArgFaithful`, ∪ string/char/bool);
     ///   * the codegen value-type predicate (`EmitPattern.isValueType`, ∪ bool/char);
-    ///   * the front-end primitive recogniser (`TypeTranslate.isPrimitiveName`, ∪ the
-    ///     reference primitives unit/obj/objnull/voidptr/exn).
+    ///   * the front-end primitive recogniser (`TypeTranslate.isPrimitiveName`) and the
+    ///     TS-manifest recogniser (`TsManifestTranslate.intrinsicOrOpaque`), which both
+    ///     union in `referencePrimitiveNames` below.
     /// Each consumer unions in its own non-numeric extras at the use site (visible
     /// there); the numeric core — the part that grows — lives here.
     let numericTypeNames: Set<string> =
@@ -403,6 +404,15 @@ module RuntimeNames =
                 "single"
                 "decimal"
             ]
+
+    /// The non-numeric built-in primitive type names — the scalar/reference primitives
+    /// (`bool`/`char`/`string` and the reference roots `unit`/`obj`/`objnull`/`voidptr`/
+    /// `exn`). The companion to `numericTypeNames`: the single source the name-classifying
+    /// recognisers share for the non-numeric core, so it grows in one place instead of
+    /// each recogniser carrying its own inline copy. Consumers union this with
+    /// `numericTypeNames` (and any use-site-only extras) at the call site.
+    let referencePrimitiveNames: Set<string> =
+        Set.ofList [ "bool"; "char"; "string"; "unit"; "obj"; "objnull"; "voidptr"; "exn" ]
 
     /// The declaring namespace every built-in intrinsic identity carries — the
     /// `namespace Vesper` of `prim-types-*.fs`. Rides in the intrinsic's `SymbolKey`

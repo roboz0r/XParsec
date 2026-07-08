@@ -427,24 +427,21 @@ module internal TsManifestTranslate =
             // origin-less. A primitive mints its canonical `Vesper` key so a manifest param
             // (a `.d.ts` `string`, a `float`) unifies with the same intrinsic the front end
             // mints for a literal arg. This is a syntactic primitive-name recogniser (the
-            // shared `RuntimeNames.numericTypeNames` core + the reference primitives), NOT a
-            // provider/contract lookup — the manifest translator has no provider in hand.
-            // `number` (the WIDENING token `NumberCovariance` resolves), `null` (the literal
-            // union member), and every real external name stay origin-less BY DESIGN.
+            // shared `RuntimeNames.numericTypeNames` + `referencePrimitiveNames` cores plus
+            // the two contract intrinsics a manifest may spell but that live in neither
+            // core), NOT a provider/contract lookup — the manifest translator has no
+            // provider in hand. `number` (the WIDENING token `NumberCovariance` resolves),
+            // `null` (the literal union member), and every real external name stay
+            // origin-less BY DESIGN.
             let intrinsicOrOpaque (name: string) : FrozenType =
                 let isVesperPrimitive =
                     RuntimeNames.numericTypeNames.Contains name
-                    || match name with
-                       | "string"
-                       | "bool"
-                       | "char"
-                       | "unit"
-                       | "obj"
-                       | "objnull"
-                       | "voidptr"
-                       | "exn"
-                       | "undefined" -> true
-                       | _ -> false
+                    || RuntimeNames.referencePrimitiveNames.Contains name
+                    // Use-site extras beyond the shared cores: `undefined` (JS-only) and
+                    // `bigint` — both are contract intrinsics spellable by a manifest
+                    // param but absent from the numeric/reference cores.
+                    || name = "undefined"
+                    || name = "bigint"
 
                 if isVesperPrimitive then
                     FTConst(RuntimeNames.primitiveKey name, EqArray.ofSeq args)

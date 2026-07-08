@@ -295,19 +295,10 @@ module VesperLibTypeTranslate =
                         | ValueNone -> Error(sprintf "Unresolved type name '%s'" name)
 
     let isPrimitiveName (s: string) =
-        // Numeric core shared via `RuntimeNames.numericTypeNames`; the non-numeric
-        // primitives (scalars + the built-in reference types) are unioned in here.
+        // Both primitive-name cores are shared via `RuntimeNames` so this recogniser
+        // cannot drift from the others (numeric + the non-numeric scalar/reference set).
         RuntimeNames.numericTypeNames.Contains s
-        || match s with
-           | "char"
-           | "string"
-           | "bool"
-           | "unit"
-           | "obj"
-           | "objnull"
-           | "voidptr"
-           | "exn" -> true
-           | _ -> false
+        || RuntimeNames.referencePrimitiveNames.Contains s
 
     /// Source-text name of a typar (the part after `'` or `^`), or
     /// `ValueNone` for anonymous typars (whose constraint participation
@@ -465,9 +456,12 @@ module VesperLibTypeTranslate =
             // finalized in this pass) degrades to `FTUnknown "<deferred>"`.
             FrozenTypeBridge.substituteDeclaring (args.AsSpan().ToArray()) frozen
         // An intrinsic's nominal identity is the canon `TyConst` (`FTConst`)
-        // regardless of the optional base/ctor surface.
-        | ValueSome(ExternalTypeShape.Intrinsic _) ->
-            FTConst(RuntimeNames.primitiveKey (SymbolKeyOps.shortName compiled), EqArray.empty)
+        // regardless of the optional base/ctor surface. Read the authoritative canon
+        // stored on the matched shape (minted at registration via `intrinsicCanonKey`)
+        // rather than re-deriving it by name — re-minting would hardcode the `Vesper`
+        // namespace and silently diverge from the stored key for any non-Vesper-homed
+        // intrinsic.
+        | ValueSome(ExternalTypeShape.Intrinsic ishape) -> FTConst(ishape.Id.Canon, EqArray.empty)
         | ValueSome(ExternalTypeShape.Opaque _) -> raise (BodylessExternalShape compiled)
         | ValueNone ->
             failwithf
