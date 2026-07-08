@@ -1546,13 +1546,17 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// nor a provider intrinsic caches its own identity.
     member val IntrinsicCanonCache = Dictionary<string, string>() with get
 
-    /// The reverse intrinsic axis `{ platform-repr -> canon }` (`canonName`'s
-    /// counterpart to its forward read): a metadata-surfaced BCL/native runtime name
-    /// (`"System.Exception"`) -> the short `.fsi` identity (`"exn"`). Merges the
-    /// provider's `IntrinsicReverseCanon` (referenced contracts) with this unit's own
+    /// The reverse intrinsic axis `{ platform-repr -> canon }`: a platform runtime
+    /// name (`"number"`) -> the `.fsi` canon identities sharing that repr. Its sole
+    /// unify-time reader is `numericFamilyOr` (the JS `number`-family contravariant
+    /// widening, keyed on the MULTI-canon entries) — the single-canon BCL
+    /// reconciliation (`"System.Exception"` -> `exn`) that `canonName` used to read
+    /// from here now happens eagerly at resolution (`MetadataSymbols.tryBuildType`),
+    /// so no BCL name reaches the unifier. Merges the provider's
+    /// `IntrinsicReverseCanon` (referenced contracts) with this unit's own
     /// self-compiled intrinsics (`IntrinsicReprTypes`, inverted). `lazy` so it is
-    /// built once, on the first `canonName` reverse miss in Unification — AFTER
-    /// NameResolution has populated `IntrinsicReprTypes`.
+    /// built once, on the first Unification read — AFTER NameResolution has
+    /// populated `IntrinsicReprTypes`.
     member val IntrinsicReverseCanon: Lazy<Dictionary<string, SymbolKey list>> =
         lazy
             (let d = Dictionary<string, SymbolKey list>()

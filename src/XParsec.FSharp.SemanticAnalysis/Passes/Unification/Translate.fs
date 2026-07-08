@@ -516,8 +516,17 @@ module internal UnificationTranslate =
                         // platform type's members. A faced capability `Class` (`disposable`) is an
                         // INTERFACE, a constraint not a value type, so it stays a `TyClass` below.
                         | ExternalTypeShape.IntrinsicClass(canon = canon) -> Some(TyConst(canon, translatedArgs))
+                        // A source-written platform repr with a harvested non-interface
+                        // canon (`System.Exception` → `exn`, `System.Object` → `obj`,
+                        // `System.Int32` → `int`) resolves to the canon `TyConst` HERE —
+                        // the source-name twin of `MetadataSymbols.tryBuildType`'s eager
+                        // canonicalization — so no raw BCL nominal enters the unifier
+                        // (whose reverse-map bridge is retired). Capability INTERFACES
+                        // (`System.IDisposable`) keep their `TyClass` nominal form.
                         | ExternalTypeShape.Class info ->
-                            Some(TyClass(SymbolKeyOps.externalTypeKey info.Origin key arity, translatedArgs))
+                            match ctx.IntrinsicReverseCanon.Value.TryGetValue key with
+                            | true, (canon :: _) when not info.IsInterface -> Some(TyConst(canon, translatedArgs))
+                            | _ -> Some(TyClass(SymbolKeyOps.externalTypeKey info.Origin key arity, translatedArgs))
                         | ExternalTypeShape.Record(origin = origin) ->
                             Some(TyRecord(SymbolKeyOps.externalTypeKey origin key arity, translatedArgs))
                         | ExternalTypeShape.Union(origin = origin) ->

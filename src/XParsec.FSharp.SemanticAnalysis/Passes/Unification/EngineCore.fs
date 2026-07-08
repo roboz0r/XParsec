@@ -401,20 +401,19 @@ module UnificationEngineCore =
     // front-end identity — the `.fsi` name itself (`int`, `exn`), NOT a BCL name.
     // A primitive intrinsic binding (`type exn = (# "System.Exception" #)`,
     // prim-types-exn.fs) stays a *non-transparent* `TyConst "exn"` (Translate.fs);
-    // `canonName "exn"` is just `"exn"`. The reconciliation that used to live here —
-    // `exn === System.Exception` — now runs in the OTHER direction: a metadata-
-    // surfaced `TyClass("System.Exception", _)` (an `inherit`-chain element on CLR)
-    // is mapped BACK to `"exn"` through the reverse `{ platform -> canon }` map
-    // (`IExternalSymbolProvider.IntrinsicReverseCanon`), so the two still meet at
-    // `"exn"`. This keeps a JS build free of BCL names — the base `.fs` repr only
-    // ever marks primitive-ness on JS, never the `platform` face.
+    // `canonName "exn"` is just `"exn"`. The `exn === System.Exception`
+    // reconciliation does NOT live here: it happens once, at resolution
+    // (`MetadataSymbols.tryBuildType` maps every non-interface `reverseCanon` hit —
+    // sealed leaf or unsealed root — to its canon identity at surfacing time), so no
+    // raw BCL name reaches this walk to reconcile. This keeps a JS build free of BCL
+    // names — the base `.fs` repr only ever marks primitive-ness on JS, never the
+    // `platform` face.
     //
     // Resolution order:
     //   1. the compiled unit's OWN intrinsics (`ctx.Types.IntrinsicReprTypes`) — a
     //      self-compiled `extern`'s key is its `.fsi` short name, which IS the canon;
     //   2. a *referenced* package's intrinsics, riding the provider as
-    //      `ExternalTypeShape.Intrinsic` (its `canon` face = the short name);
-    //   3. the reverse map, for an incoming BCL/native runtime name.
+    //      `ExternalTypeShape.Intrinsic` (its `canon` face = the short name).
     // `n` is usually the unqualified nominal (`translateType` strips an external
     // intrinsic to its short name); the provider tier also collapses a qualified
     // `Vesper.exn` to the short `exn` via its `canon` face. Memoized per
@@ -439,21 +438,7 @@ module UnificationEngineCore =
                 else
                     match OpenScope.tryResolve ctx.Resolution.OpenScope providerCanon n with
                     | ValueSome canon -> canon
-                    | ValueNone ->
-                        // Reverse axis: `n` may be a `platform` repr (a metadata BCL/
-                        // native runtime name) whose front-end identity it reconciles
-                        // with — `System.Exception` ⇒ `exn`. Built lazily (on first
-                        // reverse miss) but in one shot — fully materialised AFTER
-                        // NameResolution has populated `IntrinsicReprTypes`, so there is
-                        // no ordering hazard with the forward-resolved names.
-                        // One-to-many reverse axis: a platform repr can name several
-                        // canons (JS `number` <- int/float/float32); this reconciliation
-                        // wants the single front-end identity, which on CLR (where this
-                        // path fires) is always the sole/head canon. An empty list reads
-                        // as a miss.
-                        match ctx.IntrinsicReverseCanon.Value.TryGetValue n with
-                        | true, (canon :: _) -> SymbolKeyOps.intrinsicName canon
-                        | _ -> n
+                    | ValueNone -> n
 
             ctx.IntrinsicCanonCache.[n] <- repr
             repr

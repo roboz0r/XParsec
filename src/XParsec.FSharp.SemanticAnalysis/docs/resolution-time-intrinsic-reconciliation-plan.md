@@ -365,9 +365,22 @@ reason that tier and that comparator exist for the two subtype roots.** Sequenci
      [||]` (latent until the `exn → obj` hop first exercised it). Finalize now freezes the
      declared base into the `IntrinsicClass` (mirroring the `Class` arm) and refreshes the
      shape's `.ctor` members after the ctor-freeze loop.
-4. **Retire `canonName`'s reverse tier** (`EngineCore.fs:452`) for the roots; confirm dead (no test
-   relies on it — `numericFamilyOr` keeps its own use). GREEN. First removed `sameTypeAsmBlind`-era
-   caller.
+4. **Retire `canonName`'s reverse tier — DONE (all suites green: SA 763, Clr 1253, Js 348,
+   Vesper 49).** The "confirm dead" premise was empirically FALSE: 5 CLR tests relied on the tier
+   for **source-written** BCL names (`new System.Exception "m"`, ctor sugar under `raise`) — stage 3
+   only canonicalized metadata-*signature* surfacing (`tryBuildType`), not the source-name resolution
+   seam. Removing the tier forced that reconciliation to resolution too (the principle, applied):
+   - `tryResolveExternalType` (`Translate.fs`): a resolved `Class` shape whose matched name has a
+     non-interface reverse-canon hit resolves to `TyConst(canon)` — the source-name twin of
+     `tryBuildType`'s eager canonicalization. Capability interfaces keep `TyClass`.
+   - `inferNew` (`InferCtor.fs`): a `TyConst` receiver whose canon is a provider `IntrinsicClass`
+     routes the `.ctor` lookup through the PLATFORM repr (`intrinsicPlatformName`, full platform
+     catalogue — the inner-exception overload stays reachable), receiver identity stays canon.
+   - `tryInferExternalCtorApp` (ctor sugar): mints the canon `TyConst` receiver on a non-interface
+     reverse-canon hit; `.ctor` lookup stays keyed on the resolved platform name.
+   - CLR `EmitConstruct.buildNew`: an external construction typed `FTConst(canon)` resolves via
+     `IntrinsicClassBase → TryEmitCtor(platformKey)` — the same resolution as base-ctor chaining.
+   `numericFamilyOr` keeps its reverse-map use. First removed `sameTypeAsmBlind`-era caller.
 5. **Re-key `isSystemObjectKey` + equality/derives predicates** to compare canon `obj` by `=`
    (metadata now surfaces `System.Object` as `obj`). GREEN.
 6. **Then** proceed to the parent plan's Stage 2 currency change, now reverse-map-free for the roots.

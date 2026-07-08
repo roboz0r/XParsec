@@ -127,6 +127,19 @@ module EmitConstruct =
                                 match env.Provider.TryEmitCtor(ctorKey, tyArgs, argTypes) with
                                 | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
                                 | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
+                            // A constructed heritable primitive (`new exn "boom"` /
+                            // `new System.Exception "boom"`, canonicalized at
+                            // resolution) types as the canon `FTConst`: resolve it to
+                            // its platform external key (`System.Exception`) and mint
+                            // the ctor there — the same resolution the `inherit exn(…)`
+                            // base-ctor chain uses.
+                            | FTConst(canonKey, _) ->
+                                match env.Provider.IntrinsicClassBase canonKey with
+                                | ValueSome(platformKey, _) ->
+                                    match env.Provider.TryEmitCtor(platformKey, tyArgs, argTypes) with
+                                    | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
+                                    | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
+                                | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
                             | _ -> failwithf "Emit: no constructor recipe for '%s'" className
 
                 for a in args do

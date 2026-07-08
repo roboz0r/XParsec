@@ -367,8 +367,10 @@ module VesperLibTyparCapture =
                 d
 
             // Reverse intrinsic axis `{ platform-repr -> canon }` (the `.fsi` name),
-            // so a metadata-surfaced BCL/native runtime name (`System.Exception`)
-            // reconciles back to the front-end identity (`exn`) in `canonName`. Built
+            // so a metadata BCL/native runtime name (`System.Exception`) reconciles
+            // back to the front-end identity (`exn`) at RESOLUTION — in
+            // `MetadataSymbols.tryBuildType` (eager canonicalization) — and so the
+            // multi-canon entries drive `numericFamilyOr`'s JS `number` widening. Built
             // from the published `Intrinsic` shapes — the same source the forward
             // `canon` axis reads — so the two can never drift. The guard skips a
             // degenerate `canon = platform` entry (a primitive with no `.fs` repr).
