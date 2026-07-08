@@ -58,7 +58,7 @@ let tests =
 
                             Expect.equal
                                 hole.Ty
-                                (TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
+                                (TyConst(RuntimeNames.intKey, EqArray.empty))
                                 "the %d hole types as int"
                         | other -> failtestf "unexpected Format segments: %A" other
                     | _ -> failtestf "unexpected let-decl TAST: %A" (EqArray.toList tast.Decls)

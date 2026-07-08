@@ -19,22 +19,20 @@ module PrintfSpec =
     [<Literal>]
     let printfFormatName = "Microsoft.FSharp.Core.PrintfFormat"
 
-    let private tyUnit: SemType =
-        TyConst(RuntimeNames.intrinsicKey "unit", EqArray.empty)
+    let private tyUnit: SemType = TyConst(RuntimeNames.unitKey, EqArray.empty)
 
-    let private tyString: SemType =
-        TyConst(RuntimeNames.intrinsicKey "string", EqArray.empty)
+    let private tyString: SemType = TyConst(RuntimeNames.stringKey, EqArray.empty)
 
-    let private tyInt: SemType = TyConst(RuntimeNames.intrinsicKey "int", EqArray.empty)
+    let private tyInt: SemType = TyConst(RuntimeNames.intKey, EqArray.empty)
 
     let private tyTextWriter: SemType =
-        TyConst(RuntimeNames.intrinsicKey RuntimeNames.textWriterTypeName, EqArray.empty)
+        TyConst(RuntimeNames.opaqueKey RuntimeNames.textWriterTypeName, EqArray.empty)
 
     let private tyStringBuilder: SemType =
-        TyConst(RuntimeNames.intrinsicKey RuntimeNames.stringBuilderTypeName, EqArray.empty)
+        TyConst(RuntimeNames.opaqueKey RuntimeNames.stringBuilderTypeName, EqArray.empty)
 
     let private tyStringWriter: SemType =
-        TyConst(RuntimeNames.intrinsicKey RuntimeNames.stringWriterTypeName, EqArray.empty)
+        TyConst(RuntimeNames.opaqueKey RuntimeNames.stringWriterTypeName, EqArray.empty)
 
     /// Target-agnostic classification of a printf entry point's output sink,
     /// resolved from the entry-point name. Recorded on `PassContext.PrintfApp`
@@ -156,9 +154,9 @@ module PrintfSpec =
     /// the star-dimension arguments this letter-keyed helper knows nothing about.
     let private argType (fresh: unit -> SemType) (t: FormatType) : SemType =
         match t with
-        | FormatType.Bool -> TyConst(RuntimeNames.intrinsicKey "bool", EqArray.empty)
+        | FormatType.Bool -> TyConst(RuntimeNames.boolKey, EqArray.empty)
         | FormatType.String -> tyString
-        | FormatType.Char -> TyConst(RuntimeNames.intrinsicKey "char", EqArray.empty)
+        | FormatType.Char -> TyConst(RuntimeNames.charKey, EqArray.empty)
         | FormatType.DecimalInt
         | FormatType.UnsignedDecimalInt
         | FormatType.UnsignedHex
@@ -166,8 +164,8 @@ module PrintfSpec =
         | FormatType.UnsignedBinary -> tyInt
         | FormatType.FloatExponential
         | FormatType.FloatDecimal
-        | FormatType.FloatCompact -> TyConst(RuntimeNames.intrinsicKey "float", EqArray.empty)
-        | FormatType.Decimal -> TyConst(RuntimeNames.intrinsicKey "decimal", EqArray.empty)
+        | FormatType.FloatCompact -> TyConst(RuntimeNames.floatKey, EqArray.empty)
+        | FormatType.Decimal -> TyConst(RuntimeNames.decimalKey, EqArray.empty)
         | FormatType.Object
         | FormatType.Structured -> fresh ()
         | FormatType.FormatFunction

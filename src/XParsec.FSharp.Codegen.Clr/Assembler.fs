@@ -701,7 +701,13 @@ type internal Assembler
             let td = sed.Decl
 
             let fieldTy =
-                FTConst(BuiltinTypes.intrinsicKey (if sed.IsMixed then "obj" else "string"), EqArray.empty)
+                FTConst(
+                    (if sed.IsMixed then
+                         RuntimeNames.objKey
+                     else
+                         RuntimeNames.stringKey),
+                    EqArray.empty
+                )
 
             // `caseLits` (the registry's case → literal map) feeds the `| E.A`
             // pattern's field equality, not the `.cctor` — here the literals come

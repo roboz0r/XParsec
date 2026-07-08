@@ -106,8 +106,8 @@ let mkMember: ExternalMember =
             mkSignature
                 0
                 0
-                (FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty))
-                (FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty))
+                (FTConst(RuntimeNames.unitKey, EqArray.empty))
+                (FTConst(RuntimeNames.unitKey, EqArray.empty))
         MethodArity = 0
         Origin = SymbolOrigin.Empty
         Key = SymbolKeyOps.valueKeyOf None ""

@@ -228,8 +228,7 @@ module internal FreezeAccess =
                 | _ -> false
 
             if retIsByref then
-                let byrefTy =
-                    TyConst(BuiltinTypes.intrinsicKey RuntimeNames.byrefName, EqArray.singleton ty)
+                let byrefTy = TyConst(RuntimeNames.byrefKey, EqArray.singleton ty)
 
                 let memberFnTy = TyFun(idxTy, byrefTy)
 

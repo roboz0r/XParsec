@@ -310,7 +310,7 @@ type internal ClrEncoder(env: ClrEnv) =
         // runtime value already IS the literal) — re-encode as that primitive rather
         // than hit the catch-all. External-vocabulary only (a TS/JS concern), so a
         // literal rarely reaches the CLR encoder, but erasing keeps it honest.
-        | FTLiteral v -> encodeType te (FTConst(BuiltinTypes.intrinsicKey v.BaseName, EqArray.empty))
+        | FTLiteral v -> encodeType te (FTConst(RuntimeNames.primitiveKey v.BaseName, EqArray.empty))
         // A carried type-level computation (keyof / indexed-access / conditional) is a
         // JS-seam construct that must be GROUND-EVALUATED by the front end (step 3)
         // before codegen — it has no CLR runtime repr in its unevaluated form. Like the

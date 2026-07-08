@@ -1792,36 +1792,34 @@ module ExternalSymbols =
 /// its target IL type via `IntrinsicRepr`.
 module BuiltinTypes =
 
-    /// Re-export of `RuntimeNames.intrinsicKey` (which compiles earlier — its true
-    /// home, next to `numericTypeNames` / the structural-constructor recogniser). This
-    /// alias lets the many downstream `TyConst`/`FTConst` producers that reach for
-    /// `BuiltinTypes.intrinsicKey` keep working; producers that compile BEFORE this file
-    /// (`PrintfSpec`) call `RuntimeNames.intrinsicKey` directly.
-    let intrinsicKey (name: string) : SymbolKey = RuntimeNames.intrinsicKey name
+    let tyInt: SemType = TyConst(RuntimeNames.intKey, EqArray.empty)
+    let tyInt64: SemType = TyConst(RuntimeNames.int64Key, EqArray.empty)
+    let tyByte: SemType = TyConst(RuntimeNames.byteKey, EqArray.empty)
+    let tySByte: SemType = TyConst(RuntimeNames.primitiveKey "sbyte", EqArray.empty)
+    let tyInt16: SemType = TyConst(RuntimeNames.primitiveKey "int16", EqArray.empty)
+    let tyUInt16: SemType = TyConst(RuntimeNames.primitiveKey "uint16", EqArray.empty)
+    let tyUInt32: SemType = TyConst(RuntimeNames.uint32Key, EqArray.empty)
+    let tyUInt64: SemType = TyConst(RuntimeNames.primitiveKey "uint64", EqArray.empty)
 
-    let tyInt: SemType = TyConst(intrinsicKey "int", EqArray.empty)
-    let tyInt64: SemType = TyConst(intrinsicKey "int64", EqArray.empty)
-    let tyByte: SemType = TyConst(intrinsicKey "byte", EqArray.empty)
-    let tySByte: SemType = TyConst(intrinsicKey "sbyte", EqArray.empty)
-    let tyInt16: SemType = TyConst(intrinsicKey "int16", EqArray.empty)
-    let tyUInt16: SemType = TyConst(intrinsicKey "uint16", EqArray.empty)
-    let tyUInt32: SemType = TyConst(intrinsicKey "uint32", EqArray.empty)
-    let tyUInt64: SemType = TyConst(intrinsicKey "uint64", EqArray.empty)
-    let tyNativeInt: SemType = TyConst(intrinsicKey "nativeint", EqArray.empty)
-    let tyUNativeInt: SemType = TyConst(intrinsicKey "unativeint", EqArray.empty)
-    let tyBigInt: SemType = TyConst(intrinsicKey "bigint", EqArray.empty)
-    let tyFloat: SemType = TyConst(intrinsicKey "float", EqArray.empty)
-    let tyFloat32: SemType = TyConst(intrinsicKey "float32", EqArray.empty)
-    let tyBool: SemType = TyConst(intrinsicKey "bool", EqArray.empty)
-    let tyChar: SemType = TyConst(intrinsicKey "char", EqArray.empty)
-    let tyDecimal: SemType = TyConst(intrinsicKey "decimal", EqArray.empty)
-    let tyUnit: SemType = TyConst(intrinsicKey "unit", EqArray.empty)
-    let tyString: SemType = TyConst(intrinsicKey "string", EqArray.empty)
+    let tyNativeInt: SemType =
+        TyConst(RuntimeNames.primitiveKey "nativeint", EqArray.empty)
+
+    let tyUNativeInt: SemType =
+        TyConst(RuntimeNames.primitiveKey "unativeint", EqArray.empty)
+
+    let tyBigInt: SemType = TyConst(RuntimeNames.bigintKey, EqArray.empty)
+    let tyFloat: SemType = TyConst(RuntimeNames.floatKey, EqArray.empty)
+    let tyFloat32: SemType = TyConst(RuntimeNames.primitiveKey "float32", EqArray.empty)
+    let tyBool: SemType = TyConst(RuntimeNames.boolKey, EqArray.empty)
+    let tyChar: SemType = TyConst(RuntimeNames.charKey, EqArray.empty)
+    let tyDecimal: SemType = TyConst(RuntimeNames.decimalKey, EqArray.empty)
+    let tyUnit: SemType = TyConst(RuntimeNames.unitKey, EqArray.empty)
+    let tyString: SemType = TyConst(RuntimeNames.stringKey, EqArray.empty)
     /// The JS-only absence sentinel `undefined` — a DISTINCT identity from `unit`
     /// (both project to JS `undefined`, but that is a backend repr coincidence). The
     /// type of the honest omitted-optional fill node (`FreezeExpr.optionalDefaultNode`).
-    let tyUndefined: SemType = TyConst(intrinsicKey "undefined", EqArray.empty)
+    let tyUndefined: SemType = TyConst(RuntimeNames.undefinedKey, EqArray.empty)
     /// Placeholder for `seq<int>` — the result type of int range expressions
     /// (`1..10`, `1..2..10`). Until generic types are modelled this is an
     /// opaque TyConst that only unifies with itself.
-    let tySeqInt: SemType = TyConst(intrinsicKey "seq<int>", EqArray.empty)
+    let tySeqInt: SemType = TyConst(RuntimeNames.primitiveKey "seq<int>", EqArray.empty)

@@ -551,7 +551,7 @@ let tests =
                     | ValueSome s -> s
                     | ValueNone -> failtestf "val '%s' not extracted. Symbols: %A" suffix (Seq.toList ctx.Symbols.Keys)
 
-                let intF = FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty)
+                let intF = FTConst(RuntimeNames.intKey, EqArray.empty)
                 let pairF = FTTuple(EqArray.ofList [ intF; intF ])
 
                 // The compiled form is derived from the captured `ValRepr` on demand —
@@ -1146,7 +1146,7 @@ let tests =
                     Expect.equal arity 1 "option has one typar"
 
                     let body =
-                        instantiateDeclaring frozen [| TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty) |]
+                        instantiateDeclaring frozen [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
 
                     match body with
                     | TyUnion(name, args) when
@@ -1181,8 +1181,8 @@ let tests =
                         instantiateDeclaring
                             okCase.FrozenFieldTypes.[0]
                             [|
-                                TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty)
-                                TyConst(BuiltinTypes.intrinsicKey "string", EqArray.empty)
+                                TyConst(RuntimeNames.intKey, EqArray.empty)
+                                TyConst(RuntimeNames.stringKey, EqArray.empty)
                             |]
 
                     match okFieldType with
@@ -1213,7 +1213,7 @@ let tests =
 
                 /// Ground args for an arity-`n` declaring substitution.
                 let argsFor (n: int) : SemType[] =
-                    Array.init n (fun i -> TyConst(BuiltinTypes.intrinsicKey (sprintf "g%d" i), EqArray.empty))
+                    Array.init n (fun i -> TyConst(RuntimeNames.opaqueKey (sprintf "g%d" i), EqArray.empty))
 
                 /// Assert a finalized type-shape template is real (not the deferred
                 /// sentinel) and instantiates without throwing.
@@ -1448,8 +1448,8 @@ let tests =
                     | ValueSome face ->
                         Expect.equal
                             face.Canon
-                            (RuntimeNames.intrinsicKey "disposable")
-                            "CapabilityFace canon is the `.fsi` short name"
+                            (RuntimeNames.primitiveKey "disposable")
+                            "CapabilityFace canon is the contract-sourced qualified identity (`namespace Vesper`)"
 
                         Expect.equal face.Platform "System.IDisposable" "CapabilityFace platform is the `.fs` repr"
                     | ValueNone -> failtest "dual-faced Class must carry a CapabilityFace (platform face from the repr)"
@@ -1467,7 +1467,7 @@ let tests =
                 | Some canons ->
                     Expect.contains
                         canons
-                        (RuntimeNames.intrinsicKey "disposable")
+                        (RuntimeNames.primitiveKey "disposable")
                         "reverse-canon folds System.IDisposable -> disposable"
                 | None -> failtest "reverse-canon is missing the System.IDisposable -> disposable entry"
             }
@@ -1529,8 +1529,8 @@ let tests =
                     | ValueSome face ->
                         Expect.equal
                             face.Canon
-                            (RuntimeNames.intrinsicKey "widget")
-                            "CapabilityFace canon is the `.fsi` short name"
+                            (RuntimeNames.primitiveKey "widget")
+                            "CapabilityFace canon is the contract-sourced qualified identity (`namespace Vesper`)"
 
                         Expect.equal face.Platform "System.Widget" "CapabilityFace platform is the `.fs` repr"
                     | ValueNone -> failtest "concrete-member intrinsic Class must carry a CapabilityFace"

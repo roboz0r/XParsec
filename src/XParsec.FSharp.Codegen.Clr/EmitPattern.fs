@@ -161,7 +161,13 @@ module EmitPattern =
                   Repr = EmittedEnumRepr.StructEnum(isMixed, backingField, _, caseLits)
               } ->
                 let fieldTy =
-                    FTConst(BuiltinTypes.intrinsicKey (if isMixed then "obj" else "string"), EqArray.empty)
+                    FTConst(
+                        (if isMixed then
+                             RuntimeNames.objKey
+                         else
+                             RuntimeNames.stringKey),
+                        EqArray.empty
+                    )
 
                 let pushLit =
                     match caseLits.TryGetValue caseName with
@@ -305,7 +311,7 @@ module EmitPattern =
             b.Add(ILInstr.Isinst token)
 
             if isValueType env testTy then
-                let boxedSlot = b.Local(FTConst(BuiltinTypes.intrinsicKey "obj", EqArray.empty))
+                let boxedSlot = b.Local(FTConst(RuntimeNames.objKey, EqArray.empty))
                 b.Add(ILInstr.Stloc boxedSlot)
                 b.Add(ILInstr.Ldloc boxedSlot)
                 b.Add(ILInstr.Brfalse nextLabel)

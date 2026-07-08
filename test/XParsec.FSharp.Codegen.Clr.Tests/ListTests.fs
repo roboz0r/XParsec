@@ -28,7 +28,7 @@ let tests =
                 let listTy =
                     SemType.TyRecord(
                         RuntimeNames.fsharpCoreListKey,
-                        EqArray.singleton (TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
+                        EqArray.singleton (TyConst(RuntimeNames.intKey, EqArray.empty))
                     )
 
                 match tast.Decls with

@@ -401,10 +401,10 @@ module EmitResolve =
     /// underlying upstream, so the residual arm is a "can't happen" invariant.
     let enumIntLoad (v: TConstValue) : ILInstr * FrozenType =
         match v with
-        | TConstValue.Int n -> ILInstr.LdcI4 n, FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty)
-        | TConstValue.Byte b -> ILInstr.LdcI4(int b), FTConst(BuiltinTypes.intrinsicKey "byte", EqArray.empty)
-        | TConstValue.UInt u -> ILInstr.LdcI4(int u), FTConst(BuiltinTypes.intrinsicKey "uint32", EqArray.empty)
-        | TConstValue.Int64 i -> ILInstr.LdcI8 i, FTConst(BuiltinTypes.intrinsicKey "int64", EqArray.empty)
+        | TConstValue.Int n -> ILInstr.LdcI4 n, FTConst(RuntimeNames.intKey, EqArray.empty)
+        | TConstValue.Byte b -> ILInstr.LdcI4(int b), FTConst(RuntimeNames.byteKey, EqArray.empty)
+        | TConstValue.UInt u -> ILInstr.LdcI4(int u), FTConst(RuntimeNames.uint32Key, EqArray.empty)
+        | TConstValue.Int64 i -> ILInstr.LdcI8 i, FTConst(RuntimeNames.int64Key, EqArray.empty)
         | other -> failwithf "Emit: enum case carries a non-integral literal %A" other
 
     /// Push a string/mixed enum case literal as the wrapper `.ctor`'s single

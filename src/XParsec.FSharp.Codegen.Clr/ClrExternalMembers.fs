@@ -445,7 +445,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             | Some tag ->
                 let parent = externalTypeSpec key tref args
                 let s = BlobBuilder()
-                encodeType (BlobEncoder(s).FieldSignature()) (FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
+                encodeType (BlobEncoder(s).FieldSignature()) (FTConst(RuntimeNames.intKey, EqArray.empty))
                 ValueSome(toEntity (ctx.MemberRef(parent, "_tag", s)), tag)
 
     /// Mint the `MemberRef` for one field of one case on a referenced-package union — the `<caseName>_<i>`

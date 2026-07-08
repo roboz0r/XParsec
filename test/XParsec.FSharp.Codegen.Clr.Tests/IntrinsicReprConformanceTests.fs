@@ -37,7 +37,7 @@ let private forwardRepr =
 /// Look a bare canon name up in the forward axis, which is now keyed by the qualified
 /// intrinsic `SymbolKey` (`Vesper.int`) — bridge from the bare `.fsi` name.
 let private tryRepr (canon: string) : string option =
-    match forwardRepr.TryGetValue(RuntimeNames.intrinsicKey canon) with
+    match forwardRepr.TryGetValue(RuntimeNames.primitiveKey canon) with
     | true, repr -> Some repr
     | _ -> None
 

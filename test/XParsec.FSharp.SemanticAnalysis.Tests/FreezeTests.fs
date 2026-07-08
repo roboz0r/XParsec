@@ -159,8 +159,7 @@ let tests =
                 let listTy =
                     SemType.TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton intTy)
 
-                let arrayTy =
-                    TyConst(BuiltinTypes.intrinsicKey (RuntimeNames.arrayName 1), EqArray.singleton intTy)
+                let arrayTy = TyConst(RuntimeNames.arrayKey 1, EqArray.singleton intTy)
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
                 Expect.equal (declType tast) arrayTy "xs : int[]"
@@ -656,7 +655,7 @@ let listAbbrevTests =
                 | ValueSome(value, ty) ->
                     Expect.equal
                         ty
-                        (TyUnion("List", EqArray.singleton (TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))))
+                        (TyUnion("List", EqArray.singleton (TyConst(RuntimeNames.intKey, EqArray.empty))))
                         "xs : List<int> (the declared union)"
 
                     Expect.equal
@@ -689,7 +688,7 @@ let listAbbrevTests =
                 | ValueSome(value, ty) ->
                     Expect.equal
                         ty
-                        (TyUnion("List", EqArray.singleton (TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))))
+                        (TyUnion("List", EqArray.singleton (TyConst(RuntimeNames.intKey, EqArray.empty))))
                         "e : List<int>"
 
                     Expect.equal (TastShape.prettyExpr value) "Empty" "the bare `[]` is the union's Empty case"
@@ -722,7 +721,7 @@ let listAbbrevTests =
                         ty
                         (SemType.TyRecord(
                             RuntimeNames.fsharpCoreListKey,
-                            EqArray.singleton (TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
+                            EqArray.singleton (TyConst(RuntimeNames.intKey, EqArray.empty))
                         ))
                         "xs : Microsoft.FSharp.Collections.list<int> (the FSharp.Core default)"
 
@@ -790,17 +789,11 @@ let unionMemberTests =
                     Expect.isFalse isEmpty.IsStatic "IsEmpty is an instance member"
                     Expect.equal isEmpty.Kind TMemberKind.Property "IsEmpty is a property"
 
-                    Expect.equal
-                        isEmpty.ReturnTy
-                        (TyConst(BuiltinTypes.intrinsicKey "bool", EqArray.empty))
-                        "IsEmpty : bool"
+                    Expect.equal isEmpty.ReturnTy (TyConst(RuntimeNames.boolKey, EqArray.empty)) "IsEmpty : bool"
 
                     Expect.isTrue (ValueOption.isSome isEmpty.ThisKey) "an instance member carries a `this` binder"
 
-                    Expect.equal
-                        (find "Head").ReturnTy
-                        (TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
-                        "Head : int"
+                    Expect.equal (find "Head").ReturnTy (TyConst(RuntimeNames.intKey, EqArray.empty)) "Head : int"
 
                     let empty = find "Empty"
                     Expect.isTrue empty.IsStatic "Empty is static"

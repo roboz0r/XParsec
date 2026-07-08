@@ -784,7 +784,7 @@ module internal UnificationInferControlFlow =
         // patterns carry an unresolved TyVar into the TAST, which
         // `ResolvedTypes` correctly flags.
         let resultTy = infer ctx body
-        let exnTy = TyConst(BuiltinTypes.intrinsicKey "exn", EqArray.empty)
+        let exnTy = TyConst(RuntimeNames.exnKey, EqArray.empty)
         inferRules infer ctx key exnTy resultTy rules
         resultTy
 

@@ -16,13 +16,11 @@ let private provider: IExternalSymbolProvider =
     { new IExternalSymbolProvider with
         member _.TryLookup n =
             if n = "A.B.thing" then
-                ValueSome(ExternalSymbols.monoFrozen "thing" (FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty)))
+                ValueSome(ExternalSymbols.monoFrozen "thing" (FTConst(RuntimeNames.intKey, EqArray.empty)))
             // The qualified operator `A.B.(+)` resolves to its compiled name
             // `A.B.op_Addition` (opens-overhaul-plan Gap 4).
             elif n = "A.B.op_Addition" then
-                ValueSome(
-                    ExternalSymbols.monoFrozen "op_Addition" (FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
-                )
+                ValueSome(ExternalSymbols.monoFrozen "op_Addition" (FTConst(RuntimeNames.intKey, EqArray.empty)))
             else
                 ValueNone
 

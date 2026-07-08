@@ -467,7 +467,7 @@ module VesperLibTypeTranslate =
         // An intrinsic's nominal identity is the canon `TyConst` (`FTConst`)
         // regardless of the optional base/ctor surface.
         | ValueSome(ExternalTypeShape.Intrinsic _) ->
-            FTConst(BuiltinTypes.intrinsicKey (SymbolKeyOps.shortName compiled), EqArray.empty)
+            FTConst(RuntimeNames.primitiveKey (SymbolKeyOps.shortName compiled), EqArray.empty)
         | ValueSome(ExternalTypeShape.Opaque _) -> raise (BodylessExternalShape compiled)
         | ValueNone ->
             failwithf
@@ -569,7 +569,7 @@ module VesperLibTypeTranslate =
             if isPrimitiveName name then
                 match dealiasPrimitiveAbbrev ctx opens name with
                 | ValueSome ft -> Ok ft
-                | ValueNone -> Ok(FTConst(BuiltinTypes.intrinsicKey name, EqArray.empty))
+                | ValueNone -> Ok(FTConst(RuntimeNames.primitiveKey name, EqArray.empty))
             else
                 match resolveTypeName ctx opens name 0 with
                 // A name that resolves to nothing in scope bakes a `FTUnknown`
@@ -610,7 +610,7 @@ module VesperLibTypeTranslate =
                 // registered type shape, so route it to the same `arrayName`
                 // intrinsic the bracket form bakes rather than `FTUnknown "array"`.
                 if name = "array" then
-                    Ok(FTConst(BuiltinTypes.intrinsicKey (RuntimeNames.arrayName 1), EqArray.singleton fb))
+                    Ok(FTConst(RuntimeNames.arrayKey 1, EqArray.singleton fb))
                 else
                     match resolveTypeName ctx opens name 1 with
                     | Error _ -> Ok(FTUnknown name)
@@ -622,7 +622,7 @@ module VesperLibTypeTranslate =
 
             match translateType ctx lexed input opens typars constraints baseTy with
             | Error e -> Error e
-            | Ok fb -> Ok(FTConst(BuiltinTypes.intrinsicKey (RuntimeNames.arrayName rank), EqArray.singleton fb))
+            | Ok fb -> Ok(FTConst(RuntimeNames.arrayKey rank, EqArray.singleton fb))
 
         | Type.WhenConstrainedType(inner, clauses) ->
             captureConstraints lexed input constraints clauses
@@ -662,7 +662,7 @@ module VesperLibTypeTranslate =
         let (ArgsSpec(args, _)) = argsSpec
 
         if args.Length = 0 then
-            Ok(FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty))
+            Ok(FTConst(RuntimeNames.unitKey, EqArray.empty))
         elif args.Length = 1 then
             let (ArgSpec(_, _, t)) = args.[0]
             translateType ctx lexed input opens typars constraints t

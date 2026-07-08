@@ -165,6 +165,18 @@ module SymbolKeyOps =
         let ns, simple = splitQualified compiled
         SymbolKey.TypeKey(asm, ns, arityName simple arity)
 
+    /// The contract-sourced canon `SymbolKey` for an intrinsic the VesperLib extractor
+    /// publishes: `asm = None` (an intrinsic's home is target-dependent, so its identity
+    /// is asm-blind — the `sameTypeAsmBlind` convention), the namespace taken from the
+    /// qualified `compiled` name (a `namespace Vesper` prim-type ⇒ `"Vesper"`; a
+    /// `global`/flat-package extern ⇒ `""`), and the VERBATIM short name kept intact — NO
+    /// arity suffix, so the array keeps its backtick `` ``[]`` `` spelling and
+    /// `simpleName` recovers the bare codegen/repr key unchanged. Pairs the contract's own
+    /// namespace with the identity name, replacing the deleted front-end name-set
+    /// classifier (`RuntimeNames.intrinsicKey`) at the producer mint.
+    let intrinsicCanonKey (compiled: string) (shortName: string) : SymbolKey =
+        SymbolKey.TypeKey(None, fst (splitQualified compiled), shortName)
+
     /// `qualifiedTypeKeyOf` with no home assembly — the asm-blind paths (codegen
     /// self-type signatures projected by name; test-helper constructors; the
     /// MetadataSymbols/contract scrapes that have only a compiled name).

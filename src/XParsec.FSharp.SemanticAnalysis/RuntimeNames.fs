@@ -407,71 +407,85 @@ module RuntimeNames =
     /// The declaring namespace every built-in intrinsic identity carries — the
     /// `namespace Vesper` of `prim-types-*.fs`. Rides in the intrinsic's `SymbolKey`
     /// so its identity is qualified like every nominal; codegen still reads the bare
-    /// name via `SymbolKeyOps.simpleName`.
+    /// name via `SymbolKeyOps.simpleName`. PRIVATE: the single literal backing the
+    /// canonical `*Key` constants + `primitiveKey` below. An intrinsic's identity is
+    /// otherwise CONTRACT-sourced (`TypeRegistry.intrinsicKeyOf` from the declaring
+    /// `namespace`; the extractor's qualified `compiled` name) — never classified from
+    /// a hardcoded front-end name set (the deleted shadow set).
     [<Literal>]
-    let intrinsicNamespace = "Vesper"
+    let private intrinsicNamespace = "Vesper"
 
-    /// The non-numeric intrinsic identity names (the numeric core is `numericTypeNames`
-    /// above). Together with the numeric core and the structural constructors
-    /// (`isStructuralConstructorName` — array, by-ref) these are the names that carry the
-    /// `Vesper` namespace; anything else routed through `intrinsicKey` is treated as
-    /// origin-less (`ns = ""`) — an unresolved/opaque fallback name (`null`, an unknown
-    /// bare type, or a bare-carried BCL sink name like a printf `TextWriter`).
-    let private knownIntrinsicNames: Set<string> =
-        Set.ofList
-            [
-                "bigint"
-                "bool"
-                "char"
-                "string"
-                "unit"
-                "obj"
-                "objnull"
-                "voidptr"
-                "exn"
-                "undefined"
-                "seq<int>"
-            ]
+    /// Mint the canonical identity for a primitive whose name is KNOWN to name an
+    /// intrinsic AT THE CALL SITE — authored verbatim as one of the `*Key` constants
+    /// below, or arriving from a known-primitive source (a literal's base type, an SRTP
+    /// numeric-family member, an enum's underlying type). Carries the `Vesper` contract
+    /// namespace by construction: there is NO name-set classification (the former
+    /// front-end shadow set is gone), the caller guarantees `name` denotes a primitive.
+    /// `asm = None` — an intrinsic's home assembly is target-dependent, so its identity
+    /// is asm-blind (the `sameTypeAsmBlind` convention). The `name` is kept VERBATIM (no
+    /// arity suffix), so `SymbolKeyOps.simpleName` recovers the bare codegen/repr key
+    /// unchanged. Prefer the cached `*Key` constants; this by-name form is for the
+    /// runtime-primitive-name sites that can't name a fixed constant.
+    let primitiveKey (name: string) : SymbolKey =
+        SymbolKey.TypeKey(None, intrinsicNamespace, name)
 
-    /// Mint the qualified `SymbolKey` identity for an intrinsic named `name` (the
-    /// verbatim bare identity string, e.g. `"int"`, `"[]"`). The SINGLE source every
-    /// `TyConst`/`FTConst` producer routes through so all mints of one intrinsic compare
-    /// EQUAL (unification depends on it). Known intrinsics carry the `Vesper` namespace;
-    /// a name that is none of them is origin-less (`ns = ""`). `asm = None`: an
-    /// intrinsic's home assembly is target-dependent, so its identity is asm-blind (the
-    /// `sameTypeAsmBlind` convention) and carries no backend/home knowledge. The `name`
-    /// component is kept VERBATIM (no arity suffix), so `SymbolKeyOps.simpleName`
-    /// recovers the bare codegen/repr key unchanged.
-    let intrinsicKey (name: string) : SymbolKey =
-        let ns =
-            if
-                numericTypeNames.Contains name
-                || knownIntrinsicNames.Contains name
-                || isStructuralConstructorName name
-            then
-                intrinsicNamespace
-            else
-                ""
+    /// Mint an ORIGIN-LESS opaque type identity (`ns = ""`) — a name that is NOT a
+    /// registered intrinsic and resolved to nothing: an unknown bare user type, a
+    /// bare-carried BCL sink name (a printf `TextWriter`/`StringBuilder`, `System.HashCode`),
+    /// the `null` literal member, a synthesised TS grouping name, a TS `number` token.
+    /// Distinct from `primitiveKey` so the two intents — a real `Vesper` intrinsic vs. an
+    /// unclassified origin-less name — are legible at each call site rather than decided
+    /// by a shared name-set lookup.
+    let opaqueKey (name: string) : SymbolKey = SymbolKey.TypeKey(None, "", name)
 
-        SymbolKey.TypeKey(None, ns, name)
+    // --- Canonical intrinsic key identities ------------------------------------------
+    //
+    // One cached `SymbolKey` per well-known intrinsic — the single object every
+    // `TyConst`/`FTConst` producer of that intrinsic reaches for, so all mints compare
+    // EQUAL (unification / repr resolution depend on it) and the identity is authored in
+    // exactly one place (the correct-by-construction successor to the by-name mint). The
+    // generic intrinsics (`arrayKey rank`, `byrefKey`) mint off `arrayName`/`byrefName`
+    // so the identity name and this key cannot drift. `dynamicKey` is `Vesper`-qualified
+    // like every other intrinsic: the JS `dynamic` any IS a contract intrinsic
+    // (`prim-types-dynamic.js.fsi`, `namespace Vesper`), so its canon is contract-sourced
+    // to `Vesper.dynamic` — the old classifier's `ns = ""` for it was a latent bug the
+    // contract-sourcing (`intrinsicCanonKey`) corrects.
+
+    let unitKey: SymbolKey = primitiveKey "unit"
+    let boolKey: SymbolKey = primitiveKey "bool"
+    let charKey: SymbolKey = primitiveKey "char"
+    let stringKey: SymbolKey = primitiveKey "string"
+    let objKey: SymbolKey = primitiveKey objAbbrevName
+    let exnKey: SymbolKey = primitiveKey "exn"
+    let intKey: SymbolKey = primitiveKey "int"
+    let int64Key: SymbolKey = primitiveKey "int64"
+    let byteKey: SymbolKey = primitiveKey "byte"
+    let uint32Key: SymbolKey = primitiveKey "uint32"
+    let floatKey: SymbolKey = primitiveKey "float"
+    let decimalKey: SymbolKey = primitiveKey "decimal"
+    let bigintKey: SymbolKey = primitiveKey "bigint"
+    let undefinedKey: SymbolKey = primitiveKey "undefined"
+    let byrefKey: SymbolKey = primitiveKey byrefName
+    let arrayKey (rank: int) : SymbolKey = primitiveKey (arrayName rank)
+    let dynamicKey: SymbolKey = primitiveKey "dynamic"
 
 /// Active patterns recognising the well-known intrinsic `SemType`/`FrozenType`s by KEY
 /// IDENTITY (never a stringified name) — the sanctioned way for the semantic passes to
 /// ask "is this the `bool` / `unit` / `obj` / array / by-ref intrinsic?". Each matches the
-/// canonical key `RuntimeNames.intrinsicKey` mints, so the producers and these recognisers
+/// canonical `*Key` constant `RuntimeNames` mints, so the producers and these recognisers
 /// cannot drift, and arity/namespace are compared structurally rather than stripped. Prefer
 /// these over `SymbolKeyOps.intrinsicName key = "…"`; `SymbolKeyOps.simpleName` stays for
 /// human-facing display only. `AutoOpen` so a pass matches `| TyBool ->` unqualified.
 [<AutoOpen>]
 module IntrinsicTypePatterns =
 
-    let private unitKey = RuntimeNames.intrinsicKey "unit"
-    let private boolKey = RuntimeNames.intrinsicKey "bool"
-    let private objKey = RuntimeNames.intrinsicKey RuntimeNames.objAbbrevName
-    let private stringKey = RuntimeNames.intrinsicKey "string"
-    let private dynamicKey = RuntimeNames.intrinsicKey "dynamic"
-    let private arrayKey1 = RuntimeNames.intrinsicKey (RuntimeNames.arrayName 1)
-    let private byrefKey = RuntimeNames.intrinsicKey RuntimeNames.byrefName
+    let private unitKey = RuntimeNames.unitKey
+    let private boolKey = RuntimeNames.boolKey
+    let private objKey = RuntimeNames.objKey
+    let private stringKey = RuntimeNames.stringKey
+    let private dynamicKey = RuntimeNames.dynamicKey
+    let private arrayKey1 = RuntimeNames.arrayKey 1
+    let private byrefKey = RuntimeNames.byrefKey
 
     let (|TyUnit|_|) (ty: SemType) =
         match ty with

@@ -100,7 +100,7 @@ let private pokeMember () : TTypeMember =
         IsOverride = false
         ThisKey = ValueSome thisKey
         BaseKey = ValueNone
-        ThisTy = TyConst(BuiltinTypes.intrinsicKey "widget", EqArray.empty)
+        ThisTy = TyConst(RuntimeNames.opaqueKey "widget", EqArray.empty)
         Params = EqArray.ofList [ (xKey, BuiltinTypes.tyInt) ]
         Body = body
         ReturnTy = BuiltinTypes.tyInt
@@ -190,7 +190,7 @@ let tests =
                         // Outermost lambda binds `this : widget`.
                         Expect.equal
                             thisTy
-                            (TyConst(BuiltinTypes.intrinsicKey "widget", EqArray.empty))
+                            (TyConst(RuntimeNames.opaqueKey "widget", EqArray.empty))
                             "outer param is `this : widget`"
 
                         // Inner lambda binds the value param; its body is the IL intrinsic.

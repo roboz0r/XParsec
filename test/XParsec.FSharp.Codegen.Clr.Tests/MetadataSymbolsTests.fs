@@ -66,9 +66,7 @@ let tests =
                 match provider.TryLookupType "System.Collections.Generic.List`1" with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     let impls =
-                        ExternalSymbols.instantiateInterfaces
-                            info
-                            [| TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty) |]
+                        ExternalSymbols.instantiateInterfaces info [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
                         |> Array.map fst
                         |> Set.ofArray
 
@@ -120,10 +118,7 @@ let tests =
                     // Instantiated at `'T = int`, the property type is
                     // `EqualityComparer<int>` (the §7.3 per-use substitution).
                     match
-                        ExternalSymbols.instantiateSignature
-                            m
-                            [| TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty) |]
-                            0
+                        ExternalSymbols.instantiateSignature m [| TyConst(RuntimeNames.intKey, EqArray.empty) |] 0
                     with
                     | TyClass(key, args) when
                         args.Length = 1
@@ -146,10 +141,7 @@ let tests =
 
                     // Instantiated at `'T = int`: `int -> int`.
                     match
-                        ExternalSymbols.instantiateSignature
-                            m
-                            [| TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty) |]
-                            0
+                        ExternalSymbols.instantiateSignature m [| TyConst(RuntimeNames.intKey, EqArray.empty) |] 0
                     with
                     | TyFun(TyConst(k1, _), TyConst(k2, _)) when
                         SymbolKeyOps.simpleName k1 = "int" && SymbolKeyOps.simpleName k2 = "int"
@@ -184,7 +176,7 @@ let tests =
                 // signature instantiates without throwing.
                 match provider.TryLookupType "System.Collections.Generic.List`1" with
                 | ValueSome(ExternalTypeShape.Class info) ->
-                    let intArg = [| TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty) |]
+                    let intArg = [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
 
                     // Interfaces: `IEnumerable<int>` once `'T := int` is substituted.
                     match
@@ -194,7 +186,7 @@ let tests =
                     | Some(_, args) ->
                         Expect.equal
                             args
-                            [| TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty) |]
+                            [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
                             "IEnumerable<int> after 'T := int"
                     | None -> failtest "List<int> should implement IEnumerable<int>"
 

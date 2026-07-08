@@ -119,13 +119,13 @@ module VesperLib =
 
                 let parameters, ret =
                     if isProperty then
-                        FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty), frozen
+                        FTConst(RuntimeNames.unitKey, EqArray.empty), frozen
                     else
                         match frozen with
                         | FTFun(p, r) -> p, r
                         // A non-property member whose sig isn't a `FTFun` is folded as
                         // a nullary value rather than fabricating a parameter slot.
-                        | other -> FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty), other
+                        | other -> FTConst(RuntimeNames.unitKey, EqArray.empty), other
 
                 ValueSome(ExternalSignature.make (declaringArity, methodArityNow (), parameters, ret))
             | Error _ -> ValueNone
@@ -134,7 +134,7 @@ module VesperLib =
                 ExternalSignature.make (
                     declaringArity,
                     methodArityNow (),
-                    FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty),
+                    FTConst(RuntimeNames.unitKey, EqArray.empty),
                     ExternalSymbols.unfreezable
                 )
             )
@@ -340,7 +340,7 @@ module VesperLib =
     /// `new: … -> T` constructor without reaching across the codegen-layer boundary.
     let private frozenParamsOf (ps: FrozenType[]) : FrozenType =
         match ps.Length with
-        | 0 -> FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty)
+        | 0 -> FTConst(RuntimeNames.unitKey, EqArray.empty)
         | 1 -> ps.[0]
         | _ -> FTTuple(EqArray.ofArray ps)
 
@@ -1359,7 +1359,7 @@ module VesperLib =
 
                     ctx.TypeShapes.[compiled] <-
                         ExternalTypeShape.Intrinsic(
-                            IntrinsicShape.Scalar(RuntimeNames.intrinsicKey short, arity, platform)
+                            IntrinsicShape.Scalar(SymbolKeyOps.intrinsicCanonKey compiled short, arity, platform)
                         )
 
                 match members with
@@ -1399,7 +1399,7 @@ module VesperLib =
                                 // capability INTERFACE below, whose face is complete now.)
                                 | ValueSome(ExternKind.Class _) ->
                                     ctx.PendingIntrinsicClasses.[compiled] <-
-                                        struct (RuntimeNames.intrinsicKey short, platform)
+                                        struct (SymbolKeyOps.intrinsicCanonKey compiled short, platform)
                                 // A capability interface (`disposable`): keep the dual-faced
                                 // `Class` so it reconciles to its BCL spelling yet stays a
                                 // `TyClass` constraint.
@@ -1410,7 +1410,7 @@ module VesperLib =
                                                 CapabilityFace =
                                                     ValueSome
                                                         {
-                                                            Canon = RuntimeNames.intrinsicKey short
+                                                            Canon = SymbolKeyOps.intrinsicCanonKey compiled short
                                                             Platform = platform
                                                         }
                                             }

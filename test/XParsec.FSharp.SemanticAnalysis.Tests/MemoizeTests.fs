@@ -24,7 +24,7 @@ type private CountingProvider(name: string) =
             lookupHits <- lookupHits + 1
 
             if n = name then
-                ValueSome(ExternalSymbols.monoFrozen n (FTConst(BuiltinTypes.intrinsicKey "tag", EqArray.empty)))
+                ValueSome(ExternalSymbols.monoFrozen n (FTConst(RuntimeNames.opaqueKey "tag", EqArray.empty)))
             else
                 ValueNone
 

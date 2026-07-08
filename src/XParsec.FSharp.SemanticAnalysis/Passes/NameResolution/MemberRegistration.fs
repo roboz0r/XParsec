@@ -711,7 +711,7 @@ module NameResolutionMemberRegistration =
                 | false, _ ->
                     match TypeRegistry.tryClass ctx.Types name with
                     | ValueSome info -> TyClass(info.Key, args)
-                    | ValueNone -> TyConst(BuiltinTypes.intrinsicKey name, EqArray.empty)
+                    | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
 
     /// Resolve an `inherit` clause's parent type to a `TyClass` under the derived
     /// class's typar scope. Diagnoses (and returns `ValueNone`) when the parent is

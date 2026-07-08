@@ -365,7 +365,7 @@ module EmitMember =
 
                     let paramTy =
                         match argTys with
-                        | [] -> FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty)
+                        | [] -> FTConst(RuntimeNames.unitKey, EqArray.empty)
                         | [ single ] -> single
                         | many -> FTTuple(EqArray.ofList many)
 

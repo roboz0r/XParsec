@@ -397,8 +397,8 @@ type LiteralConst =
 type FrozenType =
     /// A nominal constant in two roles (the `SemType.TyConst` declaring-typar
     /// marker role is `FTTypar`): an argless primitive / intrinsic
-    /// (`FTConst(intrinsicKey "int", [])`) and a generic intrinsic forwarding its args
-    /// (`'T[]` ≡ `FTConst(intrinsicKey "[]", [elem])`). Carries the same qualified
+    /// (`FTConst(RuntimeNames.intKey, [])`) and a generic intrinsic forwarding its args
+    /// (`'T[]` ≡ `FTConst(RuntimeNames.arrayKey 1, [elem])`). Carries the same qualified
     /// `SymbolKey` its `SemType.TyConst` source does; codegen reads the bare identity
     /// via `SymbolKeyOps.simpleName key`.
     | FTConst of key: SymbolKey * args: EqArray<FrozenType>
@@ -497,9 +497,9 @@ type SemType =
     /// A nominal constant in two roles, both carrying a qualified `SymbolKey`
     /// identity (like `TyRecord`/`TyUnion`/`TyClass` — an intrinsic is no longer the
     /// one identity class that drops its namespace): (a) an argless primitive /
-    /// intrinsic binding (`TyConst(intrinsicKey "int", [])`, ns `Vesper`), and (b) a
+    /// intrinsic binding (`TyConst(RuntimeNames.intKey, [])`, ns `Vesper`), and (b) a
     /// *generic intrinsic* that forwards its type arguments (`'T[]` ≡
-    /// `TyConst(intrinsicKey "[]", [elem])`, byref `&` likewise — the array repr
+    /// `TyConst(RuntimeNames.arrayKey 1, [elem])`, byref `&` likewise — the array repr
     /// `!0[]` is a backend-specific encoding, the args are backend-agnostic
     /// structure). So `args ≠ []` does NOT imply a registry nominal — array/byref are
     /// the only generic intrinsics in v1. The `key`'s `name` component is the verbatim

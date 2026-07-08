@@ -419,6 +419,38 @@ module internal TsManifestTranslate =
 
     let rec toFrozen (ctx: TranslateCtx) (t: Schema.TypeRef) : FrozenType =
         let nominal name (args: FrozenType[]) =
+            // A bare name that misses BOTH the own registry and the foreign refs table is
+            // either a Vesper intrinsic PRIMITIVE spelled by its canonical name — a TS
+            // `.d.ts` via `TypeMap` (`boolean`→`bool`, `void`→`unit`, `undefined`), or a
+            // Vesper-authored manifest by the numeric / reference-primitive names directly
+            // (`float`, `string`) — or a genuinely-external / token type carried
+            // origin-less. A primitive mints its canonical `Vesper` key so a manifest param
+            // (a `.d.ts` `string`, a `float`) unifies with the same intrinsic the front end
+            // mints for a literal arg. This is a syntactic primitive-name recogniser (the
+            // shared `RuntimeNames.numericTypeNames` core + the reference primitives), NOT a
+            // provider/contract lookup — the manifest translator has no provider in hand.
+            // `number` (the WIDENING token `NumberCovariance` resolves), `null` (the literal
+            // union member), and every real external name stay origin-less BY DESIGN.
+            let intrinsicOrOpaque (name: string) : FrozenType =
+                let isVesperPrimitive =
+                    RuntimeNames.numericTypeNames.Contains name
+                    || match name with
+                       | "string"
+                       | "bool"
+                       | "char"
+                       | "unit"
+                       | "obj"
+                       | "objnull"
+                       | "voidptr"
+                       | "exn"
+                       | "undefined" -> true
+                       | _ -> false
+
+                if isVesperPrimitive then
+                    FTConst(RuntimeNames.primitiveKey name, EqArray.ofSeq args)
+                else
+                    FTConst(RuntimeNames.opaqueKey name, EqArray.ofSeq args)
+
             // Suffix the manifest's bare spelling by the applied arg count before
             // probing the table (THE LAW, see `mint`).
             let suffixed = SymbolKeyOps.arityName name args.Length
@@ -466,8 +498,8 @@ module internal TsManifestTranslate =
 
                         FTClass(key, EqArray.ofSeq args)
                     | Schema.RefKind.Alias
-                    | Schema.RefKind.Enum -> FTConst(BuiltinTypes.intrinsicKey name, EqArray.ofSeq args)
-                | None -> FTConst(BuiltinTypes.intrinsicKey name, EqArray.ofSeq args)
+                    | Schema.RefKind.Enum -> intrinsicOrOpaque name
+                | None -> intrinsicOrOpaque name
 
         match t with
         | Schema.TypeRef.Named(name, []) -> nominal name [||]
@@ -498,7 +530,7 @@ module internal TsManifestTranslate =
                 }
         // TS `any` → the opaque `dynamic` JS intrinsic (no special unifier behaviour;
         // its only capability is the `?` operator). It is `FTConst "dynamic"` everywhere.
-        | Schema.TypeRef.Dynamic -> FTConst(BuiltinTypes.intrinsicKey "dynamic", EqArray.empty)
+        | Schema.TypeRef.Dynamic -> FTConst(RuntimeNames.dynamicKey, EqArray.empty)
         // An anonymous OBJECT shape (`fields` non-empty) freezes to a hash-keyed ERASING
         // nominal: an `FTClass` homed under the reserved synthetic namespace, whose members
         // the provider registers (one Property per field) so `.x` resolves and lowers to a
@@ -520,8 +552,7 @@ module internal TsManifestTranslate =
             | [], [] -> FTUnknown("structural:" + structuralHash printed fields)
             | _ -> FTClass(structuralKey (structuralHash printed fields) |> snd, EqArray.empty)
 
-    let unitFrozen: FrozenType =
-        FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty)
+    let unitFrozen: FrozenType = FTConst(RuntimeNames.unitKey, EqArray.empty)
 
     /// .NET-tupled parameter encoding: 0 → unit, 1 → bare, N≥2 → tuple.
     let private paramsFrozen (ctx: TranslateCtx) (ps: Schema.Param list) : FrozenType =

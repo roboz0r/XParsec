@@ -231,7 +231,17 @@ module internal UnificationTranslate =
                                     // opaque fallback. See `tryResolveExternalType`.
                                     match tryResolveExternalType ctx name EqArray.empty with
                                     | ValueSome ty -> ty
-                                    | ValueNone -> TyConst(BuiltinTypes.intrinsicKey name, EqArray.empty)
+                                    // `undefined` is a JS-only intrinsic with NO CLR repr and a
+                                    // hardcoded identity (`BuiltinTypes.tyUndefined`) pending
+                                    // Stage-5 contract-sourcing: resolve the written name to its
+                                    // canonical `undefinedKey` so it agrees with the optional-
+                                    // default / Freeze form even in a stack that has not loaded the
+                                    // JS `undefined` contract (a JS compilation resolves it through
+                                    // the provider above first). Every other unresolved bare name
+                                    // is genuinely origin-less.
+                                    | ValueNone when name = RuntimeNames.undefinedTypeName ->
+                                        TyConst(RuntimeNames.undefinedKey, EqArray.empty)
+                                    | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
         | Type.NamedType li ->
             // Multi-segment named type (`System.Text.StringBuilder`). Project-local
             // types are single-segment, so a dotted name is either external or
@@ -339,17 +349,14 @@ module internal UnificationTranslate =
             // unable to constrain the element and broke `Seq.toArray`'s `'T`).
             let rank = commas.Length + 1
 
-            TyConst(
-                BuiltinTypes.intrinsicKey (RuntimeNames.arrayName rank),
-                EqArray.singleton (translateType ctx baseTy)
-            )
+            TyConst(RuntimeNames.arrayKey rank, EqArray.singleton (translateType ctx baseTy))
         | Type.Null _ ->
             // The `null` literal type — a real *member* of an anonymous union
             // (`T | null`), not a nominal type. Resolves to the reserved
             // `TyConst "null"` (RuntimeNames); erased per backend at
             // codegen. Bare `null` outside a union is just `TyConst "null"` — its
             // (lack of) assignability is decided later, like any other member.
-            TyConst(BuiltinTypes.intrinsicKey RuntimeNames.nullTypeName, EqArray.empty)
+            TyConst(RuntimeNames.opaqueKey RuntimeNames.nullTypeName, EqArray.empty)
         | Type.UnionType(left = l; right = r) ->
             // TypeScript-style anonymous structural union (`X | Y`). The
             // CST is a binary node (left-nested for `a | b | c`); translate both
@@ -467,7 +474,7 @@ module internal UnificationTranslate =
                     | ValueNone ->
                         // Unknown name with type args — opaque TyConst, args
                         // ignored (matches the bare-name arm).
-                        TyConst(BuiltinTypes.intrinsicKey name, EqArray.empty)
+                        TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
 
     /// Resolve a named/generic type reference that missed every project-local
     /// registry against the external provider — the type-annotation analogue of

@@ -555,7 +555,7 @@ module internal UnificationInferRecordAccess =
 
                 let rhsRet =
                     if retIsByref then
-                        TyConst(BuiltinTypes.intrinsicKey RuntimeNames.byrefName, EqArray.singleton resultTy)
+                        TyConst(RuntimeNames.byrefKey, EqArray.singleton resultTy)
                     else
                         resultTy
 

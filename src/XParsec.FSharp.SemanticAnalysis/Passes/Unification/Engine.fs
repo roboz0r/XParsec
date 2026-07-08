@@ -682,7 +682,7 @@ module UnificationEngine =
         // Genuine delegation (not a copy of the `TyConst` arm) so EVERY kind — including
         // `Coercion`, whose arm sits below and decides via `subsumes` — is judged
         // exactly as the base primitive would be.
-        | _, TyLiteral v -> checkConstraint ctx c (TyConst(BuiltinTypes.intrinsicKey v.BaseName, EqArray.empty))
+        | _, TyLiteral v -> checkConstraint ctx c (TyConst(RuntimeNames.primitiveKey v.BaseName, EqArray.empty))
         | SemanticConstraintKind.Coercion target, _ ->
             // `'e :> exn`: now that `'e` has a nominal head, does it subsume to
             // the required supertype? `subsumes` walks user AND external (BCL)
@@ -948,7 +948,7 @@ module UnificationEngine =
             // erroring "string has no op_Addition" — the spurious diagnostic that
             // surfaced compiling `structural-printer.fs` (the first library to use
             // string `+`; bare programs emit it too but never gate on diagnostics).
-            let t = TyConst(BuiltinTypes.intrinsicKey "string", EqArray.empty)
+            let t = TyConst(RuntimeNames.stringKey, EqArray.empty)
             ValueSome(TyFun(TyTuple(EqArray.ofList [ t; t ]), t))
         elif not (Set.contains primName numericPrimitives) then
             ValueNone
@@ -957,18 +957,18 @@ module UnificationEngine =
             && (Set.contains memberName arithmeticBinaryOps
                 || Set.contains memberName bitwiseBinaryOps)
         then
-            let t = TyConst(BuiltinTypes.intrinsicKey primName, EqArray.empty)
+            let t = TyConst(RuntimeNames.primitiveKey primName, EqArray.empty)
             ValueSome(TyFun(TyTuple(EqArray.ofList [ t; t ]), t))
         elif argCount = 2 && Set.contains memberName shiftOps then
             // `value: ^T -> shift: int32 -> ^T` — the shift amount is always int32.
-            let t = TyConst(BuiltinTypes.intrinsicKey primName, EqArray.empty)
-            ValueSome(TyFun(TyTuple(EqArray.ofList [ t; TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty) ]), t))
+            let t = TyConst(RuntimeNames.primitiveKey primName, EqArray.empty)
+            ValueSome(TyFun(TyTuple(EqArray.ofList [ t; TyConst(RuntimeNames.intKey, EqArray.empty) ]), t))
         elif argCount = 1 && Set.contains memberName unaryPrimitiveOps then
-            let t = TyConst(BuiltinTypes.intrinsicKey primName, EqArray.empty)
+            let t = TyConst(RuntimeNames.primitiveKey primName, EqArray.empty)
             ValueSome(TyFun(t, t))
         elif argCount = 2 && Set.contains memberName comparisonBinaryOps then
-            let t = TyConst(BuiltinTypes.intrinsicKey primName, EqArray.empty)
-            ValueSome(TyFun(TyTuple(EqArray.ofList [ t; t ]), TyConst(BuiltinTypes.intrinsicKey "bool", EqArray.empty)))
+            let t = TyConst(RuntimeNames.primitiveKey primName, EqArray.empty)
+            ValueSome(TyFun(TyTuple(EqArray.ofList [ t; t ]), TyConst(RuntimeNames.boolKey, EqArray.empty)))
         else
             ValueNone
 

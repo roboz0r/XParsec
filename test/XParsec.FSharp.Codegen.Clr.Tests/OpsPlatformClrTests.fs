@@ -69,7 +69,7 @@ let tests =
                                                                      Platform = Some platform
                                                                  }
                                                         }) ->
-                    Expect.equal canon (RuntimeNames.intrinsicKey "int") "int canon on CLR is the `.fsi` name"
+                    Expect.equal canon (RuntimeNames.intKey) "int canon on CLR is the `.fsi` name"
                     Expect.equal platform "System.Int32" "int platform face on CLR is the BCL repr"
 
                     Expect.notEqual

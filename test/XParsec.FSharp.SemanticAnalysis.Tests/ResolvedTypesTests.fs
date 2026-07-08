@@ -172,12 +172,12 @@ let tests =
 
                 Expect.equal
                     (bindingTy "let x : int = 1")
-                    (TyConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
+                    (TyConst(RuntimeNames.intKey, EqArray.empty))
                     "int annotation pins to TyConst \"int\""
 
                 Expect.equal
                     (bindingTy "let b : bool = true")
-                    (TyConst(BuiltinTypes.intrinsicKey "bool", EqArray.empty))
+                    (TyConst(RuntimeNames.boolKey, EqArray.empty))
                     "bool annotation pins to TyConst \"bool\""
             }
         ]

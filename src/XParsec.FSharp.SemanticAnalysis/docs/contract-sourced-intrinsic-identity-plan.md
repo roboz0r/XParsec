@@ -156,27 +156,51 @@ discharged: cleanup item 4 (Stage 0) gated the `ClrEncoder` reference-class fall
 mis-encoded as a class. On JS the backend resolves reprs by its own path and never reads this axis
 (the one JS forward-repr reader, `NumberCovariance`, is a producer-mint scheduled by Stage 4).
 
-### 3. Stage 4 — the shadow set falls out
+### 3. Stage 4 — the shadow set falls out — LANDED 2026-07-08 (SA 765 / Clr 1253 / Js 348 / Vesper 49)
 
-- **Re-source the remaining producer mints** still on `RuntimeNames.intrinsicKey`: the `VesperLib`
-  extraction canons (`Intrinsic`/`IntrinsicClass`/`CapabilityFace` — the qualified `compiled` is
-  in hand at each mint site; FIRST verify the harvested keys are qualified for the array/byref
-  generics, else ns diverges). The `PassContext.IntrinsicReverseCanon` local invert is already
-  re-sourced (`TypeRegistry.intrinsicKeyOf`).
-- Then: delete `knownIntrinsicNames`; give the enumerated opaque mints an explicit
-  `opaqueKey name = TypeKey(None, "", name)` (the `Translate` opaque fallback, the
-  `MemberRegistration` opaque member mint, `VesperLib/TypeTranslate`, `TsManifestTypes` — these
-  are INTENTIONALLY `ns = ""`, not registered intrinsics; do not convert them to resolution);
-  collapse/retire `intrinsicKey` (~116 call-site lines across 39 files, mostly codegen `FTConst`
-  mints — each either reads a resolved key already in hand or is an opaque mint); delete
-  `intrinsicNamespace`; delete the static `BuiltinTypes.ty*` once the residue stage clears the
-  last three. Compiler-driven: comment a static → Build → the FS0039 list is the worklist.
-- `primitiveSupports` + pure-identity checks key on resolved identity. The *verdicts* (value
-  types are structurally equatable/comparable; `string` is an equatable reference type) are
-  language rules the passes own; only the KEY changes. Frontier (out of scope): derive the
-  enumeration from contract capability interfaces via `FrozenInterfaces`.
+What landed:
 
-### 4. Stage 5 — residue (then delete this doc)
+- **`knownIntrinsicNames` + the classifying `intrinsicKey` are DELETED.** `RuntimeNames` now exposes
+  named canonical key constants (`unitKey`/`intKey`/`objKey`/`stringKey`/`byrefKey`/`arrayKey rank`/
+  … — the `vesperListKey` idiom, correct-by-construction) that every `TyConst`/`FTConst` producer of
+  a fixed intrinsic reaches for, plus two minters: `primitiveKey name` (Vesper, for the
+  runtime-primitive-name sites — a literal's `BaseName`, an SRTP `primName`, an enum's `Underlying`)
+  and `opaqueKey name` (`ns = ""`, the genuinely-unresolved fallback). The ~150 call sites across
+  ~40 files (+ the test suites) were swept onto these. **`intrinsicNamespace` could NOT be deleted**
+  as the plan hoped — it survives `private`, the single literal backing the constants + `primitiveKey`,
+  because the pure `IntrinsicTypePatterns` active patterns and the codegen synthetic mints have no
+  resolver in hand (fully sourcing them from resolution is infeasible). The static `BuiltinTypes.ty*`
+  survive (Stage 5 deletes them).
+- **Producer re-source (item 1):** the VesperLib extraction canons mint through
+  `SymbolKeyOps.intrinsicCanonKey compiled short` — `asm = None`, VERBATIM short name, ns read from
+  the qualified `compiled`. This is CONTRACT-sourced, so `disposable`/`dynamic`/`undefined`/(the
+  member-bearing `widget` fixture)/(the base array) canons moved from `ns = ""` (the old classifier's
+  latent bug — none were in `knownIntrinsicNames`) to `ns = "Vesper"` (their real `namespace Vesper`).
+  Verified behavior-safe for array/byref (the base-array canon is an inert island; byref has no
+  contract). `dynamic` was the load-bearing correction: it IS a contract intrinsic
+  (`prim-types-dynamic.js.fsi`), so its canon and `RuntimeNames.dynamicKey` are now BOTH `Vesper.dynamic`
+  — the old `ns = ""` on `dynamicKey` was the same latent bug.
+- `primitiveSupports` + the pure-identity checks needed **no change**: they already key on the
+  resolved key's name (`SymbolKeyOps.intrinsicName nameKey`) against the passes' own verdict tables
+  (`primitiveValueTypes`, `numericTypeNames`), never `knownIntrinsicNames`.
+
+**FINDING — a syntactic Vesper-primitive-name recogniser SURVIVES, and cannot be fully deleted here.**
+Two sites classify a BARE name (Vesper-primitive → `primitiveKey`, else `opaqueKey`) with no provider
+in hand, so `opaqueKey`-everywhere (the plan's premise for them) was wrong:
+  - `TsManifestTypes` `intrinsicOrOpaque` — a manifest param spells a Vesper primitive by its canon
+    name (`float`, `string`, `undefined`); it must mint the `Vesper` key to unify with the front end's
+    literal arg. Uses the shared `RuntimeNames.numericTypeNames` core + the reference primitives.
+    `number` (the widening token) / `null` / every real external name stay opaque. (The `Translate` /
+    `MemberRegistration` opaque fallbacks ARE genuinely opaque — provider resolution precedes them.)
+  - `Translate` opaque fallback — a written `undefined` (JS-only, no CLR repr, hardcoded
+    `BuiltinTypes.tyUndefined`) resolves to `undefinedKey` when the provider lacks it, so it agrees
+    with the Freeze/optional-default form in a stack without the JS contract.
+  Follow-up (Stage 5 / frontier): give the manifest translator provider access so it resolves these
+  intrinsics through the contract (retiring the syntactic set), and contract-source `undefined` so the
+  front-end bridge dies. Frontier (out of scope): derive the equatable/comparable enumeration from
+  contract capability interfaces via `FrozenInterfaces`.
+
+### 4. Stage 5 — residue
 
 - `prim-types-bigint` contract (CLR `System.Numerics.BigInteger`, JS `bigint`) → migrate the
   `InferLiterals` `tyBigInt` arm.

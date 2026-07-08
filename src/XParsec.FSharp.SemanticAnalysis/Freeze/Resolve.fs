@@ -217,8 +217,7 @@ module internal FreezeResolve =
     // per-argument parameter SemTypes; `wrapObjArg`/`wrapObjArgsEq` apply the rule.
 
     /// `obj` SemType for a synthesised `Upcast` target.
-    let objTy: SemType =
-        TyConst(BuiltinTypes.intrinsicKey RuntimeNames.objAbbrevName, EqArray.empty)
+    let objTy: SemType = TyConst(RuntimeNames.objKey, EqArray.empty)
 
     let private isObjTy (t: SemType) : bool =
         UnificationEngine.isObjType (Unification.zonk t)

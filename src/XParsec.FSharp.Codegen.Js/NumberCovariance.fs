@@ -19,7 +19,7 @@ module NumberCovariance =
     let private FloatCanon = "float"
 
     let wrap (inner: IExternalSymbolProvider) : IExternalSymbolProvider =
-        match inner.IntrinsicForwardRepr.TryGetValue(RuntimeNames.intrinsicKey FloatCanon) with
+        match inner.IntrinsicForwardRepr.TryGetValue(RuntimeNames.floatKey) with
         | true, r when r = NumberToken -> ()
         | other ->
             failwithf
@@ -33,13 +33,13 @@ module NumberCovariance =
         let familyUnion =
             match Map.tryFind NumberToken inner.IntrinsicReverseCanon with
             | Some(_ :: _ as canons) -> FrozenType.MkUnion(seq { for c in canons -> FTConst(c, EqArray.empty) })
-            | _ -> FTConst(BuiltinTypes.intrinsicKey NumberToken, EqArray.empty)
+            | _ -> FTConst(RuntimeNames.opaqueKey NumberToken, EqArray.empty)
 
         let resolveNumber (v: Variance) (t: FrozenType) : FrozenType voption =
             match t with
             | FTConst(key, args) when SymbolKeyOps.simpleName key = NumberToken && args.Length = 0 ->
                 match v with
-                | Variance.Co -> ValueSome(FTConst(BuiltinTypes.intrinsicKey FloatCanon, EqArray.empty))
+                | Variance.Co -> ValueSome(FTConst(RuntimeNames.floatKey, EqArray.empty))
                 | Variance.Inv -> ValueSome familyUnion
                 | Variance.Contra -> ValueSome t
             | _ -> ValueNone

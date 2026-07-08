@@ -24,7 +24,7 @@ let private provider () =
     ClrProvider(MetadataContext(), ownIntrinsics, Map.empty, ExternalSymbols.nullProvider, "TupleTest")
 
 let private ftConst (name: string) =
-    FTConst(BuiltinTypes.intrinsicKey name, EqArray.empty)
+    FTConst(RuntimeNames.primitiveKey name, EqArray.empty)
 
 [<Tests>]
 let tests =

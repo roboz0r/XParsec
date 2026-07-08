@@ -19,7 +19,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
         member _.TryLookup n =
             if n = name then
                 ValueSome
-                    { ExternalSymbols.monoFrozen name (FTConst(BuiltinTypes.intrinsicKey tag, EqArray.empty)) with
+                    { ExternalSymbols.monoFrozen name (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty)) with
                         Origin = origin
                     }
             else
@@ -42,8 +42,8 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
                             TestHelpers.mkSignature
                                 0
                                 0
-                                (FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty))
-                                (FTConst(BuiltinTypes.intrinsicKey tag, EqArray.empty))
+                                (FTConst(RuntimeNames.unitKey, EqArray.empty))
+                                (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty))
                         MethodArity = 0
                         Origin = origin
                         Key =

@@ -192,7 +192,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let emitVesperListTagField (elem: FrozenType) : EntityHandle =
         let typeSpec = vesperListTypeSpec elem
         let s = BlobBuilder()
-        encodeType (BlobEncoder(s).FieldSignature()) (FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
+        encodeType (BlobEncoder(s).FieldSignature()) (FTConst(RuntimeNames.intKey, EqArray.empty))
         toEntity (ctx.MemberRef(typeSpec, "_tag", s))
 
     /// One `Cons_<fieldIndex>` payload field `MemberRef` on the referenced cons-list
@@ -796,7 +796,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             toEntity (ctx.MemberRef(eFormatter.Value, name, s))
 
         {
-            HandlerLocal = FTConst(BuiltinTypes.intrinsicKey formatterTypeName, EqArray.empty)
+            HandlerLocal = FTConst(RuntimeNames.opaqueKey formatterTypeName, EqArray.empty)
             CtorWriter = ctorWriter
             CtorBuilder = ctorBuilder
             CtorString = ctorString

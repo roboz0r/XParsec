@@ -229,7 +229,7 @@ type ClrProvider
 
     /// The `System.HashCode` accumulator local type for a union's `GetHashCode`.
     member _.HashCodeType: FrozenType =
-        FTConst(BuiltinTypes.intrinsicKey "System.HashCode", EqArray.empty)
+        FTConst(RuntimeNames.opaqueKey "System.HashCode", EqArray.empty)
 
     member _.EqualityComparerDefault(elem: FrozenType) : EntityHandle = recipes.EqualityComparerDefault elem
 

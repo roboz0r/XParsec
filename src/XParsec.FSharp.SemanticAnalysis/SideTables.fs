@@ -381,7 +381,7 @@ type IntrinsicAbbrevInfo(name: string, typeParams: EqArray<string * TypeVar>, de
         // type (`TyConst name args`), preserving `X`'s `TyConst` identity — not a
         // `TyClass`. `translateNominalMember` stamps this onto each member's `ThisTy`.
         member _.MkSelfType args =
-            TyConst(BuiltinTypes.intrinsicKey name, args)
+            TyConst(RuntimeNames.primitiveKey name, args)
 
 /// An enum type declaration (`type E = | C1 = v1 | …`). Unlike unions/records,
 /// an enum is non-generic and carries no member side tables: it is a closed,
@@ -897,7 +897,7 @@ module TypeRegistry =
     let intrinsicKeyOf (types: PassContextTypes) (name: string) : SymbolKey =
         match types.IntrinsicKeys.TryGetValue name with
         | true, k -> k
-        | _ -> RuntimeNames.intrinsicKey name
+        | _ -> RuntimeNames.primitiveKey name
 
     // --- Arity-overload mechanism (shared by Union and Class) --------------------
     // F# / .NET overload a type *name* by generic arity (`Choice\`2`/`Choice\`3`,

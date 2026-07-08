@@ -759,7 +759,7 @@ module Emit =
     /// as `c != 0`; on fall-through every comparison was equal, so it returns `0`.
     let buildUnionCompareTo (s: UnionComparisonSupport) : ILBody =
         let b = IlBuilder()
-        let c = b.Local(FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
+        let c = b.Local(FTConst(RuntimeNames.intKey, EqArray.empty))
         let nullLabel = b.Label()
         let returnLabel = b.Label()
 
@@ -852,7 +852,7 @@ module Emit =
     /// (returns `1`); otherwise the shared field lex walk.
     let buildRecordCompareTo (s: RecordComparisonSupport) : ILBody =
         let b = IlBuilder()
-        let c = b.Local(FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty))
+        let c = b.Local(FTConst(RuntimeNames.intKey, EqArray.empty))
         let nullLabel = b.Label()
         let returnLabel = b.Label()
 

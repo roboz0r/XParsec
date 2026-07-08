@@ -97,10 +97,7 @@ module EmitLoops =
             ),
             false,
             false,
-            FTFun(
-                FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty),
-                FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty)
-            )
+            FTFun(FTConst(RuntimeNames.unitKey, EqArray.empty), FTConst(RuntimeNames.unitKey, EqArray.empty))
         )
 
     /// The `MoveNext` / `Current` handles for an external enumerator `E` (the
@@ -120,10 +117,7 @@ module EmitLoops =
                 enumeratorTy,
                 false,
                 false,
-                FTFun(
-                    FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty),
-                    FTConst(BuiltinTypes.intrinsicKey "bool", EqArray.empty)
-                )
+                FTFun(FTConst(RuntimeNames.unitKey, EqArray.empty), FTConst(RuntimeNames.boolKey, EqArray.empty))
             )
 
         let cur =
@@ -322,7 +316,7 @@ module EmitLoops =
                             geKey,
                             false,
                             false,
-                            FTFun(FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty), enumeratorTy)
+                            FTFun(FTConst(RuntimeNames.unitKey, EqArray.empty), enumeratorTy)
                         )
                     | ForInGetEnumG.Local -> fst (resolveInstanceMember env (typeOfExpr source) "GetEnumerator" [])
                     // Rung-3: a generic-typar source — `GetEnumerator` is the custom
@@ -413,7 +407,7 @@ module EmitLoops =
                         geKey,
                         false,
                         false,
-                        FTFun(FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty), enumTy)
+                        FTFun(FTConst(RuntimeNames.unitKey, EqArray.empty), enumTy)
                     )
 
                 let mnKey =
@@ -430,8 +424,8 @@ module EmitLoops =
                         false,
                         false,
                         FTFun(
-                            FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty),
-                            FTConst(BuiltinTypes.intrinsicKey "bool", EqArray.empty)
+                            FTConst(RuntimeNames.unitKey, EqArray.empty),
+                            FTConst(RuntimeNames.boolKey, EqArray.empty)
                         )
                     )
 
@@ -486,7 +480,7 @@ module EmitLoops =
             //             if i = limit goto loopEnd // last iteration, no overflow
             //             i = i + 1; goto loopBody
             //   loopEnd:
-            let intTy = FTConst(BuiltinTypes.intrinsicKey "int", EqArray.empty)
+            let intTy = FTConst(RuntimeNames.intKey, EqArray.empty)
             let iSlot = b.Local intTy
             let limitSlot = b.Local intTy
             env.Slots.[var] <- iSlot

@@ -127,8 +127,8 @@ let tests =
                 // Identity axis — the canon faces ARE the `.fsi` names, platform-
                 // INVARIANT (a JS build never sees a BCL name) and distinct, so the
                 // unifier never conflates `int` with `float`.
-                Expect.equal intCanon (RuntimeNames.intrinsicKey "int") "int canon identity is the `.fsi` name"
-                Expect.equal floatCanon (RuntimeNames.intrinsicKey "float") "float canon identity is the `.fsi` name"
+                Expect.equal intCanon (RuntimeNames.intKey) "int canon identity is the `.fsi` name"
+                Expect.equal floatCanon (RuntimeNames.floatKey) "float canon identity is the `.fsi` name"
                 Expect.notEqual intCanon floatCanon "int and float MUST keep distinct canon identities"
 
                 Expect.equal intPlat "number" "int platform face repoints to JS `number`"
@@ -155,19 +155,13 @@ let tests =
                                                             }) -> canon, platform
                     | other -> failtestf "expected %s as an Intrinsic shape with a JS repr, got %A" name other
 
-                Expect.equal
-                    (facesOf "Vesper.unit")
-                    (RuntimeNames.intrinsicKey "unit", "undefined")
-                    "unit -> undefined on JS"
+                Expect.equal (facesOf "Vesper.unit") (RuntimeNames.unitKey, "undefined") "unit -> undefined on JS"
 
-                Expect.equal
-                    (facesOf "Vesper.int64")
-                    (RuntimeNames.intrinsicKey "int64", "bigint")
-                    "int64 -> bigint on JS"
+                Expect.equal (facesOf "Vesper.int64") (RuntimeNames.int64Key, "bigint") "int64 -> bigint on JS"
 
                 Expect.equal
                     (facesOf "Vesper.uint64")
-                    (RuntimeNames.intrinsicKey "uint64", "bigint")
+                    (RuntimeNames.primitiveKey "uint64", "bigint")
                     "uint64 -> bigint on JS"
             }
         ]

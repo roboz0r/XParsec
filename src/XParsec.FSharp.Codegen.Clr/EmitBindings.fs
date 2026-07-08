@@ -113,7 +113,7 @@ module EmitBindings =
                         disposeKey,
                         CallVia.Self,
                         EqArray.empty,
-                        FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty),
+                        FTConst(RuntimeNames.unitKey, EqArray.empty),
                         tok
                     ))
 
@@ -155,8 +155,8 @@ module EmitBindings =
                         false,
                         false,
                         FTFun(
-                            FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty),
-                            FTConst(BuiltinTypes.intrinsicKey "unit", EqArray.empty)
+                            FTConst(RuntimeNames.unitKey, EqArray.empty),
+                            FTConst(RuntimeNames.unitKey, EqArray.empty)
                         )
                     )
 

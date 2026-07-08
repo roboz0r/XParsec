@@ -611,8 +611,7 @@ module internal FreezeExpr =
             <| nil
 
         if isArray then
-            let arrayTy =
-                TyConst(BuiltinTypes.intrinsicKey (RuntimeNames.arrayName 1), EqArray.singleton elemTy)
+            let arrayTy = TyConst(RuntimeNames.arrayKey 1, EqArray.singleton elemTy)
             // Codegen resolves `Array.ofList` against its target; alternate
             // targets are free to swap the wrapper. The BCL-only path recognises
             // this exact head and emits the array directly (no FSharp.Core).

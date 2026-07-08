@@ -118,7 +118,7 @@ let tests =
                                                                      Platform = Some platform
                                                                  }
                                                         }) ->
-                    Expect.equal canon (RuntimeNames.intrinsicKey "int") "int's canon identity is the `.fsi` name"
+                    Expect.equal canon (RuntimeNames.intKey) "int's canon identity is the `.fsi` name"
 
                     Expect.equal
                         platform
@@ -174,7 +174,7 @@ let tests =
                     | ValueSome(ExternalTypeShape.Class shape) ->
                         Expect.isTrue shape.IsInterface (sprintf "%s is an interface Class" lookup)
 
-                        let canonKey = RuntimeNames.intrinsicKey canonExpected
+                        let canonKey = RuntimeNames.primitiveKey canonExpected
 
                         match shape.CapabilityFace with
                         | ValueSome face ->

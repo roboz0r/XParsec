@@ -12,7 +12,7 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 // idempotence directly on the constructor, with no parser or unifier in the loop.
 
 let private tc (n: string) : SemType =
-    TyConst(BuiltinTypes.intrinsicKey n, EqArray.empty)
+    TyConst(RuntimeNames.primitiveKey n, EqArray.empty)
 
 let private tInt = tc "int"
 let private tString = tc "string"
