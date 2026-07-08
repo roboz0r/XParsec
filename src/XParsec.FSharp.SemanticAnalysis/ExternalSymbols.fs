@@ -1807,7 +1807,6 @@ module BuiltinTypes =
     let tyUNativeInt: SemType =
         TyConst(RuntimeNames.primitiveKey "unativeint", EqArray.empty)
 
-    let tyBigInt: SemType = TyConst(RuntimeNames.bigintKey, EqArray.empty)
     let tyFloat: SemType = TyConst(RuntimeNames.floatKey, EqArray.empty)
     let tyFloat32: SemType = TyConst(RuntimeNames.primitiveKey "float32", EqArray.empty)
     let tyBool: SemType = TyConst(RuntimeNames.boolKey, EqArray.empty)

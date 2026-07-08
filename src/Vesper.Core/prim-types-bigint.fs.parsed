@@ -1,0 +1,15 @@
+namespace              'namespace'       KWNamespace         tok=   0  pos=   0
+                       'Vesper'          Identifier          tok=   2  pos=  10
+  TypeDefn.Abbrev:
+    TypeName           'bigint'          Identifier          tok=  19  pos= 158
+    =                  '='               OpEquality          tok=  21  pos= 165
+      ILIntrinsic:
+        (#             '(#'              KWLHashParen        tok=  23  pos= 167
+        StringLiteral  '"'               StringOpen          tok=  25  pos= 170
+        Parts:
+          Text         'System.Num...'   StringFragment      tok=  26  pos= 171
+                       '"'               StringClose         tok=  27  pos= 197
+        #)             '#)'              KWRHashParen        tok=  29  pos= 199
+---
+WarnDirectives:
+  #nowarn 42 (Ln 2)

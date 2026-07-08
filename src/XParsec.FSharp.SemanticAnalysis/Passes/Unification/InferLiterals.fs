@@ -88,14 +88,12 @@ module internal UnificationInferLiterals =
         | Token.NumDecimalHex
         | Token.NumDecimalOctal
         | Token.NumDecimalBinary -> ctx.Intrinsics.Decimal
-        // `bigint` has no `prim-types` contract yet, so `ctx.Intrinsics.BigInt` would loud-fail;
-        // keep the static mint until `prim-types-bigint` lands (Step 5), then migrate this arm.
         | Token.NumBigIntegerQ
         | Token.NumBigIntegerR
         | Token.NumBigIntegerZ
         | Token.NumBigIntegerI
         | Token.NumBigIntegerN
-        | Token.NumBigIntegerG -> BuiltinTypes.tyBigInt
+        | Token.NumBigIntegerG -> ctx.Intrinsics.BigInt
         | _ -> TyUnknown(sprintf "non-literal token %A in literal position" t.Token)
 
     let inferConst (ctx: PassContext) (c: Constant<SyntaxToken>) : SemType =

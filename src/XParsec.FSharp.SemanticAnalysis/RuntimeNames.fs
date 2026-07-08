@@ -463,7 +463,6 @@ module RuntimeNames =
     let uint32Key: SymbolKey = primitiveKey "uint32"
     let floatKey: SymbolKey = primitiveKey "float"
     let decimalKey: SymbolKey = primitiveKey "decimal"
-    let bigintKey: SymbolKey = primitiveKey "bigint"
     let undefinedKey: SymbolKey = primitiveKey "undefined"
     let byrefKey: SymbolKey = primitiveKey byrefName
     let arrayKey (rank: int) : SymbolKey = primitiveKey (arrayName rank)
