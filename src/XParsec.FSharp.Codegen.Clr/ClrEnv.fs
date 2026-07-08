@@ -534,19 +534,20 @@ type internal ClrEnv
     member _.References = references
     member _.Symbols: ICodegenSymbols = symbols
 
-    /// Resolve a Vesper primitive canon name to its IL representation string,
+    /// Resolve a Vesper primitive's canon `SymbolKey` to its IL representation string,
     /// single-sourced from the `.fs` `(# … #)`: (1) this unit's OWN intrinsics (`reprs`
-    /// — the `.fs` being compiled), then (2) the provider's harvested forward
-    /// `{ canon -> platform }` map (the dependency closure). No hard-coded fallback.
-    /// The bare canon (`"int"`) is the open-resolved identity codegen carries — opens
-    /// are a name-resolution concern, already discharged — so a flat canon→repr lookup
-    /// is the correct codegen mechanism (NOT `TryLookupType`, which is keyed by
-    /// qualified compiled name).
-    member _.TryPrimitiveRepr(name: string) : string option =
-        match reprs.TryFind name with
+    /// — the `.fs` being compiled, keyed by the bare `simpleName`), then (2) the
+    /// provider's harvested forward `{ canon -> platform }` map (the dependency closure),
+    /// keyed by the qualified canon `SymbolKey` directly. No hard-coded fallback. Codegen
+    /// carries the open-resolved canon key on its `FTConst` node (opens are a name-
+    /// resolution concern, already discharged), so the forward lookup is the key itself —
+    /// no string round-trip. (NOT `TryLookupType`, which is keyed by qualified compiled
+    /// name.)
+    member _.TryPrimitiveRepr(key: SymbolKey) : string option =
+        match reprs.TryFind(SymbolKeyOps.simpleName key) with
         | Some _ as hit -> hit
         | None ->
-            match symbols.IntrinsicForwardRepr.TryGetValue(RuntimeNames.intrinsicKey name) with
+            match symbols.IntrinsicForwardRepr.TryGetValue key with
             | true, repr -> Some repr
             | _ -> None
 

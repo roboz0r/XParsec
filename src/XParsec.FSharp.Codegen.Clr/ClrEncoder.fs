@@ -33,9 +33,9 @@ type internal ClrEncoder(env: ClrEnv) =
     let eFSharpList1 = env.EFSharpList1
 
     /// Single-sourced primitive repr (own intrinsics → provider-harvested `.fs`, no
-    /// fallback), as an active pattern over an `FTConst` name. See
+    /// fallback), as an active pattern over an `FTConst` canon key. See
     /// `ClrEnv.TryPrimitiveRepr`.
-    let (|PrimitiveRepr|_|) (name: string) = env.TryPrimitiveRepr name
+    let (|PrimitiveRepr|_|) (key: SymbolKey) = env.TryPrimitiveRepr key
 
     // `ValueTuple`n` handle bundles, cached by element-type list. Unlike `ctx.TypeRef`
     // (which dedups its rows), `ctx.TypeSpec` / `ctx.MemberRef` add a fresh metadata
@@ -110,11 +110,11 @@ type internal ClrEncoder(env: ClrEnv) =
         // intrinsic (the array `[]`, `args ≠ []`) has no `!n`-substituting encoder
         // yet, so it falls through to
         // the catch-all "cannot encode" error — the green suite proves none reaches here.
-        | FTConst(key, args) when args.IsEmpty && ((|PrimitiveRepr|_|) (SymbolKeyOps.simpleName key)).IsSome ->
-            // Key the IL type off the representation string the name maps to (`"int"` →
+        | FTConst(key, args) when args.IsEmpty && ((|PrimitiveRepr|_|) key).IsSome ->
+            // Key the IL type off the representation string the canon maps to (`"int"` →
             // `"System.Int32"` → `i4`), not the Vesper name.
             let name = SymbolKeyOps.simpleName key
-            let repr = ((|PrimitiveRepr|_|) name).Value
+            let repr = ((|PrimitiveRepr|_|) key).Value
 
             if IntrinsicRepr.tryEncodeValueType te repr then
                 ()

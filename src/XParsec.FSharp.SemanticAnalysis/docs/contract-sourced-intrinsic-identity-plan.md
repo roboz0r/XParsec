@@ -141,12 +141,20 @@ was already gone, so no reverse-map tier was rebuilt. What landed:
   `isPrintfFormatKey`, …), which are asm-blind BY DESIGN for origin-less mints (test helpers,
   asm-blind codegen paths) — a distinct concern from the walk, not retired here.
 
-### 2. Stage 3 — codegen repr validation
+### 2. Stage 3 — codegen repr validation — LANDED 2026-07-08 (Clr 1253 / Vesper 49)
 
-The forward-repr VALUE is an opaque platform string; codegen must map it to a known IL/JS type or
-**emit a diagnostic** on an unrecognized repr (no silent mis-emit). `ClrEnv.TryPrimitiveRepr`
-takes the canon `SymbolKey` directly (codegen already holds `FTConst(key, …)`), retiring its
-`RuntimeNames.intrinsicKey name` bridge.
+`ClrEnv.TryPrimitiveRepr` now takes the canon `SymbolKey` directly — codegen carries the open-
+resolved canon on its `FTConst` node, so the provider forward-repr lookup is `key` itself, retiring
+the `RuntimeNames.intrinsicKey name` bridge. Own-unit `reprs` stays `simpleName`-keyed (projected at
+the seam). The `ClrEncoder` `(|PrimitiveRepr|_|)` pattern is now key-keyed; the sole roundtrip
+(`simpleName key |> intrinsicKey`) is gone and the CLR suite proves the direct key hits every
+primitive the old roundtrip did.
+
+The "map to a known IL/JS type or **emit a diagnostic** (no silent mis-emit)" invariant was already
+discharged: cleanup item 4 (Stage 0) gated the `ClrEncoder` reference-class fallback on
+`externalIsValueType` with a loud `failwithf`, so an unknown value-type repr can no longer be
+mis-encoded as a class. On JS the backend resolves reprs by its own path and never reads this axis
+(the one JS forward-repr reader, `NumberCovariance`, is a producer-mint scheduled by Stage 4).
 
 ### 3. Stage 4 — the shadow set falls out
 
