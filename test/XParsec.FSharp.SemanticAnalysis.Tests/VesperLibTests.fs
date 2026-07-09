@@ -1325,18 +1325,20 @@ let tests =
                     failtestf "objnull abbrev registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
             }
 
-            test "extern-with-abstract-member extracts as an interface Class carrying its member surface" {
-                // The BCL-free neutral capability surface `type disposable = extern with
-                // abstract member Dispose : unit -> unit` extracts to a
+            test "extern interface with abstract member extracts as an interface Class carrying its member surface" {
+                // The BCL-free neutral capability surface `type disposable = extern interface
+                // with abstract member Dispose : unit -> unit` extracts to a
                 // `Class{IsInterface=true}` carrying `Dispose`, when NO `(# … #)` repr is
                 // present (isIntrinsic=false → the `not isIntrinsic` bodied arm in
-                // `VesperLib.extractTypeSig` runs `extractBodiedClassLike`). The member-surface
+                // `VesperLib.extractTypeSig` runs `extractBodiedClassLike`). Interface-ness is
+                // the EXPLICIT `interface` tag, not inferred from the all-abstract body. The
+                // member-surface
                 // half of a BCL-free capability is therefore free; the per-target IDENTITY is
                 // supplied separately (a `.fs` `(# … #)` repr → an `IntrinsicInterface` on CLR, the
                 // `capabilities-compat.js.fsi` shim on JS — NOT a plain `.fs` abbreviation,
                 // which is harvested only for `(# … #)` while extraction runs only on `.fsi`).
                 let input =
-                    "namespace Vesper\n\ntype disposable = extern with\n    abstract member Dispose : unit -> unit\n"
+                    "namespace Vesper\n\ntype disposable = extern interface with\n    abstract member Dispose : unit -> unit\n"
 
                 let lexed =
                     match Lexing.lexString input with
@@ -1347,7 +1349,7 @@ let tests =
                     let reader = Reader.ofLexed lexed input Set.empty
 
                     match FSharpAst.parseSignature reader with
-                    | Result.Error e -> failtestf "parse failed (extern-with-abstract-member did not parse): %A" e
+                    | Result.Error e -> failtestf "parse failed (extern interface with did not parse): %A" e
                     | Result.Ok ast -> ast
 
                 let parsed: VesperLibManifest.ParsedFile =
@@ -1381,7 +1383,9 @@ let tests =
 
                 match ctx.TypeShapes.[key] with
                 | ExternalTypeShape.Class shape ->
-                    Expect.isTrue shape.IsInterface "extern-with-abstract-member extracts as an INTERFACE Class"
+                    Expect.isTrue
+                        shape.IsInterface
+                        "extern interface with abstract member extracts as an INTERFACE Class"
                 | other -> failtestf "expected a Class shape for disposable; got %A" other
 
                 let provider = VesperLib.ExtractCtx.toProvider ctx
@@ -1392,7 +1396,7 @@ let tests =
             }
 
             test
-                "dual-faced capability interface: extern-with-abstract-member + (# … #) repr → Class carrying platform face, NOT a reverse-canon entry" {
+                "dual-faced capability interface: extern interface with abstract member + (# … #) repr → Class carrying platform face, NOT a reverse-canon entry" {
                 // A capability anchor whose `.fsi` declares an interface member surface AND
                 // whose `.fs` binds a platform type (`type disposable = (# "System.IDisposable"
                 // #)`) must extract to ONE dual-faced shape: a `Class{IsInterface=true}` with
@@ -1413,7 +1417,7 @@ let tests =
                 ctx.IntrinsicReprs.["disposable"] <- "System.IDisposable"
 
                 let input =
-                    "namespace Vesper\n\ntype disposable = extern with\n    abstract member Dispose : unit -> unit\n"
+                    "namespace Vesper\n\ntype disposable = extern interface with\n    abstract member Dispose : unit -> unit\n"
 
                 let lexed =
                     match Lexing.lexString input with

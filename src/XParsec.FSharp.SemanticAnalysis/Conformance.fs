@@ -190,7 +190,11 @@ module Conformance =
 
     let private sigShape (ts: TypeSignature<SyntaxToken>) : SigShape =
         match ts with
-        | TypeSignature.Extern(kindTag = ValueSome _) -> SigShape.ExternClass
+        | TypeSignature.Extern(kindTag = ValueSome(ExternKind.Class _)) -> SigShape.ExternClass
+        // `extern interface with …` (a capability interface) pairs with the UNTAGGED impl
+        // repr `(# "System.IDisposable" #)` — the platform interface identity is an opaque
+        // value repr, not a `(# class #)` heritable base — so it conforms as `Extern`, not
+        // `ExternClass`.
         | TypeSignature.Extern _ -> SigShape.Extern
         | TypeSignature.Abbrev _ -> SigShape.Abbrev
         | TypeSignature.Record _ -> SigShape.Other "record"

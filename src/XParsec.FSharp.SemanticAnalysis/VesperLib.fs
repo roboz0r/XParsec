@@ -1205,13 +1205,10 @@ module VesperLib =
         (opens: string list)
         (compiled: string)
         (arity: int)
+        (isInterface: bool)
         (typeName: TypeName<SyntaxToken>)
         (elements: TypeElementsSignature<SyntaxToken>)
         : unit =
-        // `type X = abstract member …` parses as an implicit-body `Anon`/`Class`
-        // (no `interface` keyword), but an all-abstract body IS an interface.
-        let isInterface = bodyIsInterface elements
-
         // A `[<Struct>]`-attributed class-shaped type (the struct-seq
         // `ArraySeq`/`MapSeq`/… nodes) is a value type — publish the flag so a
         // consumer encodes it `ELEMENT_TYPE_VALUETYPE`, mirroring the
@@ -1391,15 +1388,23 @@ module VesperLib =
                     // A trailing `with interface … / member …` publishes a capability
                     // surface: register as a bodied class/interface (`extractBodiedClassLike`)
                     // so a consumer's structural probe sees the members and `FrozenInterfaces`.
-                    // This admits BOTH a capability INTERFACE (`abstract member …`, republished as
-                    // an `IntrinsicInterface` below) and a CONCRETE member surface
-                    // (`member Poke: int -> int`) on an intrinsic (which stays a member-bearing
-                    // `Class`) — a concrete `(# … #)`-bound member is a general platform-binding
-                    // capability (the member's body is served as a member-keyed inline splice),
-                    // not a structural mutation of the primitive: the `ExternalTypeShape.Intrinsic`
-                    // shape carries no member slots, so a member-bearing shape is the only one able
-                    // to publish them.
-                    extractBodiedClassLike ctx lexed input opens compiled arity typeName elems
+                    // This admits BOTH a capability INTERFACE (`extern interface with abstract
+                    // member …`, republished as an `IntrinsicInterface` below) and a CONCRETE
+                    // member surface (`member Poke: int -> int`) on an intrinsic (which stays a
+                    // member-bearing `Class`) — a concrete `(# … #)`-bound member is a general
+                    // platform-binding capability (the member's body is served as a member-keyed
+                    // inline splice), not a structural mutation of the primitive: the
+                    // `ExternalTypeShape.Intrinsic` shape carries no member slots, so a
+                    // member-bearing shape is the only one able to publish them.
+                    //
+                    // Interface-ness is the EXPLICIT `extern interface` tag, not inferred from an
+                    // all-abstract member shape: a contract must name the species.
+                    let isInterface =
+                        match kindTag with
+                        | ValueSome(ExternKind.Interface _) -> true
+                        | _ -> false
+
+                    extractBodiedClassLike ctx lexed input opens compiled arity isInterface typeName elems
 
                     // For an intrinsic, RECORD it for a one-shot finalize-time republish
                     // (`obj`/`exn` → `Intrinsic` with a class surface; a capability interface →
@@ -1413,27 +1418,23 @@ module VesperLib =
                     if isIntrinsic then
                         match ctx.IntrinsicReprs.TryGetValue short with
                         | true, platform ->
-                            match ctx.TypeShapes.TryGetValue compiled with
-                            | true, ExternalTypeShape.Class shape ->
-                                match kindTag with
-                                // `extern class with …` (obj/exn): a heritable PRIMITIVE.
-                                | ValueSome(ExternKind.Class _) ->
-                                    ctx.PendingIntrinsicClasses.[compiled] <-
-                                        struct (SymbolKeyOps.intrinsicCanonKey compiled short, platform)
-                                // A capability interface (`disposable`/`equatable`/`comparable` —
-                                // an ALL-ABSTRACT body): republishes to an `IntrinsicInterface`
-                                // (a `TyClass` constraint reconciling to its BCL spelling via the
-                                // platform face).
-                                | _ when shape.IsInterface ->
-                                    ctx.PendingCapabilityInterfaces.[compiled] <-
-                                        struct (SymbolKeyOps.intrinsicCanonKey compiled short, platform)
-                                // A CONCRETE `(# … #)`-bound member surface on an intrinsic (a
-                                // general platform-binding capability, NOT an interface): stays the
-                                // plain member-bearing `Class` `extractBodiedClassLike` registered,
-                                // resolving to `TyClass` with its members served through
-                                // `TryLookupMember`.
-                                | _ -> ()
-                            | _ -> ()
+                            match kindTag with
+                            // `extern class with …` (obj/exn): a heritable PRIMITIVE.
+                            | ValueSome(ExternKind.Class _) ->
+                                ctx.PendingIntrinsicClasses.[compiled] <-
+                                    struct (SymbolKeyOps.intrinsicCanonKey compiled short, platform)
+                            // `extern interface with …` (`disposable`/`equatable`/`comparable`):
+                            // republishes to an `IntrinsicInterface` (a `TyClass` constraint
+                            // reconciling to its BCL spelling via the platform face).
+                            | ValueSome(ExternKind.Interface _) ->
+                                ctx.PendingCapabilityInterfaces.[compiled] <-
+                                    struct (SymbolKeyOps.intrinsicCanonKey compiled short, platform)
+                            // An untagged `extern with member …`: a CONCRETE `(# … #)`-bound
+                            // member surface on an intrinsic (a general platform-binding
+                            // capability, NOT an interface). Stays the plain member-bearing
+                            // `Class` `extractBodiedClassLike` registered, resolving to `TyClass`
+                            // with its members served through `TryLookupMember`.
+                            | ValueNone -> ()
                         | _ -> ()
                 | _ ->
                     // No member body. A primitive/capability anchor (`IntrinsicBaseReprs`)
@@ -1481,7 +1482,12 @@ module VesperLib =
             match registerTypeDecl ctx lexed input path typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
-                extractBodiedClassLike ctx lexed input opens compiled arity typeName elements
+                // `type X = abstract member …` parses as an implicit-body `Anon`/`Class`
+                // (no `interface` keyword), but an all-abstract body IS an interface —
+                // infer it here. (The `extern` arm instead drives interface-ness from the
+                // explicit `extern interface` tag, not the member shape.)
+                let isInterface = bodyIsInterface elements
+                extractBodiedClassLike ctx lexed input opens compiled arity isInterface typeName elements
 
         | TypeSignature.AbstractType typeName ->
             // An opaque abstract type (`type T`) with no body shape. Resolve as a
