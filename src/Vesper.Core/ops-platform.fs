@@ -234,3 +234,14 @@ module IndexIntrinsics =
     /// (contract-only on CLR, see `GetIndex`).
     let inline SetIndex (target: 'T) (key: 'K) (value: 'V) : unit =
         failwith "SetIndex is a JS-target intrinsic"
+
+/// The default-value primitive — see `ops-platform.fsi`.
+[<AutoOpen>]
+module Unchecked =
+
+    /// `defaultof` — a nullary value whose body is the zero-operand `ilzero` intrinsic, spliced
+    /// at each bare reference (the `undefined`-value path). The CLR backend lowers `ilzero` to a
+    /// zeroed scratch local (`ldloca; initobj; ldloc`): null for a reference type, all-zeroes for
+    /// a value type. The `type ('T)` clause matches the F# idiom; the backend recovers the type
+    /// from the result.
+    let inline defaultof<'T> : 'T = (# "ilzero" type ('T) : 'T #)

@@ -512,6 +512,12 @@ module internal FreezeExpr =
             // the runtime treats as a no-op on a ref type).
             let elem = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr args.[0]))
             TExpr.ILIntrinsic("box", ValueSome elem, tArgs, ty, tok)
+        elif opCode.StartsWith "ilzero" then
+            // `Unchecked.defaultof<'T>` — a type's default value. `ilzero`'s result IS
+            // the defaulted 'T, so the operand type is the node's result type (recovered
+            // like `ldelem`'s). The source `type ('T)` clause is decorative here — the
+            // result type is authoritative — but kept in source to match the F# idiom.
+            TExpr.ILIntrinsic("ilzero", ValueSome(Unification.zonk ty), tArgs, ty, tok)
         else
             TExpr.ILIntrinsic(opCode, ValueNone, tArgs, ty, tok)
 

@@ -44,22 +44,20 @@ module Seq =
         acc
 
     let reduce (reduction: 'T -> 'T -> 'T) (source: seq<'T>) : 'T =
-        // `for … in` has no explicit first-move to seed the accumulator, and the backend
-        // exposes no portable "default value of 'T" primitive to declare a `mutable acc`
-        // ahead of the first element, so materialise via `for … in` (still the portable
-        // enumeration of `source`) and fold from the first element.
-        let items = ResizeArray<'T>()
+        // `for … in` has no explicit first-move to seed the accumulator, so seed `acc` with
+        // `defaultof` (the default-of-'T primitive, `Vesper`'s `Unchecked.defaultof` analogue)
+        // and gate on `seen`: the default is never observed — the first element overwrites it
+        // before any `reduction`. A single mutable slot, so `reduce` is O(1) in space and streams
+        // `source` through the one portable enumeration construct (`for … in`) — no buffer.
+        let mutable acc: 'T = defaultof
+        let mutable seen = false
 
         for x in source do
-            items.Add(x)
+            acc <- if seen then reduction acc x else x
+            seen <- true
 
-        if items.Count = 0 then
+        if not seen then
             invalidArg "source" "The input sequence was empty."
-
-        let mutable acc = items.[0]
-
-        for i in 1 .. items.Count - 1 do
-            acc <- reduction acc items.[i]
 
         acc
 

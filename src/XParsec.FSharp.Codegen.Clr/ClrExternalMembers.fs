@@ -244,9 +244,10 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// manual-call analogue of the BCL declarers the `for … in` lowering mints by hand
     /// (`EmitLoops` — `MoveNext` on `IEnumerator`, `Current` on `IEnumerator`1`), here
     /// derived from metadata rather than hardcoded string literals. `ValueNone` when the
-    /// declaring type is not a capability interface, or the member is declared on the
-    /// platform face itself (`GetEnumerator` on `IEnumerable`1`, `Current` on
-    /// `IEnumerator`1` — no rebase needed).
+    /// declaring type is not a capability interface, the member is declared on the platform
+    /// face itself (`GetEnumerator` on `IEnumerable`1`, `Current` on `IEnumerator`1` — no
+    /// rebase needed), or no base member of the requested `kind` exists (decline rather than
+    /// rebase onto an arbitrary same-named member, which would mint a wrong ref).
     let tryCapabilityBaseMemberKey (key: SymbolKey) : SymbolKey voption =
         match key with
         | SymbolKey.MemberKey(declKey, memberName, _, kind) ->
@@ -264,19 +265,22 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 if members |> Array.exists (fun m -> declaredOn m = platform) then
                     ValueNone
                 else
-                    // Inherited from a base interface: rebase onto the base member's real
-                    // declaring type (its `Key` names the base — e.g. `IEnumerator`), so the
-                    // later member-ref mints against the base, non-generic parent.
-                    members
-                    |> Array.tryFind (fun m ->
-                        match m.Key with
-                        | SymbolKey.MemberKey(_, _, _, k) -> k = kind
-                        | _ -> false
-                    )
-                    |> Option.orElse (Array.tryHead members)
-                    |> function
-                        | Some m -> ValueSome m.Key
-                        | None -> ValueNone
+                    // Inherited from a base interface: rebase onto the base member of the
+                    // requested `kind`, whose `Key` names its real declaring base (e.g.
+                    // `IEnumerator`), so the later member-ref mints against the base, non-generic
+                    // parent. No such base member ⇒ decline (`ValueNone`), leaving the original
+                    // face-parented key: rebasing onto an arbitrary same-named member would mint
+                    // a wrong ref, no safer than the un-rebased key the caller falls back to.
+                    match
+                        members
+                        |> Array.tryFind (fun m ->
+                            match m.Key with
+                            | SymbolKey.MemberKey(_, _, _, k) -> k = kind
+                            | _ -> false
+                        )
+                    with
+                    | Some m -> ValueSome m.Key
+                    | None -> ValueNone
             | _ -> ValueNone
         | _ -> ValueNone
 

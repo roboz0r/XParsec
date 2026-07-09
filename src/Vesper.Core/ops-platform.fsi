@@ -456,3 +456,23 @@ module IndexIntrinsics =
     /// <summary>Indexed write of an index-signature object — the lowering target the
     /// front end desugars <c>x.[k] &lt;- value</c> to on such a receiver.</summary>
     val inline SetIndex: target: 'T -> key: 'K -> value: 'V -> unit
+
+/// The default-value primitive. `[<AutoOpen>]` so `defaultof` is referenced BARE: a bare
+/// `External` reference is what the inline pass splices the nullary `ilzero` body at (a
+/// qualified `Unchecked.defaultof` resolves through the member-call path, which emits a real
+/// call to a type this inline-only module never emits — hence the auto-open + bare form).
+[<AutoOpen>]
+module Unchecked =
+
+    /// <summary>The default value of a type: a null reference for a reference type and the
+    /// all-zeroes value for a value type. Seeds a <c>mutable</c> accumulator declared before
+    /// its first real value is known (as in <c>Seq.reduce</c>); the seed is overwritten before
+    /// it is ever observed.</summary>
+    ///
+    /// <remarks>A nullary generic VALUE whose <c>'T</c> is fixed by the reference's expected
+    /// type (write <c>let x: T = defaultof</c>) — NOT F#'s type-applied <c>defaultof&lt;'T&gt;</c>
+    /// (the front end has no explicit value type-application) nor a <c>unit -> 'T</c> function
+    /// (the inline beta-reducer rejects a <c>()</c> parameter). A bare reference to a nullary
+    /// zero-operand intrinsic value is spliced in place, exactly as the <c>undefined</c> value
+    /// is; the spliced <c>ilzero</c> reads its type from the result the reference unifies into.</remarks>
+    val inline defaultof<'T> : 'T

@@ -657,16 +657,32 @@ module InlineExpansion =
                             | TExpr.Var(k, _, _) when localInlines.ContainsKey k -> ValueSome(walk (expandLocal k))
                             // A BARE (non-applied) reference to a cross-package `let`
                             // value whose body is a single zero-operand intrinsic
-                            // (`undefined`): splice the intrinsic body in place of the
-                            // `External` reference, so codegen emits the bare intrinsic
-                            // (`undefined`) with no import and never a `const undefined =
-                            // undefined` definition. The body is a leaf (no operands, no
-                            // binders, no typars), so it needs neither beta-reduction nor
-                            // freshening. A nullary intrinsic value cannot be applied, so
-                            // this never collides with the `App`-head inline paths above.
-                            | TExpr.External(name, keyOpt, _, _) ->
+                            // (`undefined`, `defaultof`): splice the intrinsic body in place of
+                            // the `External` reference, so codegen emits the bare intrinsic with
+                            // no import and never a `const undefined = undefined` definition. A
+                            // nullary intrinsic value cannot be applied, so this never collides
+                            // with the `App`-head inline paths above.
+                            //
+                            // A GENERIC nullary intrinsic (`defaultof<'T>`) carries its own
+                            // scheme typar in the harvested body; the bare splice has no spine
+                            // to derive it from, so ground the intrinsic's operand/result to the
+                            // reference's already-resolved type (`refTy` — `defaultof`'s 'T
+                            // unified with the use site). Without this the callee typar survives
+                            // as an unbound `TyVar` ("unresolved TyVar" at freeze). A NON-generic
+                            // one (`undefined`) is unchanged: `refTy` equals its concrete result
+                            // type and it carries no operand.
+                            | TExpr.External(name, keyOpt, refTy, _) ->
                                 match lookupExternal keyOpt name with
-                                | ValueSome ib -> Inline.nullaryIntrinsicValueBody ib.Decl
+                                | ValueSome ib ->
+                                    match Inline.nullaryIntrinsicValueBody ib.Decl with
+                                    | ValueSome(TExpr.ILIntrinsic(op, operand, args, _, tok)) ->
+                                        let groundedOperand =
+                                            match operand with
+                                            | ValueSome _ -> ValueSome refTy
+                                            | ValueNone -> ValueNone
+
+                                        ValueSome(TExpr.ILIntrinsic(op, groundedOperand, args, refTy, tok))
+                                    | other -> other
                                 | ValueNone -> ValueNone
                             | _ -> ValueNone
                 }

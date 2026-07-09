@@ -422,6 +422,60 @@ module UnificationEngineCore =
 
         go 0 a b []
 
+    /// Fold a capability interface's two nominal faces — its BCL platform face
+    /// (`System.Collections.Generic.IEnumerable\`1`) and its canonical face
+    /// (`Vesper.Collections.seq`) — to the single canonical identity; a non-capability key
+    /// is returned unchanged, so this is a strict generalisation of raw key `=`.
+    ///
+    /// Unlike the `exn === System.Exception` intrinsic (folded once at RESOLUTION via the
+    /// reverse-canon map, so no raw BCL key reaches this walk), a capability is DELIBERATELY
+    /// absent from that map — a `TyClass`-resolving interface there would force `IsInterface`
+    /// guards into the reverse-map readers — so both faces reach the unify / subsume /
+    /// overload seams un-normalized and this is the one place that reconciles them, driven by
+    /// the resolved `CapabilityIds` (asm-blind `Matches`), never a hardcoded string.
+    ///
+    /// Not memoized: every caller gates behind a raw `=` first, so this runs only on a
+    /// genuine mismatch (a bounded ≤5-way probe), and it can't share `IntrinsicCanonCache` —
+    /// that maps `key → intrinsic canon`, under which a capability key resolves to itself.
+    let capabilityCanonKey (ctx: PassContext) (key: SymbolKey) : SymbolKey =
+        let caps = ctx.CapabilityIds
+
+        // First matching capability's canonical face; `key` if none matches. A de-dented
+        // match chain, not a closure/array scan, to keep the mismatch path allocation-free.
+        let inline pick (cap: RuntimeNames.CapabilityIdentity voption) : SymbolKey voption =
+            match cap with
+            | ValueSome c when c.Matches key -> ValueSome(ValueOption.defaultValue c.Key c.CanonKey)
+            | _ -> ValueNone
+
+        match pick caps.Enumerable with
+        | ValueSome k -> k
+        | ValueNone ->
+
+            match pick caps.Enumerator with
+            | ValueSome k -> k
+            | ValueNone ->
+
+                match pick caps.Disposable with
+                | ValueSome k -> k
+                | ValueNone ->
+
+                    match pick caps.Equatable with
+                    | ValueSome k -> k
+                    | ValueNone ->
+
+                        match pick caps.Comparable with
+                        | ValueSome k -> k
+                        | ValueNone -> key
+
+    /// Do two nominal keys denote the same type, reconciling a capability's two faces?
+    /// Applied ONLY at the key-EQUALITY seams (`unify` / `subsumes` / overload filter /
+    /// `tryUpcastWitness`), never inside `canonKey` / `subtypeNominalOf`: those drive the
+    /// base/interface-chain LOOKUPS, and rewriting a BCL platform key there would erase the
+    /// platform type's own bases, breaking a genuine `IEnumerator\`1 :> IEnumerator` upcast.
+    /// Fast `k1 = k2` short-circuits before any capability probe.
+    let sameNominalKey (ctx: PassContext) (k1: SymbolKey) (k2: SymbolKey) : bool =
+        k1 = k2 || capabilityCanonKey ctx k1 = capabilityCanonKey ctx k2
+
     // Canonical nominal IDENTITY for subtype comparison: the type's platform-INVARIANT
     // front-end `SymbolKey` — the `.fsi` identity (`Vesper.int`, `Vesper.exn`), NOT a BCL
     // name. A primitive intrinsic binding (`type exn = (# "System.Exception" #)`,
@@ -447,55 +501,6 @@ module UnificationEngineCore =
     // intrinsic — its qualified name misses the provider). Memoized per `PassContext`:
     // `canonKey` runs inside the subtype recursive walk. A key that is none of the above
     // caches its own identity.
-    /// Reconcile a language-capability interface's TWO nominal faces to its single
-    /// CANONICAL identity. A capability (`seq`/`enumerator`/`disposable`/`equatable`/
-    /// `comparable`) resolves DUAL-FACED on CLR: its BCL platform face
-    /// (`System.Collections.Generic.IEnumerable\`1`) and its BCL-free canonical face
-    /// (`Vesper.Collections.seq`) denote the SAME type. UNLIKE the `exn ===
-    /// System.Exception` intrinsic reconciliation — which fires once at RESOLUTION via the
-    /// reverse-canon map, so no raw BCL key ever reaches this walk — a capability interface
-    /// is DELIBERATELY absent from that map (a `TyClass`-resolving interface there would
-    /// force `IsInterface` guards into the reverse-map readers). So BOTH faces reach the
-    /// unify / subsume / overload comparison sites un-normalized; this is the ONE place
-    /// that folds them together, driven by the resolved `CapabilityIds` (asm-blind
-    /// `Matches`), never a hardcoded `seq`/`IEnumerable` string. Returns the canonical face
-    /// when `key` denotes a capability (via EITHER face), else `key` unchanged — so it is a
-    /// strict generalisation of raw key `=` (a no-op for every non-capability key).
-    let capabilityCanonKey (ctx: PassContext) (key: SymbolKey) : SymbolKey =
-        let caps = ctx.CapabilityIds
-
-        let inline pick (cap: RuntimeNames.CapabilityIdentity voption) : SymbolKey voption =
-            match cap with
-            | ValueSome c when c.Matches key -> ValueSome(ValueOption.defaultValue c.Key c.CanonKey)
-            | _ -> ValueNone
-
-        match pick caps.Enumerable with
-        | ValueSome k -> k
-        | ValueNone ->
-            match pick caps.Enumerator with
-            | ValueSome k -> k
-            | ValueNone ->
-                match pick caps.Disposable with
-                | ValueSome k -> k
-                | ValueNone ->
-                    match pick caps.Equatable with
-                    | ValueSome k -> k
-                    | ValueNone ->
-                        match pick caps.Comparable with
-                        | ValueSome k -> k
-                        | ValueNone -> key
-
-    /// Do two nominal keys denote the SAME type for identity comparison, RECONCILING a
-    /// capability interface's two faces? Applied ONLY at the key-EQUALITY seams (the
-    /// `unify` / `subsumes` / overload-filter comparisons and `tryUpcastWitness`'s target
-    /// match) — deliberately NOT inside `canonKey` / `subtypeNominalOf`, which drive the
-    /// base/interface-chain LOOKUPS: rewriting a BCL platform key (`IEnumerator\`1`) to its
-    /// capability canon there would erase the platform type's own BCL bases (non-generic
-    /// `IEnumerator`), breaking a genuine `IEnumerator\`1 :> IEnumerator` co-slot upcast.
-    /// The fast `k1 = k2` path short-circuits before any capability probe.
-    let sameNominalKey (ctx: PassContext) (k1: SymbolKey) (k2: SymbolKey) : bool =
-        k1 = k2 || capabilityCanonKey ctx k1 = capabilityCanonKey ctx k2
-
     let private canonKey (ctx: PassContext) (key: SymbolKey) : SymbolKey =
         match ctx.IntrinsicCanonCache.TryGetValue key with
         | true, canon -> canon

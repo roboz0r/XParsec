@@ -259,6 +259,53 @@ let tests =
                 expectShimAbbrev "System.IComparable`1" "Vesper.comparable`1"
             }
 
+            test "JS build: the iteration capabilities resolve DUAL-faced; the leaves stay single-faced" {
+                // `resolveCapabilities` gives the JS iteration capabilities the same dual face the
+                // CLR `IntrinsicInterface` carries — `Key` = the shim-confirmed BCL spelling,
+                // `CanonKey` = the canonical `Vesper.Collections.*` — so a BCL-spelled
+                // `IEnumerable`1`/`IEnumerator`1` (e.g. from an external TS pack) folds to
+                // `seq`/`enumerator` through `capabilityCanonKey`, exactly as on CLR. The leaf
+                // capabilities take no BCL face here (their BCL spellings fold to canonical at
+                // freeze via the compat shim), so they stay single-faced. This pins the
+                // `shimConfirms` verification the other JS test does not exercise.
+                let provider, _ = builtProviderJs.Value
+                let caps = ExternalSymbols.resolveCapabilities provider
+
+                let expectDualFaced
+                    (name: string)
+                    (cap: RuntimeNames.CapabilityIdentity voption)
+                    (bcl: string)
+                    (canon: string)
+                    =
+                    match cap with
+                    | ValueSome id ->
+                        Expect.isTrue (id.CanonKey.IsSome) (sprintf "%s is dual-faced on JS (CanonKey present)" name)
+                        Expect.isTrue (id.MatchesName bcl) (sprintf "%s matches its BCL face %s" name bcl)
+                        Expect.isTrue (id.MatchesName canon) (sprintf "%s matches its canonical face %s" name canon)
+                    | ValueNone -> failtestf "%s resolved to ValueNone on JS" name
+
+                expectDualFaced
+                    "Enumerable"
+                    caps.Enumerable
+                    "System.Collections.Generic.IEnumerable`1"
+                    "Vesper.Collections.seq`1"
+
+                expectDualFaced
+                    "Enumerator"
+                    caps.Enumerator
+                    "System.Collections.Generic.IEnumerator`1"
+                    "Vesper.Collections.enumerator`1"
+
+                // A leaf capability is single-faced on JS: `CanonKey` absent, and its BCL spelling
+                // is NOT a face here (it folds to canonical through the shim, not this identity).
+                match caps.Disposable with
+                | ValueSome id ->
+                    Expect.equal id.CanonKey ValueNone "disposable is single-faced on JS (no reconciliation face)"
+                    Expect.isTrue (id.MatchesName "Vesper.disposable") "disposable matches its canonical face"
+                    Expect.isFalse (id.MatchesName "System.IDisposable") "disposable's BCL spelling is not a face here"
+                | ValueNone -> failtest "disposable resolved to ValueNone on JS"
+            }
+
             test "Fun resolves (qualified) as a Class shape with a non-empty Origin" {
                 let provider, _ = builtProvider.Value
 

@@ -1576,38 +1576,32 @@ module ExternalSymbols =
             match stampOrigin with
             | ValueNone -> shape
             | ValueSome o ->
-                let o =
-                    { o with
-                        Namespace = originNsFor name o
-                    }
+                // Each shape owns its namespace SOURCE (see `originNsFor` above for why the
+                // blanket `o.Namespace` mis-splits a sub-namespace capability): a nominal extern
+                // derives it from the compiled `name`; a capability `IntrinsicInterface` takes it
+                // from its authoritative, pre-split `Id.Canon`. The home ASSEMBLY is always `o`.
+                let withNs ns = { o with Namespace = ns }
+                let nominalNs = originNsFor name o
 
                 match shape with
-                | ExternalTypeShape.Class info -> ExternalTypeShape.Class { info with Origin = o }
-                | ExternalTypeShape.Record(arity, fields, _) -> ExternalTypeShape.Record(arity, fields, o)
-                | ExternalTypeShape.Union(arity, cases, ifaces, _) -> ExternalTypeShape.Union(arity, cases, ifaces, o)
-                | ExternalTypeShape.Enum(cases, _) -> ExternalTypeShape.Enum(cases, o)
-                // A capability interface's VALUE resolution key uses its `Origin`
-                // (`externalTypeKey`, asm-qualified) exactly as a `Class`'s does, so it
-                // is origin-stamped here (the extractor left it `Empty`). But a capability
-                // may live in a SUB-namespace of the package's manifest namespace
-                // (`seq`/`enumerator` are `Vesper.Collections`, the manifest is `Vesper`),
-                // so take the namespace from its `Id.Canon` (split from the compiled name)
-                // rather than the blanket manifest `o.Namespace` — otherwise
-                // `externalTypeKey` splits `Vesper.Collections.seq` at the wrong dot and the
-                // use-site key (`ns = "Vesper"`, `name = "Collections.seq"`) no longer
-                // matches `resolveCapabilities`' `CanonKey` (`ns = "Vesper.Collections"`).
-                // The home ASSEMBLY still comes from `o` (package-wide). `disposable` et al.
-                // live directly in `Vesper`, so their canon ns already equals `o.Namespace`.
+                | ExternalTypeShape.Class info -> ExternalTypeShape.Class { info with Origin = withNs nominalNs }
+                | ExternalTypeShape.Record(arity, fields, _) ->
+                    ExternalTypeShape.Record(arity, fields, withNs nominalNs)
+                | ExternalTypeShape.Union(arity, cases, ifaces, _) ->
+                    ExternalTypeShape.Union(arity, cases, ifaces, withNs nominalNs)
+                | ExternalTypeShape.Enum(cases, _) -> ExternalTypeShape.Enum(cases, withNs nominalNs)
+                // Origin-stamped like a `Class` (its value resolution key is asm-qualified via
+                // `Origin`; the extractor left it `Empty`), but its namespace comes from the
+                // pre-split `Id.Canon` (`Vesper.Collections` for `seq`; `disposable` et al. already
+                // sit directly in `Vesper`). `originNsFor name` is only the fallback if the canon
+                // isn't a `TypeKey`.
                 | ExternalTypeShape.IntrinsicInterface s ->
                     let canonNs =
                         match s.Id.Canon with
                         | SymbolKey.TypeKey(_, ns, _) -> ns
-                        | _ -> o.Namespace
+                        | _ -> nominalNs
 
-                    ExternalTypeShape.IntrinsicInterface
-                        { s with
-                            Origin = { o with Namespace = canonNs }
-                        }
+                    ExternalTypeShape.IntrinsicInterface { s with Origin = withNs canonNs }
                 | ExternalTypeShape.Abbrev _
                 // An intrinsic carries no `Origin` (its identity is the canon,
                 // asm-blind), so origin stamping leaves it unchanged.

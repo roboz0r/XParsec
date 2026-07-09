@@ -84,6 +84,22 @@ module EmitIntrinsic =
             match operand with
             | ValueSome elem -> b.Add(ILInstr.Box(env.Provider.TypeToken elem))
             | ValueNone -> failwith "Emit: 'box' without a type operand"
+        | TExprG.ILIntrinsic("ilzero", operand, _, retTy, _) ->
+            // `Unchecked.defaultof<'T>` — the default value of a type. Universal generic
+            // form: zero a fresh scratch local and load it (`ldloca; initobj; ldloc`).
+            // `initobj` yields null for a reference type and all-zeroes for a value type,
+            // so it is valid for an unconstrained typar 'T (the `Seq.reduce` seed) as well
+            // as a concrete instantiation. Mirrors the parameterless value-type
+            // construction path in `EmitConstruct`.
+            let ty =
+                match operand with
+                | ValueSome t -> t
+                | ValueNone -> retTy
+
+            let slot = b.Local ty
+            b.Add(ILInstr.Ldloca slot)
+            b.Add(ILInstr.Initobj(env.Provider.TypeToken ty))
+            b.Add(ILInstr.Ldloc slot)
         | TExprG.ILIntrinsic("ldlen", _, args, _, _) ->
             // `arr.Length` — push the array, `ldlen` (native int), then `conv.i4`
             // to narrow to the int32 F# `.Length` returns.
