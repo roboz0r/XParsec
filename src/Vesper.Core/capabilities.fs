@@ -13,9 +13,17 @@ namespace Vesper
 // misses. Declared generic to mirror the BCL reality; the harvest keys off the
 // short name only (`equatable`), so the typar list does not affect the canon.
 //
-// Iteration (`seq<'T>` / `IEnumerable<'T>`) is resolved off the existing `seq`
-// abbreviation, not anchored here — see `capabilities.fsi`.
+// Iteration (`seq` / `enumerator`) is anchored in the `Vesper.Collections` namespace
+// below — its reprs are the BCL enumerable/enumerator interfaces the CLR backend
+// reconciles + co-slot-synthesizes to (see `capabilities.fsi`).
 
 type disposable = (# "System.IDisposable" #)
 type equatable<'T> = (# "System.IEquatable`1" #)
 type comparable<'T> = (# "System.IComparable`1" #)
+
+namespace Vesper.Collections
+
+#nowarn "42"
+
+type enumerator<'T> = (# "System.Collections.Generic.IEnumerator`1" #)
+type seq<'T> = (# "System.Collections.Generic.IEnumerable`1" #)

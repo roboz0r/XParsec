@@ -164,16 +164,15 @@ let tests =
                 // and the `Platform` repr (``System.IEquatable`1``) — exactly the string a
                 // metadata interface name reconciles against for `disposable === System.IDisposable`.
                 // UNLIKE `exn`, reconciliation rides the `Id` platform face / `CapabilityIdentity`,
-                // NOT a reverse-canon entry (asserted absent below). (Iteration has no anchor
-                // here — it rides the existing `seq` abbreviation; see
-                // `ExternalSymbols.resolveCapabilities`.)
+                // NOT a reverse-canon entry (asserted absent below). Iteration is anchored the
+                // same way — the `seq` / `enumerator` cluster (`Vesper.Collections`), whose canon
+                // face carries the SUB-namespace (`Vesper.Collections`, not the manifest's
+                // `Vesper`) so its origin-homed value key matches `resolveCapabilities`' `CanonKey`.
                 let provider, _ = builtProvider.Value
 
-                let expectCapability (lookup: string) (canonExpected: string) (platformExpected: string) =
+                let expectCapability (lookup: string) (canonKey: SymbolKey) (platformExpected: string) =
                     match provider.TryLookupType lookup with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
-                        let canonKey = RuntimeNames.primitiveKey canonExpected
-
                         Expect.equal iface.Id.Canon canonKey (sprintf "%s canon is its `.fsi` short name" lookup)
 
                         Expect.equal
@@ -194,9 +193,30 @@ let tests =
                                 canons
                     | other -> failtestf "expected %s as an IntrinsicInterface shape, got %A" lookup other
 
-                expectCapability "Vesper.disposable" "disposable" "System.IDisposable"
-                expectCapability "Vesper.equatable`1" "equatable" "System.IEquatable`1"
-                expectCapability "Vesper.comparable`1" "comparable" "System.IComparable`1"
+                expectCapability "Vesper.disposable" (RuntimeNames.primitiveKey "disposable") "System.IDisposable"
+                expectCapability "Vesper.equatable`1" (RuntimeNames.primitiveKey "equatable") "System.IEquatable`1"
+                expectCapability "Vesper.comparable`1" (RuntimeNames.primitiveKey "comparable") "System.IComparable`1"
+
+                expectCapability
+                    "Vesper.Collections.enumerator`1"
+                    (SymbolKey.TypeKey(None, "Vesper.Collections", "enumerator"))
+                    "System.Collections.Generic.IEnumerator`1"
+
+                expectCapability
+                    "Vesper.Collections.seq`1"
+                    (SymbolKey.TypeKey(None, "Vesper.Collections", "seq"))
+                    "System.Collections.Generic.IEnumerable`1"
+
+                // `enumerator` inherits `disposable` (BCL parity), so its capability shape must
+                // carry that inherited interface for the `use`/for-in disposability scan.
+                match provider.TryLookupType "Vesper.Collections.enumerator`1" with
+                | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
+                    let ifaceNames = iface.Interfaces |> Array.map fst
+
+                    Expect.isTrue
+                        (ifaceNames |> Array.exists (fun n -> n.Contains "disposable"))
+                        (sprintf "enumerator inherits disposable; Interfaces = %A" ifaceNames)
+                | other -> failtestf "expected enumerator as IntrinsicInterface, got %A" other
             }
 
             test "JS build: capabilities are single-faced canonical; BCL spellings resolve through the compat shim" {

@@ -340,7 +340,15 @@ module UnificationEngine =
         | TyConst(k1, a1), TyConst(k2, a2) when k1 = k2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
         | TyRecord(n1, a1), TyRecord(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
         | TyUnion(n1, a1), TyUnion(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
-        | TyClass(n1, a1), TyClass(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
+        // A capability interface reaches `unify` as EITHER of its two faces (e.g. a BCL
+        // `Enumerable.Take` returns `IEnumerable\`1`, reconciled against a declared `seq`
+        // return): the platform-face key and the canonical-face key differ, so `n1 = n2`
+        // fails though they denote the SAME type. `sameNominalKey` reconciles them — a
+        // no-op for every non-capability key (the common `n1 = n2` short-circuits first),
+        // which is why capabilities need no entry in the resolution-time reverse-canon map.
+        // This is the RETURN / plain-`unify` mirror of the argument-coercion reconciliation.
+        | TyClass(n1, a1), TyClass(n2, a2) when sameNominalKey ctx n1 n2 && a1.Length = a2.Length ->
+            unifyArgs ctx key a1 a2
         // Two enums unify iff their nominal keys match (enums are niladic — no
         // args to recurse). A `TyEnum` against any other head (e.g. its underlying
         // `int`) falls to the catch-all mismatch below: an enum is a DISTINCT

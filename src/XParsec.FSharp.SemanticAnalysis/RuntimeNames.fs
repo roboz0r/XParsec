@@ -288,10 +288,12 @@ module RuntimeNames =
         member this.MatchesName(name: string) : bool =
             this.Matches(SymbolKeyOps.qualifiedTypeKeyOf None name 0)
 
-    /// The four language-capability identities, resolved once per compilation
+    /// The five language-capability identities, resolved once per compilation
     /// (`PassContext`) THROUGH THE PROVIDER (`ExternalSymbols.resolveCapabilities`).
-    /// Iteration/disposal back the `for-in`/`use` lowering; equatable/comparable back
-    /// the FS0378 custom-eq/comp conformance check. Each is a `voption`: a provider
+    /// Enumerable/enumerator/disposable back the `for-in`/`use` lowering (enumerator is the
+    /// cursor half of iteration, recognized so the CLR backend synthesizes its BCL co-slots);
+    /// equatable/comparable back the FS0378 custom-eq/comp conformance check. Each is a
+    /// `voption`: a provider
     /// that does not name a capability resolves it to `ValueNone` (resolve-on-use,
     /// §5.4) — never a hardcoded BCL fallback, so the passes carry zero CLR identities.
     ///
@@ -303,6 +305,7 @@ module RuntimeNames =
     type CapabilityIds =
         {
             Enumerable: CapabilityIdentity voption
+            Enumerator: CapabilityIdentity voption
             Disposable: CapabilityIdentity voption
             Equatable: CapabilityIdentity voption
             Comparable: CapabilityIdentity voption
@@ -313,6 +316,7 @@ module RuntimeNames =
         static member none =
             {
                 Enumerable = ValueNone
+                Enumerator = ValueNone
                 Disposable = ValueNone
                 Equatable = ValueNone
                 Comparable = ValueNone

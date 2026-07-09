@@ -38,7 +38,13 @@ module UnificationInferOverload =
     /// Wildcard arms (open method typars, carried type-level nodes, opaque unions)
     /// deliberately return `true` for anything — "indistinguishable during
     /// filtering", with the real admission at the `unifyAppliedSig` commit seam.
-    let rec applicabilityMatches (a: SemType) (b: SemType) : bool =
+    /// `canon` normalises a nominal key to its capability-canonical face (identity for
+    /// every non-capability key) so a `seq` argument admits a BCL `IEnumerable\`1`
+    /// parameter of an overloaded external method (`Enumerable.Take`) — the overload-
+    /// filter mirror of the `unify` / `subsumes` capability reconciliation. The
+    /// `SemType`-free codegen path passes `id` (frozen overloads carry no capability
+    /// gap; a mismatch there just falls back to the first arity match).
+    let rec applicabilityMatches (canon: SymbolKey -> SymbolKey) (a: SemType) (b: SemType) : bool =
         match zonk a, zonk b with
         // A generic method's own typar (`Take<TSource>` ⇒ `TyTypar(Method, _)`,
         // kept as a wildcard in the open signature by `ExternalSymbols.openSignature`)
@@ -75,13 +81,18 @@ module UnificationInferOverload =
         // literal-`'*'` overload over a same-position typar); a literal vs a non-literal
         // falls through to `false` (a plain `string` is not a specific literal).
         | TyLiteral v1, TyLiteral v2 -> v1 = v2
-        | TyConst(k1, xs), TyConst(k2, ys) -> k1 = k2 && EqArray.forall2 applicabilityMatches xs ys
+        | TyConst(k1, xs), TyConst(k2, ys) -> k1 = k2 && EqArray.forall2 (applicabilityMatches canon) xs ys
         | TyVar x, TyVar y -> System.Object.ReferenceEquals(UnionFind.find x, UnionFind.find y)
-        | TyFun(a1, r1), TyFun(a2, r2) -> applicabilityMatches a1 a2 && applicabilityMatches r1 r2
-        | TyTuple xs, TyTuple ys -> EqArray.forall2 applicabilityMatches xs ys
+        | TyFun(a1, r1), TyFun(a2, r2) -> applicabilityMatches canon a1 a2 && applicabilityMatches canon r1 r2
+        | TyTuple xs, TyTuple ys -> EqArray.forall2 (applicabilityMatches canon) xs ys
+        // The `canon n1 = canon n2` fallback fires only for a capability interface (its two
+        // faces canonicalise equal); `canon` is identity for records/unions and every
+        // non-capability class, so the common `n1 = n2` short-circuits unchanged.
         | TyRecord(n1, xs), TyRecord(n2, ys)
         | TyUnion(n1, xs), TyUnion(n2, ys)
-        | TyClass(n1, xs), TyClass(n2, ys) -> n1 = n2 && EqArray.forall2 applicabilityMatches xs ys
+        | TyClass(n1, xs), TyClass(n2, ys) ->
+            (n1 = n2 || canon n1 = canon n2)
+            && EqArray.forall2 (applicabilityMatches canon) xs ys
         | _ -> false
 
     /// `object`/`obj` is the only supertype we model — no other reference
@@ -91,11 +102,11 @@ module UnificationInferOverload =
         | TyObj -> true
         | _ -> false
 
-    and argAssignable (argTy: SemType) (paramTy: SemType) : bool =
-        applicabilityMatches argTy paramTy || isObjectTy paramTy
+    and argAssignable (canon: SymbolKey -> SymbolKey) (argTy: SemType) (paramTy: SemType) : bool =
+        applicabilityMatches canon argTy paramTy || isObjectTy paramTy
 
-    and asSpecificOrEq (aTy: SemType) (bTy: SemType) : bool =
-        applicabilityMatches aTy bTy || isObjectTy bTy
+    and asSpecificOrEq (canon: SymbolKey -> SymbolKey) (aTy: SemType) (bTy: SemType) : bool =
+        applicabilityMatches canon aTy bTy || isObjectTy bTy
 
     /// `argSig` length distinguishes a flattened N-param method from a genuine
     /// single tuple param.
@@ -118,6 +129,7 @@ module UnificationInferOverload =
     /// Static/instance/ctor agnostic: pure arity + `argAssignable` + specificity ranking
     /// over any `ExternalMember[]` candidate set (callers pre-filter by static-ness).
     and pickBestOverload
+        (canon: SymbolKey -> SymbolKey)
         (typeArgs: SemType[])
         (candidates: ExternalMember[])
         (argElems: SemType list)
@@ -129,7 +141,7 @@ module UnificationInferOverload =
             |> Array.filter (fun m ->
                 memberParamCount m = arity
                 && (let ps = memberParamTypes typeArgs m
-                    List.length ps = arity && List.forall2 argAssignable argElems ps)
+                    List.length ps = arity && List.forall2 (argAssignable canon) argElems ps)
             )
 
         match applicable with
@@ -140,8 +152,8 @@ module UnificationInferOverload =
                 let pa = memberParamTypes typeArgs a
                 let pb = memberParamTypes typeArgs b
 
-                List.forall2 asSpecificOrEq pa pb
-                && List.exists2 (fun x y -> not (applicabilityMatches x y)) pa pb
+                List.forall2 (asSpecificOrEq canon) pa pb
+                && List.exists2 (fun x y -> not (applicabilityMatches canon x y)) pa pb
 
             let best =
                 many
@@ -166,4 +178,8 @@ module UnificationInferOverload =
         (candidates: ExternalMember[])
         (argElems: FrozenType list)
         : ExternalMember voption =
-        pickBestOverload (Array.map ofFrozen typeArgs) candidates (List.map ofFrozen argElems)
+        // Codegen re-picks a same-arity overload with no `PassContext`; frozen types carry
+        // no capability face-split (a `TyClass` froze to a single `FTClass(canon, args)`),
+        // so `id` (no reconciliation) is exact here — and a genuine miss already falls back
+        // to the first arity match at the call site.
+        pickBestOverload id (Array.map ofFrozen typeArgs) candidates (List.map ofFrozen argElems)

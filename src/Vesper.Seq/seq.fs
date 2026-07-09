@@ -8,15 +8,19 @@ namespace Vesper.Collections
 //
 // These are the *minimal* reference impls, not the zero-allocation struct-chaining
 // design of brainstorm-seq-module.md (a future sprint). The split follows operation shape:
-//   - The eager terminals (`fold` / `reduce` / `toArray`) are explicit-enumerator
-//     loops: each pulls an `IEnumerator<'T>` from `source.GetEnumerator()` under a
-//     `use` (so the enumerator is disposed via `IDisposable` support) and
-//     drives it with `MoveNext` / `Current`. Their functional arguments are
+//   - The eager terminals (`fold` / `reduce` / `toArray`) iterate with `for x in source`
+//     over a mutable accumulator. `for … in` is the ONE iteration construct both backends
+//     lower: CLR takes the `IEnumerator` interface path, JS lowers to `for…of` over the
+//     native `Symbol.iterator`. The manual `GetEnumerator()`/`MoveNext()`/`Current` pull
+//     protocol is CLR-idiomatic and has NO JS lowering yet (JS's `next()→{value,done}`
+//     combines advance+read, which the split `MoveNext`/`Current` capability cannot express
+//     without a runtime adapter — see `get-enumerator-gaps.md`), so these terminals stay
+//     portable by expressing iteration as `for … in`. Their functional arguments are
 //     `Vesper.Fun`s, so each application lowers to `callvirt Fun::Invoke`.
 //   - The lazy `truncate` delegates to `System.Linq.Enumerable.Take`, which yields
 //     BCL-correct lazy semantics without an F# `seq { }` state machine (the backend
 //     does not lower sequence expressions). `Take` takes no delegate, so this needs
-//     no `Vesper.Fun → System.Func` bridge.
+//     no `Vesper.Fun → System.Func` bridge. It is a CLR-Linq concern, not portable here.
 // A focused starter surface (just what `set.fs` consumes); the rest of the
 // FSharp.Core `Seq` surface is additive later.
 
@@ -27,25 +31,35 @@ open System.Linq
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Seq =
 
+    // `fold` / `reduce` / `toArray` iterate via `for x in source` for cross-target
+    // portability: `for … in` lowers on BOTH backends (CLR interface path, JS `for…of`),
+    // whereas the manual `GetEnumerator`/`MoveNext`/`Current` protocol is CLR-idiomatic and
+    // has no JS lowering yet (see `get-enumerator-gaps.md`).
     let fold<'T, 'State> (folder: 'State -> 'T -> 'State) (state: 'State) (source: seq<'T>) : 'State =
-        use e = source.GetEnumerator()
         let mutable acc = state
 
-        while e.MoveNext() do
-            acc <- folder acc e.Current
+        for x in source do
+            acc <- folder acc x
 
         acc
 
     let reduce (reduction: 'T -> 'T -> 'T) (source: seq<'T>) : 'T =
-        use e = source.GetEnumerator()
+        // `for … in` has no explicit first-move to seed the accumulator, and the backend
+        // exposes no portable "default value of 'T" primitive to declare a `mutable acc`
+        // ahead of the first element, so materialise via `for … in` (still the portable
+        // enumeration of `source`) and fold from the first element.
+        let items = ResizeArray<'T>()
 
-        if not (e.MoveNext()) then
+        for x in source do
+            items.Add(x)
+
+        if items.Count = 0 then
             invalidArg "source" "The input sequence was empty."
 
-        let mutable acc = e.Current
+        let mutable acc = items.[0]
 
-        while e.MoveNext() do
-            acc <- reduction acc e.Current
+        for i in 1 .. items.Count - 1 do
+            acc <- reduction acc items.[i]
 
         acc
 
@@ -54,9 +68,8 @@ module Seq =
 
     let toArray (source: seq<'T>) : 'T[] =
         let res = ResizeArray<'T>()
-        use e = source.GetEnumerator()
 
-        while e.MoveNext() do
-            res.Add(e.Current)
+        for x in source do
+            res.Add(x)
 
         res.ToArray()

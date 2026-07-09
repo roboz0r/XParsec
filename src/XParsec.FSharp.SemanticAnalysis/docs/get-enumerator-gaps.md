@@ -93,7 +93,30 @@ This mirrors the `use`-binder precedent `Infer.tryExternalDispose` (prefer the t
 own `Dispose`, fall back to the interface slot). See the TODO on `probeLocalEnumerator`
 / `probeExternalEnumerator`.
 
-### 2. Generic user interface impls — orthogonal front-end gaps
+### 2. Manual enumeration protocol — no JS lowering (`GetEnumerator`/`MoveNext`/`Current`)
+
+`for … in` lowers on both targets, but the **manual** pull protocol —
+`let e = source.GetEnumerator()` then `while e.MoveNext() do … e.Current` — is
+CLR/F#-idiomatic and does **not** lower on JS today. JS iteration is
+`Symbol.iterator` + `next() → { value, done }`, which *combines* advance+read;
+the capability deliberately **splits** them into `MoveNext` (advance, `bool`) and
+`Current` (read, `'T`), and a stateless `(# … #)` intrinsic cannot carry the
+shared `next()`-result state the split needs.
+
+Intended lowering (future work):
+- Map `seq.GetEnumerator()` via an intrinsic to `$0[Symbol.iterator]()` (the
+  native JS iterator).
+- Provide a small `Vesper.Core.mjs` runtime **adapter** that wraps that native
+  iterator and exposes the `MoveNext` / `Current` split over `next() →
+  { value, done }` (holding the last `next()` result between the `MoveNext`
+  advance and the `Current` read — the state a `(# … #)` can't express).
+
+Until then, `Vesper.Seq`'s terminals (`fold` / `reduce` / `toArray`) are written
+with `for … in` (not the manual protocol) precisely so they stay portable — see
+the sited comment in `src/Vesper.Seq/seq.fs`. `truncate` stays CLR-Linq
+(`System.Linq.Enumerable.Take`) and is a separate portability concern.
+
+### 3. Generic user interface impls — orthogonal front-end gaps
 
 The `Interface` path already substitutes class typars with use-site args, so it is
 ready for generic user sources *once two pre-existing impl/upcast gaps close*: a

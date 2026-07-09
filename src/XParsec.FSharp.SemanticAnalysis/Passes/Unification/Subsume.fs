@@ -323,7 +323,9 @@ module UnificationSubsume =
                 wargs.Length = ta.Length
                 && EqArray.forall2 (fun a b -> subsumes ctx a b = SubsumeOutcome.Equal) wargs ta
                 ->
-                if s = t then
+                // `sameNominalKey` so a capability's two faces (a `seq` source vs an
+                // `IEnumerable\`1` target) read as `Equal`, not a spurious `Subtype`.
+                if sameNominalKey ctx s t then
                     SubsumeOutcome.Equal
                 else
                     SubsumeOutcome.Subtype

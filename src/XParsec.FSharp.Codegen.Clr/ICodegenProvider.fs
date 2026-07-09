@@ -429,6 +429,18 @@ type ICodegenProvider =
     abstract ExternalMemberRef:
         key: SymbolKey * isProperty: bool * isStatic: bool * memberTy: FrozenType -> EntityHandle
 
+    /// Rebase a capability member call's declaring type onto its true BCL declarer when
+    /// that declarer is a *base* of the reconciled platform face. A capability member
+    /// (`enumerator<'T>.MoveNext()`) is keyed by its canonical capability
+    /// (`Vesper.Collections.enumerator`), which reconciles to a platform face
+    /// (`IEnumerator`1`) — but `MoveNext` is inherited from the non-generic
+    /// `System.Collections.IEnumerator` base and a member-ref against the face itself
+    /// faults at runtime (`MissingMethodException`). Returns the key rebased onto the base
+    /// declarer, or `ValueNone` when no rebase is needed (not a capability, or the member
+    /// is declared on the face). The `for … in` lowering hardcodes the same declarers; this
+    /// gives the manual-call path (`e.MoveNext()`) the same declaring-type awareness.
+    abstract TryCapabilityBaseMemberKey: key: SymbolKey -> SymbolKey voption
+
     /// Like `ExternalMemberRef`, but the declaring type's instantiation is given
     /// explicitly via `declTy` (the resolved declaring `TyClass`, e.g.
     /// `List`1+Enumerator<int>`) instead of recovered from the member's open

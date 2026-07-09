@@ -37,7 +37,7 @@ module internal UnificationInferCtor =
         let ctors = surface.Members |> Array.filter (fun m -> m.Name = ".ctor")
         let argTy = infer ctx argExpr
 
-        match pickBestOverload typeArgs ctors (argElemsOf argTy) with
+        match pickBestOverload (capabilityCanonKey ctx) typeArgs ctors (argElemsOf argTy) with
         | ValueSome chosen ->
             let ctorSig = ExternalSymbols.openSignature chosen typeArgs
             let resultTy = TyVar(freshTyVar ctx)
@@ -193,7 +193,7 @@ module internal UnificationInferCtor =
             ctx.Error(key, sprintf "External type '%s' has no accessible constructor" name)
             receiverTy
         else
-            match pickBestOverload typeArgs ctors argElems with
+            match pickBestOverload (capabilityCanonKey ctx) typeArgs ctors argElems with
             | ValueSome chosen ->
                 let ctorSig = ExternalSymbols.openSignature chosen typeArgs
                 let resultTy = TyVar(freshTyVar ctx)

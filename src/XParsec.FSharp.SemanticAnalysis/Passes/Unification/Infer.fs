@@ -169,6 +169,11 @@ module UnificationInfer =
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
             | ValueSome(ExternalTypeShape.Union(_, _, ifaces, _)) ->
                 ExternalSymbols.instantiateInterfacesOf ifaces (args.AsSpan().ToArray())
+            // A capability interface that inherits another capability (`enumerator : disposable`):
+            // its inherited set makes `use e` on an abstract `enumerator<'T>` disposable, BCL
+            // parity for `IEnumerator`1 : IDisposable`.
+            | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
+                ExternalSymbols.instantiateInterfacesOf iface.Interfaces (args.AsSpan().ToArray())
             | _ -> [||]
 
         let viaInterface =

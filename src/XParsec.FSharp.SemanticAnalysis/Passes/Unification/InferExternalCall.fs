@@ -239,7 +239,7 @@ module internal UnificationInferExternalCall =
                 // here, so refinement is deliberately scoped out (commit-seed only).
                 let facts = constArgFacts ctx argExpr
 
-                match pickBestOverload typeArgs candidates (argElemsOf argTy) with
+                match pickBestOverload (capabilityCanonKey ctx) typeArgs candidates (argElemsOf argTy) with
                 | ValueSome chosen -> ValueSome(commitExternalOverload ctx key fn chosen typeArgs facts argTy)
                 | ValueNone ->
                     ValueSome(
@@ -313,7 +313,7 @@ module internal UnificationInferExternalCall =
                     let argTy =
                         admitLiteralMethodTypars ctx candidates declArgs facts (infer ctx argExpr)
 
-                    match pickBestOverload declArgs candidates (argElemsOf argTy) with
+                    match pickBestOverload (capabilityCanonKey ctx) declArgs candidates (argElemsOf argTy) with
                     | ValueSome chosen -> ValueSome(commitExternalOverload ctx key fn chosen declArgs facts argTy)
                     // No unique best on the argument types: decline rather than
                     // error, so the existing single-pick path keeps the prior

@@ -578,6 +578,10 @@ module VesperLib =
                                     Platform = Some platform
                                 }
                             Members = shape.Members
+                            // Carry the capability's inherited interfaces (`enumerator : disposable`)
+                            // so a disposability/subsumption scanner sees them; the bodied-class
+                            // extraction captured them into `shape.FrozenInterfaces`.
+                            Interfaces = shape.FrozenInterfaces
                             Origin = shape.Origin
                         }
             | _ -> ()
@@ -1233,7 +1237,7 @@ module VesperLib =
         // `FrozenInterfaces`, and each ctor into a `.ctor` member. Only a class
         // that declares one of them registers a deferred body — the
         // previously-empty common case is untouched.
-        let inheritBase =
+        let inheritClause =
             elements
             |> Seq.tryPick (fun e ->
                 match e with
@@ -1241,8 +1245,17 @@ module VesperLib =
                 | _ -> None
             )
 
+        // For an INTERFACE, an `inherit <ty>` clause is interface inheritance (`enumerator
+        // inherit disposable`), NOT a base class — interfaces have no base type. Route it into
+        // the interface set so it freezes into `FrozenInterfaces` and consumers that scan them
+        // (disposability, subsumption) see it. For a CLASS (`exn inherit obj`) it is the base.
+        let inheritBase = if isInterface then None else inheritClause
+
         let interfaces =
             [
+                match (if isInterface then inheritClause else None) with
+                | Some t -> t
+                | None -> ()
                 for e in elements do
                     match e with
                     | TypeSignatureElement.Interface(InterfaceSpec(typ = t)) -> t

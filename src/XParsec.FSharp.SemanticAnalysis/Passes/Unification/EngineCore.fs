@@ -447,6 +447,55 @@ module UnificationEngineCore =
     // intrinsic — its qualified name misses the provider). Memoized per `PassContext`:
     // `canonKey` runs inside the subtype recursive walk. A key that is none of the above
     // caches its own identity.
+    /// Reconcile a language-capability interface's TWO nominal faces to its single
+    /// CANONICAL identity. A capability (`seq`/`enumerator`/`disposable`/`equatable`/
+    /// `comparable`) resolves DUAL-FACED on CLR: its BCL platform face
+    /// (`System.Collections.Generic.IEnumerable\`1`) and its BCL-free canonical face
+    /// (`Vesper.Collections.seq`) denote the SAME type. UNLIKE the `exn ===
+    /// System.Exception` intrinsic reconciliation — which fires once at RESOLUTION via the
+    /// reverse-canon map, so no raw BCL key ever reaches this walk — a capability interface
+    /// is DELIBERATELY absent from that map (a `TyClass`-resolving interface there would
+    /// force `IsInterface` guards into the reverse-map readers). So BOTH faces reach the
+    /// unify / subsume / overload comparison sites un-normalized; this is the ONE place
+    /// that folds them together, driven by the resolved `CapabilityIds` (asm-blind
+    /// `Matches`), never a hardcoded `seq`/`IEnumerable` string. Returns the canonical face
+    /// when `key` denotes a capability (via EITHER face), else `key` unchanged — so it is a
+    /// strict generalisation of raw key `=` (a no-op for every non-capability key).
+    let capabilityCanonKey (ctx: PassContext) (key: SymbolKey) : SymbolKey =
+        let caps = ctx.CapabilityIds
+
+        let inline pick (cap: RuntimeNames.CapabilityIdentity voption) : SymbolKey voption =
+            match cap with
+            | ValueSome c when c.Matches key -> ValueSome(ValueOption.defaultValue c.Key c.CanonKey)
+            | _ -> ValueNone
+
+        match pick caps.Enumerable with
+        | ValueSome k -> k
+        | ValueNone ->
+            match pick caps.Enumerator with
+            | ValueSome k -> k
+            | ValueNone ->
+                match pick caps.Disposable with
+                | ValueSome k -> k
+                | ValueNone ->
+                    match pick caps.Equatable with
+                    | ValueSome k -> k
+                    | ValueNone ->
+                        match pick caps.Comparable with
+                        | ValueSome k -> k
+                        | ValueNone -> key
+
+    /// Do two nominal keys denote the SAME type for identity comparison, RECONCILING a
+    /// capability interface's two faces? Applied ONLY at the key-EQUALITY seams (the
+    /// `unify` / `subsumes` / overload-filter comparisons and `tryUpcastWitness`'s target
+    /// match) — deliberately NOT inside `canonKey` / `subtypeNominalOf`, which drive the
+    /// base/interface-chain LOOKUPS: rewriting a BCL platform key (`IEnumerator\`1`) to its
+    /// capability canon there would erase the platform type's own BCL bases (non-generic
+    /// `IEnumerator`), breaking a genuine `IEnumerator\`1 :> IEnumerator` co-slot upcast.
+    /// The fast `k1 = k2` path short-circuits before any capability probe.
+    let sameNominalKey (ctx: PassContext) (k1: SymbolKey) (k2: SymbolKey) : bool =
+        k1 = k2 || capabilityCanonKey ctx k1 = capabilityCanonKey ctx k2
+
     let private canonKey (ctx: PassContext) (key: SymbolKey) : SymbolKey =
         match ctx.IntrinsicCanonCache.TryGetValue key with
         | true, canon -> canon
@@ -699,7 +748,11 @@ module UnificationEngineCore =
             match subtypeNominalOf ctx cur with
             | ValueNone -> ValueNone
             | ValueSome(struct (s, sa)) ->
-                if s = tgtKey then
+                // `sameNominalKey` reconciles a capability's two faces at the MATCH only
+                // (e.g. a `seq` source reaching an `IEnumerable\`1` target); the base /
+                // interface walk below still keys off the RAW `s`, so a BCL platform type's
+                // own bases stay reachable.
+                if sameNominalKey ctx s tgtKey then
                     ValueSome sa
                 elif not (seen.Add s) then
                     ValueNone

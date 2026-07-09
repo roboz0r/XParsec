@@ -643,6 +643,13 @@ type IntrinsicInterfaceShape =
     {
         Id: IntrinsicIdentity
         Members: ExternalMember[]
+        /// The capability's directly-inherited interfaces as `(compiled-name, type-args)`
+        /// pairs (declaring typars baked as `FTTypar(Declaring,i)`), the capability-interface
+        /// analogue of `ExternalClassShape.FrozenInterfaces` / `Union.interfaces`. Lets a
+        /// scanner (`Infer.tryExternalDispose`, subsumption) see that `enumerator` inherits
+        /// `disposable` — BCL parity for `IEnumerator`1 : IDisposable`. Empty for a leaf
+        /// capability (`disposable`/`equatable`/`comparable`).
+        Interfaces: (string * FrozenType[])[]
         Origin: SymbolOrigin
     }
 
@@ -1026,16 +1033,13 @@ module ExternalSymbols =
     /// resolves to `ValueNone` — no silent CLR fallback (§5.4); the consumer site
     /// surfaces a resolve-on-use diagnostic or treats it as a non-match.
     ///
-    /// Two resolution shapes:
-    ///   * `disposable`/`equatable`/`comparable` are dedicated anchors
-    ///     (`capabilities.fsi`) — see `resolveAnchor` for the dual/single-faced cases.
-    ///     The key is minted with arity 0 because the fqn already carries the metadata
-    ///     backtick-arity suffix, which `bareName` strips for asm-blind recognition.
-    ///   * Enumerable has no dedicated anchor — iteration already has `seq<'T>` (an
-    ///     abbreviation for `IEnumerable<'T>`), so its identity is read off that
-    ///     abbreviation's resolved head. `seq` lives in `Vesper.Core` (not `Vesper.List`)
-    ///     so this isn't circular when building `Vesper.List`. Only a fallback — `for-in`
-    ///     resolution is structural-primary, so a `ValueNone` here is harmless (§5.1).
+    /// All five are dedicated `extern interface` anchors (`capabilities.fsi`) — see
+    /// `resolveAnchor` for the dual/single-faced cases. The key is minted with arity 0
+    /// because the fqn already carries the metadata backtick-arity suffix, which `bareName`
+    /// strips for asm-blind recognition. `seq`/`enumerator` live in `Vesper.Core` (not
+    /// `Vesper.List`) so resolving them isn't circular when building `Vesper.List`, whose
+    /// `List` union implements `seq`. `for-in` resolution stays structural-primary, so a
+    /// `ValueNone` Enumerable/Enumerator here is harmless (§5.1).
     let resolveCapabilities (provider: IExternalSymbolProvider) : RuntimeNames.CapabilityIds =
         let ofKey (key: SymbolKey) : RuntimeNames.CapabilityIdentity =
             {
@@ -1047,12 +1051,27 @@ module ExternalSymbols =
         // dual-faced `IntrinsicInterface`: its PLATFORM face (`System.IDisposable`) is `Key`
         // — what a metadata or BCL-spelled impl freezes to — and the canonical face is
         // `CanonKey` — what `interface disposable` freezes to; both spellings then dispatch.
-        // On JS a capability surfaces as a single-faced interface `Class` (no `(# … #)` repr):
-        // only the canonical key, because there is no BCL spelling to reconcile and a
-        // BCL-spelled impl is folded to the canonical up front by the
-        // `capabilities-compat.js.fsi` shim. The `Intrinsic` arm covers any build whose
-        // anchor is still a bare `extern`.
-        let resolveAnchor (lookup: string) : RuntimeNames.CapabilityIdentity voption =
+        // On JS a capability surfaces as a single-faced interface `Class` (no `(# … #)` repr).
+        // The canonical key is always present; the BCL face is added ON JS iff the caller
+        // supplies its BCL spelling AND the `capabilities-compat.js.fsi` shim CONFIRMS that
+        // spelling abbreviates to this very canonical (`shimConfirms`). This gives the JS
+        // iteration capabilities the same dual face the CLR `IntrinsicInterface` carries, so an
+        // external TS pack that spells its interface with the BCL name (`System.Collections
+        // .Generic.IEnumerable`1`) reconciles to the canonical `seq` through the already-landed
+        // `capabilityCanonKey` fold — exactly as on CLR. The BCL spelling is not invented here:
+        // it is the reconciliation constant (the same string the CLR `.fs` repr declares) and is
+        // only trusted when the shim's own abbreviation verifies the mapping. The `Intrinsic`
+        // arm covers any build whose anchor is still a bare `extern`.
+        //
+        // NOTE: the provider exposes no reverse-abbreviation index, so the canonical→BCL
+        // direction cannot be derived from the shim alone — the BCL face is supplied as
+        // `bclFace` and VERIFIED (never blindly trusted) against the shim's forward abbreviation.
+        let shimConfirms (bcl: string) (lookup: string) : bool =
+            match provider.TryLookupType bcl with
+            | ValueSome(ExternalTypeShape.Abbrev(_, FTClass(head, _))) -> SymbolKeyOps.qualifiedName head = lookup
+            | _ -> false
+
+        let resolveAnchor (lookup: string) (bclFace: string voption) : RuntimeNames.CapabilityIdentity voption =
             match provider.TryLookupType lookup with
             | ValueSome(ExternalTypeShape.Intrinsic { Id = { Platform = Some fqn } }) ->
                 ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf None fqn 0))
@@ -1063,22 +1082,34 @@ module ExternalSymbols =
                         RuntimeNames.CapabilityIdentity.CanonKey =
                             ValueSome(SymbolKeyOps.qualifiedTypeKeyOf None lookup 0)
                     }
-            | ValueSome(ExternalTypeShape.Class _) -> ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf None lookup 0))
-            | _ -> ValueNone
+            | ValueSome(ExternalTypeShape.Class _) ->
+                let canonKey = SymbolKeyOps.qualifiedTypeKeyOf None lookup 0
 
-        // Read the abbreviation's resolved nominal head key (`seq<'T>` → the
-        // `IEnumerable`1` `FTClass`). The home assembly on the key is a don't-care —
-        // `CapabilityIdentity.Matches` is asm-blind.
-        let resolveAbbrevHead (lookup: string) : RuntimeNames.CapabilityIdentity voption =
-            match provider.TryLookupType lookup with
-            | ValueSome(ExternalTypeShape.Abbrev(_, FTClass(key, _))) -> ValueSome(ofKey key)
+                match bclFace with
+                | ValueSome bcl when shimConfirms bcl lookup ->
+                    // JS: dual-face this single-faced anchor with its shim-confirmed BCL face,
+                    // mirroring the CLR `IntrinsicInterface` polarity (`Key` = BCL platform face,
+                    // `CanonKey` = canonical). `capabilityCanonKey` then folds either spelling → canon.
+                    ValueSome
+                        {
+                            RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOf None bcl 0
+                            RuntimeNames.CapabilityIdentity.CanonKey = ValueSome canonKey
+                        }
+                | _ -> ValueSome(ofKey canonKey)
             | _ -> ValueNone
 
         {
-            Enumerable = resolveAbbrevHead "Vesper.Collections.seq`1"
-            Disposable = resolveAnchor "Vesper.disposable"
-            Equatable = resolveAnchor "Vesper.equatable`1"
-            Comparable = resolveAnchor "Vesper.comparable`1"
+            // The iteration capabilities carry their BCL reconciliation face so an external TS
+            // pack's BCL-spelled `IEnumerable`1`/`IEnumerator`1` reconciles to `seq`/`enumerator`
+            // on JS (shim-verified; a no-op on CLR, where the dual face comes from the `.fs` repr).
+            Enumerable = resolveAnchor "Vesper.Collections.seq`1" (ValueSome "System.Collections.Generic.IEnumerable`1")
+            Enumerator =
+                resolveAnchor "Vesper.Collections.enumerator`1" (ValueSome "System.Collections.Generic.IEnumerator`1")
+            // The leaf capabilities' JS `use`/eq/comp paths fold BCL spellings to the canonical at
+            // freeze time via the shim, so they need no extra reconciliation face here (single-faced on JS).
+            Disposable = resolveAnchor "Vesper.disposable" ValueNone
+            Equatable = resolveAnchor "Vesper.equatable`1" ValueNone
+            Comparable = resolveAnchor "Vesper.comparable`1" ValueNone
         }
 
     /// Realise a member's `Signature` with SOME method typars PRE-BOUND to a concrete
@@ -1516,27 +1547,72 @@ module ExternalSymbols =
         // their `Origin`. Class/Record/Union do today; Abbrev doesn't (its
         // cross-package emit path lands later, with the same shape). Extend
         // this match — not three call sites — when a new case learns origin.
-        let stampType =
+        // The namespace a Class/Record/Union/Enum extern's `Origin` should carry, given the
+        // package-blanket manifest namespace `o.Namespace` and the type's looked-up compiled
+        // `name`. Normally the type lives directly in the manifest namespace and the two agree,
+        // but a type may live in a SUB-namespace (JS capabilities: `Vesper.Collections.seq` under
+        // manifest `Vesper` — on JS a capability is a single-faced `Class`, not the CLR
+        // `IntrinsicInterface`). The extractor records `SymbolOrigin.Empty`, so blanket-stamping
+        // `o.Namespace` would leave `externalTypeKey` to split `Vesper.Collections.seq` at the
+        // wrong dot (`ns = "Vesper"`, `name = "Collections.seq"`), and the mis-split use-site key
+        // no longer matches `resolveCapabilities`' `CanonKey` (`ns = "Vesper.Collections"`) — the
+        // same failure the `IntrinsicInterface` arm's `Id.Canon` fix repairs on CLR. Derive the
+        // namespace from `name` when it STRICTLY EXTENDS the manifest namespace; otherwise keep
+        // the blanket (types directly in the namespace are unchanged — their derived ns equals it).
+        let originNsFor (name: string) (o: SymbolOrigin) : string =
+            let dot = name.LastIndexOf '.'
+
+            if dot < 0 then
+                o.Namespace
+            else
+                let ns = name.Substring(0, dot)
+
+                if o.Namespace <> "" && ns.StartsWith(o.Namespace + ".") then
+                    ns
+                else
+                    o.Namespace
+
+        let stampType (name: string) (shape: ExternalTypeShape) : ExternalTypeShape =
             match stampOrigin with
-            | ValueNone -> id
+            | ValueNone -> shape
             | ValueSome o ->
-                fun shape ->
-                    match shape with
-                    | ExternalTypeShape.Class info -> ExternalTypeShape.Class { info with Origin = o }
-                    | ExternalTypeShape.Record(arity, fields, _) -> ExternalTypeShape.Record(arity, fields, o)
-                    | ExternalTypeShape.Union(arity, cases, ifaces, _) ->
-                        ExternalTypeShape.Union(arity, cases, ifaces, o)
-                    | ExternalTypeShape.Enum(cases, _) -> ExternalTypeShape.Enum(cases, o)
-                    // A capability interface's VALUE resolution key uses its `Origin`
-                    // (`externalTypeKey`, asm-qualified) exactly as a `Class`'s does, so it
-                    // is origin-stamped here identically (the extractor left it `Empty`).
-                    | ExternalTypeShape.IntrinsicInterface s ->
-                        ExternalTypeShape.IntrinsicInterface { s with Origin = o }
-                    | ExternalTypeShape.Abbrev _
-                    // An intrinsic carries no `Origin` (its identity is the canon,
-                    // asm-blind), so origin stamping leaves it unchanged.
-                    | ExternalTypeShape.Intrinsic _
-                    | ExternalTypeShape.Opaque _ -> shape
+                let o =
+                    { o with
+                        Namespace = originNsFor name o
+                    }
+
+                match shape with
+                | ExternalTypeShape.Class info -> ExternalTypeShape.Class { info with Origin = o }
+                | ExternalTypeShape.Record(arity, fields, _) -> ExternalTypeShape.Record(arity, fields, o)
+                | ExternalTypeShape.Union(arity, cases, ifaces, _) -> ExternalTypeShape.Union(arity, cases, ifaces, o)
+                | ExternalTypeShape.Enum(cases, _) -> ExternalTypeShape.Enum(cases, o)
+                // A capability interface's VALUE resolution key uses its `Origin`
+                // (`externalTypeKey`, asm-qualified) exactly as a `Class`'s does, so it
+                // is origin-stamped here (the extractor left it `Empty`). But a capability
+                // may live in a SUB-namespace of the package's manifest namespace
+                // (`seq`/`enumerator` are `Vesper.Collections`, the manifest is `Vesper`),
+                // so take the namespace from its `Id.Canon` (split from the compiled name)
+                // rather than the blanket manifest `o.Namespace` — otherwise
+                // `externalTypeKey` splits `Vesper.Collections.seq` at the wrong dot and the
+                // use-site key (`ns = "Vesper"`, `name = "Collections.seq"`) no longer
+                // matches `resolveCapabilities`' `CanonKey` (`ns = "Vesper.Collections"`).
+                // The home ASSEMBLY still comes from `o` (package-wide). `disposable` et al.
+                // live directly in `Vesper`, so their canon ns already equals `o.Namespace`.
+                | ExternalTypeShape.IntrinsicInterface s ->
+                    let canonNs =
+                        match s.Id.Canon with
+                        | SymbolKey.TypeKey(_, ns, _) -> ns
+                        | _ -> o.Namespace
+
+                    ExternalTypeShape.IntrinsicInterface
+                        { s with
+                            Origin = { o with Namespace = canonNs }
+                        }
+                | ExternalTypeShape.Abbrev _
+                // An intrinsic carries no `Origin` (its identity is the canon,
+                // asm-blind), so origin stamping leaves it unchanged.
+                | ExternalTypeShape.Intrinsic _
+                | ExternalTypeShape.Opaque _ -> shape
 
         // Mirror `stampType`'s Union arm: the extractor records the declaring
         // union with `SymbolOrigin.Empty`, so a case reverse-looked-up off it
@@ -1553,7 +1629,7 @@ module ExternalSymbols =
                 firstHit (fun s -> s.TryLookup name) |> ValueOption.map stampSymbol
 
             member _.TryLookupType name =
-                firstHit (fun s -> s.TryLookupType name) |> ValueOption.map stampType
+                firstHit (fun s -> s.TryLookupType name) |> ValueOption.map (stampType name)
 
             member _.TryLookupMember(typeName, memberName) =
                 firstHit (fun s -> s.TryLookupMember(typeName, memberName))

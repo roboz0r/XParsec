@@ -619,6 +619,7 @@ type internal ClrEnv
 
     member _.ExternalAsmRef asm = externalAsmRef asm
     member _.ExternalClassRef key = externalClassRef key
+    member _.LookupTypeByKey key = lookupTypeByKey key
     member _.ExternalIsValueType key = externalIsValueType key
     member _.ExternalRecordShape(key, arity) = externalRecordShape key arity
     member _.ExternalRecordRef(key, arity) = externalRecordRef key arity

@@ -232,6 +232,54 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             externalMemberCache.[memoKey] <- handle
             handle
 
+    /// A capability member call (`enumerator<'T>.MoveNext()`) resolves against its
+    /// canonical declaring capability (`Vesper.Collections.enumerator`), which reconciles
+    /// to a BCL platform face (`System.Collections.Generic.IEnumerator`1`). But a member's
+    /// TRUE declaring type may be a *base* of that face — `MoveNext` is declared on the
+    /// non-generic `System.Collections.IEnumerator`, NOT on `IEnumerator`1`, which merely
+    /// inherits it — so a member-ref minted against the face faults at runtime
+    /// (`MissingMethodException`). Re-resolve the member on the platform face's metadata
+    /// interface hierarchy (which reports each member's real declaring type) and, when that
+    /// declarer is a base of the face, return the member key rebased onto it. This is the
+    /// manual-call analogue of the BCL declarers the `for … in` lowering mints by hand
+    /// (`EmitLoops` — `MoveNext` on `IEnumerator`, `Current` on `IEnumerator`1`), here
+    /// derived from metadata rather than hardcoded string literals. `ValueNone` when the
+    /// declaring type is not a capability interface, or the member is declared on the
+    /// platform face itself (`GetEnumerator` on `IEnumerable`1`, `Current` on
+    /// `IEnumerator`1` — no rebase needed).
+    let tryCapabilityBaseMemberKey (key: SymbolKey) : SymbolKey voption =
+        match key with
+        | SymbolKey.MemberKey(declKey, memberName, _, kind) ->
+            match env.LookupTypeByKey declKey with
+            | ValueSome(ExternalTypeShape.IntrinsicInterface { Id = { Platform = Some platform } }) ->
+                let members = symbols.TryLookupMembers(platform, memberName)
+
+                let declaredOn (m: ExternalMember) =
+                    match m.Key with
+                    | SymbolKey.MemberKey(d, _, _, _) -> SymbolKeyOps.qualifiedName d
+                    | _ -> ""
+
+                // Declared on the platform face itself → the existing face-parented
+                // member-ref already binds; no rebase.
+                if members |> Array.exists (fun m -> declaredOn m = platform) then
+                    ValueNone
+                else
+                    // Inherited from a base interface: rebase onto the base member's real
+                    // declaring type (its `Key` names the base — e.g. `IEnumerator`), so the
+                    // later member-ref mints against the base, non-generic parent.
+                    members
+                    |> Array.tryFind (fun m ->
+                        match m.Key with
+                        | SymbolKey.MemberKey(_, _, _, k) -> k = kind
+                        | _ -> false
+                    )
+                    |> Option.orElse (Array.tryHead members)
+                    |> function
+                        | Some m -> ValueSome m.Key
+                        | None -> ValueNone
+            | _ -> ValueNone
+        | _ -> ValueNone
+
     /// `externalMemberRef` for a member whose declaring type's instantiation cannot be recovered from
     /// the member's *open* signature — a T-free member like `MoveNext(): bool` on a generic enumerator.
     /// Instead of recovering it by signature match, the declaring instantiation is read off `declTy`
@@ -637,6 +685,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// `TypeSpec`-wrapped one (`TypeToken`) — because the Extends column wants the
     /// bare ref for a non-generic external base. `ValueNone` ⇒ not an external class.
     member _.ExternalClassTypeRef(key) = externalClassRef key
+
+    member _.TryCapabilityBaseMemberKey(key) = tryCapabilityBaseMemberKey key
 
     member _.ExternalMemberRef(key, isProperty, isStatic, memberTy) =
         externalMemberRef key isProperty isStatic memberTy
