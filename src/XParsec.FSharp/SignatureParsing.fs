@@ -386,12 +386,29 @@ module TypeSignature =
                     // the opt-in gate lives at the extractor, not the parser.
                     let! ext = pExtern
 
-                    // Optional `class` tag: `type Attribute = extern class` marks a
-                    // HERITABLE external reference base (its repr is harvested from the
-                    // paired `.fs`'s `(# class "…" #)`). Only `class` is taken — a bare
-                    // `interface` would be ambiguous with an `interface …` capability
-                    // member below; the impl-side `(# interface "…" #)` has no such clash.
-                    let! kindTag = opt (pClass |>> ExternKind.Class)
+                    // Optional `class` / `interface` tag: `type Attribute = extern class`
+                    // marks a HERITABLE external reference base (repr harvested from the
+                    // paired `.fs`'s `(# class "…" #)`); `type disposable = extern interface
+                    // with …` marks a capability INTERFACE (an all-abstract surface published
+                    // as an `IntrinsicInterface`). The tag introduces the type BODY, so
+                    // `interface` is admitted only when `with` follows it: a bare
+                    // `interface <Type> …` capability MEMBER (an interface implementation)
+                    // below always carries a type name where the tag has `with`, so it is
+                    // never mis-eaten. `choiceL` rewinds on the failed branch, leaving such
+                    // a member for `parseOpt`.
+                    let! kindTag =
+                        opt (
+                            choiceL
+                                [
+                                    pClass |>> ExternKind.Class
+                                    parser {
+                                        let! interfaceTok = pInterface
+                                        let! _ = lookAhead pWith
+                                        return ExternKind.Interface interfaceTok
+                                    }
+                                ]
+                                "external class/interface tag"
+                        )
 
                     let! members = TypeExtensionElementsSignature.parseOpt
 

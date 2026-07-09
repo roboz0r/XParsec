@@ -114,12 +114,14 @@ type TypeSignature<'T> =
         typeName: TypeName<'T> *
         equals: 'T *
         externToken: 'T *
-        // Optional `class` tag (`type Attribute = extern class`): marks a HERITABLE
-        // external reference base (its repr is harvested from the paired `.fs`'s
-        // `(# class "…" #)`), distinct from the bare `extern` opaque value capability.
-        // `ValueNone` is the bare form (`type int = extern`). Only `ExternKind.Class`
-        // is producible here — a bare `interface` tag would collide with an
-        // `interface …` capability member, so the sig parser does not offer it.
+        // Optional `class` / `interface` tag. `class` (`type Attribute = extern class`)
+        // marks a HERITABLE external reference base (repr harvested from the paired
+        // `.fs`'s `(# class "…" #)`); `interface` (`type disposable = extern interface
+        // with …`) marks a capability INTERFACE (all-abstract surface, published as an
+        // `IntrinsicInterface`). Both are distinct from the bare `extern` opaque value
+        // capability. `ValueNone` is the bare form (`type int = extern`). The parser
+        // admits `interface` only when a `with` follows it, so it never collides with an
+        // `interface …` capability member (which always carries a type name).
         kindTag: ExternKind<'T> voption *
         members: TypeExtensionElementsSignature<'T> voption
 

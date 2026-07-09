@@ -100,12 +100,14 @@ type Type<'T> =
     | Missing
     | SkipsTokens of skippedTokens: ImArr<'T>
 
-// The heritability kind keyword on an external base declaration: `class` or
-// `interface`, carried on both `Type.ILIntrinsic` (`(# class "…" #)`) and
-// `TypeSignature.Extern` (`type X = extern class`). A two-case tag (rather than a
-// bare token) so consumers dispatch on the species by construction instead of
-// re-reading the token kind — `interface` is currently a parse-accepted but
-// not-yet-emitted form (see NameResolution registration).
+// The species keyword on an external type declaration: `class` or `interface`,
+// carried on both `Type.ILIntrinsic` (`(# class "…" #)`) and `TypeSignature.Extern`
+// (`type X = extern class` / `type X = extern interface with …`). A two-case tag
+// (rather than a bare token) so consumers dispatch on the species by construction
+// instead of re-reading the token kind. On `TypeSignature.Extern`, `Interface`
+// drives capability-interface publication (an `IntrinsicInterface`); on
+// `Type.ILIntrinsic`, `interface` as a HERITABLE base is parse-accepted but
+// not-yet-emitted (see NameResolution registration).
 and [<RequireQualifiedAccess>] ExternKind<'T> =
     | Class of classTok: 'T
     | Interface of interfaceTok: 'T
