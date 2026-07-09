@@ -256,8 +256,6 @@ module internal TsManifestMembers =
                                 Global = isGlobal
                             }
                         Origin = origin
-                        // JS is single-faced — no BCL platform spelling to reconcile.
-                        CapabilityFace = ValueNone
                     }
             )
 
@@ -380,8 +378,6 @@ module internal TsManifestMembers =
                             Global = true
                         }
                     Origin = origin
-                    // JS is single-faced — no BCL platform spelling to reconcile.
-                    CapabilityFace = ValueNone
                 }
         )
 
@@ -522,7 +518,5 @@ module internal TsManifestMembers =
                             ImportForm = groupImportForm
                         }
                     Origin = origin
-                    // JS is single-faced — no BCL platform spelling to reconcile.
-                    CapabilityFace = ValueNone
                 }
         )

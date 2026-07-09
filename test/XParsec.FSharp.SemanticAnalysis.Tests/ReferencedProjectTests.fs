@@ -153,47 +153,46 @@ let tests =
                 Expect.equal ctx.Intrinsics.String BuiltinTypes.tyString "string"
             }
 
-            test "the language-capability anchors resolve as dual-faced interface Classes carrying their CLR repr" {
+            test "the language-capability anchors resolve as dual-faced IntrinsicInterfaces carrying their CLR repr" {
                 // On a CLR-target build `capabilities.fsi` declares
                 // `disposable`/`equatable`/`comparable` as `extern with abstract member …`,
                 // paired with their `capabilities.fs` `(# "<BCL interface>" #)` reprs. Each
-                // surfaces as ONE dual-faced shape: a `Class{IsInterface=true}` with the
-                // member surface PLUS a `CapabilityFace { Canon; Platform }` — `Canon` is the
-                // `.fsi` short name, `Platform` is the CLR interface name. The generic ones
-                // (`equatable`/`comparable`) carry the metadata backtick-arity suffix in BOTH
-                // the lookup name (`Vesper.equatable`1`) and the `Platform` repr
-                // (``System.IEquatable`1``) — exactly the string a metadata interface name
-                // reconciles against for `disposable === System.IDisposable`. The reverse-canon
-                // entry (`platform -> canon`) feeds `Engine.canonName`, the same path `exn`
-                // rides. (Iteration has no anchor here — it rides the existing `seq`
-                // abbreviation; see `ExternalSymbols.resolveCapabilities`.)
+                // surfaces as ONE dual-faced `IntrinsicInterface`: the member surface plus an
+                // `Id { Canon; Platform }` — `Canon` is the `.fsi` short name, `Platform` is the
+                // CLR interface name. The generic ones (`equatable`/`comparable`) carry the
+                // metadata backtick-arity suffix in BOTH the lookup name (`Vesper.equatable`1`)
+                // and the `Platform` repr (``System.IEquatable`1``) — exactly the string a
+                // metadata interface name reconciles against for `disposable === System.IDisposable`.
+                // UNLIKE `exn`, reconciliation rides the `Id` platform face / `CapabilityIdentity`,
+                // NOT a reverse-canon entry (asserted absent below). (Iteration has no anchor
+                // here — it rides the existing `seq` abbreviation; see
+                // `ExternalSymbols.resolveCapabilities`.)
                 let provider, _ = builtProvider.Value
 
                 let expectCapability (lookup: string) (canonExpected: string) (platformExpected: string) =
                     match provider.TryLookupType lookup with
-                    | ValueSome(ExternalTypeShape.Class shape) ->
-                        Expect.isTrue shape.IsInterface (sprintf "%s is an interface Class" lookup)
-
+                    | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
                         let canonKey = RuntimeNames.primitiveKey canonExpected
 
-                        match shape.CapabilityFace with
-                        | ValueSome face ->
-                            Expect.equal face.Canon canonKey (sprintf "%s canon is its `.fsi` short name" lookup)
+                        Expect.equal iface.Id.Canon canonKey (sprintf "%s canon is its `.fsi` short name" lookup)
 
-                            Expect.equal
-                                face.Platform
-                                platformExpected
-                                (sprintf "%s platform is its `.fs` CLR repr" lookup)
-                        | ValueNone -> failtestf "%s must carry a CapabilityFace" lookup
+                        Expect.equal
+                            iface.Id.Platform
+                            (Some platformExpected)
+                            (sprintf "%s platform face is its `.fs` CLR repr" lookup)
 
+                        // A capability interface is deliberately ABSENT from the reverse-canon
+                        // map — reconciliation rides the `Id` platform face above, not this map (a
+                        // `TyClass`-resolving interface would be dead weight there, and keeping it
+                        // would force an `IsInterface` guard back into the reverse-map readers).
                         match Map.tryFind platformExpected provider.IntrinsicReverseCanon with
+                        | None -> ()
                         | Some canons ->
-                            Expect.contains
+                            failtestf
+                                "capability interface %s must NOT enter the reverse-canon map; found %A"
+                                lookup
                                 canons
-                                canonKey
-                                (sprintf "reverse-canon maps %s -> %s" platformExpected canonExpected)
-                        | None -> failtestf "reverse-canon is missing the %s entry" platformExpected
-                    | other -> failtestf "expected %s as a dual-faced Class shape, got %A" lookup other
+                    | other -> failtestf "expected %s as an IntrinsicInterface shape, got %A" lookup other
 
                 expectCapability "Vesper.disposable" "disposable" "System.IDisposable"
                 expectCapability "Vesper.equatable`1" "equatable" "System.IEquatable`1"
@@ -211,14 +210,12 @@ let tests =
                 let provider, _ = builtProviderJs.Value
 
                 let expectSingleFaced (lookup: string) =
+                    // On JS a capability surfaces as a plain single-faced interface `Class` (no
+                    // `(# … #)` repr binds a platform face), NOT the CLR `IntrinsicInterface` — so
+                    // it is canonical-only, with no reconciliation face.
                     match provider.TryLookupType lookup with
                     | ValueSome(ExternalTypeShape.Class shape) ->
-                        Expect.isTrue shape.IsInterface (sprintf "%s is an interface Class" lookup)
-
-                        Expect.equal
-                            shape.CapabilityFace
-                            ValueNone
-                            (sprintf "%s is canonical-only on JS (no platform face)" lookup)
+                        Expect.isTrue shape.IsInterface (sprintf "%s is a single-faced interface Class on JS" lookup)
                     | other -> failtestf "expected %s as a single-faced Class on JS, got %A" lookup other
 
                 expectSingleFaced "Vesper.disposable"

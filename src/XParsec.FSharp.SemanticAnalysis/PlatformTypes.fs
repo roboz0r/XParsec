@@ -38,10 +38,10 @@ module PlatformTypes =
     /// — NOT the per-element mutable `OpenScope`, which is meaningless in this
     /// end-of-pipeline whole-file pass.
     ///
-    /// A capability interface (`disposable` …) is a `Class`, not an `Intrinsic`, so it is
-    /// never matched here even when its `CapabilityFace` is `ValueNone` (JS): an interface
-    /// has no value representation, so "no platform repr" is correct, not a gap. Keep this
-    /// match `Intrinsic`-only — do NOT broaden it to flag interface `Class`es.
+    /// A capability interface (`disposable` …) is an `IntrinsicInterface` (CLR) or a plain
+    /// interface `Class` (JS) — never an `Intrinsic` — so it is excluded here BY CONSTRUCTION:
+    /// an interface has no value representation, so "no platform repr" is correct, not a gap.
+    /// Keep this match `Intrinsic`-only — do NOT broaden it to flag interfaces.
     let private isUnrepresentable (ctx: PassContext) (name: string) : bool =
         match ExternalSymbols.tryRuntimeType ctx.Provider name with
         // Scalar or heritable primitive alike — the identity axis is one pattern; only

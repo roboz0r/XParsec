@@ -79,16 +79,13 @@ module private MetadataMapping =
             // subtype ROOTS (`System.Object → obj`, `System.Exception → exn`). The
             // roots' canon identities are now class-shaped (`IntrinsicClass` carries
             // base + `.ctor`s), so ctor / `new` / subtype resolution keys on the canon
-            // directly — no unify-time string reconciliation. Capability INTERFACES
-            // (`System.IDisposable → disposable`) are the one reverse-map family that
-            // still reconciles late (their canon is a faced `Class`, resolved to
-            // `TyClass`, not a `TyConst` identity), so `IsInterface` is the partition.
-            // The source-name twin of this policy is `UnificationTranslate.externalClassTy`
-            // (SemanticAnalysis) — change the partition in both or the two seams drift.
-            | fullName when
-                not t.IsInterface
-                && (reverseCanon |> Map.tryFind fullName |> Option.exists (List.isEmpty >> not))
-                ->
+            // directly — no unify-time string reconciliation. No `IsInterface` partition
+            // is needed: `reverseCanon` carries ONLY intrinsic (`TyConst`) canons — the
+            // `TyparCapture` reverse fold deliberately omits capability interfaces (they
+            // resolve to `TyClass` and reconcile via `CapabilityIdentity`/the face, not
+            // this map) — so a BCL interface simply misses the lookup and falls through to
+            // the general `FTClass` arm below.
+            | fullName when reverseCanon |> Map.tryFind fullName |> Option.exists (List.isEmpty >> not) ->
                 Some(FTConst(reverseCanon.[fullName] |> List.head, EqArray.empty))
             | fullName ->
                 Some(
@@ -569,11 +566,6 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                             FrozenBaseType = buildClassBaseType t
                             Flags = decodeClassFlags t
                             Origin = originOf t None
-                            // The metadata layer never mints a dual-faced capability
-                            // interface — a real BCL `System.IDisposable` arrives as
-                            // itself; reconciliation to the canonical rides the
-                            // contract layer's `(# … #)` face, not this shape.
-                            CapabilityFace = ValueNone
                         }
 
                     ValueSome(ExternalTypeShape.Class shape)

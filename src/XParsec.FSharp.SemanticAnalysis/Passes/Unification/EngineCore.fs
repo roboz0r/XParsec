@@ -664,6 +664,10 @@ module UnificationEngineCore =
                         match ctx.Provider.TryLookupType n with
                         | ValueSome(ExternalTypeShape.Class ifaceShape) ->
                             SymbolKeyOps.externalTypeKey ifaceShape.Origin n ta.Length
+                        // A surfaced capability interface is origin-homed exactly as a `Class`,
+                        // so its key compares equal to the resolution-time `TyClass`.
+                        | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
+                            SymbolKeyOps.externalTypeKey iface.Origin n ta.Length
                         | _ -> SymbolKeyOps.qualifiedTypeKey n 0
 
                     TyClass(key, EqArray.ofArray ta)

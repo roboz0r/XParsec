@@ -848,13 +848,16 @@ module Unification =
         | ValueSome(TyClass(ifaceKey, ifaceArgs)) ->
             let ifaceName = SymbolKeyOps.qualifiedName ifaceKey
 
+            // A capability interface (`disposable`) is an `IntrinsicInterface`, not a `Class`,
+            // but conforms identically off its member surface.
             match ctx.Provider.TryLookupType ifaceName with
-            | ValueSome(ExternalTypeShape.Class shape) ->
+            | ValueSome(ExternalTypeShape.Class { Members = ifaceMembers })
+            | ValueSome(ExternalTypeShape.IntrinsicInterface { Members = ifaceMembers }) ->
                 let argArr = ifaceArgs.AsSpan().ToArray()
 
                 // Interfaces declare no constructors; the `.ctor` guard is
                 // belt-and-suspenders against a provider that surfaces one.
-                let required = shape.Members |> Array.filter (fun em -> em.Name <> ".ctor")
+                let required = ifaceMembers |> Array.filter (fun em -> em.Name <> ".ctor")
 
                 for mInfo in impl.Members do
                     match required |> Array.tryFind (fun em -> em.Name = mInfo.Name) with
@@ -951,6 +954,8 @@ module Unification =
                 | TyClass(ifaceKey, _) ->
                     match ExternalSymbols.tryLookupType ctx.Provider ifaceKey with
                     | ValueSome(ExternalTypeShape.Class shape) -> shape.IsInterface
+                    // A capability interface (`disposable`) is always an interface.
+                    | ValueSome(ExternalTypeShape.IntrinsicInterface _) -> true
                     // A project-local interface has no external-provider entry — its
                     // interface-ness is on the registered `ClassTypeInfo`.
                     | _ ->

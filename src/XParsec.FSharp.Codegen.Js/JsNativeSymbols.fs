@@ -66,7 +66,6 @@ module JsNativeSymbols =
                 FrozenBaseType = ValueNone
                 Flags = ExternalClassFlags.Default
                 Origin = errorOrigin
-                CapabilityFace = ValueNone
             }
 
     // The capability interfaces (`System.IDisposable` / `IEquatable\`1` / `IComparable\`1`)
@@ -165,7 +164,6 @@ module JsNativeSymbols =
                 FrozenBaseType = ValueNone
                 Flags = ExternalClassFlags.Default
                 Origin = origin
-                CapabilityFace = ValueNone
             }
 
     /// `IEnumerator<'T>` — `MoveNext(): bool` + the `Current: 'T` property.

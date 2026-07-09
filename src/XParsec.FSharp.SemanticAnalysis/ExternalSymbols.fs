@@ -479,17 +479,6 @@ type ExternalClassFlags =
             ImportForm = ImportForm.Named
         }
 
-/// The two faces of a **dual-faced capability interface** — a `Class` that, like
-/// `ExternalTypeShape.Intrinsic`, reconciles to a platform type while ALSO
-/// publishing a member surface (so a Vesper type can author `interface disposable`
-/// BCL-free, yet a metadata type implementing `System.IDisposable` still matches).
-/// `Canon` is the qualified `.fsi`-short-name identity (`Vesper.disposable`);
-/// `Platform` is the `.fs` `(# … #)` repr (`"System.IDisposable"`). The reverse-canon
-/// builder emits `{ Platform -> Canon }` just as for an `Intrinsic`, so it reconciles by
-/// the same `exn === System.Exception` path. Carried only on a target whose `.fs` binds
-/// the repr (CLR); `ValueNone` on JS, where the anchor is the backend symbol table.
-type CapabilityPlatformFace = { Canon: SymbolKey; Platform: string }
-
 /// The shape of an external class or interface. Lifted out of `ExternalTypeShape.Class`
 /// so the DU header stays narrow and the
 /// member set is reachable to consumers (the `interface … with member …`
@@ -522,12 +511,6 @@ type ExternalClassShape =
         FrozenBaseType: FrozenType voption
         Flags: ExternalClassFlags
         Origin: SymbolOrigin
-        /// `ValueSome` only for a dual-faced capability interface (`disposable`):
-        /// the `(canon, platform)` reconciliation faces this `Class` carries IN
-        /// ADDITION to its member surface, so it reconciles to its BCL spelling on
-        /// CLR exactly as an `Intrinsic` does (see `CapabilityPlatformFace`).
-        /// `ValueNone` for every ordinary class and on JS.
-        CapabilityFace: CapabilityPlatformFace voption
     }
 
     /// A minimally-populated class shape — the form contract-layer providers
@@ -543,7 +526,6 @@ type ExternalClassShape =
             FrozenBaseType = ValueNone
             Flags = ExternalClassFlags.Default
             Origin = origin
-            CapabilityFace = ValueNone
         }
 
 /// The platform-invariant identity axis EVERY intrinsic carries — the shared
@@ -615,7 +597,7 @@ type IntrinsicClassSurface =
 /// `class` kind tag IS the predicate, and the added surface lets a downstream
 /// unit `inherit exn` / `new exn` through the ordinary provider paths while the
 /// value identity stays `TyConst` (no `TyClass` churn at the pervasive
-/// `obj`/`exn` value sites). Distinct from a faced capability `Class`
+/// `obj`/`exn` value sites). Distinct from a capability `IntrinsicInterface`
 /// (`disposable`) — an INTERFACE, which resolves to `TyClass`.
 type IntrinsicShape =
     {
@@ -634,6 +616,35 @@ type IntrinsicShape =
                 }
             Class = ValueNone
         }
+
+/// A **capability interface** (`disposable`/`equatable`/`comparable`) — an intrinsic
+/// whose identity axis is a `TyClass` CONSTRAINT rather than a `TyConst` value
+/// identity, so it earns its own case beside `Intrinsic` (an interface is excluded
+/// from the forward-repr harvest and the unrepresentability gate, and it resolves to
+/// `TyClass` not `TyConst`). Minted ONLY on a target whose `.fs` binds the platform
+/// repr (CLR); on JS a capability surfaces as a plain single-faced interface `Class`.
+///
+/// - `Id` — the shared identity axis (`Canon` = the qualified `.fsi` short-name
+///   identity `Vesper.disposable`, asm-blind; `Platform` = the `.fs` `(# … #)` BCL
+///   repr `Some "System.IDisposable"`, driving CLR reconciliation + the `ClrEnv`
+///   InterfaceImpl redirect). CAUTION: `Platform = None` here means the anchor is the
+///   backend symbol table (JS) — the OPPOSITE polarity of a SCALAR intrinsic's `None`
+///   (unrepresentable, which the `Intrinsic`-only unrepresentability gate rejects); no
+///   shared consumer reads `Platform` across both cases, so the polarity is safe.
+/// - `Members` — the abstract member surface (`Dispose`), read by
+///   `Unification.checkInterfaceConformance`. Populated at finalize (after the
+///   deferred member loop) via the `PendingCapabilityInterfaces` republish.
+/// - `Origin` — the manifest home (assembly + namespace), stamped by
+///   `ExternalSymbols.stack`'s `stampType` exactly as a `Class`'s is. The VALUE
+///   resolution key uses THIS (`externalTypeKey Origin`, asm-qualified), keeping the
+///   `TyClass` identity byte-identical to the pre-`IntrinsicInterface` faced `Class`;
+///   `Id.Canon` (asm-blind) is the reconciliation/capability-matching face only.
+type IntrinsicInterfaceShape =
+    {
+        Id: IntrinsicIdentity
+        Members: ExternalMember[]
+        Origin: SymbolOrigin
+    }
 
 /// Type-declaration shape carried by `IExternalSymbolProvider.TryLookupType`.
 /// `arity` is the number of declared typars (same length the builder
@@ -699,6 +710,13 @@ type ExternalTypeShape =
     /// twin (SideTables.fs) stays single-string: it holds a self-compiled unit's
     /// own `platform` repr keyed by the `.fsi` short name (which is the canon).
     | Intrinsic of shape: IntrinsicShape
+    /// A capability interface (`disposable`/`equatable`/`comparable`): an intrinsic on
+    /// the `TyClass`-constraint axis. A DISTINCT case from `Intrinsic` because an
+    /// interface differs on identity (resolves to `TyClass`, not a `TyConst` value),
+    /// is excluded from the forward-repr harvest + the unrepresentability gate, and
+    /// carries a member surface + `Origin`. See `IntrinsicInterfaceShape`. CLR-only
+    /// (a JS capability is a plain single-faced interface `Class`).
+    | IntrinsicInterface of shape: IntrinsicInterfaceShape
     /// A nominal type whose *name + arity* the extractor registered but whose
     /// body shape it does not (yet) model: an enum / delegate / type-extension
     /// (v1 defers the body), or a union / record / abbreviation whose body failed
@@ -1025,27 +1043,27 @@ module ExternalSymbols =
                 RuntimeNames.CapabilityIdentity.CanonKey = ValueNone
             }
 
-        // Mint a capability's identity from its anchor. A dual-faced `Class` carries the
-        // PLATFORM face (`System.IDisposable`) as `Key` — what a metadata or BCL-spelled
-        // impl freezes to — and the canonical face as `CanonKey` — what `interface
-        // disposable` freezes to; both spellings then dispatch. The single-faced `Class`
-        // case (JS, no `(# … #)` repr) has only the canonical key: there is no BCL
-        // spelling to reconcile, and a BCL-spelled impl is folded to the canonical `Class`
-        // up front by the `capabilities-compat.js.fsi` shim. The `Intrinsic` arm covers
-        // any build whose anchor is still a bare `extern`.
+        // Mint a capability's identity from its anchor. On CLR a capability surfaces as a
+        // dual-faced `IntrinsicInterface`: its PLATFORM face (`System.IDisposable`) is `Key`
+        // — what a metadata or BCL-spelled impl freezes to — and the canonical face is
+        // `CanonKey` — what `interface disposable` freezes to; both spellings then dispatch.
+        // On JS a capability surfaces as a single-faced interface `Class` (no `(# … #)` repr):
+        // only the canonical key, because there is no BCL spelling to reconcile and a
+        // BCL-spelled impl is folded to the canonical up front by the
+        // `capabilities-compat.js.fsi` shim. The `Intrinsic` arm covers any build whose
+        // anchor is still a bare `extern`.
         let resolveAnchor (lookup: string) : RuntimeNames.CapabilityIdentity voption =
             match provider.TryLookupType lookup with
             | ValueSome(ExternalTypeShape.Intrinsic { Id = { Platform = Some fqn } }) ->
                 ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf None fqn 0))
-            | ValueSome(ExternalTypeShape.Class { CapabilityFace = ValueSome face }) ->
+            | ValueSome(ExternalTypeShape.IntrinsicInterface { Id = { Platform = Some platform } }) ->
                 ValueSome
                     {
-                        RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOf None face.Platform 0
+                        RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOf None platform 0
                         RuntimeNames.CapabilityIdentity.CanonKey =
                             ValueSome(SymbolKeyOps.qualifiedTypeKeyOf None lookup 0)
                     }
-            | ValueSome(ExternalTypeShape.Class { CapabilityFace = ValueNone }) ->
-                ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf None lookup 0))
+            | ValueSome(ExternalTypeShape.Class _) -> ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf None lookup 0))
             | _ -> ValueNone
 
         // Read the abbreviation's resolved nominal head key (`seq<'T>` → the
@@ -1509,6 +1527,11 @@ module ExternalSymbols =
                     | ExternalTypeShape.Union(arity, cases, ifaces, _) ->
                         ExternalTypeShape.Union(arity, cases, ifaces, o)
                     | ExternalTypeShape.Enum(cases, _) -> ExternalTypeShape.Enum(cases, o)
+                    // A capability interface's VALUE resolution key uses its `Origin`
+                    // (`externalTypeKey`, asm-qualified) exactly as a `Class`'s does, so it
+                    // is origin-stamped here identically (the extractor left it `Empty`).
+                    | ExternalTypeShape.IntrinsicInterface s ->
+                        ExternalTypeShape.IntrinsicInterface { s with Origin = o }
                     | ExternalTypeShape.Abbrev _
                     // An intrinsic carries no `Origin` (its identity is the canon,
                     // asm-blind), so origin stamping leaves it unchanged.
@@ -1692,6 +1715,13 @@ module ExternalSymbols =
                                     BaseType = surface.BaseType |> ValueOption.map inv
                                     Members = surface.Members |> Array.map mapMember
                                 }
+                    }
+            // A capability interface's abstract members are a value-flow surface (a param
+            // is a contravariant read) — map them exactly as a `Class`'s members.
+            | ExternalTypeShape.IntrinsicInterface s ->
+                ExternalTypeShape.IntrinsicInterface
+                    { s with
+                        Members = s.Members |> Array.map mapMember
                     }
             // No value-flow FrozenType surface (Abbrev: no intrinsic variance — see header).
             | ExternalTypeShape.Abbrev _

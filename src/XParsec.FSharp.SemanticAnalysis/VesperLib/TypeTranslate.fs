@@ -442,6 +442,10 @@ module VesperLibTypeTranslate =
             FTUnion(SymbolKeyOps.qualifiedTypeKeyOf (homeOf origin.Assembly) compiled args.Length, args)
         | ValueSome(ExternalTypeShape.Class info) ->
             FTClass(SymbolKeyOps.qualifiedTypeKeyOf (homeOf info.Origin.Assembly) compiled args.Length, args)
+        // A capability interface resolves to a `TyClass` constraint, so its frozen mirror is
+        // an `FTClass` keyed off its origin — identical to the `Class` arm above.
+        | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
+            FTClass(SymbolKeyOps.qualifiedTypeKeyOf (homeOf iface.Origin.Assembly) compiled args.Length, args)
         | ValueSome(ExternalTypeShape.Record(_, _, origin)) ->
             FTRecord(SymbolKeyOps.qualifiedTypeKeyOf (homeOf origin.Assembly) compiled args.Length, args)
         | ValueSome(ExternalTypeShape.Enum(_, origin)) ->

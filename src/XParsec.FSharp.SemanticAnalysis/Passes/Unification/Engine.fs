@@ -271,7 +271,13 @@ module UnificationEngine =
         match resolveStep expected with
         | TyClass(ikey, iargs) ->
             match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedName ikey) with
-            | ValueSome(ExternalTypeShape.Class shape) when shape.IsInterface ->
+            // A capability interface (`IntrinsicInterface`) is a widen target off its member
+            // surface exactly as an interface `Class` is.
+            | ValueSome(ExternalTypeShape.Class {
+                                                    IsInterface = true
+                                                    Members = ifaceMembers
+                                                })
+            | ValueSome(ExternalTypeShape.IntrinsicInterface { Members = ifaceMembers }) ->
                 match resolveStep actual with
                 | TyRecord(rkey, rargs) ->
                     match TypeRegistry.tryRecordByKey ctx.Types rkey with
@@ -285,7 +291,7 @@ module UnificationEngine =
 
                         let declArgs = iargs |> EqArray.toList |> List.toArray
 
-                        shape.Members
+                        ifaceMembers
                         |> Array.filter (fun m -> not m.IsStatic && m.IsValueMember && not m.IsOptional)
                         |> Array.forall (fun m ->
                             match fieldTy m.Name with

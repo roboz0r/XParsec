@@ -425,37 +425,40 @@ type internal ClrEnv
         | _ -> ValueNone
 
     let rec externalClassRef (key: SymbolKey) : EntityHandle voption =
-        match lookupClassShape key with
-        | ValueSome info when info.CapabilityFace.IsSome ->
+        match lookupTypeByKey key with
+        | ValueSome(ExternalTypeShape.IntrinsicInterface { Id = { Platform = Some platform } }) ->
             // A canonically-authored capability interface (`interface disposable`) has no
             // emitted type of its own — re-resolve through its platform face so the
-            // InterfaceImpl row binds the real BCL interface (`System.IDisposable`). The
-            // canon→platform step of `exn → System.Exception`; the platform shape has no
-            // `CapabilityFace`, so the recursion terminates after one hop.
-            externalClassRef (SymbolKeyOps.qualifiedTypeKeyOf None info.CapabilityFace.Value.Platform 0)
-        | ValueSome info ->
-            let ns = info.Origin.Namespace
-            let simple = SymbolOrigin.StripNamespace ns (SymbolKeyOps.qualifiedName key)
-            let asm = externalAsmRef info.Origin.Assembly
+            // InterfaceImpl row binds the real BCL interface (`System.IDisposable`). Analogous
+            // to `exn → System.Exception`; the platform shape is a plain `Class`, so the
+            // recursion terminates after one hop.
+            externalClassRef (SymbolKeyOps.qualifiedTypeKeyOf None platform 0)
+        | _ ->
 
-            // A nested type's `TypeRef` (`List`1+Enumerator`, the duck-typed struct
-            // enumerator) must chain through the enclosing type's `TypeRef` as its
-            // ResolutionScope with the *bare* nested name + empty namespace — a flat
-            // `Outer+Inner` name with the AssemblyRef scope fails to bind
-            // (`TypeLoadException`). The `+` is a reflection display convention, not a
-            // metadata name. Top-level (`+`-free) names take the single-segment path
-            // unchanged. The generic args ride the innermost nested TypeRef, so the
-            // encoder needs no further nesting awareness.
-            match simple.Split('+') with
-            | [| flat |] -> ValueSome(toEntity (ctx.TypeRef(asm, ns, flat)))
-            | parts ->
-                let mutable scope = toEntity (ctx.TypeRef(asm, ns, parts.[0]))
+            match lookupClassShape key with
+            | ValueSome info ->
+                let ns = info.Origin.Namespace
+                let simple = SymbolOrigin.StripNamespace ns (SymbolKeyOps.qualifiedName key)
+                let asm = externalAsmRef info.Origin.Assembly
 
-                for i in 1 .. parts.Length - 1 do
-                    scope <- toEntity (ctx.TypeRef(scope, "", parts.[i]))
+                // A nested type's `TypeRef` (`List`1+Enumerator`, the duck-typed struct
+                // enumerator) must chain through the enclosing type's `TypeRef` as its
+                // ResolutionScope with the *bare* nested name + empty namespace — a flat
+                // `Outer+Inner` name with the AssemblyRef scope fails to bind
+                // (`TypeLoadException`). The `+` is a reflection display convention, not a
+                // metadata name. Top-level (`+`-free) names take the single-segment path
+                // unchanged. The generic args ride the innermost nested TypeRef, so the
+                // encoder needs no further nesting awareness.
+                match simple.Split('+') with
+                | [| flat |] -> ValueSome(toEntity (ctx.TypeRef(asm, ns, flat)))
+                | parts ->
+                    let mutable scope = toEntity (ctx.TypeRef(asm, ns, parts.[0]))
 
-                ValueSome scope
-        | _ -> ValueNone
+                    for i in 1 .. parts.Length - 1 do
+                        scope <- toEntity (ctx.TypeRef(scope, "", parts.[i]))
+
+                    ValueSome scope
+            | _ -> ValueNone
 
     /// Whether a referenced-assembly type is a .NET value type (`struct`) — `false`
     /// for every reference type and for any name the provider can't resolve as a

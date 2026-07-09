@@ -31,8 +31,8 @@ let private dummyTok: SyntaxToken =
     SyntaxToken.virtualToken (PositionedToken.Create(Token.EOF, 0))
 
 /// A provider carrying the `widget` `.fsi` contract (a concrete member
-/// `Poke: int -> int` on an `extern` intrinsic) — the dual-faced Class + member
-/// surface Edit 1 registers. Returns the provider and the resolved shape key.
+/// `Poke: int -> int` on an `extern` intrinsic) — the member-bearing `Class` a concrete
+/// (non-interface) member surface registers. Returns the provider and the resolved shape key.
 let private widgetContract () : IExternalSymbolProvider * string =
     let ctx = VesperLib.ExtractCtx.empty ()
     // The BASE repr marks `widget` intrinsic; the platform repr is its `.fs` face.

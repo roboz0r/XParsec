@@ -1332,7 +1332,7 @@ let tests =
                 // present (isIntrinsic=false → the `not isIntrinsic` bodied arm in
                 // `VesperLib.extractTypeSig` runs `extractBodiedClassLike`). The member-surface
                 // half of a BCL-free capability is therefore free; the per-target IDENTITY is
-                // supplied separately (a `.fs` `(# … #)` repr → `CapabilityFace` on CLR, the
+                // supplied separately (a `.fs` `(# … #)` repr → an `IntrinsicInterface` on CLR, the
                 // `capabilities-compat.js.fsi` shim on JS — NOT a plain `.fs` abbreviation,
                 // which is harvested only for `(# … #)` while extraction runs only on `.fsi`).
                 let input =
@@ -1392,14 +1392,17 @@ let tests =
             }
 
             test
-                "dual-faced capability interface: extern-with-abstract-member + (# … #) repr → Class carrying platform face + reverse-canon" {
+                "dual-faced capability interface: extern-with-abstract-member + (# … #) repr → Class carrying platform face, NOT a reverse-canon entry" {
                 // A capability anchor whose `.fsi` declares an interface member surface AND
                 // whose `.fs` binds a platform type (`type disposable = (# "System.IDisposable"
                 // #)`) must extract to ONE dual-faced shape: a `Class{IsInterface=true}` with
                 // the member surface PLUS a `CapabilityFace` carrying `(canon, platform)`, so
-                // it reconciles to its BCL spelling by the same path `exn === System.Exception`
-                // rides — the reverse-canon folds `System.IDisposable -> disposable`. This is
-                // the CLR build's shape; on JS the `.fs` omits the repr, so `CapabilityFace` is
+                // it reconciles to its BCL spelling. UNLIKE `exn === System.Exception`, the
+                // reconciliation rides the `CapabilityFace` / `CapabilityIdentity` — NOT the
+                // reverse-canon map: a capability interface resolves to a `TyClass` constraint,
+                // so a reverse entry would be dead weight (its only reader, `MetadataSymbols`,
+                // canonicalizes to `TyConst` and guards interfaces out). This is the CLR
+                // build's shape; on JS the `.fs` omits the repr, so `CapabilityFace` is
                 // `ValueNone` and the canonical identity stands (see the compat-shim path).
                 // (Synthetic: the `(# … #)` repr is seeded directly into the harvest dicts,
                 // mirroring the CLR build where the base `.fs` repr seeds both
@@ -1453,44 +1456,42 @@ let tests =
                         failtestf "disposable registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
 
                 match ctx.TypeShapes.[key] with
-                | ExternalTypeShape.Class shape ->
-                    Expect.isTrue shape.IsInterface "dual-faced capability is an interface Class"
+                | ExternalTypeShape.IntrinsicInterface iface ->
+                    Expect.equal
+                        iface.Id.Canon
+                        (RuntimeNames.primitiveKey "disposable")
+                        "IntrinsicInterface canon is the contract-sourced qualified identity (`namespace Vesper`)"
 
-                    match shape.CapabilityFace with
-                    | ValueSome face ->
-                        Expect.equal
-                            face.Canon
-                            (RuntimeNames.primitiveKey "disposable")
-                            "CapabilityFace canon is the contract-sourced qualified identity (`namespace Vesper`)"
-
-                        Expect.equal face.Platform "System.IDisposable" "CapabilityFace platform is the `.fs` repr"
-                    | ValueNone -> failtest "dual-faced Class must carry a CapabilityFace (platform face from the repr)"
-                | other -> failtestf "expected a Class shape for disposable; got %A" other
+                    Expect.equal
+                        iface.Id.Platform
+                        (Some "System.IDisposable")
+                        "IntrinsicInterface platform face is the `.fs` repr"
+                | other -> failtestf "expected an IntrinsicInterface shape for disposable; got %A" other
 
                 let provider = VesperLib.ExtractCtx.toProvider ctx
 
                 // The member surface survived alongside the platform face.
                 match provider.TryLookupMember(key, "Dispose") with
                 | ValueSome _ -> ()
-                | ValueNone -> failtest "Dispose member surface was dropped from the dual-faced Class"
+                | ValueNone -> failtest "Dispose member surface was dropped from the IntrinsicInterface"
 
-                // The reverse-canon folds the BCL spelling to the canonical — the exn mechanism.
+                // A capability interface is deliberately ABSENT from the reverse-canon map —
+                // reconciliation flows through the `CapabilityFace` above, not this map (the
+                // entry would be dead weight, and keeping it would force an `IsInterface` guard
+                // back into the reverse-map readers).
                 match provider.IntrinsicReverseCanon.TryFind "System.IDisposable" with
-                | Some canons ->
-                    Expect.contains
-                        canons
-                        (RuntimeNames.primitiveKey "disposable")
-                        "reverse-canon folds System.IDisposable -> disposable"
-                | None -> failtest "reverse-canon is missing the System.IDisposable -> disposable entry"
+                | None -> ()
+                | Some canons -> failtestf "capability interface must NOT enter the reverse-canon map; found %A" canons
             }
 
-            test "CONCRETE member surface on an intrinsic primitive is admitted as a dual-faced Class" {
+            test "CONCRETE member surface on an intrinsic primitive is admitted as a member-bearing Class" {
                 // A CONCRETE (non-interface) member surface over an intrinsic repr is a general
                 // platform-binding capability: the `(# … #)`-bound member's body is served as a
-                // member-keyed inline splice, so the surface registers as a dual-faced `Class`
-                // (member slots + `CapabilityFace`) exactly as the capability INTERFACE arm does —
-                // the `ExternalTypeShape.Intrinsic` shape carries no member slots, and the
-                // `CapabilityFace` keeps the canonical primitive identity for `subsumes` / codegen.
+                // member-keyed inline splice, so the surface registers as a plain member-bearing
+                // `Class` (`IsInterface=false`, members via `TryLookupMember`), resolving to a
+                // `TyClass`. UNLIKE a capability INTERFACE (all-abstract body), which republishes
+                // to an `IntrinsicInterface`, a concrete-member surface is NOT an interface and
+                // stays a `Class`.
                 let ctx = VesperLib.ExtractCtx.empty ()
                 // `isIntrinsic` is decided by the BASE repr marker (the primitive's `.fs`).
                 ctx.IntrinsicBaseReprs.["widget"] <- "System.Widget"
@@ -1533,20 +1534,13 @@ let tests =
                     | Some k -> k
                     | None -> failtestf "widget registered no shape. Shapes: %A" (Seq.toList ctx.TypeShapes.Keys)
 
-                // Admitted as a dual-faced Class (member slots + platform CapabilityFace),
-                // NOT rejected or kept a bare `Intrinsic`.
+                // Admitted as a member-bearing `Class` (NOT an interface), NOT rejected or kept a
+                // bare `Intrinsic`. (A capability INTERFACE would instead republish to an
+                // `IntrinsicInterface`; a concrete-member surface is not an interface.)
                 match ctx.TypeShapes.[key] with
                 | ExternalTypeShape.Class shape ->
-                    match shape.CapabilityFace with
-                    | ValueSome face ->
-                        Expect.equal
-                            face.Canon
-                            (RuntimeNames.primitiveKey "widget")
-                            "CapabilityFace canon is the contract-sourced qualified identity (`namespace Vesper`)"
-
-                        Expect.equal face.Platform "System.Widget" "CapabilityFace platform is the `.fs` repr"
-                    | ValueNone -> failtest "concrete-member intrinsic Class must carry a CapabilityFace"
-                | other -> failtestf "expected a dual-faced Class for widget; got %A" other
+                    Expect.isFalse shape.IsInterface "a concrete-member surface is not an interface"
+                | other -> failtestf "expected a member-bearing Class for widget; got %A" other
 
                 // No rejection diagnostic — the old inert-leaf guardrail is lifted.
                 let rejected =
@@ -1560,7 +1554,7 @@ let tests =
 
                 match provider.TryLookupMember(key, "M") with
                 | ValueSome _ -> ()
-                | ValueNone -> failtest "concrete member surface `M` was dropped from the dual-faced Class"
+                | ValueNone -> failtest "concrete member surface `M` was dropped from the member-bearing Class"
             }
 
             test "`when 'T : equality` captured + applied to fresh TyVar" {

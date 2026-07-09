@@ -43,6 +43,7 @@ module NameResolutionScope =
             match shape with
             | ExternalTypeShape.Class info -> info.Arity
             | ExternalTypeShape.Intrinsic s -> s.Id.Arity
+            | ExternalTypeShape.IntrinsicInterface s -> s.Id.Arity
             | ExternalTypeShape.Enum _ -> 0 // enums are never generic
             | ExternalTypeShape.Record(arity = a)
             | ExternalTypeShape.Union(arity = a)
@@ -55,6 +56,9 @@ module NameResolutionScope =
         let keyOf (compiled: string) (shape: ExternalTypeShape) =
             match shape with
             | ExternalTypeShape.Class info -> SymbolKeyOps.externalTypeKey info.Origin compiled arity
+            // A capability interface's VALUE identity key is origin-homed (asm-qualified),
+            // exactly as a `Class`'s — NOT the asm-blind canon the `Intrinsic` arm uses.
+            | ExternalTypeShape.IntrinsicInterface s -> SymbolKeyOps.externalTypeKey s.Origin compiled arity
             | ExternalTypeShape.Record(origin = o)
             | ExternalTypeShape.Union(origin = o)
             | ExternalTypeShape.Enum(origin = o) -> SymbolKeyOps.externalTypeKey o compiled arity

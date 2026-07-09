@@ -78,9 +78,12 @@ module UnificationSubsume =
             | ValueNone -> ValueNone
         | TyClass(key, _) when (TypeRegistry.tryClassByKey ctx.Types key).IsNone ->
             match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedName key) with
-            | ValueSome(ExternalTypeShape.Class shape) ->
+            // A capability interface (`IntrinsicInterface`) exposes its member names off the
+            // same surface as an interface `Class`.
+            | ValueSome(ExternalTypeShape.Class { Members = members })
+            | ValueSome(ExternalTypeShape.IntrinsicInterface { Members = members }) ->
                 ValueSome(
-                    shape.Members
+                    members
                     |> Array.filter (fun m -> not m.IsStatic)
                     |> Array.map (fun m -> m.Name)
                     |> Array.distinct

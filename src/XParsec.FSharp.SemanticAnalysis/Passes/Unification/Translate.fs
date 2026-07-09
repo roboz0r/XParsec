@@ -96,11 +96,13 @@ module internal UnificationTranslate =
         | _ -> false
 
     /// The resolution-time canonicalization seam for a SOURCE-WRITTEN external class
-    /// name: a resolved `Class` whose compiled name has a non-interface reverse-canon
-    /// hit is an intrinsic's platform spelling (`System.Exception` → `exn`), so it
-    /// resolves to the canon `TyConst` — the source-name twin of
-    /// `MetadataSymbols.tryBuildType`'s eager canonicalization — and no raw BCL
-    /// nominal enters the unifier. Capability INTERFACES keep their `TyClass` form.
+    /// name: a resolved `Class` whose compiled name has a reverse-canon hit is an
+    /// intrinsic's platform spelling (`System.Exception` → `exn`), so it resolves to the
+    /// canon `TyConst` — the source-name twin of `MetadataSymbols.tryBuildType`'s eager
+    /// canonicalization — and no raw BCL nominal enters the unifier. No `IsInterface`
+    /// partition is needed: `reverseCanon` carries only intrinsic (`TyConst`) canons (the
+    /// `TyparCapture` reverse fold omits capability interfaces), so an interface simply
+    /// misses the lookup and keeps its `TyClass` form via the fall-through arm.
     let externalClassTy
         (ctx: PassContext)
         (compiled: string)
@@ -109,7 +111,7 @@ module internal UnificationTranslate =
         (args: EqArray<SemType>)
         : SemType =
         match ctx.IntrinsicReverseCanon.Value.TryGetValue compiled with
-        | true, (canon :: _) when not info.IsInterface -> TyConst(canon, args)
+        | true, (canon :: _) -> TyConst(canon, args)
         | _ -> TyClass(SymbolKeyOps.externalTypeKey info.Origin compiled arity, args)
 
     /// Reads `ctx.Resolution.TyparScope` for `'a` typar resolution; callers open a
@@ -516,6 +518,7 @@ module internal UnificationTranslate =
             match shape with
             | ExternalTypeShape.Class info -> info.Arity
             | ExternalTypeShape.Intrinsic s -> s.Id.Arity
+            | ExternalTypeShape.IntrinsicInterface s -> s.Id.Arity
             | ExternalTypeShape.Enum _ -> 0 // enums are never generic
             | ExternalTypeShape.Record(arity = a)
             | ExternalTypeShape.Union(arity = a)
@@ -550,6 +553,12 @@ module internal UnificationTranslate =
                         // reverse-map bridge is retired); capability INTERFACES keep
                         // their `TyClass` form. See `externalClassTy`.
                         | ExternalTypeShape.Class info -> Some(externalClassTy ctx key info arity translatedArgs)
+                        // A capability interface (`disposable`) is a `TyClass` CONSTRAINT — its
+                        // value identity key is origin-homed exactly as a `Class`'s (the reverse
+                        // map holds no interface canons, so `externalClassTy`'s reverse hit never
+                        // fires for it; this bypasses that check and mints the `TyClass` directly).
+                        | ExternalTypeShape.IntrinsicInterface iface ->
+                            Some(TyClass(SymbolKeyOps.externalTypeKey iface.Origin key arity, translatedArgs))
                         | ExternalTypeShape.Record(origin = origin) ->
                             Some(TyRecord(SymbolKeyOps.externalTypeKey origin key arity, translatedArgs))
                         | ExternalTypeShape.Union(origin = origin) ->

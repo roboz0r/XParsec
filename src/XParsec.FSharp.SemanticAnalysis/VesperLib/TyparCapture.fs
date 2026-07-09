@@ -251,6 +251,17 @@ module VesperLibTyparCapture =
         member val PendingIntrinsicClasses =
             Dictionary<string, struct (SymbolKey * string)>(StringComparer.Ordinal) with get
 
+        /// The capability interfaces (`disposable`/`equatable`/`comparable`: `extern with
+        /// abstract member …` + a `.fs` `(# … #)` repr) awaiting their one-shot finalize-time
+        /// republish as an `IntrinsicInterface`: qualified compiled name -> (canon key, platform
+        /// repr), recorded by the `TypeSignature.Extern` arm. Deferred (not attached at
+        /// extraction) because the interface's member surface is not populated in the shape
+        /// until the finalize member-copy loop runs; the republish reads the frozen `Class`
+        /// shape's members + origin (`VesperLib.finalizeDeferred`). CLR-only — a JS build binds
+        /// no repr, so a capability stays a plain single-faced interface `Class`.
+        member val PendingCapabilityInterfaces =
+            Dictionary<string, struct (SymbolKey * string)>(StringComparer.Ordinal) with get
+
         /// Qualified names of `[<AutoOpen>]` modules encountered during
         /// extraction, in source order (`"Vesper.ArithmeticOperators"`). A
         /// referenced contract surfaces these as its ambient open-prefix set so a
@@ -386,9 +397,14 @@ module VesperLibTyparCapture =
             // from the published `Intrinsic` shapes — the same source the forward
             // `canon` axis reads — so the two can never drift. The guard skips a
             // degenerate `canon = platform` entry (a primitive with no `.fs` repr).
-            // A dual-faced capability interface (`disposable`) carries the same two faces
-            // on its `Class.CapabilityFace`, so it reconciles by the identical path; on JS
-            // the face is `ValueNone`, so no entry is emitted.
+            // A capability INTERFACE (`disposable`) is deliberately NOT emitted here: it
+            // resolves to a `TyClass` constraint, not a `TyConst` value identity, so its only
+            // possible reverse consumer is `MetadataSymbols.tryBuildType` — which must NOT
+            // canonicalize an interface to an `FTConst` and would guard it out. A BCL
+            // `System.IDisposable` reconciles to the canonical `disposable` through
+            // `CapabilityIdentity` / the `IntrinsicInterface` platform face, NOT this map; an
+            // entry here would be dead weight AND force an `IsInterface` guard back into the
+            // reverse-map readers (the "change both or drift" seam this omission retires).
             let intrinsicReverse =
                 ctx.TypeShapes
                 |> Seq.choose (fun kv ->
@@ -403,10 +419,6 @@ module VesperLibTyparCapture =
                                                            }
                                                   } when platform <> SymbolKeyOps.intrinsicName canon ->
                         Some(platform, canon)
-                    | ExternalTypeShape.Class { CapabilityFace = ValueSome face } when
-                        face.Platform <> SymbolKeyOps.intrinsicName face.Canon
-                        ->
-                        Some(face.Platform, face.Canon)
                     | _ -> None
                 )
                 // A platform repr is one-to-many over canons (JS: `number` <- int/float/

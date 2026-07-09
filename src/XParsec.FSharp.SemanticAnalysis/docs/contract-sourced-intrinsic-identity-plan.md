@@ -338,21 +338,80 @@ to its own plan. `bigint` the TYPE stays the Stage-5a `prim-types` intrinsic; th
 - **`HeritableExternBases` may now be redundant**: downstream heritability flows through the
   provider `IntrinsicClass`; VERIFY whether any self-host path still needs the local set before
   retiring it.
-- **Capability interfaces** (`disposable`) still reconcile late via `CapabilityFace`; revisit
-  reconciling them at resolution the way the roots were (they resolve to `TyClass`, so the churn
-  profile differs). Follow-up design (user, confirmed 2026-07-07): introduce
-  `ExternalTypeShape.IntrinsicInterface of { Id: IntrinsicIdentity; Members: ExternalMember[] }`
-  as a DISTINCT case — an interface differs on the identity axis (`TyClass` constraint, not
-  `TyConst` value identity; excluded from the forward-repr harvest and the unrepresentability
-  gate; participates in reverse canon), so per the case-vs-field principle (cleanup item 1) it
-  earns a case, where FS0025 exhaustiveness is a feature. Payoffs: DELETE
-  `CapabilityPlatformFace` + `ExternalClassShape.CapabilityFace` (every plain class drops a
-  mostly-`None` field; `ClrEnv.externalClassRef`'s one-hop face redirect becomes an
-  `IntrinsicInterface` arm), and the `IsInterface` partitions in `MetadataSymbols.tryBuildType`
-  / `UnificationTranslate.externalClassTy` become data-driven off the published shape kind (the
-  "change both or drift" seam disappears). CAUTION: for an interface, `Id.Platform = None`
-  means "anchored by the backend symbol table" (JS), NOT "unrepresentable" — the opposite of a
-  scalar's `None`; needs a sited comment on the field.
+- **Capability interfaces** (`disposable`/`equatable`/`comparable`) — decisions locked (user,
+  2026-07-08), and the work SPLIT into two independently-shippable pieces once the true blast
+  radius was scouted:
+
+  *Decisions.* (a) Apply to ALL THREE anchors (they share the `extern with abstract member` form
+  and are all faced `Class`es today) — migrating one would keep `CapabilityFace` alive and defeat
+  the payoff; all or none. (b) Share ONE `IntrinsicIdentity` record between `Intrinsic` and the
+  planned `IntrinsicInterface`, accepting the `Platform = None` POLARITY (scalar `None` =
+  unrepresentable, gate rejects; interface `None` = backend-anchored on JS, normal) — SAFE because
+  the unrepresentability gate + forward-repr harvest are `Intrinsic`-ONLY by construction and never
+  see an interface, so no shared match arm reads `Platform` across both polarities; it is a
+  sited-comment concern, not a live hazard (the only future risk is a generic helper over
+  `IntrinsicIdentity` that reads `Platform` — none exist).
+
+  *Piece 1 — the (c) drift closure — LANDED 2026-07-08 on the EXISTING faced-`Class`
+  representation, NO DU case.* The two `IsInterface` partition tests
+  (`MetadataSymbols.tryBuildType`, `UnificationTranslate.externalClassTy`) were redundant the
+  moment the DEAD interface entries left the reverse-canon map. Scouted: `IntrinsicReverseCanon`
+  has exactly three readers — `MetadataSymbols` (guarded out by `not t.IsInterface`),
+  `NumberCovariance` (`number` token only), the composition fold (pure aggregation) — so
+  `System.IDisposable → disposable` was dead weight (capability matching reconciles via
+  `CapabilityIdentity`/the face, not the reverse map). Dropping the `TyparCapture` reverse fold's
+  `Class { CapabilityFace = ValueSome }` arm removes those entries; with no interface canon in the
+  map, both guards are provably no-ops (an interface name just misses the lookup → `FTClass`/
+  `TyClass` either way) and were deleted. The "change both or drift" coupling is GONE; the faced
+  `Class`, `ClrEnv.externalClassRef`, and `resolveAnchor` are untouched.
+
+  *Piece 2 — the `IntrinsicInterface` DU-case representation cleanup — LANDED 2026-07-08
+  (SA 776 / Clr 1253 / Js 348 / Vesper 51).* Added `ExternalTypeShape.IntrinsicInterface of {
+  Id: IntrinsicIdentity; Members: ExternalMember[]; Origin: SymbolOrigin }` and DELETED
+  `CapabilityPlatformFace` + `ExternalClassShape.CapabilityFace` (every plain class dropped the
+  mostly-`None` field). Key deviations from the original sketch, forced by the code:
+  - **`Origin` IS carried** (the sketch said "no `Origin` needed, resolve to `TyClass(Id.Canon)`").
+    A capability interface's VALUE resolution key is `externalTypeKey Origin` (asm-qualified
+    `Vesper.Core`), NOT the asm-blind `Id.Canon` — resolving to `Id.Canon` would change the key's
+    asm and break exact-`=` subtype compares. Carrying `Origin` keeps the `TyClass` identity
+    byte-identical to the faced `Class` it replaces; `Id.Canon` is the reconciliation face only.
+    `Origin` is stamped by `ExternalSymbols.stack`'s `stampType` (new `IntrinsicInterface` arm),
+    exactly as a `Class`'s is.
+  - **Produced at FINALIZE, not extraction** (mirrors `PendingIntrinsicClasses` for `obj`/`exn`).
+    A new `ExtractCtx.PendingCapabilityInterfaces` side table is recorded at the `Extern` arm;
+    `finalizeDeferred` republishes each as `IntrinsicInterface` AFTER the interface member-copy
+    loop populates `shape.Members` (minting at extraction would capture empty members → conformance
+    sees zero members).
+  - **The `Extern` `| _ ->` arm handles TWO cases, split by `shape.IsInterface`.** All-abstract
+    body (`disposable`/`equatable`/`comparable`) → `IntrinsicInterface`. A CONCRETE-member intrinsic
+    (`widget`, `member Poke` — synthetic-only, no real contract uses it) is NOT an interface and
+    STAYS a member-bearing `Class` (resolving to `TyClass`, members via `TryLookupMember`). Missing
+    this split is what the `widget` test caught.
+  - **CLR-only.** On JS no `.fs` binds the repr, so a capability stays a plain single-faced
+    interface `Class` (the `resolveAnchor`/`PlatformTypes` JS arms match `Class`, the CLR arms match
+    `IntrinsicInterface`). This is now the CLR/JS asymmetry the tests assert.
+  Reachable structural consumers handled (the blast-radius finding held — non-exhaustive `| _ ->`
+  fallbacks FS0025 does NOT flag): conformance (`Unification.checkInterfaceConformance`, OR-pattern
+  binding `Members`), the `isInterface` gate, the record→interface widen (`Engine.tryStructuralWiden`),
+  the member-name list (`Subsume`), `subtypeInterfacesOf`'s key-mint (`EngineCore`), `mkNominal`
+  (VesperLib freeze → `FTClass`), the arity/keyOf resolvers (`Scope`, `Translate`), and the variance
+  `mapShape`. Audited-and-correct-by-default (an interface is not enumerable / constructible / a
+  static-access class / a for-in source): `InferCtor`, `InferControlFlow.tryForInEnumerator`,
+  `InferResolve.isExternalClass`, `Freeze/Resolve.underlyingClassName`, `Infer.externalInterfaces`,
+  `EngineCore.canonKey`/`intrinsicPlatformName`. The projection helper the sketch proposed was
+  dropped in favour of explicit arms (each reads one field; OR-patterns binding `Members` cover the
+  conformance/widen/member-list sites without a synthesized-shape allocation). CAUTION (sited on
+  `IntrinsicInterfaceShape.Id`): interface `Platform = None` = backend-anchored (JS), the OPPOSITE
+  polarity of a scalar's `None`.
+
+  *Sequenced-after polish (optional, not load-bearing):* declare the anchors `type disposable =
+  extern interface with …` and switch VesperLib from `bodyIsInterface` INFERENCE
+  (`VesperLib.fs:1188`, "all-abstract body IS an interface" — already correct for the flat anchors)
+  to the DECLARED `kindTag`, matching the `extern class` precedent (`obj`/`exn`) and robust for a
+  marker (zero-member) or default-method interface. `ExternKind.Interface` + the `TypeParsing`
+  parse path already exist; only the `.fsi` SIGNATURE parser (`SignatureParsing.fs:394`, currently
+  `opt (pClass |>> ExternKind.Class)`) needs widening to accept `pInterface`. Not required for
+  Piece 2 (inference already yields interface-ness), so it must not gate it.
 - **`top` vs `obj` split** (JS-only refinement): `obj` conflates the value ⊤ (JS `unknown`) with
   the heritable class root (JS `Object`); CLR collapses both to `System.Object`. Sharpest payoff
   is boxing on JS. The high-frequency ⊤ meaning should keep the default name.

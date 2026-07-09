@@ -558,6 +558,30 @@ module VesperLib =
                         }
             | _ -> ()
 
+        // Capability interfaces (`disposable`/`equatable`/`comparable`): republish ONCE as an
+        // `IntrinsicInterface`, now that the member surface is populated (the interface
+        // member-copy loop above copied the deferred members into `shape.Members`). Recorded at
+        // the `TypeSignature.Extern` arm (`PendingCapabilityInterfaces`) because intrinsic-ness
+        // + interface-ness is decided there. `Origin` stays `Empty`; `ExternalSymbols.stack`'s
+        // `stampType` stamps the manifest home later (its `IntrinsicInterface` arm), exactly as
+        // for the faced `Class` this replaces. The reconciliation face is `Id.Platform`.
+        for KeyValue(compiled, struct (canon, platform)) in ctx.PendingCapabilityInterfaces do
+            match ctx.TypeShapes.TryGetValue compiled with
+            | true, ExternalTypeShape.Class shape ->
+                ctx.TypeShapes.[compiled] <-
+                    ExternalTypeShape.IntrinsicInterface
+                        {
+                            Id =
+                                {
+                                    Canon = canon
+                                    Arity = shape.Arity
+                                    Platform = Some platform
+                                }
+                            Members = shape.Members
+                            Origin = shape.Origin
+                        }
+            | _ -> ()
+
         // Vals last: a val signature / constraint target may name an abbreviation,
         // record, or union whose template the loops above just filled. Source order
         // is preserved so the `ModuleSuffix` source-name alias stays first-wins.
@@ -1367,53 +1391,48 @@ module VesperLib =
                     // A trailing `with interface … / member …` publishes a capability
                     // surface: register as a bodied class/interface (`extractBodiedClassLike`)
                     // so a consumer's structural probe sees the members and `FrozenInterfaces`.
-                    // This admits BOTH a capability INTERFACE (`abstract member …`) and a
-                    // CONCRETE member surface (`member Poke: int -> int`) on an intrinsic — a
-                    // concrete `(# … #)`-bound member is a general platform-binding capability
-                    // (the member's body is served as a member-keyed inline splice), not a
-                    // structural mutation of the primitive: the `ExternalTypeShape.Intrinsic`
-                    // shape carries no member slots, so the dual-faced Class is the sole shape
-                    // able to publish them while the `CapabilityFace` keeps the canonical
-                    // primitive identity for `subsumes` / codegen.
+                    // This admits BOTH a capability INTERFACE (`abstract member …`, republished as
+                    // an `IntrinsicInterface` below) and a CONCRETE member surface
+                    // (`member Poke: int -> int`) on an intrinsic (which stays a member-bearing
+                    // `Class`) — a concrete `(# … #)`-bound member is a general platform-binding
+                    // capability (the member's body is served as a member-keyed inline splice),
+                    // not a structural mutation of the primitive: the `ExternalTypeShape.Intrinsic`
+                    // shape carries no member slots, so a member-bearing shape is the only one able
+                    // to publish them.
                     extractBodiedClassLike ctx lexed input opens compiled arity typeName elems
 
-                    // For an intrinsic, attach the platform face from the repr so the Class
-                    // reconciles to its platform spelling exactly as an `Intrinsic` does. A
-                    // target whose `.fs` omits the repr (JS) leaves `CapabilityFace = ValueNone`,
-                    // so the canonical identity stands. A non-intrinsic `extern` stays a plain
-                    // Class (no face).
+                    // For an intrinsic, RECORD it for a one-shot finalize-time republish
+                    // (`obj`/`exn` → `Intrinsic` with a class surface; a capability interface →
+                    // `IntrinsicInterface`). Deferred rather than patched here because neither
+                    // surface is complete at extraction — the heritable primitive's base/`.ctor`s
+                    // are still CSTs, and the capability interface's members aren't copied into
+                    // the shape until the finalize member loop. A target whose `.fs` omits the
+                    // repr (JS) records nothing, so the capability stays the plain single-faced
+                    // interface `Class` `extractBodiedClassLike` registered. A non-intrinsic
+                    // `extern` stays a plain Class.
                     if isIntrinsic then
                         match ctx.IntrinsicReprs.TryGetValue short with
                         | true, platform ->
                             match ctx.TypeShapes.TryGetValue compiled with
                             | true, ExternalTypeShape.Class shape ->
                                 match kindTag with
-                                // `extern class with …` (obj/exn): a heritable PRIMITIVE. Its
-                                // base/`.ctor` surfaces are still deferred CSTs here, so only
-                                // RECORD it; the one-shot republish as an `Intrinsic` with a
-                                // class surface runs in `finalizeDeferred`, once both surfaces
-                                // are frozen. Until then the shape stays the plain `Class`
-                                // `extractBodiedClassLike` registered — safe, because the
-                                // freeze path never reads the shape for a primitive name
-                                // (`isPrimitiveName` short-circuits first). (Contrast a
-                                // capability INTERFACE below, whose face is complete now.)
+                                // `extern class with …` (obj/exn): a heritable PRIMITIVE.
                                 | ValueSome(ExternKind.Class _) ->
                                     ctx.PendingIntrinsicClasses.[compiled] <-
                                         struct (SymbolKeyOps.intrinsicCanonKey compiled short, platform)
-                                // A capability interface (`disposable`): keep the dual-faced
-                                // `Class` so it reconciles to its BCL spelling yet stays a
-                                // `TyClass` constraint.
-                                | _ ->
-                                    ctx.TypeShapes.[compiled] <-
-                                        ExternalTypeShape.Class
-                                            { shape with
-                                                CapabilityFace =
-                                                    ValueSome
-                                                        {
-                                                            Canon = SymbolKeyOps.intrinsicCanonKey compiled short
-                                                            Platform = platform
-                                                        }
-                                            }
+                                // A capability interface (`disposable`/`equatable`/`comparable` —
+                                // an ALL-ABSTRACT body): republishes to an `IntrinsicInterface`
+                                // (a `TyClass` constraint reconciling to its BCL spelling via the
+                                // platform face).
+                                | _ when shape.IsInterface ->
+                                    ctx.PendingCapabilityInterfaces.[compiled] <-
+                                        struct (SymbolKeyOps.intrinsicCanonKey compiled short, platform)
+                                // A CONCRETE `(# … #)`-bound member surface on an intrinsic (a
+                                // general platform-binding capability, NOT an interface): stays the
+                                // plain member-bearing `Class` `extractBodiedClassLike` registered,
+                                // resolving to `TyClass` with its members served through
+                                // `TryLookupMember`.
+                                | _ -> ()
                             | _ -> ()
                         | _ -> ()
                 | _ ->
