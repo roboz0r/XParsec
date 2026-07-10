@@ -127,12 +127,47 @@ What's deliberately *not* parallelised:
   predecessors wrote — the dependency is the whole point of the side-
   table contract in [`docs/passes.md`](passes.md).
 
+## Lowering split: universal vs target-specific
+
+Everything downstream of Freeze is a lowering, and each one has to sit on
+one side of a line: does it run once, here, for every backend — or once
+per backend?
+
+**Universal** lowerings traffic only in `Frozen.TExpr` / `FrozenType` /
+`NodeKey` and live in this project, because the codegen projects must not
+reference each other. `TastLower.fs` is the shared home; `InlineExpansion`
+and `RefCellPromotion` are pre-freeze siblings that lower on the still
+`TyVar`-carrying tree, where `zonk` and union-find are native.
+
+**Target-specific** lowerings live in the backend: DU and tuple
+representation, exception representation, generic instantiation strategy
+(CLR generics vs JS monomorphisation), entry-point shape, and FSharp.Core
+resolution. Overload *name mangling* is target-specific for the same
+reason — JS has no overloading, so it needs a signature-derived name the
+CLR gets free from metadata.
+
+The line is not symmetric, and that asymmetry is the rule to decide by:
+
+> Moving a lowering from universal into a backend is non-breaking. Moving
+> one out of a backend, after discovering it silently encoded that
+> backend's assumptions, is not — every other backend has by then been
+> written against the leak. **When uncertain, make it target-specific.**
+
+Keep the universal list conservative for that reason, not because
+duplication across backends is cheap. Duplication is recoverable;
+a CLR-ism baked into `TastLower` and inherited by JS is not. The
+`compile` / `materialise` pair each backend exposes is a function
+signature, not a shared interface — there is deliberately no
+`IArtifactBuilder`, and no high-level IR between TAST and emission,
+until two backends duplicate enough lowering work to make the shape
+obvious rather than guessed.
+
 ## What's out of scope
 
-- **Target-specific lowering.** `Phase 4.6` in `semantic-analysis.md` (Convert
-  `LocalStack` closures to `ref struct` for .NET, `&T` for Rust, etc.)
-  consumes the frozen TAST. It will live in separate target-plugin projects
-  when those exist.
+- **Target-specific lowering.** Consumes the frozen TAST and lives in the
+  backend projects (`XParsec.FSharp.Codegen.Clr`,
+  `XParsec.FSharp.Codegen.Js`), not here. See §Lowering split above for
+  which side of the line a given lowering belongs on.
 - **Incremental recompilation.** The `NodeKey` design supports it (a CST edit
   invalidates a known range of keys), but no incremental machinery is built.
 - **Generic constraint solver.** The `TypeVar` and union-find code here is
