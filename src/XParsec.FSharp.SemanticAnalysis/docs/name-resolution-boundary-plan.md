@@ -366,13 +366,29 @@ its opens funnel does genuine short→qualified resolution.
 Stage 4 flip).** The audit's 3b inventory was not uniformly type-identity
 resolution; each of the following needs a different vehicle and is deferred:
 
-1. **Type annotations (`x: A.B.T`, `Translate.fs`) and the `new T`
-   written-platform-class arm (`InferCtor`).** Live in `Type` nodes
-   NameResolution's expression walk does not traverse. Recommended: a small
-   *dedicated* `new`/type-head resolve (one `Type.NamedType` per `new`/`inherit`
-   head, stamped into `ResolvedType` keyed by the `Expr.New` node, sharing
-   `translateType`'s canon resolution) — NOT a general type-walker. The full
-   annotation case shares that resolve if pursued.
+1. **`new T` written-platform-class arm — LANDED (2026-07-10); type
+   annotations (`x: A.B.T`, `Translate.fs`) — deferred.** Both live in `Type`
+   nodes the expression walk does not traverse. The `new T(…)` holdout is
+   closed: NameResolution's `visit` now has a dedicated `Expr.New` arm that
+   resolves the written `Type.NamedType` head — opens-aware, Class-only, via
+   the existing `tryResolveExternalClassKey` — and stamps `ResolvedType` keyed
+   by the `Expr.New` node. `InferCtor.inferNew`'s `TyConst` arm reads that
+   stamp (`ctx.Resolution.ResolvedType.TryGetValue key`) and does a
+   key-addressed `.ctor` lookup via `inferExternalCtorOn`; no stamp means a
+   heritable-primitive canon head (`new exn "boom"`) and falls to the intrinsic
+   constructible-surface path — so the `OpenScope.tryQualify` +
+   `qualifiedTypeKey <spelling> 0` mint is gone from the site. Class-only
+   stamping is load-bearing for the same reason as 3b (a scalar-intrinsic head
+   must not be stamped constructible). `inherit T(…)` needed no change:
+   `fillBaseCtorCall` already reads the pre-resolved `info.BaseType`
+   (`TyClass`/`TyConst`) and dispatches by key/canon. Regression guard:
+   `ExternalTypeKeyStampTests.fs` (new-head stamped when the class is known;
+   not stamped for an unknown head), plus the existing CLR raise/ctor splice
+   suites. The **type-annotation general case** (`tryResolveExternalType` in
+   `Translate.fs`) stays deferred: it resolves a written spelling to a *full
+   SemType* (abbrev expansion, canon `TyConst`, capability `TyClass`, `TyEnum`
+   …), not a Class key, and moving it upstream needs the general type-walker
+   this plan deliberately avoids — it is Stage 4 residue, surfaced by the flip.
 2. **Dotted external value refs (`A.B.v`, `InferIdentExpr`) and
    operator/intrinsic symbol resolutions (`InferApp`).** These need the value's
    polymorphic *scheme* (`instantiateSymbol`), not just its key, and the store

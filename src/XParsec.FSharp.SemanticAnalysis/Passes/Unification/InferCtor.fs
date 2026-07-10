@@ -121,22 +121,18 @@ module internal UnificationInferCtor =
         // shape and errors the same way.
         | TyConst(canonKey, tyArgs) ->
             // Type-position resolution: `new T(…)`'s written type `t` lives in a `Type`
-            // node NameResolution's expression walk does not traverse, so there is no
-            // upstream `ResolvedType` stamp to read here — the platform spelling is
-            // re-resolved through opens to reach the platform's wider ctor catalogue
-            // (the deliberate opt-in). Mint the key from the resolved metadata name for
-            // the key-addressed `.ctor` lookup. (Type-annotation follow-up, not an
-            // expression-position holdout.)
-            let writtenPlatformClass =
-                match t with
-                | Type.NamedType li ->
-                    let written = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
-                    OpenScope.tryQualify ctx.Resolution.OpenScope (isExternalClass ctx) written
-                | _ -> ValueNone
-
-            match writtenPlatformClass with
-            | ValueSome resolved ->
-                inferExternalCtorOn infer ctx key (SymbolKeyOps.qualifiedTypeKey resolved 0) tyArgs receiverTy argExpr
+            // node Unification does not traverse, so NameResolution's dedicated
+            // `new`-head resolve stamped the written platform CLASS (opens-aware,
+            // Class-only) into `ResolvedType`, keyed by this `Expr.New` node. A stamped
+            // key means the WRITTEN head named a metadata class — the deliberate opt-in
+            // to the platform's wider ctor catalogue (`new System.Exception(msg, inner)`
+            // canonicalizes to the same `TyConst` but the written head reaches the
+            // metadata ctors); the `.ctor` lookup off it is key-addressed. No stamp
+            // means a heritable-primitive canon head (`new exn "boom"`) whose
+            // constructible surface is the CONTRACT `.ctor` set riding the intrinsic
+            // shape.
+            match ctx.Resolution.ResolvedType.TryGetValue key with
+            | ValueSome declTypeKey -> inferExternalCtorOn infer ctx key declTypeKey tyArgs receiverTy argExpr
             | ValueNone ->
                 match ExternalSymbols.tryIntrinsicClass ctx.Provider canonKey with
                 | ValueSome(struct (_, surface)) ->

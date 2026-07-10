@@ -116,6 +116,29 @@ let tests =
                 Expect.isTrue (isStamped ctx head) "Box<int> receiver head type key stamped"
             }
 
+            // The `new T(…)` head: NameResolution's dedicated `new`-head resolve stamps
+            // the written external CLASS on the `Expr.New` node so `inferNew` reads the
+            // ctor catalogue by key instead of re-resolving the written spelling through
+            // opens at inference time (the written-platform-class ctor opt-in).
+            test "new-head external class is stamped" {
+                let ctx, file = analyse "let w = new Widget(\"a\")"
+
+                match firstBindingExpr file with
+                | Expr.New _ as e -> Expect.isTrue (isStamped ctx e) "new Widget(...) head type key stamped"
+                | other -> failwithf "expected Expr.New, got %A" other
+            }
+
+            // A `new` head the provider does not know as a class is not stamped —
+            // `inferNew`'s `TyConst` arm then falls to the intrinsic constructible-surface
+            // path (`new exn "boom"`), never re-resolving a spelling.
+            test "unknown new-head is not stamped" {
+                let ctx, file = analyse "let w = new Unknown(\"a\")"
+
+                match firstBindingExpr file with
+                | Expr.New _ as e -> Expect.isFalse (isStamped ctx e) "unknown new head is not stamped"
+                | other -> failwithf "expected Expr.New, got %A" other
+            }
+
             // A head the provider does not know is not stamped — the consumer then
             // declines (a resolution failure surfaces, it never re-resolves).
             test "unknown external head is not stamped" {

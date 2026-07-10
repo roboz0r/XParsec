@@ -689,6 +689,26 @@ module NameResolutionScope =
                 CstKeys.ofExpr e,
                 sprintf "Operator-form qualified names not yet resolved (starting at '%s')" displayName
             )
+        | Expr.New(typ = t) ->
+            // Type-head resolution for `new T(…)`. The written type `t` lives in a
+            // `Type` node the expression walk does not traverse (and Unification does
+            // not either), so resolve its head here — opens-aware, Class-only — and
+            // stamp `ResolvedType` keyed by the `Expr.New` node so `inferNew` reads the
+            // platform class identity by key instead of re-running `OpenScope.tryQualify`
+            // at inference time. Only a `Type.NamedType` head resolving to an external
+            // CLASS is stamped: that is the written-platform-class ctor opt-in
+            // (`new System.Exception(msg)` reaching the metadata ctor catalogue). A
+            // heritable-primitive canon head (`new exn "boom"`) resolves to no external
+            // class, leaves the node unstamped, and falls to `inferNew`'s intrinsic
+            // constructible-surface path.
+            match t with
+            | Type.NamedType li ->
+                let written = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
+
+                match tryResolveExternalClassKey ctx written 0 with
+                | ValueSome k -> ctx.Resolution.ResolvedType.Set(CstKeys.ofExpr e, k)
+                | ValueNone -> ()
+            | _ -> ()
         | Expr.TypeApp(expr = receiver; types = types) ->
             // The receiver's arity (its type-arg count) lives on this node, not on
             // the receiver's own visit. Resolve receiver+arity together so a generic
