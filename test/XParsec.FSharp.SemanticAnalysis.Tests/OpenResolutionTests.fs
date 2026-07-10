@@ -18,7 +18,7 @@ let private provider: IExternalSymbolProvider =
             if n = "A.B.thing" then
                 ValueSome(ExternalSymbols.monoFrozen "thing" (FTConst(RuntimeNames.intKey, EqArray.empty)))
             // The qualified operator `A.B.(+)` resolves to its compiled name
-            // `A.B.op_Addition` (opens-overhaul-plan Gap 4).
+            // `A.B.op_Addition`.
             elif n = "A.B.op_Addition" then
                 ValueSome(ExternalSymbols.monoFrozen "op_Addition" (FTConst(RuntimeNames.intKey, EqArray.empty)))
             else
