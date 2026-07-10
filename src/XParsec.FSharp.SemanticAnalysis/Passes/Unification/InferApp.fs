@@ -573,6 +573,13 @@ module internal UnificationInferApp =
             | None ->
                 match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
                 | ValueSome sym ->
+                    // Record the resolved identity so Freeze stamps it onto the
+                    // `TExpr.External(name, …)` it mints for this operator and
+                    // `InlineExpansion` splices the cross-package `let inline` body by
+                    // KEY (the operand-general operators — a referenced package's
+                    // `(+)` etc.; a saturated builtin on primitives is emitted by
+                    // codegen and never splices).
+                    ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
                     let resultTy = TyVar(freshTyVar ctx)
 
                     unify
@@ -610,6 +617,10 @@ module internal UnificationInferApp =
 
         match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "op_Dynamic" with
         | ValueSome sym ->
+            // Thread the resolved `op_Dynamic` identity to Freeze's `External` mint
+            // (`translateDynamicLookup`, same `DynamicLookup` key) so the `$0[$1]`
+            // body splices by KEY.
+            ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
             let resultVar = freshTyVar ctx
             let resultTy = TyVar resultVar
 
@@ -641,6 +652,11 @@ module internal UnificationInferApp =
 
         match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "op_DynamicAssignment" with
         | ValueSome sym ->
+            // Thread the resolved `op_DynamicAssignment` identity to Freeze's
+            // `External` mint (`translateAssignment`'s `DynamicLookup` arm, keyed by
+            // the enclosing `Assignment` node) so the `$0[$1] = $2` body splices by KEY.
+            ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
+
             unify
                 ctx
                 key
@@ -678,6 +694,9 @@ module internal UnificationInferApp =
         | ValueSome(DesugaredForm.OpName name) ->
             match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
             | ValueSome sym ->
+                // Thread the resolved identity to Freeze's `TExpr.External` mint (see
+                // the infix twin above) so the prefix operator splices by KEY.
+                ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
                 let resultTy = TyVar(freshTyVar ctx)
                 unify ctx key (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel) (TyFun(operandTy, resultTy))
                 resultTy

@@ -812,4 +812,40 @@ module internal UnificationInferControlFlow =
         let leftTy = infer ctx left
         let rightTy = infer ctx right
         unify ctx key leftTy rightTy
+
+        // `arr.[i] <- v` mints a `SetArray`/`SetIndex` `External` head in Freeze's
+        // `translateAssignment` (the write mirror of the `GetArray`/`GetIndex` read
+        // resolved by `inferIndexedLookup` above). Unlike the read intrinsics, the
+        // WRITE intrinsic is never resolved by the plain type-check, so resolve it
+        // here and stamp its identity under this `Assignment` node key — the same key
+        // Freeze reads — so `InlineExpansion` splices the `stelem` / `$0[$1] = $2`
+        // body by KEY. Receiver classification mirrors `translateAssignment` exactly
+        // (an index-signature class → `SetIndex`, else `SetArray`): the receiver is
+        // already grounded by the read resolution, so both passes agree.
+        let rec unwrapLhs e =
+            match e with
+            | Expr.EnclosedBlock(expr = inner)
+            | Expr.TypeAnnotation(expr = inner) -> unwrapLhs inner
+            | _ -> e
+
+        match unwrapLhs left with
+        | Expr.IndexedLookup(expr = arrE) ->
+            let arrTy = zonk (TyVar(tvOf ctx (CstKeys.ofExpr arrE)))
+
+            let setName =
+                match arrTy with
+                | TyClass(clsKey, _) when
+                    not (
+                        ctx.Provider.TryLookupIndexSignature(SymbolKeyOps.qualifiedName clsKey)
+                        |> List.isEmpty
+                    )
+                    ->
+                    "SetIndex"
+                | _ -> "SetArray"
+
+            match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup setName with
+            | ValueSome sym -> ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
+            | ValueNone -> ()
+        | _ -> ()
+
         ctx.Intrinsics.Unit

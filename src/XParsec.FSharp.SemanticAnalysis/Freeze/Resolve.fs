@@ -761,8 +761,12 @@ module internal FreezeResolve =
     /// One `receiver.seg` access node: `PropertyGet` for a class / union member,
     /// `FieldGet` otherwise. `recvTy` is the receiver's (un-zonked) type; `stepTy`
     /// is the segment's already-resolved result type.
+    /// `chainKey` is the enclosing `LongIdent` chain's NodeKey — the identity
+    /// Unification stamped the resolved `GetArrayLength` intrinsic under for the
+    /// `arr.Length` array-length arm below (so the `ldlen` body splices by KEY).
     let fieldStep
         (ctx: PassContext)
+        (chainKey: NodeKey)
         (receiver: TExpr)
         (recvTy: SemType)
         (segName: string)
@@ -814,7 +818,8 @@ module internal FreezeResolve =
         // parses as a local-headed LongIdent field chain (not `DotLookup`), so this
         // `fieldStep` arm is the one that fires; mirrors the `DotLookup` array guard.
         | TyArray _ when segName = "Length" ->
-            TExpr.App(TExpr.External("GetArrayLength", ValueNone, TyFun(recvTy, stepTy), tok), receiver, stepTy, tok)
+            let lenKey = ctx.Resolution.IntrinsicKey.TryGetValue chainKey
+            TExpr.App(TExpr.External("GetArrayLength", lenKey, TyFun(recvTy, stepTy), tok), receiver, stepTy, tok)
         | _ -> TExpr.FieldGet(receiver, segName, stepTy, tok)
 
     /// `r.M(...)` where `r` has a class / union type and `M` is one of its

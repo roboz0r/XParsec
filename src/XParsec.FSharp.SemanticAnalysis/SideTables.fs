@@ -1307,6 +1307,26 @@ type PassContextResolution =
         /// (e.g. "is this exactly `Vesper.Printf.printfn`?") instead of
         /// suffix-matching the source-written name.
         ExternalValue: SideTable<SymbolKey>
+        /// Keyed by the `NodeKey` of an expression Freeze lowers to a desugared
+        /// `TExpr.External(<intrinsicName>, …)` head that splices a cross-package
+        /// `let inline` body: an arithmetic/comparison/custom operator
+        /// (`InfixApp`/`PrefixApp`), the dynamic-access operators
+        /// (`op_Dynamic` on a `DynamicLookup`, `op_DynamicAssignment` on the
+        /// enclosing `Assignment`), or a synthesised element/index/length intrinsic
+        /// (`GetArray`/`GetString`/`GetIndex` on an `IndexedLookup`,
+        /// `SetArray`/`SetIndex` on the enclosing `Assignment`, `GetArrayLength` on
+        /// the `.Length` `DotLookup` / `LongIdent` chain). Unification resolves the
+        /// intrinsic's `ExternalSymbol` through the provider while typing the node
+        /// (the same `OpenScope.tryResolve` that grounds the call) and records its
+        /// `SymbolKey` here; Freeze stamps it onto the minted `TExpr.External` so
+        /// `InlineExpansion` splices the body by KEY. Absent ⇒ the head keeps
+        /// `key = ValueNone` (a saturated builtin operator codegen emits directly via
+        /// `BuiltinOps`, `op_AddressOf` / other non-provider intrinsics, or a splice
+        /// target whose symbol did not resolve — a diagnostic already fired). This is
+        /// the operator/intrinsic twin of `ExternalValue` (resolved *value* refs); it
+        /// exists because these heads are minted fresh by Freeze rather than routed
+        /// through `translateIdent`'s `ExternalValue` path.
+        IntrinsicKey: SideTable<SymbolKey>
         /// Keyed by an operator-as-value node's `NodeKey` (`(+)` in `Seq.fold (+) …`):
         /// the `SymbolKey` of the *project-local* nominal whose static-operator
         /// member the value binds to. F# resolves such an operator value to the
@@ -1386,6 +1406,7 @@ module PassContextResolution =
             TyparInterfaceCall = SideTable<_>()
             ExternalOptionalFill = SideTable<_>()
             ExternalValue = SideTable<_>()
+            IntrinsicKey = SideTable<_>()
             ResolvedOperatorValue = SideTable<_>()
             TypeTestTargets = SideTable<_>()
             UseDispose = SideTable<_>()

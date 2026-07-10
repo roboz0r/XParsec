@@ -248,7 +248,12 @@ module internal FreezeApply =
             let rightTy = typeOfKey ctx (CstKeys.ofExpr right)
             let partialTy = TyFun(rightTy, resultTy)
             let opTy = TyFun(leftTy, partialTy)
-            let opExpr = TExpr.External(name, ValueNone, opTy, tok)
+            // Unification (`inferInfix`) stamped the resolved operator identity under
+            // this InfixApp key; carry it so `InlineExpansion` splices the operand-
+            // general `let inline` body by KEY. Absent for a saturated builtin op
+            // (codegen's `BuiltinOps` emits it directly) — then the head stays keyless.
+            let opKey = ctx.Resolution.IntrinsicKey.TryGetValue key
+            let opExpr = TExpr.External(name, opKey, opTy, tok)
             let app1 = TExpr.App(opExpr, translateExpr ctx left, partialTy, tok)
             TExpr.App(app1, translateExpr ctx right, resultTy, tok)
         | ValueSome DesugaredForm.ConsExpr ->
@@ -283,7 +288,10 @@ module internal FreezeApply =
             // rather than re-instantiating the scheme.
             let operandTy = typeOfKey ctx (CstKeys.ofExpr operand)
             let opTy = TyFun(operandTy, resultTy)
-            let opExpr = TExpr.External(name, ValueNone, opTy, tok)
+            // See translateInfix: carry the resolved prefix-operator identity stamped
+            // by `inferPrefix` so the body splices by KEY.
+            let opKey = ctx.Resolution.IntrinsicKey.TryGetValue key
+            let opExpr = TExpr.External(name, opKey, opTy, tok)
             TExpr.App(opExpr, translateExpr ctx operand, resultTy, tok)
         | ValueSome _
         | ValueNone -> failwithf "Freeze: PrefixApp at %O missing DesugaredForm entry" key

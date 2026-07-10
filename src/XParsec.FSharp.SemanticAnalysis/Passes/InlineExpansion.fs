@@ -308,8 +308,8 @@ module InlineExpansion =
 
     /// Expand the module-level inlines in one decl-list (the elaborated,
     /// `TyVar`-carrying decls paired with their freeze envs). The cross-package
-    /// inline-body channel is `provider` itself (`TryLookupInlineBody` / `…ByName`,
-    /// now members of `IExternalSymbolProvider`); a front-end-only provider serves
+    /// inline-body channel is `provider` itself (`TryLookupInlineBody`, keyed by the
+    /// resolved `SymbolKey`, a member of `IExternalSymbolProvider`); a front-end-only provider serves
     /// none and every lookup returns `ValueNone`, so the walk is an identity
     /// rebuild — which `Freeze.freezeTypars` does to every decl immediately after
     /// regardless, so there is no node-identity to preserve by skipping it.
@@ -357,19 +357,21 @@ module InlineExpansion =
                 counter <- counter + 1
                 k
 
-            let lookupExternal (keyOpt: SymbolKey voption) (name: string) : InlineBody voption =
-                // Prefer the identity-robust `SymbolKey` channel; fall back to the
-                // source-name residue for `External` heads still carrying
-                // `key = ValueNone` (operator / desugared heads). `byKey` is a
-                // subset of `byName` by construction, so this expands exactly the
-                // set codegen's retired name-based `lowerWith` did. A provider with
-                // no inline bodies returns `ValueNone` from both.
+            let lookupExternal (keyOpt: SymbolKey voption) : InlineBody voption =
+                // Splice a cross-package `let inline` body by its resolved
+                // `SymbolKey` — the sole channel. Every splice-eligible `External`
+                // head is key-stamped upstream: value refs by NameResolution
+                // (`ExternalValue`), operator / synthesised-intrinsic heads by
+                // `Freeze` (`Resolution.IntrinsicKey`), and intra-body sibling refs by
+                // `collectInlineBodies`' rewrite. A `key = ValueNone` head therefore
+                // carries no inline body by construction — a saturated builtin
+                // operator codegen emits directly, `Array.ofList` / ctor-as-value
+                // handled by codegen recipes / eta-expansion — so ValueNone here is a
+                // genuine "no body", never a missed keyless splice. A provider with no
+                // inline bodies returns `ValueNone`.
                 match keyOpt with
-                | ValueSome key ->
-                    match provider.TryLookupInlineBody key with
-                    | ValueSome d -> ValueSome d
-                    | ValueNone -> provider.TryLookupInlineBodyByName name
-                | ValueNone -> provider.TryLookupInlineBodyByName name
+                | ValueSome key -> provider.TryLookupInlineBody key
+                | ValueNone -> ValueNone
 
             let expandLocalAt (k: NodeKey) (spineArgs: (TExpr * SemType * SyntaxToken) list) : TExpr =
                 let decl = localInlines.[k]
@@ -587,7 +589,7 @@ module InlineExpansion =
                                 | TExpr.Var(k, _, _) when lambdaEnv.ContainsKey k ->
                                     ValueSome(walk (betaReduce (Inline.freshen mint lambdaEnv.[k]) spineArgs))
                                 | TExpr.External(name, keyOpt, _, _) ->
-                                    match lookupExternal keyOpt name with
+                                    match lookupExternal keyOpt with
                                     | ValueSome ib when
                                         externalArgsGround ib.Decl spineArgs
                                         || not (isSaturatedBuiltin name (List.length spineArgs))
@@ -671,8 +673,8 @@ module InlineExpansion =
                             // as an unbound `TyVar` ("unresolved TyVar" at freeze). A NON-generic
                             // one (`undefined`) is unchanged: `refTy` equals its concrete result
                             // type and it carries no operand.
-                            | TExpr.External(name, keyOpt, refTy, _) ->
-                                match lookupExternal keyOpt name with
+                            | TExpr.External(_, keyOpt, refTy, _) ->
+                                match lookupExternal keyOpt with
                                 | ValueSome ib ->
                                     match Inline.nullaryIntrinsicValueBody ib.Decl with
                                     | ValueSome(TExpr.ILIntrinsic(op, operand, args, _, tok)) ->

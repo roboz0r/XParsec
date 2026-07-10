@@ -511,7 +511,6 @@ module VesperLibTyparCapture =
                 // those are collected separately and served by the codegen
                 // contract-stack wrapper that layers over this provider.
                 member _.TryLookupInlineBody _ = ValueNone
-                member _.TryLookupInlineBodyByName _ = ValueNone
 
                 member _.IntrinsicReverseCanon = intrinsicReverse
                 member _.IntrinsicForwardRepr = intrinsicForward

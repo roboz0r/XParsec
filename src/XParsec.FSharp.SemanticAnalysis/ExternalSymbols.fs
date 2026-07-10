@@ -849,13 +849,6 @@ type IExternalSymbolProvider =
     /// `ValueNone`.
     abstract TryLookupInlineBody: key: SymbolKey -> InlineBody voption
 
-    /// `TryLookupInlineBody` by source/compiled name — the residual fallback for
-    /// use-site `External` heads that still carry `key = ValueNone` (operator /
-    /// desugared heads, which `FreezeExpr` does not yet stamp). Shrinks toward
-    /// nothing as more head shapes get their key stamped; `ValueNone` once they
-    /// all do (and for providers with no inline bodies).
-    abstract TryLookupInlineBodyByName: name: string -> InlineBody voption
-
     /// The reverse intrinsic axis `{ platform-repr -> [canon] }`, so the unifier can
     /// reconcile an incoming BCL/native *runtime* name (the `platform` face, e.g.
     /// `"System.Exception"` surfaced by a metadata `inherit` chain on CLR) back to the
@@ -1486,7 +1479,6 @@ module ExternalSymbols =
             member _.TryLookupUnionCase _ = ValueNone
             member _.AmbientOpenPrefixes = []
             member _.TryLookupInlineBody _ = ValueNone
-            member _.TryLookupInlineBodyByName _ = ValueNone
             member _.IntrinsicReverseCanon = Map.empty
             member _.IntrinsicForwardRepr = emptyForwardRepr
         }
@@ -1723,9 +1715,6 @@ module ExternalSymbols =
             member _.TryLookupInlineBody key =
                 firstHit (fun s -> s.TryLookupInlineBody key)
 
-            member _.TryLookupInlineBodyByName name =
-                firstHit (fun s -> s.TryLookupInlineBodyByName name)
-
             member _.IntrinsicReverseCanon = reverseCanon
             member _.IntrinsicForwardRepr = forwardRepr
         }
@@ -1873,7 +1862,6 @@ module ExternalSymbols =
 
             member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
             member _.TryLookupInlineBody key = inner.TryLookupInlineBody key
-            member _.TryLookupInlineBodyByName name = inner.TryLookupInlineBodyByName name
             member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
             member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
         }
@@ -1899,7 +1887,6 @@ module ExternalSymbols =
         let indexSigs = ConcurrentDictionary<string, (FrozenType * FrozenType) list>()
         let unionCases = ConcurrentDictionary<string, ExternalUnionCase voption>()
         let inlineByKey = ConcurrentDictionary<SymbolKey, InlineBody voption>()
-        let inlineByName = ConcurrentDictionary<string, InlineBody voption>()
 
         { new IExternalSymbolProvider with
             member _.TryLookup name =
@@ -1927,9 +1914,6 @@ module ExternalSymbols =
 
             member _.TryLookupInlineBody key =
                 inlineByKey.GetOrAdd(key, (fun k -> inner.TryLookupInlineBody k))
-
-            member _.TryLookupInlineBodyByName name =
-                inlineByName.GetOrAdd(name, (fun n -> inner.TryLookupInlineBodyByName n))
 
             member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
             member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr

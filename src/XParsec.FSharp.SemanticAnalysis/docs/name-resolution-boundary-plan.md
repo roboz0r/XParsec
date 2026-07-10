@@ -181,10 +181,32 @@ assumption, not an invariant —
 
 Each stage lands green and independently.
 
-### Stage 1 — inline name channel removal
+### Stage 1 — inline name channel removal — **LANDED (2026-07-10)**
 
-Unchanged from the identity plan; do it first so the store face is born
-without `TryLookupInlineBodyByName`.
+The store face is now born without `TryLookupInlineBodyByName`. Mechanism as
+shipped: a new `PassContextResolution.IntrinsicKey : SideTable<SymbolKey>` (the
+operator/intrinsic twin of `ExternalValue`), keyed by the expression `NodeKey`
+both Unification and Freeze compute as `CstKeys.ofExpr e`. Unification stamps the
+resolved `sym.Key` at each resolution site it already ran — `inferInfix` /
+`inferPrefix` (operators), `inferIndexedLookup` (`GetArray`/`GetString`/`GetIndex`),
+`resolveFieldStep` (`GetArrayLength`), `inferDynamicLookup` / `inferDynamicSet`
+(`op_Dynamic`/`op_DynamicAssignment`) — plus a NEW write-path resolution in
+`inferAssignment` for `SetArray`/`SetIndex` (the read path never resolved the write
+intrinsic). Freeze reads the stamp at each mint site (threading the node `key` into
+`translateAssignment`/`translateDotLookup`/`translateDynamicLookup`/`fieldStep`,
+which previously took none). Group 3 (`collectInlineBodies`' `rewriteInlineVars`)
+keys sibling intra-body refs from the same `TryLookup(qualifiedValueName info)` that
+mints `ValueInlineBody.Key`. `InlineExpansion.lookupExternal` collapsed to a
+key-only lookup; `TryLookupInlineBodyByName` deleted from the interface, all impls,
+decorators, the caching layer, and every stub. The simple-name `byName` map is
+retained ONLY as the `contractInlineBodies` test-introspection return (no provider
+channel). `arrayOfList` and ctor-as-value heads correctly stay `key = ValueNone`
+(codegen recipe / eta-expansion, never spliced). Regression guards:
+`IntrinsicKeyStampTests.fs` (front-end key-presence) plus the existing JS/CLR
+end-to-end splice suites, all green with the name channel gone.
+
+Original scoping (retained for provenance): unchanged from the identity plan; done
+first so the store face is born without `TryLookupInlineBodyByName`.
 
 `TryLookupInlineBodyByName` has exactly one consumer —
 `InlineExpansion.lookupExternal`'s `key = ValueNone` fallback — serving

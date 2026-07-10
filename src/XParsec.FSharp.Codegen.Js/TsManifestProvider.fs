@@ -264,7 +264,6 @@ module TsManifestProvider =
             member _.TryLookupUnionCase _ = ValueNone
             member _.AmbientOpenPrefixes = []
             member _.TryLookupInlineBody _ = ValueNone
-            member _.TryLookupInlineBodyByName _ = ValueNone
             member _.IntrinsicReverseCanon = Map.empty
             member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
 

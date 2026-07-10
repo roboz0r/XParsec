@@ -440,6 +440,10 @@ module internal UnificationInferRecordAccess =
         | TyArray _ when memberName = "Length" ->
             match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "GetArrayLength" with
             | ValueSome sym ->
+                // Thread the resolved `GetArrayLength` identity to Freeze's
+                // `External` mint (the `.Length` `DotLookup` / `LongIdent`-chain
+                // forms) so `InlineExpansion` splices the `ldlen` body by KEY.
+                ctx.Resolution.IntrinsicKey.Set(diagKey, sym.Key)
                 let resultTy = TyVar(freshTyVar ctx)
                 unify ctx diagKey (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel) (TyFun(rTy, resultTy))
                 resultTy
@@ -481,6 +485,10 @@ module internal UnificationInferRecordAccess =
         let getArrayIndex () =
             match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "GetArray" with
             | ValueSome sym ->
+                // Thread the resolved `GetArray` identity to Freeze's `External` mint
+                // (`translateIndexedLookup`, same `IndexedLookup` key) so the `ldelem`
+                // body splices by KEY.
+                ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
                 let resultTy = TyVar(freshTyVar ctx)
 
                 unify
@@ -501,6 +509,8 @@ module internal UnificationInferRecordAccess =
         let getStringIndex () =
             match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "GetString" with
             | ValueSome sym ->
+                // Thread the resolved `GetString` identity (see `getArrayIndex`).
+                ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
                 let resultTy = TyVar(freshTyVar ctx)
 
                 unify
@@ -608,6 +618,9 @@ module internal UnificationInferRecordAccess =
 
                 match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "GetIndex" with
                 | ValueSome sym ->
+                    // Thread the resolved `GetIndex` identity to Freeze's `External`
+                    // mint (same `IndexedLookup` key) so the `$0[$1]` body splices by KEY.
+                    ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
                     let resultTy = TyVar(freshTyVar ctx)
 
                     unify

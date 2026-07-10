@@ -279,7 +279,7 @@ module internal FreezeExpr =
         | Expr.TryFinally(tryExpr = body; finallyExpr = finallyE) ->
             TExpr.TryFinally(translateExpr ctx body, translateExpr ctx finallyE, ty, tok)
         | Expr.Assignment(leftExpr = left; rightExpr = right) ->
-            FreezeAccess.translateAssignment translateExpr ctx left right ty tok
+            FreezeAccess.translateAssignment translateExpr ctx key left right ty tok
         | Expr.Record(fieldInitializers = inits) -> translateRecord ctx inits ty tok
         | Expr.RecordClone(expr = src; fieldInitializers = inits) -> translateRecordClone ctx src inits ty tok
         // Member access on an *external* type (static `Type.Member` or instance
@@ -308,9 +308,9 @@ module internal FreezeExpr =
             let key = LocalSymbolKey.ofMember declKey memberName 0 MemberKind.Property
             TExpr.StaticPropertyGet(key, ty, tok)
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-            FreezeAccess.translateDotLookup translateExpr ctx r (ctx.NameOf li.Idents.[0]) ty tok
+            FreezeAccess.translateDotLookup translateExpr ctx key r (ctx.NameOf li.Idents.[0]) ty tok
         | Expr.DynamicLookup(expr = r; ident = idTok) ->
-            FreezeAccess.translateDynamicLookup translateExpr ctx r idTok ty tok
+            FreezeAccess.translateDynamicLookup translateExpr ctx key r idTok ty tok
         | Expr.Null _ -> TExpr.Null(ty, tok)
         // A range reaches these arms ONLY when it was NOT consumed by `translateForIn`'s
         // counted-`ForTo` lowering (the unit-step, simple-binder for-in source). That

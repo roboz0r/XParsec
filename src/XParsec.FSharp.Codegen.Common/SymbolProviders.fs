@@ -141,16 +141,26 @@ module SymbolProviders =
         let acc = ResizeArray<ValueInlineBody>()
         let memberAcc = ResizeArray<MemberInlineBody>()
 
-        // Pre-pass: build NodeKey → source-name map. Inline bodies that reference a
-        // sibling inline carry `TExpr.Var` bound to a key not in scope at a consumer
-        // use site; rewrite those to `TExpr.External(name)` so the inliner can splice them.
+        // Pre-pass: build NodeKey → source-name and NodeKey → resolved-`SymbolKey`
+        // maps. Inline bodies that reference a sibling inline carry `TExpr.Var` bound
+        // to a key not in scope at a consumer use site; rewrite those to
+        // `TExpr.External(name, key)` so the inliner splices them by KEY — the same
+        // identity `ValueInlineBody.Key` interns the sibling under (resolved via the
+        // identical `TryLookup(qualifiedValueName info)`), so the rewritten head hits
+        // the by-KEY store rather than the (now-removed) by-name fallback.
         let inlineNames = System.Collections.Generic.Dictionary<NodeKey, string>()
+        let inlineKeys = System.Collections.Generic.Dictionary<NodeKey, SymbolKey>()
 
         for d in tast.Decls do
             match d with
             | TDecl.Let(TPat.NamedSimple(k, _, _), _, true, _) ->
                 match Map.tryFind k tast.ModuleMembers with
-                | Some info -> inlineNames.[k] <- info.Name
+                | Some info ->
+                    inlineNames.[k] <- info.Name
+
+                    match ctx.Provider.TryLookup(qualifiedValueName info) with
+                    | ValueSome s -> inlineKeys.[k] <- s.Key
+                    | ValueNone -> ()
                 | None -> ()
             | _ -> ()
 
@@ -162,7 +172,13 @@ module SymbolProviders =
                             match e with
                             | TExpr.Var(k, ty, tok) ->
                                 match inlineNames.TryGetValue k with
-                                | true, name -> ValueSome(TExpr.External(name, ValueNone, ty, tok))
+                                | true, name ->
+                                    let keyOpt =
+                                        match inlineKeys.TryGetValue k with
+                                        | true, sk -> ValueSome sk
+                                        | _ -> ValueNone
+
+                                    ValueSome(TExpr.External(name, keyOpt, ty, tok))
                                 | _ -> ValueNone
                             | _ -> ValueNone
                 }
@@ -304,13 +320,12 @@ module SymbolProviders =
             System.StringComparer.Ordinal
         )
 
-    /// Wrap `inner` to serve cross-package inline bodies. `byKey` is the primary
-    /// channel (resolved `SymbolKey`); `byName` is the source-name fallback for
-    /// `External` heads with `key = ValueNone`.
+    /// Wrap `inner` to serve cross-package inline bodies. `byKey` (resolved
+    /// `SymbolKey`) is the sole channel: every splice-eligible `External` head is
+    /// key-stamped upstream, so a keyless head carries no body by construction.
     let private withInlineBodies
         (inner: IExternalSymbolProvider)
         (byKey: System.Collections.Generic.Dictionary<SymbolKey, InlineBody>)
-        (byName: Map<string, InlineBody>)
         : IExternalSymbolProvider =
         { new IExternalSymbolProvider with
             member _.TryLookup name = inner.TryLookup name
@@ -325,11 +340,6 @@ module SymbolProviders =
                 match byKey.TryGetValue key with
                 | true, v -> ValueSome v
                 | _ -> ValueNone
-
-            member _.TryLookupInlineBodyByName name =
-                match Map.tryFind name byName with
-                | Some v -> ValueSome v
-                | None -> ValueNone
 
             member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
             member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
@@ -362,9 +372,11 @@ module SymbolProviders =
 
                          let values, memberInlines = inlineBodies target provider ordered
 
-                         // The by-NAME fallback (`External` heads with `key = ValueNone`
-                         // — a bare `undefined`, intra-body refs). Simple-name keyed; a
-                         // later body wins a clash (list is in manifest/decl order).
+                         // A simple-name → body map — NOT a provider channel (the
+                         // provider serves inline bodies only by `SymbolKey`); it is the
+                         // introspection seam `contractInlineBodies` returns so tests can
+                         // assert a manifest set collected the bodies it should. A later
+                         // body wins a clash (list is in manifest/decl order).
                          let byName = (Map.empty, values) ||> List.fold (fun m v -> Map.add v.Name v.Body m)
 
                          let byKey =
@@ -377,7 +389,8 @@ module SymbolProviders =
                          // spelling: the store builder does no source-name lookup of its
                          // own. (The simple name does not resolve — the index is
                          // qualified-name keyed and the holder is not auto-opened — which
-                         // is why the by-name fallback alone once needed a name-rewrite hack.)
+                         // is why a sibling intra-body ref is key-stamped by
+                         // `collectInlineBodies`' rewrite rather than left to resolve by name.)
                          for v in values do
                              match v.Key with
                              | ValueSome k -> byKey.[k] <- v.Body
@@ -393,7 +406,7 @@ module SymbolProviders =
                              | ValueSome mem -> byKey.[mem.Key] <- mb.Body
                              | ValueNone -> ()
 
-                         withInlineBodies provider byKey byName, byName)
+                         withInlineBodies provider byKey, byName)
             )
             .Value
 

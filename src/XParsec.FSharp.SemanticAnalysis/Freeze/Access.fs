@@ -19,6 +19,7 @@ module internal FreezeAccess =
     let translateAssignment
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
+        (key: NodeKey)
         (left: Expr<SyntaxToken>)
         (right: Expr<SyntaxToken>)
         (ty: SemType)
@@ -66,7 +67,11 @@ module internal FreezeAccess =
                     "SetIndex"
                 | _ -> "SetArray"
 
-            let setExpr = TExpr.External(setName, ValueNone, TyFun(arrTy, idxPartial), tok)
+            // Unification (`inferAssignment`) stamped the resolved `SetArray`/
+            // `SetIndex` identity under this `Assignment` key; carry it so the
+            // `stelem` / `$0[$1] = $2` body splices by KEY.
+            let setKey = ctx.Resolution.IntrinsicKey.TryGetValue key
+            let setExpr = TExpr.External(setName, setKey, TyFun(arrTy, idxPartial), tok)
             let app1 = TExpr.App(setExpr, translateExpr ctx arrE, idxPartial, tok)
             let app2 = TExpr.App(app1, translateExpr ctx idxE, valuePartial, tok)
             TExpr.App(app2, translateExpr ctx right, ty, tok)
@@ -79,6 +84,14 @@ module internal FreezeAccess =
             // segments and a final FieldSet for the assigned slot.
             let receiverIdents = li.Idents
             let lastIdx = receiverIdents.Length - 1
+
+            // The chain's NodeKey, for `fieldStep`'s `GetArrayLength` stamp lookup.
+            // A `.Length` never appears as an assignment-*receiver* segment (it is
+            // read-only, so it cannot be an intermediate step), so this is only ever
+            // passed through — but `fieldStep` requires it, and this is the identity
+            // Unification would have stamped a chain intrinsic under.
+            let liKey =
+                NodeKey.ofToken (CstKeys.firstTokenOfLongIdent li) NodeKind.ExprLongIdent
 
             let receiverChain =
                 let head = receiverIdents.[0]
@@ -109,7 +122,7 @@ module internal FreezeAccess =
                         | ValueSome t -> t
                         | ValueNone -> currTy
 
-                    curr <- fieldStep ctx curr currTy segName stepTy tok
+                    curr <- fieldStep ctx liKey curr currTy segName stepTy tok
                     currTy <- stepTy
 
                 curr
@@ -130,8 +143,10 @@ module internal FreezeAccess =
             let valuePartial = TyFun(valTy, ty)
             let namePartial = TyFun(ctx.Intrinsics.String, valuePartial)
 
+            let opKey = ctx.Resolution.IntrinsicKey.TryGetValue key
+
             let opExpr =
-                TExpr.External("op_DynamicAssignment", ValueNone, TyFun(recvTy, namePartial), tok)
+                TExpr.External("op_DynamicAssignment", opKey, TyFun(recvTy, namePartial), tok)
 
             let app1 = TExpr.App(opExpr, translateExpr ctx r, namePartial, tok)
             let app2 = TExpr.App(app1, nameLit, valuePartial, tok)
@@ -143,6 +158,7 @@ module internal FreezeAccess =
     let translateDotLookup
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
+        (key: NodeKey)
         (r: Expr<SyntaxToken>)
         (memberName: string)
         (ty: SemType)
@@ -166,7 +182,8 @@ module internal FreezeAccess =
         // `ops-platform.fs`, spliced by `InlineExpansion`. Mirrors the
         // `fieldStep` array guard (the LongIdent-chain form).
         | TyArray _ when memberName = "Length" ->
-            TExpr.App(TExpr.External("GetArrayLength", ValueNone, TyFun(rTy, ty), tok), receiver, ty, tok)
+            let lenKey = ctx.Resolution.IntrinsicKey.TryGetValue key
+            TExpr.App(TExpr.External("GetArrayLength", lenKey, TyFun(rTy, ty), tok), receiver, ty, tok)
         | _ -> TExpr.FieldGet(receiver, memberName, ty, tok)
 
     /// `recv?name` → `(?) recv "name"` → the `op_Dynamic` inline body `$0[$1]`
@@ -176,6 +193,7 @@ module internal FreezeAccess =
     let translateDynamicLookup
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
+        (key: NodeKey)
         (r: Expr<SyntaxToken>)
         (idTok: SyntaxToken)
         (ty: SemType)
@@ -187,7 +205,8 @@ module internal FreezeAccess =
             TExpr.Const(TConstValue.String(ctx.NameOf idTok), ctx.Intrinsics.String, tok)
 
         let partialTy = TyFun(ctx.Intrinsics.String, ty)
-        let opExpr = TExpr.External("op_Dynamic", ValueNone, TyFun(recvTy, partialTy), tok)
+        let opKey = ctx.Resolution.IntrinsicKey.TryGetValue key
+        let opExpr = TExpr.External("op_Dynamic", opKey, TyFun(recvTy, partialTy), tok)
         let app1 = TExpr.App(opExpr, translateExpr ctx r, partialTy, tok)
         TExpr.App(app1, nameLit, ty, tok)
 
@@ -283,6 +302,10 @@ module internal FreezeAccess =
                     "GetIndex"
                 | _ -> "GetArray"
 
-            let getExpr = TExpr.External(getName, ValueNone, getTy, tok)
+            // Unification (`inferIndexedLookup`) stamped the resolved
+            // `GetArray`/`GetString`/`GetIndex` identity under this `IndexedLookup`
+            // key; carry it so the `ldelem` / `$0[$1]` body splices by KEY.
+            let getKey = ctx.Resolution.IntrinsicKey.TryGetValue key
+            let getExpr = TExpr.External(getName, getKey, getTy, tok)
             let app1 = TExpr.App(getExpr, translateExpr ctx r, partialTy, tok)
             TExpr.App(app1, translateExpr ctx idx, ty, tok)

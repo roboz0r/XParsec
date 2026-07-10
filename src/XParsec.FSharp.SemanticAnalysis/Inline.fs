@@ -11,9 +11,9 @@ open XParsec.FSharp.Parser
 // and `Codegen` no longer references the inline machinery at all.
 //
 // The cross-package inline-body channel the pass uses now rides
-// `IExternalSymbolProvider` directly (`TryLookupInlineBody` / `…ByName`), since
-// `ExternalSymbols` compiles after `Tast` and can name `TDecl` — the sibling
-// `IInlineBodyProvider` + the `box`/`:?` cast it required are gone.
+// `IExternalSymbolProvider` directly (`TryLookupInlineBody`, by resolved
+// `SymbolKey`), since `ExternalSymbols` compiles after `Tast` and can name `TDecl`
+// — the sibling `IInlineBodyProvider` + the `box`/`:?` cast it required are gone.
 //
 // The retained body of an `inline` binding carries its typars as free
 // `TyVar` roots: the binding's generalised scheme quantified them, and the

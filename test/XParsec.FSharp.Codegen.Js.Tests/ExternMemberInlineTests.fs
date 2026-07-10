@@ -128,7 +128,6 @@ let private serving
             | true, v -> ValueSome v
             | _ -> ValueNone
 
-        member _.TryLookupInlineBodyByName name = inner.TryLookupInlineBodyByName name
         member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
         member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
     }

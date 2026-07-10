@@ -142,7 +142,7 @@ module internal FreezeIdents =
                     | ValueSome(ifaceKey, ifaceArgs) ->
                         let key = LocalSymbolKey.ofMember ifaceKey segName 0 MemberKind.Property
                         TExpr.PropertyGet(curr, key, CallVia.Interface ifaceArgs, stepTy, tok)
-                    | ValueNone -> fieldStep ctx curr currTy segName stepTy tok
+                    | ValueNone -> fieldStep ctx liKey curr currTy segName stepTy tok
 
             currTy <- stepTy
 

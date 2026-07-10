@@ -1869,9 +1869,9 @@ module Elaborate =
         // `TyVar → TyTypar` cut on each.
         //
         // Cross-package inline bodies ride `ctx.Provider` directly: its
-        // `TryLookupInlineBody` / `…ByName` members (keyed by the resolved
-        // `SymbolKey`) are part of `IExternalSymbolProvider`, served by the
-        // contract-stack wrapper `SymbolProviders.buildContract` builds. No cast.
+        // `TryLookupInlineBody` member (keyed by the resolved `SymbolKey`) is part of
+        // `IExternalSymbolProvider`, served by the contract-stack wrapper
+        // `SymbolProviders.buildContract` builds. No cast.
         let elaborateDecls () =
             elaborate ctx file
             |> InlineExpansion.run ctx
