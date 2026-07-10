@@ -558,7 +558,14 @@ module NameResolutionTypeRegistration =
                         | ValueSome _ ->
                             let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
                             let key = stampLocalTypeKey ctx declKey declNs name typeParams.Length
-                            ctx.Types.IntrinsicAbbrevHost.[name] <- IntrinsicAbbrevInfo(name, typeParams, declKey, key)
+                            // The self-type key is the contract-sourced intrinsic identity
+                            // (`IntrinsicKeys.[name]`, stamped just above), routed through the
+                            // single `intrinsicKeyOf` resolver so `MkSelfType` cannot diverge
+                            // from the abbrev's use-site key on a non-`Vesper` namespace.
+                            let selfKey = TypeRegistry.intrinsicKeyOf ctx.Types name
+
+                            ctx.Types.IntrinsicAbbrevHost.[name] <-
+                                IntrinsicAbbrevInfo(name, typeParams, declKey, key, selfKey)
 
                     match rhs with
                     | Type.ILIntrinsic(kindTag = tag; instrParts = parts) ->

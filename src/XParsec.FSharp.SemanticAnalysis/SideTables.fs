@@ -345,11 +345,20 @@ type UnionTypeInfo
 /// surfaced `TDecl.Type(Class)` is an internal artifact consumed only by the
 /// member-inline harvest; it is never emitted.
 [<Sealed>]
-type IntrinsicAbbrevInfo(name: string, typeParams: EqArray<string * TypeVar>, declKey: NodeKey, key: SymbolKey) =
+type IntrinsicAbbrevInfo
+    (name: string, typeParams: EqArray<string * TypeVar>, declKey: NodeKey, key: SymbolKey, selfKey: SymbolKey) =
     member val Name = name
     /// Stable project-local nominal identity, minted by `stampLocalTypeKey` at
     /// registration to match a use-site key. Never emitted (the abbrev is intrinsic).
     member val Key: SymbolKey = key
+    /// The abbrev's INTRINSIC identity key (verbatim name, contract namespace,
+    /// asm-blind), resolved through `TypeRegistry.intrinsicKeyOf` at registration —
+    /// the SAME key a use-site (`Translate`) resolves the abbrev name to. Distinct
+    /// from `Key` (arity-suffixed local nominal, for the member-harvest host path):
+    /// this is the `TyConst` key `MkSelfType` seeds onto each member's `ThisTy`, so
+    /// a non-`Vesper` user intrinsic-abbrev's self-type cannot diverge from its
+    /// use-site identity (`primitiveKey name` hardcoded `Vesper`, the latent split-brain).
+    member val SelfKey: SymbolKey = selfKey
     member val TypeParams = typeParams
     member val DeclKey = declKey
     /// Augmentation members (`with member …`). Stamped by
@@ -378,10 +387,11 @@ type IntrinsicAbbrevInfo(name: string, typeParams: EqArray<string * TypeVar>, de
         member _.EqualitySupport = EqualityVerdict.Reference
         member _.ComparisonSupport = ComparisonVerdict.NoComparison
         // The load-bearing choice: the member self-type is the abbrev's INTRINSIC
-        // type (`TyConst name args`), preserving `X`'s `TyConst` identity — not a
+        // type (`TyConst SelfKey args`), preserving `X`'s `TyConst` identity — not a
         // `TyClass`. `translateNominalMember` stamps this onto each member's `ThisTy`.
-        member _.MkSelfType args =
-            TyConst(RuntimeNames.primitiveKey name, args)
+        // `SelfKey` is the contract-resolved identity (via `intrinsicKeyOf`), so a
+        // non-`Vesper` user intrinsic-abbrev's `this` type matches its use-site key.
+        member this.MkSelfType args = TyConst(this.SelfKey, args)
 
 /// An enum type declaration (`type E = | C1 = v1 | …`). Unlike unions/records,
 /// an enum is non-generic and carries no member side tables: it is a closed,

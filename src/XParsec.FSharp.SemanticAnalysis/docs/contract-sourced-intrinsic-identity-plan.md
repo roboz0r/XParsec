@@ -335,9 +335,6 @@ to its own plan. `bigint` the TYPE stays the Stage-5a `prim-types` intrinsic; th
 
 ## Deferred / verify (recorded, not scheduled)
 
-- **`HeritableExternBases` may now be redundant**: downstream heritability flows through the
-  provider `IntrinsicClass`; VERIFY whether any self-host path still needs the local set before
-  retiring it.
 - **Capability interfaces** (`disposable`/`equatable`/`comparable`) — decisions locked (user,
   2026-07-08), and the work SPLIT into two independently-shippable pieces once the true blast
   radius was scouted:
@@ -416,10 +413,19 @@ to its own plan. `bigint` the TYPE stays the Stage-5a `prim-types` intrinsic; th
   the heritable class root (JS `Object`); CLR collapses both to `System.Object`. Sharpest payoff
   is boxing on JS. The high-frequency ⊤ meaning should keep the default name.
   (`feedback_prototype_correct_semantics_over_fsharp_parity`.)
-- **Intrinsic-abbrev self-type mints** (`Elaborate`, `SideTables.MkSelfType`) still mint
-  `intrinsicKey name` — a latent split-brain for a NON-Vesper user intrinsic-abbrev, currently
-  un-exercised. Route through `intrinsicKeyOf` (or store the resolved key on
-  `IntrinsicAbbrevInfo` — note its existing key IS arity-suffixed).
+- **Intrinsic-abbrev self-type mints — LANDED 2026-07-09 (SA 777).** Both self-type mints
+  (`SideTables.IntrinsicAbbrevInfo.MkSelfType`, `Elaborate.tryIntrinsicAbbrevType`) minted
+  `RuntimeNames.primitiveKey name` (hardcoded `ns = "Vesper"`, `intrinsicKey` having been
+  deleted in Stage 4), a latent split-brain for a NON-Vesper user intrinsic-abbrev: the member
+  `ThisTy` carried `Vesper.X` while use sites resolved `X` to its real `declNs.X`. Fix: the
+  resolved intrinsic identity (`TypeRegistry.intrinsicKeyOf ctx.Types name`, the single
+  local-mint resolver, stamped at registration just before the host is constructed) is now
+  stored as a NEW `IntrinsicAbbrevInfo.SelfKey` field (distinct from the arity-suffixed `Key`
+  used for the member-harvest host path); both mints read `info.SelfKey`. The existing
+  `ExternMemberElabTests` `widget` fixture (declared in `module Widgets`, so already a
+  non-Vesper case) was strengthened from `simpleName`-only to FULL-key equality between the
+  member self-type key and the `idW` use-site key (plus a `qualifiedName ≠ "Vesper.widget"`
+  guard) — the assertions that catch the divergence.
 - **Coverage gap**: a dedicated opaque-fallback test (a genuinely-unknown NON-primitive name)
   for `Translate`'s opaque branch — a literal RHS now routes through `ctx.Intrinsics`, so the old
   test no longer exercises it.

@@ -73,8 +73,13 @@ let tests =
             }
 
             // Identity: a reference to `widget` as a type elsewhere resolves to
-            // `TyConst "widget"` (still intrinsic) — NOT `TyClass`.
-            test "a `widget`-typed reference resolves to `TyConst widget`, not TyClass" {
+            // `TyConst "widget"` (still intrinsic) — NOT `TyClass` — and to the SAME
+            // key the member self-type carries. `widget` is declared in `module Widgets`
+            // (a NON-`Vesper` namespace), so its contract-sourced key is `Widgets.widget`;
+            // the self-type mint must route through `intrinsicKeyOf` too, else it would
+            // hardcode `Vesper.widget` (`primitiveKey name`) and split-brain the identity.
+            // Asserting FULL-key equality (not just `simpleName`) is what catches that.
+            test "a `widget`-typed reference resolves to the member self-type key, not a Vesper twin" {
                 let tast = analyse widgetSource
 
                 let idWTy =
@@ -85,13 +90,39 @@ let tests =
                         | _ -> None
                     )
 
-                match idWTy with
-                | Some(TyFun(TyConst(k1, _), TyConst(k2, _))) when
-                    SymbolKeyOps.simpleName k1 = "widget" && SymbolKeyOps.simpleName k2 = "widget"
-                    ->
-                    ()
-                | Some other -> failtestf "idW type is not `widget -> widget` over TyConst: %A" other
-                | None -> failtestf "no `idW` let decl found, decls: %A" tast.Decls
+                // The self-type key the elaborated member's `ThisTy` carries.
+                let selfKey =
+                    EqArray.toList tast.Decls
+                    |> List.tryPick (fun d ->
+                        match d with
+                        | TDecl.Type t when t.Name = "widget" ->
+                            match t.Kind with
+                            | TTypeKind.Class clsG ->
+                                EqArray.toList clsG.Members
+                                |> List.tryPick (fun (m: TTypeMember) ->
+                                    match m.ThisTy with
+                                    | TyConst(k, _) -> Some k
+                                    | _ -> None
+                                )
+                            | _ -> None
+                        | _ -> None
+                    )
+
+                match selfKey with
+                | None -> failtestf "no widget member self-type key found, decls: %A" tast.Decls
+                | Some sk ->
+                    // Contract-sourced, NOT the hardcoded `Vesper.widget` twin.
+                    Expect.notEqual
+                        (SymbolKeyOps.qualifiedName sk)
+                        "Vesper.widget"
+                        "self-type key is not the Vesper twin"
+
+                    match idWTy with
+                    | Some(TyFun(TyConst(k1, _), TyConst(k2, _))) ->
+                        Expect.equal k1 sk "idW param key == member self-type key (no split-brain)"
+                        Expect.equal k2 sk "idW return key == member self-type key (no split-brain)"
+                    | Some other -> failtestf "idW type is not `widget -> widget` over TyConst: %A" other
+                    | None -> failtestf "no `idW` let decl found, decls: %A" tast.Decls
             }
 
             // Guardrail: a transparent-alias abbrev with members (non-ILIntrinsic RHS)
