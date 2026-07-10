@@ -1,7 +1,7 @@
 # TAST string-allocations plan
 
 Brainstorm / design note, not yet scheduled. Triggered by the printf work
-(front-end-gaps-plan §B): re-parsing a format specifier used to copy the
+(`PrintfSpec.fs`): re-parsing a format specifier used to copy the
 token text out of the source (`ctx.NameOf`) before parsing it. That copy is
 now gone — `Lexed.GetTokenReadable` / `PassContext.ReadableOf` hand back a
 `ReadableString` view over the original source, and the placeholder grammar
@@ -188,7 +188,7 @@ yet that **semantic-analysis / TAST** string allocation is a hotspot. So:
 
 ## Cross-references
 
-- [front-end-gaps-plan](front-end-gaps-plan.md) §B — the printf work that
+- `PrintfSpec.fs` / `Lexing.parseFormatSpecifier` — the printf work that
   motivated this; `parseFormatSpecifierView` is the Phase-0 exemplar.
 - `Tast.fs` header — the "TAST is sharable / CST is scoped" contract this
   plan would have to renegotiate for Phase 2.

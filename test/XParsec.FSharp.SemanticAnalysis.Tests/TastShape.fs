@@ -397,7 +397,7 @@ type private Renderer() =
         | TExpr.MethodCall(receiver, key, via, args, _, _) ->
             this.Expr receiver
             // `base.M(...)` renders with a `^` dot so it reads distinctly from a
-            // virtual `this.M(...)` (inheritance-plan §Subtle migrations).
+            // virtual `this.M(...)`.
             push (
                 match via with
                 | CallVia.Base -> "^"

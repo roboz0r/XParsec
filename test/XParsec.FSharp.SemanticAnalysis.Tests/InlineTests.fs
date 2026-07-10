@@ -4,8 +4,8 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// Covers front-end-gaps-plan §C: the `Inline` marker on `TDecl.Let` and the
-// codegen-facing `Inline.inlineExpand` body-substitution helper.
+// Covers the `Inline` marker on `TDecl.Let` and the codegen-facing
+// `Inline.inlineExpand` body-substitution helper.
 
 let private analyse (input: string) =
     let lexed, file = parseFile input

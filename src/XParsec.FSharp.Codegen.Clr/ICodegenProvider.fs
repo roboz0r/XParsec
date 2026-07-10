@@ -488,9 +488,8 @@ type ICodegenProvider =
     abstract ObjectType: EntityHandle
 
     /// A `TypeDefOrRefOrSpec` token for an arbitrary `FrozenType`, for the operand
-    /// of `isinst` / `castclass` / `box` / `unbox.any` (inheritance-plan
-    /// §casting). One `TypeSpec`-based path covers mono, generic, and external
-    /// targets alike.
+    /// of `isinst` / `castclass` / `box` / `unbox.any`. One `TypeSpec`-based path
+    /// covers mono, generic, and external targets alike.
     abstract TypeToken: ty: FrozenType -> EntityHandle
 
     /// The resolved `System.ValueTuple`n` handles for an N-tuple over `elemTys`:

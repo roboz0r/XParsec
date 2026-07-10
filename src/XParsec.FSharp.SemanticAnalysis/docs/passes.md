@@ -52,9 +52,7 @@ types into the body at each use site. This is the codegen-side companion
 to the unification correctness above — without retained bodies, `inline`
 bindings would lose the chance to dispatch through the constrained
 generic typars that the Fun-style function representation relies on
-([function-representation-plan](function-representation-plan.md)). See
-[front-end-gaps-plan](front-end-gaps-plan.md) §C for the work that lands
-the `Inline` marker and the expansion helper.
+([function-representation-plan](function-representation-plan.md)).
 
 ## Validation diagnostics
 

@@ -171,8 +171,8 @@ Three escape hatches, in priority order:
 1. **Inline the factory.** If `let inline mkAdder x = fun y -> x + y`,
    the caller never sees a returned function — the lambda body splices
    in directly. This subsumes most "immediately consumed" cases for
-   free and rides on the `inline` work already on the front-end gap
-   list ([front-end-gaps-plan](front-end-gaps-plan.md) §C).
+   free and rides on the `inline` work (the `Inline` marker on
+   `TDecl.Let` plus `Inline.inlineExpand`), which has landed.
 2. **Specialise the return type via escape analysis.** Caller-side
    pass proves the returned closure doesn't escape its frame and
    rewrites the factory's signature to return the concrete closure
@@ -420,8 +420,8 @@ independent of lifetime — RS2), and a `Repr: ClosureRepr` field on
 
 ## Cross-references
 
-- [front-end-gaps-plan](front-end-gaps-plan.md) §C — the `inline`
-  work, which this plan depends on for full devirtualisation.
+- `Inline.fs` — the `inlineExpand` helper this plan depends on for
+  full devirtualisation.
 - [regions-plan](regions-plan.md) — escape analysis, prerequisite
   for the `allows ref struct` extension.
 - [fsi-target-brainstorm](fsi-target-brainstorm.md) — where the
