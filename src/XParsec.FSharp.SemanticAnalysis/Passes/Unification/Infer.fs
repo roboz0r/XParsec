@@ -110,9 +110,9 @@ module UnificationInfer =
                 // of the field-access fallback so the receiver isn't `infer`d as a
                 // value. Instance access (`value.Member`) takes the fallback.
                 match tryExternalTypeReceiver ctx recv with
-                | ValueSome(metaName, typeArgsCst) ->
+                | ValueSome(declTypeKey, typeArgsCst) ->
                     let args = [ for t in typeArgsCst -> translateType ctx t ]
-                    inferExternalStaticMember ctx key metaName args li.Idents.[0]
+                    inferExternalStaticMember ctx key declTypeKey args li.Idents.[0]
                 | ValueNone ->
                     // `ClassName<'args>.Member` on a *local* class/union — resolve its
                     // static member before falling to value-receiver field access.
@@ -153,7 +153,11 @@ module UnificationInfer =
     /// hardcoded `System.IDisposable` — so this `dispose` key crosses Freeze
     /// target-neutrally (each backend lowers it to its own slot: the CLR
     /// `IDisposable::Dispose`, the JS `Symbol.dispose`).
-    and private tryExternalDispose (ctx: PassContext) (name: string) (args: EqArray<SemType>) : SymbolKey voption =
+    and private tryExternalDispose
+        (ctx: PassContext)
+        (declKey: SymbolKey)
+        (args: EqArray<SemType>)
+        : SymbolKey voption =
         // The directly-implemented interface set an external nominal carries today: a
         // class's `FrozenInterfaces` or a union's `interface <ty>` impls (the union
         // analogue, the cons-list's `interface seq<'T>` channel). Scanned kind-agnostically
@@ -164,7 +168,7 @@ module UnificationInfer =
         // its own `Dispose` below; that boundary moves the day records gain a contract
         // interface channel.)
         let externalInterfaces () : (string * SemType[])[] =
-            match ctx.Provider.TryLookupType name with
+            match ctx.Provider.TryLookupType declKey with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
             | ValueSome(ExternalTypeShape.Union(_, _, ifaces, _)) ->
@@ -187,8 +191,9 @@ module UnificationInfer =
         // Fallback for an external non-`IDisposable` ref struct: its own pattern
         // `Dispose()`, which can't be reached through a boxed interface slot.
         | ValueNone ->
-            // Stage 3 holdout (bucket 3b): `name` is an opens-resolved metadata spelling.
-            match ctx.Provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey name 0, "Dispose") with
+            // `declKey` is the binder's already-resolved external type identity, so the
+            // own-`Dispose` fallback is a key-addressed store-face lookup.
+            match ctx.Provider.TryLookupMember(declKey, "Dispose") with
             | ValueSome m when not m.IsStatic && not m.IsValueMember -> ValueSome m.Key
             | _ -> ValueNone
 
@@ -284,11 +289,9 @@ module UnificationInfer =
                 match TypeRegistry.tryInterfaceImplHostByKey ctx.Types headKey with
                 | ValueSome host -> resolveLocal host headKey simple args
                 | ValueNone ->
-                    let qual = SymbolKeyOps.qualifiedName headKey
-
-                    match tryExternalDispose ctx qual args with
+                    match tryExternalDispose ctx headKey args with
                     | ValueSome key -> ctx.Resolution.UseDispose.Set(patKey, key)
-                    | ValueNone -> notDisposable qual
+                    | ValueNone -> notDisposable (SymbolKeyOps.qualifiedName headKey)
             | _ -> ()
         | _ -> ()
 

@@ -81,6 +81,35 @@ module NameResolutionScope =
 
         OpenScope.tryResolve ctx.Resolution.OpenScope lookup name
 
+    /// Class-only variant of `tryResolveExternalTypeKey`: resolve `name` (possibly
+    /// dotted) — opens-aware, at `arity` — but return the use-site `SymbolKey` ONLY
+    /// when the matched shape is an external `Class`. The expression-position
+    /// consumers that read the stamp (`tryInferExternalCtorApp` constructs, and the
+    /// static-member split dispatches on) act on a genuine CLASS only, exactly as the
+    /// former `OpenScope.tryQualify (isExternalClass …)` filter did — so an intrinsic
+    /// scalar type name used as a conversion function (`float x`, `int x`) or any
+    /// non-class external type is NOT stamped as constructible / static-dispatchable.
+    let private tryResolveExternalClassKey (ctx: PassContext) (name: string) (arity: int) : SymbolKey voption =
+        let keysFor (n: string) =
+            if arity = 0 then
+                [ n ]
+            else
+                [ SymbolKeyOps.arityName n arity; n ]
+
+        let lookup (candidate: string) : SymbolKey voption =
+            let rec go (keys: string list) =
+                match keys with
+                | [] -> ValueNone
+                | key :: rest ->
+                    match ctx.Provider.TryLookupType key with
+                    | ValueSome(ExternalTypeShape.Class info) when info.Arity = arity ->
+                        ValueSome(SymbolKeyOps.externalTypeKey info.Origin key arity)
+                    | _ -> go rest
+
+            go (keysFor candidate)
+
+        OpenScope.tryResolve ctx.Resolution.OpenScope lookup name
+
     /// True if `name` (possibly dotted) resolves as a *non-generic* external type —
     /// the arity-0 static-member-access receiver (`System.Console.Out`,
     /// `Math.Pi`). Generic receivers (`EqualityComparer<int>.Default`) are no longer
@@ -89,6 +118,51 @@ module NameResolutionScope =
     let private resolvesAsExternalType (ctx: PassContext) (name: string) : bool =
         (tryResolveExternalTypeKey ctx name 0).IsSome
 
+    /// F# keeps NO global reverse index for union cases: a *bare* (unqualified) case
+    /// resolves only when its declaring union's module/namespace is opened or
+    /// auto-opened (F#'s `AddPartsOfTyconRefToNameEnv` adds cases to the per-scope
+    /// unqualified/pattern tables solely on `open`). Mirror that — a bare case is
+    /// visible only when the current `OpenScope` qualifies the union's short name
+    /// back to its own fully-qualified name; i.e. the declaring namespace is one of
+    /// the active `open` / ambient-prelude prefixes (or the union lives in the
+    /// root/global namespace, whose bare candidate always matches). RQA is a
+    /// separate axis, handled by `ExternalUnionCase.ResolvesWith`.
+    let private bareCaseNamespaceOpen (scope: OpenScope) (uc: ExternalUnionCase) : bool =
+        // Derive the declaring namespace from `UnionName` (authoritative — the
+        // reverse-index case stamps the blanket PACKAGE origin, whose namespace can
+        // differ from a sub-namespace union's own). `bareName` keeps the namespace
+        // and strips the `` `N `` arity suffix so `Vesper.Choice`2`'s qualified name
+        // is `Vesper.Choice`, matching `short` under the `Vesper` prefix.
+        let qualified = SymbolKeyOps.bareName uc.UnionName
+        let short = SymbolKeyOps.shortName uc.UnionName
+        (OpenScope.tryQualify scope (fun c -> c = qualified) short).IsSome
+
+    /// The external union case a reference resolves to, applying the RQA + qualifier
+    /// discipline (`ExternalUnionCase.ResolvesWith`) the downstream consumers use.
+    /// `qualifier` is the written declaring type (`Option.Some` ⇒ `ValueSome "Option"`),
+    /// `ValueNone` for a bare reference: a bare hit on an `[<RequireQualifiedAccess>]`
+    /// union's case is rejected (F# requires `Color.Red`, not `Red`), a qualified one is
+    /// accepted only when the qualifier is the union's short name. A bare hit is
+    /// ADDITIONALLY gated on the declaring namespace being open (`bareCaseNamespaceOpen`):
+    /// F# has no global reverse case index, so `Some`/`Ok`/`Red` resolve unqualified only
+    /// once their union's namespace is opened/auto-opened. A qualified reference is NOT so
+    /// gated (F# resolves `Union.Case` without the namespace opened). NameResolution — the
+    /// one resolve-once layer — recognises the case HERE and stamps the resolved
+    /// identity; Unification and Freeze read the stamp rather than re-recognising from a
+    /// spelling.
+    let private tryExternalCase
+        (ctx: PassContext)
+        (qualifier: string voption)
+        (caseName: string)
+        : ExternalUnionCase voption =
+        ctx.Provider.TryLookupUnionCase caseName
+        |> ValueOption.filter (fun uc -> uc.ResolvesWith qualifier)
+        |> ValueOption.filter (fun uc ->
+            match qualifier with
+            | ValueSome _ -> true
+            | ValueNone -> bareCaseNamespaceOpen ctx.Resolution.OpenScope uc
+        )
+
     /// True if the *bare* (unqualified) `name` resolves to an external union case
     /// whose declaring union is NOT `[<RequireQualifiedAccess>]`. An RQA union's
     /// cases are reachable only through the qualified form (`Color.Red`), so a bare
@@ -96,8 +170,7 @@ module NameResolutionScope =
     /// qualified paths (`isExternalQualifiedCase`, `tryExternalCtorType` with a
     /// qualifier) resolve RQA cases unchanged — this guard is bare-name only.
     let private resolvesAsBareExternalCase (ctx: PassContext) (name: string) : bool =
-        ctx.Provider.TryLookupUnionCase name
-        |> ValueOption.exists (fun uc -> uc.ResolvesWith ValueNone)
+        (tryExternalCase ctx ValueNone name).IsSome
 
     /// The dotted receiver name of an `Expr.TypeApp`, when it is an identifier /
     /// long-identifier the provider could know as a type. `ValueNone` for receiver
@@ -136,6 +209,27 @@ module NameResolutionScope =
             match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
             | ValueSome sym -> ctx.Resolution.ExternalValue.Set(useKey, sym.Key)
             | ValueNone ->
+                // A bare external union case (`None` / `Some`) used in expression
+                // position: stamp the resolved identity so Unification's
+                // `tryExternalCtorType` and Freeze's `tryCtorRef` read it by key
+                // instead of re-recognising `name` through the provider.
+                let bareCase = tryExternalCase ctx ValueNone name
+
+                match bareCase with
+                | ValueSome uc -> ctx.Resolution.ExternalUnionCaseStamp.Set(useKey, uc)
+                | ValueNone -> ()
+
+                // A single-ident external CLASS name in expression position — a
+                // ctor-sugar head (`InvalidOperationException "x"`). Resolve the
+                // identity ONCE here (opens-aware, Class-only — an intrinsic scalar
+                // used as a conversion function like `float x` is not constructible)
+                // and stamp the type key, so Unification's `tryInferExternalCtorApp`
+                // constructs it by key rather than re-running `OpenScope.tryQualify` at
+                // inference time. Additive to the diagnostic suppression below.
+                if not (ctx.Resolution.ResolvedType.ContainsKey useKey) then
+                    match tryResolveExternalClassKey ctx name 0 with
+                    | ValueSome k -> ctx.Resolution.ResolvedType.Set(useKey, k)
+                    | ValueNone -> ()
                 // DU ctors resolve via ctx.Types.CtorIndex in Unification; class
                 // names used as ctor-functions live in ctx.Types.Class; external
                 // type names used as static-access receivers resolve via the
@@ -156,8 +250,8 @@ module NameResolutionScope =
                     || resolvesAsExternalType ctx name
                     // A bare external union case resolves only when its union is NOT
                     // `[<RequireQualifiedAccess>]` — F# rejects the short `Red` form
-                    // for an RQA `Color`.
-                    || resolvesAsBareExternalCase ctx name
+                    // for an RQA `Color`. Stamped just above so downstream reads it.
+                    || bareCase.IsSome
                     // The printf family (`printf`/`printfn`/`sprintf`/`eprintf`/
                     // `fprintf`/…) is a front-end intrinsic: `InferApp` types it via
                     // `PrintfSpec`, not a provider symbol. So a family member resolves
@@ -186,6 +280,19 @@ module NameResolutionScope =
             // — only its qualified form is.
             || resolvesAsBareExternalCase ctx name)
 
+    /// True if the `Pat.Named` head `li` is a ctor reference (the head binds
+    /// nothing; its sub-patterns are the binders). Covers a bare local/external
+    /// case (`isCtorName` on the last segment) AND the two-segment qualified-
+    /// EXTERNAL case (`Color.Red`, `Result.Ok`) — the leg `isCtorName` alone
+    /// misses, since a bare probe of an RQA case's short name is (correctly)
+    /// rejected. Mirrors the recognition InferPat / Freeze/Patterns apply, so a
+    /// qualified external case's sub-patterns bind identically.
+    let private isPatNamedCtorHead (ctx: PassContext) (li: LongIdent<SyntaxToken>) : bool =
+        li.Idents.Length >= 1
+        && (isCtorName ctx (ctx.NameOf li.Idents.[li.Idents.Length - 1])
+            || (li.Idents.Length = 2
+                && (tryExternalCase ctx (ValueSome(ctx.NameOf li.Idents.[0])) (ctx.NameOf li.Idents.[1])).IsSome))
+
     /// Every (name, NodeKey) pair introduced by a pattern; [] for patterns that
     /// bind nothing (Wildcard, Const, nullary ctors).
     let rec bindingsOfPat (ctx: PassContext) (p: Pat<SyntaxToken>) : (string * NodeKey) list =
@@ -209,12 +316,9 @@ module NameResolutionScope =
             bindingsOfPat ctx inner
         | Pat.Record(fieldPats = fieldPats) ->
             [ for FieldPat(pat = sub) in fieldPats -> bindingsOfPat ctx sub ] |> List.concat
-        | Pat.Named(longIdent = li; argumentPats = args) when
-            li.Idents.Length >= 1
-            && isCtorName ctx (ctx.NameOf li.Idents.[li.Idents.Length - 1])
-            ->
-            // Ctor pattern (`Circle r`, `Result1.Ok x`): head binds nothing,
-            // sub-patterns introduce binders.
+        | Pat.Named(longIdent = li; argumentPats = args) when isPatNamedCtorHead ctx li ->
+            // Ctor pattern (`Circle r`, `Result1.Ok x`, `Color.Red x`): head binds
+            // nothing, sub-patterns introduce binders.
             [
                 for sub in args do
                     yield! bindingsOfPat ctx sub
@@ -236,12 +340,85 @@ module NameResolutionScope =
             | ValueNone -> []
         | _ -> []
 
+    /// Stamp every external union-case ctor head reachable in `p` with the resolved
+    /// `ExternalUnionCase`, keyed by the head pattern's `CstKeys.ofPat` — the key
+    /// Unification's `InferPat` and Freeze's `translatePat` read. Recurses through
+    /// EVERY sub-pattern, including the positions `bindingsOfPat` skips because they
+    /// bind nothing (or-pattern alternatives `Some 1 | Some 2`, cons tails, type-tests):
+    /// recognition is done ONCE here (the resolve-once layer), so a consumer that reads
+    /// the stamp instead of re-recognising would mis-lower any position left unstamped.
+    /// A two-segment head applies the written qualifier (`Result.Ok`, `Color.Red`), a
+    /// single-segment head the bare form — mirroring the 1-/2-ident external cases the
+    /// consumers recognise (a 3+-segment head is not a consumer-recognised ctor ref, so
+    /// it is not stamped).
+    let rec stampPatCases (ctx: PassContext) (p: Pat<SyntaxToken>) : unit =
+        match p with
+        | Pat.NamedSimple t ->
+            match tryExternalCase ctx ValueNone (ctx.NameOf t) with
+            | ValueSome uc -> ctx.Resolution.ExternalUnionCaseStamp.Set(CstKeys.ofPat p, uc)
+            | ValueNone -> ()
+        | Pat.Named(longIdent = li; argumentPats = args) ->
+            if li.Idents.Length = 1 || li.Idents.Length = 2 then
+                let caseName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+
+                let qualifier =
+                    if li.Idents.Length = 2 then
+                        ValueSome(ctx.NameOf li.Idents.[0])
+                    else
+                        ValueNone
+
+                match tryExternalCase ctx qualifier caseName with
+                | ValueSome uc -> ctx.Resolution.ExternalUnionCaseStamp.Set(CstKeys.ofPat p, uc)
+                | ValueNone -> ()
+
+            for sub in args do
+                stampPatCases ctx sub
+        | Pat.OpNamed(argumentPats = args) ->
+            for sub in args do
+                stampPatCases ctx sub
+        | Pat.NamedFieldPats(args = args) ->
+            for a in args do
+                match a with
+                | UnionArgPat.Named(pat = sub)
+                | UnionArgPat.Positional(pat = sub) -> stampPatCases ctx sub
+        | Pat.EnclosedBlock(pat = inner)
+        | Pat.Typed(pat = inner)
+        | Pat.Attributed(pat = inner)
+        | Pat.As(pat = inner)
+        | Pat.TypeTestAs(pat = inner)
+        | Pat.Optional(pat = inner) -> stampPatCases ctx inner
+        | Pat.Tuple(patterns = pats)
+        | Pat.StructTuple(patterns = pats)
+        | Pat.Elems(pats = pats) ->
+            for sub in pats do
+                stampPatCases ctx sub
+        | Pat.Record(fieldPats = fieldPats) ->
+            for FieldPat(pat = sub) in fieldPats do
+                stampPatCases ctx sub
+        | Pat.Cons(head = h; tail = t)
+        | Pat.Or(left = h; right = t)
+        | Pat.And(left = h; right = t) ->
+            stampPatCases ctx h
+            stampPatCases ctx t
+        | Pat.Const _
+        | Pat.EmptyBlock _
+        | Pat.Wildcard _
+        | Pat.TypeTest _
+        | Pat.Null _
+        | Pat.Op _
+        | Pat.String _
+        | Pat.Expr _
+        | Pat.Missing
+        | Pat.SkipsTokens _ -> ()
+
     /// Lambda args / for-in / match-arm patterns can't carry `mutable`, so every
     /// binder they introduce is immutable.
     let extendScope (ctx: PassContext) (pats: ImmutableArray<Pat<SyntaxToken>>) (acc: Scope) : Scope =
         let mutable s = acc
 
         for p in pats do
+            stampPatCases ctx p
+
             for n, k in bindingsOfPat ctx p do
                 s <- Map.add n (k, false) s
 
@@ -255,6 +432,7 @@ module NameResolutionScope =
 
         for b in bindings do
             let isMut = b.mutableToken.IsSome
+            stampPatCases ctx b.headPat
 
             for n, k in bindingsOfPat ctx b.headPat do
                 s <- Map.add n (k, isMut) s
@@ -396,6 +574,20 @@ module NameResolutionScope =
                             li.Idents.Length >= 2
                             && (ctx.Provider.TryLookupUnionCase(ctx.NameOf li.Idents.[li.Idents.Length - 1])).IsSome
 
+                        // Stamp the resolved case identity for the expression-position
+                        // consumers (`tryExternalCtorType`, `tryCtorRef`), which recognise
+                        // only the two-segment qualified form (`Option.Some`) and require
+                        // the qualifier to match the union's short name — tighter than the
+                        // `.IsSome` diagnostic suppression above, so a `WrongType.Some`
+                        // suppresses the error yet stamps nothing (downstream then falls to
+                        // its default path, as before).
+                        if li.Idents.Length = 2 then
+                            match
+                                tryExternalCase ctx (ValueSome(ctx.NameOf li.Idents.[0])) (ctx.NameOf li.Idents.[1])
+                            with
+                            | ValueSome uc -> ctx.Resolution.ExternalUnionCaseStamp.Set(CstKeys.ofExpr e, uc)
+                            | ValueNone -> ()
+
                         // A non-generic external static member folds into one LongIdent
                         // (`System.Console.Out`), so the receiver type is the *prefix*
                         // (all but the last segment). If that resolves as an external
@@ -411,6 +603,32 @@ module NameResolutionScope =
                                     |> String.concat "."
 
                                 resolvesAsExternalType ctx prefix)
+
+                        // (bucket 3b) Stamp the resolved external CLASS key so the
+                        // key-addressed consumers read identity by key instead of
+                        // re-resolving through opens at inference/freeze time. Two
+                        // DISTINCT meanings for this same node, into two tables (a
+                        // ctor-app consumer must never mistake a static-member's
+                        // receiver prefix for a constructible head): the whole name as
+                        // an external class (a ctor-sugar head
+                        // `System.InvalidOperationException "x"`, or a bare class ref) →
+                        // `ResolvedType`; else the folded static-member receiver PREFIX
+                        // (`System.Console` in `System.Console.Out`, `N` in `N.pickName`)
+                        // → `ExternalStaticReceiver`. Class-only (mirroring the former
+                        // `isExternalClass` filter); additive to the suppression
+                        // booleans below.
+                        if not (ctx.Resolution.ResolvedType.ContainsKey(CstKeys.ofExpr e)) then
+                            match tryResolveExternalClassKey ctx qualName 0 with
+                            | ValueSome k -> ctx.Resolution.ResolvedType.Set(CstKeys.ofExpr e, k)
+                            | ValueNone ->
+                                if not (ctx.Resolution.ExternalStaticReceiver.ContainsKey(CstKeys.ofExpr e)) then
+                                    let prefix =
+                                        seq { for i in 0 .. li.Idents.Length - 2 -> ctx.NameOf li.Idents.[i] }
+                                        |> String.concat "."
+
+                                    match tryResolveExternalClassKey ctx prefix 0 with
+                                    | ValueSome k -> ctx.Resolution.ExternalStaticReceiver.Set(CstKeys.ofExpr e, k)
+                                    | ValueNone -> ()
 
                         if
                             isQualifiedCtor
@@ -513,12 +731,16 @@ module NameResolutionScope =
                     Map.ofList [ name, (key, false) ] :: scope
             EnterForIn =
                 fun scope pat ->
+                    stampPatCases ctx pat
+
                     let scopeMap =
                         bindingsOfPat ctx pat |> List.map (fun (n, k) -> n, (k, false)) |> Map.ofList
 
                     scopeMap :: scope
             EnterMatchArm =
                 fun scope pat ->
+                    stampPatCases ctx pat
+
                     let scopeMap =
                         bindingsOfPat ctx pat |> List.map (fun (n, k) -> n, (k, false)) |> Map.ofList
 

@@ -216,11 +216,9 @@ module internal UnificationInferExternalCall =
         : SemType voption =
         match tryResolveExternalStaticMemberRef ctx fn with
         | ValueNone -> ValueNone
-        | ValueSome(metaName, memberTok) ->
+        | ValueSome(declTypeKey, memberTok) ->
             let memberName = ctx.NameOf memberTok
-            // Stage 3 holdout (bucket 3b): `metaName` is an opens-resolved spelling.
-            let candidates =
-                ctx.Provider.TryLookupMembers(SymbolKeyOps.qualifiedTypeKey metaName 0, memberName)
+            let candidates = ctx.Provider.TryLookupMembers(declTypeKey, memberName)
 
             // A folded LongIdent names a non-generic type (generics need `<>`), so
             // the declaring type has no type arguments to instantiate.
@@ -251,7 +249,7 @@ module internal UnificationInferExternalCall =
                             (sprintf
                                 "No applicable (or no unique best) overload of '%s' on type '%s' for the given arguments"
                                 memberName
-                                metaName)
+                                (SymbolKeyOps.qualifiedName declTypeKey))
                     )
 
     /// Call-site overload resolution for an external *instance* method call

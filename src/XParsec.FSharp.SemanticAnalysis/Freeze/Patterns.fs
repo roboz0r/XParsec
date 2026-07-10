@@ -14,19 +14,6 @@ open XParsec.FSharp.SemanticAnalysis.FreezeResolve
 
 module internal FreezePatterns =
 
-    /// Does `caseName` (optionally written with `qualifier`) name a case of an
-    /// *external* (referenced-package) union the provider knows? Mirrors the
-    /// Unification recogniser (`tryExternalCasePattern`) for the Freeze pattern
-    /// path, so a cross-package `match o with Some x -> …` lowers to `TPat.Union`
-    /// exactly as the local-union arm does.
-    /// The lowering is identical to the local case — only the recognition differs.
-    let private isExternalUnionCase (ctx: PassContext) (qualifier: string voption) (caseName: string) : bool =
-        // Mirror `tryExternalCasePattern`: a bare reference to an RQA union's case
-        // is not recognised, so it lowers as a binder, not `TPat.Union`
-        // (bare RQA case). The qualified form still resolves.
-        ctx.Provider.TryLookupUnionCase caseName
-        |> ValueOption.exists (fun uc -> uc.ResolvesWith qualifier)
-
     /// The `(consName, nilName)` case names of the list union a `[…]` literal,
     /// `[]`/`h :: t` pattern, or `::` construction targets. Mirrors the
     /// case-by-arity resolution in `translateListLikeLiteral`: a program-declared
@@ -59,14 +46,13 @@ module internal FreezePatterns =
 
         match p with
         | Pat.NamedSimple t when
-            let n = ctx.NameOf t
-
-            n.Length > 0
-            && System.Char.IsUpper n.[0]
-            && (ctx.Types.CtorIndex.ContainsKey n || isExternalUnionCase ctx ValueNone n)
+            ctx.Resolution.ExternalUnionCaseStamp.ContainsKey key
+            || (let n = ctx.NameOf t
+                n.Length > 0 && System.Char.IsUpper n.[0] && ctx.Types.CtorIndex.ContainsKey n)
             ->
             // Nullary ctor in pattern position — a local union or an external
-            // referenced-package one (`None`). Must precede the plain NamedSimple
+            // referenced-package one (`None`, recognised upstream and read by key).
+            // Must precede the plain NamedSimple
             // arm. Both lower to the same `TPat.Union`; the node's type
             // (`typeOfKey`) already carries the right `TyUnion`, so the backend
             // routes local vs external off that.
@@ -173,16 +159,15 @@ module internal FreezePatterns =
         | Pat.Named(longIdent = li & EnumCaseAccess ctx ty enumKey) ->
             TPat.EnumCase(enumKey, ctx.NameOf li.Idents.[1], ty, tok)
         | Pat.Named(longIdent = li; argumentPats = args) when
-            li.Idents.Length >= 1
-            && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+            ctx.Resolution.ExternalUnionCaseStamp.ContainsKey key
+            || (li.Idents.Length >= 1
+                && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]
 
-                last.Length > 0
-                && System.Char.IsUpper last.[0]
-                && (li.Idents.Length = 1
-                    && (ctx.Types.CtorIndex.ContainsKey last || isExternalUnionCase ctx ValueNone last)
-                    || li.Idents.Length = 2
-                       && (TypeRegistry.localQualifiedCase ctx.Types (ctx.NameOf li.Idents.[0]) last
-                           || isExternalUnionCase ctx (ValueSome(ctx.NameOf li.Idents.[0])) last)))
+                    last.Length > 0
+                    && System.Char.IsUpper last.[0]
+                    && (li.Idents.Length = 1 && ctx.Types.CtorIndex.ContainsKey last
+                        || li.Idents.Length = 2
+                           && TypeRegistry.localQualifiedCase ctx.Types (ctx.NameOf li.Idents.[0]) last)))
             ->
             let caseName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
 

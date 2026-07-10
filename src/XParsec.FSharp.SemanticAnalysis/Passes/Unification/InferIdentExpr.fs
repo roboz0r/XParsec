@@ -119,8 +119,9 @@ module internal UnificationInferIdentExpr =
                         | ValueNone -> errorTy ctx key (sprintf "Union '%s' has no case '%s'" headName tailName)
                 | false, _ ->
                     // Qualified external union case (`Option.Some`) — the head is
-                    // an external union, not a local one (Gap 2 Layer B).
-                    match tryExternalCtorType ctx (ValueSome headName) tailName with
+                    // an external union, not a local one (Gap 2 Layer B). NameResolution
+                    // stamped the resolved case at this node's key.
+                    match tryExternalCtorType ctx key with
                     | ValueSome t -> t
                     | ValueNone -> inferIdentDefault ctx e key
         | _ -> inferIdentDefault ctx e key
@@ -171,7 +172,7 @@ module internal UnificationInferIdentExpr =
                             // `field… → TyUnion(union, …)` so `inferApp` flows the
                             // application through the normal function arm and the
                             // bare nullary form (`None`) lands as the union value.
-                            match tryExternalCtorType ctx ValueNone n with
+                            match tryExternalCtorType ctx key with
                             | ValueSome t -> t
                             | ValueNone ->
                                 // Class-name-as-function: `Point(3, 4)` parses as

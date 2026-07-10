@@ -84,22 +84,17 @@ module internal UnificationInferPat =
 
                 TyVar(freshTv ctx key)
             | ValueNone -> TyVar(freshTv ctx key)
-        | Pat.NamedSimple t when
-            let n = ctx.NameOf t
-
-            n.Length > 0
-            && System.Char.IsUpper n.[0]
-            && (ctx.Provider.TryLookupUnionCase n).IsSome
-            ->
-            // (A bare RQA case falls through to a binder here: `tryExternalCasePattern`
-            // returns `ValueNone` for it, so the body lands on `TyVar` — matching F#,
-            // which treats a bare uppercase RQA name in a pattern as a fresh variable.)
+        | Pat.NamedSimple t when ctx.Resolution.ExternalUnionCaseStamp.ContainsKey key ->
             // Nullary case of an *external* (referenced-package) union (`None`),
-            // resolved through the provider's reverse case index — the cross-
-            // package analogue of the local nullary-ctor arm above.
+            // recognised upstream by NameResolution and read here by node key — the
+            // cross-package analogue of the local nullary-ctor arm above. A bare RQA
+            // case is NOT stamped (only its qualified form resolves), so it never
+            // reaches this arm — it lands on the `Pat.NamedSimple _` binder arm below,
+            // matching F#, which treats a bare uppercase RQA name in a pattern as a
+            // fresh variable.
             let n = ctx.NameOf t
 
-            match tryExternalCasePattern ctx ValueNone n with
+            match tryExternalCasePattern ctx key with
             | ValueSome(unionTy, fields) ->
                 if fields.Length <> 0 then
                     ctx.Diagnostics.Add
@@ -258,29 +253,16 @@ module internal UnificationInferPat =
                 let nodeTv = freshTv ctx key
                 nodeTv.Link <- ValueSome ty
                 ty
-        | Pat.Named(longIdent = li; argumentPats = args) when
-            li.Idents.Length >= 1
-            && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]
-                last.Length > 0 && System.Char.IsUpper last.[0])
-            && (li.Idents.Length = 1
-                && (ctx.Provider.TryLookupUnionCase(ctx.NameOf li.Idents.[0])).IsSome
-                || li.Idents.Length = 2
-                   && (tryExternalCasePattern ctx (ValueSome(ctx.NameOf li.Idents.[0])) (ctx.NameOf li.Idents.[1]))
-                       .IsSome)
-            ->
-            // A case (with fields) of an *external* union (`Some x`), bare or
-            // qualified — the cross-package analogue of the local-ctor `Pat.Named`
-            // arm above. Sub-patterns unify against the case's
-            // declared field types in the union's fresh instantiation.
+        | Pat.Named(longIdent = li; argumentPats = args) when ctx.Resolution.ExternalUnionCaseStamp.ContainsKey key ->
+            // A case (with fields) of an *external* union (`Some x`, `Result.Ok x`),
+            // bare or qualified — the cross-package analogue of the local-ctor
+            // `Pat.Named` arm above. NameResolution recognised the head (applying the
+            // qualifier discipline) and stamped it; read by node key here. Sub-patterns
+            // unify against the case's declared field types in the union's fresh
+            // instantiation.
             let caseName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
 
-            let resolved =
-                if li.Idents.Length = 1 then
-                    tryExternalCasePattern ctx ValueNone caseName
-                else
-                    tryExternalCasePattern ctx (ValueSome(ctx.NameOf li.Idents.[0])) caseName
-
-            match resolved with
+            match tryExternalCasePattern ctx key with
             | ValueNone ->
                 for sub in args do
                     inferPat ctx sub |> ignore

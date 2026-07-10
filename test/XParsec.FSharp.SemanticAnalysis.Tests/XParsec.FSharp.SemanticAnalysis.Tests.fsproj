@@ -44,6 +44,8 @@
     <Compile Include="ExternMemberElabTests.fs" />
     <Compile Include="DefaultOfInlineTests.fs" />
     <Compile Include="IntrinsicKeyStampTests.fs" />
+    <Compile Include="ExternalUnionCaseStampTests.fs" />
+    <Compile Include="ExternalTypeKeyStampTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

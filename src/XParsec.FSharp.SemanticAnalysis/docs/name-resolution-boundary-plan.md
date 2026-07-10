@@ -269,59 +269,124 @@ stay string-addressed — Stage 5.
   positive on a solo package); the real Vesper set composes clean across the SA + JS + CLR
   suites.
 
-### Stage 3 — burn down the downstream resolver-face holdouts
+### Stage 3 — burn down the downstream resolver-face holdouts — **LARGELY LANDED (2026-07-10)**
 
-**Provenance audit ran 2026-07-10** (every `TryLookup*` site in Unification,
-Freeze, and ConformanceTypars; string arguments traced through callers).
-Headline: **no pass ever reads a NameResolution identity stamp as its lookup
-string** — the stamps (`ExternalAccess`, `ExternalValue`, `ResolvedType`, …)
-are *written* by these paths, never *read*. Unification is a co-equal
-resolver today, not a consumer of NameResolution's results. The holdouts fall
-into three buckets:
+**Provenance audit (2026-07-10)** traced every `TryLookup*` site in
+Unification, Freeze, and ConformanceTypars, following string arguments through
+callers. Headline: no pass ever *read* a NameResolution identity stamp as its
+lookup string — the stamps were written by these paths, never read; Unification
+was a co-equal resolver, not a consumer of NameResolution's results. The three
+buckets landed as below. A residue of resolver-face calls that are NOT
+type-identity resolution remains (recorded under "Remaining") — those are
+exactly the calls a Stage 4 flip would surface as type errors.
 
-**3a — Bare-spelling union-case recognition (the sharpest leaks).** Raw
-`ctx.NameOf` token text handed straight to `TryLookupUnionCase` with **no
-OpenScope consultation at all**: `InferPat.fs:92`, `InferPat.fs:266`,
-`InferResolve.fs:104` (`tryExternalCasePattern`, reached from InferPat /
-InferIdentExpr callers), `Freeze/Patterns.fs:27` (`isExternalUnionCase`, ×3
-callers), `Freeze/Resolve.fs:510/536` (`tryCtorRef`). Doubly wrong: besides
-the boundary violation, these bypass opens entirely — a case name resolves
-via the provider's global reverse index even if its union's namespace was
-never opened (a false accept, same class as the fixed RQA gap). Audited fact:
-`PassContextResolution` (SideTables.fs:1223–1374) has **no node-keyed
-union-case stamp** these sites could read today — the stamp is new Stage 3
-work. Target: NameResolution resolves (it already computes
-`resolvesAsBareExternalCase` with opens + RQA discipline), stamps a
-`(union TypeKey, caseName)` side-table entry; Unification and Freeze read it.
+**3a — Bare-spelling union-case recognition — LANDED.** Raw `ctx.NameOf` token
+text was handed straight to `TryLookupUnionCase` at `InferPat` (both external
+arms), `tryExternalCasePattern` (InferResolve, reached from InferPat /
+InferIdentExpr), `Freeze/Patterns.isExternalUnionCase` (×3 callers), and
+`Freeze/Resolve.tryCtorRef` — doubly wrong: a boundary violation AND an opens
+bypass (a case resolved via the provider's global reverse index even if its
+union's namespace was never opened). Mechanism as shipped: NameResolution
+recognises the case — pattern- and expression-position — and stamps the
+resolved payload into `PassContextResolution.ExternalUnionCaseStamp :
+SideTable<ExternalUnionCase>`, keyed by the ctor-head `NodeKey`
+(`CstKeys.ofPat` / `CstKeys.ofExpr`, the same keys the consumers read). The
+`(union TypeKey, caseName)`-pair option (key-semantics §4's preferred shape)
+was tried first and abandoned: fake/minimal providers implement the reverse
+`TryLookupUnionCase` index WITHOUT the forward key-addressed `TryLookupType`,
+so recovering field types by union key both changes behaviour and breaks green;
+carrying the resolved `ExternalUnionCase` payload keeps identity resolved once
+upstream (§4 explicitly sanctions the payload channel). Two parity gaps closed:
+(1) a dedicated recursive pattern walk `stampPatCases` reaches *every*
+sub-pattern position `bindingsOfPat` skips because it binds nothing (or-pattern
+alternatives, type-tests, cons tails, records), invoked at every pattern-entry
+site (`extendScope`, `bindingsToScope`, the `EnterForIn`/`EnterMatchArm`
+hooks); (2) the qualified-external leg (`Result.Ok x`) is now recognised via a
+shared `tryExternalCase` / `isPatNamedCtorHead` classifier, so its sub-patterns
+bind correctly (previously dropped). Every read site reads the stamp by key;
+`TryLookupUnionCase` no longer appears anywhere downstream of
+`NameResolution/Scope.fs`. **Opens false-accept closed** (confirmed a real F#
+divergence by the compiler audit — F# has no global reverse case index; a bare
+case needs its declaring module opened, `AddPartsOfTyconRefToNameEnv`):
+`tryExternalCase` now gates a *bare* case on the declaring union's namespace
+being reachable through the current `OpenScope` (matched with
+`OpenScope.tryQualify` over the union's `UnionName` — the authoritative
+namespace, since the reverse-index provider stamps a blanket package `Origin`);
+RQA and qualified `Union.Case` legs stay ungated (F# resolves those without the
+namespace opened). The ambient prelude keeps `Some`/`None`/`Ok`/`Error`
+bare-visible. Regression guards: `ExternalUnionCaseStampTests.fs` (stamp
+presence at bare / qualified / nested-in-tuple / both or-alternatives, plus
+opened-vs-unopened namespace) and the updated `OpenResolutionTests.fs`
+positive/negative pair.
 
-**3b — OpenScope re-resolution at inference/freeze time.** Spelling-origin
-strings (joined `ctx.NameOf` idents) resolved through
-`OpenScope.tryQualify`/`tryResolve` against `ctx.Resolution.OpenScope` *at
-the call site* — opens-correct, but resolver-face work running downstream;
-the resolved identity is re-derived live and never stamped:
+**3b — expression-position OpenScope re-resolution — LANDED (approach A).**
+The static-member-split / ctor-head / generic-static-receiver sites resolved a
+type identity through `OpenScope.tryQualify`/`tryResolve` at inference time,
+then minted a transitional asm-blind `qualifiedTypeKey <spelling> 0`. Confirmed
+against the F# compiler (audit 2026-07-10, `NameResolution.fs`
+`ResolveExprLongIdentPrim`): the type/member split for a *static* dotted path
+is decidable at name-resolution time WITHOUT type inference — F# consumes the
+longest namespace→module→type→static-member prefix over symbol tables and only
+the residual tail applied to an inferred *value* is type-directed. Mechanism as
+shipped: NameResolution runs the opens-aware longest-type-prefix walk
+(Class-only, via `tryResolveExternalClassKey`) and stamps the resolved type
+`SymbolKey`; Unification/Freeze read it and do store-face
+`TryLookupMember(typeKey, name)` / `TryLookupMembers(typeKey, ".ctor")` lookups
+(member *selection* stays type-directed — F#'s Phase 2 — keyed by the resolved
+type; the post-dot member name is not opens-sensitive, §3). Two tables carry
+the stamp: the existing `ResolvedType` for ctor-sugar heads + generic static
+receivers, and a NEW `ExternalStaticReceiver : SideTable<SymbolKey>` for the
+folded static-member *receiver prefix* — these had to split because a
+static-member LongIdent and a ctor head key off the same node with opposite
+meanings (prefix-of-T vs whole-name-is-T), and one shared table
+mis-constructed. **Class-only stamping is load-bearing:**
+`tryResolveExternalTypeKey` resolves any external type, but stamping broadly
+made scalar-intrinsic conversion functions (`float x`, `int x`) mis-fire as
+ctor calls (the store returns a `Class` shape for a scalar's backing metadata
+type), so the stamp itself — not just a consumer guard — filters to `Class`.
+Migrated: `inferExternalStaticMember` / `splitExternalClassPrefix` /
+`tryExternalStaticLongIdent` / `tryResolveExternalStaticMemberRef` /
+`tryExternalTypeReceiver` (InferResolve), `inferExternalCtorOn` /
+`tryInferExternalCtorApp` / `tryInferExternalGenericCtorApp` (InferCtor), the
+static-method overload set (InferExternalCall), plus a bonus key-round-trip
+removal in `tryExternalDispose` (Infer.fs). All `Stage 3 holdout (bucket 3b)`
+markers and transitional `qualifiedTypeKey <spelling> 0` mints removed from
+these sites. Regression guard: `ExternalTypeKeyStampTests.fs`.
 
-- `InferResolve.fs:191/207/240/304/375/391` — `splitExternalClassPrefix`
-  dotted static-member paths, enum cases, union-or-record probes.
-- `InferCtor.fs:131/257/261` — external ctor heads (`new T(…)`, `T(…)`).
-- `InferIdentExpr.fs:140` — dotted external value refs (`A.B.v`).
-- `Translate.fs:532` (via `:600`) — type annotations (`x: A.B.T`).
-- `Freeze/Resolve.fs:78` (`tryClassRef`) — the same machinery running in
-  Freeze, a pass after Unification already resolved these types.
+**3c — Vestigial OpenScope wrappers over already-qualified keys — LANDED.**
+`canonKey` and `subtypeParentOf`/`subtypeInterfacesOf` (EngineCore.fs) funnelled
+a resolved key's `qualifiedName` back through `OpenScope.tryResolve` — a no-op
+shell over an already-qualified identity. Converted to the key-addressed store
+face (`TryLookupType(key)`), threading the canon `SymbolKey` through the
+callers. `intrinsicPlatformName` (listed in the original inventory as `:543`)
+was NOT a shell and stays on the string face: its input is a *short* name and
+its opens funnel does genuine short→qualified resolution.
 
-Target: these are the "move upstream or declare exception" set. Some are
-genuinely opens-only (type annotations, ctor heads, dotted value refs) and
-can move to NameResolution stamps; the dotted static-member split
-(`A.B.C.M` — where does the type end and the member begin?) is opens-driven
-too, so it *can* move, but it is the largest single migration. Whatever
-remains keeps a deliberately narrow capability — a tiny interface exposing
-exactly the needed resolver method — rather than the whole resolver face.
-Explicit and typed beats ambient.
+**Remaining (a residue of NON-type-identity resolver-face calls; these gate the
+Stage 4 flip).** The audit's 3b inventory was not uniformly type-identity
+resolution; each of the following needs a different vehicle and is deferred:
 
-**3c — Vestigial OpenScope wrappers over already-qualified keys.**
-`EngineCore.fs:509/543/656` funnel `SymbolKeyOps.qualifiedName key` through
-`OpenScope.tryResolve` — the base is already a resolved key's qualified name,
-so the opens probe is a no-op shell. The key-addressed store face (Stage 2)
-absorbs these and the wrappers delete.
+1. **Type annotations (`x: A.B.T`, `Translate.fs`) and the `new T`
+   written-platform-class arm (`InferCtor`).** Live in `Type` nodes
+   NameResolution's expression walk does not traverse. Recommended: a small
+   *dedicated* `new`/type-head resolve (one `Type.NamedType` per `new`/`inherit`
+   head, stamped into `ResolvedType` keyed by the `Expr.New` node, sharing
+   `translateType`'s canon resolution) — NOT a general type-walker. The full
+   annotation case shares that resolve if pursued.
+2. **Dotted external value refs (`A.B.v`, `InferIdentExpr`) and
+   operator/intrinsic symbol resolutions (`InferApp`).** These need the value's
+   polymorphic *scheme* (`instantiateSymbol`), not just its key, and the store
+   face exposes no scheme-by-key method. Needs a symbol-payload stamp (like
+   `ExternalUnionCaseStamp`) or a narrow store capability — fold into Stage 4.
+3. **`Freeze/Resolve.tryClassRef`.** Returns a *string* consumed by `TExpr.New`
+   + codegen and performs abbreviation expansion (`ResizeArray` → `List`1`) the
+   type stamp does not; reading a key here needs a TAST/codegen change —
+   follow-up alongside Stage 5.
+4. **External enum-case `E.C1` (`tryExternalEnumCase`).** Movable, but shared
+   between expression and pattern position; the clean fix is a pattern-walk
+   stamp analogous to `ExternalUnionCaseStamp` in `stampPatCases`.
+5. **`resolvesAsExternalUnionOrRecord` (feeds `tryQualifiedExternalMemberMiss`).**
+   Shapes only an error message — not identity resolution; stays.
 
 **Member names are not holdouts.** Every `TryLookupMember(s)` second argument
 (`ctx.NameOf memberTok` at `InferExternalCall.fs:221/298`, `d.MemberName`,
@@ -333,7 +398,13 @@ the store face by design (key-semantics §3).
 `PassContext.Provider : IExternalSymbolStore`; resolver face threaded only to
 `NameResolution.run` and the extractor. **The flip compiling is the
 compiler-checked "done" bit for Stages 1–3** — any missed holdout is a type
-error, not a review find.
+error, not a review find. The Stage 3 *Remaining* residue must be resolved
+first: those value-scheme (§2 above), type-annotation (§1), `tryClassRef` (§3),
+and enum-case-pattern (§4) calls still need the string resolver face, so they
+are precisely what the flip would surface. Item 2 (value schemes / operator
+symbols) is the natural companion to this stage — it wants the same
+symbol-payload stamp or narrow store capability the flip forces the question
+on.
 
 ### Stage 5 — codegen `BuiltinOps` by-name → by-key
 

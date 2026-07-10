@@ -1,0 +1,255 @@
+module XParsec.FSharp.SemanticAnalysis.Tests.ExternalUnionCaseStampTests
+
+open System.Collections.Generic
+open Expecto
+open XParsec.FSharp.Lexer
+open XParsec.FSharp.Parser
+open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.SemanticAnalysis.Passes
+open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
+
+// NameResolution — the one resolve-once layer — recognises external union cases in
+// BOTH pattern and expression position, applying the opens / RQA / qualifier
+// discipline, and stamps the resolved `ExternalUnionCase` under the ctor head's
+// `NodeKey` (`Resolution.ExternalUnionCaseStamp`). Unification's `InferPat` /
+// `InferIdentExpr` and Freeze's `translatePat` / `tryCtorRef` READ that stamp instead
+// of handing raw spelling back to `TryLookupUnionCase(string)`. A MISSED stamp where a
+// consumer reads is a phantom binder / mis-lowering, so these tests assert the stamp is
+// present at representative pattern sites — including or-pattern alternatives, which the
+// binder-collection walk skips (they bind nothing) and so the stamping walk must reach
+// independently.
+
+/// A provider that knows two non-RQA unions: `Tests.Hue` (case `Blue`) whose
+/// namespace `Tests` is AUTO-OPENED via `AmbientOpenPrefixes` — as the real prelude
+/// auto-opens the package namespace so `Some`/`None` are bare-visible — and
+/// `Other.Shade` (case `Green`) whose namespace `Other` is NOT ambient, so a bare
+/// `Green` resolves only under an explicit `open Other`. `TryLookupUnionCase` is the
+/// reverse case index NameResolution resolves through; F# gates a bare hit on the
+/// declaring namespace being open (no global reverse case index).
+let private provider: IExternalSymbolProvider =
+    { new IExternalSymbolProvider
+
+      interface IExternalSymbolResolver with
+          member _.TryLookup _ = ValueNone
+          member _.TryLookupType(_: string) = ValueNone
+
+          member _.TryLookupUnionCase caseName =
+              let mk union name =
+                  ValueSome
+                      {
+                          UnionName = union
+                          Arity = 0
+                          Origin = SymbolOrigin.Empty
+                          Case = ExternalCaseShape.create (name, [||])
+                          IsRequireQualifiedAccess = false
+                      }
+
+              match caseName with
+              | "Blue" -> mk "Tests.Hue" "Blue"
+              | "Green" -> mk "Other.Shade" "Green"
+              | _ -> ValueNone
+
+          member _.AmbientOpenPrefixes = [ "Tests" ]
+      interface IExternalSymbolStore with
+          member _.TryLookupType(_: SymbolKey) = ValueNone
+          member _.TryLookupMember(_, _) = ValueNone
+          member _.TryLookupMembers(_, _) = [||]
+          member _.TryLookupIndexSignature _ = []
+          member _.TryLookupInlineBody _ = ValueNone
+          member _.IntrinsicReverseCanon = Map.empty
+          member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
+    }
+
+let private analyse (input: string) : PassContext * ImplementationFile<SyntaxToken> =
+    let lexed, file = parseFile input
+    let ctx = PassContext(provider, input, lexed)
+    Desugar.run ctx file
+    NameResolution.run ctx file
+    ctx, file
+
+/// Every sub-pattern node of `p`, `p` first (the same exhaustive recursion the
+/// stamping walk uses, so a stamp missed on any position surfaces here).
+let rec private patNodes (p: Pat<SyntaxToken>) : Pat<SyntaxToken> list =
+    p
+    :: (
+        match p with
+        | Pat.Named(argumentPats = args)
+        | Pat.OpNamed(argumentPats = args) ->
+            [
+                for sub in args do
+                    yield! patNodes sub
+            ]
+        | Pat.NamedFieldPats(args = args) ->
+            [
+                for a in args do
+                    match a with
+                    | UnionArgPat.Named(pat = sub)
+                    | UnionArgPat.Positional(pat = sub) -> yield! patNodes sub
+            ]
+        | Pat.EnclosedBlock(pat = inner)
+        | Pat.Typed(pat = inner)
+        | Pat.Attributed(pat = inner)
+        | Pat.As(pat = inner)
+        | Pat.TypeTestAs(pat = inner)
+        | Pat.Optional(pat = inner) -> patNodes inner
+        | Pat.Tuple(patterns = pats)
+        | Pat.StructTuple(patterns = pats)
+        | Pat.Elems(pats = pats) ->
+            [
+                for sub in pats do
+                    yield! patNodes sub
+            ]
+        | Pat.Record(fieldPats = fieldPats) ->
+            [
+                for FieldPat(pat = sub) in fieldPats do
+                    yield! patNodes sub
+            ]
+        | Pat.Cons(head = h; tail = t)
+        | Pat.Or(left = h; right = t)
+        | Pat.And(left = h; right = t) -> patNodes h @ patNodes t
+        | _ -> []
+    )
+
+/// Every pattern node reachable in `file` — module-let heads/args plus the patterns
+/// entering scope in lambda / for-in / match-arm bodies.
+let private allPats (file: ImplementationFile<SyntaxToken>) : Pat<SyntaxToken> list =
+    let acc = ResizeArray<Pat<SyntaxToken>>()
+    let add (p: Pat<SyntaxToken>) = acc.AddRange(patNodes p)
+
+    let walker: CstWalk.ExprWalker<unit> =
+        {
+            Visit = fun () _ -> ()
+            EnterFun =
+                fun () pats ->
+                    (for p in pats do
+                        add p)
+            EnterBindingRhs =
+                fun () _ _ b ->
+                    (for p in b.argumentPats do
+                        add p)
+            EnterLetBody =
+                fun () bindings ->
+                    (for b in bindings do
+                        add b.headPat)
+            EnterForTo = fun () _ -> ()
+            EnterForIn = fun () p -> add p
+            EnterMatchArm = fun () p -> add p
+        }
+
+    for m in CstWalk.implFileElems file do
+        match m with
+        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
+            for b in bindings do
+                add b.headPat
+
+                for p in b.argumentPats do
+                    add p
+
+                CstWalk.iterExpr walker () b.expr
+        | ModuleElem.Expression e -> CstWalk.iterExpr walker () e
+        | _ -> ()
+
+    List.ofSeq acc
+
+/// The ctor-head pattern nodes whose case name (bare ident, or last segment of a
+/// qualified `Pat.Named`) equals `caseName`.
+let private caseHeads (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) (caseName: string) =
+    allPats file
+    |> List.filter (fun p ->
+        match p with
+        | Pat.NamedSimple t -> ctx.NameOf t = caseName
+        | Pat.Named(longIdent = li) when li.Idents.Length >= 1 ->
+            ctx.NameOf li.Idents.[li.Idents.Length - 1] = caseName
+        | _ -> false
+    )
+
+/// Assert every `caseName` ctor head in `input` carries a pattern-position stamp,
+/// and that exactly `expected` heads were found (so a missed traversal position
+/// can't pass by finding zero heads).
+let private assertPatStamped (input: string) (caseName: string) (expected: int) =
+    let ctx, file = analyse input
+    let heads = caseHeads ctx file caseName
+    Expect.equal heads.Length expected (sprintf "ctor-head count for '%s' in: %s" caseName input)
+
+    for h in heads do
+        Expect.isTrue
+            (ctx.Resolution.ExternalUnionCaseStamp.ContainsKey(CstKeys.ofPat h))
+            (sprintf "external case '%s' stamped at its pattern head in: %s" caseName input)
+
+/// Assert every `caseName` head in `input` is NOT stamped (its declaring namespace
+/// is not open, so NameResolution treats the head as a binder, not an external
+/// case — the opens false-accept this gate closes).
+let private assertPatNotStamped (input: string) (caseName: string) (expected: int) =
+    let ctx, file = analyse input
+    let heads = caseHeads ctx file caseName
+    Expect.equal heads.Length expected (sprintf "ctor-head count for '%s' in: %s" caseName input)
+
+    for h in heads do
+        Expect.isFalse
+            (ctx.Resolution.ExternalUnionCaseStamp.ContainsKey(CstKeys.ofPat h))
+            (sprintf "bare case '%s' in a non-opened namespace is NOT stamped in: %s" caseName input)
+
+/// Does `input` raise an "Unresolved" diagnostic? (bare external case in
+/// expression position whose namespace is not open falls to unresolved-identifier).
+let private hasUnresolved (input: string) : bool =
+    let ctx, _ = analyse input
+    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "Unresolved")
+
+[<Tests>]
+let tests =
+    testList
+        "ExternalUnionCaseStamp"
+        [
+            test "bare case pattern is stamped" {
+                assertPatStamped "let f (o: obj) = match o with | Blue -> 1 | _ -> 0" "Blue" 1
+            }
+
+            test "qualified external case pattern is stamped" {
+                assertPatStamped "let f (o: obj) = match o with | Hue.Blue -> 1 | _ -> 0" "Blue" 1
+            }
+
+            test "case nested inside a tuple pattern is stamped" {
+                assertPatStamped "let f (o: obj) = match o with | (Blue, _) -> 1 | _ -> 0" "Blue" 1
+            }
+
+            // The load-bearing gap: or-pattern alternatives bind nothing, so the
+            // binder-collection walk never visits them; the stamping walk must reach
+            // BOTH alternatives independently.
+            test "both alternatives of an or-pattern are stamped" {
+                assertPatStamped "let f (o: obj) = match o with | Blue | Blue -> 1 | _ -> 0" "Blue" 2
+            }
+
+            // A bare RQA-free case in a `let`-binder head still stamps (the binder walk
+            // treats the head as a nullary ctor).
+            test "case in a let-binder head is stamped" {
+                assertPatStamped "let f (o: obj) = let Blue = o in 1" "Blue" 1
+            }
+
+            // The opens gate: `Other.Shade`'s namespace `Other` is not auto-opened,
+            // so a BARE `Green` must not stamp — F# has no global reverse case index,
+            // a bare case needs its declaring namespace opened.
+            test "bare case whose namespace is not opened is not stamped (pattern)" {
+                assertPatNotStamped "let f (o: obj) = match o with | Green -> 1 | _ -> 0" "Green" 1
+            }
+
+            // Positive: the SAME case stamps once its namespace is explicitly opened.
+            test "bare case is stamped once its namespace is opened (pattern)" {
+                assertPatStamped "open Other\nlet f (o: obj) = match o with | Green -> 1 | _ -> 0" "Green" 1
+            }
+
+            // A qualified reference resolves without the namespace opened (F# resolves
+            // `Union.Case` without consulting the per-scope unqualified tables).
+            test "qualified case whose namespace is not opened is still stamped" {
+                assertPatStamped "let f (o: obj) = match o with | Shade.Green -> 1 | _ -> 0" "Green" 1
+            }
+
+            // Expression position: a bare case in a non-opened namespace is a plain
+            // unresolved identifier (nothing stamps it, no external ctor recognised).
+            test "bare case whose namespace is not opened is unresolved (expression)" {
+                Expect.isTrue (hasUnresolved "let x = Green") "bare Green is unresolved with Other not opened"
+            }
+
+            test "bare case resolves in expression position once its namespace is opened" {
+                Expect.isFalse (hasUnresolved "open Other\nlet x = Green") "bare Green resolves under open Other"
+            }
+        ]

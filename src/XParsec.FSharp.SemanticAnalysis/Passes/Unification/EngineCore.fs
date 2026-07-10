@@ -496,20 +496,16 @@ module UnificationEngineCore =
     //      `ExternalTypeShape.Intrinsic` (whose `Id.Canon` is the authoritative key),
     //      resolved through the open scope so a bare short name reaches its `Vesper`-
     //      qualified shape.
-    // The SHORT `.fsi` name keys the local table; the QUALIFIED name feeds the provider
-    // open-scope resolve (guarding a user nominal whose SIMPLE name coincides with an
-    // intrinsic — its qualified name misses the provider). Memoized per `PassContext`:
+    // The SHORT `.fsi` name keys the local table; the key-addressed store face resolves a
+    // referenced package's intrinsic directly by `key` (guarding a user nominal whose SIMPLE
+    // name coincides with an intrinsic — the key's own `(ns, name)` misses the provider,
+    // where a bare-name probe would have false-matched). Memoized per `PassContext`:
     // `canonKey` runs inside the subtype recursive walk. A key that is none of the above
     // caches its own identity.
     let private canonKey (ctx: PassContext) (key: SymbolKey) : SymbolKey =
         match ctx.IntrinsicCanonCache.TryGetValue key with
         | true, canon -> canon
         | _ ->
-            let providerCanon (c: string) : SymbolKey voption =
-                match ctx.Provider.TryLookupType c with
-                | ValueSome(ExternalTypeShape.Intrinsic { Id = { Canon = canon } }) -> ValueSome canon
-                | _ -> ValueNone
-
             let short = SymbolKeyOps.simpleName key
 
             let canon =
@@ -518,11 +514,12 @@ module UnificationEngineCore =
                     // (`IntrinsicKeys`, stamped from the declaring `namespace`) is the canon.
                     TypeRegistry.intrinsicKeyOf ctx.Types short
                 else
-                    match
-                        OpenScope.tryResolve ctx.Resolution.OpenScope providerCanon (SymbolKeyOps.qualifiedName key)
-                    with
-                    | ValueSome canon -> canon
-                    | ValueNone -> key
+                    // `key` is already a resolved identity; the store face answers by key
+                    // (normalising a capability's platform face to canon internally), so no
+                    // open-scope probe of its qualified name is needed.
+                    match ctx.Provider.TryLookupType key with
+                    | ValueSome(ExternalTypeShape.Intrinsic { Id = { Canon = canon } }) -> canon
+                    | _ -> key
 
             ctx.IntrinsicCanonCache.[key] <- canon
             canon
@@ -616,7 +613,7 @@ module UnificationEngineCore =
 
     // The instantiated declared base of the nominal the walk is expanding: the
     // project-local class table first (by `localKey`, the receiver's own arity-key),
-    // then the external provider (by the qualified `name`).
+    // then the external provider (by the canon `key`).
     // `ExternalTypeShape.Class.BaseType` carries the BCL `inherit` chain
     // (`InvalidOperationException :> Exception :> …`), written over the
     // declaring type's typars, so we apply the receiver's `args`, exactly
@@ -628,14 +625,12 @@ module UnificationEngineCore =
     let private subtypeParentOf
         (ctx: PassContext)
         (localKey: SymbolKey voption)
-        (name: string)
+        (key: SymbolKey)
         (args: EqArray<SemType>)
         : SemType voption =
-        // `name` is the qualified canonical name — `subtypeNominalOf` surfaces the canon
-        // `SymbolKey`, projected here via `qualifiedName` for the provider lookup.
-        // `localKey` is the same nominal's registry key when it came from a
-        // `TyClass`/`TyUnion`/`TyRecord`; the local class table is keyed by that
-        // arity-qualified key, the provider by the qualified name.
+        // `key` is the canon `SymbolKey` `subtypeNominalOf` surfaces. `localKey` is the same
+        // nominal's registry key when it came from a `TyClass`/`TyUnion`/`TyRecord`; the local
+        // class table is keyed by that arity-qualified key, the provider by the canon key.
         let localInfo =
             match localKey with
             | ValueSome k -> TypeRegistry.tryClassByKey ctx.Types k
@@ -647,13 +642,10 @@ module UnificationEngineCore =
             | ValueSome parentTy -> ValueSome(instantiateMember (info.TypeParams, args) parentTy)
             | ValueNone -> ValueNone
         | ValueNone ->
-            // `name` is the QUALIFIED canon (`"Vesper.exn"`), which the provider (keyed by
-            // qualified compiled name) resolves as written. The open-scope funnel is kept
-            // for the residual bare form: the name as written first, then the file's
-            // explicit opens, then the ambient platform prefixes (which `PassContext` seeds
-            // at construction) — so a still-unqualified opaque intrinsic name reaches its
-            // `Vesper`-qualified shape.
-            match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookupType name with
+            // `key` is already a resolved identity; the store face answers by key (an
+            // open-scope funnel over its qualified name would be a no-op, since the name is
+            // already fully qualified), normalising a capability's platform face internally.
+            match ctx.Provider.TryLookupType key with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 ExternalSymbols.instantiateBaseType shape (args.AsSpan().ToArray())
             // A heritable primitive (`exn`)'s declared `inherit` parent (`obj`), so the
@@ -672,17 +664,17 @@ module UnificationEngineCore =
     // provider stores it un-flattened, so callers must recurse THROUGH each
     // surfaced interface for its own `extends`. An external interface is surfaced
     // as a `TyConst` (no local registry key, so its recursion routes back to the
-    // provider by qualified name). Same purity contract as `subtypeParentOf`.
+    // provider by the canon key). Same purity contract as `subtypeParentOf`.
     let private subtypeInterfacesOf
         (ctx: PassContext)
         (localKey: SymbolKey voption)
-        (name: string)
+        (key: SymbolKey)
         (args: EqArray<SemType>)
         : SemType list =
         // A class, union, *or* record may declare `interface … with` impls; the subtype
         // walk treats every kind's interface list identically. Resolve the local host by
         // its arity-key (`localKey`, the receiver's own registry key), falling back to
-        // the external provider by qualified `name`.
+        // the external provider by the canon `key`.
         let localHost =
             match localKey with
             | ValueSome k -> TypeRegistry.tryInterfaceImplHostByKey ctx.Types k
@@ -697,7 +689,9 @@ module UnificationEngineCore =
                     | ValueNone -> ()
             ]
         | ValueNone ->
-            match ctx.Provider.TryLookupType name with
+            // `key` is a resolved identity; the store face answers by key directly (its
+            // qualified name is already fully qualified, so no open-scope probe applies).
+            match ctx.Provider.TryLookupType key with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 // A class's implemented interfaces are NOMINAL types — surface them as
                 // `TyClass`, exactly as they appear as a value's static type everywhere
@@ -748,7 +742,7 @@ module UnificationEngineCore =
         // (not a bare `(key, args)` pair) lets each level recompute its own
         // `nominalKeyOf`, so the local base / interface-impl lookups resolve per-arity.
         // `seen` is keyed on the canon `SymbolKey`; the base / interface-impl lookups take
-        // the qualified string (`SymbolKeyOps.qualifiedName s`) — the genuine string seam.
+        // that same canon key `s` and address the store face by it.
         let rec walk (seen: HashSet<SymbolKey>) (cur: SemType) : EqArray<SemType> voption =
             match subtypeNominalOf ctx cur with
             | ValueNone -> ValueNone
@@ -763,9 +757,9 @@ module UnificationEngineCore =
                     ValueNone
                 else
                     // `localKey` is this nominal's registry key so the local base /
-                    // interface-impl lookups resolve per-arity, not by bare name.
+                    // interface-impl lookups resolve per-arity, not by bare name. The
+                    // external base / interface lookups take the canon key `s` directly.
                     let localKey = nominalKeyOf cur
-                    let name = SymbolKeyOps.qualifiedName s
 
                     let rec pick =
                         function
@@ -775,10 +769,10 @@ module UnificationEngineCore =
                             | ValueSome _ as found -> found
                             | ValueNone -> pick rest
 
-                    match pick (subtypeInterfacesOf ctx localKey name sa) with
+                    match pick (subtypeInterfacesOf ctx localKey s sa) with
                     | ValueSome _ as viaIface -> viaIface
                     | ValueNone ->
-                        match subtypeParentOf ctx localKey name sa with
+                        match subtypeParentOf ctx localKey s sa with
                         | ValueSome parentInstance -> walk seen parentInstance
                         | ValueNone -> ValueNone
 
@@ -808,11 +802,10 @@ module UnificationEngineCore =
             | ValueNone -> []
             | ValueSome(struct (s, sa)) ->
                 let localKey = nominalKeyOf node
-                let name = SymbolKeyOps.qualifiedName s
 
                 [
-                    yield! subtypeInterfacesOf ctx localKey name sa
-                    match subtypeParentOf ctx localKey name sa with
+                    yield! subtypeInterfacesOf ctx localKey s sa
+                    match subtypeParentOf ctx localKey s sa with
                     | ValueSome parent -> yield parent
                     | ValueNone -> ()
                 ]

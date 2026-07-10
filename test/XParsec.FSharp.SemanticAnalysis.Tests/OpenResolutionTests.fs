@@ -113,24 +113,36 @@ let tests =
                 Expect.isFalse (hasUnresolved ctx) "thing resolves inside nested M via the enclosing open A.B"
             }
 
-            // Gap 1 — `[<RequireQualifiedAccess>]` suppression.
-            test "a bare RQA case name is unresolved" {
+            // `[<RequireQualifiedAccess>]` suppression — isolated from the opens gate
+            // by opening `Tests` first, so the ONLY reason `Red` is rejected is RQA.
+            test "a bare RQA case name is unresolved even when its namespace is open" {
                 // `Color` is RQA, so the short `Red` must not resolve — F# requires
-                // `Color.Red`. This is the false-accept the gap closed.
-                let ctx = analyse "let x = Red"
+                // `Color.Red` — regardless of `open Tests`.
+                let ctx = analyse "open Tests\nlet x = Red"
                 Expect.isTrue (hasUnresolved ctx) "bare Red is rejected for an RQA union"
             }
 
             test "a qualified RQA case name still resolves" {
+                // Qualified `Color.Red` resolves WITHOUT its namespace opened — F#'s
+                // qualified case resolution doesn't consult the per-scope tables.
                 let ctx = analyse "let x = Color.Red"
                 Expect.isFalse (hasUnresolved ctx) "Color.Red resolves (qualified form is allowed)"
             }
 
-            test "a bare non-RQA case name resolves" {
-                // Control: `Hue` is an ordinary union, so its bare case `Blue` is in
-                // scope — the suppression is RQA-specific, not a blanket reject.
+            // The opens gate on bare external cases: F# has no global reverse case
+            // index, so a bare non-RQA case is visible only once its declaring
+            // namespace is opened/auto-opened.
+            test "a bare non-RQA case name resolves once its namespace is opened" {
+                let ctx = analyse "open Tests\nlet x = Blue"
+                Expect.isFalse (hasUnresolved ctx) "bare Blue resolves under open Tests"
+            }
+
+            test "a bare non-RQA case name without its open is unresolved" {
+                // `Hue` lives in `Tests`, which is neither opened here nor in the
+                // (empty) ambient prelude, so bare `Blue` must not resolve — the
+                // opens false-accept this gate closes.
                 let ctx = analyse "let x = Blue"
-                Expect.isFalse (hasUnresolved ctx) "bare Blue resolves for a non-RQA union"
+                Expect.isTrue (hasUnresolved ctx) "bare Blue is unresolved with Tests not opened"
             }
 
             // Gap 4 — operator-form qualified long idents.

@@ -1307,6 +1307,32 @@ type PassContextResolution =
         /// (e.g. "is this exactly `Vesper.Printf.printfn`?") instead of
         /// suffix-matching the source-written name.
         ExternalValue: SideTable<SymbolKey>
+        /// Keyed by an external union-case ctor head's `NodeKey` — a *pattern* head
+        /// (`CstKeys.ofPat`, the `Some x` / `Result.Ok x` of a `match` / binder) or an
+        /// *expression* head (`CstKeys.ofExpr`, a bare `None` / qualified `Option.Some`
+        /// used as a value / ctor function): the `ExternalUnionCase` NameResolution
+        /// resolved that head to. NameResolution owns case recognition — it applies the
+        /// opens / RQA / qualifier discipline (`ExternalUnionCase.ResolvesWith`) once and
+        /// stamps the resolved identity here; Unification's `InferPat` / `InferIdentExpr`
+        /// and Freeze's `translatePat` / `tryCtorRef` READ this stamp instead of handing
+        /// raw source spelling back to the resolver-face `TryLookupUnionCase(string)`.
+        /// Absent ⇒ the head is not an external union case (a binder, a local ctor, or a
+        /// bare reference to an `[<RequireQualifiedAccess>]` case, which resolves only
+        /// qualified). A missed stamp where a consumer reads is a phantom binder /
+        /// mis-lowering, so the pattern-stamping walk must reach every pattern position.
+        ///
+        /// The `ExternalUnionCase` payload itself is stamped (not a `(union key, case
+        /// name)` pair): a consumer must recover the declaring union's key AND the
+        /// matched case's per-field type builders to instantiate `TyUnion(union,
+        /// freshArgs)` and unify sub-patterns. Recovering field types from the union key
+        /// alone would need a second, key-addressed `TryLookupType(union key)` → select
+        /// case by name — but a provider that publishes only the reverse case index
+        /// (several test fakes, and any minimal contract) answers `TryLookupUnionCase`
+        /// yet returns `ValueNone` for the forward key lookup, so that round-trip would
+        /// both change behaviour and break green. Carrying the resolved payload keeps
+        /// identity resolved ONCE upstream while reproducing the previous recognisers
+        /// exactly with no downstream provider call (key-semantics §4 permits this).
+        ExternalUnionCaseStamp: SideTable<ExternalUnionCase>
         /// Keyed by the `NodeKey` of an expression Freeze lowers to a desugared
         /// `TExpr.External(<intrinsicName>, …)` head that splices a cross-package
         /// `let inline` body: an arithmetic/comparison/custom operator
@@ -1359,18 +1385,45 @@ type PassContextResolution =
         /// `ForInEnumerator.Pattern` for a source exposing only a pattern-based
         /// `GetEnumerator()`.
         ForInShape: SideTable<ForInEnumerator>
-        /// Keyed by a *type-reference* `NodeKey`: the project-local `SymbolKey`
-        /// that reference resolves to. Two minting
-        /// sites populate it: `NameResolution.registerUnionTypeDefn` stamps the
-        /// *decl* site (`DeclType` key) from the union's minted `Key`, and
-        /// `translateType` / `resolveNamedGeneric` stamp *use* sites (`TypeNamed` /
-        /// `TypeGeneric` keys) as a union annotation resolves. Read by the type-decl
-        /// emitter (`Freeze.tryUnionType`) to recover the union by key instead of
-        /// re-deriving `(name, arity)`; the use-site stamps are populate-only
-        /// groundwork until a consumer keys off them. Unions only for now
-        /// (the proven-out case); records / classes / abbrevs follow as their
-        /// consumers migrate.
+        /// Keyed by a type-reference OR an expression-position type-name `NodeKey`:
+        /// the `SymbolKey` that reference resolves to. Minting sites:
+        /// `NameResolution.registerUnionTypeDefn` stamps the *decl* site (`DeclType`
+        /// key) from the union's minted `Key`; `translateType` / `resolveNamedGeneric`
+        /// stamp type-annotation *use* sites (`TypeNamed` / `TypeGeneric` keys); and
+        /// NameResolution's ident/long-ident walk stamps *expression* sites — a
+        /// generic external-type receiver (`EqualityComparer<int>.Default`, the
+        /// `Expr.TypeApp` head), a folded static-member receiver prefix
+        /// (`System.Console` in `System.Console.Out`, the whole `Expr.LongIdent`
+        /// node's key), and an external ctor-sugar head (`InvalidOperationException`
+        /// as an `App` head). Because a `NodeKey` carries its `NodeKind`, the
+        /// expression stamps (`ExprIdent` / `ExprLongIdent`) never collide with the
+        /// type-node stamps (`TypeNamed` / …) at the same source offset.
+        /// Read by: the type-decl emitter (`Freeze.tryUnionType`) and the enum
+        /// use-site elaborator by type key; and the expression-position store-face
+        /// consumers — Unification's `tryExternalTypeReceiver` /
+        /// `splitExternalClassPrefix` / `tryInferExternalCtorApp` read the stamped
+        /// declaring-type key and do a key-addressed `TryLookupMember` /
+        /// `TryLookupMembers(_, ".ctor")` instead of re-running an opens-aware
+        /// `OpenScope.tryQualify` + string provider lookup at inference time (F#'s
+        /// name-resolution/type-inference seam: the static type prefix is resolved
+        /// here, opens-aware, ONCE; the post-dot member name stays a string, a
+        /// non-opens-sensitive post-selector).
         ResolvedType: SideTable<SymbolKey>
+        /// Keyed by a folded static-member `Expr.LongIdent` node (`System.Console.Out`,
+        /// `N.pickName`): the resolved `SymbolKey` of the receiver PREFIX (every
+        /// segment but the last) when it resolves — opens-aware — to an external
+        /// CLASS. This is DISTINCT from `ResolvedType`, which records the type a node
+        /// names *wholly* (a ctor-sugar head, a bare type ref, a generic static
+        /// receiver). The two carry incompatible meanings for the SAME folded-LongIdent
+        /// node — `System.InvalidOperationException` is a whole-name class (a ctor head,
+        /// `ResolvedType`) while `N.pickName` is a prefix class + trailing member (here)
+        /// — so they cannot share one table: a ctor-app consumer reading `ResolvedType`
+        /// must NOT see the receiver prefix of a static member and mistake it for a
+        /// constructible head. Read by `splitExternalClassPrefix` (the static-member /
+        /// static-value paths); `TryLookupMember(prefixKey, lastSegment)` selects the
+        /// post-dot member by key. Absent when the prefix is not an external class (a
+        /// namespace, a local field chain, an unknown qualifier).
+        ExternalStaticReceiver: SideTable<SymbolKey>
         /// Project-local *module* member registry. Maps a local module's
         /// short name (`SetTree`) → its directly-declared `let` value/function
         /// bindings (member name → the binding-site `NodeKey` `bindingsOfPat` mints
@@ -1406,12 +1459,14 @@ module PassContextResolution =
             TyparInterfaceCall = SideTable<_>()
             ExternalOptionalFill = SideTable<_>()
             ExternalValue = SideTable<_>()
+            ExternalUnionCaseStamp = SideTable<_>()
             IntrinsicKey = SideTable<_>()
             ResolvedOperatorValue = SideTable<_>()
             TypeTestTargets = SideTable<_>()
             UseDispose = SideTable<_>()
             ForInShape = SideTable<_>()
             ResolvedType = SideTable<_>()
+            ExternalStaticReceiver = SideTable<_>()
             LocalModules = Dictionary<_, _>()
             TypeEnclosingModule = Dictionary<_, _>()
         }

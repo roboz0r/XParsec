@@ -502,13 +502,13 @@ module internal FreezeResolve =
         if ctx.Bindings.Binding.ContainsKey key then
             ValueNone
         else
-            // A local *or* external union declares `n` as a case. A bare reference
-            // to an RQA external case is excluded — only its qualified form (the
-            // length-2 arms below) is a ctor ref.
+            // A local *or* external union declares `n` as a case. The external leg
+            // is read from NameResolution's stamp (keyed by this expression node);
+            // a bare reference to an RQA external case is never stamped — only its
+            // qualified form (the length-2 arms below) is a ctor ref.
             let isCase (n: string) =
                 ctx.Types.CtorIndex.ContainsKey n
-                || (ctx.Provider.TryLookupUnionCase n
-                    |> ValueOption.exists (fun uc -> uc.ResolvesWith ValueNone))
+                || ctx.Resolution.ExternalUnionCaseStamp.ContainsKey key
 
             match e with
             | Expr.Ident t ->
@@ -528,14 +528,13 @@ module internal FreezeResolve =
                 ValueSome(ctx.NameOf li.Idents.[1])
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 2 ->
                 // Qualified external union case (`Option.Some`): the head is an
-                // external union, not a local one. Accept only when the resolved
-                // union's short name matches the written qualifier.
-                let typeName = ctx.NameOf li.Idents.[0]
-                let caseName = ctx.NameOf li.Idents.[1]
-
-                match ctx.Provider.TryLookupUnionCase caseName with
-                | ValueSome uc when uc.ResolvesWith(ValueSome typeName) -> ValueSome caseName
-                | _ -> ValueNone
+                // external union, not a local one. NameResolution stamped this node
+                // only when the resolved union's short name matched the written
+                // qualifier, so the stamp's presence is the acceptance test.
+                if ctx.Resolution.ExternalUnionCaseStamp.ContainsKey key then
+                    ValueSome(ctx.NameOf li.Idents.[1])
+                else
+                    ValueNone
             | _ -> ValueNone
 
     // Active patterns wrap the four `try*` helpers so each `translateExpr` arm
