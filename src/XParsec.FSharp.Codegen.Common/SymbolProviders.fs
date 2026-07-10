@@ -46,6 +46,22 @@ module SymbolProviders =
             Body: InlineBody
         }
 
+    /// A harvested `let inline` VALUE body: its simple compiled name, the resolved
+    /// `SymbolKey` its home package interns it under (`ValueNone` if the qualified
+    /// name did not resolve), and the `Body`. `Key` is the value-channel twin of the
+    /// member channel's `TryLookupMember` result: source spelling is resolved to the
+    /// identity ONCE, at collection, so the by-KEY store agrees with the use-site
+    /// `TExpr.External.Key` — a module-qualified read (`Unchecked.defaultof`) hits the
+    /// identity-robust key channel — and a `SymbolKey`, not a spelling, flows onward.
+    /// The simple `Name` still keys the by-name channel (a bare `undefined`, and
+    /// intra-body `External` refs, carry it).
+    type ValueInlineBody =
+        {
+            Name: string
+            Key: SymbolKey voption
+            Body: InlineBody
+        }
+
     /// Mint the `this`-first inline `TDecl.Let` for a concrete `(# … #)`-bodied
     /// member — the member-sourced twin of the `let inline` value case. A concrete
     /// accessor `member _.M p0 p1 = (# … #)` IS the inline function
@@ -101,15 +117,28 @@ module SymbolProviders =
                 }
         | _ -> None
 
+    /// The fully-qualified compiled name of a module value (`Vesper.Unchecked.defaultof`):
+    /// `Namespace.Holder.Name` with empty segments dropped, matching the contract
+    /// extractor's `dv.Compiled` (`VesperLib.compiledNameForVal`) — i.e. the name the
+    /// provider indexes the value under. The query for the one source-spelling → key
+    /// resolution; a wrong reconstruction simply misses (`ValueNone`), never mis-keys.
+    let private qualifiedValueName (info: ModuleMemberInfo) : string =
+        [
+            (match info.Namespace with
+             | Some ns -> ns
+             | None -> "")
+            info.Holder
+            info.Name
+        ]
+        |> List.filter (fun s -> s <> "")
+        |> String.concat "."
+
     /// Cross-package inline bodies. The first channel is `let inline` VALUE bodies
     /// keyed by source name; the second is member-sourced bodies (concrete
     /// `(# … #)`-bodied members on a `Class`), served by member key. Collected once
     /// here, frozen against the same provider stack the consumer uses.
-    let private collectInlineBodies
-        (ctx: PassContext)
-        (tast: TastFile)
-        : (string * InlineBody) list * MemberInlineBody list =
-        let acc = ResizeArray<string * InlineBody>()
+    let private collectInlineBodies (ctx: PassContext) (tast: TastFile) : ValueInlineBody list * MemberInlineBody list =
+        let acc = ResizeArray<ValueInlineBody>()
         let memberAcc = ResizeArray<MemberInlineBody>()
 
         // Pre-pass: build NodeKey → source-name map. Inline bodies that reference a
@@ -157,10 +186,16 @@ module SymbolProviders =
                         | _ -> [||]
 
                     acc.Add(
-                        info.Name,
                         {
-                            Decl = rewriteDecl d
-                            ParamAttrs = paramAttrs
+                            Name = info.Name
+                            Key =
+                                ctx.Provider.TryLookup(qualifiedValueName info)
+                                |> ValueOption.map (fun s -> s.Key)
+                            Body =
+                                {
+                                    Decl = rewriteDecl d
+                                    ParamAttrs = paramAttrs
+                                }
                         }
                     )
                 | None -> ()
@@ -173,7 +208,16 @@ module SymbolProviders =
             // attrs (a nullary value has no parameters).
             | TDecl.Let(TPat.NamedSimple(k, _, _), _, false, _) when (Inline.nullaryIntrinsicValueBody d).IsSome ->
                 match Map.tryFind k tast.ModuleMembers with
-                | Some info -> acc.Add(info.Name, { Decl = d; ParamAttrs = [||] })
+                | Some info ->
+                    acc.Add(
+                        {
+                            Name = info.Name
+                            Key =
+                                ctx.Provider.TryLookup(qualifiedValueName info)
+                                |> ValueOption.map (fun s -> s.Key)
+                            Body = { Decl = d; ParamAttrs = [||] }
+                        }
+                    )
                 | None -> ()
             // Member-sourced inline bodies: a concrete `(# … #)`-bodied member on ANY
             // member-bearing host (class / union / record — `TTypeKindG.members`) mints
@@ -200,14 +244,15 @@ module SymbolProviders =
         List.ofSeq acc, List.ofSeq memberAcc
 
     /// Load cross-package inline bodies from manifests' `impl` files. Type-checked
-    /// and frozen once against `provider`. A later body wins on a name clash.
+    /// and frozen once against `provider`. Emitted in manifest/decl order so a later
+    /// body wins a by-name clash downstream (`Map.ofList` / `byKey.[k] <-`).
     /// `target` selects per-target `inline-bodies-<t>` overrides.
     let inlineBodies
         (target: string option)
         (provider: IExternalSymbolProvider)
         (manifestPaths: string list)
-        : Map<string, InlineBody> * MemberInlineBody list =
-        let mutable acc = Map.empty
+        : ValueInlineBody list * MemberInlineBody list =
+        let acc = ResizeArray<ValueInlineBody>()
         let memberAcc = ResizeArray<MemberInlineBody>()
 
         for manifestPath in manifestPaths do
@@ -243,12 +288,10 @@ module SymbolProviders =
 
                             let values, members = collectInlineBodies ctx tast
 
-                            for (name, body) in values do
-                                acc <- Map.add name body acc
-
+                            acc.AddRange values
                             memberAcc.AddRange members
 
-        acc, List.ofSeq memberAcc
+        List.ofSeq acc, List.ofSeq memberAcc
 
 
     /// Cache keyed by normalised manifest set + target + metadata tag. Each set is
@@ -317,14 +360,27 @@ module SymbolProviders =
                          let provider =
                              ReferencedProject.composeOrdered metaTail target ordered transitiveDeps
 
-                         let inlines, memberInlines = inlineBodies target provider ordered
+                         let values, memberInlines = inlineBodies target provider ordered
+
+                         // The by-NAME fallback (`External` heads with `key = ValueNone`
+                         // — a bare `undefined`, intra-body refs). Simple-name keyed; a
+                         // later body wins a clash (list is in manifest/decl order).
+                         let byName = (Map.empty, values) ||> List.fold (fun m v -> Map.add v.Name v.Body m)
 
                          let byKey =
                              System.Collections.Generic.Dictionary<SymbolKey, InlineBody>(HashIdentity.Structural)
 
-                         for KeyValue(name, body) in inlines do
-                             match provider.TryLookup name with
-                             | ValueSome sym -> byKey.[sym.Key] <- body
+                         // Value bodies are keyed by the `SymbolKey` resolved ONCE at
+                         // collection — the same key a use-site `TExpr.External` carries,
+                         // so a module-qualified read (`Unchecked.defaultof`) hits this
+                         // identity-robust channel. A resolved identity flows here, not a
+                         // spelling: the store builder does no source-name lookup of its
+                         // own. (The simple name does not resolve — the index is
+                         // qualified-name keyed and the holder is not auto-opened — which
+                         // is why the by-name fallback alone once needed a name-rewrite hack.)
+                         for v in values do
+                             match v.Key with
+                             | ValueSome k -> byKey.[k] <- v.Body
                              | ValueNone -> ()
 
                          // Member-sourced bodies are keyed by the FINALIZED member key
@@ -337,7 +393,7 @@ module SymbolProviders =
                              | ValueSome mem -> byKey.[mem.Key] <- mb.Body
                              | ValueNone -> ()
 
-                         withInlineBodies provider byKey inlines, inlines)
+                         withInlineBodies provider byKey byName, byName)
             )
             .Value
 

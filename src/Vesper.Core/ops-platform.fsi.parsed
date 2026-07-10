@@ -1512,27 +1512,23 @@ namespace                 'namespace'       KWNamespace         tok=   0  pos=  
         ->                '->'              OpArrowRight        tok=2842  pos=19282
         NamedType:
           Ident           'unit'            Identifier          tok=2844  pos=19285
-    end                   <virt>            KWEnd               tok=virt  pos=19655
+    end                   <virt>            KWEnd               tok=virt  pos=19625
   Module:
-    [<                    '[<'              KWLAttrBracket      tok=2855  pos=19655
-    NamedType:
-      Ident               'AutoOpen'        Identifier          tok=2856  pos=19657
-    >]                    '>]'              KWRAttrBracket      tok=2857  pos=19665
-    module                'module'          KWModule            tok=2859  pos=19668
-    ident                 'Unchecked'       Identifier          tok=2861  pos=19675
-    =                     '='               OpEquality          tok=2863  pos=19685
-    begin                 <virt>            KWBegin             tok=virt  pos=20609
+    module                'module'          KWModule            tok=2855  pos=19625
+    ident                 'Unchecked'       Identifier          tok=2857  pos=19632
+    =                     '='               OpEquality          tok=2859  pos=19642
+    begin                 <virt>            KWBegin             tok=virt  pos=20410
       Val:
-        val               'val'             KWVal               tok=2900  pos=20609
-        inline            'inline'          KWInline            tok=2902  pos=20613
-        Ident             'defaultof'       Identifier          tok=2904  pos=20620
+        val               'val'             KWVal               tok=2893  pos=20410
+        inline            'inline'          KWInline            tok=2895  pos=20414
+        Ident             'defaultof'       Identifier          tok=2897  pos=20421
         TyparDefns:
-          <               '<'               op_LessThan         tok=2905  pos=20629
+          <               '<'               op_LessThan         tok=2898  pos=20430
           Typar.Named:
-                          ''T'              TypeParameter       tok=2906  pos=20630
-          >               '>'               op_GreaterThan      tok=2907  pos=20632
-        :                 ':'               OpColon             tok=2909  pos=20634
+                          ''T'              TypeParameter       tok=2899  pos=20431
+          >               '>'               op_GreaterThan      tok=2900  pos=20433
+        :                 ':'               OpColon             tok=2902  pos=20435
         VarType:
           Typar.Named:
-                          ''T'              TypeParameter       tok=2911  pos=20636
-    end                   <virt>            KWEnd               tok=virt  pos=20639
+                          ''T'              TypeParameter       tok=2904  pos=20437
+    end                   <virt>            KWEnd               tok=virt  pos=20440

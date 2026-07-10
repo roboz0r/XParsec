@@ -6,6 +6,30 @@ callable representation instead of the current bare-`defaultof` +
 `inline` intrinsic value whose IL body is a valid standalone method
 (`Unchecked.unbox`, a future `Unchecked.compare`, …).
 
+## Status (2026-07)
+
+- **DONE — the idiomatic surface.** Half 1 (qualified / type-applied
+  references splice during semantic analysis) shipped, then `[<AutoOpen>]`
+  was dropped from `module Unchecked` and `seq.fs` rewritten to
+  `Unchecked.defaultof<'T>`. This fully answers the original goal: the
+  idiomatic spelling compiles and splices to `ilzero`, no phantom call.
+- **DEFERRED — materialisation** (a real callable `DefaultOf<T>()` for
+  C#/reflection). A prototype existed but was **discarded**: it special-cased
+  generalization (`Elaborate` quantEnv) and freeze retention to force an
+  *inline* value to also materialise — and it delivered **nothing shippable**,
+  because `ops-platform.fs` is in the manifest's `inline-bodies` list, not
+  `impl`, so it never compiles to `Vesper.Core.dll`. When revisited, do NOT
+  carve up the front end; prefer one of:
+  - **(a)** make `defaultof` a plain non-inline `[<GeneralizableValue>]` in a
+    dedicated `impl` `module Unchecked` file — materialises through the
+    existing `collectGenericModuleValues` path with zero core-pass changes
+    (cost: every use is a real `call`, no splice); or
+  - **(b)** keep it inline and synthesise the compiled method face in the
+    **backend** from the inline body, leaving `Elaborate`/`Freeze` untouched.
+
+  Sites #4–#7 below describe the discarded front-end approach and are kept
+  only as a record of what NOT to repeat.
+
 ## Status quo
 
 `Vesper.Core/ops-platform.fs:247` defines the primitive as a nullary
@@ -128,7 +152,7 @@ not leak into Freeze; FSharp.Core encodes the verdict at the source with
 
 | # | File | Change |
 |---|------|--------|
-| 1 | `Freeze/Idents.fs` (`translateIdent`) | A qualified read of an *external* module value already froze to `TExpr.External` — the defect was that it carried the **dotted name + holder-scoped key**, which the cross-package inline-body index (keyed by *simple* name / bare-reference key) does not contain, so `InlineExpansion.fs:674` missed it and codegen emitted the phantom `call`. Fix: for a nullary zero-operand intrinsic value only (`Inline.nullaryIntrinsicValueBody`), re-point the `External` head to the simple name so it hits the same splice as the bare form. (The member-read path at `FreezeExpr.fs:189/307` fires only for a *project-local* holder, not this case.) |
+| 1 | `SymbolProviders.fs` (`buildContractCached`) | A qualified read of an *external* module value already froze to `TExpr.External` carrying the resolved (holder-scoped) `SymbolKey` — the SAME `ValueKey(asm, ns, name)` the provider mints for that value. The defect was in the inline-body **by-key store**: it resolved each value body via its *simple* name (`provider.TryLookup info.Name`), which the qualified-name-keyed index does not contain (and never did — `[<AutoOpen>]` only ever fed front-end resolution, not `TryLookup`), so `byKey` got no entry and `InlineExpansion.fs:674` missed the key channel → phantom `call`. Fix: key `byKey` by resolving the value's **fully-qualified** compiled name (`ValueInlineBody.Qualified`, reconstructed from its `ModuleMemberInfo`), exactly as the member channel already keys by `TryLookupMember(qualifiedTypeName, …)`. The use-site key then hits the identity-robust key channel directly — no Freeze-side name rewrite, and same-simple-name value inlines across modules no longer alias in the by-name map. |
 | 2 | `FreezeExpr.fs` | New arm: value `Expr.TypeApp(inner, types)` forwards to `inner`'s frozen `External` leaf. |
 | 3 | `InferTypeOps.fs:36` (optional) | `inferTypeApp` binds a generic value's scheme typar to the explicit arg. |
 | 4 | `EmitClosures.fs:164` | `classifyModuleValues`: admit `isInline` values that lack `[<NoDynamicInvocation>]`. |

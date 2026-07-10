@@ -3447,43 +3447,39 @@ namespace                                              'namespace'       KWNames
                                                        '"'               StringClose         tok=3850  pos=11887
     end                                                <virt>            KWEnd               tok=virt  pos=11948
   Module:
-    [<                                                 '[<'              KWLAttrBracket      tok=3855  pos=11948
-    NamedType:
-      Ident                                            'AutoOpen'        Identifier          tok=3856  pos=11950
-    >]                                                 '>]'              KWRAttrBracket      tok=3857  pos=11958
-    module                                             'module'          KWModule            tok=3859  pos=11961
-    ident                                              'Unchecked'       Identifier          tok=3861  pos=11968
-    =                                                  '='               OpEquality          tok=3863  pos=11978
-    begin                                              <virt>            KWBegin             tok=virt  pos=12401
+    module                                             'module'          KWModule            tok=3855  pos=11948
+    ident                                              'Unchecked'       Identifier          tok=3857  pos=11955
+    =                                                  '='               OpEquality          tok=3859  pos=11965
+    begin                                              <virt>            KWBegin             tok=virt  pos=12376
       FunctionOrValue:
-        let                                            'let'             KWLet               tok=3882  pos=12401
-          inline                                       'inline'          KWInline            tok=3884  pos=12405
-          Pat.NamedSimple                              'defaultof'       Identifier          tok=3886  pos=12412
+        let                                            'let'             KWLet               tok=3878  pos=12376
+          inline                                       'inline'          KWInline            tok=3880  pos=12380
+          Pat.NamedSimple                              'defaultof'       Identifier          tok=3882  pos=12387
           TyparDefns:
-            <                                          '<'               op_LessThan         tok=3887  pos=12421
+            <                                          '<'               op_LessThan         tok=3883  pos=12396
             Typar.Named:
-                                                       ''T'              TypeParameter       tok=3888  pos=12422
-            >                                          '>'               op_GreaterThan      tok=3889  pos=12424
-          ReturnColon                                  ':'               OpColon             tok=3891  pos=12426
+                                                       ''T'              TypeParameter       tok=3884  pos=12397
+            >                                          '>'               op_GreaterThan      tok=3885  pos=12399
+          ReturnColon                                  ':'               OpColon             tok=3887  pos=12401
           VarType:
             Typar.Named:
-                                                       ''T'              TypeParameter       tok=3893  pos=12428
-          =                                            '='               OpEquality          tok=3895  pos=12431
+                                                       ''T'              TypeParameter       tok=3889  pos=12403
+          =                                            '='               OpEquality          tok=3891  pos=12406
             ILIntrinsic:
-              (#                                       '(#'              KWLHashParen        tok=3897  pos=12433
-              StringLiteral                            '"'               StringOpen          tok=3899  pos=12436
+              (#                                       '(#'              KWLHashParen        tok=3893  pos=12408
+              StringLiteral                            '"'               StringOpen          tok=3895  pos=12411
               Parts:
-                Text                                   'ilzero'          StringFragment      tok=3900  pos=12437
-                                                       '"'               StringClose         tok=3901  pos=12443
+                Text                                   'ilzero'          StringFragment      tok=3896  pos=12412
+                                                       '"'               StringClose         tok=3897  pos=12418
               ILTypeArg:
-                type                                   'type'            KWType              tok=3903  pos=12445
-                (                                      '('               KWLParen            tok=3905  pos=12450
-                typeToken                              ''T'              TypeParameter       tok=3906  pos=12451
-                )                                      ')'               KWRParen            tok=3907  pos=12453
+                type                                   'type'            KWType              tok=3899  pos=12420
+                (                                      '('               KWLParen            tok=3901  pos=12425
+                typeToken                              ''T'              TypeParameter       tok=3902  pos=12426
+                )                                      ')'               KWRParen            tok=3903  pos=12428
               ILReturnType:
-                :                                      ':'               OpColon             tok=3909  pos=12455
+                :                                      ':'               OpColon             tok=3905  pos=12430
                 VarType:
                   Typar.Named:
-                                                       ''T'              TypeParameter       tok=3911  pos=12457
-              #)                                       '#)'              KWRHashParen        tok=3913  pos=12460
-    end                                                <virt>            KWEnd               tok=virt  pos=12463
+                                                       ''T'              TypeParameter       tok=3907  pos=12432
+              #)                                       '#)'              KWRHashParen        tok=3909  pos=12435
+    end                                                <virt>            KWEnd               tok=virt  pos=12438

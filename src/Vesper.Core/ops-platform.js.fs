@@ -267,11 +267,10 @@ module IndexIntrinsics =
         (# "$0[$1] = $2" target key value : unit #)
 
 /// The default-value primitive — see `ops-platform.fsi`.
-[<AutoOpen>]
 module Unchecked =
 
-    /// `defaultof` — a nullary value spliced at each bare reference (the `undefined`-value
-    /// path). JS has no per-type zero, so the default IS `null`, emitted by the ordinary
+    /// `defaultof` — a nullary value spliced at each `Unchecked.defaultof` reference.
+    /// JS has no per-type zero, so the default IS `null`, emitted by the ordinary
     /// template idiom: a hole-less `"null"` template substitutes to the literal, no bespoke
     /// backend arm. This DIVERGES from the CLR body (`ilzero` → `initobj`) exactly as the
     /// arithmetic bodies diverge — a JS template here, a CIL mnemonic there.

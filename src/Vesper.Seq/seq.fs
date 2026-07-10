@@ -45,11 +45,11 @@ module Seq =
 
     let reduce (reduction: 'T -> 'T -> 'T) (source: seq<'T>) : 'T =
         // `for … in` has no explicit first-move to seed the accumulator, so seed `acc` with
-        // `defaultof` (the default-of-'T primitive, `Vesper`'s `Unchecked.defaultof` analogue)
-        // and gate on `seen`: the default is never observed — the first element overwrites it
-        // before any `reduction`. A single mutable slot, so `reduce` is O(1) in space and streams
-        // `source` through the one portable enumeration construct (`for … in`) — no buffer.
-        let mutable acc: 'T = defaultof
+        // `Unchecked.defaultof<'T>` (the default-of-'T primitive) and gate on `seen`: the default
+        // is never observed — the first element overwrites it before any `reduction`. A single
+        // mutable slot, so `reduce` is O(1) in space and streams `source` through the one portable
+        // enumeration construct (`for … in`) — no buffer.
+        let mutable acc: 'T = Unchecked.defaultof<'T>
         let mutable seen = false
 
         for x in source do

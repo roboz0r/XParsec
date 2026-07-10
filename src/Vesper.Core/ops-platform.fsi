@@ -457,11 +457,10 @@ module IndexIntrinsics =
     /// front end desugars <c>x.[k] &lt;- value</c> to on such a receiver.</summary>
     val inline SetIndex: target: 'T -> key: 'K -> value: 'V -> unit
 
-/// The default-value primitive. `[<AutoOpen>]` so `defaultof` is referenced BARE: a bare
-/// `External` reference is what the inline pass splices the nullary `ilzero` body at (a
-/// qualified `Unchecked.defaultof` resolves through the member-call path, which emits a real
-/// call to a type this inline-only module never emits — hence the auto-open + bare form).
-[<AutoOpen>]
+/// The default-value primitive. Referenced module-qualified as `Unchecked.defaultof<'T>` (or
+/// `Unchecked.defaultof`, the instantiation left to the reference's expected type): the inline
+/// pass splices the nullary `ilzero` body at each reference, so no call to this inline-only
+/// module — which emits no method — is generated.
 module Unchecked =
 
     /// <summary>The default value of a type: a null reference for a reference type and the
@@ -469,10 +468,9 @@ module Unchecked =
     /// its first real value is known (as in <c>Seq.reduce</c>); the seed is overwritten before
     /// it is ever observed.</summary>
     ///
-    /// <remarks>A nullary generic VALUE whose <c>'T</c> is fixed by the reference's expected
-    /// type (write <c>let x: T = defaultof</c>) — NOT F#'s type-applied <c>defaultof&lt;'T&gt;</c>
-    /// (the front end has no explicit value type-application) nor a <c>unit -> 'T</c> function
-    /// (the inline beta-reducer rejects a <c>()</c> parameter). A bare reference to a nullary
-    /// zero-operand intrinsic value is spliced in place, exactly as the <c>undefined</c> value
-    /// is; the spliced <c>ilzero</c> reads its type from the result the reference unifies into.</remarks>
+    /// <remarks>A nullary generic VALUE, written <c>Unchecked.defaultof&lt;'T&gt;</c> or — with the
+    /// instantiation inferred from the reference's expected type — <c>Unchecked.defaultof</c>.
+    /// Every reference splices the zero-operand <c>ilzero</c> intrinsic in place (exactly as the
+    /// <c>undefined</c> value is); the spliced instruction reads its type from the result the
+    /// reference unifies into.</remarks>
     val inline defaultof<'T> : 'T

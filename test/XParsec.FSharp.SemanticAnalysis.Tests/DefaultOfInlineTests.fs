@@ -4,14 +4,13 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// Half 1 of unchecked-defaultof-plan (Freeze change-sites #1/#2): every spelling
-// of a reference to the `inline` nullary intrinsic `defaultof` — bare,
-// `Unchecked.`-qualified, and `<'T>`-type-applied — must lower to the SAME
-// `TExpr.External` splice-eligible head the bare form produces: never a member-read
-// (`StaticPropertyGet` / `StaticMethodCall` / `ExternalMember`, which the splice
-// arm skips), and never the `Expr.TypeApp` `failwith` fallthrough. A member-read /
-// call head reaches codegen as a `call` into the never-materialised `Unchecked`
-// holder (a TypeLoadException at runtime), which is exactly what Half 1 removes.
+// Every module-qualified spelling of a reference to the `inline` nullary intrinsic
+// `defaultof` — `Unchecked.defaultof` and its `<'T>`-type-applied form — must lower to
+// a `TExpr.External` splice-eligible head: never a member-read (`StaticPropertyGet` /
+// `StaticMethodCall` / `ExternalMember`, which the splice arm skips), and never the
+// `Expr.TypeApp` `failwith` fallthrough. A member-read / call head reaches codegen as a
+// `call` into the inline-only `Unchecked` holder — which emits no method — and would
+// `TypeLoadException` at runtime.
 //
 // This front-end-only harness resolves the `Vesper.Core` contract from its `.fsi`
 // alone, so it serves no cross-package inline body and the `External` head does not
@@ -39,8 +38,6 @@ let tests =
         [
             for label, src in
                 [
-                    "bare", "let f () : int = defaultof"
-                    "bare type-applied", "let f () : int = defaultof<int>"
                     "qualified", "let f () : int = Unchecked.defaultof"
                     "qualified type-applied", "let f () : int = Unchecked.defaultof<int>"
                 ] ->
