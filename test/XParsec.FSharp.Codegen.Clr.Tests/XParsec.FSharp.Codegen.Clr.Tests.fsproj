@@ -27,6 +27,7 @@
     <Compile Include="RunnableAppTests.fs" />
     <Compile Include="SelfHostTests.fs" />
     <Compile Include="ILIntrinsicTests.fs" />
+    <Compile Include="DefaultOfInlineTests.fs" />
     <Compile Include="OperatorRoutingTests.fs" />
     <Compile Include="ArithmeticOperatorTests.fs" />
     <Compile Include="OpsPlatformClrTests.fs" />

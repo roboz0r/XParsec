@@ -42,6 +42,7 @@
     <Compile Include="ConformanceTests.fs" />
     <Compile Include="EnumTests.fs" />
     <Compile Include="ExternMemberElabTests.fs" />
+    <Compile Include="DefaultOfInlineTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

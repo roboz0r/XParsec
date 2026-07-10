@@ -332,6 +332,17 @@ module internal FreezeExpr =
         | Expr.StaticMemberInvocation(membersign = msig; expr = argExpr) ->
             FreezeApply.translateStaticMemberInvocation translateExpr ctx argExpr msig ty tok
         | Expr.LibraryOnlyStaticOptimization _ -> translateStaticOptimization ctx e ty tok
+        // `value<'T>` — an explicit type application on a VALUE reference (NOT the
+        // `TypeAppStaticMember` class-receiver forms, which are a `DotLookup` over the
+        // `TypeApp` and matched above). The `<'T>` only pinned the instantiation in
+        // inference (`inferTypeApp` returns the inner's type verbatim for a bare-typar
+        // result, so the node and its inner reference share one TyVar); forward to the
+        // frozen inner, leaving its leaf intact. For an `inline` binding
+        // (`Unchecked.defaultof<'T>` / `defaultof<'T>`) that leaf is the `External` head
+        // the bare form produces, so the reference reaches the same
+        // `InlineExpansion` splice arm — `refTy` (pinned by the reference's expected
+        // type) grounds the spliced `ilzero`.
+        | Expr.TypeApp(expr = inner) -> translateExpr ctx inner
         | _ ->
             // TODO: extend as the subset grows; surface the unhandled case
             // loudly rather than emitting a broken TExpr.

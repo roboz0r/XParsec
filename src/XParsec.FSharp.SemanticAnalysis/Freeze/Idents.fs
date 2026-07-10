@@ -12,6 +12,51 @@ open XParsec.FSharp.SemanticAnalysis.FreezeResolve
 
 module internal FreezeIdents =
 
+    /// A module-qualified reference (`Unchecked.defaultof`) whose target is a
+    /// NULLARY zero-operand intrinsic `inline` VALUE (`defaultof` / `undefined` —
+    /// `Inline.nullaryIntrinsicValueBody`) the provider serves as a cross-package
+    /// inline body under its SIMPLE (last-segment) name, but NOT under the qualified
+    /// spelling or the resolved holder key. Returns that simple name so the
+    /// `External` head mirrors the bare form and reaches `InlineExpansion`'s
+    /// splice-in-place arm; `ValueNone` leaves the dotted name untouched.
+    ///
+    /// The scope is deliberately narrow. A qualified read of an ordinary inline
+    /// module function (`Set.empty`) must stay a keyed `External` codegen emits a
+    /// CALL for — rewriting it to its simple name would splice the function's own
+    /// body (a `SetTree` construction) into every consumer, minting locals the
+    /// backend cannot encode. Only a zero-operand intrinsic value is a compile-time
+    /// alias for its `(# … #)` body with nothing to lose or duplicate, so only it is
+    /// re-pointed at the splice path.
+    let private splicedInlineSimpleName
+        (ctx: PassContext)
+        (e: Expr<SyntaxToken>)
+        (symKey: SymbolKey voption)
+        (name: string)
+        : string voption =
+        match e with
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length > 1 ->
+            let simple = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+
+            // Only rewrite when the reference as written can't already find a body
+            // (so a resolvable inline is left alone) but the simple name resolves to
+            // a nullary zero-operand intrinsic value.
+            let alreadyResolves =
+                (match symKey with
+                 | ValueSome k -> (ctx.Provider.TryLookupInlineBody k).IsSome
+                 | ValueNone -> false)
+                || (ctx.Provider.TryLookupInlineBodyByName name).IsSome
+
+            let simpleIsNullaryIntrinsic =
+                match ctx.Provider.TryLookupInlineBodyByName simple with
+                | ValueSome ib -> (Inline.nullaryIntrinsicValueBody ib.Decl).IsSome
+                | ValueNone -> false
+
+            if simple <> name && not alreadyResolves && simpleIsNullaryIntrinsic then
+                ValueSome simple
+            else
+                ValueNone
+        | _ -> ValueNone
+
     let translateIdent
         (ctx: PassContext)
         (e: Expr<SyntaxToken>)
@@ -53,6 +98,24 @@ module internal FreezeIdents =
                 // `Vesper.Printf.printfn` from a user shadow `MyMod.printfn` by
                 // identity rather than name suffix.
                 let symKey = ctx.Resolution.ExternalValue.TryGetValue key
+
+                // A module-qualified read of an `inline` intrinsic value
+                // (`Unchecked.defaultof`) resolves to a DOTTED `name` and a
+                // holder-scoped `key` that the cross-package inline-body index —
+                // keyed by the binding's SIMPLE name, and by the bare-reference key —
+                // does not carry. Left dotted, the reference misses
+                // `InlineExpansion`'s splice arm and codegen emits a `call` into the
+                // never-materialised holder (a TypeLoadException at runtime). When the
+                // provider serves an inline body under the simple (last-segment) name
+                // but neither the qualified spelling nor the resolved key does, carry
+                // the simple name so the reference lands on the SAME splice the bare
+                // form uses — codegen never sees the `External` (the splice replaces
+                // it), so the narrower name only steers body resolution.
+                let name =
+                    match splicedInlineSimpleName ctx e symKey name with
+                    | ValueSome simple -> simple
+                    | ValueNone -> name
+
                 TExpr.External(name, symKey, ty, tok)
 
     /// Fold a multi-segment `r.X.Y…` LongIdent into nested `FieldGet` nodes. The
