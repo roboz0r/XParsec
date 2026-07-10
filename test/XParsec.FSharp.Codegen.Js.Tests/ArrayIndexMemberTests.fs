@@ -35,7 +35,7 @@ let tests =
                 let provider = jsProvider.Value
 
                 let mem =
-                    match provider.TryLookupMember(arrayMemberKey, "get_Item") with
+                    match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey arrayMemberKey 0, "get_Item") with
                     | ValueSome m -> m
                     | ValueNone ->
                         failtestf

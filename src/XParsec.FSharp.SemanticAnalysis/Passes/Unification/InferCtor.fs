@@ -170,7 +170,10 @@ module internal UnificationInferCtor =
         (receiverTy: SemType)
         (argExpr: Expr<SyntaxToken>)
         : SemType =
-        let ctors = ctx.Provider.TryLookupMembers(name, ".ctor")
+        // Stage 3 holdout (bucket 3b): `name` is an opens-resolved metadata spelling.
+        let ctors =
+            ctx.Provider.TryLookupMembers(SymbolKeyOps.qualifiedTypeKey name 0, ".ctor")
+
         let argTy = infer ctx argExpr
         let typeArgs = args |> EqArray.toList |> List.toArray
         let argElems = argElemsOf argTy

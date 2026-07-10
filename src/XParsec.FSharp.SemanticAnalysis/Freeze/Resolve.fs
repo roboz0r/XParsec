@@ -71,7 +71,7 @@ module internal FreezeResolve =
         else
             // Look an external type up by its arity-suffixed name first, then bare.
             let lookupShape (c: string) : ExternalTypeShape voption =
-                let rec go names =
+                let rec go (names: string list) =
                     match names with
                     | [] -> ValueNone
                     | k :: rest ->

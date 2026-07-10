@@ -462,56 +462,66 @@ module VesperLibTyparCapture =
 
                 d :> System.Collections.Generic.IReadOnlyDictionary<_, _>
 
-            { new IExternalSymbolProvider with
-                member _.TryLookup(name) =
-                    match ctx.Symbols.TryGetValue name with
-                    | true, sym -> ValueSome sym
-                    | _ -> ValueNone
+            { new IExternalSymbolProvider
 
-                member _.TryLookupType(name) =
-                    match ctx.TypeShapes.TryGetValue name with
-                    | true, shape -> ValueSome shape
-                    | _ -> ValueNone
+              interface IExternalSymbolResolver with
+                  member _.TryLookup(name) =
+                      match ctx.Symbols.TryGetValue name with
+                      | true, sym -> ValueSome sym
+                      | _ -> ValueNone
 
-                member _.TryLookupMember(typeName, memberName) =
-                    match ctx.TypeMembers.TryGetValue typeName with
-                    | true, members ->
-                        let mutable found = ValueNone
-                        let mutable i = 0
+                  member _.TryLookupType(name: string) =
+                      match ctx.TypeShapes.TryGetValue name with
+                      | true, shape -> ValueSome shape
+                      | _ -> ValueNone
 
-                        while found.IsNone && i < members.Count do
-                            if members.[i].Name = memberName then
-                                found <- ValueSome members.[i]
+                  member _.TryLookupUnionCase caseName =
+                      match unionCaseIndex.TryGetValue caseName with
+                      | true, hit -> ValueSome hit
+                      | _ -> ValueNone
 
-                            i <- i + 1
+                  member _.AmbientOpenPrefixes = List.ofSeq ctx.AutoOpenPrefixes
+              interface IExternalSymbolStore with
+                  // Store face: project the resolved key to its qualified name internally
+                  // and answer from the same by-name index the resolver face reads.
+                  member _.TryLookupType(key: SymbolKey) =
+                      match ctx.TypeShapes.TryGetValue(SymbolKeyOps.qualifiedName key) with
+                      | true, shape -> ValueSome shape
+                      | _ -> ValueNone
 
-                        found
-                    | _ -> ValueNone
+                  member _.TryLookupMember(key, memberName) =
+                      match ctx.TypeMembers.TryGetValue(SymbolKeyOps.qualifiedName key) with
+                      | true, members ->
+                          let mutable found = ValueNone
+                          let mutable i = 0
 
-                member _.TryLookupMembers(typeName, memberName) =
-                    match ctx.TypeMembers.TryGetValue typeName with
-                    | true, members ->
-                        [|
-                            for m in members do
-                                if m.Name = memberName then
-                                    m
-                        |]
-                    | _ -> [||]
+                          while found.IsNone && i < members.Count do
+                              if members.[i].Name = memberName then
+                                  found <- ValueSome members.[i]
 
-                // A `.fsi` contract does not (yet) publish TS index signatures.
-                member _.TryLookupIndexSignature _ = []
+                              i <- i + 1
 
-                member _.TryLookupUnionCase caseName =
-                    match unionCaseIndex.TryGetValue caseName with
-                    | true, hit -> ValueSome hit
-                    | _ -> ValueNone
+                          found
+                      | _ -> ValueNone
 
-                member _.AmbientOpenPrefixes = List.ofSeq ctx.AutoOpenPrefixes
-                // The extractor exposes signatures, not spliceable inline bodies —
-                // those are collected separately and served by the codegen
-                // contract-stack wrapper that layers over this provider.
-                member _.TryLookupInlineBody _ = ValueNone
+                  member _.TryLookupMembers(key, memberName) =
+                      match ctx.TypeMembers.TryGetValue(SymbolKeyOps.qualifiedName key) with
+                      | true, members ->
+                          [|
+                              for m in members do
+                                  if m.Name = memberName then
+                                      m
+                          |]
+                      | _ -> [||]
 
-                member _.IntrinsicReverseCanon = intrinsicReverse
-                member _.IntrinsicForwardRepr = intrinsicForward
+                  // A `.fsi` contract does not (yet) publish TS index signatures.
+                  member _.TryLookupIndexSignature(_: SymbolKey) = []
+
+                  // The extractor exposes signatures, not spliceable inline bodies —
+                  // those are collected separately and served by the codegen
+                  // contract-stack wrapper that layers over this provider.
+                  member _.TryLookupInlineBody _ = ValueNone
+
+                  member _.IntrinsicReverseCanon = intrinsicReverse
+                  member _.IntrinsicForwardRepr = intrinsicForward
             }

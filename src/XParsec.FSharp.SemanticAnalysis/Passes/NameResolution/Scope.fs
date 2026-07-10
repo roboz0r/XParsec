@@ -69,7 +69,7 @@ module NameResolutionScope =
             | ExternalTypeShape.Opaque _ -> SymbolKeyOps.qualifiedTypeKey compiled arity
 
         let lookup (candidate: string) : SymbolKey voption =
-            let rec go keys =
+            let rec go (keys: string list) =
                 match keys with
                 | [] -> ValueNone
                 | key :: rest ->

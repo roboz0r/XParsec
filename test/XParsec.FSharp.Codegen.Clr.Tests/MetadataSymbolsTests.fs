@@ -109,7 +109,7 @@ let tests =
             }
 
             test "Default resolves as a static property typed EqualityComparer<'T>" {
-                match provider.TryLookupMember(eqComparer, "Default") with
+                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey eqComparer 0, "Default") with
                 | ValueSome m ->
                     Expect.isTrue m.IsStatic "Default is static"
                     Expect.equal m.Storage MemberStorage.Property "Default is a property"
@@ -134,7 +134,7 @@ let tests =
             }
 
             test "GetHashCode resolves as an instance method typed 'T -> int" {
-                match provider.TryLookupMember(eqComparer, "GetHashCode") with
+                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey eqComparer 0, "GetHashCode") with
                 | ValueSome m ->
                     Expect.isFalse m.IsStatic "GetHashCode(T) is an instance method"
                     Expect.equal m.Storage MemberStorage.Method "a method, not a property"
@@ -156,7 +156,7 @@ let tests =
                 // `GetFields` pass. It must carry `Storage = Field` so emission lowers it to
                 // `ldsfld` (a `call get_Empty` would `MissingMethodException` — String has no
                 // such accessor).
-                match provider.TryLookupMember("System.String", "Empty") with
+                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey "System.String" 0, "Empty") with
                 | ValueSome m ->
                     Expect.equal m.Storage MemberStorage.Field "Empty is a field"
                     Expect.isTrue m.IsStatic "Empty is static"

@@ -88,7 +88,7 @@ let tests =
 
                 // The contract surface is published with the method-owned typar.
                 let appendFormatted =
-                    contract.TryLookupMembers("Vesper.Formatter", "AppendFormatted")
+                    contract.TryLookupMembers(SymbolKeyOps.qualifiedTypeKey "Vesper.Formatter" 0, "AppendFormatted")
 
                 Expect.isNonEmpty appendFormatted "formatter.fsi publishes AppendFormatted overloads"
 

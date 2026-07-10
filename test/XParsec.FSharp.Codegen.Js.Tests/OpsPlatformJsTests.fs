@@ -111,7 +111,7 @@ let tests =
                 let js =
                     JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) [ vesperCoreManifest ]
 
-                let facesOf name =
+                let facesOf (name: string) =
                     match js.TryLookupType name with
                     | ValueSome(ExternalTypeShape.Intrinsic {
                                                                 Id = {
@@ -145,7 +145,7 @@ let tests =
                 let js =
                     JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) [ vesperCoreManifest ]
 
-                let facesOf name =
+                let facesOf (name: string) =
                     match js.TryLookupType name with
                     | ValueSome(ExternalTypeShape.Intrinsic {
                                                                 Id = {

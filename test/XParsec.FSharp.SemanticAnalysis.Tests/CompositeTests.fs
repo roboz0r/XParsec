@@ -15,61 +15,70 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
             Namespace = tag
         }
 
-    { new IExternalSymbolProvider with
-        member _.TryLookup n =
-            if n = name then
-                ValueSome
-                    { ExternalSymbols.monoFrozen name (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty)) with
-                        Origin = origin
-                    }
-            else
-                ValueNone
+    { new IExternalSymbolProvider
 
-        member _.TryLookupType n =
-            if n = name then
-                ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, origin)))
-            else
-                ValueNone
+      interface IExternalSymbolResolver with
+          member _.TryLookup n =
+              if n = name then
+                  ValueSome
+                      { ExternalSymbols.monoFrozen name (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty)) with
+                          Origin = origin
+                      }
+              else
+                  ValueNone
 
-        member _.TryLookupMember(t, m) =
-            if t = name && m = name then
-                ValueSome
-                    {
-                        Name = name
-                        IsStatic = true
-                        Storage = MemberStorage.Method
-                        Signature =
-                            TestHelpers.mkSignature
-                                0
-                                0
-                                (FTConst(RuntimeNames.unitKey, EqArray.empty))
-                                (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty))
-                        MethodArity = 0
-                        Origin = origin
-                        Key =
-                            SymbolKey.MemberKey(
-                                SymbolKey.TypeKey(origin.Assembly, origin.Namespace, name),
-                                name,
-                                EqArray.empty,
-                                MemberKind.Method
-                            )
-                        OptionalDefaults = []
-                        IsOptional = false
-                    }
-            else
-                ValueNone
+          member _.TryLookupType(n: string) =
+              if n = name then
+                  ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, origin)))
+              else
+                  ValueNone
 
-        member this.TryLookupMembers(t, m) =
-            match this.TryLookupMember(t, m) with
-            | ValueSome mem -> [| mem |]
-            | ValueNone -> [||]
+          member _.TryLookupUnionCase _ = ValueNone
+          member _.AmbientOpenPrefixes = []
+      interface IExternalSymbolStore with
+          member _.TryLookupType(key: SymbolKey) =
+              if SymbolKeyOps.qualifiedName key = name then
+                  ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, origin)))
+              else
+                  ValueNone
 
-        member _.TryLookupIndexSignature _ = []
-        member _.TryLookupUnionCase _ = ValueNone
-        member _.AmbientOpenPrefixes = []
-        member _.TryLookupInlineBody _ = ValueNone
-        member _.IntrinsicReverseCanon = Map.empty
-        member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
+          member _.TryLookupMember(key, m) =
+              if SymbolKeyOps.qualifiedName key = name && m = name then
+                  ValueSome
+                      {
+                          Name = name
+                          IsStatic = true
+                          Storage = MemberStorage.Method
+                          Signature =
+                              TestHelpers.mkSignature
+                                  0
+                                  0
+                                  (FTConst(RuntimeNames.unitKey, EqArray.empty))
+                                  (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty))
+                          MethodArity = 0
+                          Origin = origin
+                          Key =
+                              SymbolKey.MemberKey(
+                                  SymbolKey.TypeKey(origin.Assembly, origin.Namespace, name),
+                                  name,
+                                  EqArray.empty,
+                                  MemberKind.Method
+                              )
+                          OptionalDefaults = []
+                          IsOptional = false
+                      }
+              else
+                  ValueNone
+
+          member this.TryLookupMembers(key, m) =
+              match this.TryLookupMember(key, m) with
+              | ValueSome mem -> [| mem |]
+              | ValueNone -> [||]
+
+          member _.TryLookupIndexSignature _ = []
+          member _.TryLookupInlineBody _ = ValueNone
+          member _.IntrinsicReverseCanon = Map.empty
+          member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
     }
 
 /// The `TyConst` tag carried by a resolved value symbol, for asserting which
@@ -115,7 +124,11 @@ let tests =
 
                 Expect.equal (valueTag composed "nope") ValueNone "value miss"
                 Expect.isTrue (composed.TryLookupType "nope" |> ValueOption.isNone) "type miss"
-                Expect.isTrue (composed.TryLookupMember("nope", "nope") |> ValueOption.isNone) "member miss"
+
+                Expect.isTrue
+                    (composed.TryLookupMember(SymbolKeyOps.qualifiedTypeKey "nope" 0, "nope")
+                     |> ValueOption.isNone)
+                    "member miss"
             }
 
             test "priority applies to the type and member channels too" {
@@ -127,7 +140,7 @@ let tests =
                 | ValueSome(ExternalTypeShape.Class info) -> Expect.equal info.Origin.Namespace "a" "type: a wins"
                 | other -> failtestf "expected Class shape from a, got %A" other
 
-                match composed.TryLookupMember("shared", "shared") with
+                match composed.TryLookupMember(SymbolKeyOps.qualifiedTypeKey "shared" 0, "shared") with
                 | ValueSome m -> Expect.equal m.Origin.Namespace "a" "member: a wins"
                 | ValueNone -> failtest "expected member from a"
             }
@@ -137,7 +150,11 @@ let tests =
 
                 Expect.isTrue (composed.TryLookup "anything" |> ValueOption.isNone) "value miss"
                 Expect.isTrue (composed.TryLookupType "anything" |> ValueOption.isNone) "type miss"
-                Expect.isTrue (composed.TryLookupMember("anything", "x") |> ValueOption.isNone) "member miss"
+
+                Expect.isTrue
+                    (composed.TryLookupMember(SymbolKeyOps.qualifiedTypeKey "anything" 0, "x")
+                     |> ValueOption.isNone)
+                    "member miss"
             }
 
             test "singleton list delegates to its one source" {

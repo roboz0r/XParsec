@@ -77,7 +77,7 @@ module UnificationSubsume =
             | ValueSome info -> ValueSome [ for f in info.Fields -> f.Name ]
             | ValueNone -> ValueNone
         | TyClass(key, _) when (TypeRegistry.tryClassByKey ctx.Types key).IsNone ->
-            match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedName key) with
+            match ctx.Provider.TryLookupType key with
             // `keyof` reads any external nominal's members — a plain `.d.ts` class as well as
             // an interface / capability `IntrinsicInterface` — so it takes the un-guarded surface.
             | ValueSome(ExternalSymbols.ExternalMembers members) ->
@@ -111,7 +111,7 @@ module UnificationSubsume =
                 | None -> ValueNone
             | ValueNone -> ValueNone
         | TyClass(key, args) when (TypeRegistry.tryClassByKey ctx.Types key).IsNone ->
-            match ctx.Provider.TryLookupMember(SymbolKeyOps.qualifiedName key, name) with
+            match ctx.Provider.TryLookupMember(key, name) with
             | ValueSome m when m.IsValueMember && not m.IsStatic ->
                 ValueSome(ExternalSymbols.openSignature m (args |> EqArray.toList |> List.toArray))
             | _ -> ValueNone

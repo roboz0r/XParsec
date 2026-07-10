@@ -829,7 +829,7 @@ module UnificationEngineCore =
                     if not (seen.Add s) then
                         walk rest
                     else
-                        match ctx.Provider.TryLookupMember(SymbolKeyOps.qualifiedName s, memberName) with
+                        match ctx.Provider.TryLookupMember(s, memberName) with
                         | ValueSome m when not m.IsStatic -> ValueSome(struct (m, sa))
                         // Breadth-first across the heritage graph: this node's supertypes are
                         // appended AFTER the remaining siblings, so a member on a nearer

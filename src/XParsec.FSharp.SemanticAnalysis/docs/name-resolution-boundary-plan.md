@@ -233,22 +233,41 @@ mis-splice or phantom `call`, not a graceful miss — each mint site needs a
 use-site test exercising the splice, as the `DefaultOfInline` suites do for
 the value channel.
 
-### Stage 2 — introduce the split interfaces
+### Stage 2 — introduce the split interfaces — **LANDED (2026-07-10)**
 
-Define `IExternalSymbolResolver` / `IExternalSymbolStore` /
-combined-inherits-both per the target design; store face key-addressed from
-day one (implementations use `qualifiedName` internally). Mechanical sweep:
+`IExternalSymbolProvider` now `inherit`s `IExternalSymbolResolver` (spelling face:
+`TryLookup`, `TryLookupType(string)`, `TryLookupUnionCase`, `AmbientOpenPrefixes`) and
+`IExternalSymbolStore` (identity face: `TryLookupType(SymbolKey)`, `TryLookupMember`,
+`TryLookupMembers`, `TryLookupIndexSignature`, `TryLookupInlineBody`, the two intrinsic
+axes) — the store methods key-addressed, projecting `qualifiedName` internally.
+`TryLookupType` is deliberately overloaded across the two faces (string on the resolver,
+key on the store). **F# mechanics gotcha (encoded in the code, do not undo):** an object
+expression / class implementing an overloaded inherited-interface method under ONE
+combined `IExternalSymbolProvider with` block fails FS3213 — every implementer is split
+into explicit `interface IExternalSymbolResolver with` + `interface IExternalSymbolStore
+with` blocks (concrete classes add an empty `interface IExternalSymbolProvider`). All
+providers/decorators/fakes (`stack`, `mapProviderTypes`, `memoize`, `nullProvider`,
+VesperLib `toProvider`, `withInlineBodies`, `MetadataSymbols`, `JsNativeSymbols`,
+`TsManifestProvider`, every test fake) migrated. All SA-side `qualifiedName` round-trips
+deleted (key threaded directly, e.g. `DotSource.ExternalClass` now carries a `SymbolKey`).
+The Stage-3 spelling holdouts that lack a stamped key mint a TRANSITIONAL asm-blind key at
+the call site (`SymbolKeyOps.qualifiedTypeKey spelling 0`, whose `qualifiedName`
+round-trips to the same string) — flagged inline as `Stage 3 holdout (bucket 3b)`, to be
+replaced by NameResolution stamps. The `ICodegenSymbols` bridge (`CodegenSymbols.ofProvider`)
+and codegen value-by-name lookups (`EmitJsContext`/`JsFlatFns` `TryLookup(qualifiedName key)`)
+stay string-addressed — Stage 5.
 
-- Providers/decorators/fakes implement the combined interface (rename-level
-  churn only).
-- Migrate the `qualifiedName` round-trip call sites to the key-addressed
-  methods and delete the round-trips.
-- `PassContext.Provider` stays combined-typed for now — both faces reachable;
-  enforcement waits for Stage 4.
-- Add the **composition-time `(ns, arity-name)` duplicate diagnostic** (key
-  semantics §, collision check) when `composeOrdered` builds the composite —
-  the store contract's soundness condition, cheapest to land while the
-  composite plumbing is already open.
+- `PassContext.Provider` stays combined-typed — both faces reachable; the exposure flip is
+  Stage 4.
+- The **composition-time `(ns, arity-name)` duplicate diagnostic** landed in
+  `composeOrdered`: `buildProviderWith` now returns a `BuiltPackage` carrying each
+  package's `DeclaredTypeKeys` (own Class/Record/Union/Enum shapes — intrinsics/capability
+  faces excluded as asm-blind by design), and the compose loop refuses a qualified type key
+  owned by two DIFFERENT home assemblies with a CS0433-equivalent error naming both. Peer
+  packages only (the BCL/native metadata tail is not enumerable → lazy diagnosis, deferred).
+  Regression guards in `ReferencedProjectTests` (fires on a two-package clash; no false
+  positive on a solo package); the real Vesper set composes clean across the SA + JS + CLR
+  suites.
 
 ### Stage 3 — burn down the downstream resolver-face holdouts
 

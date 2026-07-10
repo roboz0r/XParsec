@@ -1237,7 +1237,9 @@ let tests =
                 | _ -> failtest "Result union not found"
 
                 // A member signature, if `Option.Map` is published with one.
-                match provider.TryLookupMember("Microsoft.FSharp.Core.option`1", "Map") with
+                match
+                    provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey "Microsoft.FSharp.Core.option`1" 0, "Map")
+                with
                 | ValueSome m when m.Signature.Return <> unfreezable && m.Signature.Return <> deferred ->
                     ExternalSymbols.instantiateSignature m (argsFor m.Signature.DeclaringArity) 0
                     |> ignore
@@ -1390,7 +1392,7 @@ let tests =
 
                 let provider = VesperLib.ExtractCtx.toProvider ctx
 
-                match provider.TryLookupMember(key, "Dispose") with
+                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey key 0, "Dispose") with
                 | ValueSome _ -> ()
                 | ValueNone -> failtestf "Dispose member surface was dropped; members: (key=%s)" key
             }
@@ -1475,7 +1477,7 @@ let tests =
                 let provider = VesperLib.ExtractCtx.toProvider ctx
 
                 // The member surface survived alongside the platform face.
-                match provider.TryLookupMember(key, "Dispose") with
+                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey key 0, "Dispose") with
                 | ValueSome _ -> ()
                 | ValueNone -> failtest "Dispose member surface was dropped from the IntrinsicInterface"
 
@@ -1556,7 +1558,7 @@ let tests =
                 // The member surface survives on the Class, resolvable via TryLookupMember.
                 let provider = VesperLib.ExtractCtx.toProvider ctx
 
-                match provider.TryLookupMember(key, "M") with
+                match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey key 0, "M") with
                 | ValueSome _ -> ()
                 | ValueNone -> failtest "concrete member surface `M` was dropped from the member-bearing Class"
             }

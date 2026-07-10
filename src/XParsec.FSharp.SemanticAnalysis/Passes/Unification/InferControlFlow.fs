@@ -834,12 +834,7 @@ module internal UnificationInferControlFlow =
 
             let setName =
                 match arrTy with
-                | TyClass(clsKey, _) when
-                    not (
-                        ctx.Provider.TryLookupIndexSignature(SymbolKeyOps.qualifiedName clsKey)
-                        |> List.isEmpty
-                    )
-                    ->
+                | TyClass(clsKey, _) when not (ctx.Provider.TryLookupIndexSignature clsKey |> List.isEmpty) ->
                     "SetIndex"
                 | _ -> "SetArray"
 

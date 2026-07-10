@@ -13,50 +13,53 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// generic *type* (`Some.Where.Foo`1`) — enough to exercise the value and type
 /// channels of short-name resolution without standing up real metadata.
 let private provider: IExternalSymbolProvider =
-    { new IExternalSymbolProvider with
-        member _.TryLookup n =
-            if n = "A.B.thing" then
-                ValueSome(ExternalSymbols.monoFrozen "thing" (FTConst(RuntimeNames.intKey, EqArray.empty)))
-            // The qualified operator `A.B.(+)` resolves to its compiled name
-            // `A.B.op_Addition`.
-            elif n = "A.B.op_Addition" then
-                ValueSome(ExternalSymbols.monoFrozen "op_Addition" (FTConst(RuntimeNames.intKey, EqArray.empty)))
-            else
-                ValueNone
+    { new IExternalSymbolProvider
 
-        member _.TryLookupType n =
-            if n = "Some.Where.Foo`1" then
-                ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (1, false, SymbolOrigin.Empty)))
-            else
-                ValueNone
+      interface IExternalSymbolResolver with
+          member _.TryLookup n =
+              if n = "A.B.thing" then
+                  ValueSome(ExternalSymbols.monoFrozen "thing" (FTConst(RuntimeNames.intKey, EqArray.empty)))
+              // The qualified operator `A.B.(+)` resolves to its compiled name
+              // `A.B.op_Addition`.
+              elif n = "A.B.op_Addition" then
+                  ValueSome(ExternalSymbols.monoFrozen "op_Addition" (FTConst(RuntimeNames.intKey, EqArray.empty)))
+              else
+                  ValueNone
 
-        member _.TryLookupMember(_, _) = ValueNone
-        member _.TryLookupMembers(_, _) = [||]
-        member _.TryLookupIndexSignature _ = []
+          member _.TryLookupType(n: string) =
+              if n = "Some.Where.Foo`1" then
+                  ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (1, false, SymbolOrigin.Empty)))
+              else
+                  ValueNone
 
-        // `Color` is `[<RequireQualifiedAccess>]` (its case `Red` carries the flag);
-        // `Hue` is an ordinary union (`Blue` does not). Drives the Gap 1 suppression
-        // tests below.
-        member _.TryLookupUnionCase caseName =
-            let mk union rqa name =
-                ValueSome
-                    {
-                        UnionName = union
-                        Arity = 0
-                        Origin = SymbolOrigin.Empty
-                        Case = ExternalCaseShape.create (name, [||])
-                        IsRequireQualifiedAccess = rqa
-                    }
+          // `Color` is `[<RequireQualifiedAccess>]` (its case `Red` carries the flag);
+          // `Hue` is an ordinary union (`Blue` does not). Drives the Gap 1 suppression
+          // tests below.
+          member _.TryLookupUnionCase caseName =
+              let mk union rqa name =
+                  ValueSome
+                      {
+                          UnionName = union
+                          Arity = 0
+                          Origin = SymbolOrigin.Empty
+                          Case = ExternalCaseShape.create (name, [||])
+                          IsRequireQualifiedAccess = rqa
+                      }
 
-            match caseName with
-            | "Red" -> mk "Tests.Color" true "Red"
-            | "Blue" -> mk "Tests.Hue" false "Blue"
-            | _ -> ValueNone
+              match caseName with
+              | "Red" -> mk "Tests.Color" true "Red"
+              | "Blue" -> mk "Tests.Hue" false "Blue"
+              | _ -> ValueNone
 
-        member _.AmbientOpenPrefixes = []
-        member _.TryLookupInlineBody _ = ValueNone
-        member _.IntrinsicReverseCanon = Map.empty
-        member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
+          member _.AmbientOpenPrefixes = []
+      interface IExternalSymbolStore with
+          member _.TryLookupType(_: SymbolKey) = ValueNone
+          member _.TryLookupMember(_, _) = ValueNone
+          member _.TryLookupMembers(_, _) = [||]
+          member _.TryLookupIndexSignature _ = []
+          member _.TryLookupInlineBody _ = ValueNone
+          member _.IntrinsicReverseCanon = Map.empty
+          member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
     }
 
 let private analyse (input: string) =

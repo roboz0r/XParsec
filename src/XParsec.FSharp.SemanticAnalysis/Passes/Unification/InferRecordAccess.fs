@@ -33,7 +33,9 @@ module internal UnificationInferRecordAccess =
         : struct (string * EqArray<SemType> * ExternalMember) voption =
         match tryExternalReceiver ctx ty with
         | ValueSome(clsQual, args) ->
-            match ctx.Provider.TryLookupMember(clsQual, memberName) with
+            // `clsQual` is a canonicalised BCL spelling (from `tryExternalReceiver`), not a
+            // stamped key — mint an asm-blind key to reach the key-addressed store face.
+            match ctx.Provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey clsQual 0, memberName) with
             | ValueSome m -> ValueSome(struct (clsQual, args, m))
             | ValueNone -> ValueNone
         | ValueNone -> ValueNone
@@ -224,9 +226,7 @@ module internal UnificationInferRecordAccess =
                             // we record `TyparInterfaceCall` — *not* `ExternalAccess` —
                             // exactly as the local path does, and Freeze emits the same
                             // `CallVia.Interface` dispatch (now on an external `TypeSpec`).
-                            let ifaceQual = SymbolKeyOps.qualifiedName ifaceKey
-
-                            match ctx.Provider.TryLookupMember(ifaceQual, memberName) with
+                            match ctx.Provider.TryLookupMember(ifaceKey, memberName) with
                             | ValueSome m when not m.IsStatic ->
                                 ctx.Resolution.TyparInterfaceCall.Set(diagKey, (ifaceKey, ifaceArgs))
                                 ValueSome(ExternalSymbols.openSignature m (ifaceArgs.AsSpan().ToArray()))
@@ -302,7 +302,7 @@ module internal UnificationInferRecordAccess =
 
                     memberSig
 
-                match ctx.Provider.TryLookupMember(clsQual, memberName) with
+                match ctx.Provider.TryLookupMember(clsKey, memberName) with
                 | ValueSome m when not m.IsStatic -> commitExternalMember m args
                 | _ ->
 
@@ -354,7 +354,7 @@ module internal UnificationInferRecordAccess =
                 // `TyClass` arm does.
                 let unionQual = SymbolKeyOps.qualifiedName unionKey
 
-                match ctx.Provider.TryLookupMember(unionQual, memberName) with
+                match ctx.Provider.TryLookupMember(unionKey, memberName) with
                 | ValueSome m when not m.IsStatic ->
                     // Single-candidate commit — freshen method typars per use site, as the
                     // external-`TyClass` arm above (shared defect: `openSignature` leaves an
@@ -539,7 +539,7 @@ module internal UnificationInferRecordAccess =
         // unify RHS (and Freeze's lowering) match. A project-local class, an
         // intrinsic array, or a still-free receiver keeps the `GetArray` path.
         let resolveExternalIndexer (clsQual: string) (clsArgs: SemType[]) (accessorName: string) : SemType voption =
-            match ctx.Provider.TryLookupMember(clsQual, accessorName) with
+            match ctx.Provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey clsQual 0, accessorName) with
             | ValueSome m when not m.IsStatic ->
                 let memberSig = ExternalSymbols.openSignature m clsArgs
 
@@ -581,7 +581,7 @@ module internal UnificationInferRecordAccess =
         // INDEPENDENT typars, so unifying it against `recv -> idx -> result` alone leaves
         // `'V` free — the declared key/value are pinned separately from the provider entry.
         let tryIndexSignature (clsQual: string) (clsArgs: SemType[]) : SemType voption =
-            match ctx.Provider.TryLookupIndexSignature clsQual with
+            match ctx.Provider.TryLookupIndexSignature(SymbolKeyOps.qualifiedTypeKey clsQual 0) with
             | [] -> ValueNone
             | entries ->
                 // Realise each entry's key/value template against the receiver's args

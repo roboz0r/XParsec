@@ -112,7 +112,7 @@ let tests =
                 let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
 
                 let expected =
-                    match provider.TryLookupMember(eqComparer, "GetHashCode") with
+                    match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey eqComparer 0, "GetHashCode") with
                     | ValueSome m -> m.Key
                     | ValueNone -> failtest "provider did not resolve GetHashCode"
 
@@ -199,7 +199,7 @@ let tests =
                 let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
 
                 let expected =
-                    match provider.TryLookupMember(eqComparer, "GetHashCode") with
+                    match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey eqComparer 0, "GetHashCode") with
                     | ValueSome m -> m.Key
                     | ValueNone -> failtest "provider did not resolve GetHashCode"
 

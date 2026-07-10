@@ -218,7 +218,9 @@ module internal UnificationInferExternalCall =
         | ValueNone -> ValueNone
         | ValueSome(metaName, memberTok) ->
             let memberName = ctx.NameOf memberTok
-            let candidates = ctx.Provider.TryLookupMembers(metaName, memberName)
+            // Stage 3 holdout (bucket 3b): `metaName` is an opens-resolved spelling.
+            let candidates =
+                ctx.Provider.TryLookupMembers(SymbolKeyOps.qualifiedTypeKey metaName 0, memberName)
 
             // A folded LongIdent names a non-generic type (generics need `<>`), so
             // the declaring type has no type arguments to instantiate.
@@ -294,8 +296,10 @@ module internal UnificationInferExternalCall =
             match tryExternalReceiver ctx recvTy with
             | ValueNone -> ValueNone
             | ValueSome(clsQual, typeArgs) ->
+                // `clsQual` is a canonicalised BCL spelling (`tryExternalReceiver`), not a
+                // stamped key — mint an asm-blind key for the key-addressed store face.
                 let candidates =
-                    ctx.Provider.TryLookupMembers(clsQual, memberName)
+                    ctx.Provider.TryLookupMembers(SymbolKeyOps.qualifiedTypeKey clsQual 0, memberName)
                     |> Array.filter (fun m -> not m.IsStatic)
 
                 if candidates.Length <= 1 then

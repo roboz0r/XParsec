@@ -62,6 +62,19 @@ let private writeSyntheticManifest (name: string) (dependsOn: string list) : str
 
     path
 
+/// Write `tmpSrc/<name>/{manifest.toml,contract.fsi}` where the `.fsi` declares one
+/// type via `fsiBody` under `ns` — for the composition-time duplicate-type sweep,
+/// which needs two independent packages that both declare the same qualified name.
+let private writeSyntheticPackageWithType (name: string) (ns: string) (fsiBody: string) : string =
+    let dir = Path.Combine(tmpSrc, name)
+    Directory.CreateDirectory dir |> ignore
+    File.WriteAllText(Path.Combine(dir, "contract.fsi"), sprintf "namespace %s\n%s\n" ns fsiBody)
+    let path = Path.Combine(dir, "manifest.toml")
+
+    File.WriteAllText(path, sprintf "[core]\nname = \"%s\"\nnamespace = \"%s\"\nfiles = [\"contract.fsi\"]\n" name ns)
+
+    path
+
 /// Build the manifest provider once for the run.
 let private builtProvider =
     lazy
@@ -76,7 +89,7 @@ let private builtProviderJs =
     lazy
         (match ReferencedProject.buildProviderWith (Some "js") (fun _ -> ValueNone) [] vesperCoreManifest with
          | Result.Error e -> failwithf "buildProviderWith (Some js) failed: %s" e
-         | Result.Ok(provider, diags) -> provider, diags)
+         | Result.Ok bp -> bp.Provider, bp.Diagnostics)
 
 [<Tests>]
 let tests =
@@ -567,6 +580,44 @@ let tests =
                                 (transitiveDeps (pathOf "IndepE"))
                                 []
                                 "E declares no dependency on D despite D sorting earlier"
+                    }
+
+                    // The store contract's soundness condition: a qualified type name
+                    // owned by two DIFFERENT peer packages would resolve as a silent
+                    // first-hit shadow (the loser's type minted but unreachable), so
+                    // composition refuses it — a CS0433-equivalent naming both homes.
+                    test "composition rejects the same type declared by two peer packages" {
+                        let a =
+                            writeSyntheticPackageWithType "DupPkgA" "Dup" "type Thing =\n    | A\n    | B"
+
+                        let b =
+                            writeSyntheticPackageWithType "DupPkgB" "Dup" "type Thing =\n    | C\n    | D"
+
+                        let caught =
+                            try
+                                ReferencedProject.composeContract ReferencedProject.noMetaTail None [ a; b ]
+                                |> ignore
+
+                                None
+                            with ex ->
+                                Some ex.Message
+
+                        match caught with
+                        | None -> failtest "expected a duplicate-type composition error, got none"
+                        | Some m ->
+                            Expect.stringContains m "Dup.Thing" "names the clashing type"
+                            Expect.stringContains m "DupPkgA" "names the first home assembly"
+                            Expect.stringContains m "DupPkgB" "names the second home assembly"
+                    }
+
+                    // A single package declaring a type is fine — the sweep keys on the
+                    // home assembly, so re-seeing the SAME package's name is not a clash.
+                    test "composition accepts one package's own type (no false positive)" {
+                        let a =
+                            writeSyntheticPackageWithType "SoloPkg" "Solo" "type Thing =\n    | A\n    | B"
+
+                        ReferencedProject.composeContract ReferencedProject.noMetaTail None [ a ]
+                        |> ignore
                     }
 
                     // The directory name is the package identity (`depends-on`

@@ -301,7 +301,10 @@ module internal UnificationInferResolve =
         : SemType =
         let memberName = ctx.NameOf memberTok
 
-        match ctx.Provider.TryLookupMember(metaName, memberName) with
+        // Stage 3 holdout (bucket 3b): `metaName` is an opens-resolved spelling, not a
+        // stamped key — mint an asm-blind key transitionally so this goes through the
+        // key-addressed store face. Replaced by a NameResolution stamp when 3b lands.
+        match ctx.Provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey metaName 0, memberName) with
         | ValueSome m ->
             let memberSig = ExternalSymbols.openSignature m (List.toArray typeArgs)
 
@@ -372,7 +375,8 @@ module internal UnificationInferResolve =
             | ValueSome(resolved, lastTok) ->
                 // Claim it only if the member actually resolves; otherwise leave
                 // the node to the ctor/TyVar fallback without a spurious error.
-                match ctx.Provider.TryLookupMember(resolved, ctx.NameOf lastTok) with
+                // Stage 3 holdout (bucket 3b): `resolved` is an opens-resolved spelling.
+                match ctx.Provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey resolved 0, ctx.NameOf lastTok) with
                 | ValueSome _ -> ValueSome(inferExternalStaticMember ctx key resolved [] lastTok)
                 | ValueNone -> ValueNone
             | ValueNone -> ValueNone
@@ -388,7 +392,10 @@ module internal UnificationInferResolve =
             && not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent))
             ->
             match splitExternalClassPrefix ctx li with
-            | ValueSome(resolved, lastTok) when (ctx.Provider.TryLookupMembers(resolved, ctx.NameOf lastTok)).Length > 0 ->
+            | ValueSome(resolved, lastTok) when
+                // Stage 3 holdout (bucket 3b): `resolved` is an opens-resolved spelling.
+                (ctx.Provider.TryLookupMembers(SymbolKeyOps.qualifiedTypeKey resolved 0, ctx.NameOf lastTok)).Length > 0
+                ->
                 ValueSome(resolved, lastTok)
             | _ -> ValueNone
         | _ -> ValueNone

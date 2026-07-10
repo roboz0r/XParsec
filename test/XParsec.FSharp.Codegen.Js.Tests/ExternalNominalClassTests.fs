@@ -161,7 +161,7 @@ let tests =
                     Expect.isEmpty (args |> EqArray.toList) "Box is non-generic"
 
                     Expect.isTrue
-                        (match boxProviderRaw.TryLookupMember(SymbolKeyOps.qualifiedName key, "get") with
+                        (match boxProviderRaw.TryLookupMember(key, "get") with
                          | ValueSome _ -> true
                          | ValueNone -> false)
                         "the member must resolve under the key's qualifiedName (identity equation)"
@@ -177,7 +177,7 @@ let tests =
                         "namespaced key qualifiedName must equal the dotted map key"
 
                     Expect.isTrue
-                        (match boxProviderRaw.TryLookupMember(SymbolKeyOps.qualifiedName key, "get") with
+                        (match boxProviderRaw.TryLookupMember(key, "get") with
                          | ValueSome _ -> true
                          | ValueNone -> false)
                         "the namespaced member must resolve under the key's qualifiedName"

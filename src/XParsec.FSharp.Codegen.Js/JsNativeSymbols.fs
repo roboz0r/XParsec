@@ -213,26 +213,36 @@ module JsNativeSymbols =
 
     /// The layer-2 provider for JS-native runtime types.
     let provider: IExternalSymbolProvider =
-        { new IExternalSymbolProvider with
-            member _.TryLookup _ = ValueNone
+        { new IExternalSymbolProvider
 
-            member _.TryLookupType name =
-                match Map.tryFind name types with
-                | Some s -> ValueSome s
-                | None -> ValueNone
+          interface IExternalSymbolResolver with
+              member _.TryLookup _ = ValueNone
 
-            member _.TryLookupMember(typeName, memberName) =
-                match membersOf typeName memberName with
-                | [||] -> ValueNone
-                | arr -> ValueSome arr.[0]
+              member _.TryLookupType(name: string) =
+                  match Map.tryFind name types with
+                  | Some s -> ValueSome s
+                  | None -> ValueNone
 
-            member _.TryLookupMembers(typeName, memberName) = membersOf typeName memberName
-            member _.TryLookupIndexSignature _ = []
-            member _.TryLookupUnionCase _ = ValueNone
-            member _.AmbientOpenPrefixes = []
-            member _.TryLookupInlineBody _ = ValueNone
-            member _.IntrinsicReverseCanon = Map.empty
-            member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
+              member _.TryLookupUnionCase _ = ValueNone
+              member _.AmbientOpenPrefixes = []
+          interface IExternalSymbolStore with
+              member _.TryLookupType(key: SymbolKey) =
+                  match Map.tryFind (SymbolKeyOps.qualifiedName key) types with
+                  | Some s -> ValueSome s
+                  | None -> ValueNone
+
+              member _.TryLookupMember(key, memberName) =
+                  match membersOf (SymbolKeyOps.qualifiedName key) memberName with
+                  | [||] -> ValueNone
+                  | arr -> ValueSome arr.[0]
+
+              member _.TryLookupMembers(key, memberName) =
+                  membersOf (SymbolKeyOps.qualifiedName key) memberName
+
+              member _.TryLookupIndexSignature _ = []
+              member _.TryLookupInlineBody _ = ValueNone
+              member _.IntrinsicReverseCanon = Map.empty
+              member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
         }
 
     /// The JS-native layer-2 leaf factory: the JS-native tail instead of BCL reflection,

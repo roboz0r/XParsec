@@ -779,41 +779,23 @@ type InlineBody =
 /// guard their internal mutation. Per-file pipelines run independent
 /// `PassContext`s in parallel and may hit the same provider from any of them —
 /// see [`docs/architecture.md`](docs/architecture.md#parallelism).
-type IExternalSymbolProvider =
+/// The **resolver face** of the external-symbol contract: *spelling → identity*
+/// (`string → identity`). Opens-aware — this is where a source spelling is turned
+/// into a resolved symbol/type/case. String-keyed is CORRECT here: it is the one
+/// layer (with the contract extractor) that owns `string × OpenScope → SymbolKey`
+/// resolution. Every pass downstream of NameResolution speaks the key-addressed
+/// `IExternalSymbolStore` instead; see the boundary doc
+/// (`docs/name-resolution-boundary-plan.md`).
+type IExternalSymbolResolver =
     /// `name` is the compiled name ("op_Addition", not "(+)").
     abstract TryLookup: name: string -> ExternalSymbol voption
     /// Look up the body of a `type` declaration by canonical compiled name.
     /// Returns `ValueNone` for unknown names or for types whose body shape the
     /// provider doesn't (yet) model — enums, delegates, etc. Consumers fall back
     /// to `TyConst` / `TyRecord` nominal behaviour when this returns `ValueNone`.
+    /// The spelling-keyed twin of `IExternalSymbolStore.TryLookupType` (which a
+    /// consumer holding a resolved `SymbolKey` uses instead).
     abstract TryLookupType: name: string -> ExternalTypeShape voption
-    /// Look up a static/instance member on an external type by the declaring
-    /// type's compiled name and the member name. This is what types
-    /// `EqualityComparer<'T>.Default` (static property) and `.GetHashCode`
-    /// (instance method). Defaults to `ValueNone` for providers that don't model
-    /// members. When several overloads share a name
-    /// this collapses to a single best-by-arity pick; the *call site* uses
-    /// `TryLookupMembers` instead to resolve by argument types.
-    abstract TryLookupMember: typeName: string * memberName: string -> ExternalMember voption
-
-    /// Look up **all** overloads of a member by name — the candidate set the
-    /// application-site overload resolver picks from (by arity, then argument-type
-    /// betterness). Providers that don't model members
-    /// return `[||]`. A provider that models members SHOULD return every overload
-    /// whose signature maps (the same filter `TryLookupMember` applies, minus the
-    /// single-pick collapse).
-    abstract TryLookupMembers: typeName: string * memberName: string -> ExternalMember[]
-
-    /// The TS index signature(s) `{ [k: K]: V }` on an external type, by its compiled
-    /// name — the seam `x.[k]` / `x.[k] <- v` reads/writes through (each entry a
-    /// `(keyTemplate, valueTemplate)` pair of `FrozenType`s over the type's DECLARING
-    /// typars, realised at a use site via `FrozenTypeBridge.instantiateDeclaring`
-    /// against the receiver's args, exactly as a member `Signature` is). EMPTY = no
-    /// index signature. A type may declare BOTH a string- and a number-index entry, so
-    /// the list carries all and the consumer (`inferIndexedLookup`) selects by the index
-    /// expression's type. Parallel to `TryLookupMember`; providers that model no index
-    /// signatures (metadata, .fsi contract, JS-native, test fakes) return `[]`.
-    abstract TryLookupIndexSignature: typeName: string -> (FrozenType * FrozenType) list
 
     /// Reverse case-name lookup: a (bare) union-case name → its declaring
     /// union's compiled name, the union's typar arity, and the case shape. The
@@ -838,6 +820,51 @@ type IExternalSymbolProvider =
     /// surface, which rides `TryLookupType` via `ExternalTypeShape.Intrinsic`.
     abstract AmbientOpenPrefixes: string list
 
+/// The **store face** of the external-symbol contract: *identity → payload*
+/// (`SymbolKey → payload`). What Unification, Freeze, InlineExpansion, and codegen
+/// speak once identity is already resolved — no consumer re-derives identity from a
+/// spelling here. Type/index/member/inline lookups are addressed by the resolved
+/// `SymbolKey` a front-end consumer already holds; a member *name* stays a string
+/// (a post-dot member spelling is not opens-sensitive — only the declaring type's
+/// identity is). Implementations may satisfy the key-addressed methods by
+/// projecting `SymbolKeyOps.qualifiedName` INTERNALLY (the string round-trip is an
+/// implementation detail, replaceable later by a real keyed index), never a call-site
+/// idiom. See `docs/name-resolution-boundary-plan.md`.
+type IExternalSymbolStore =
+    /// Look up a `type` declaration's body by the resolved `SymbolKey` a consumer
+    /// already holds — the key-addressed twin of
+    /// `IExternalSymbolResolver.TryLookupType`. Returns `ValueNone` on the same
+    /// terms (unknown key, or a body shape the provider doesn't model).
+    abstract TryLookupType: key: SymbolKey -> ExternalTypeShape voption
+
+    /// Look up a static/instance member on an external type by the declaring
+    /// type's resolved `SymbolKey` and the member name. This is what types
+    /// `EqualityComparer<'T>.Default` (static property) and `.GetHashCode`
+    /// (instance method). Defaults to `ValueNone` for providers that don't model
+    /// members. When several overloads share a name
+    /// this collapses to a single best-by-arity pick; the *call site* uses
+    /// `TryLookupMembers` instead to resolve by argument types.
+    abstract TryLookupMember: key: SymbolKey * memberName: string -> ExternalMember voption
+
+    /// Look up **all** overloads of a member by name — the candidate set the
+    /// application-site overload resolver picks from (by arity, then argument-type
+    /// betterness). Providers that don't model members
+    /// return `[||]`. A provider that models members SHOULD return every overload
+    /// whose signature maps (the same filter `TryLookupMember` applies, minus the
+    /// single-pick collapse).
+    abstract TryLookupMembers: key: SymbolKey * memberName: string -> ExternalMember[]
+
+    /// The TS index signature(s) `{ [k: K]: V }` on an external type, by the type's
+    /// resolved `SymbolKey` — the seam `x.[k]` / `x.[k] <- v` reads/writes through (each
+    /// entry a `(keyTemplate, valueTemplate)` pair of `FrozenType`s over the type's
+    /// DECLARING typars, realised at a use site via `FrozenTypeBridge.instantiateDeclaring`
+    /// against the receiver's args, exactly as a member `Signature` is). EMPTY = no
+    /// index signature. A type may declare BOTH a string- and a number-index entry, so
+    /// the list carries all and the consumer (`inferIndexedLookup`) selects by the index
+    /// expression's type. Parallel to `TryLookupMember`; providers that model no index
+    /// signatures (metadata, .fsi contract, JS-native, test fakes) return `[]`.
+    abstract TryLookupIndexSignature: key: SymbolKey -> (FrozenType * FrozenType) list
+
     /// A cross-package `val inline` body — a referenced package's `let inline`
     /// whose `.fs` source the pre-freeze `Passes.InlineExpansion` pass *splices*
     /// at each use site rather than calling as a compiled member.
@@ -858,11 +885,12 @@ type IExternalSymbolProvider =
     /// "float"; "float32"]`; on CLR each platform name maps to exactly one canon, so
     /// the list is a singleton. Consumers that want a single canon take the head/sole
     /// element. The forward `canon` axis lives on `ExternalTypeShape.Intrinsic` and is
-    /// reachable by name via `TryLookupType`; the reverse axis cannot be (it is keyed
-    /// by the platform repr, which is not a provider type key), so it is published as
-    /// data here. The intrinsic-carrying providers (`ExtractCtx.toProvider`) and their
-    /// composite (`ExternalSymbols.stack`) build a real map; metadata / JS-native /
-    /// test providers carry no intrinsics and return `Map.empty`.
+    /// reachable by name via `IExternalSymbolResolver.TryLookupType`; the reverse axis
+    /// cannot be (it is keyed by the platform repr, a different string axis than a
+    /// source spelling), so it is published as data here. The intrinsic-carrying
+    /// providers (`ExtractCtx.toProvider`) and their composite (`ExternalSymbols.stack`)
+    /// build a real map; metadata / JS-native / test providers carry no intrinsics and
+    /// return `Map.empty`.
     abstract IntrinsicReverseCanon: Map<string, SymbolKey list>
 
     /// The FORWARD intrinsic axis `{ canon -> platform-repr }` (the `.fsi` short name
@@ -880,6 +908,17 @@ type IExternalSymbolProvider =
     /// (`ExtractCtx.toProvider`) and their composite build a real map on EVERY target;
     /// metadata / JS-native / test providers return `Map.empty`.
     abstract IntrinsicForwardRepr: IReadOnlyDictionary<SymbolKey, string>
+
+/// A mechanical metadata / contract ORACLE combining both faces: the resolver
+/// (spelling → identity) and the store (identity → payload). Every backing object
+/// (VesperLib contract, metadata, JS-native, TS-manifest, test fakes) implements
+/// THIS combined interface — one object, both duties — so the two faces are always
+/// free upcasts of the same object (`p :> IExternalSymbolStore`), no forwarding.
+/// The "dumb oracle" doctrine and the thread-safety contract above apply to both
+/// halves.
+type IExternalSymbolProvider =
+    inherit IExternalSymbolResolver
+    inherit IExternalSymbolStore
 
 /// The open signature of an external module-level function as the codegen
 /// boundary sees it: the curried
@@ -961,15 +1000,12 @@ module ExternalSymbols =
     let emptyForwardRepr: IReadOnlyDictionary<SymbolKey, string> =
         Dictionary<SymbolKey, string>() :> IReadOnlyDictionary<_, _>
 
-    /// Look an external type up by the `SymbolKey` a front-end consumer already holds.
-    /// The provider is string-keyed (its metadata / contract leaves own compiled names —
-    /// the genuine string boundary), so this is the single key-accepting front door that
-    /// projects to `qualifiedName` once, deleting the per-site `TryLookupType (qualifiedName
-    /// key)` re-projection at the consumers whose only use of the string was the lookup.
-    /// Callers that need the qualified string for an adjacent purpose (a diagnostic,
-    /// `TryLookupMember`) keep projecting it directly.
+    /// Look an external type up by the `SymbolKey` a front-end consumer already holds —
+    /// a thin alias over the key-addressed store face (`IExternalSymbolStore.TryLookupType`).
+    /// Retained so existing callers read `tryLookupType provider key`; new code may call
+    /// `provider.TryLookupType key` directly.
     let tryLookupType (provider: IExternalSymbolProvider) (key: SymbolKey) : ExternalTypeShape voption =
-        provider.TryLookupType(SymbolKeyOps.qualifiedName key)
+        (provider :> IExternalSymbolStore).TryLookupType key
 
     /// The member surface an external nominal publishes — a `Class` or a capability
     /// `IntrinsicInterface` both carry `ExternalMember[]`, so a consumer reading "the
@@ -1470,17 +1506,21 @@ module ExternalSymbols =
 
     /// For tests that want to isolate behavior from external-symbol noise.
     let nullProvider: IExternalSymbolProvider =
-        { new IExternalSymbolProvider with
-            member _.TryLookup _ = ValueNone
-            member _.TryLookupType _ = ValueNone
-            member _.TryLookupMember(_, _) = ValueNone
-            member _.TryLookupMembers(_, _) = [||]
-            member _.TryLookupIndexSignature _ = []
-            member _.TryLookupUnionCase _ = ValueNone
-            member _.AmbientOpenPrefixes = []
-            member _.TryLookupInlineBody _ = ValueNone
-            member _.IntrinsicReverseCanon = Map.empty
-            member _.IntrinsicForwardRepr = emptyForwardRepr
+        { new IExternalSymbolProvider
+
+          interface IExternalSymbolResolver with
+              member _.TryLookup _ = ValueNone
+              member _.TryLookupType(_: string) = ValueNone
+              member _.TryLookupUnionCase _ = ValueNone
+              member _.AmbientOpenPrefixes = []
+          interface IExternalSymbolStore with
+              member _.TryLookupType(_: SymbolKey) = ValueNone
+              member _.TryLookupMember(_, _) = ValueNone
+              member _.TryLookupMembers(_, _) = [||]
+              member _.TryLookupIndexSignature _ = []
+              member _.TryLookupInlineBody _ = ValueNone
+              member _.IntrinsicReverseCanon = Map.empty
+              member _.IntrinsicForwardRepr = emptyForwardRepr
         }
 
     /// Merge sources' reverse `{ platform-repr -> [canon] }` maps by UNIONING the canon
@@ -1658,65 +1698,71 @@ module ExternalSymbols =
             | ValueNone -> id
             | ValueSome o -> fun (uc: ExternalUnionCase) -> { uc with Origin = o }
 
-        { new IExternalSymbolProvider with
-            member _.TryLookup name =
-                firstHit (fun s -> s.TryLookup name) |> ValueOption.map stampSymbol
+        { new IExternalSymbolProvider
 
-            member _.TryLookupType name =
-                firstHit (fun s -> s.TryLookupType name) |> ValueOption.map (stampType name)
+          interface IExternalSymbolResolver with
+              member _.TryLookup name =
+                  firstHit (fun s -> s.TryLookup name) |> ValueOption.map stampSymbol
 
-            member _.TryLookupMember(typeName, memberName) =
-                firstHit (fun s -> s.TryLookupMember(typeName, memberName))
-                |> ValueOption.map stampMember
+              member _.TryLookupType(name: string) =
+                  firstHit (fun s -> s.TryLookupType name) |> ValueOption.map (stampType name)
 
-            // First source that knows the type wins the whole overload set — a
-            // type's members live in one assembly, so a later source never
-            // *adds* overloads to an earlier one's hit (same first-hit-wins
-            // shadowing as the singular lookups).
-            member _.TryLookupMembers(typeName, memberName) =
-                let mutable result = [||]
-                let mutable i = 0
+              // First source that knows a case of this name wins; re-stamp the
+              // package origin onto the result exactly as `TryLookupType` does for
+              // the union shape it came from (the inner extractor records
+              // `SymbolOrigin.Empty`).
+              member _.TryLookupUnionCase caseName =
+                  firstHit (fun s -> s.TryLookupUnionCase caseName)
+                  |> ValueOption.map stampUnionCase
 
-                while Array.isEmpty result && i < sources.Length do
-                    result <- sources.[i].TryLookupMembers(typeName, memberName)
-                    i <- i + 1
+              member _.AmbientOpenPrefixes = ambient
+          interface IExternalSymbolStore with
+              member _.TryLookupType(key: SymbolKey) =
+                  firstHit (fun s -> s.TryLookupType key)
+                  |> ValueOption.map (stampType (SymbolKeyOps.qualifiedName key))
 
-                match stampOrigin with
-                | ValueNone -> result
-                | ValueSome _ -> result |> Array.map stampMember
+              member _.TryLookupMember(key, memberName) =
+                  firstHit (fun s -> s.TryLookupMember(key, memberName))
+                  |> ValueOption.map stampMember
 
-            // First source with a non-empty index signature wins (a type's index sig
-            // lives in one home, like its members). The `(key, value)` templates are
-            // origin-independent, so no re-stamp — a plain first-hit-wins fall-through.
-            member _.TryLookupIndexSignature typeName =
-                let mutable result = []
-                let mutable i = 0
+              // First source that knows the type wins the whole overload set — a
+              // type's members live in one assembly, so a later source never
+              // *adds* overloads to an earlier one's hit (same first-hit-wins
+              // shadowing as the singular lookups).
+              member _.TryLookupMembers(key, memberName) =
+                  let mutable result = [||]
+                  let mutable i = 0
 
-                while List.isEmpty result && i < sources.Length do
-                    result <- sources.[i].TryLookupIndexSignature typeName
-                    i <- i + 1
+                  while Array.isEmpty result && i < sources.Length do
+                      result <- sources.[i].TryLookupMembers(key, memberName)
+                      i <- i + 1
 
-                result
+                  match stampOrigin with
+                  | ValueNone -> result
+                  | ValueSome _ -> result |> Array.map stampMember
 
-            // First source that knows a case of this name wins; re-stamp the
-            // package origin onto the result exactly as `TryLookupType` does for
-            // the union shape it came from (the inner extractor records
-            // `SymbolOrigin.Empty`).
-            member _.TryLookupUnionCase caseName =
-                firstHit (fun s -> s.TryLookupUnionCase caseName)
-                |> ValueOption.map stampUnionCase
+              // First source with a non-empty index signature wins (a type's index sig
+              // lives in one home, like its members). The `(key, value)` templates are
+              // origin-independent, so no re-stamp — a plain first-hit-wins fall-through.
+              member _.TryLookupIndexSignature(key: SymbolKey) =
+                  let mutable result = []
+                  let mutable i = 0
 
-            member _.AmbientOpenPrefixes = ambient
+                  while List.isEmpty result && i < sources.Length do
+                      result <- sources.[i].TryLookupIndexSignature key
+                      i <- i + 1
 
-            // Inline bodies are origin-independent `TDecl`s (no key/origin
-            // re-stamp), so these are plain first-hit-wins fall-throughs like the
-            // lookups above — a source that serves cross-package inline bodies
-            // (the codegen contract stack) surfaces them through the composite.
-            member _.TryLookupInlineBody key =
-                firstHit (fun s -> s.TryLookupInlineBody key)
+                  result
 
-            member _.IntrinsicReverseCanon = reverseCanon
-            member _.IntrinsicForwardRepr = forwardRepr
+              // Inline bodies are origin-independent `TDecl`s (no key/origin
+              // re-stamp), so these are plain first-hit-wins fall-throughs like the
+              // lookups above — a source that serves cross-package inline bodies
+              // (the codegen contract stack) surfaces them through the composite.
+              member _.TryLookupInlineBody key =
+                  firstHit (fun s -> s.TryLookupInlineBody key)
+
+              member _.IntrinsicReverseCanon = reverseCanon
+              member _.IntrinsicForwardRepr = forwardRepr
         }
 
     /// The composed ambient prelude: each source's `[<AutoOpen>]` / prelude
@@ -1836,34 +1882,39 @@ module ExternalSymbols =
             | ExternalTypeShape.Intrinsic _
             | ExternalTypeShape.Opaque _ -> shape
 
-        { new IExternalSymbolProvider with
-            member _.TryLookup name =
-                inner.TryLookup name
-                |> ValueOption.map (fun s -> { s with Scheme = co s.Scheme })
+        { new IExternalSymbolProvider
 
-            member _.TryLookupType name =
-                inner.TryLookupType name |> ValueOption.map mapShape
+          interface IExternalSymbolResolver with
+              member _.TryLookup name =
+                  inner.TryLookup name
+                  |> ValueOption.map (fun s -> { s with Scheme = co s.Scheme })
 
-            member _.TryLookupMember(typeName, memberName) =
-                inner.TryLookupMember(typeName, memberName) |> ValueOption.map mapMember
+              member _.TryLookupType(name: string) =
+                  inner.TryLookupType name |> ValueOption.map mapShape
 
-            member _.TryLookupMembers(typeName, memberName) =
-                inner.TryLookupMembers(typeName, memberName) |> Array.map mapMember
+              member _.TryLookupUnionCase caseName =
+                  inner.TryLookupUnionCase caseName
+                  |> ValueOption.map (fun uc -> { uc with Case = mapCase uc.Case })
 
-            // An index KEY is a contravariant position (the supplied index), the VALUE a
-            // covariant read — the same variance split as a member's `Parameters`/`Return`.
-            member _.TryLookupIndexSignature typeName =
-                inner.TryLookupIndexSignature typeName
-                |> List.map (fun (k, v) -> contra k, co v)
+              member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
+          interface IExternalSymbolStore with
+              member _.TryLookupType(key: SymbolKey) =
+                  inner.TryLookupType key |> ValueOption.map mapShape
 
-            member _.TryLookupUnionCase caseName =
-                inner.TryLookupUnionCase caseName
-                |> ValueOption.map (fun uc -> { uc with Case = mapCase uc.Case })
+              member _.TryLookupMember(key, memberName) =
+                  inner.TryLookupMember(key, memberName) |> ValueOption.map mapMember
 
-            member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
-            member _.TryLookupInlineBody key = inner.TryLookupInlineBody key
-            member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
-            member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
+              member _.TryLookupMembers(key, memberName) =
+                  inner.TryLookupMembers(key, memberName) |> Array.map mapMember
+
+              // An index KEY is a contravariant position (the supplied index), the VALUE a
+              // covariant read — the same variance split as a member's `Parameters`/`Return`.
+              member _.TryLookupIndexSignature(key: SymbolKey) =
+                  inner.TryLookupIndexSignature key |> List.map (fun (k, v) -> contra k, co v)
+
+              member _.TryLookupInlineBody key = inner.TryLookupInlineBody key
+              member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
+              member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
         }
 
     /// A general MEMOISING decorator: every lookup channel caches on first hit (MISSES
@@ -1878,45 +1929,50 @@ module ExternalSymbols =
     /// intrinsic axes and ambient prefixes are constant fields — passed through uncached.
     let memoize (inner: IExternalSymbolProvider) : IExternalSymbolProvider =
         let symbols = ConcurrentDictionary<string, ExternalSymbol voption>()
-        let types = ConcurrentDictionary<string, ExternalTypeShape voption>()
+        let typesByName = ConcurrentDictionary<string, ExternalTypeShape voption>()
+        let typesByKey = ConcurrentDictionary<SymbolKey, ExternalTypeShape voption>()
 
         let members =
-            ConcurrentDictionary<struct (string * string), ExternalMember voption>()
+            ConcurrentDictionary<struct (SymbolKey * string), ExternalMember voption>()
 
-        let memberSets = ConcurrentDictionary<struct (string * string), ExternalMember[]>()
-        let indexSigs = ConcurrentDictionary<string, (FrozenType * FrozenType) list>()
+        let memberSets =
+            ConcurrentDictionary<struct (SymbolKey * string), ExternalMember[]>()
+
+        let indexSigs = ConcurrentDictionary<SymbolKey, (FrozenType * FrozenType) list>()
         let unionCases = ConcurrentDictionary<string, ExternalUnionCase voption>()
         let inlineByKey = ConcurrentDictionary<SymbolKey, InlineBody voption>()
 
-        { new IExternalSymbolProvider with
-            member _.TryLookup name =
-                symbols.GetOrAdd(name, (fun n -> inner.TryLookup n))
+        { new IExternalSymbolProvider
 
-            member _.TryLookupType name =
-                types.GetOrAdd(name, (fun n -> inner.TryLookupType n))
+          interface IExternalSymbolResolver with
+              member _.TryLookup name =
+                  symbols.GetOrAdd(name, (fun n -> inner.TryLookup n))
 
-            member _.TryLookupMember(typeName, memberName) =
-                members.GetOrAdd(struct (typeName, memberName), (fun (struct (t, m)) -> inner.TryLookupMember(t, m)))
+              member _.TryLookupType(name: string) =
+                  typesByName.GetOrAdd(name, (fun n -> inner.TryLookupType n))
 
-            member _.TryLookupMembers(typeName, memberName) =
-                memberSets.GetOrAdd(
-                    struct (typeName, memberName),
-                    (fun (struct (t, m)) -> inner.TryLookupMembers(t, m))
-                )
+              member _.TryLookupUnionCase caseName =
+                  unionCases.GetOrAdd(caseName, (fun n -> inner.TryLookupUnionCase n))
 
-            member _.TryLookupIndexSignature typeName =
-                indexSigs.GetOrAdd(typeName, (fun n -> inner.TryLookupIndexSignature n))
+              member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
+          interface IExternalSymbolStore with
+              member _.TryLookupType(key: SymbolKey) =
+                  typesByKey.GetOrAdd(key, (fun k -> inner.TryLookupType k))
 
-            member _.TryLookupUnionCase caseName =
-                unionCases.GetOrAdd(caseName, (fun n -> inner.TryLookupUnionCase n))
+              member _.TryLookupMember(key, memberName) =
+                  members.GetOrAdd(struct (key, memberName), (fun (struct (k, m)) -> inner.TryLookupMember(k, m)))
 
-            member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
+              member _.TryLookupMembers(key, memberName) =
+                  memberSets.GetOrAdd(struct (key, memberName), (fun (struct (k, m)) -> inner.TryLookupMembers(k, m)))
 
-            member _.TryLookupInlineBody key =
-                inlineByKey.GetOrAdd(key, (fun k -> inner.TryLookupInlineBody k))
+              member _.TryLookupIndexSignature(key: SymbolKey) =
+                  indexSigs.GetOrAdd(key, (fun k -> inner.TryLookupIndexSignature k))
 
-            member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
-            member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
+              member _.TryLookupInlineBody key =
+                  inlineByKey.GetOrAdd(key, (fun k -> inner.TryLookupInlineBody k))
+
+              member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
+              member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
         }
 
 /// The primitive `SemType` anchors the type-checker pins literals and built-in

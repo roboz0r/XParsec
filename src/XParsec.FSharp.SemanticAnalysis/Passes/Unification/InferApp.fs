@@ -461,7 +461,7 @@ module internal UnificationInferApp =
                                             // int)`); pick the parameterless override, not the
                                             // most-params one `TryLookupMember` would return.
                                             let toString =
-                                                ctx.Provider.TryLookupMembers(scratchName, "ToString")
+                                                ctx.Provider.TryLookupMembers(scratchKey, "ToString")
                                                 |> Array.tryFind (fun m ->
                                                     match m.Key with
                                                     | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length = 0

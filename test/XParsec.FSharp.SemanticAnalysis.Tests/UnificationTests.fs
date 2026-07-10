@@ -108,22 +108,26 @@ let tests =
                 // `TyUnknown` leaf. Referencing that symbol must fire a diagnostic when
                 // its `TyUnknown` type reaches unification — not silently succeed.
                 let brokenProvider =
-                    { new IExternalSymbolProvider with
-                        member _.TryLookup name =
-                            if name = "broken" then
-                                ValueSome(ExternalSymbols.monoFrozen "broken" (FTUnknown "Missing.Thing"))
-                            else
-                                ValueNone
+                    { new IExternalSymbolProvider
 
-                        member _.TryLookupType _ = ValueNone
-                        member _.TryLookupMember(_, _) = ValueNone
-                        member _.TryLookupMembers(_, _) = [||]
-                        member _.TryLookupIndexSignature _ = []
-                        member _.TryLookupUnionCase _ = ValueNone
-                        member _.AmbientOpenPrefixes = []
-                        member _.TryLookupInlineBody _ = ValueNone
-                        member _.IntrinsicReverseCanon = Map.empty
-                        member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
+                      interface IExternalSymbolResolver with
+                          member _.TryLookup name =
+                              if name = "broken" then
+                                  ValueSome(ExternalSymbols.monoFrozen "broken" (FTUnknown "Missing.Thing"))
+                              else
+                                  ValueNone
+
+                          member _.TryLookupType(_: string) = ValueNone
+                          member _.TryLookupUnionCase _ = ValueNone
+                          member _.AmbientOpenPrefixes = []
+                      interface IExternalSymbolStore with
+                          member _.TryLookupType(_: SymbolKey) = ValueNone
+                          member _.TryLookupMember(_, _) = ValueNone
+                          member _.TryLookupMembers(_, _) = [||]
+                          member _.TryLookupIndexSignature _ = []
+                          member _.TryLookupInlineBody _ = ValueNone
+                          member _.IntrinsicReverseCanon = Map.empty
+                          member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
                     }
 
                 let provider = ExternalSymbols.composite [ brokenProvider; realProvider.Value ]

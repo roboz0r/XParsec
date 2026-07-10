@@ -58,12 +58,7 @@ module internal FreezeAccess =
             // the read branch — whether the external type carries an index signature.
             let setName =
                 match Unification.zonk arrTy with
-                | TyClass(clsKey, _) when
-                    not (
-                        ctx.Provider.TryLookupIndexSignature(SymbolKeyOps.qualifiedName clsKey)
-                        |> List.isEmpty
-                    )
-                    ->
+                | TyClass(clsKey, _) when not (ctx.Provider.TryLookupIndexSignature clsKey |> List.isEmpty) ->
                     "SetIndex"
                 | _ -> "SetArray"
 
@@ -293,12 +288,7 @@ module internal FreezeAccess =
             let getName =
                 match Unification.zonk arrTy with
                 | TyString -> "GetString"
-                | TyClass(clsKey, _) when
-                    not (
-                        ctx.Provider.TryLookupIndexSignature(SymbolKeyOps.qualifiedName clsKey)
-                        |> List.isEmpty
-                    )
-                    ->
+                | TyClass(clsKey, _) when not (ctx.Provider.TryLookupIndexSignature clsKey |> List.isEmpty) ->
                     "GetIndex"
                 | _ -> "GetArray"
 

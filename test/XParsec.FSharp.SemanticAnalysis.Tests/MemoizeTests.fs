@@ -19,7 +19,17 @@ type private CountingProvider(name: string) =
     member _.LookupHits = lookupHits
     member _.TypeHits = typeHits
 
-    interface IExternalSymbolProvider with
+    member private _.TypeByName(n: string) =
+        typeHits <- typeHits + 1
+
+        if n = name then
+            ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, origin)))
+        else
+            ValueNone
+
+    interface IExternalSymbolProvider
+
+    interface IExternalSymbolResolver with
         member _.TryLookup n =
             lookupHits <- lookupHits + 1
 
@@ -28,19 +38,17 @@ type private CountingProvider(name: string) =
             else
                 ValueNone
 
-        member _.TryLookupType n =
-            typeHits <- typeHits + 1
+        member this.TryLookupType(n: string) = this.TypeByName n
+        member _.TryLookupUnionCase _ = ValueNone
+        member _.AmbientOpenPrefixes = []
 
-            if n = name then
-                ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, origin)))
-            else
-                ValueNone
+    interface IExternalSymbolStore with
+        member this.TryLookupType(key: SymbolKey) =
+            this.TypeByName(SymbolKeyOps.qualifiedName key)
 
         member _.TryLookupMember(_, _) = ValueNone
         member _.TryLookupMembers(_, _) = [||]
         member _.TryLookupIndexSignature _ = []
-        member _.TryLookupUnionCase _ = ValueNone
-        member _.AmbientOpenPrefixes = []
         member _.TryLookupInlineBody _ = ValueNone
         member _.IntrinsicReverseCanon = Map.empty
         member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr

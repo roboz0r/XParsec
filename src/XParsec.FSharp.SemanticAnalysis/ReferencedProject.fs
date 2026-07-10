@@ -478,12 +478,26 @@ module ReferencedProject =
             if File.Exists abs then Some abs else None
         | None -> None
 
+    /// A package built by `buildProviderWith`, plus the census the composition-time
+    /// duplicate sweep reads. `DeclaredTypeKeys` are the qualified compiled names of the
+    /// NOMINAL types this package OWNS (Class/Record/Union/Enum — the shapes that mint a
+    /// lookup key and would silently first-hit-shadow a peer package's same-named type).
+    /// Intrinsics and capability faces are asm-blind by design (`sameTypeAsmBlind`) and so
+    /// are deliberately excluded — a shared canon there is not a collision.
+    type BuiltPackage =
+        {
+            Provider: IExternalSymbolProvider
+            Diagnostics: (VesperLib.LibFile * string) list
+            HomeAssembly: string
+            DeclaredTypeKeys: string list
+        }
+
     let buildProviderWith
         (target: string option)
         (ambientShapes: string -> ExternalTypeShape voption)
         (dependencyAmbientPrefixes: string list)
         (manifestPath: string)
-        : Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string> =
+        : Result<BuiltPackage, string> =
         match loadManifest manifestPath with
         | Error e -> Error e
         | Ok manifest ->
@@ -602,7 +616,27 @@ module ReferencedProject =
                    else
                        [])
 
-            Ok(wrap origin ambient (VesperLib.ExtractCtx.toProvider ctx), List.ofSeq ctx.Diagnostics)
+            // The nominal types this package declares (own shapes only — `shapeOf`
+            // consults dependency `AmbientShapes` as a fallback but never inserts them
+            // into `TypeShapes`), for the composition-time duplicate sweep.
+            let declaredTypeKeys =
+                [
+                    for kv in ctx.TypeShapes do
+                        match kv.Value with
+                        | ExternalTypeShape.Class _
+                        | ExternalTypeShape.Record _
+                        | ExternalTypeShape.Union _
+                        | ExternalTypeShape.Enum _ -> yield kv.Key
+                        | _ -> ()
+                ]
+
+            Ok
+                {
+                    Provider = wrap origin ambient (VesperLib.ExtractCtx.toProvider ctx)
+                    Diagnostics = List.ofSeq ctx.Diagnostics
+                    HomeAssembly = manifest.Name
+                    DeclaredTypeKeys = declaredTypeKeys
+                }
 
     /// Stand up a referenced project in isolation — no dependency shapes in scope
     /// (`AmbientShapes` defaults to "resolve nothing"). The dependency-free path:
@@ -612,6 +646,7 @@ module ReferencedProject =
         (manifestPath: string)
         : Result<IExternalSymbolProvider * (VesperLib.LibFile * string) list, string> =
         buildProviderWith None (fun _ -> ValueNone) [] manifestPath
+        |> Result.map (fun bp -> bp.Provider, bp.Diagnostics)
 
     /// A layer-2 metadata-tail factory: given the harvested `{ platform-repr →
     /// [canon] }` reverse map of the layer-1 providers composed so far, produce the
@@ -648,6 +683,18 @@ module ReferencedProject =
         let byPath =
             System.Collections.Generic.Dictionary<string, IExternalSymbolProvider>(System.StringComparer.Ordinal)
 
+        // Composition-time duplicate sweep: a qualified type key owned by two DIFFERENT
+        // peer packages resolves as a silent first-hit shadow (`composite` → `firstHit`),
+        // so the loser's type is minted a correct key but is unreachable by lookup. Refuse
+        // the ambiguity here — a CS0433-equivalent — rather than let it shadow. Keyed by the
+        // qualified compiled name; the home assembly disambiguates a genuine collision (two
+        // packages) from a package that legitimately re-lists a dependency's name (same home,
+        // which `shapeOf` does not produce here anyway). The package-vs-metadata-tail overlap
+        // is NOT swept (the BCL/native tail is not enumerable) — that case is diagnosed lazily
+        // downstream, per the boundary plan.
+        let seenTypeHomes =
+            System.Collections.Generic.Dictionary<string, string>(System.StringComparer.Ordinal)
+
         for path in orderedManifestPaths do
             let key = Path.GetFullPath path
 
@@ -666,7 +713,7 @@ module ReferencedProject =
             let depComposite =
                 ExternalSymbols.composite (depProviders @ metaTail (ExternalSymbols.mergeReverseCanon depProviders))
 
-            let ambientShapes = (fun name -> depComposite.TryLookupType name)
+            let ambientShapes = (fun (name: string) -> depComposite.TryLookupType name)
 
             // The dependency providers' implicit open prefixes (`Vesper` from Core,
             // where `Fun`2`/`Fun`3`/`Ref` live), so this package's extraction resolves a
@@ -676,9 +723,20 @@ module ReferencedProject =
                 depProviders |> List.collect (fun p -> p.AmbientOpenPrefixes) |> List.distinct
 
             match buildProviderWith target ambientShapes depAmbientPrefixes path with
-            | Ok(provider, _) ->
-                built.Add provider
-                byPath.[key] <- provider
+            | Ok bp ->
+                for typeKey in bp.DeclaredTypeKeys do
+                    match seenTypeHomes.TryGetValue typeKey with
+                    | true, otherHome when otherHome <> bp.HomeAssembly ->
+                        failwithf
+                            "The type '%s' exists in both '%s' and '%s'. A referenced package set must declare each type once; reference only one of the two packages."
+                            typeKey
+                            otherHome
+                            bp.HomeAssembly
+                    | true, _ -> ()
+                    | false, _ -> seenTypeHomes.[typeKey] <- bp.HomeAssembly
+
+                built.Add bp.Provider
+                byPath.[key] <- bp.Provider
             | Error e -> failwithf "Failed to load referenced project manifest '%s': %s" path e
 
         // The final composite's leaf IS seeded with the full harvested reverse map, so a

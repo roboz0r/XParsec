@@ -60,73 +60,85 @@ let private markerCase: ExternalCaseShape =
 /// class (member params/return, an interface arg, a base type), a record field, a
 /// union case + interface, an `Abbrev` body (the deliberate non-surface), a lone
 /// member, and a reverse union case.
-let private fake: IExternalSymbolProvider =
-    { new IExternalSymbolProvider with
-        member _.TryLookup name =
-            if name = "sym" then
-                ValueSome(ExternalSymbols.monoFrozen "sym" marker)
-            else
-                ValueNone
-
-        member _.TryLookupType name =
-            match name with
-            | "Cls" ->
-                ValueSome(
-                    ExternalTypeShape.Class
-                        { ExternalClassShape.basic (0, false, origin) with
-                            Members = [| markerMember |]
-                            FrozenInterfaces = [| "I", [| marker |] |]
-                            FrozenBaseType = ValueSome marker
-                        }
-                )
-            | "Rec" ->
-                ValueSome(
-                    ExternalTypeShape.Record(
-                        1,
-                        [|
-                            {
-                                Name = "f"
-                                IsMutable = false
-                                Frozen = marker
-                            }
-                        |],
-                        origin
-                    )
-                )
-            | "Uni" -> ValueSome(ExternalTypeShape.Union(1, [| markerCase |], [| "J", [| marker |] |], origin))
-            | "Abb" -> ValueSome(ExternalTypeShape.Abbrev(1, marker))
-            | _ -> ValueNone
-
-        member _.TryLookupMember(t, m) =
-            if t = "Cls" && m = "m" then
-                ValueSome markerMember
-            else
-                ValueNone
-
-        member this.TryLookupMembers(t, m) =
-            match this.TryLookupMember(t, m) with
-            | ValueSome mem -> [| mem |]
-            | ValueNone -> [||]
-
-        member _.TryLookupIndexSignature _ = []
-
-        member _.TryLookupUnionCase caseName =
-            if caseName = "C" then
-                ValueSome
+// The type/member lookups are string-keyed internally; the store face projects the
+// resolved key to its qualified name and shares these helpers with the resolver face.
+let private typeByName (name: string) : ExternalTypeShape voption =
+    match name with
+    | "Cls" ->
+        ValueSome(
+            ExternalTypeShape.Class
+                { ExternalClassShape.basic (0, false, origin) with
+                    Members = [| markerMember |]
+                    FrozenInterfaces = [| "I", [| marker |] |]
+                    FrozenBaseType = ValueSome marker
+                }
+        )
+    | "Rec" ->
+        ValueSome(
+            ExternalTypeShape.Record(
+                1,
+                [|
                     {
-                        UnionName = "Uni"
-                        Arity = 1
-                        Origin = origin
-                        Case = markerCase
-                        IsRequireQualifiedAccess = false
+                        Name = "f"
+                        IsMutable = false
+                        Frozen = marker
                     }
-            else
-                ValueNone
+                |],
+                origin
+            )
+        )
+    | "Uni" -> ValueSome(ExternalTypeShape.Union(1, [| markerCase |], [| "J", [| marker |] |], origin))
+    | "Abb" -> ValueSome(ExternalTypeShape.Abbrev(1, marker))
+    | _ -> ValueNone
 
-        member _.AmbientOpenPrefixes = [ "Amb" ]
-        member _.TryLookupInlineBody _ = ValueNone
-        member _.IntrinsicReverseCanon = Map.empty
-        member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
+let private memberByName (t: string) (m: string) : ExternalMember voption =
+    if t = "Cls" && m = "m" then
+        ValueSome markerMember
+    else
+        ValueNone
+
+let private fake: IExternalSymbolProvider =
+    { new IExternalSymbolProvider
+
+      interface IExternalSymbolResolver with
+          member _.TryLookup name =
+              if name = "sym" then
+                  ValueSome(ExternalSymbols.monoFrozen "sym" marker)
+              else
+                  ValueNone
+
+          member _.TryLookupType(name: string) = typeByName name
+
+          member _.TryLookupUnionCase caseName =
+              if caseName = "C" then
+                  ValueSome
+                      {
+                          UnionName = "Uni"
+                          Arity = 1
+                          Origin = origin
+                          Case = markerCase
+                          IsRequireQualifiedAccess = false
+                      }
+              else
+                  ValueNone
+
+          member _.AmbientOpenPrefixes = [ "Amb" ]
+      interface IExternalSymbolStore with
+          member _.TryLookupType(key: SymbolKey) =
+              typeByName (SymbolKeyOps.qualifiedName key)
+
+          member _.TryLookupMember(key, m) =
+              memberByName (SymbolKeyOps.qualifiedName key) m
+
+          member _.TryLookupMembers(key, m) =
+              match memberByName (SymbolKeyOps.qualifiedName key) m with
+              | ValueSome mem -> [| mem |]
+              | ValueNone -> [||]
+
+          member _.TryLookupIndexSignature _ = []
+          member _.TryLookupInlineBody _ = ValueNone
+          member _.IntrinsicReverseCanon = Map.empty
+          member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
     }
 
 let private wrapped = ExternalSymbols.mapProviderTypes resolveMarker fake
@@ -185,13 +197,13 @@ let tests =
             }
 
             test "the member channels (single + overloads) map identically to the class member" {
-                match wrapped.TryLookupMember("Cls", "m") with
+                match wrapped.TryLookupMember(SymbolKeyOps.qualifiedTypeKey "Cls" 0, "m") with
                 | ValueSome m ->
                     Expect.equal m.Signature.Parameters (witness Variance.Contra) "single: Parameters contra"
                     Expect.equal m.Signature.Return (witness Variance.Co) "single: Return co"
                 | ValueNone -> failtest "member should resolve"
 
-                let all = wrapped.TryLookupMembers("Cls", "m")
+                let all = wrapped.TryLookupMembers(SymbolKeyOps.qualifiedTypeKey "Cls" 0, "m")
                 Expect.equal all.Length 1 "one overload"
                 Expect.equal all.[0].Signature.Parameters (witness Variance.Contra) "overloads: Parameters contra"
                 Expect.equal all.[0].Signature.Return (witness Variance.Co) "overloads: Return co"

@@ -238,31 +238,41 @@ module TsManifestProvider =
             |> List.map (fun (qn, index) -> qn, index |> List.map (fun (k, v) -> toFrozen ctx k, toFrozen ctx v))
             |> Map.ofList
 
-        interface IExternalSymbolProvider with
+        interface IExternalSymbolProvider
+
+        interface IExternalSymbolResolver with
             member _.TryLookup name =
                 match Map.tryFind name funcs with
                 | Some s -> ValueSome s
                 | None -> ValueNone
 
-            member _.TryLookupType name =
+            member _.TryLookupType(name: string) =
                 match Map.tryFind name types with
                 | Some s -> ValueSome s
                 | None -> ValueNone
 
-            member _.TryLookupMember(typeName, memberName) =
-                match membersOf typeName memberName with
+            member _.TryLookupUnionCase _ = ValueNone
+            member _.AmbientOpenPrefixes = []
+
+        interface IExternalSymbolStore with
+            member _.TryLookupType(key: SymbolKey) =
+                match Map.tryFind (SymbolKeyOps.qualifiedName key) types with
+                | Some s -> ValueSome s
+                | None -> ValueNone
+
+            member _.TryLookupMember(key, memberName) =
+                match membersOf (SymbolKeyOps.qualifiedName key) memberName with
                 | [||] -> ValueNone
                 | arr -> ValueSome arr.[0]
 
-            member _.TryLookupMembers(typeName, memberName) = membersOf typeName memberName
+            member _.TryLookupMembers(key, memberName) =
+                membersOf (SymbolKeyOps.qualifiedName key) memberName
 
-            member _.TryLookupIndexSignature typeName =
-                match Map.tryFind typeName indexSigs with
+            member _.TryLookupIndexSignature key =
+                match Map.tryFind (SymbolKeyOps.qualifiedName key) indexSigs with
                 | Some pairs -> pairs
                 | None -> []
 
-            member _.TryLookupUnionCase _ = ValueNone
-            member _.AmbientOpenPrefixes = []
             member _.TryLookupInlineBody _ = ValueNone
             member _.IntrinsicReverseCanon = Map.empty
             member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr

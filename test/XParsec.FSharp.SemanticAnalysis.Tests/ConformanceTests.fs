@@ -445,21 +445,25 @@ let enforcementTests =
 let private contractProvider (entries: (string * ExternalSymbol) list) : IExternalSymbolProvider =
     let m = Map.ofList entries
 
-    { new IExternalSymbolProvider with
-        member _.TryLookup name =
-            match Map.tryFind name m with
-            | Some s -> ValueSome s
-            | None -> ValueNone
+    { new IExternalSymbolProvider
 
-        member _.TryLookupType _ = ValueNone
-        member _.TryLookupMember(_, _) = ValueNone
-        member _.TryLookupMembers(_, _) = [||]
-        member _.TryLookupIndexSignature _ = []
-        member _.TryLookupUnionCase _ = ValueNone
-        member _.AmbientOpenPrefixes = []
-        member _.TryLookupInlineBody _ = ValueNone
-        member _.IntrinsicReverseCanon = Map.empty
-        member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
+      interface IExternalSymbolResolver with
+          member _.TryLookup name =
+              match Map.tryFind name m with
+              | Some s -> ValueSome s
+              | None -> ValueNone
+
+          member _.TryLookupType(_: string) = ValueNone
+          member _.TryLookupUnionCase _ = ValueNone
+          member _.AmbientOpenPrefixes = []
+      interface IExternalSymbolStore with
+          member _.TryLookupType(_: SymbolKey) = ValueNone
+          member _.TryLookupMember(_, _) = ValueNone
+          member _.TryLookupMembers(_, _) = [||]
+          member _.TryLookupIndexSignature _ = []
+          member _.TryLookupInlineBody _ = ValueNone
+          member _.IntrinsicReverseCanon = Map.empty
+          member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
     }
 
 /// Run the `.fs` through the real frozen self-host pipeline (so a generic binding's
@@ -569,24 +573,28 @@ let private mkMember (name: string) (methodArity: int) (parameters: FrozenType) 
 /// type (keyed by member name; the declaring-type name is ignored, so the stub
 /// serves whatever qualified name the `.fs` type resolves under).
 let private memberContractProvider (overloads: ExternalMember list) : IExternalSymbolProvider =
-    { new IExternalSymbolProvider with
-        member _.TryLookup _ = ValueNone
-        member _.TryLookupType _ = ValueNone
+    { new IExternalSymbolProvider
 
-        member _.TryLookupMember(_, name) =
-            match overloads |> List.tryFind (fun m -> m.Name = name) with
-            | Some m -> ValueSome m
-            | None -> ValueNone
+      interface IExternalSymbolResolver with
+          member _.TryLookup _ = ValueNone
+          member _.TryLookupType(_: string) = ValueNone
+          member _.TryLookupUnionCase _ = ValueNone
+          member _.AmbientOpenPrefixes = []
+      interface IExternalSymbolStore with
+          member _.TryLookupType(_: SymbolKey) = ValueNone
 
-        member _.TryLookupMembers(_, name) =
-            overloads |> List.filter (fun m -> m.Name = name) |> List.toArray
+          member _.TryLookupMember(_, name) =
+              match overloads |> List.tryFind (fun m -> m.Name = name) with
+              | Some m -> ValueSome m
+              | None -> ValueNone
 
-        member _.TryLookupIndexSignature _ = []
-        member _.TryLookupUnionCase _ = ValueNone
-        member _.AmbientOpenPrefixes = []
-        member _.TryLookupInlineBody _ = ValueNone
-        member _.IntrinsicReverseCanon = Map.empty
-        member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
+          member _.TryLookupMembers(_, name) =
+              overloads |> List.filter (fun m -> m.Name = name) |> List.toArray
+
+          member _.TryLookupIndexSignature _ = []
+          member _.TryLookupInlineBody _ = ValueNone
+          member _.IntrinsicReverseCanon = Map.empty
+          member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
     }
 
 [<Tests>]

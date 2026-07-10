@@ -327,22 +327,26 @@ module SymbolProviders =
         (inner: IExternalSymbolProvider)
         (byKey: System.Collections.Generic.Dictionary<SymbolKey, InlineBody>)
         : IExternalSymbolProvider =
-        { new IExternalSymbolProvider with
-            member _.TryLookup name = inner.TryLookup name
-            member _.TryLookupType name = inner.TryLookupType name
-            member _.TryLookupMember(t, m) = inner.TryLookupMember(t, m)
-            member _.TryLookupMembers(t, m) = inner.TryLookupMembers(t, m)
-            member _.TryLookupIndexSignature t = inner.TryLookupIndexSignature t
-            member _.TryLookupUnionCase c = inner.TryLookupUnionCase c
-            member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
+        { new IExternalSymbolProvider
 
-            member _.TryLookupInlineBody key =
-                match byKey.TryGetValue key with
-                | true, v -> ValueSome v
-                | _ -> ValueNone
+          interface IExternalSymbolResolver with
+              member _.TryLookup name = inner.TryLookup name
+              member _.TryLookupType(name: string) = inner.TryLookupType name
+              member _.TryLookupUnionCase c = inner.TryLookupUnionCase c
+              member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
+          interface IExternalSymbolStore with
+              member _.TryLookupType(key: SymbolKey) = inner.TryLookupType key
+              member _.TryLookupMember(k, m) = inner.TryLookupMember(k, m)
+              member _.TryLookupMembers(k, m) = inner.TryLookupMembers(k, m)
+              member _.TryLookupIndexSignature k = inner.TryLookupIndexSignature k
 
-            member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
-            member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
+              member _.TryLookupInlineBody key =
+                  match byKey.TryGetValue key with
+                  | true, v -> ValueSome v
+                  | _ -> ValueNone
+
+              member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
+              member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
         }
 
     /// Build and cache the provider stack + inline bodies for a manifest set.
@@ -402,7 +406,9 @@ module SymbolProviders =
                          // the use-site `TExpr.ExternalMember.Key`. Never hand-roll a
                          // `MemberKey` here — that would risk key disagreement.
                          for mb in memberInlines do
-                             match provider.TryLookupMember(mb.TypeName, mb.MemberName) with
+                             match
+                                 provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey mb.TypeName 0, mb.MemberName)
+                             with
                              | ValueSome mem -> byKey.[mem.Key] <- mb.Body
                              | ValueNone -> ()
 

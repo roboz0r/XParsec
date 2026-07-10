@@ -114,22 +114,26 @@ let private serving
     (inner: IExternalSymbolProvider)
     (byKey: System.Collections.Generic.Dictionary<SymbolKey, InlineBody>)
     : IExternalSymbolProvider =
-    { new IExternalSymbolProvider with
-        member _.TryLookup name = inner.TryLookup name
-        member _.TryLookupType name = inner.TryLookupType name
-        member _.TryLookupMember(t, m) = inner.TryLookupMember(t, m)
-        member _.TryLookupMembers(t, m) = inner.TryLookupMembers(t, m)
-        member _.TryLookupIndexSignature t = inner.TryLookupIndexSignature t
-        member _.TryLookupUnionCase c = inner.TryLookupUnionCase c
-        member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
+    { new IExternalSymbolProvider
 
-        member _.TryLookupInlineBody key =
-            match byKey.TryGetValue key with
-            | true, v -> ValueSome v
-            | _ -> ValueNone
+      interface IExternalSymbolResolver with
+          member _.TryLookup name = inner.TryLookup name
+          member _.TryLookupType(name: string) = inner.TryLookupType name
+          member _.TryLookupUnionCase c = inner.TryLookupUnionCase c
+          member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
+      interface IExternalSymbolStore with
+          member _.TryLookupType(key: SymbolKey) = inner.TryLookupType key
+          member _.TryLookupMember(t, m) = inner.TryLookupMember(t, m)
+          member _.TryLookupMembers(t, m) = inner.TryLookupMembers(t, m)
+          member _.TryLookupIndexSignature t = inner.TryLookupIndexSignature t
 
-        member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
-        member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
+          member _.TryLookupInlineBody key =
+              match byKey.TryGetValue key with
+              | true, v -> ValueSome v
+              | _ -> ValueNone
+
+          member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
+          member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
     }
 
 // ─── Stage 1c: end-to-end SPLICE proof over the loadable `widget` fixture ────
@@ -255,7 +259,7 @@ let tests =
 
                 // Edit 1: the concrete member surface survived capture and is resolvable.
                 let mem =
-                    match provider.TryLookupMember(key, "Poke") with
+                    match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey key 0, "Poke") with
                     | ValueSome m -> m
                     | ValueNone -> failtest "TryLookupMember(widget, Poke) missing — Edit 1 capture failed"
 

@@ -187,7 +187,8 @@ module UnificationInfer =
         // Fallback for an external non-`IDisposable` ref struct: its own pattern
         // `Dispose()`, which can't be reached through a boxed interface slot.
         | ValueNone ->
-            match ctx.Provider.TryLookupMember(name, "Dispose") with
+            // Stage 3 holdout (bucket 3b): `name` is an opens-resolved metadata spelling.
+            match ctx.Provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey name 0, "Dispose") with
             | ValueSome m when not m.IsStatic && not m.IsValueMember -> ValueSome m.Key
             | _ -> ValueNone
 

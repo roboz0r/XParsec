@@ -84,8 +84,8 @@ module UnificationEngine =
         /// dot-access whose receiver TyVar resolved to a BCL/contract nominal
         /// (`System.Collections.IEqualityComparer`). The drain resolves the
         /// member through the provider — the deferred mirror of `resolveFieldStep`'s
-        /// external arm — keyed by the *qualified* name (`qualName`).
-        | ExternalClass of qualName: string * args: EqArray<SemType>
+        /// external arm — addressed by the resolved type `key` (store face).
+        | ExternalClass of key: SymbolKey * args: EqArray<SemType>
 
     let private resolveDotSource (ctx: PassContext) (linkTarget: SemType) : DotSource =
         match tryResolveNominal linkTarget with
@@ -107,8 +107,8 @@ module UnificationEngine =
                 DotSource.ClassChain(key, args)
             else
                 // Not project-local — an external (BCL/contract) class or interface
-                // whose member resolves through the provider by its qualified name.
-                DotSource.ExternalClass(SymbolKeyOps.qualifiedName key, args)
+                // whose member resolves through the provider by its resolved key.
+                DotSource.ExternalClass(key, args)
         | ValueSome(NominalKind.Union, key, args) ->
             // Resolve by the arity-qualified key (mirror the record arm): an
             // arity-overloaded union (`Choice`2`/`Choice`3`) has no bare alias.
@@ -270,7 +270,7 @@ module UnificationEngine =
     let private tryStructuralWiden (ctx: PassContext) (actual: SemType) (expected: SemType) : bool =
         match resolveStep expected with
         | TyClass(ikey, iargs) ->
-            match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedName ikey) with
+            match ctx.Provider.TryLookupType ikey with
             // Only an interface is a record-widen target (a capability `IntrinsicInterface` or
             // an interface-flagged `Class`); a non-interface class is excluded off its member
             // surface.
@@ -547,7 +547,7 @@ module UnificationEngine =
                             d.UseKey,
                             sprintf "Type '%s' has no instance member '%s'" (SymbolKeyOps.simpleName key) d.MemberName
                         )
-            | DotSource.ExternalClass(qualName, args) ->
+            | DotSource.ExternalClass(key, args) ->
                 // Deferred mirror of `resolveFieldStep`'s external arm: the receiver
                 // TyVar resolved to a BCL/contract class or interface (e.g. the
                 // `comparer: IEqualityComparer` parameter of an `IStructuralEquatable`
@@ -559,7 +559,7 @@ module UnificationEngine =
                 let argArr = args.AsSpan().ToArray()
 
                 for d in pending do
-                    match ctx.Provider.TryLookupMember(qualName, d.MemberName) with
+                    match ctx.Provider.TryLookupMember(key, d.MemberName) with
                     | ValueSome m when not m.IsStatic ->
                         let memberSig = ExternalSymbols.openSignature m argArr
 
@@ -585,7 +585,14 @@ module UnificationEngine =
                         // Freeze reads for the box, since this unify deliberately
                         // leaves the node typed with the un-grounded arg typar.
                         unifyAppliedSig ctx d.UseKey (TyVar d.ResultTv) memberSig
-                    | _ -> ctx.Error(d.UseKey, sprintf "Type '%s' has no instance member '%s'" qualName d.MemberName)
+                    | _ ->
+                        ctx.Error(
+                            d.UseKey,
+                            sprintf
+                                "Type '%s' has no instance member '%s'"
+                                (SymbolKeyOps.qualifiedName key)
+                                d.MemberName
+                        )
 
     /// `ValueSome true` = constraint holds; `ValueSome false` = violation;
     /// `ValueNone` = not in the table, fall through to structural / deferred
@@ -1072,9 +1079,7 @@ module UnificationEngine =
                             // unresolved TyVar. `openSignature` substitutes the static
                             // member's declaring typars from `classArgs`, yielding the
                             // same `^T * ^T -> ^T` candidate shape the local arm builds.
-                            let metaName = SymbolKeyOps.qualifiedName classKey
-
-                            match ctx.Provider.TryLookupMember(metaName, b.MemberName) with
+                            match ctx.Provider.TryLookupMember(classKey, b.MemberName) with
                             | ValueSome m when m.IsStatic ->
                                 let candTy =
                                     ExternalSymbols.openSignature m (EqArray.toList classArgs |> List.toArray)

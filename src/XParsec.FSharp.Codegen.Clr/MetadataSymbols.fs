@@ -740,42 +740,58 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
         | [||] -> ValueNone
         | arr -> ValueSome arr.[0]
 
-    interface IExternalSymbolProvider with
+    // The metadata provider is string-keyed internally (its caches address the BCL
+    // compiled name); the store face projects the resolved key to that name via
+    // `SymbolKeyOps.qualifiedName`.
+    member private _.LookupTypeByName(name: string) =
+        match typeCache.TryGetValue name with
+        | true, v -> v
+        | _ ->
+            let v = computeType name
+            typeCache.[name] <- v
+            v
+
+    member private _.LookupMemberByName(typeName: string, memberName: string) =
+        let key = struct (typeName, memberName)
+
+        match memberCache.TryGetValue key with
+        | true, v -> v
+        | _ ->
+            let v = computeMember typeName memberName
+            memberCache.[key] <- v
+            v
+
+    member private _.LookupMembersByName(typeName: string, memberName: string) =
+        let key = struct (typeName, memberName)
+
+        match membersCache.TryGetValue key with
+        | true, v -> v
+        | _ ->
+            let v = computeMembers typeName memberName
+            membersCache.[key] <- v
+            v
+
+    interface IExternalSymbolProvider
+
+    interface IExternalSymbolResolver with
         member _.TryLookup _ = ValueNone
+        member this.TryLookupType(name: string) = this.LookupTypeByName name
+        member _.TryLookupUnionCase _ = ValueNone
+        member _.AmbientOpenPrefixes = []
 
-        member _.TryLookupType name =
-            match typeCache.TryGetValue name with
-            | true, v -> v
-            | _ ->
-                let v = computeType name
-                typeCache.[name] <- v
-                v
+    interface IExternalSymbolStore with
+        member this.TryLookupType(key: SymbolKey) =
+            this.LookupTypeByName(SymbolKeyOps.qualifiedName key)
 
-        member _.TryLookupMember(typeName, memberName) =
-            let key = struct (typeName, memberName)
+        member this.TryLookupMember(key, memberName) =
+            this.LookupMemberByName(SymbolKeyOps.qualifiedName key, memberName)
 
-            match memberCache.TryGetValue key with
-            | true, v -> v
-            | _ ->
-                let v = computeMember typeName memberName
-                memberCache.[key] <- v
-                v
-
-        member _.TryLookupMembers(typeName, memberName) =
-            let key = struct (typeName, memberName)
-
-            match membersCache.TryGetValue key with
-            | true, v -> v
-            | _ ->
-                let v = computeMembers typeName memberName
-                membersCache.[key] <- v
-                v
+        member this.TryLookupMembers(key, memberName) =
+            this.LookupMembersByName(SymbolKeyOps.qualifiedName key, memberName)
 
         // .NET metadata has no TS index-signature concept — an indexer is a `get_Item`
         // member, served through `TryLookupMember`.
         member _.TryLookupIndexSignature _ = []
-        member _.TryLookupUnionCase _ = ValueNone
-        member _.AmbientOpenPrefixes = []
         member _.TryLookupInlineBody _ = ValueNone
         member _.IntrinsicReverseCanon = Map.empty
         member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr

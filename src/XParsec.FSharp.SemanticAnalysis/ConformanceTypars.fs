@@ -212,7 +212,7 @@ module ConformanceTypars =
                         if arity > 0 then
                             let isProperty = (m.Kind = TMemberKind.Property)
                             let inferred = memberSigOf isProperty (tupledParams m.Params) m.ReturnTy
-                            let overloads = provider.TryLookupMembers(typeName, m.Name)
+                            let overloads = provider.TryLookupMembers(td.Key, m.Name)
                             // Candidate set: overloads with the SAME method arity. A
                             // different-arity overload is a different generic member.
                             let candidates = overloads |> Array.filter (fun em -> em.MethodArity = arity)
