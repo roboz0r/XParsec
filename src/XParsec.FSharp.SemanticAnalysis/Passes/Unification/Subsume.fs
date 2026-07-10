@@ -78,10 +78,9 @@ module UnificationSubsume =
             | ValueNone -> ValueNone
         | TyClass(key, _) when (TypeRegistry.tryClassByKey ctx.Types key).IsNone ->
             match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedName key) with
-            // A capability interface (`IntrinsicInterface`) exposes its member names off the
-            // same surface as an interface `Class`.
-            | ValueSome(ExternalTypeShape.Class { Members = members })
-            | ValueSome(ExternalTypeShape.IntrinsicInterface { Members = members }) ->
+            // `keyof` reads any external nominal's members — a plain `.d.ts` class as well as
+            // an interface / capability `IntrinsicInterface` — so it takes the un-guarded surface.
+            | ValueSome(ExternalSymbols.ExternalMembers members) ->
                 ValueSome(
                     members
                     |> Array.filter (fun m -> not m.IsStatic)

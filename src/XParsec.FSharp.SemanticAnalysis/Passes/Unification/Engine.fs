@@ -271,13 +271,10 @@ module UnificationEngine =
         match resolveStep expected with
         | TyClass(ikey, iargs) ->
             match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedName ikey) with
-            // A capability interface (`IntrinsicInterface`) is a widen target off its member
-            // surface exactly as an interface `Class` is.
-            | ValueSome(ExternalTypeShape.Class {
-                                                    IsInterface = true
-                                                    Members = ifaceMembers
-                                                })
-            | ValueSome(ExternalTypeShape.IntrinsicInterface { Members = ifaceMembers }) ->
+            // Only an interface is a record-widen target (a capability `IntrinsicInterface` or
+            // an interface-flagged `Class`); a non-interface class is excluded off its member
+            // surface.
+            | ValueSome(ExternalSymbols.ExternalInterfaceMembers ifaceMembers) ->
                 match resolveStep actual with
                 | TyRecord(rkey, rargs) ->
                     match TypeRegistry.tryRecordByKey ctx.Types rkey with

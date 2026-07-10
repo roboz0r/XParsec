@@ -173,15 +173,15 @@ let tests =
                 let expectCapability (lookup: string) (canonKey: SymbolKey) (platformExpected: string) =
                     match provider.TryLookupType lookup with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
-                        Expect.equal iface.Id.Canon canonKey (sprintf "%s canon is its `.fsi` short name" lookup)
+                        Expect.equal iface.Canon canonKey (sprintf "%s canon is its `.fsi` short name" lookup)
 
                         Expect.equal
-                            iface.Id.Platform
-                            (Some platformExpected)
+                            iface.Platform
+                            platformExpected
                             (sprintf "%s platform face is its `.fs` CLR repr" lookup)
 
                         // A capability interface is deliberately ABSENT from the reverse-canon
-                        // map — reconciliation rides the `Id` platform face above, not this map (a
+                        // map — reconciliation rides the platform face above, not this map (a
                         // `TyClass`-resolving interface would be dead weight there, and keeping it
                         // would force an `IsInterface` guard back into the reverse-map readers).
                         match Map.tryFind platformExpected provider.IntrinsicReverseCanon with

@@ -528,10 +528,11 @@ type ExternalClassShape =
             Origin = origin
         }
 
-/// The platform-invariant identity axis EVERY intrinsic carries — the shared
-/// payload of `ExternalTypeShape.Intrinsic` (and of the planned
-/// `IntrinsicInterface`), so consumers of "any intrinsic canon" read one record
-/// rather than re-matching per kind.
+/// The platform-invariant identity axis a scalar / heritable intrinsic carries — the
+/// shared payload of `ExternalTypeShape.Intrinsic`, so consumers of "any intrinsic
+/// canon" read one record rather than re-matching per kind. (A capability
+/// `IntrinsicInterface` does NOT share it — its `Platform` is always present, so it
+/// carries a non-optional `string` face rather than this record's `option`.)
 ///
 /// **Two faces** (a single repr string used to do two unrelated jobs at once):
 /// - `Canon` — the platform-INVARIANT nominal-identity key: the qualified
@@ -624,13 +625,20 @@ type IntrinsicShape =
 /// `TyClass` not `TyConst`). Minted ONLY on a target whose `.fs` binds the platform
 /// repr (CLR); on JS a capability surfaces as a plain single-faced interface `Class`.
 ///
-/// - `Id` — the shared identity axis (`Canon` = the qualified `.fsi` short-name
-///   identity `Vesper.disposable`, asm-blind; `Platform` = the `.fs` `(# … #)` BCL
-///   repr `Some "System.IDisposable"`, driving CLR reconciliation + the `ClrEnv`
-///   InterfaceImpl redirect). CAUTION: `Platform = None` here means the anchor is the
-///   backend symbol table (JS) — the OPPOSITE polarity of a SCALAR intrinsic's `None`
-///   (unrepresentable, which the `Intrinsic`-only unrepresentability gate rejects); no
-///   shared consumer reads `Platform` across both cases, so the polarity is safe.
+/// Carries its own identity fields rather than a shared `IntrinsicIdentity`: unlike a
+/// scalar `Intrinsic` (whose `Platform` is an `option` — `None` = unrepresentable, the
+/// gate's reject signal), a capability interface is minted ONLY when its `.fs` binds
+/// the repr, so its `Platform` face is always present — a non-optional `string` that
+/// keeps the `Some`-unwraps at `resolveAnchor` / `externalClassRef` / `ClrExternalMembers`
+/// total and removes the two-polarity hazard of sharing the scalar's optional field.
+///
+/// - `Canon` — the platform-INVARIANT `.fsi` short-name identity (`Vesper.disposable`),
+///   asm-blind: the reconciliation / capability-matching face (`resolveAnchor`'s
+///   `CanonKey`) and the pre-split namespace `stampType` homes the `Origin` on. NOT the
+///   value-resolution key.
+/// - `Platform` — the `.fs` `(# … #)` BCL repr (`"System.IDisposable"`), driving CLR
+///   reconciliation + the `ClrEnv` InterfaceImpl redirect.
+/// - `Arity` — the type's generic parameter count (`equatable<'T>` = 1).
 /// - `Members` — the abstract member surface (`Dispose`), read by
 ///   `Unification.checkInterfaceConformance`. Populated at finalize (after the
 ///   deferred member loop) via the `PendingCapabilityInterfaces` republish.
@@ -638,10 +646,12 @@ type IntrinsicShape =
 ///   `ExternalSymbols.stack`'s `stampType` exactly as a `Class`'s is. The VALUE
 ///   resolution key uses THIS (`externalTypeKey Origin`, asm-qualified), keeping the
 ///   `TyClass` identity byte-identical to the pre-`IntrinsicInterface` faced `Class`;
-///   `Id.Canon` (asm-blind) is the reconciliation/capability-matching face only.
+///   `Canon` (asm-blind) is the reconciliation/capability-matching face only.
 type IntrinsicInterfaceShape =
     {
-        Id: IntrinsicIdentity
+        Canon: SymbolKey
+        Arity: int
+        Platform: string
         Members: ExternalMember[]
         /// The capability's directly-inherited interfaces as `(compiled-name, type-args)`
         /// pairs (declaring typars baked as `FTTypar(Declaring,i)`), the capability-interface
@@ -968,6 +978,44 @@ module ExternalSymbols =
     let tryLookupType (provider: IExternalSymbolProvider) (key: SymbolKey) : ExternalTypeShape voption =
         provider.TryLookupType(SymbolKeyOps.qualifiedName key)
 
+    /// The member surface an external nominal publishes — a `Class` or a capability
+    /// `IntrinsicInterface` both carry `ExternalMember[]`, so a consumer reading "the
+    /// members of this shape" (`keyof`, interface conformance) treats them identically.
+    /// The two arms live HERE, not open-coded at each read site, so a future
+    /// member-bearing shape is wired in one place rather than forgotten at one of them.
+    [<return: Struct>]
+    let (|ExternalMembers|_|) (shape: ExternalTypeShape) : ExternalMember[] voption =
+        match shape with
+        | ExternalTypeShape.Class shape -> ValueSome shape.Members
+        | ExternalTypeShape.IntrinsicInterface shape -> ValueSome shape.Members
+        | _ -> ValueNone
+
+    /// The member surface of an external INTERFACE specifically — an interface-flagged
+    /// `Class` or a capability `IntrinsicInterface`. The record→interface structural
+    /// widen and `interface … with` dispatch on this; a non-interface `Class` is excluded
+    /// (a record cannot widen to a concrete class). The `IntrinsicInterface` arm is shared
+    /// with `(|ExternalMembers|_|)` — both centralise it so neither drifts.
+    [<return: Struct>]
+    let (|ExternalInterfaceMembers|_|) (shape: ExternalTypeShape) : ExternalMember[] voption =
+        match shape with
+        | ExternalTypeShape.Class {
+                                      IsInterface = true
+                                      Members = members
+                                  } -> ValueSome members
+        | ExternalTypeShape.IntrinsicInterface shape -> ValueSome shape.Members
+        | _ -> ValueNone
+
+    /// Whether an external shape is an interface: an interface-flagged `Class` (a metadata
+    /// / `.d.ts` interface, or a JS capability) or a CLR capability `IntrinsicInterface`. A
+    /// capability is an interface on BOTH targets — only the shape differs (the CLR one
+    /// additionally carries the BCL reconciliation face); this predicate erases that shape
+    /// split so a consumer asks "is this an interface?" in one place.
+    let isInterfaceShape (shape: ExternalTypeShape) : bool =
+        match shape with
+        | ExternalTypeShape.Class s -> s.IsInterface
+        | ExternalTypeShape.IntrinsicInterface _ -> true
+        | _ -> false
+
     /// Resolve an already-RESOLVED intrinsic canon key to its heritable-primitive
     /// surface (`obj`/`exn`: identity + the contract base/`.ctor`s), when the
     /// provider publishes one. A DIRECT qualified lookup — the canon is a resolved
@@ -1075,7 +1123,7 @@ module ExternalSymbols =
             match provider.TryLookupType lookup with
             | ValueSome(ExternalTypeShape.Intrinsic { Id = { Platform = Some fqn } }) ->
                 ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf None fqn 0))
-            | ValueSome(ExternalTypeShape.IntrinsicInterface { Id = { Platform = Some platform } }) ->
+            | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
                 ValueSome
                     {
                         RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOf None platform 0
@@ -1592,12 +1640,12 @@ module ExternalSymbols =
                 | ExternalTypeShape.Enum(cases, _) -> ExternalTypeShape.Enum(cases, withNs nominalNs)
                 // Origin-stamped like a `Class` (its value resolution key is asm-qualified via
                 // `Origin`; the extractor left it `Empty`), but its namespace comes from the
-                // pre-split `Id.Canon` (`Vesper.Collections` for `seq`; `disposable` et al. already
+                // pre-split `Canon` (`Vesper.Collections` for `seq`; `disposable` et al. already
                 // sit directly in `Vesper`). `originNsFor name` is only the fallback if the canon
                 // isn't a `TypeKey`.
                 | ExternalTypeShape.IntrinsicInterface s ->
                     let canonNs =
-                        match s.Id.Canon with
+                        match s.Canon with
                         | SymbolKey.TypeKey(_, ns, _) -> ns
                         | _ -> nominalNs
 

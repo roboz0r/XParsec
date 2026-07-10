@@ -1462,13 +1462,13 @@ let tests =
                 match ctx.TypeShapes.[key] with
                 | ExternalTypeShape.IntrinsicInterface iface ->
                     Expect.equal
-                        iface.Id.Canon
+                        iface.Canon
                         (RuntimeNames.primitiveKey "disposable")
                         "IntrinsicInterface canon is the contract-sourced qualified identity (`namespace Vesper`)"
 
                     Expect.equal
-                        iface.Id.Platform
-                        (Some "System.IDisposable")
+                        iface.Platform
+                        "System.IDisposable"
                         "IntrinsicInterface platform face is the `.fs` repr"
                 | other -> failtestf "expected an IntrinsicInterface shape for disposable; got %A" other
 

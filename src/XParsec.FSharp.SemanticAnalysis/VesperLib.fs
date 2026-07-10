@@ -571,12 +571,9 @@ module VesperLib =
                 ctx.TypeShapes.[compiled] <-
                     ExternalTypeShape.IntrinsicInterface
                         {
-                            Id =
-                                {
-                                    Canon = canon
-                                    Arity = shape.Arity
-                                    Platform = Some platform
-                                }
+                            Canon = canon
+                            Arity = shape.Arity
+                            Platform = platform
                             Members = shape.Members
                             // Carry the capability's inherited interfaces (`enumerator : disposable`)
                             // so a disposability/subsumption scanner sees them; the bodied-class

@@ -43,7 +43,7 @@ module NameResolutionScope =
             match shape with
             | ExternalTypeShape.Class info -> info.Arity
             | ExternalTypeShape.Intrinsic s -> s.Id.Arity
-            | ExternalTypeShape.IntrinsicInterface s -> s.Id.Arity
+            | ExternalTypeShape.IntrinsicInterface s -> s.Arity
             | ExternalTypeShape.Enum _ -> 0 // enums are never generic
             | ExternalTypeShape.Record(arity = a)
             | ExternalTypeShape.Union(arity = a)

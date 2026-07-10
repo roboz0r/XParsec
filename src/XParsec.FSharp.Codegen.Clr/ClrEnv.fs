@@ -426,7 +426,7 @@ type internal ClrEnv
 
     let rec externalClassRef (key: SymbolKey) : EntityHandle voption =
         match lookupTypeByKey key with
-        | ValueSome(ExternalTypeShape.IntrinsicInterface { Id = { Platform = Some platform } }) ->
+        | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
             // A canonically-authored capability interface (`interface disposable`) has no
             // emitted type of its own — re-resolve through its platform face so the
             // InterfaceImpl row binds the real BCL interface (`System.IDisposable`). Analogous

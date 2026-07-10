@@ -252,7 +252,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         match key with
         | SymbolKey.MemberKey(declKey, memberName, _, kind) ->
             match env.LookupTypeByKey declKey with
-            | ValueSome(ExternalTypeShape.IntrinsicInterface { Id = { Platform = Some platform } }) ->
+            | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
                 let members = symbols.TryLookupMembers(platform, memberName)
 
                 let declaredOn (m: ExternalMember) =
