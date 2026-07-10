@@ -555,7 +555,7 @@ module UnificationEngineCore =
     /// contract class), or an *intrinsic* `TyConst` whose `(# "…" #)` binding gives
     /// its platform type name (`intrinsicPlatformName`, via `prim-types-*.fs`).
     /// `ValueNone` for a project-local class (which routes through
-    /// `resolveLocalInstanceMember`), an array (`"[]"`), or byref (`"&"`) — each
+    /// `resolveLocalInstanceMember`), an array (`"[]"`), or byref (`"byref"`) — each
     /// keeps its own path. Shared by the dot-access resolver
     /// (`resolveFieldStep`) and the arg-aware external instance-method probe so
     /// neither re-derives the receiver→platform-name mapping.

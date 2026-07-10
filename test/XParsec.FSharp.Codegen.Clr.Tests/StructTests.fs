@@ -472,7 +472,7 @@ let structTests =
 
             // `Span<T>`'s element accessor is `get_Item(i) : T&` (byref return, no
             // by-value form). This exercises the full byref stack: resolving
-            // `get_Item` as carrying `FTConst("&",[elem])`, encoding
+            // `get_Item` as carrying `FTConst("byref",[elem])`, encoding
             // `ELEMENT_TYPE_BYREF` in the member-ref, and dereferencing via `ldobj`.
             test "ref struct Span<char> byref indexer read — chars.[i]" {
                 runsDataLines [ "e"; "o" ] "ref-struct-span-byref-indexer"

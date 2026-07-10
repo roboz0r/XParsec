@@ -172,22 +172,27 @@ module RuntimeNames =
     /// across both subsystems is a broader, separate change.)
     let arrayContractName: string = "``" + arrayName 1 + "``"
 
-    /// The canonical identity name for a managed by-ref (`T&`) — a *generic
-    /// intrinsic* carried as `TyConst(byrefName, [elem])` / `FTConst(byrefName,
-    /// [elem])`, exactly mirroring the array `arrayName` convention rather than a
-    /// dedicated DU case (so it rides the existing `FrozenType`/`SemType` machinery
-    /// — bridge, `RecoverOpenTypars` arg recursion, unification — untouched). A
-    /// byref is legal only in parameter / return / local positions, never as a
-    /// field or generic argument; `ClrEncoder.encodeType` emits its
-    /// `ELEMENT_TYPE_BYREF` prefix at the return/param seam, not in the recursive
-    /// type encoder. Its sole producer is the BCL-metadata resolver
-    /// (`MetadataSymbols.tryBuildType`, e.g. `Span<T>.get_Item : T&`); the front end
-    /// erases it to the element type at the value position (`inferIndexedLookup`).
-    let byrefName: string = "&"
+    /// The canonical identity name for the managed by-ref TYPE (`byref<'T>`, IL `T&`)
+    /// — a *generic intrinsic* carried as `TyConst(byrefName, [elem])` /
+    /// `FTConst(byrefName, [elem])`, exactly mirroring the array `arrayName`
+    /// convention rather than a dedicated DU case (so it rides the existing
+    /// `FrozenType`/`SemType` machinery — bridge, `RecoverOpenTypars` arg recursion,
+    /// unification — untouched). The identity is the type's F# name `byref`, NOT the
+    /// `&` / `~&` address-of OPERATOR that constructs one — a separate concern: the
+    /// operator as a real contract symbol (`(~&)` with `[<LocatorValue>]` lvalue
+    /// analysis + context-selected `ld*a` codegen) is deferred, see
+    /// `docs/byref-address-of-plan.md`. A byref is legal only in parameter / return /
+    /// local positions, never as a field or generic argument; `ClrEncoder.encodeType`
+    /// emits its `ELEMENT_TYPE_BYREF` prefix at the return/param seam, not in the
+    /// recursive type encoder. Producers: the BCL-metadata resolver
+    /// (`MetadataSymbols.tryBuildType`, e.g. `Span<T>.get_Item : T&`) and the
+    /// consume-side `&local` address-of prefix (`InferApp.inferPrefix`); the front end
+    /// erases a byref to its element type at the value position (`inferIndexedLookup`).
+    let byrefName: string = "byref"
 
     /// True iff `name` is the identity name of a *structural type constructor* — an
     /// array of any rank (`arrayName`: `"[]"`, `"[,]"`, …) or a managed by-ref
-    /// (`byrefName`: `"&"`). These are generic intrinsics (`arity ≥ 1`) representable
+    /// (`byrefName`: `"byref"`). These are generic intrinsics (`arity ≥ 1`) representable
     /// by construction, lowered by dedicated backend paths (`SZArray`, the byref seam)
     /// rather than as a nominal receiver — so a member/representability resolver keyed
     /// on nominal BCL/contract types must let them keep their own path. Single source

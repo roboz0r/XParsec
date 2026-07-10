@@ -658,20 +658,22 @@ module internal UnificationInferApp =
         | ValueSome(DesugaredForm.OpName "op_AddressOf") ->
             // `&local` (managed address-of) is the byref intrinsic, not a
             // provider operator — `op_AddressOf` has no Vesper.Core / BCL symbol.
-            // Type it directly as `TyConst("&", [operandTy])` (mirroring
+            // Type it directly as `TyConst("byref", [operandTy])` (mirroring
             // `inferIndexedLookup`'s byref wrapping) so it matches a BCL method's
             // byref/`out` parameter (`Int32.TryParse(string, int&)`). The operand
             // must be an addressable mutable local; that is enforced at codegen
             // (a `Var` bound to a slot), deferred here per the relax-then-reject
             // convention.
             //
-            // TODO(byref-producer): this is the *consume* side only — `&local` as an
-            // argument into an external method. Vesper source cannot yet *declare* a
-            // byref parameter / return, nor use the `byref<'T>` / `inref<'T>` /
-            // `outref<'T>` type aliases as annotations (no alias → byref-intrinsic
-            // resolution is wired; only the `&` prefix is). `Formatter`/printf needs
-            // neither (its byref returns come from BCL `Span.get_Item`), so the
-            // producer side is unbuilt.
+            // This is the *consume* side only — `&local` as an argument into an
+            // external method. Vesper source cannot yet *declare* a byref parameter /
+            // return, nor write `byref<'T>` / `inref<'T>` / `outref<'T>` annotations,
+            // and `&` stays a front-end special-case here rather than a resolved
+            // `(~&)` contract operator with real lvalue analysis. Turning `&` / `~&`
+            // into that operator (and general lvalue address-of beyond a mutable
+            // local) is deferred — see `docs/byref-address-of-plan.md`. No consumer
+            // needs the producer side today (`Formatter`/printf byref returns come
+            // from BCL `Span.get_Item`).
             TyConst(RuntimeNames.byrefKey, EqArray.singleton operandTy)
         | ValueSome(DesugaredForm.OpName name) ->
             match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with

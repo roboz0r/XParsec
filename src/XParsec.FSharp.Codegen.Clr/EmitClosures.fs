@@ -330,7 +330,7 @@ module EmitClosures =
         // A `[<Struct; IsByRefLike>]` value cannot be a static field (the CLR confines
         // a byref-like type to the stack) — and never needs to be (a ref struct can't
         // be read from a member / cctor anyway). Such a top-level value stays a `Main`
-        // local; a byref (`FTConst("&", _)`) likewise.
+        // local; a byref (`FTConst("byref", _)`) likewise.
         let isFieldEmittable (ty: FrozenType) =
             match ty with
             | FTClass(key, _) ->

@@ -418,7 +418,7 @@ module internal UnificationInferRecordAccess =
         // name with one overload; an arg-overloaded name (`string.CopyTo`) is
         // picked arg-aware earlier by `tryInferExternalInstanceMethodCall`. A
         // member-name miss declines the pattern, so arrays (`"[]"`) / byref
-        // (`"&"`) — and any unknown member — fall through to the arms below.
+        // (`"byref"`) — and any unknown member — fall through to the arms below.
         | IntrinsicBclMember ctx memberName (clsQual, args, m) ->
             if not m.IsStatic then
                 let memberSig = ExternalSymbols.openSignature m (args.AsSpan().ToArray())

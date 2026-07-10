@@ -8,7 +8,9 @@ canonicalize eagerly at resolution; `canonName`'s reverse tier, `normalizeObj`, 
 `isSystemObjectKey` are deleted). All suites green: SA 765 / Clr 1253 / Js 348 / Vesper 49.
 Delete this doc when the residue stages (5a bigint — LANDED 2026-07-08 / 5b ranges — LANDED
 2026-07-08 / 5c nullability — Tiers A+B LANDED 2026-07-08, Tier C flow-narrowing SPUN OUT) and
-byref land (`feedback_plan_docs_ephemeral`). Custom numeric
+byref land — as of 2026-07-09 ALL are landed or spun out: byref Piece 1 (type identity
+`"&"`→`Vesper.byref`) LANDED, byref Pieces 2–3 (contract + `~&` operator) SPUN OUT to
+`byref-address-of-plan.md` (`feedback_plan_docs_ephemeral`). Custom numeric
 literals — surfaced by 5a — was spun out to its own plan (`custom-numeric-literals-plan.md`); the
 Route-1 seq-operator design surfaced by 5b was spun out to `range-operators-plan.md`; the Tier-C
 flow-sensitive nullability analysis was spun out to `nullability-analysis-plan.md`.
@@ -312,19 +314,35 @@ Goal: `objnull` is NOT a primitive — it is the ordinary `obj | null` union.
   (Tiers A/B, landed, do not need it). Moved to its own plan since it needs nothing from this doc
   beyond the representation Tiers A/B landed.
 
-### 5. byref migration (LAST)
+### 5. byref TYPE identity re-source — LANDED 2026-07-09 (SA 777 / Clr 1253 / Js 348 / Vesper 51)
 
-The *type* is `byref`; `&` is the operator that makes one (user, confirmed). Current
-`RuntimeNames.byrefName = "&"` conflates them. Declare `type byref<'T> = (# "!0&" #)` (and
-`byref<'T,'Kind>`) in a new `prim-types-byref.fsi`/`.fs` under `namespace Vesper` ⇒ identity
-`Vesper.byref` (verbatim name, arity in args). `&` becomes an operator: prefix address-of
-`let inline (~&) ([<LocatorValue>] obj: 'T) : byref<'T> = (# "ld*a" : byref<'T> #)` in the impl
-file. `"ld*a"` is deliberate — no single IL opcode fits; Codegen.Clr picks from
-`ldloca/ldloca.s/ldflda/ldsflda/ldarga/ldarga.s/ldelema` in context. The semantic analyzer must
-enforce that `~&`'s argument is an actual **lvalue** (field, local, array element, argument).
-Byref keeps its current hardcoded `byrefName`/structural-ctor handling until the contract + the
-operator split land; the recognizers (`TyByref`, `isStructuralConstructorName`) move from `"&"`
-to `"byref"` at that point.
+The *type* is `byref`; `&`/`~&` is the operator that makes one (user, confirmed). Scouting
+(2026-07-09) found the plan's single "byref migration" bullet actually decomposes into three
+pieces at very different risk/scope, and — crucially — the address-of OPERATOR already
+half-exists (`op_AddressOf` → `InferApp.inferPrefix` types `&local` as the byref intrinsic;
+`Freeze/Apply.fs` lowers it to a hardcoded `ldloca`). Only **Piece 1** finishes the
+shadow-set kill this doc is about; the operator work has no consumer yet (user, confirmed
+2026-07-09 — no pressing consumer; goal is eventual full F# coverage for native lowering), so
+it was split out.
+
+**Piece 1 — type identity `"&"` → `Vesper.byref` — LANDED.** Pure currency change:
+`RuntimeNames.byrefName` flipped `"&"` → `"byref"`. Fully centralized — the sole producer
+(`MetadataSymbols.tryBuildType`, `t.IsByRef`), the `&local` mint (`InferApp.inferPrefix`), the
+recognizers (`TyByref`, `isStructuralConstructorName`, `TyStructuralCtor`) and the three CLR
+codegen sites (`ClrEncoder`, `ClrExternalMembers` ×2, `EmitClosures`) all route through
+`byrefName`/`byrefKey`, so no consumer needed a per-site edit; the rest were sited comments
+spelling the old `"&"` identity. No contract authored — byref is never written in source today,
+so nothing resolves the *name* `byref` from a provider; the identity is self-consistent through
+the `byrefKey` constant. The byref end-to-end tests (`Span<char>` byref indexer read;
+`Int32.TryParse(s, &r)` out-param) are the behavior-preserving regression guard.
+
+**Pieces 2–3 — SPUN OUT to `byref-address-of-plan.md` (2026-07-09), deferred (no consumer).**
+The `byref<'T>` contract (`prim-types-byref.fsi`/`.fs`) + source-writable byref annotations,
+and the `~&` address-of OPERATOR proper — turning the `op_AddressOf` front-end special-case
+into a resolved `(~&)` contract symbol with a `[<LocatorValue>]` lvalue judgment and
+context-selected `ld*a` codegen (`ldloca/ldflda/ldsflda/ldarga/ldelema`), generalising beyond
+the single mutable-local case that works today. Design-first; gated on an actual byref
+*producer* consumer materialising.
 
 ### 6. Custom numeric literals — SPUN OUT to `custom-numeric-literals-plan.md` (2026-07-08)
 

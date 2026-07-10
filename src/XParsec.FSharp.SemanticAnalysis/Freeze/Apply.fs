@@ -276,7 +276,7 @@ module internal FreezeApply =
             // mutable local (a `Var` bound to a slot); lower to an `ldloca`
             // intrinsic (mirroring PP2b's `ldobj` lowering), which codegen emits by
             // inspecting the inner `Var`'s slot instead of recurring (a recur would
-            // `ldloc` the value). `resultTy` is the byref `TyConst("&", [elem])`.
+            // `ldloc` the value). `resultTy` is the byref `TyConst("byref", [elem])`.
             TExpr.ILIntrinsic("ldloca", ValueNone, EqArray.singleton (translateExpr ctx operand), resultTy, tok)
         | ValueSome(DesugaredForm.OpName name) ->
             // See translateInfix: reconstruct from the resolved operand + result
