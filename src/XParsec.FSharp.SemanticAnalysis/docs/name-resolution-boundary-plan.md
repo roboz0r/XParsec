@@ -427,10 +427,37 @@ resolution; each of the following needs a different vehicle and is deferred:
    (`GetArrayLength`, get/set-index, `op_Dynamic` in record-access position) —
    these are not in `InferApp`; an `ExternalSymbolStamp` (or `IntrinsicKey`-twin)
    stamp on the `IndexedLookup` / `.Length` chain closes them the same way.
-3. **`Freeze/Resolve.tryClassRef`.** Returns a *string* consumed by `TExpr.New`
-   + codegen and performs abbreviation expansion (`ResizeArray` → `List`1`) the
-   type stamp does not; reading a key here needs a TAST/codegen change —
-   follow-up alongside Stage 5.
+3. **`Freeze/Resolve.tryClassRef` — LANDED (2026-07-10).** The feared "reading a
+   key needs a TAST/codegen change" dissolved on audit: `TExpr.New`'s `className`
+   string is **diagnostic-only** — both backends resolve the construction by the
+   node's result-type `SymbolKey` (CLR `EmitConstruct.buildNew` via `env.Classes`
+   / `env.Provider.TryEmitCtor(ctorKey…)`; JS `EmitJs` via `receiverShape ty`),
+   and `className` survives solely in the "no constructor" / "no JS analogue"
+   error messages. And the abbreviation expansion (`ResizeArray<'T>` → `List`1`) is
+   already carried on that `ty` (Unification's `tryInferExternalGenericCtorApp` →
+   `tryResolveExternalNominal` pins the expanded class), so `tryClassRef` never
+   needed to reproduce it. Mechanism as shipped: `tryClassRef`'s external arm now
+   READS the `Resolution.ResolvedType` stamp NameResolution already writes on every
+   ctor-sugar head — single-ident (`Scope.resolveIdent`, Class-only), qualified
+   (`resolveQualifiedExternal`, Class-only), and the generic `TypeApp` receiver
+   (the `Expr.TypeApp` visit, exact-arity) — keyed by the same head `NodeKey`
+   Freeze computes; the stamp's PRESENCE is the "head names a constructible external
+   type" verdict, mirroring `tryInferExternalCtorApp`/`tryInferExternalGenericCtorApp`.
+   The returned name is `SymbolKeyOps.qualifiedName` of the stamped key (cosmetic).
+   The `OpenScope.tryQualify` + resolver-face `TryLookupType(string)` re-resolution
+   (and its `lookupShape`/`underlyingClassName`/`tryExternal` scaffolding and the
+   `arity` parameter) is deleted from the site — Freeze recognition now aligns
+   exactly with Unification's typing (both key off the same upstream resolve). Bare
+   (non-generic) abbrev ctor-sugar (`ResizeArray()` with no `<'T>`) is intentionally
+   dropped: it was never stamped nor typed as a ctor by Unification post-3b, so
+   Freeze recognizing it could not have produced correct code — the corpus/tests
+   only exercise the generic form. Regression guards: the existing end-to-end
+   ctor-sugar splice suites across both backends — CLR `InferResolutionTests`
+   (`Exception("x")` bound / opened / `System.…` qualified / raise-position),
+   `TypeTestAsBinderTests`, `ForInTests` (`ResizeArray<int>()`); JS `ExceptionTests`
+   (single-ident + qualified `InvalidOperationException`/`ArgumentException` app-form);
+   `ClassTypeApp` (local generic `Box<int>(5)`) — plus the upstream stamp presence
+   asserted by `ExternalTypeKeyStampTests`.
 4. **External enum-case `E.C1` (`tryExternalEnumCase`).** Movable, but shared
    between expression and pattern position; the clean fix is a pattern-walk
    stamp analogous to `ExternalUnionCaseStamp` in `stampPatCases`.
@@ -448,12 +475,13 @@ the store face by design (key-semantics §3).
 `NameResolution.run` and the extractor. **The flip compiling is the
 compiler-checked "done" bit for Stages 1–3** — any missed holdout is a type
 error, not a review find. The Stage 3 *Remaining* residue must be resolved
-first: the type-annotation (§1), `tryClassRef` (§3), and enum-case-pattern (§4)
-calls still need the string resolver face, so they are precisely what the flip
-would surface. Item 2 (value schemes / operator symbols) — the natural companion
-to this stage — has LANDED (the `ExternalSymbolStamp` symbol-payload channel),
-so those value/operator resolver-face calls are already gone; the remaining
-`InferRecordAccess` synthesised intrinsics want the same stamp before the flip.
+first: the type-annotation (§1) and enum-case-pattern (§4) calls still need the
+string resolver face, so they are precisely what the flip would surface. Items 2
+(value schemes / operator symbols, the `ExternalSymbolStamp` symbol-payload
+channel) and 3 (`tryClassRef`, now reading the `ResolvedType` stamp) have LANDED,
+so those value/operator/ctor-sugar resolver-face calls are already gone; the
+remaining `InferRecordAccess` synthesised intrinsics want the same stamp before
+the flip.
 
 ### Stage 5 — codegen `BuiltinOps` by-name → by-key
 

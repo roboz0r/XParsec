@@ -58,75 +58,28 @@ module internal FreezeResolve =
     /// construction lowers to `TExpr.New` exactly like the inference-pinned
     /// `Set(args)` form (the node's inferred type already carries the instantiation).
     ///
-    /// `arity` is the type-argument count from an enclosing `Expr.TypeApp`
-    /// (`ResizeArray<'T>()` → 1; a bare head → 0). Generic external types are keyed
-    /// arity-suffixed in the provider (`ResizeArray\`1`), so the external lookup must
-    /// try the suffixed name before the bare one — exactly the candidate order
-    /// NameResolution uses.
-    let rec private tryClassRef (ctx: PassContext) (arity: int) (e: Expr<SyntaxToken>) : string voption =
+    /// A project-local class is read from `ctx.Types.Class`; an *external* head's
+    /// identity is resolved ONCE upstream. NameResolution stamps the resolved type
+    /// `SymbolKey` into `Resolution.ResolvedType`, keyed by this head node —
+    /// opens-aware, so Freeze reads the key rather than re-running `OpenScope.tryQualify`
+    /// + a provider string lookup here (the resolve-once boundary). The stamp's
+    /// PRESENCE is the "head names a constructible external type" verdict, mirroring
+    /// Unification's `tryInferExternalCtorApp` / `tryInferExternalGenericCtorApp` — a
+    /// `TypeApp` head's receiver carries the stamp, so peeling to the inner head finds
+    /// it. The returned name is DIAGNOSTIC ONLY: both backends resolve the
+    /// construction by the node's result-type `SymbolKey` (`TExpr.New`'s `ty`), never
+    /// this string — so no abbreviation expansion is needed here, the node's `ty`
+    /// already carries the expanded underlying class (`ResizeArray<'T>` → `List\`1`)
+    /// Unification pinned.
+    let rec private tryClassRef (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
         let key = CstKeys.ofExpr e
 
         if ctx.Bindings.Binding.ContainsKey key then
             ValueNone
         else
-            // Look an external type up by its arity-suffixed name first, then bare.
-            let lookupShape (c: string) : ExternalTypeShape voption =
-                let rec go (names: string list) =
-                    match names with
-                    | [] -> ValueNone
-                    | k :: rest ->
-                        match ctx.Provider.TryLookupType k with
-                        | ValueSome _ as found -> found
-                        | ValueNone -> go rest
-
-                go (
-                    if arity > 0 then
-                        [ SymbolKeyOps.arityName c arity; c ]
-                    else
-                        [ c ]
-                )
-
-            // `new`-less ctor sugar on an *external* class (`InvalidOperationException
-            // "x"`): resolve the head through the active `open`s to its metadata name
-            // so the `App(ClassRef …)` arm emits the same `TExpr.New` as `new T(…)`.
-            // An abbreviation that expands to a class (`ResizeArray<'T>` →
-            // `System.Collections.Generic.List<'T>`) resolves to the *underlying*
-            // class's qualified name: the abbreviation itself is not a constructible
-            // metadata type, so construction must lower to `new List<'T>()`. The
-            // expansion args are irrelevant to the head name, so we apply the body
-            // with `unit` placeholders. Mirrors `Infer.tryInferExternalCtorApp`;
-            // without it Freeze's generic application path trips on the head's
-            // external `TyClass`/abbrev type.
-            // The returned name must match what the `Expr.New` arm derives from the
-            // node's `TyClass` key (`qualifiedName key`) so codegen's member lookup
-            // hits: that key is arity-suffixed for a generic type (`List\`1`). For a
-            // class we re-suffix the bare qualified name (`arityName` is a no-op at
-            // arity 0, so non-generic exceptions stay bare); an abbreviation's
-            // expanded key already carries the suffix.
-            let underlyingClassName (shape: ExternalTypeShape) (qualified: string) : string voption =
-                match shape with
-                | ExternalTypeShape.Class _ -> ValueSome(SymbolKeyOps.arityName qualified arity)
-                | ExternalTypeShape.Abbrev(a, frozen) ->
-                    match FrozenTypeBridge.instantiateDeclaring frozen (Array.create a ctx.Intrinsics.Unit) with
-                    | TyClass(key, _) -> ValueSome(SymbolKeyOps.qualifiedName key)
-                    | _ -> ValueNone
-                | _ -> ValueNone
-
-            let tryExternal (n: string) : string voption =
-                match
-                    OpenScope.tryQualify
-                        ctx.Resolution.OpenScope
-                        (fun c ->
-                            match lookupShape c with
-                            | ValueSome shape -> (underlyingClassName shape c).IsSome
-                            | ValueNone -> false
-                        )
-                        n
-                with
-                | ValueSome c ->
-                    match lookupShape c with
-                    | ValueSome shape -> underlyingClassName shape c
-                    | ValueNone -> ValueNone
+            let stampedExternal () =
+                match ctx.Resolution.ResolvedType.TryGetValue key with
+                | ValueSome k -> ValueSome(SymbolKeyOps.qualifiedName k)
                 | ValueNone -> ValueNone
 
             match e with
@@ -136,17 +89,16 @@ module internal FreezeResolve =
                 if ctx.Types.Class.ContainsKey n then
                     ValueSome n
                 else
-                    tryExternal n
+                    stampedExternal ()
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
                 let n = ctx.NameOf li.Idents.[0]
 
                 if ctx.Types.Class.ContainsKey n then
                     ValueSome n
                 else
-                    tryExternal n
-            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
-                tryExternal (li.Idents |> Seq.map ctx.NameOf |> String.concat ".")
-            | Expr.TypeApp(expr = inner; types = types) -> tryClassRef ctx types.Length inner
+                    stampedExternal ()
+            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) -> stampedExternal ()
+            | Expr.TypeApp(expr = inner) -> tryClassRef ctx inner
             | _ -> ValueNone
 
     /// The declaring nominal `SymbolKey` of a class/union receiver type — the
@@ -543,7 +495,7 @@ module internal FreezeResolve =
     // "unreachable"` fall-through.
 
     [<return: Struct>]
-    let (|ClassRef|_|) (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption = tryClassRef ctx 0 e
+    let (|ClassRef|_|) (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption = tryClassRef ctx e
 
     [<return: Struct>]
     let (|CtorRef|_|) (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption = tryCtorRef ctx e
