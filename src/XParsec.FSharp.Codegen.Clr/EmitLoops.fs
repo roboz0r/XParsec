@@ -100,8 +100,8 @@ module EmitLoops =
             FTFun(FTConst(RuntimeNames.unitKey, EqArray.empty), FTConst(RuntimeNames.unitKey, EqArray.empty))
         )
 
-    /// The `MoveNext` / `Current` handles for an external enumerator `E` (the
-    /// duck-typed and Gap 3 hybrid arms): both members are declared on `E` itself,
+    /// The `MoveNext` / `Current` handles for an external enumerator `E` (an external
+    /// source, or the hybrid local-source-over-external-`E`): both members are declared on `E` itself,
     /// so their refs come from `ExternalMemberRefOn` against the declaring
     /// instantiation `enumeratorTy` (not recoverable from a T-free `MoveNext(): bool`).
     let private externalEnumMembers
@@ -192,7 +192,7 @@ module EmitLoops =
                 b.Add(ILInstr.Callvirt(handle, 1, 1))
 
         // Load the source as the `GetEnumerator` receiver. A reference source is
-        // pushed by value and `callvirt`-ed. A *value-type* source (Gap 1: a struct
+        // pushed by value and `callvirt`-ed. A *value-type* source (a struct
         // `MapSeq`/`ArraySeq`, or any `[<Struct>]` collection) is a method call on a
         // value, so it must be addressed exactly like the enumerator receiver: spill
         // to a local and `ldloca`, then dispatch its own concrete `GetEnumerator` with

@@ -92,6 +92,36 @@ let private seqUnionSrc =
             "    printfn \"%d\" x"
         ]
 
+// Same slice again, on a RECORD source — and deliberately with NO `:> seq<int>` upcast, so
+// the source stays `TyRecord` and the front end has to admit it through
+// `tryForInEnumerator`'s record arm (the class/union tests above upcast, which routes them
+// through the `seq<'T>`-typed arm instead and never touches the nominal probe). A record
+// routes its interface impls through the SAME `partitionClassMembers` path the class and
+// union use, so the impl becomes a `*[Symbol.iterator]()` generator on the record class and
+// the loop lowers to a plain `for…of`. The impl body reads the receiver (`this.Stop`).
+let private seqRecordSrc =
+    String.concat
+        "\n"
+        [
+            "type Enum ="
+            "    val mutable Cur : int"
+            "    val Stop : int"
+            "    new(cur: int, stop: int) = { Cur = cur; Stop = stop }"
+            "    interface System.Collections.Generic.IEnumerator<int> with"
+            "        member this.MoveNext() : bool ="
+            "            this.Cur <- this.Cur + 1"
+            "            this.Cur < this.Stop"
+            "        member this.Current : int = this.Cur"
+            "type RCounter ="
+            "    { Stop: int }"
+            "    interface System.Collections.Generic.IEnumerable<int> with"
+            "        member this.GetEnumerator() : System.Collections.Generic.IEnumerator<int> ="
+            "            (new Enum(-1, this.Stop) :> System.Collections.Generic.IEnumerator<int>)"
+            "let r = { Stop = 3 }"
+            "for x in r do"
+            "    printfn \"%d\" x"
+        ]
+
 [<Tests>]
 let tests =
     testList
@@ -151,6 +181,24 @@ let tests =
                 | Some(code, out) ->
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
                     Expect.equal out "0\n1\n2" "`for x in (u :> seq<int>)` walks the union's enumerator in order"
+            }
+
+            test "a RECORD implementing `seq<int>` emits a `*[Symbol.iterator]()` generator" {
+                let js = emitJs seqRecordSrc
+                Expect.stringContains js "*[Symbol.iterator]()" "record enumerable capability → computed-key generator"
+                Expect.stringContains js ".MoveNext())" "generator drives the enumerator's MoveNext"
+
+                Expect.isFalse
+                    (js.Contains "GetEnumerator(")
+                    "the GetEnumerator slot is consumed by the iterator adapter"
+            }
+
+            test "an un-upcast RECORD source `for x in r` iterates end-to-end under Node" {
+                match runJs "forin-seq-record" seqRecordSrc with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "0\n1\n2" "`for x in r` walks the record's enumerator in order"
             }
 
             // §14.6 capstone (W1+W3): a BARE cons-list `[1;2;3]` — NO `:> seq` upcast —

@@ -522,10 +522,17 @@ let interfaceImplTests =
 
                 let bytes = Codegen.toBytes artifact
 
-                // The Vesper-side `for x in b` walk (the capability's own pull protocol).
+                // The Vesper-side MANUAL pull protocol (`GetEnumerator` / `MoveNext` /
+                // `Current` by hand). `for x in b` over a record source is covered in
+                // `ForInTests`; this test keeps the hand-driven walk on purpose, since it
+                // is the surface a capability consumer writes directly.
                 let exitCode, output = runEntryPoint bytes
                 Expect.equal exitCode 0 "Main returns 0"
-                Expect.equal (output.Replace("\r", "").Trim()) "6" "`for x in b` sums the record's elements"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "6"
+                    "the manual enumerator walk sums the record's elements"
 
                 // The BCL-consumer side: reflect the record, build `Bag<int>` through its
                 // record ctor, and walk it through the non-generic face.

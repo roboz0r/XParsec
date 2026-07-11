@@ -396,7 +396,7 @@ module internal UnificationInferControlFlow =
                 | _ -> ValueNone
             | _ -> ValueNone
 
-    /// Gap 2 pure-pattern variant: the project-local analogue of
+    /// The pure-pattern variant: the project-local analogue of
     /// `tryDuckTypedEnumerator`. A user class exposing a parameterless
     /// `GetEnumerator()` whose return type `E` is *itself* a user class with
     /// `MoveNext(): bool` and a `Current` property is a valid `for … in` source
@@ -405,7 +405,7 @@ module internal UnificationInferControlFlow =
     /// enumerator — the latter walks by address (`ldloca` + a by-address `call`),
     /// no boxing. When
     /// the enumerator type `E` is instead *external* (a BCL `List<'T>.Enumerator`),
-    /// the Gap 3 hybrid kicks in: the local `GetEnumerator` is kept, but `E`'s
+    /// the hybrid form kicks in: the local `GetEnumerator` is kept, but `E`'s
     /// `MoveNext` / `Current` / `Dispose` are probed off its `ExternalClassShape`
     /// and emitted via `ExternalMemberRefOn` — i.e. `Pattern` with a `Local`
     /// `ForInGetEnum` and an `External` `ForInEnumMembers`.
@@ -445,7 +445,7 @@ module internal UnificationInferControlFlow =
                                 dispose
                             )
                         )
-                    // Gap 3: `E` is not project-local — try the *external* enumerator
+                    // `E` is not project-local — try the *external* enumerator
                     // shape. `GetEnumerator` stays a local member; `MoveNext` /
                     // `Current` / `Dispose` are read off `E`'s `ExternalClassShape`
                     // (the §4.4 external-enumerator probe), and codegen mints them via
@@ -470,31 +470,48 @@ module internal UnificationInferControlFlow =
             | None -> ValueNone
         | ValueNone -> ValueNone
 
+    /// The enumerable surface a *project-local* nominal source publishes through its
+    /// `interface` impls, resolved kind-agnostically over `IInterfaceImplHost` so a
+    /// class, a union or a record source all share one resolver. A record's iteration
+    /// capability (`interface seq<'T>`) lowers exactly as a class's: the backend
+    /// synthesises the same `IEnumerable<'T>` co-slots, and the walk `callvirt`s them.
+    ///
+    /// Only the `Interface` surface is reachable this way, never `Pattern`: the
+    /// duck-typed axes resolve a `Local` member through
+    /// `EmitResolve.resolveInstanceMember`, whose member tables cover unions, classes
+    /// and interfaces but *not* records — so a record source exposing only a pattern
+    /// `GetEnumerator()` stays rejected in the front end rather than failing at emit.
+    and tryLocalInterfaceEnumeratorOn
+        (ctx: PassContext)
+        (host: IInterfaceImplHost)
+        (args: EqArray<SemType>)
+        : (SemType * ForInEnumerator) voption =
+        let picked =
+            host.InterfaceImpls
+            |> Array.tryPick (fun impl ->
+                match impl.Resolved with
+                | ValueSome resolved ->
+                    match zonk (instantiateMember (host.TypeParams, args) resolved) with
+                    | TyClass(ifaceKey, ifaceArgs) when
+                        RuntimeNames.matchesKey ctx.CapabilityIds.Enumerable ifaceKey
+                        && ifaceArgs.Length = 1
+                        ->
+                        Some(ifaceArgs.[0], ForInEnumeratorG.Interface)
+                    | _ -> None
+                | ValueNone -> None
+            )
+
+        match picked with
+        | Some r -> ValueSome r
+        | None -> ValueNone
+
     and tryLocalInterfaceEnumerator
         (ctx: PassContext)
         (nameKey: SymbolKey)
         (args: EqArray<SemType>)
         : (SemType * ForInEnumerator) voption =
         match TypeRegistry.tryClassByKey ctx.Types nameKey with
-        | ValueSome info ->
-            let picked =
-                info.InterfaceImpls
-                |> Array.tryPick (fun impl ->
-                    match impl.Resolved with
-                    | ValueSome resolved ->
-                        match zonk (instantiateMember (info.TypeParams, args) resolved) with
-                        | TyClass(ifaceKey, ifaceArgs) when
-                            RuntimeNames.matchesKey ctx.CapabilityIds.Enumerable ifaceKey
-                            && ifaceArgs.Length = 1
-                            ->
-                            Some(ifaceArgs.[0], ForInEnumeratorG.Interface)
-                        | _ -> None
-                    | ValueNone -> None
-                )
-
-            match picked with
-            | Some r -> ValueSome r
-            | None -> ValueNone
+        | ValueSome info -> tryLocalInterfaceEnumeratorOn ctx info args
         | ValueNone -> ValueNone
 
     /// Rung-3: resolve the enumerator `E` returned by a constrained `GetEnumerator`
@@ -638,8 +655,7 @@ module internal UnificationInferControlFlow =
                     | None -> ValueNone
             // A project-local source is invisible to the external provider; fall
             // back to the user probes. C# precedence: a pattern `GetEnumerator()`
-            // (Gap 2 pure-pattern variant) wins over the `IEnumerable<'T>`
-            // interface (Gap 2 interface variant).
+            // wins over the `IEnumerable<'T>` interface.
             | _ ->
                 match tryLocalDuckTypedEnumerator ctx nameKey args with
                 | ValueSome r -> ValueSome r
@@ -659,6 +675,14 @@ module internal UnificationInferControlFlow =
                 | Some elem -> ValueSome(elem, ForInEnumeratorG.Interface)
                 | None -> ValueNone
             | _ -> ValueNone
+        // A project-local RECORD source implementing the iteration capability
+        // (`interface seq<'T>`). The backend already synthesises a record's
+        // `IEnumerable<'T>` co-slots exactly as it does a class's, so the boxing
+        // `Interface` walk lowers unchanged — this arm is the whole of the support.
+        | TyRecord(nameKey, args) ->
+            match TypeRegistry.tryRecordByKey ctx.Types nameKey with
+            | ValueSome info -> tryLocalInterfaceEnumeratorOn ctx info args
+            | ValueNone -> ValueNone
         // Rung-3: a *generic typar* source (`'S :> ISeq`/`IStructSeq<'E>`) — resolve
         // its enumerable surface through the `Coercion` constraint, dispatching
         // `GetEnumerator` via `constrained. callvirt` (the zero-alloc struct path).

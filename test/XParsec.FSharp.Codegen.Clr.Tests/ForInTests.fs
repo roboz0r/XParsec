@@ -411,7 +411,7 @@ let forInTests =
                     "walks the external struct enumerator in order"
             }
 
-            // Gap 1 (`get-enumerator-gaps.md`): the for-in *source* is itself a
+            // The for-in *source* is itself a
             // `[<Struct>]`. `GetEnumerator` is a method call on a value, so the source
             // must be addressed (`ldloca`) the same way the enumerator receiver is —
             // not pushed by value and `callvirt`-ed (malformed IL on a value type).
@@ -491,5 +491,54 @@ let forInTests =
                     |> Seq.toList
 
                 Expect.isEmpty errors (sprintf "user-interface for-in should type-check; got %A" errors)
+            }
+
+            // A project-local RECORD source implementing the iteration capability
+            // (`interface seq<'T>`). The front end resolves it through the same
+            // `IInterfaceImplHost` walk the class and union hosts use
+            // (`tryLocalInterfaceEnumeratorOn`); the backend needed nothing new, since a
+            // record's synthesised `IEnumerable<'T>` co-slots are exactly the ones the
+            // class `Interface` walk already `callvirt`s. Generic on purpose: the record's
+            // typar has to be substituted with the use-site `int` to pin the loop binder.
+            // Only the `Interface` surface is open to a record — a pattern `GetEnumerator()`
+            // on a record would need a record member table in `resolveInstanceMember`.
+            test "for-in over a generic record implementing the seq capability walks its elements" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "open Vesper.Collections"
+                            "[<Struct>]"
+                            "type BagEnumerator<'T> ="
+                            "    val Items : 'T[]"
+                            "    val mutable Idx : int"
+                            "    new(items: 'T[]) = { Items = items; Idx = -1 }"
+                            "    interface enumerator<'T> with"
+                            "        member this.Current : 'T = this.Items.[this.Idx]"
+                            "        member this.MoveNext() : bool ="
+                            "            this.Idx <- this.Idx + 1"
+                            "            this.Idx < this.Items.Length"
+                            "    interface Vesper.disposable with"
+                            "        member this.Dispose() : unit = ()"
+                            "type Bag<'T> ="
+                            "    { Items: 'T[] }"
+                            "    interface seq<'T> with"
+                            "        member this.GetEnumerator() = (new BagEnumerator<'T>(this.Items) :> enumerator<'T>)"
+                            "let b : Bag<int> = { Items = [| 1; 2; 3 |] }"
+                            "for x in b do"
+                            "    printfn \"%d\" x"
+                        ]
+
+                let tast, artifact = compileSource "RecordForIn" src
+                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "1\n2\n3"
+                    "`for x in b` walks the record's elements in order"
             }
         ]

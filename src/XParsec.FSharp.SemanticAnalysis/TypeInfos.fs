@@ -160,12 +160,13 @@ type ClassInterfaceImplInfo
     member val Resolved: SemType voption = ValueNone with get, set
 
 /// The shared surface a nominal type exposes to the interface-impl machinery —
-/// implemented by both `ClassTypeInfo` and `UnionTypeInfo` so Unification's
-/// `resolveInterfaceImpls` / `fillInterfaceImpls`, the `subsumes` interface
-/// admission and the custom-eq/comp conformance check operate over *either* kind
-/// without forking the (already kind-agnostic) logic. `MkSelfType` is the only
-/// kind-dependent piece: a class yields `TyClass(Key, args)`, a union
-/// `TyUnion(Key, args)`, so the `this`-type seeding inside an impl body is exact.
+/// implemented by `ClassTypeInfo`, `UnionTypeInfo` and `RecordTypeInfo` so
+/// Unification's `resolveInterfaceImpls` / `fillInterfaceImpls`, the `subsumes`
+/// interface admission, the custom-eq/comp conformance check and
+/// `InferControlFlow.tryLocalInterfaceEnumeratorOn` operate over *any* kind without
+/// forking the (already kind-agnostic) logic. `MkSelfType` is the only kind-dependent
+/// piece: a class yields `TyClass(Key, args)`, a union `TyUnion(Key, args)`, a record
+/// `TyRecord(Key, args)`, so the `this`-type seeding inside an impl body is exact.
 type IInterfaceImplHost =
     abstract member Key: SymbolKey
     abstract member DeclKey: NodeKey
