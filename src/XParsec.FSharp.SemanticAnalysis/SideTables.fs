@@ -1307,6 +1307,30 @@ type PassContextResolution =
         /// (e.g. "is this exactly `Vesper.Printf.printfn`?") instead of
         /// suffix-matching the source-written name.
         ExternalValue: SideTable<SymbolKey>
+        /// Keyed by an external value/operator use-site's `NodeKey`: the full
+        /// `ExternalSymbol` NameResolution resolved that spelling to through the
+        /// opens-aware resolver face. Minting sites (all in NameResolution's walk):
+        /// a value ref (`Expr.Ident` / multi-segment `Expr.LongIdentOrOp`), a
+        /// `(+)`-as-value / `A.B.(+)` operator value, and the desugared/dynamic
+        /// operators (`InfixApp` / `PrefixApp` reading `ctx.Desugared`,
+        /// `op_Dynamic` on a `DynamicLookup`, `op_DynamicAssignment` on the
+        /// enclosing dynamic `Assignment`). Unification READS this stamp
+        /// (`InferIdentExpr`'s value / `(+)`-value arms, `InferApp`'s operator
+        /// sites) and calls `ExternalSymbols.instantiateSymbol` on it, instead of
+        /// re-running `OpenScope.tryResolve … TryLookup(string)` at inference time
+        /// — the spelling→identity resolution now happens ONCE, upstream.
+        /// The whole symbol — not just its `SymbolKey` (`ExternalValue` /
+        /// `IntrinsicKey` carry that for Freeze) — is stamped because
+        /// instantiation needs the polymorphic `Scheme` / `TyparArity` /
+        /// `Constraints`, and the store face exposes no scheme-by-key lookup: a
+        /// value key does not round-trip to its fully-qualified spelling, so a
+        /// key-addressed re-lookup could not reproduce the resolver-face result.
+        /// Absent ⇒ the spelling did not resolve to an external symbol; the
+        /// consumer falls to its ctor / static / operator-value / error path
+        /// exactly as the old provider miss did. The operator/value companion to
+        /// `ExternalUnionCaseStamp` (cases) — the payload channel key-semantics §4
+        /// sanctions.
+        ExternalSymbolStamp: SideTable<ExternalSymbol>
         /// Keyed by an external union-case ctor head's `NodeKey` — a *pattern* head
         /// (`CstKeys.ofPat`, the `Some x` / `Result.Ok x` of a `match` / binder) or an
         /// *expression* head (`CstKeys.ofExpr`, a bare `None` / qualified `Option.Some`
@@ -1459,6 +1483,7 @@ module PassContextResolution =
             TyparInterfaceCall = SideTable<_>()
             ExternalOptionalFill = SideTable<_>()
             ExternalValue = SideTable<_>()
+            ExternalSymbolStamp = SideTable<_>()
             ExternalUnionCaseStamp = SideTable<_>()
             IntrinsicKey = SideTable<_>()
             ResolvedOperatorValue = SideTable<_>()

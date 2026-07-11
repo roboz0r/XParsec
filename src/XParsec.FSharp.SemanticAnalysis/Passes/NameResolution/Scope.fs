@@ -205,9 +205,13 @@ module NameResolutionScope =
             )
         | ValueNone ->
             // `tryResolve` returns the ExternalSymbol, so its SymbolKey.ValueKey
-            // is captured for Freeze to stamp onto TExpr.External (M1).
+            // is captured for Freeze to stamp onto TExpr.External (M1), and the
+            // whole symbol for Unification to instantiate its scheme by key
+            // (`ExternalSymbolStamp`) instead of re-resolving the spelling.
             match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
-            | ValueSome sym -> ctx.Resolution.ExternalValue.Set(useKey, sym.Key)
+            | ValueSome sym ->
+                ctx.Resolution.ExternalValue.Set(useKey, sym.Key)
+                ctx.Resolution.ExternalSymbolStamp.Set(useKey, sym)
             | ValueNone ->
                 // A bare external union case (`None` / `Some`) used in expression
                 // position: stamp the resolved identity so Unification's
@@ -448,6 +452,27 @@ module NameResolutionScope =
 
         s
 
+    /// Resolve an operator/value spelling through the opens-aware resolver face and,
+    /// on a hit, stamp the full `ExternalSymbol` so Unification instantiates its
+    /// scheme by key (`ExternalSymbolStamp`) rather than re-resolving from the
+    /// spelling. A miss leaves the node unstamped — the same signal the old
+    /// inference-time `tryResolve` miss produced.
+    let private stampExternalSymbol (ctx: PassContext) (key: NodeKey) (name: string) : unit =
+        match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
+        | ValueSome sym -> ctx.Resolution.ExternalSymbolStamp.Set(key, sym)
+        | ValueNone -> ()
+
+    /// A desugared `InfixApp` / `PrefixApp` head: recover the compiled operator name
+    /// Desugar recorded (`ctx.Desugared`) and stamp its resolved symbol. A `ConsExpr`
+    /// (`::`, built directly, not a provider operator) and `op_AddressOf` (the byref
+    /// intrinsic, no provider symbol) resolve to no stamp — the former because it is
+    /// not an `OpName`, the latter because the provider surfaces no symbol — matching
+    /// the arms Unification handles without the provider.
+    let private stampDesugaredOperator (ctx: PassContext) (e: Expr<SyntaxToken>) : unit =
+        match ctx.Desugared.TryGetValue(CstKeys.ofExpr e) with
+        | ValueSome(DesugaredForm.OpName name) -> stampExternalSymbol ctx (CstKeys.ofExpr e) name
+        | _ -> ()
+
     let private visit (ctx: PassContext) (scope: Scope list) (e: Expr<SyntaxToken>) : unit =
         match e with
         | Expr.Ident tok -> resolveIdent ctx scope tok (CstKeys.ofExpr e)
@@ -524,7 +549,9 @@ module NameResolutionScope =
                     let qualName = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
 
                     match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup qualName with
-                    | ValueSome sym -> ctx.Resolution.ExternalValue.Set(CstKeys.ofExpr e, sym.Key)
+                    | ValueSome sym ->
+                        ctx.Resolution.ExternalValue.Set(CstKeys.ofExpr e, sym.Key)
+                        ctx.Resolution.ExternalSymbolStamp.Set(CstKeys.ofExpr e, sym)
                     | ValueNone ->
                         // `Result2.Ok` — two-segment qualified ctor; resolves through
                         // ctx.Types.Union, suppress so Unification picks it up.
@@ -652,9 +679,14 @@ module NameResolutionScope =
         | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) when
             (Desugar.symbolicOpCompiledName op.Token |> ValueOption.isSome)
             ->
-            // `(+)` and friends used as a value resolve through the provider in
-            // Unification (no local binding), so not an unresolved-name error.
-            ()
+            // `(+)` and friends used as a value: resolve the operator's compiled name
+            // through the provider ONCE here and stamp its symbol so Unification
+            // (`inferIdent`'s operator-value arm) instantiates the scheme by key. A
+            // miss is not an unresolved-name error at this layer (the operator-value
+            // arm reports it), so no diagnostic — just no stamp.
+            match Desugar.symbolicOpCompiledName op.Token with
+            | ValueSome name -> stampExternalSymbol ctx (CstKeys.ofExpr e) name
+            | ValueNone -> ()
         | Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(longIdent = li; op = idOp)) ->
             // `A.B.(+)` — a qualified operator reference. Translate the operator
             // segment to its compiled name (`(+)` → `op_Addition`) and route the
@@ -666,7 +698,9 @@ module NameResolutionScope =
             match OperatorNames.qualifiedOpName ctx.NameOf li idOp with
             | ValueSome qualName ->
                 match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup qualName with
-                | ValueSome sym -> ctx.Resolution.ExternalValue.Set(CstKeys.ofExpr e, sym.Key)
+                | ValueSome sym ->
+                    ctx.Resolution.ExternalValue.Set(CstKeys.ofExpr e, sym.Key)
+                    ctx.Resolution.ExternalSymbolStamp.Set(CstKeys.ofExpr e, sym)
                 | ValueNone -> ctx.Error(CstKeys.ofExpr e, sprintf "Unresolved qualified name: %s" qualName)
             | ValueNone ->
                 // A non-symbolic op segment (active-pattern / nil / range) has no
@@ -723,6 +757,24 @@ module NameResolutionScope =
                 | ValueSome key -> ctx.Resolution.ResolvedType.Set(CstKeys.ofExpr receiver, key)
                 | ValueNone -> ()
             | ValueNone -> ()
+        // Operator/intrinsic symbol resolution, moved upstream from `InferApp`:
+        // stamp the resolved operator `ExternalSymbol` so Unification instantiates
+        // its scheme (and threads `sym.Key` into `IntrinsicKey`) by reading the
+        // stamp, rather than re-running `OpenScope.tryResolve … TryLookup` at
+        // inference time. Keyed by the operator node itself (the same
+        // `CstKeys.ofExpr` key `inferInfix`/`inferPrefix`/`inferDynamic*` read).
+        | Expr.InfixApp _
+        | Expr.PrefixApp _ -> stampDesugaredOperator ctx e
+        // `recv?name` — resolve `op_Dynamic` at the `DynamicLookup` node. The
+        // dynamic-SET form (`recv?name <- v`) parses as `Assignment(DynamicLookup,
+        // v)`; its inner `DynamicLookup` is also visited and stamps `op_Dynamic`,
+        // but `inferDynamicSet` reads the `op_DynamicAssignment` stamp on the
+        // enclosing `Assignment` node (below), so the inner stamp is inert.
+        | Expr.DynamicLookup _ -> stampExternalSymbol ctx (CstKeys.ofExpr e) "op_Dynamic"
+        // `recv?name <- value` — the dynamic setter; stamp `op_DynamicAssignment`
+        // on the enclosing `Assignment` (the key `inferDynamicSet` reads).
+        | Expr.Assignment(leftExpr = Expr.DynamicLookup _) ->
+            stampExternalSymbol ctx (CstKeys.ofExpr e) "op_DynamicAssignment"
         | _ -> ()
 
     let mkWalker (ctx: PassContext) : CstWalk.ExprWalker<Scope list> =

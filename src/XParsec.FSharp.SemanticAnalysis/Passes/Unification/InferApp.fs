@@ -571,7 +571,7 @@ module internal UnificationInferApp =
             match tryMeasuredArith ctx key name leftTy rightTy with
             | Some resultTy -> resultTy
             | None ->
-                match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
+                match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
                 | ValueSome sym ->
                     // Record the resolved identity so Freeze stamps it onto the
                     // `TExpr.External(name, …)` it mints for this operator and
@@ -615,7 +615,7 @@ module internal UnificationInferApp =
     and inferDynamicLookup (infer: Infer) (ctx: PassContext) (key: NodeKey) (recv: Expr<SyntaxToken>) : SemType =
         let recvTy = infer ctx recv
 
-        match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "op_Dynamic" with
+        match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
         | ValueSome sym ->
             // Thread the resolved `op_Dynamic` identity to Freeze's `External` mint
             // (`translateDynamicLookup`, same `DynamicLookup` key) so the `$0[$1]`
@@ -650,7 +650,7 @@ module internal UnificationInferApp =
         let recvTy = infer ctx recv
         let valueTy = infer ctx value
 
-        match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "op_DynamicAssignment" with
+        match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
         | ValueSome sym ->
             // Thread the resolved `op_DynamicAssignment` identity to Freeze's
             // `External` mint (`translateAssignment`'s `DynamicLookup` arm, keyed by
@@ -692,7 +692,7 @@ module internal UnificationInferApp =
             // from BCL `Span.get_Item`).
             TyConst(RuntimeNames.byrefKey, EqArray.singleton operandTy)
         | ValueSome(DesugaredForm.OpName name) ->
-            match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
+            match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
             | ValueSome sym ->
                 // Thread the resolved identity to Freeze's `TExpr.External` mint (see
                 // the infix twin above) so the prefix operator splices by KEY.

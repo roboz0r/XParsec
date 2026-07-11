@@ -390,10 +390,43 @@ resolution; each of the following needs a different vehicle and is deferred:
    …), not a Class key, and moving it upstream needs the general type-walker
    this plan deliberately avoids — it is Stage 4 residue, surfaced by the flip.
 2. **Dotted external value refs (`A.B.v`, `InferIdentExpr`) and
-   operator/intrinsic symbol resolutions (`InferApp`).** These need the value's
-   polymorphic *scheme* (`instantiateSymbol`), not just its key, and the store
-   face exposes no scheme-by-key method. Needs a symbol-payload stamp (like
-   `ExternalUnionCaseStamp`) or a narrow store capability — fold into Stage 4.
+   operator/intrinsic symbol resolutions (`InferApp`) — LANDED (2026-07-10).**
+   Both needed the value's polymorphic *scheme* (`instantiateSymbol`), not just
+   its key, and the store face exposes no scheme-by-key method — so the fix is a
+   symbol-payload stamp (the `ExternalUnionCaseStamp` shape), NOT a store
+   capability: a value `SymbolKey` does not round-trip to its fully-qualified
+   spelling, so a key-addressed re-lookup could not reproduce the resolver-face
+   result. Mechanism as shipped: a new
+   `PassContextResolution.ExternalSymbolStamp : SideTable<ExternalSymbol>`. Every
+   NameResolution resolver-face hit that already resolved a value now ALSO stamps
+   the full `ExternalSymbol` (not just `sym.Key` into `ExternalValue`): the
+   single-ident (`resolveIdent`) and dotted (`resolveQualifiedExternal`) value
+   paths, and the bare-`(+)` / qualified-`A.B.(+)` operator-value arms. The
+   operators — which NameResolution did not previously visit — get FRESH stamping
+   arms in `visit`: `InfixApp` / `PrefixApp` recover the compiled op name from
+   `ctx.Desugared` (Desugar runs first — `Pipeline.fs`) and resolve it;
+   `op_Dynamic` is stamped on a `DynamicLookup`, `op_DynamicAssignment` on the
+   enclosing dynamic `Assignment`. `::` (`ConsExpr`) and `op_AddressOf` resolve to
+   no stamp (not an `OpName` / no provider symbol), matching the arms Unification
+   handles without the provider. Unification READS the stamp at all six sites
+   (`inferIdentDefault`, `inferIdent`'s `(+)`-value arm, `inferInfix`,
+   `inferPrefix`, `inferDynamicLookup`, `inferDynamicSet`) via
+   `ExternalSymbolStamp.TryGetValue key` — the same `CstKeys.ofExpr` key
+   NameResolution stamped — and calls `instantiateSymbol` on it; the App operator
+   sites still derive `IntrinsicKey` from the stamped `sym.Key` (that stamping
+   stays in Unification, unchanged, so Freeze/InlineExpansion are untouched).
+   `tryMeasuredArith` still short-circuits `inferInfix` BEFORE the stamp read
+   (type-directed; the stamp is present-but-unread for measured arithmetic). No
+   `OpenScope.tryResolve … ctx.Provider.TryLookup` call remains in
+   `InferIdentExpr.fs` or `InferApp.fs`'s value/operator sites. Regression guard:
+   `ExternalSymbolStampTests.fs` (stamp presence at dotted value / bare +
+   qualified operator-value / infix / dynamic get+set; absent for an unknown value
+   and an unsurfaced operator), plus the existing JS/CLR operator + dynamic-access
+   splice suites, all green. **Still deferred (same mechanism, out of item-2
+   scope):** the synthesised-intrinsic resolver-face calls in `InferRecordAccess`
+   (`GetArrayLength`, get/set-index, `op_Dynamic` in record-access position) —
+   these are not in `InferApp`; an `ExternalSymbolStamp` (or `IntrinsicKey`-twin)
+   stamp on the `IndexedLookup` / `.Length` chain closes them the same way.
 3. **`Freeze/Resolve.tryClassRef`.** Returns a *string* consumed by `TExpr.New`
    + codegen and performs abbreviation expansion (`ResizeArray` → `List`1`) the
    type stamp does not; reading a key here needs a TAST/codegen change —
@@ -415,12 +448,12 @@ the store face by design (key-semantics §3).
 `NameResolution.run` and the extractor. **The flip compiling is the
 compiler-checked "done" bit for Stages 1–3** — any missed holdout is a type
 error, not a review find. The Stage 3 *Remaining* residue must be resolved
-first: those value-scheme (§2 above), type-annotation (§1), `tryClassRef` (§3),
-and enum-case-pattern (§4) calls still need the string resolver face, so they
-are precisely what the flip would surface. Item 2 (value schemes / operator
-symbols) is the natural companion to this stage — it wants the same
-symbol-payload stamp or narrow store capability the flip forces the question
-on.
+first: the type-annotation (§1), `tryClassRef` (§3), and enum-case-pattern (§4)
+calls still need the string resolver face, so they are precisely what the flip
+would surface. Item 2 (value schemes / operator symbols) — the natural companion
+to this stage — has LANDED (the `ExternalSymbolStamp` symbol-payload channel),
+so those value/operator resolver-face calls are already gone; the remaining
+`InferRecordAccess` synthesised intrinsics want the same stamp before the flip.
 
 ### Stage 5 — codegen `BuiltinOps` by-name → by-key
 

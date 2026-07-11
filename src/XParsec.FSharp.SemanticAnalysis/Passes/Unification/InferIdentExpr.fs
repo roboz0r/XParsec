@@ -31,9 +31,10 @@ module internal UnificationInferIdentExpr =
         | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) ->
             match Desugar.symbolicOpCompiledName op.Token with
             | ValueSome name ->
-                // The ambient prelude leg resolves a contract's `[<AutoOpen>]`
-                // operator module.
-                match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
+                // NameResolution resolved the operator's compiled name (opens-aware,
+                // ambient-prelude leg included) and stamped its `ExternalSymbol` here;
+                // instantiate the scheme by key rather than re-resolving.
+                match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
                 | ValueSome sym ->
                     let ty = ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel
                     // The provider hands back the *built-in* operator scheme. If the
@@ -135,10 +136,10 @@ module internal UnificationInferIdentExpr =
             // Provider first — provider hits beat ctor-name resolution
             // when both exist (a let-bound `Ok` would have a Binding entry
             // and never reach here). Bare single-segment idents absent
-            // from the provider fall to the ctor registry.
-            let name = qualifiedNameOf ctx e
-
-            match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
+            // from the provider fall to the ctor registry. NameResolution
+            // resolved this spelling (opens-aware) and stamped its
+            // `ExternalSymbol`; instantiate the scheme by key.
+            match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
             | ValueSome sym -> ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel
             | ValueNone ->
 
