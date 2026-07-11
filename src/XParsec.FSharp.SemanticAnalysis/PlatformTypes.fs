@@ -26,24 +26,26 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 // and the walker already recurses into a `TyConst`'s args, so `decimal[]` still
 // flags `decimal` while `int[]` passes. Keying on `arity` (recorded on the shape)
 // makes the rule total over its domain — it no longer depends on whether `[]`
-// happens to miss `tryRuntimeType`'s name probe.
+// happens to miss the store lookup by key.
 
 module PlatformTypes =
 
-    /// `true` when `name` resolves to a NULLARY primitive the provider declares has
+    /// `true` when `key` resolves to a NULLARY primitive the provider declares has
     /// no representation on the compiling target. A generic intrinsic (`'T []`) is
     /// representable structurally regardless of its own `platform` face, so it is
-    /// never flagged here (its args are judged by the caller's recursion). Resolved
-    /// over the provider's stable `AmbientOpenPrefixes` (`ExternalSymbols.tryRuntimeType`)
-    /// — NOT the per-element mutable `OpenScope`, which is meaningless in this
-    /// end-of-pipeline whole-file pass.
+    /// never flagged here (its args are judged by the caller's recursion). Answered by
+    /// the receiver's own resolved `SymbolKey` on the store face
+    /// (`ExternalSymbols.tryLookupType`): the caller holds the key, and a canon intrinsic
+    /// key carries its namespace, so no ambient-prelude re-resolution of a short name is
+    /// needed — the former `tryRuntimeType` over `AmbientOpenPrefixes` downgraded the key
+    /// to a spelling only to resolve it back, a vestigial round-trip.
     ///
     /// A capability interface (`disposable` …) is an `IntrinsicInterface` (CLR) or a plain
     /// interface `Class` (JS) — never an `Intrinsic` — so it is excluded here BY CONSTRUCTION:
     /// an interface has no value representation, so "no platform repr" is correct, not a gap.
     /// Keep this match `Intrinsic`-only — do NOT broaden it to flag interfaces.
-    let private isUnrepresentable (ctx: PassContext) (name: string) : bool =
-        match ExternalSymbols.tryRuntimeType ctx.Provider name with
+    let private isUnrepresentable (ctx: PassContext) (key: SymbolKey) : bool =
+        match ExternalSymbols.tryLookupType ctx.Provider key with
         // Scalar or heritable primitive alike — the identity axis is one pattern; only
         // a nullary intrinsic with no repr on this target is unrepresentable.
         | ValueSome(ExternalTypeShape.Intrinsic { Id = { Arity = 0; Platform = None } }) -> true
@@ -56,10 +58,8 @@ module PlatformTypes =
         let rec go ty =
             match ty with
             | TyConst(key, args) ->
-                let n = SymbolKeyOps.intrinsicName key
-
-                if isUnrepresentable ctx n then
-                    acc.Add n |> ignore
+                if isUnrepresentable ctx key then
+                    acc.Add(SymbolKeyOps.intrinsicName key) |> ignore
 
                 for a in args do
                     go a

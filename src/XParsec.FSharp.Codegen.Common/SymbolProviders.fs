@@ -158,7 +158,7 @@ module SymbolProviders =
                 | Some info ->
                     inlineNames.[k] <- info.Name
 
-                    match ctx.Provider.TryLookup(qualifiedValueName info) with
+                    match ctx.Resolver.TryLookup(qualifiedValueName info) with
                     | ValueSome s -> inlineKeys.[k] <- s.Key
                     | ValueNone -> ()
                 | None -> ()
@@ -205,7 +205,7 @@ module SymbolProviders =
                         {
                             Name = info.Name
                             Key =
-                                ctx.Provider.TryLookup(qualifiedValueName info)
+                                ctx.Resolver.TryLookup(qualifiedValueName info)
                                 |> ValueOption.map (fun s -> s.Key)
                             Body =
                                 {
@@ -229,7 +229,7 @@ module SymbolProviders =
                         {
                             Name = info.Name
                             Key =
-                                ctx.Provider.TryLookup(qualifiedValueName info)
+                                ctx.Resolver.TryLookup(qualifiedValueName info)
                                 |> ValueOption.map (fun s -> s.Key)
                             Body = { Decl = d; ParamAttrs = [||] }
                         }

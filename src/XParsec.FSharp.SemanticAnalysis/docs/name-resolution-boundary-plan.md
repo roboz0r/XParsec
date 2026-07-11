@@ -29,9 +29,12 @@ identities*, not resolution.
 The tell for a violation is the round-trip idiom
 `ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedName key)` — the caller *holds*
 the identity and converts it back to a string because the interface offered
-nothing better. Those are gone from the SA passes; the one remaining
-resolver-face reach through `ctx.Provider` is a genuine spelling resolution
-(§ Remaining).
+nothing better. Those are gone from the SA passes (the flip caught the last three as
+type errors). Post-flip, `ctx.Provider` is the store face and *cannot* resolve a
+spelling; the genuine spelling reaches that remain live on the narrow `ctx.Resolver`
+handle, enumerated on its doc-comment (§ Remaining) — one permanent by design
+(`tryResolveExternalType`) and the deferred codegen channel (NameResolution itself,
+the resolve-once home, is the third and expected reader).
 
 ## Target design
 
@@ -75,10 +78,17 @@ type IExternalSymbolProvider =
   implementer is split into explicit `interface IExternalSymbolResolver with` +
   `interface IExternalSymbolStore with` blocks (concrete classes add an empty
   `interface IExternalSymbolProvider`).
-- **Enforcement is exposure, not the split itself.** The flip (§ Remaining)
-  declares `PassContext.Provider : IExternalSymbolStore`; the resolver face is
-  handed only to `NameResolution.run` and the extractor. Once flipped a future
-  pass *cannot* reintroduce a string lookup — the method isn't reachable.
+- **Enforcement is exposure, not the split itself — and, as landed, exposure means
+  *convention*, not *unreachability*.** The flip declares `PassContext.Provider :
+  IExternalSymbolStore` (the default face — it cannot resolve a spelling) alongside a
+  narrow `PassContext.Resolver : IExternalSymbolResolver`. The original aim was that the
+  resolver method be structurally *unreachable* from a consumer pass; blocker 2
+  forecloses that (`Translate.tryResolveExternalType` needs the resolver deep in
+  Unification with only `ctx` in hand, so `Resolver` must be a reachable `ctx` member).
+  What lands instead: the store is the default, and every spelling reach is one named,
+  greppable member with an enumerated reader set — a new consumer-pass string lookup
+  reads as the anomaly it is. See § "What has landed" → the flip bullet for the full
+  account.
 
 ## Key semantics — the store's lookup contract
 
@@ -126,11 +136,12 @@ move to lookup time without changing its content.
 
 ## What has landed
 
-The boundary is in place *except for the exposure flip*. In brief:
+The boundary is in place, **exposure flip included**. In brief:
 
-- **The split interfaces** and every provider/decorator/fake migrated; all
-  SA-side `qualifiedName` round-trips deleted (keys threaded directly); the
-  composition-time CS0433 duplicate diagnostic.
+- **The split interfaces** and every provider/decorator/fake migrated; the
+  *enumerated* SA-side `qualifiedName` round-trips deleted (keys threaded directly) —
+  three stragglers survived until the flip turned them into type errors (see the flip
+  bullet); the composition-time CS0433 duplicate diagnostic.
 - **The inline name channel is gone** — `TryLookupInlineBodyByName` deleted from
   the interface, impls, decorators, and caching; inline splices addressed by
   `SymbolKey` (operator/intrinsic keys stamped via
@@ -177,20 +188,50 @@ The boundary is in place *except for the exposure flip*. In brief:
   funnel; mirrors the already-landed `canonKey` rework two frames up. Green across the
   SA + CLR + JS suites (intrinsic-receiver member routing — `obj.ToString`,
   `exn.Message` — on both targets).
+- **The exposure flip landed.** `PassContext` now exposes `member Provider :
+  IExternalSymbolStore` as the default face every downstream pass speaks, plus one
+  narrow, documented `member Resolver : IExternalSymbolResolver` (both free upcasts of
+  the same backing object; `SideTables.fs:1607/1627`). Compiler-driven: narrowing
+  `Provider` turned every surviving resolver-face reach into a type error. That
+  surfaced **three more `TryLookupType(qualifiedName key)` round-trips** the earlier
+  sweep missed (`InferRecordAccess.fs:326/380`, `EngineCore.fs:713` — interface keys
+  harvested off a resolved shape), each converted to a key-addressed store lookup the
+  caller already held. The sanctioned `ctx.Resolver` readers are enumerated on the
+  member's doc-comment: NameResolution (the resolve-once home),
+  `Translate.tryResolveExternalType` (the permanent escape hatch, § Remaining), and
+  codegen's cross-package inline-body key interning (`SymbolProviders`, the Stage-5
+  by-name channel).
+  - **Enforcement is convention, not structure — and blocker 2 forecloses the
+    stronger form.** The plan aimed for "the resolver method isn't reachable"; but
+    `Translate.tryResolveExternalType` needs the resolver deep in Unification with only
+    `ctx` in hand, so the resolver *must* be a `PassContext` member and is therefore
+    reachable by any pass. What the flip actually buys: the store face is the *default*
+    (`ctx.Provider` cannot resolve a spelling), and every resolver reach is a single
+    named, greppable member with an enumerated reader set — a new consumer-pass string
+    lookup reads as the anomaly it is, rather than being structurally impossible. This
+    is a real softening of the original promise, recorded here honestly.
+  - **NameResolution reads `ctx.Resolver`, not a threaded `run` parameter** (a
+    sanctioned deviation from the "run gains a parameter" wording). The recursive
+    CST-walk call graph is deep enough that a separate `resolver` argument would be
+    pure redundant plumbing duplicating what `ctx` already carries.
+- **`PlatformTypes.isUnrepresentable` reworked to the store face** — the blocker-1 twin
+  the flip surfaced. Its caller (`addUnrepresentable`) held the receiver `SymbolKey` and
+  downgraded it to a short name to re-resolve over the ambient prelude; now it answers
+  by key via `ExternalSymbols.tryLookupType ctx.Provider key`. One fewer `ctx.Resolver`
+  reader (the three remaining are the resolve-once home, the blocker-2 handle, and the
+  deferred codegen channel). Green on SA + JS suites (the `decimal`-on-JS
+  unrepresentable diagnostic).
 
-## Remaining — the deferred exposure flip
+## Remaining — post-flip follow-ups
 
-**One** resolver-face reach through `ctx.Provider` survives in Unification, plus a
-mechanical threading fan-out. (The other, `intrinsicPlatformName`, is gone — see
-"What has landed".) **The flip compiling is the compiler-checked "done" bit for the
-whole boundary** — any missed holdout becomes a type error, not a review find.
+The flip has landed; **nothing gates the boundary now.** One resolver reader remains by
+design and one is deferred to its own sprint.
 
-### The one genuine blocker — decided: the escape hatch is its permanent home
+### `Translate.tryResolveExternalType` — the permanent escape hatch (decided)
 
-**`Translate.tryResolveExternalType`** (`Translate.fs:502–600`, reached from
-`translateType` / `resolveNamedGeneric` at `:234/254/328/477/769`). Resolves a written
-type *spelling* to a full `SemType` — abbrev dealias, canon `TyConst`, capability
-`TyClass`, `TyRecord`/`TyUnion`/`TyEnum`.
+`Translate.fs:502–600`, reached from `translateType` / `resolveNamedGeneric` at
+`:234/254/328/477/769`. Resolves a written type *spelling* to a full `SemType` — abbrev
+dealias, canon `TyConst`, capability `TyClass`, `TyRecord`/`TyUnion`/`TyEnum`.
 
 This is **not** the same category as `intrinsicPlatformName`. That caller already held
 a resolved key, so its string reach was vestigial and rework was the obvious call.
@@ -199,9 +240,14 @@ has resolved — and, decisively, it is **name → type, not name → key**: `x:
 mints a live `SemType` whose `_` is a fresh inference `TyVar`, and even a
 fully-written annotation is *forming a fixed identity the receiver's `TyVar` must
 comply with*. That is inference work, not resolution, and it belongs in the inference
-section by construction. So the resolution is **not** hoisted upstream — the general
-`Type`-node walker option (an earlier candidate) is **retired**. Instead the flip
-keeps a single documented `IExternalSymbolResolver` handle used ONLY by this site, and
+section by construction. So the resolution is **not** hoisted upstream *by default* —
+the escape hatch is the pragmatic home. The *structural* alternative — a general
+NameResolution `Type`-node walker that resolves every written head to a `SymbolKey` and
+stamps it, so this site reads the stamp on the store face and never resolves a spelling
+— is real, but a consistency investment rather than a forcing function (no pending
+sprint needs it); it is scoped separately in [cst-walker-plan](cst-walker-plan.md).
+Until then the flip keeps a single documented `IExternalSymbolResolver` handle used ONLY
+by this site, and
 that handle's whole surface is the **already-existing**
 `IExternalSymbolResolver.TryLookupType : string` (`ExternalSymbols.fs:798`) — no new
 method. This is the one sanctioned exception to the boundary statement (a spelling →
@@ -236,20 +282,23 @@ is reachable, so this stays the single explicit string surface in Unification.
   (`SemanticInfo.fs:1271`) seam; neither gates the other. The flip can land ahead of,
   behind, or independent of the freeze-thaw work.
 
-### The mechanical fan-out the flip forces (no design questions)
+### Wiring, as landed
 
-- `PassContext` constructor keeps the full `IExternalSymbolProvider` internally
-  (it already uses the resolver for `CapabilityIds`, `Intrinsics`, `CoreAccess`,
-  `AmbientOpenPrefixes`) and exposes only `member Provider : IExternalSymbolStore`.
-  The single `IExternalSymbolResolver` handle for `tryResolveExternalType` is threaded
-  the same way (a second narrow member, or passed straight to `Translate`).
-- `NameResolution.run` gains the resolver face as a parameter; NameResolution's
-  own helpers (`Scope.fs`'s ~15 `ctx.Provider.TryLookup*` sites,
-  `tryResolveExternalTypeKey` / `tryResolveExternalClassKey` /
-  `tryResolveExternalUnionOrRecordKey` / `stampExternalSymbol`, and
-  `MemberRegistration.fs:777`) read that parameter instead of `ctx.Provider`.
-- `ConformanceTypars.checkFile` already takes its own `IExternalSymbolProvider`
-  parameter — like the extractor, it is *not* a blocker and keeps the resolver.
+- `PassContext` keeps the full `IExternalSymbolProvider` internally (constructor uses
+  the resolver for `CapabilityIds`, `Intrinsics`, `CoreAccess`, `AmbientOpenPrefixes`)
+  and exposes `member Provider : IExternalSymbolStore` + `member Resolver :
+  IExternalSymbolResolver` (`SideTables.fs:1607/1627`).
+- NameResolution's helpers (`Scope.fs` string-lookup sites, `tryResolveExternalTypeKey`
+  / `tryResolveExternalClassKey` / `tryResolveExternalUnionOrRecordKey` /
+  `stampExternalSymbol`, `MemberRegistration.fs:701/812`) read `ctx.Resolver`.
+  `Translate.tryResolveExternalType` reads `ctx.Resolver`; everything else in
+  Unification/Freeze reads the store-face `ctx.Provider`.
+- Store-only and resolver-only helper params were narrowed to the minimal face
+  (`ExternalSymbols`/`Intrinsics`: `tryLookupType`/`tryIntrinsicClass` →
+  `IExternalSymbolStore`; `tryPickRuntimeType`/`tryRuntimeType`/`tryResolveIntrinsic*`
+  → `IExternalSymbolResolver`), confining resolver access to genuine spelling helpers.
+- `ConformanceTypars.checkFile` takes its own `IExternalSymbolProvider` parameter —
+  like the extractor, not a boundary consumer; keeps the full provider.
 
 ## Stage 5 — codegen `BuiltinOps` by-name → by-key
 
@@ -285,15 +334,17 @@ Separate doc when reached.
 
 - `ExternalSymbols.fs:789–921` — the split faces + combined provider; decorators
   (composite `firstHit`, `mapMember`, caching), null provider.
-- `SideTables.fs` — `PassContext.Provider` (the flip site) and
-  `PassContext.CoreAccess` / `CoreAccessIntrinsics` (the landed access-intrinsic
-  resolution).
+- `SideTables.fs:1607/1627` — `PassContext.Provider : IExternalSymbolStore` (default
+  store face) + `PassContext.Resolver : IExternalSymbolResolver` (the narrow handle,
+  with its enumerated-reader doc-comment); also `PassContext.CoreAccess` /
+  `CoreAccessIntrinsics` (the landed access-intrinsic resolution).
 - `SymbolKeyOps.fs` — `qualifiedName` (the round-trip buried in the store),
   `qualifiedTypeKey` / `externalTypeKey` mint helpers.
 - `Passes/NameResolution/Scope.fs`, `CstWalk.fs` — the resolver face's permanent
-  home; the stamp writers; the helpers the flip must re-thread.
-- `Passes/Unification/EngineCore.fs:535` (`intrinsicPlatformName`) — now
-  key-addressed via the store's `IntrinsicForwardRepr`; no longer a resolver reach.
-- `Passes/Unification/Translate.fs:502` (`tryResolveExternalType`) — the one
-  remaining resolver-face reach that gates the flip; its permanent home is the single
-  `IExternalSymbolResolver.TryLookupType` handle.
+  home; the stamp writers; reads `ctx.Resolver`.
+- `Passes/Unification/EngineCore.fs:535` (`intrinsicPlatformName`) — key-addressed via
+  the store's `IntrinsicForwardRepr`; no longer a resolver reach.
+- `Passes/Unification/Translate.fs:502` (`tryResolveExternalType`) — the permanent
+  escape hatch; reads `ctx.Resolver` (the single sanctioned `TryLookupType : string`).
+- `PlatformTypes.fs:45` (`isUnrepresentable`) — reworked to the store face
+  (`tryLookupType ctx.Provider key`); no longer a resolver reader.

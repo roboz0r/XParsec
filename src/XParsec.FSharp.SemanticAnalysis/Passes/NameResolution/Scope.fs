@@ -73,7 +73,7 @@ module NameResolutionScope =
                 match keys with
                 | [] -> ValueNone
                 | key :: rest ->
-                    match ctx.Provider.TryLookupType key with
+                    match ctx.Resolver.TryLookupType key with
                     | ValueSome shape when shapeArity shape = arity -> ValueSome(keyOf key shape)
                     | _ -> go rest
 
@@ -101,7 +101,7 @@ module NameResolutionScope =
                 match keys with
                 | [] -> ValueNone
                 | key :: rest ->
-                    match ctx.Provider.TryLookupType key with
+                    match ctx.Resolver.TryLookupType key with
                     | ValueSome(ExternalTypeShape.Class info) when info.Arity = arity ->
                         ValueSome(SymbolKeyOps.externalTypeKey info.Origin key arity)
                     | _ -> go rest
@@ -138,7 +138,7 @@ module NameResolutionScope =
                         else
                             SymbolKeyOps.arityName candidate a
 
-                    match ctx.Provider.TryLookupType key with
+                    match ctx.Resolver.TryLookupType key with
                     | ValueSome(ExternalTypeShape.Union(origin = o))
                     | ValueSome(ExternalTypeShape.Record(origin = o)) -> ValueSome(SymbolKeyOps.externalTypeKey o key a)
                     | _ -> go rest
@@ -184,7 +184,7 @@ module NameResolutionScope =
         (qualifier: string voption)
         (caseName: string)
         : ExternalUnionCase voption =
-        ctx.Provider.TryLookupUnionCase caseName
+        ctx.Resolver.TryLookupUnionCase caseName
         |> ValueOption.filter (fun uc -> uc.ResolvesWith qualifier)
         |> ValueOption.filter (fun uc ->
             match qualifier with
@@ -212,7 +212,7 @@ module NameResolutionScope =
     /// the stamp rather than re-recognising the spelling through the resolver face.
     let private tryExternalEnumCaseKey (ctx: PassContext) (headName: string) (caseName: string) : SymbolKey voption =
         let asEnum (n: string) =
-            match ctx.Provider.TryLookupType n with
+            match ctx.Resolver.TryLookupType n with
             | ValueSome(ExternalTypeShape.Enum(cases, origin)) -> ValueSome(cases, origin)
             | _ -> ValueNone
 
@@ -260,7 +260,7 @@ module NameResolutionScope =
             // is captured for Freeze to stamp onto TExpr.External (M1), and the
             // whole symbol for Unification to instantiate its scheme by key
             // (`ExternalSymbolStamp`) instead of re-resolving the spelling.
-            match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
+            match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Resolver.TryLookup name with
             | ValueSome sym ->
                 ctx.Resolution.ExternalValue.Set(useKey, sym.Key)
                 ctx.Resolution.ExternalSymbolStamp.Set(useKey, sym)
@@ -519,7 +519,7 @@ module NameResolutionScope =
     /// spelling. A miss leaves the node unstamped — the same signal the old
     /// inference-time `tryResolve` miss produced.
     let private stampExternalSymbol (ctx: PassContext) (key: NodeKey) (name: string) : unit =
-        match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup name with
+        match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Resolver.TryLookup name with
         | ValueSome sym -> ctx.Resolution.ExternalSymbolStamp.Set(key, sym)
         | ValueNone -> ()
 
@@ -609,7 +609,7 @@ module NameResolutionScope =
                 let resolveQualifiedExternal () =
                     let qualName = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
 
-                    match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup qualName with
+                    match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Resolver.TryLookup qualName with
                     | ValueSome sym ->
                         ctx.Resolution.ExternalValue.Set(CstKeys.ofExpr e, sym.Key)
                         ctx.Resolution.ExternalSymbolStamp.Set(CstKeys.ofExpr e, sym)
@@ -660,7 +660,7 @@ module NameResolutionScope =
                         // Freeze resolve the case.
                         let isExternalQualifiedCase =
                             li.Idents.Length >= 2
-                            && (ctx.Provider.TryLookupUnionCase(ctx.NameOf li.Idents.[li.Idents.Length - 1])).IsSome
+                            && (ctx.Resolver.TryLookupUnionCase(ctx.NameOf li.Idents.[li.Idents.Length - 1])).IsSome
 
                         // Stamp the resolved case identity for the expression-position
                         // consumers (`tryExternalCtorType`, `tryCtorRef`), which recognise
@@ -789,7 +789,7 @@ module NameResolutionScope =
             // qualified form needs this translation.
             match OperatorNames.qualifiedOpName ctx.NameOf li idOp with
             | ValueSome qualName ->
-                match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup qualName with
+                match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Resolver.TryLookup qualName with
                 | ValueSome sym ->
                     ctx.Resolution.ExternalValue.Set(CstKeys.ofExpr e, sym.Key)
                     ctx.Resolution.ExternalSymbolStamp.Set(CstKeys.ofExpr e, sym)

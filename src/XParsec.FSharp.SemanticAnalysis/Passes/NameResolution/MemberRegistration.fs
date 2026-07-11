@@ -698,7 +698,7 @@ module NameResolutionMemberRegistration =
         // An intrinsic's identity is resolved (local registration first, then the provider
         // through ambient opens), never enumerated by name. `args` are empty for the scalar
         // intrinsics, so a uniform arm is behaviour-identical to the old per-name arms.
-        match IntrinsicResolve.tryResolveIntrinsicKey ctx.Provider ctx.Types.IntrinsicKeys name with
+        match IntrinsicResolve.tryResolveIntrinsicKey ctx.Resolver ctx.Types.IntrinsicKeys name with
         | Some k -> TyConst(k, args)
         | None ->
             // Nominal heads carry their resolved `SymbolKey`; take it
@@ -809,7 +809,7 @@ module NameResolutionMemberRegistration =
                                                       } -> ValueSome c
                         | _ -> ValueNone
 
-                    match ExternalSymbols.tryPickRuntimeType ctx.Provider intrinsicClassCanon name with
+                    match ExternalSymbols.tryPickRuntimeType ctx.Resolver intrinsicClassCanon name with
                     | ValueSome canon -> ValueSome(TyConst(canon, EqArray.ofList targs))
                     | ValueNone ->
                         if

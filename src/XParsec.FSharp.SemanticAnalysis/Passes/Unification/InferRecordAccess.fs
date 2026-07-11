@@ -323,7 +323,7 @@ module internal UnificationInferRecordAccess =
                         // package rather than emit a generic no-such-member (the plain
                         // "Unknown class type" is for an in-stack type genuinely lacking the
                         // member).
-                        match ctx.Provider.TryLookupType clsQual, SymbolKeyOps.keyAsm clsKey with
+                        match ctx.Provider.TryLookupType clsKey, SymbolKeyOps.keyAsm clsKey with
                         | ValueNone, Some home ->
                             errorTy
                                 ctx
@@ -377,7 +377,7 @@ module internal UnificationInferRecordAccess =
                 | _ ->
                     // The provider knows the union but not this member → a real
                     // member miss; otherwise the type itself is unknown.
-                    match ctx.Provider.TryLookupType unionQual with
+                    match ctx.Provider.TryLookupType unionKey with
                     | ValueSome(ExternalTypeShape.Union _) ->
                         errorTy ctx diagKey (sprintf "Type '%s' has no instance member '%s'" unionQual memberName)
                     | _ -> errorTy ctx diagKey (sprintf "Unknown union type '%s'" unionQual)

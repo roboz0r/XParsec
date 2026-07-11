@@ -535,7 +535,11 @@ module internal UnificationTranslate =
             let picked =
                 keysFor candidate
                 |> List.tryPick (fun key ->
-                    match ctx.Provider.TryLookupType key with
+                    // The one sanctioned resolver-face reach left in Unification: a
+                    // written type *spelling* resolved through `ctx.Resolver` (see the
+                    // member's doc / boundary plan § Remaining). The `SemType`
+                    // construction around it is inference-resident and key/store-only.
+                    match ctx.Resolver.TryLookupType key with
                     | ValueSome shape when shapeArity shape = arity ->
                         // Mint the nominal's `SymbolKey` from the resolved shape's
                         // origin + the matched compiled name. `asm = Some` marks it external.

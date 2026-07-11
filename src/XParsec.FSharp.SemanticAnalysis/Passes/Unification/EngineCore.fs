@@ -710,7 +710,10 @@ module UnificationEngineCore =
                 |> Array.toList
                 |> List.map (fun (n, ta) ->
                     let key =
-                        match ctx.Provider.TryLookupType n with
+                        // `n` is an already-qualified interface compiled name harvested off
+                        // the resolved shape — not a source spelling — so the store face
+                        // answers it by key directly (asm-blind mint; opens don't apply).
+                        match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKey n 0) with
                         | ValueSome(ExternalTypeShape.Class ifaceShape) ->
                             SymbolKeyOps.externalTypeKey ifaceShape.Origin n ta.Length
                         // A surfaced capability interface is origin-homed exactly as a `Class`,

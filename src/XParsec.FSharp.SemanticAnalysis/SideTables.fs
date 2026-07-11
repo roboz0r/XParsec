@@ -1597,7 +1597,32 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     // provider-fallback by `subsumes.canonKey`, `translateType`, and codegen.
     let types = PassContextTypes.empty ()
 
-    member val Provider = provider
+    /// The **store face** (`SymbolKey → payload`) of the external-symbol contract —
+    /// the default face every downstream pass (Unification, Freeze, InlineExpansion,
+    /// codegen) speaks once identity is already resolved. Narrowed from the full
+    /// `IExternalSymbolProvider` on purpose: a consumer pass CANNOT reach a spelling
+    /// lookup through `ctx.Provider` because the resolver face isn't on it. A genuine
+    /// `string → identity` reach lives on `ctx.Resolver` and is sanctioned only for the
+    /// named readers documented there. A free upcast of the same backing object.
+    member _.Provider: IExternalSymbolStore = provider
+
+    /// The **resolver face** (`string → identity`) of the external-symbol contract.
+    /// Deliberately the ONLY string-lookup handle reachable from a `PassContext`, kept
+    /// narrow and greppable so the resolve-once boundary stays enforced by exposure
+    /// (`docs/name-resolution-boundary-plan.md`, § Remaining): a pass holding only the
+    /// store-face `Provider` CANNOT resolve a spelling. Its sanctioned readers, each a
+    /// genuine `string → identity` reach that survives by construction (not a `SymbolKey`
+    /// round-trip):
+    ///   - `NameResolution` — the resolve-once layer that owns `string × OpenScope →
+    ///     SymbolKey` (and its intrinsic-key / runtime-type helpers);
+    ///   - `Translate.tryResolveExternalType` — the single fused written-spelling →
+    ///     live-`SemType` reach that cannot be severed from its inference-resident
+    ///     `SemType` construction;
+    ///   - codegen's cross-package inline-body key interning (`SymbolProviders`) — a
+    ///     by-name value lookup pending its own by-key conversion.
+    /// Any NEW consumer-pass string resolution is a boundary violation: speak the
+    /// key-addressed `Provider` store face instead. A free upcast of the same object.
+    member _.Resolver: IExternalSymbolResolver = provider
 
     /// The four language-capability identities, resolved once here THROUGH THE
     /// PROVIDER (`ExternalSymbols.resolveCapabilities`) from their canonical Vesper

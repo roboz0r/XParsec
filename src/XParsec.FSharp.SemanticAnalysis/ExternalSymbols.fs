@@ -1004,8 +1004,8 @@ module ExternalSymbols =
     /// a thin alias over the key-addressed store face (`IExternalSymbolStore.TryLookupType`).
     /// Retained so existing callers read `tryLookupType provider key`; new code may call
     /// `provider.TryLookupType key` directly.
-    let tryLookupType (provider: IExternalSymbolProvider) (key: SymbolKey) : ExternalTypeShape voption =
-        (provider :> IExternalSymbolStore).TryLookupType key
+    let tryLookupType (provider: IExternalSymbolStore) (key: SymbolKey) : ExternalTypeShape voption =
+        provider.TryLookupType key
 
     /// The member surface an external nominal publishes — a `Class` or a capability
     /// `IntrinsicInterface` both carry `ExternalMember[]`, so a consumer reading "the
@@ -1054,7 +1054,7 @@ module ExternalSymbols =
     /// intrinsic, a non-intrinsic key, or a self-host unit whose own primitives
     /// publish no provider shape — callers no-op or fall to their ordinary error.
     let tryIntrinsicClass
-        (provider: IExternalSymbolProvider)
+        (provider: IExternalSymbolStore)
         (canon: SymbolKey)
         : struct (IntrinsicIdentity * IntrinsicClassSurface) voption =
         match tryLookupType provider canon with
@@ -1083,7 +1083,7 @@ module ExternalSymbols =
     /// (the intrinsic resolvers) must keep scanning to the shape it wants, not
     /// stop at the first name hit.
     let tryPickRuntimeType
-        (provider: IExternalSymbolProvider)
+        (provider: IExternalSymbolResolver)
         (choose: ExternalTypeShape -> 'a voption)
         (repr: string)
         : 'a voption =
@@ -1100,7 +1100,7 @@ module ExternalSymbols =
                 | Some v -> ValueSome v
                 | None -> ValueNone
 
-    let tryRuntimeType (provider: IExternalSymbolProvider) (repr: string) : ExternalTypeShape voption =
+    let tryRuntimeType (provider: IExternalSymbolResolver) (repr: string) : ExternalTypeShape voption =
         tryPickRuntimeType provider ValueSome repr
 
     /// Resolve the language-capability identities THROUGH THE PROVIDER, from their

@@ -26,7 +26,7 @@ module internal IntrinsicResolve =
         | _ -> ValueNone
 
     let tryResolveIntrinsicKey
-        (provider: IExternalSymbolProvider)
+        (provider: IExternalSymbolResolver)
         (intrinsicKeys: Dictionary<string, SymbolKey>)
         (name: string)
         : SymbolKey option =
@@ -38,7 +38,7 @@ module internal IntrinsicResolve =
             | ValueNone -> None
 
     let tryResolveIntrinsicType
-        (provider: IExternalSymbolProvider)
+        (provider: IExternalSymbolResolver)
         (intrinsicKeys: Dictionary<string, SymbolKey>)
         (name: string)
         : SemType option =
