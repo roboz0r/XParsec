@@ -715,23 +715,3 @@ type ResolvedExternalMember =
     /// A value member (field/property) vs an arrow `Method` — the predicate the
     /// optional-default gate and Freeze read; mirrors `ExternalMember.IsValueMember`.
     member m.IsValueMember = m.Storage.IsValueMember
-
-/// A use of an operator as a value (`(+)` in `Seq.fold (+) …`), enqueued by
-/// `Unification.inferIdent` for the post-walk `resolveOperatorValues` drain. The
-/// node's binding to a *project-local* static-operator member is type-directed
-/// (it depends on the operand types, ground only once the whole file is typed),
-/// so the decision can't be made at the node and is deferred here. `Ty` is the
-/// node's instantiated operator type at the use site; the drain zonks it and
-/// scans every operand for a declaring nominal.
-[<Struct>]
-type OperatorValueSite =
-    {
-        /// The operator-value node's `NodeKey` — the drain's output key into
-        /// `ResolvedOperatorValue`, and Freeze's lookup key.
-        Node: NodeKey
-        /// The operator's compiled name (`op_Addition`).
-        Name: string
-        /// The node's instantiated operator type (a curried function), zonked at
-        /// drain time to read the now-ground operand types.
-        Ty: SemType
-    }

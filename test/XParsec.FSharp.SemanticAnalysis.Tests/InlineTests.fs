@@ -69,7 +69,7 @@ let tests =
                 | other -> failtestf "unexpected %A" other
             }
 
-            test "expanding a monomorphic binding returns its body unchanged" {
+            test "expanding a monomorphic binding returns an equal body — and still WALKS it" {
                 let decl = firstDecl "let inline succ x = x + 1"
 
                 let body =
@@ -77,15 +77,21 @@ let tests =
                     | TDecl.Let(_, v, _, _) -> v
                     | other -> failtestf "unexpected %A" other
 
-                let expanded = Inline.inlineExpand decl [||]
-                // No typars to substitute → the retained body round-trips by
-                // reference, confirming v1's "retain bodies verbatim" decision.
-                Expect.isTrue (System.Object.ReferenceEquals(expanded, body)) "body returned verbatim"
+                let expanded, unresolved = Inline.inlineExpand decl [||]
+
+                // Structurally the same body — there is no typar to substitute. It is
+                // NOT the same object, and must not be: the substituting walk is also
+                // what resolves `StaticOptimization` and `TraitCall` nodes, and neither
+                // backend can emit those. Short-circuiting an empty substitution to
+                // return the body by reference (the shape this once asserted) let both
+                // node kinds ride an unwalked body straight through to codegen.
+                Expect.equal expanded body "body structurally unchanged"
+                Expect.isEmpty unresolved "a monomorphic `+` on int resolves"
             }
 
             test "expanding a polymorphic binding substitutes the typar through the body" {
                 let decl = firstDecl "let inline id x = x"
-                let expanded = Inline.inlineExpand decl [| BuiltinTypes.tyInt |]
+                let expanded, _ = Inline.inlineExpand decl [| BuiltinTypes.tyInt |]
 
                 // `id`'s body is `fun x -> x`; instantiating 'a := int makes
                 // every position concrete int.
@@ -109,7 +115,7 @@ let tests =
                 | TDecl.Let(_, _, _, declTy) ->
                     Expect.equal (Inline.quantifiedTypars declTy).Length 1 "typar still free after expansion"
 
-                    let again = Inline.inlineExpand decl [| BuiltinTypes.tyBool |]
+                    let again, _ = Inline.inlineExpand decl [| BuiltinTypes.tyBool |]
 
                     match again with
                     | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k, _), _), _, _, _) when
@@ -168,7 +174,7 @@ let tests =
 
                 // succ is monomorphic (int -> int) — expansion is a no-op
                 // substitution returning the retained `fun x -> x + 1` body.
-                match Inline.inlineExpand succDecl [||] with
+                match fst (Inline.inlineExpand succDecl [||]) with
                 | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k1, _), _),
                                TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _, _),
                                                    TExpr.Var(_, TyConst(k2, _), _),

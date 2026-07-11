@@ -111,7 +111,7 @@ module PassContextBindings =
 /// they cannot. A few tables instead carry a *type-directed* verdict reachable only
 /// once the node is typed, and so are written by Unification
 /// (`ExternalOptionalFill`, `TyparInterfaceCall`, `IntrinsicKey`,
-/// `ResolvedOperatorValue`, `TypeTestTargets`, `UseDispose`, `ForInShape`); each
+/// `TypeTestTargets`, `UseDispose`, `ForInShape`); each
 /// field names its writer. Every table is append-only and keyed by a CST `NodeKey`,
 /// and because a `NodeKey` carries its `NodeKind`, expression / pattern / type
 /// stamps at one source offset never collide.
@@ -274,18 +274,6 @@ type PassContextResolution =
         /// separate because these heads are minted fresh by Freeze rather than routed
         /// through `translateIdent`'s `ExternalValue` path.
         IntrinsicKey: SideTable<SymbolKey>
-        /// Keyed by an operator-as-value node's `NodeKey` (`(+)` in `Seq.fold (+) …`):
-        /// the `SymbolKey` of the *project-local* nominal whose static-operator
-        /// member the value binds to. F# resolves such an operator value to the
-        /// operand type's own `static member (+)`, not the built-in arithmetic
-        /// operator; this is decided type-directed by `Unification.resolveOperatorValues`
-        /// (which scans every operand once the file is typed) and read by
-        /// `Freeze.translateIdent`, which eta-expands the value into a closure
-        /// calling `<declaringType>.op_Addition`. Absent ⇒ the ordinary built-in /
-        /// `External` operator-value path. The declaring type, not the member key,
-        /// is stored: Freeze re-forms `LocalSymbolKey.ofMember` from it plus the
-        /// node's already-known operator name.
-        ResolvedOperatorValue: SideTable<SymbolKey>
         /// Keyed by a `:?` type-test expression's `NodeKey`: the resolved
         /// tested-against type (`Expr.DynamicTypeTest`'s target). The node's own
         /// inferred type is `bool` (the result), so the target type — which
@@ -415,7 +403,6 @@ module PassContextResolution =
             ExternalUnionCaseStamp = SideTable<_>()
             ExternalEnumCaseStamp = SideTable<_>()
             IntrinsicKey = SideTable<_>()
-            ResolvedOperatorValue = SideTable<_>()
             TypeTestTargets = SideTable<_>()
             UseDispose = SideTable<_>()
             ForInShape = SideTable<_>()
@@ -796,14 +783,6 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// directly on the `?` expression (`(d?foo : int)`), recorded by
     /// `inferTypeAnnotation`. "Name the type at the escape point."
     member val DynamicEscapeSuppressed = HashSet<NodeKey>() with get
-
-    /// Operator-as-value use sites (`(+)` in `Seq.fold (+) …`), enqueued by
-    /// `inferIdent` and drained after the walk by `Unification.resolveOperatorValues`
-    /// — which binds each to a project-local static-operator member by scanning its
-    /// (then-ground) operand types, recording the verdict in
-    /// `Resolution.ResolvedOperatorValue`. Deferred because the binding is
-    /// type-directed: at the node the operand types are still flexible.
-    member val OperatorValueSites = ResizeArray<OperatorValueSite>() with get
 
     /// Which cons-list a *bare-program* list literal/pattern (one no consumer
     /// pinned) defaults to when drained by `Unification.resolveListLiterals`.

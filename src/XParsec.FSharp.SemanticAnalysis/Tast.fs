@@ -398,6 +398,24 @@ type TExprG<'ty, 'tok> =
     /// nominal cannot carry the member, and `InlineExpansion` reports it as "the type
     /// 'X' does not support the operator '+'" — so the node never reaches codegen
     /// (neither backend has an arm for it).
+    ///
+    /// This node is ALSO how an operator used as a VALUE (`Seq.fold (+) …`) binds to a
+    /// user type's own static member: `InlineExpansion` eta-reifies the operator and
+    /// splices the same contract body, whose base is this trait call. There is no
+    /// second, type-directed operator-value resolver — the trait call IS the
+    /// type-directed decision.
+    ///
+    /// TODO(right-operand SRTP dispatch): the ONE receiver is why only the LEFT half of
+    /// F#'s `when (^T1 or ^T2): static member (+)` rule is observable. A member declared
+    /// only on the right operand (`static member (+) (i: int, v: Vector)`) does not
+    /// resolve — the support set is searched left-only, and `applyDefaults`' `default
+    /// ^T1: ^T3` chain then fuses what the trait bound did not pin, so `int * Vector`
+    /// errors `int vs Vector` at unification rather than dispatching. The exemplar to
+    /// support is fully-generic mixed-type SRTP inlining —
+    /// `let inline lerp c p t = t * c + p * (GenericOne - c)` at
+    /// `lerp 0.1f Vector2.Zero Vector2.One`, where `*` is `float32 * Vector2` and must
+    /// resolve via `Vector2`'s `op_Multiply`. Carrying a candidate SET here (rather than
+    /// one receiver) is what buys that.
     | TraitCall of receiver: 'ty * memberName: string * args: EqArray<TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
 
 and TMatchArmG<'ty, 'tok> =

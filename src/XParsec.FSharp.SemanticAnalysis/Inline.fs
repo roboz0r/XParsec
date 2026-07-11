@@ -26,6 +26,23 @@ open XParsec.FSharp.Parser
 
 module Inline =
 
+    /// An SRTP trait call `inlineExpand` could NOT resolve: the substituted receiver is
+    /// not a nominal, so no type can carry the named static member. `Receiver` is the
+    /// SUBSTITUTED receiver type and `MemberName` its compiled member name
+    /// (`op_Addition`).
+    ///
+    /// Reported as data, not as a message: the expander runs off the type-erased
+    /// `TastWalk.Mapper` surface with no `PassContext`, and the spliced body's own tokens
+    /// address the LIBRARY file it came from — so the caller (`Passes.InlineExpansion`)
+    /// owns both the wording and the call-site key the diagnostic must be anchored at.
+    /// Every expansion path returns these, so none can splice a body while quietly
+    /// leaving an unresolvable trait call in it — neither backend has a `TraitCall` arm.
+    type UnresolvedTrait =
+        {
+            Receiver: SemType
+            MemberName: string
+        }
+
     /// A module-level `let` value whose body is EXACTLY one intrinsic expression with
     /// NO operands (`let undefined : undefined = (# "undefined" : undefined #)`).
     /// Returns the intrinsic body to splice, else `ValueNone`.
@@ -140,8 +157,8 @@ module Inline =
     /// The declaring `SymbolKey` of a nominal (class / union / record) — the operand
     /// shape that can carry a static operator member, and so the ONLY shape an SRTP
     /// trait call can dispatch to. The single definition of "is a nominal operand";
-    /// `resolveTraitCall` alone consults it, and a receiver it declines is exactly the
-    /// "this type does not support this operator" diagnostic (`unsupportedOperators`).
+    /// `resolveTraitCall` alone consults it, and a receiver it declines becomes an
+    /// `UnresolvedTrait` — "this type does not support this operator".
     let private nominalHeadKey (t: SemType) : SymbolKey voption =
         match UnionFind.headZonk t with
         | TyClass(k, _)
@@ -154,7 +171,15 @@ module Inline =
     /// expansion the typars have been pinned, so pick the first clause whose
     /// constraints hold and keep only its (substituted) body. Everything else falls through to the default
     /// rewrite, which threads `substType subst` through every embedded `ty`.
-    let rec private substMapper (subst: Dictionary<TypeVar, SemType>) : TastWalk.Mapper =
+    ///
+    /// `declined` is the sink for trait calls `resolveTraitCall` cannot resolve. The
+    /// mapper is the one place that decides a trait call is unresolvable, so it is the
+    /// one place that can say so — a second walk of the expanded body to re-discover
+    /// them would be rediscovering what this already knew.
+    let rec private substMapper
+        (declined: ResizeArray<UnresolvedTrait>)
+        (subst: Dictionary<TypeVar, SemType>)
+        : TastWalk.Mapper =
         let sub = substType subst
 
         let holds (c: TStaticOptConstraint) =
@@ -170,7 +195,7 @@ module Inline =
         let clauseSelected (cl: TStaticOptClause) = cl.Constraints |> EqArray.forall holds
 
         let resolveStaticOpt (clauses: EqArray<TStaticOptClause>) (defaultExpr: TExpr) : TExpr =
-            let m = substMapper subst
+            let m = substMapper declined subst
 
             match clauses |> EqArray.tryFind clauseSelected with
             | ValueSome cl -> TastWalk.mapExpr m cl.Body
@@ -180,10 +205,10 @@ module Inline =
         // receiver is a concrete nominal: rewrite it to a `StaticMethodCall` on that
         // type's static operator member (class, union, OR record). A non-nominal
         // receiver — an unpinned `^T`, or a `TyConst` with no clause of its own — leaves
-        // the substituted `TraitCall` standing; `Passes.InlineExpansion` collects it
-        // (`unsupportedOperators`) and reports it at the call site. The result type is
-        // `sub ty` (`^T3`), NOT the receiver's — a heterogeneous operator
-        // (`Vec2 * float -> Vec2`) returns neither operand's type.
+        // the substituted `TraitCall` standing and records an `UnresolvedTrait`, which
+        // the caller reports at the call site. The result type is `sub ty` (`^T3`), NOT
+        // the receiver's — a heterogeneous operator (`Vec2 * float -> Vec2`) returns
+        // neither operand's type.
         let resolveTraitCall
             (m: TastWalk.Mapper)
             (recvTy: SemType)
@@ -202,7 +227,14 @@ module Inline =
                 // The rewritten node replaces the `TraitCall`, so it keeps its `tok`.
                 let memberKey = LocalSymbolKey.ofMember k memberName args.Length MemberKind.Method
                 ValueSome(TExpr.StaticMethodCall(memberKey, EqArray.map (TastWalk.mapExpr m) args, sub ty, tok))
-            | ValueNone -> ValueNone
+            | ValueNone ->
+                declined.Add
+                    {
+                        Receiver = sub recvTy
+                        MemberName = memberName
+                    }
+
+                ValueNone
 
         { TastWalk.identityMapper with
             MapType = sub
@@ -215,19 +247,23 @@ module Inline =
                     | _ -> ValueNone
         }
 
-    let private substExpr (subst: Dictionary<TypeVar, SemType>) (e: TExpr) : TExpr =
-        TastWalk.mapExpr (substMapper subst) e
-
-    /// Expand an `inline` binding's retained body for one call site.
-    /// `typeArgs` are the caller's concrete types for the binding's
-    /// quantified typars, in `quantifiedTypars` order. The returned TExpr is
-    /// the binding's `value` with every typar substituted; it shares NodeKeys
-    /// with the original (codegen freshens them per expansion, and reduces the
-    /// resulting lambda against the actual arguments). A monomorphic binding
-    /// (no typars) round-trips its body unchanged. Supplying fewer `typeArgs`
-    /// than there are typars substitutes the leading ones and leaves the rest
-    /// abstract.
-    let inlineExpand (decl: TDecl) (typeArgs: SemType[]) : TExpr =
+    /// Expand an `inline` binding's retained body for one call site. `typeArgs` are the
+    /// caller's concrete types for the binding's quantified typars, in
+    /// `quantifiedTypars` order. Returns the binding's `value` with every typar
+    /// substituted, its `StaticOptimization` clauses resolved and its `TraitCall`s
+    /// dispatched — paired with the trait calls that could NOT be dispatched, which the
+    /// caller must report. The body shares NodeKeys with the original (the caller
+    /// freshens them per expansion, and reduces the resulting lambda against the actual
+    /// arguments). Supplying fewer `typeArgs` than there are typars substitutes the
+    /// leading ones and leaves the rest abstract.
+    ///
+    /// The substituting walk runs even when there is nothing to substitute (a
+    /// monomorphic binding, or a bare reference with no spine to derive typars from):
+    /// it is what resolves `StaticOptimization` and `TraitCall` nodes, and NEITHER
+    /// backend can emit those. Short-circuiting an empty substitution — the shape this
+    /// once had — let both node kinds ride an un-substituted body straight through to
+    /// codegen's `failwithf` catch-all.
+    let inlineExpand (decl: TDecl) (typeArgs: SemType[]) : TExpr * UnresolvedTrait list =
         match decl with
         | TDecl.Let(_, value, _, declTy) ->
             let typars = quantifiedTypars declTy
@@ -239,58 +275,11 @@ module Inline =
                     subst.[tv] <- typeArgs.[i]
             )
 
-            if subst.Count = 0 then value else substExpr subst value
+            let declined = ResizeArray<UnresolvedTrait>()
+            let expanded = TastWalk.mapExpr (substMapper declined subst) value
+            expanded, List.ofSeq declined
         | TDecl.Expression _ -> invalidArg "decl" "Inline.inlineExpand expects a TDecl.Let, got a TDecl.Expression"
         | TDecl.Type _ -> invalidArg "decl" "Inline.inlineExpand expects a TDecl.Let, got a TDecl.Type"
-
-    /// A short display name for the receiver in the "does not support the operator"
-    /// diagnostic. An unpinned typar prints as F#'s anonymous `'a` — the honest
-    /// rendering of "a generic type parameter nothing pinned".
-    let private receiverName (t: SemType) : string =
-        match UnionFind.headZonk t with
-        | TyConst(key, _) -> SymbolKeyOps.simpleName key
-        | TyClass(k, _)
-        | TyUnion(k, _)
-        | TyRecord(k, _) -> SymbolKeyOps.qualifiedName k
-        | TyVar _ -> "'a"
-        | TyFun _ -> "function"
-        | TyTuple _ -> "tuple"
-        | other -> sprintf "%A" other
-
-    /// The unresolvable SRTP trait calls left standing in an expanded inline body:
-    /// the substituted receiver is not a nominal, so nothing can carry the operator
-    /// member. `resolveTraitCall` rewrites every RESOLVABLE trait call away, and no
-    /// static-opt CLAUSE body is a trait call (the operators carry the SRTP dispatch in
-    /// the BASE, with a clause per supported primitive), so a surviving `TraitCall` is
-    /// exactly "this type does not support this operator" — nothing else.
-    ///
-    /// Returns the ready-to-report messages rather than the nodes: the walker here is
-    /// deliberately `PassContext`-free (it is called from the type-erased
-    /// `TastWalk.Mapper` surface), and the spliced body's own tokens address the LIBRARY
-    /// file it came from, not the user's — so the caller (`Passes.InlineExpansion`) owns
-    /// both the diagnostic channel and the call-site key these must be anchored at.
-    let unsupportedOperators (e: TExpr) : string list =
-        let acc = ResizeArray<string>()
-
-        let it =
-            { TastWalk.identityIter with
-                VisitExpr =
-                    fun _ x ->
-                        match x with
-                        | TExpr.TraitCall(recvTy, memberName, _, _, _) ->
-                            let op =
-                                match OperatorNames.sourceSymbol memberName with
-                                | ValueSome sym -> sym
-                                | ValueNone -> memberName
-
-                            acc.Add(sprintf "The type '%s' does not support the operator '%s'" (receiverName recvTy) op)
-                        | _ -> ()
-
-                        true
-            }
-
-        TastWalk.iterExpr it e
-        List.ofSeq acc
 
     /// Rename every binder NodeKey in `body` (and the references to it) to a
     /// fresh key from `mint`, returning a structurally-new TExpr. Two

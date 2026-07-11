@@ -228,14 +228,23 @@ let tests =
                             ])
                 }
 
-            // A *generic* own-class `static member (+)` taken by value resolves to
-            // that member, so Freeze eta-expands it to `fun a b -> V<_>.op_Addition(a, b)`
-            // — a `Lambda` whose body is a `StaticMethodCall` keyed on the class's own
-            // `op_Addition`, not a bare `External`. This row pins the *front-end*
-            // shape; the generic end-to-end runtime run is gated by ClassTests
-            // "gapA+B: generic own-op List.fold inside a generic member body".
+            // A *generic* own-class `static member (+)` taken by value dispatches to that
+            // member — and NOTHING in the front end special-cases it to make that happen.
+            // The value freezes to a plain keyed `External("op_Addition")`;
+            // `InlineExpansion` eta-reifies it to `fun a b -> (+) a b`, splices the
+            // contract body at the call head its own eta minted, and the body's SRTP
+            // trait-call BASE resolves against the nominal `V<int>` receiver to
+            // `V<_>.op_Addition(a, b)`. The type-directed decision F# makes here lives in
+            // that trait call, so the hand-rolled `resolveOperatorValues` scan + Freeze eta
+            // that used to make it are gone.
+            //
+            // The `Let`s between the lambdas and the call are the ordinary
+            // beta-reduction bindings EVERY inline splice leaves — hence the search for
+            // the call rather than a match on the lambda's immediate body. This row pins
+            // the *front-end* shape; the generic end-to-end runtime run is gated by
+            // ClassTests "gapA+B: generic own-op List.fold inside a generic member body".
             yield
-                test "a generic own-class static-operator value froze to a Lambda calling op_Addition" {
+                test "a generic own-class static-operator value dispatches to its own op_Addition" {
                     // The default contract stack carries the SRTP `(+)`, so the
                     // operator unifies with `V<int>` rather than forcing `int`.
                     let src =
@@ -268,19 +277,26 @@ let tests =
 
                     match addBinding with
                     | Some(TExpr.Lambda(_, TExpr.Lambda(_, body, _, _), _, _)) ->
-                        match body with
-                        | TExpr.StaticMethodCall(SymbolKey.MemberKey(_, "op_Addition", _, _), args, _, _) ->
-                            Expect.equal
-                                (EqArray.toList args |> List.length)
-                                2
-                                "op_Addition is applied to both eta params"
-                        | other -> failtestf "expected StaticMethodCall(op_Addition, …), got %A" other
+                        let ownOpCallArities = ResizeArray<int>()
+
+                        let it =
+                            { TastWalk.identityIter with
+                                VisitExpr =
+                                    fun _ e ->
+                                        match e with
+                                        | TExpr.StaticMethodCall(SymbolKey.MemberKey(_, "op_Addition", _, _), args, _, _) ->
+                                            ownOpCallArities.Add args.Length
+                                        | _ -> ()
+
+                                        true
+                            }
+
+                        TastWalk.iterExpr it body
+
+                        Expect.equal
+                            (List.ofSeq ownOpCallArities)
+                            [ 2 ]
+                            (sprintf "the eta'd body calls V's own op_Addition on both params, got %A" body)
                     | other -> failtestf "expected a curried Lambda eta-expansion, got %A" other
                 }
-
-        // `Unification.resolveOperatorValues` scans *every* operand for the
-        // declaring nominal (F#'s `(^T1 or ^T2)` rule), not just the first.
-        // Right-operand-only dispatch does not resolve yet (see that function's TODO),
-        // so all-operand scanning stays observationally equivalent to first-operand; the
-        // two tests above (both homogeneous) are the live coverage.
         ]

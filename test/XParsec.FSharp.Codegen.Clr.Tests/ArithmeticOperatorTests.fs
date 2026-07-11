@@ -368,4 +368,24 @@ let tests =
                              "    member this.Plus (other: Box<'T>) = this.V + other.V"
                          ])
              }
+
+             // The diagnostic is owed by EVERY expansion path, not just the external one.
+             // A user-written SRTP trait call is ordinary source (`pStaticMemberInvocation`
+             // is an alternative of `pParen`, ungated), so a LOCAL `let inline` can carry
+             // one — and a local inline is spliced by the same pass through the same
+             // `Inline.inlineExpand`. When the receiver is a primitive it cannot dispatch,
+             // and the surviving `TraitCall` has no arm in EITHER backend: unreported, it
+             // is an emitter `failwithf`, not a compile error. So the report lives in the
+             // one expansion entry point every path goes through.
+             test "an unresolvable trait call in a LOCAL inline diagnoses (it does not crash the emitter)" {
+                 failsWith
+                     "The type 'decimal' does not support the operator '+'"
+                     (String.concat
+                         "\n"
+                         [
+                             "let inline plus (a: ^T) (b: ^T) : ^T = ((^T or ^T): (static member (+): ^T * ^T -> ^T) (a, b))"
+                             "let z = plus 1.5M 2.5M"
+                             "ignore z"
+                         ])
+             }
          ])

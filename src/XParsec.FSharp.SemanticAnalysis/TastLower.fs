@@ -651,92 +651,35 @@ module TastLower =
             ResultTy = resultTy
         }
 
-    let private isFunTy (t: FrozenType) : bool =
-        match t with
-        | FTFun _ -> true
-        | _ -> false
-
-    /// Lower a decl list into a closure-bearing, External-value-free tree. After
-    /// this, every `TExprG.Lambda` is a function value and every `External` is
-    /// either a call head or has non-function type.
+    /// Lower a decl list into a closure-bearing tree. Every `TExprG.Lambda` is a
+    /// function value and every `External` is a call head or has non-function type —
+    /// but that is now an INPUT invariant, not something this establishes.
     ///
-    /// Inline expansion (local + cross-package `let inline` splicing, beta
-    /// reduction, `StaticOptimization` resolution) is no longer done here: it ran
-    /// pre-freeze in `Passes.InlineExpansion`, so the
-    /// frozen decls reaching codegen carry no `External(inlineName)` call heads and
-    /// no `StaticOptimization` nodes. Inline TEMPLATES (`TDeclG.Let(isInline)`) are
-    /// still dropped here. What remains codegen-only is eta-reifying an `External`
-    /// function VALUE into a closure — it must run after the front end, where closures
-    /// are a codegen concept.
+    /// Nothing operator- or inline-shaped survives to here. `Passes.InlineExpansion`
+    /// splices every `let inline` body (local and cross-package) by `SymbolKey`,
+    /// beta-reduces it, resolves its `StaticOptimization` clauses, and eta-reifies
+    /// every `External` used as a VALUE — including inside member bodies, which this
+    /// lowering never walks. So the frozen decls arriving here carry no inline call
+    /// heads, no `StaticOptimization` nodes, and no `External` function values.
     ///
-    /// That eta only ever sees an external with NO inline body (`List.fold` passed as
-    /// a value). An inline-bodied one (`(+)` in `List.fold (+) 0 xs`) is eta-reified
-    /// pre-freeze by `Passes.InlineExpansion`, which then splices the body into the
-    /// `App` its own eta minted — reifying it here instead would mint that `App` past
-    /// the last point its body can be reached, leaving codegen an operator it has no
-    /// way to finish.
+    /// What is left is the flattening: drop inline TEMPLATES
+    /// (`TDeclG.Let(isInline)`) and `type` decls (emitted as metadata), and split a
+    /// nested `let` chain into a flat top-level decl list.
     let lower (decls: EqArray<Frozen.TDecl>) : Frozen.TDecl list =
-        // Build-wide monotone counter for eta parameters, so independent
-        // eta-reifications never share a NodeKey.
-        let mutable counter = 0
-
-        let mint () =
-            let k = NodeKey.ofSynthetic counter NodeKind.SynthInlineExpansion
-            counter <- counter + 1
-            k
-
-        // Eta-reify `External(name, a -> … -> r)` used as a value into
-        // `fun p0 -> … -> name p0 …`, turning a function name into a closure.
-        // `tok` is the source `External` value node's token; every synthesised
-        // wrapper (params, applications, lambdas) inherits it.
-        let etaExpand (name: string) (key: SymbolKey voption) (ty: FrozenType) (tok: SyntaxToken) : Frozen.TExpr =
-            let rec arrows t =
-                match t with
-                | FTFun(a, b) ->
-                    let ps, r = arrows b
-                    (a :: ps), r
-                | _ -> [], t
-
-            let paramTys, retTy = arrows ty
-            let kts = paramTys |> List.map (fun pty -> mint (), pty)
-
-            let rec applyAll acc accTy ks =
-                match ks, accTy with
-                | [], _ -> acc
-                | (k, pty) :: rest, FTFun(_, resTy) ->
-                    applyAll (TExprG.App(acc, TExprG.Var(k, pty, tok), resTy, tok)) resTy rest
-                | _ -> failwith "Emit: eta-reification arity mismatch"
-
-            // Preserve the source node's resolved `SymbolKey` on the reified call head:
-            // a bare external-function VALUE (`let f = mitt`) is the one site that reifies
-            // a function name into a closure, and the backend's import/member-ref lowering
-            // keys off this — dropping it (the former `ValueNone`) left the value with no
-            // home origin (`addRef` failed on `ValueKey(None, …)`).
-            let appBody = applyAll (TExprG.External(name, key, ty, tok)) ty kts
-
-            kts
-            |> List.foldBack (fun (k, pty) (innerBody, innerTy) ->
-                let lamTy = FTFun(pty, innerTy)
-                TExprG.Lambda(TPatG.NamedSimple(k, pty, tok), innerBody, lamTy, tok), lamTy
-            )
-            <| (appBody, retTy)
-            |> fst
-
         let rec lowerExpr (e: Frozen.TExpr) : Frozen.TExpr =
             match e with
             | TExprG.App _ ->
                 let head, spineArgs = TastWalk.collectSpine [] e
 
-                // An `External` head is a recipe / built-in-operator call, so it
-                // stays in call position and is not eta-reified; the args are
-                // values. The inline pass already expanded any spliceable head.
+                // An `External` head is a recipe call: it stays in call position (the
+                // inline pass already spliced any head that had a body), and only the
+                // args are lowered.
                 let head' =
                     match head with
                     | TExprG.External _ -> head
                     | _ -> lowerExpr head
 
                 TastWalk.rebuildApp head' [ for (a, t, tk) in spineArgs -> lowerExpr a, t, tk ]
-            | TExprG.External(name, key, ty, tok) when isFunTy ty -> etaExpand name key ty tok
             | _ -> mapChildren lowerExpr e
 
         // Split a folded top-level statement sequence back into standalone decls

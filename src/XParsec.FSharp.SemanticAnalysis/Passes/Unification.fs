@@ -1307,87 +1307,6 @@ module Unification =
                 | TyUnion(_, args) when args.Length = 1 -> unify ctx key args.[0] elemTy
                 | _ -> ()
 
-    /// Bind each operator-as-value site (`(+)` in `Seq.fold (+) …`) to a
-    /// project-local static-operator member, after the whole file is typed so every
-    /// operand is ground. F# resolves an operator *value* to the operand type's own
-    /// `static member (+)`, not the built-in arithmetic operator; the node was typed
-    /// with the built-in scheme, so re-decide here by scanning the now-zonked operand
-    /// types. The *first* operand (left-to-right) whose type is a project-local
-    /// nominal declaring a static member with the operator's compiled name wins
-    /// (F#'s left bias) — checking every operand, not just the first, is what lets the
-    /// member be declared on the type of *any* operand (`static member (+) (i: int, s: Set)`
-    /// resolves on the right). The verdict (the declaring type's key) is recorded for
-    /// `Freeze.translateIdent`, which eta-expands the value into a closure calling the
-    /// member; no hit ⇒ the built-in / `External` value path is left untouched.
-    ///
-    /// TODO(right-operand SRTP dispatch): scanning every operand is the correct
-    /// F# rule (`(+): ^T1 -> ^T2 -> ^T3 when (^T1 or ^T2): static member (+)`), but only
-    /// the LEFT half of it is observable. `ops-platform.fs`'s body now carries the same
-    /// three typars its `.fsi` does, so a heterogeneous operator whose declaring nominal
-    /// is the LEFT operand (`Vec2 * float -> Vec2`) types, splices, and emits. A member
-    /// declared only on the RIGHT operand (`static member (+) (i: int, v: Vector)`) still
-    /// does not resolve: `TExpr.TraitCall` carries ONE receiver (the left operand), so the
-    /// `(^T1 or ^T2)` support set is searched left-only, and the `default ^T1: ^T3` /
-    /// `default ^T2: ^T3` chain (`InferGeneralize.applyDefaults`) then fuses what the
-    /// trait bound did not pin — so `int * Vector` errors `int vs Vector` at unification
-    /// rather than dispatching. The exemplar to support is fully-generic mixed-type
-    /// SRTP inlining, e.g. `let inline lerp c p t = t * c + p * (GenericOne - c)`
-    /// instantiated at `lerp 0.1f Vector2.Zero Vector2.One` (so `*` is `float32 * Vector2`,
-    /// resolved via `Vector2`'s `op_Multiply`). Carrying a candidate SET on `TraitCall`
-    /// is what buys that; this scan needs no change — the member already resolves off
-    /// whichever operand declares it.
-    let private resolveOperatorValues (ctx: PassContext) : unit =
-        // The static-operator member declared on the project-local nominal the
-        // operand's `TyClass`/`TyUnion` key identifies — returns the declaring type's
-        // `Key`. Resolved by the arity-qualified `SymbolKey` (`tryClassByKey`/
-        // `tryUnionByKey`), not the bare simple name: an arity-overloaded operand
-        // (`Foo`2`/`Foo`3`) has its bare alias withdrawn, so a `simpleName` lookup
-        // would miss — exactly how the F# compiler resolves an operator trait against
-        // the operand's entity (`TyconRef`), never its short name. Mirrors
-        // `Freeze.tryClassMemberByKey`; returns only what the verdict needs (Freeze
-        // re-forms the member key).
-        let tryOwnStaticOp (typeKey: SymbolKey) (opName: string) : SymbolKey voption =
-            let pick (key: SymbolKey) (members: TypeMemberInfo[]) =
-                if members |> Array.exists (fun m -> m.Name = opName && m.IsStatic) then
-                    ValueSome key
-                else
-                    ValueNone
-
-            match TypeRegistry.tryClassByKey ctx.Types typeKey with
-            | ValueSome info -> pick info.Key info.Members
-            | ValueNone ->
-                match TypeRegistry.tryUnionByKey ctx.Types typeKey with
-                | ValueSome info -> pick info.Key info.Members
-                | ValueNone -> ValueNone
-
-        // Peel the curried arrows to the list of operand (parameter) types; the
-        // trailing return type is not an operand and is dropped.
-        let rec operands (t: SemType) : SemType list =
-            match zonk t with
-            | TyFun(a, b) -> a :: operands b
-            | _ -> []
-
-        // `site.Name` is always a compiled `op_*` name — the site is enqueued only
-        // from `inferIdent`'s `SymbolicOp` leg, so a plain ident never reaches here.
-        for site in ctx.OperatorValueSites do
-            let declKey =
-                operands site.Ty
-                |> List.fold
-                    (fun acc operand ->
-                        match acc with
-                        | ValueSome _ -> acc
-                        | ValueNone ->
-                            match zonk operand with
-                            | TyClass(k, _)
-                            | TyUnion(k, _) -> tryOwnStaticOp k site.Name
-                            | _ -> ValueNone
-                    )
-                    ValueNone
-
-            match declKey with
-            | ValueSome dk -> ctx.Resolution.ResolvedOperatorValue.Set(site.Node, dk)
-            | ValueNone -> ()
-
     /// Enforce the semantic contract of a `Custom` equality / comparison posture
     /// on a class. Runs AFTER `walkElems` so every
     /// `InterfaceImpls[].Resolved` has been stamped by `resolveInterfaceImpls`.
@@ -1500,5 +1419,4 @@ module Unification =
         // `OpenScope` the walk mutates).
         walkElems ctx (CstWalk.walkModuleTree ctx.NameOf ctx.Resolution.AmbientOpenScope file)
         resolveListLiterals ctx
-        resolveOperatorValues ctx
         validateCustomEqCompImpls ctx

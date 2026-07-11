@@ -42,19 +42,21 @@ module internal FreezeIdents =
                     | ValueNone -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
                 | _ -> ctx.NameOf(CstKeys.firstTokenOfExpr e)
 
-            // An own-class static-operator member used by value (`Set.(+)`) resolves
-            // to that member, not the built-in operator: eta-expand to a closure
-            // calling it, ahead of the generic `External` value path.
-            match tryOwnOperatorValue ctx key name ty with
-            | ValueSome lam -> lam
-            | ValueNone ->
-                // Stamp the resolved `SymbolKey.ValueKey` when NameResolution recorded
-                // one (provider hit). Lets codegen distinguish a canonical
-                // `Vesper.Printf.printfn` from a user shadow `MyMod.printfn` by
-                // identity rather than name suffix.
-                let symKey = ctx.Resolution.ExternalValue.TryGetValue key
+            // Stamp the resolved `SymbolKey.ValueKey` when NameResolution recorded
+            // one (provider hit). Lets codegen distinguish a canonical
+            // `Vesper.Printf.printfn` from a user shadow `MyMod.printfn` by
+            // identity rather than name suffix.
+            //
+            // An operator used by value (`Set.(+)`) is NOT special-cased here. It
+            // freezes to a plain keyed `External` like any other value reference, and
+            // `Passes.InlineExpansion` eta-reifies it and splices the operator's
+            // contract body — whose SRTP trait-call base dispatches to the operand
+            // type's own `static member (+)` when the operand is a nominal. The
+            // type-directed decision lives in that trait call, so Freeze does not need
+            // a second, hand-rolled eta to make it.
+            let symKey = ctx.Resolution.ExternalValue.TryGetValue key
 
-                TExpr.External(name, symKey, ty, tok)
+            TExpr.External(name, symKey, ty, tok)
 
     /// Fold a multi-segment `r.X.Y…` LongIdent into nested `FieldGet` nodes. The
     /// head segment's TAST node is a `Var` pointing back at the local binding.

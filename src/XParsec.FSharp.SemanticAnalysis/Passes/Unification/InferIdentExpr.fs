@@ -25,9 +25,16 @@ module internal UnificationInferIdentExpr =
         // parser rides these inside a single `Expr.LongIdentOrOp` rather
         // than emitting `Expr.DotLookup`.
         match e with
-        // `(+)` used as a value: resolve the operator's compiled name through
-        // the provider, instantiating its scheme like any external symbol.
-        // Freeze projects this to `External("op_Addition", …)`.
+        // `(+)` used as a value: resolve the operator's compiled name through the
+        // provider and instantiate its scheme like any other external symbol. Freeze
+        // projects this to `External("op_Addition", …)`, and `Passes.InlineExpansion`
+        // eta-reifies that into `fun a b -> (+) a b` and splices the operator's contract
+        // body at the call head it minted — which is what binds the value to a
+        // project-local nominal's OWN `static member (+)` when that is what the operands
+        // are: the body's static-opt base is an SRTP trait call, and a nominal receiver
+        // dispatches to its member. Nothing type-directed is needed HERE; the trait call
+        // in the contract body already IS the type-directed decision, made once the
+        // operands are ground.
         | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) ->
             match Desugar.symbolicOpCompiledName op.Token with
             | ValueSome name ->
@@ -35,17 +42,7 @@ module internal UnificationInferIdentExpr =
                 // ambient-prelude leg included) and stamped its `ExternalSymbol` here;
                 // instantiate the scheme by key rather than re-resolving.
                 match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
-                | ValueSome sym ->
-                    let ty = ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel
-                    // The provider hands back the *built-in* operator scheme. If the
-                    // operands turn out to be a project-local nominal with its own
-                    // `static member (+)`, F# binds the value to that member instead —
-                    // a type-directed decision we can't make until every operand is
-                    // ground, so enqueue the node for `resolveOperatorValues` to settle
-                    // post-walk (it scans all operands; `ty`'s TyVars zonk to the
-                    // operand types once the consuming context has unified them).
-                    ctx.OperatorValueSites.Add { Node = key; Name = name; Ty = ty }
-                    ty
+                | ValueSome sym -> ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel
                 | ValueNone -> errorTy ctx key (sprintf "Operator '%s' is not available from the symbol provider" name)
             | ValueNone -> TyVar(freshTyVar ctx)
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
