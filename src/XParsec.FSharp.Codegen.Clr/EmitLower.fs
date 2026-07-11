@@ -28,14 +28,17 @@ module EmitLower =
     /// codegen owns no per-operator dispatch. Bodies are monomorphic at the
     /// use-site type (primitive clauses share an opcode; no `when ^T : …`).
     ///
-    /// DELETE-WHEN-COMPLETE: operator `.fs` bodies in `ops-platform.fs` win on the
-    /// primary path — `Passes.InlineExpansion` splices the contract body at EVERY
-    /// saturated use site, ground or not (an un-ground `^T` selects no primitive
-    /// clause and falls to the body's safe generic base). The one residue left is the
-    /// eta-reified operator VALUE (`List.fold (+) 0 xs`): eta runs post-freeze in
-    /// `TastLower.lower`, minting a saturated `App` the inline pass can no longer see,
-    /// so this table still collapses it — by name, to a monomorphic opcode. Moving eta
-    /// of an inline external pre-freeze retires the table.
+    /// DELETE-WHEN-COMPLETE: this table now has NO known reachable consumer.
+    /// `Passes.InlineExpansion` splices the contract body at EVERY saturated use site,
+    /// ground or not (an un-ground `^T` selects no primitive clause and falls to the
+    /// body's safe generic base), AND eta-reifies an inline-bodied operator VALUE
+    /// (`List.fold (+) 0 xs`) pre-freeze so the `App` its eta mints is spliced too. The
+    /// eta left in `TastLower.lower` only ever sees a NON-inline external
+    /// (`List.fold` itself as a value), whose name is not in this table.
+    ///
+    /// It is kept only until the operator bodies stop relying on inline IL in their
+    /// static-optimization BASE (the arithmetic inversion), which is what makes the
+    /// removal provably behaviour-neutral rather than merely test-green.
     module private BuiltinOps =
 
         let private ilBin (op: string) : EqArray<Frozen.TExpr> -> FrozenType -> SyntaxToken -> Frozen.TExpr =

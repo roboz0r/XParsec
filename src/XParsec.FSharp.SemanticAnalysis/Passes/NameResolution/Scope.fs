@@ -74,6 +74,21 @@ module NameResolutionScope =
             | ValueNone -> bareCaseNamespaceOpen ctx.Resolution.OpenScope uc
         )
 
+    /// Resolve an external VALUE reference and stamp both channels — the `SymbolKey`
+    /// (`ExternalValue`, which Freeze reads to key the `TExpr.External`) and the whole
+    /// symbol (`ExternalSymbolStamp`, which Unification reads to instantiate the scheme
+    /// by key). Both or neither: a value ref carrying only the symbol freezes to a
+    /// keyless `External`, which `InlineExpansion` cannot reach — it addresses contract
+    /// bodies by key — so the value silently loses its inline body. `false` on a miss;
+    /// each caller decides whether that is an error or a deferral to a later pass.
+    let private tryStampExternalValue (ctx: PassContext) (key: NodeKey) (name: string) : bool =
+        match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Resolver.TryLookup name with
+        | ValueSome sym ->
+            ctx.Resolution.ExternalValue.Set(key, sym.Key)
+            ctx.Resolution.ExternalSymbolStamp.Set(key, sym)
+            true
+        | ValueNone -> false
+
     /// True if the *bare* (unqualified) `name` resolves to an external union case
     /// whose declaring union is NOT `[<RequireQualifiedAccess>]`. An RQA union's
     /// cases are reachable only through the qualified form (`Color.Red`), so a bare
@@ -115,15 +130,7 @@ module NameResolutionScope =
                 }
             )
         | ValueNone ->
-            // `tryResolve` returns the ExternalSymbol, so its SymbolKey.ValueKey
-            // is captured for Freeze to stamp onto TExpr.External, and the
-            // whole symbol for Unification to instantiate its scheme by key
-            // (`ExternalSymbolStamp`) instead of re-resolving the spelling.
-            match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Resolver.TryLookup name with
-            | ValueSome sym ->
-                ctx.Resolution.ExternalValue.Set(useKey, sym.Key)
-                ctx.Resolution.ExternalSymbolStamp.Set(useKey, sym)
-            | ValueNone ->
+            if not (tryStampExternalValue ctx useKey name) then
                 // A bare external union case (`None` / `Some`) used in expression
                 // position: stamp the resolved identity so Unification's
                 // `tryExternalCtorType` and Freeze's `tryCtorRef` read it by key
@@ -496,11 +503,7 @@ module NameResolutionScope =
                 let resolveQualifiedExternal () =
                     let qualName = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
 
-                    match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Resolver.TryLookup qualName with
-                    | ValueSome sym ->
-                        ctx.Resolution.ExternalValue.Set(CstKeys.ofExpr e, sym.Key)
-                        ctx.Resolution.ExternalSymbolStamp.Set(CstKeys.ofExpr e, sym)
-                    | ValueNone ->
+                    if not (tryStampExternalValue ctx (CstKeys.ofExpr e) qualName) then
                         // `Result2.Ok` — two-segment qualified ctor; resolves through
                         // ctx.Types.Union, suppress so Unification picks it up.
                         let isQualifiedCtor =
@@ -696,13 +699,12 @@ module NameResolutionScope =
         | Expr.LongIdentOrOp(LongIdentOrOp.Op(IdentOrOp.ParenOp(opName = OpName.SymbolicOp op))) when
             (Desugar.symbolicOpCompiledName op.Token |> ValueOption.isSome)
             ->
-            // `(+)` and friends used as a value: resolve the operator's compiled name
-            // through the provider ONCE here and stamp its symbol so Unification
-            // (`inferIdent`'s operator-value arm) instantiates the scheme by key. A
-            // miss is not an unresolved-name error at this layer (the operator-value
-            // arm reports it), so no diagnostic — just no stamp.
+            // `(+)` and friends used as a value: an operator VALUE is a resolved
+            // external value ref like any other, so it stamps through the same channel
+            // pair. A miss is not an unresolved-name error at this layer (Unification's
+            // operator-value arm reports it), so no diagnostic — just no stamp.
             match Desugar.symbolicOpCompiledName op.Token with
-            | ValueSome name -> stampExternalSymbol ctx (CstKeys.ofExpr e) name
+            | ValueSome name -> tryStampExternalValue ctx (CstKeys.ofExpr e) name |> ignore
             | ValueNone -> ()
         | Expr.LongIdentOrOp(LongIdentOrOp.QualifiedOp(longIdent = li; op = idOp)) ->
             // `A.B.(+)` — a qualified operator reference. Translate the operator
@@ -714,11 +716,8 @@ module NameResolutionScope =
             // qualified form needs this translation.
             match OperatorNames.qualifiedOpName ctx.NameOf li idOp with
             | ValueSome qualName ->
-                match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Resolver.TryLookup qualName with
-                | ValueSome sym ->
-                    ctx.Resolution.ExternalValue.Set(CstKeys.ofExpr e, sym.Key)
-                    ctx.Resolution.ExternalSymbolStamp.Set(CstKeys.ofExpr e, sym)
-                | ValueNone -> ctx.Error(CstKeys.ofExpr e, sprintf "Unresolved qualified name: %s" qualName)
+                if not (tryStampExternalValue ctx (CstKeys.ofExpr e) qualName) then
+                    ctx.Error(CstKeys.ofExpr e, sprintf "Unresolved qualified name: %s" qualName)
             | ValueNone ->
                 // A non-symbolic op segment (active-pattern / nil / range) has no
                 // `op_` member to qualify — keep surfacing the gap.

@@ -177,16 +177,22 @@ let tests =
                             ])
                 }
 
-            // `(+)` resolves as a *value* — an `External op_Addition` the call site
-            // references — before eta-reification gives it nested `Vesper.Fun`
-            // closures (the runtime shape lives in `SelfHostTests`).
+            // `(+)` used as a VALUE is eta-reified by `Passes.InlineExpansion` and its
+            // contract body spliced into the `App` the eta minted — so what the binding
+            // holds is a two-lambda closure over the operator's body, not a bare
+            // `External op_Addition` leaf. The call site still references the binding
+            // (eta-reification is local to the operator reference); the runtime
+            // `Vesper.Fun` shape lives in `SelfHostTests`.
             yield
-                test "`let add = (+)` analyses clean to an External op_Addition value" {
+                test "`let add = (+)` analyses clean to an eta-reified closure over the operator body" {
                     let tast = analyse "let add = (+)\nprintfn \"%d\" (add 40 2)"
                     Expect.isEmpty tast.Diagnostics "no diagnostics — (+) resolves as a value"
 
                     match tast.Decls with
-                    | EqList [ TDecl.Let(TPat.NamedSimple(kAdd, _, _), TExpr.External("op_Addition", _, _, _), false, _)
+                    | EqList [ TDecl.Let(TPat.NamedSimple(kAdd, _, _),
+                                         TExpr.Lambda(_, TExpr.Lambda(_, _, _, _), _, _),
+                                         false,
+                                         _)
                                TDecl.Expression(TExpr.Format(FormatSink.ToStdOut true, segs, _, _), _) ] ->
                         match EqArray.toList segs with
                         | [ FormatSeg.Hole(_,

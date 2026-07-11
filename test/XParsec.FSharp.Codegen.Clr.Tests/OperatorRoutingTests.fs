@@ -22,6 +22,42 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // over a free method typar. The base is spliced UNCONDITIONALLY: an inline body is
 // never declined for un-ground operands, because the fallback that used to catch them
 // was a name-keyed reference `ceq`.
+//
+// An operator used as a VALUE (`List.fold (+) 0 xs`) is not an application, so
+// `InlineExpansion` eta-reifies it first (`fun x y -> x + y`) and splices the body into
+// the `App` its own eta minted. The assertions below pin that against the FROZEN decls
+// — i.e. before `Emit.lower` runs at all — so a `BuiltinOps` name-keyed collapse cannot
+// masquerade as the contract body.
+
+/// Every expression reachable from `e` (itself included) — so a test can assert what an
+/// operator lowered TO structurally, rather than string-matching a `%A` render.
+let private subExprs (e: Frozen.TExpr) : Frozen.TExpr list =
+    let acc = ResizeArray<Frozen.TExpr>()
+
+    let rec go (x: Frozen.TExpr) =
+        acc.Add x
+        TastLower.iterChildren go x
+
+    go e
+    List.ofSeq acc
+
+let private frozenExprs (decls: EqArray<Frozen.TDecl>) : Frozen.TExpr list =
+    [
+        for d in EqArray.toList decls do
+            match d with
+            | TDeclG.Let(_, value, _, _) -> yield! subExprs value
+            | TDeclG.Expression(e, _) -> yield! subExprs e
+            | TDeclG.Type _ -> ()
+    ]
+
+/// `e` contains the named inline-IL opcode anywhere below it.
+let private hasIlIntrinsic (op: string) (e: Frozen.TExpr) : bool =
+    subExprs e
+    |> List.exists (
+        function
+        | TExprG.ILIntrinsic(o, _, _, _, _) -> o = op
+        | _ -> false
+    )
 
 [<Tests>]
 let tests =
@@ -243,5 +279,95 @@ let tests =
                     (output.Replace("\r", "").Trim())
                     "side 41\nside 7\ndone"
                     "both ignore forms run the side effect and discard the int result"
+            }
+
+            test "an eta'd `(+)` splices the contract body PRE-freeze (a lambda over `add`, no External op_Addition)" {
+                // `List.fold (+) 0 xs` pins `(+)` to `int -> int -> int` from `0` and the
+                // element type, so `InlineExpansion`'s eta (`fun x y -> x + y`) grounds
+                // `^T := int`, the `when ^T : int` clause selects, and `(# "add" #)`
+                // survives. Asserted on the FROZEN decls — `Emit.lower`'s `BuiltinOps`
+                // has not run — so a surviving `External(op_Addition)` here would be the
+                // name-keyed collapse, not the contract body.
+                let tast = analyse "let xs = [1; 2; 3]\nprintfn \"%d\" (List.fold (+) 0 xs)"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let exprs = frozenExprs (Freeze.run tast).Decls
+
+                Expect.isFalse
+                    (exprs
+                     |> List.exists (
+                         function
+                         | TExprG.External("op_Addition", _, _, _) -> true
+                         | _ -> false
+                     ))
+                    "no `op_Addition` External survives the pre-freeze eta + splice"
+
+                // The spliced `add` must sit inside the eta'd closure — the folder value
+                // `List.fold` receives — not merely somewhere in the decl. (The inline
+                // body's own parameters survive as the `Let`s beta-reduction leaves, so
+                // the `add` is below the inner lambda, not directly its body.)
+                let addInLambda =
+                    exprs
+                    |> List.exists (
+                        function
+                        | TExprG.Lambda(_, (TExprG.Lambda _ as inner), _, _) -> hasIlIntrinsic "add" inner
+                        | _ -> false
+                    )
+
+                Expect.isTrue addInLambda "the eta'd `(+)` is a two-lambda closure over an `add` ILIntrinsic"
+            }
+
+            test "`List.fold (+) 0 [1; 2; 3]` runs to 6 through the eta'd contract body" {
+                runs "6" "printfn \"%d\" (List.fold (+) 0 [1; 2; 3])"
+            }
+
+            test "an eta-reachable `=` over a DU is STRUCTURAL (the comparer base, not a reference `ceq`)" {
+                // `(=) (Tag 1)` reaches `List.filter` as a function value; the operator's
+                // body is spliced with `^T := Tag`, which selects no primitive clause and
+                // falls to `EqualityComparer<Tag>.Default.Equals`. The list holds two
+                // DISTINCT heap instances equal to `Tag 1`, so a reference `ceq` (what
+                // `BuiltinOps` emitted for an operator value) would count 0.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Tag = Tag of int"
+                            "let xs = [Tag 1; Tag 2; Tag 1]"
+                            "printfn \"%d\" (List.length (List.filter ((=) (Tag 1)) xs))"
+                        ]
+
+                runs "2" src
+            }
+
+            test "the eta'd `(+)` compiles to an ordinary `Vesper.Fun` closure with `add` inlined into Invoke" {
+                // No new codegen mechanism: freeze hands `EmitClosures` a plain lambda,
+                // which closure-converts exactly as a hand-written `fun x y -> x + y`
+                // would — a curried `Vesper.Fun`2` pair whose innermost `Invoke` carries
+                // the spliced `add` opcode (CIL 0x58) directly, with no call out to an
+                // operator. A `BuiltinOps` collapse would have produced the same opcode,
+                // so the load-bearing half is the TAST assertion above; this pins that
+                // the pre-freeze eta did not cost the backend anything.
+                let _, artifact =
+                    compileSource "EtaClosureShape" "printfn \"%d\" (List.fold (+) 0 [1; 2; 3])"
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+
+                let invokesWithAdd =
+                    [
+                        for t in asm.GetTypes() do
+                            if t.GetInterfaces() |> Array.exists (fun i -> i.Name = "Fun`2") then
+                                match t.GetMethod "Invoke" with
+                                | null -> ()
+                                | m ->
+                                    match m.GetMethodBody() with
+                                    | null -> ()
+                                    | body ->
+                                        if body.GetILAsByteArray() |> Array.contains 0x58uy then
+                                            yield t.Name
+                    ]
+
+                Expect.isNonEmpty
+                    invokesWithAdd
+                    "a `Vesper.Fun` closure's Invoke carries the spliced `add` opcode inline"
             }
         ]

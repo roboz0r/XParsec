@@ -669,9 +669,14 @@ module TastLower =
     /// still dropped here. What remains codegen-only is (1) eta-reifying an
     /// `External` function VALUE into a closure (it must run after the front end,
     /// where closures are a codegen concept) and (2) the closing `finishOps` pass,
-    /// supplied by the backend, that finishes any saturated operators the inline
-    /// pass left un-ground (`13 &&& 11`, `a = b` with a generic operand) — for the
-    /// CLR that collapses to inline IL, for JS it keeps a template / `BinaryExpr`.
+    /// supplied by the backend.
+    ///
+    /// The eta here only ever sees an external with NO inline body (`List.fold`
+    /// passed as a value). An inline-bodied one (`(+)` in `List.fold (+) 0 xs`) is
+    /// eta-reified pre-freeze by `Passes.InlineExpansion`, which then splices the
+    /// body into the `App` its own eta minted — reifying it here instead would mint
+    /// that `App` past the last point its body can be reached, leaving nothing but a
+    /// name-keyed IL fallback to finish it.
     let lower (finishOps: Frozen.TExpr -> Frozen.TExpr) (decls: EqArray<Frozen.TDecl>) : Frozen.TDecl list =
         // Build-wide monotone counter for eta parameters, so independent
         // eta-reifications never share a NodeKey.

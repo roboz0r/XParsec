@@ -21,15 +21,13 @@ open XParsec.FSharp.SemanticAnalysis
 //   * inline TEMPLATES (`TDecl.Let(isInline = true)`) — codegen still drops
 //     them and `SymbolProviders.collectInlineBodies` extracts them raw, so the
 //     cross-package template-extraction path stays byte-identical;
-//   * eta-reification of `External` function VALUES — left to codegen;
-//   * `expandBuiltinOps` (operator → inline IL) — left to codegen, where it
-//     must run after eta anyway.
-// Beat (a) left type-member bodies to codegen's `NominalEmit` splice; beat (b)
-// relocates them here and deletes the codegen inline-expansion machinery
-// (`EmitLower.lowerWith`'s inline branches + `spliceExternalInlinesInExpr`),
-// keeping only eta + `expandBuiltinOps`.
+//   * eta-reification of a NON-inline `External` function VALUE (`List.fold`
+//     passed as a value) — left to codegen, where closures are a concept. An
+//     INLINE-bodied one (`List.fold (+) 0 xs`) is eta-reified HERE (see
+//     `etaReifyInline`), because only this pass can splice the saturated `App`
+//     the eta mints.
 //
-// 3A-3 (the inline-first soundness condition, beta-reduction half): a lambda
+// The inline-first soundness condition (beta-reduction half): a lambda
 // argument bound to an inline parameter and fully applied inside the body is
 // eliminated — its closure never exists (`reduceApplication` +
 // `nonInlinableLambdaParams` + the `lambdaEnv` splice). A lambda that is stored
@@ -325,6 +323,87 @@ module InlineExpansion =
                 match keyOpt with
                 | ValueSome key -> provider.TryLookupInlineBody key
                 | ValueNone -> ValueNone
+
+            // Eta-reify an `External` function VALUE whose body is an inline —
+            // `(+)` in `List.fold (+) 0 xs` — into `fun p0 p1 -> (+) p0 p1`, so
+            // the saturated `App` the eta mints is spliced by THIS pass's own `App`
+            // arm and the operator's `StaticOptimization` resolves against the
+            // context-pinned operand type. Codegen's post-freeze `TastLower.lower`
+            // still eta-reifies every OTHER external value (`List.fold` itself as a
+            // value), but an inline-bodied one reified there is past the point where
+            // its body can be reached, so the only thing left to finish it is a
+            // name-keyed IL fallback.
+            //
+            // Returns `ValueNone` when there is nothing to eta (`arity = 0`) — which
+            // is also what stops the walk recursing: the eta'd `App` re-presents the
+            // SAME `External` in call-head position, where the `App` arm claims it
+            // before this value-position arm can see it, and the arm can never fire
+            // on a zero-arity (non-function, or non-lambda-bodied) reference.
+            let etaReifyInline
+                (ib: InlineBody)
+                (name: string)
+                (keyOpt: SymbolKey voption)
+                (refTy: SemType)
+                (tok: SyntaxToken)
+                : TExpr voption =
+                let rec arrowCount (t: SemType) =
+                    match Unification.zonk t with
+                    | TyFun(_, r) -> 1 + arrowCount r
+                    | _ -> 0
+
+                // Eta to the LESSER of the reference's arrow count and the body's
+                // lambda arity: `reduceApplication` rejects an over-applied inline
+                // body, and a partial eta (`fun x -> f x` for a 2-arrow `f` whose
+                // body abstracts once) is still type-correct.
+                let bodyArity =
+                    match ib.Decl with
+                    | TDecl.Let(_, value, _, _) -> lambdaArity value
+                    | _ -> 0
+
+                let arity = min (arrowCount refTy) bodyArity
+
+                if arity = 0 then
+                    ValueNone
+                else
+                    let rec peelArrows n t =
+                        if n <= 0 then
+                            []
+                        else
+                            match Unification.zonk t with
+                            | TyFun(a, b) -> a :: peelArrows (n - 1) b
+                            | _ -> []
+
+                    let rec returnAfter n t =
+                        if n <= 0 then
+                            Unification.zonk t
+                        else
+                            match Unification.zonk t with
+                            | TyFun(_, b) -> returnAfter (n - 1) b
+                            | _ -> Unification.zonk t
+
+                    // Fresh binders come from the pass's own `mint`, so an eta site
+                    // can never alias the binders of the body about to be spliced
+                    // into it.
+                    let kts = peelArrows arity refTy |> List.map (fun pty -> mint (), pty)
+
+                    let rec applyAll acc accTy ks =
+                        match ks, accTy with
+                        | [], _ -> acc
+                        | (k, pty) :: rest, TyFun(_, resTy) ->
+                            applyAll (TExpr.App(acc, TExpr.Var(k, pty, tok), resTy, tok)) (Unification.zonk resTy) rest
+                        | _ -> failwith "InlineExpansion: eta-reification arity mismatch"
+
+                    let appBody =
+                        applyAll (TExpr.External(name, keyOpt, refTy, tok)) (Unification.zonk refTy) kts
+
+                    kts
+                    |> List.foldBack (fun (k, pty) (innerBody, innerTy) ->
+                        let lamTy = TyFun(pty, innerTy)
+                        TExpr.Lambda(TPat.NamedSimple(k, pty, tok), innerBody, lamTy, tok), lamTy
+                    )
+                    <| (appBody, returnAfter arity refTy)
+                    |> fst
+                    |> ValueSome
 
             let expandLocalAt (k: NodeKey) (spineArgs: (TExpr * SemType * SyntaxToken) list) : TExpr =
                 let decl = localInlines.[k]
@@ -624,18 +703,23 @@ module InlineExpansion =
                             // as an unbound `TyVar` ("unresolved TyVar" at freeze). A NON-generic
                             // one (`undefined`) is unchanged: `refTy` equals its concrete result
                             // type and it carries no operand.
-                            | TExpr.External(_, keyOpt, refTy, _) ->
+                            //
+                            // Any OTHER inline-bodied external in value position is a
+                            // function name used as a value (`List.fold (+) 0 xs`):
+                            // eta-reify it and walk the result, so the `App` arm above
+                            // splices the body at the freshly-minted call head.
+                            | TExpr.External(name, keyOpt, refTy, tok) ->
                                 match lookupExternal keyOpt with
                                 | ValueSome ib ->
                                     match Inline.nullaryIntrinsicValueBody ib.Decl with
-                                    | ValueSome(TExpr.ILIntrinsic(op, operand, args, _, tok)) ->
+                                    | ValueSome(TExpr.ILIntrinsic(op, operand, args, _, intrinsicTok)) ->
                                         let groundedOperand =
                                             match operand with
                                             | ValueSome _ -> ValueSome refTy
                                             | ValueNone -> ValueNone
 
-                                        ValueSome(TExpr.ILIntrinsic(op, groundedOperand, args, refTy, tok))
-                                    | other -> other
+                                        ValueSome(TExpr.ILIntrinsic(op, groundedOperand, args, refTy, intrinsicTok))
+                                    | _ -> etaReifyInline ib name keyOpt refTy tok |> ValueOption.map walk
                                 | ValueNone -> ValueNone
                             | _ -> ValueNone
                 }
