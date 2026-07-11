@@ -223,7 +223,7 @@ module internal UnificationInferResolve =
         | ValueNone -> ValueNone
 
     /// Static member access on an external type, recording the resolved member's
-    /// interned `SymbolKey` so Freeze stamps a `TExpr.ExternalMember`.
+    /// interned `SymbolKey` so Elaborate stamps a `TExpr.ExternalMember`.
     /// `typeArgs` instantiate the declaring type's
     /// typars, so `EqualityComparer<int>.Default` types as `EqualityComparer<int>`.
     /// `declTypeKey` is the declaring type's identity NameResolution resolved

@@ -788,7 +788,7 @@ let tests =
                     "7 and x"
             }
 
-            // Track D — `%a` / `%t` callback holes. Freeze lowers each callback hole to
+            // Track D — `%a` / `%t` callback holes. Elaborate lowers each callback hole to
             // an ordinary residue-*string* expr (the callback is a `Vesper.Fun`, applied
             // through the native path — no FSharp.Core): `sprintf` splices the callback's
             // returned string (`cb unit [value]`); the writer/builder families splice a
@@ -826,7 +826,7 @@ let tests =
             }
 
             test "`printf \"%a\"` (writer family) lowers to a ToStdOut Format; residue is the scratch block" {
-                // A writer-family `%a` residue is the capture-first block Freeze synthesises:
+                // A writer-family `%a` residue is the capture-first block Elaborate synthesises:
                 // `{ let s = new StringWriter() in …; s.ToString() }` — a `Let`.
                 match soleDecl "printf \"%a\" (fun (w: System.IO.TextWriter) (x: int) -> fprintf w \"%d\" x) 42" with
                 | TDecl.Expression(TExpr.Format(FormatSink.ToStdOut false, segs, _, _), _) ->

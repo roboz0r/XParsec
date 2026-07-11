@@ -20,7 +20,7 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 //
 // The `arity = 0` guard is load-bearing: the structural type constructors are
 // intrinsics too (`'T []`/`byref`, arity ≥ 1) and ship no per-target `(# … #)`
-// overlay (a JS array needs no repr string — `FreezeExpr` lowers `'T []` straight
+// overlay (a JS array needs no repr string — `ElaborateExpr` lowers `'T []` straight
 // to `FTConst("[]")`), so they too carry `platform = None`. But a generic intrinsic
 // is representable BY CONSTRUCTION — only its element type can be unrepresentable,
 // and the walker already recurses into a `TyConst`'s args, so `decimal[]` still
@@ -51,7 +51,7 @@ module PlatformTypes =
 
     /// Add every nominal name in `t` (and its type args) with no target representation
     /// to `acc`. `zonk` first so a `TyVar` linked to a concrete shape is resolved, the
-    /// same chase `Freeze` does before it lowers the type.
+    /// same chase `Elaborate` does before it lowers the type.
     let private addUnrepresentable (ctx: PassContext) (acc: HashSet<string>) (t: SemType) : unit =
         let rec go ty =
             match ty with

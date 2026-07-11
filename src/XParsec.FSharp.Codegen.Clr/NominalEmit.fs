@@ -637,7 +637,7 @@ module internal NominalEmit =
         let prepareMember (index: int) (isIfaceImpl: bool) (mem: Frozen.TTypeMember) =
             // A *generic* member. Both its declaring-type typars and its own
             // method typars now ride self-describing `TyTypar` nodes in the signature /
-            // locals / body (Freeze.remapMemberTypes remaps both axes), so no ambient
+            // locals / body (Elaborate.remapMemberTypes remaps both axes), so no ambient
             // typar window is installed; the encoder resolves them by
             // index. `methodTypars` still feeds the `GENERIC` header arity and the
             // `GenericParam` rows.
@@ -1023,7 +1023,7 @@ module internal NominalEmit =
         // synthesised structural-equality / comparison interfaces (unions /
         // records) and the user-declared `interface … with` impls,
         // classes). A generic interface arg (`IEnumerable<'T>`) carries its `'T`
-        // as a `FTTypar(Declaring, i)` (emitted by Freeze; `selfTyMarkers` for
+        // as a `FTTypar(Declaring, i)` (emitted by Elaborate; `selfTyMarkers` for
         // the synthesised interfaces), encoded `!i` straight off the node — no
         // ambient window. `TypeSpecOf` mints the user interfaces' handles.
         let interfaces =

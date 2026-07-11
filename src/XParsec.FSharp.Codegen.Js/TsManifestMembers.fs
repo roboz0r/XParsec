@@ -14,7 +14,7 @@ module internal TsManifestMembers =
     /// The count of TRAILING optional parameters (`readFile(path, cb, opts?)` ⇒ 1) a
     /// call may omit — carried onto the member's `OptionalDefaults` so the SHARED
     /// optional-fill seam (`InferExternalCall.tryFillOptionalCall`, which admits an
-    /// under-applied arity, and `FreezeExpr.optionalDefaultNode`, which synthesises the
+    /// under-applied arity, and `ElaborateExpr.optionalDefaultNode`, which synthesises the
     /// omitted slots) permits `api.readFile(path, cb)`. Each omitted slot is
     /// `TConstValue.Unit`, whose JS value repr IS `undefined` — the correct absence
     /// value for an omitted TS optional. (The `undefined` TYPE is a DISTINCT identity

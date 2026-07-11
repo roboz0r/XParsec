@@ -52,7 +52,7 @@ let tests =
 
             test "synthetic TAST with a free TyVar surfaces a diagnostic" {
                 // The validator runs against any TastFile, not just one
-                // produced by Freeze. Build a minimal pathological TAST by
+                // produced by Elaborate. Build a minimal pathological TAST by
                 // hand: a TDecl.Let whose pattern carries a fresh,
                 // unlinked TypeVar with no scheme registered for it.
                 let lexed, file = parseFile "let x = 1"

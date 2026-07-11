@@ -1,4 +1,4 @@
-module XParsec.FSharp.SemanticAnalysis.Tests.FreezeTests
+module XParsec.FSharp.SemanticAnalysis.Tests.ElaborateTests
 
 open Expecto
 open XParsec.FSharp.Lexer
@@ -17,7 +17,7 @@ let private declType (tast: TastFile) : SemType =
 [<Tests>]
 let tests =
     testList
-        "Freeze"
+        "Elaborate"
         [
             test "`let x = 1` -> single TDecl.Let with TConst Int 1" {
                 let tast = analyse "let x = 1"
@@ -196,7 +196,7 @@ let tests =
 
         ]
 
-// Every pass — not just Freeze — walks `namespace`-headed files, so
+// Every pass — not just Elaborate — walks `namespace`-headed files, so
 // declarations under a `namespace` are fully analysed (name-resolved,
 // inferred, frozen) exactly like a module file. Earlier, Desugar /
 // NameResolution / Unification / Regions / Validation dropped namespace
@@ -256,11 +256,11 @@ let namespaceTests =
             }
         ]
 
-// Every pass + Freeze descend into a nested `module Foo = …`. Its body is
+// Every pass + Elaborate descend into a nested `module Foo = …`. Its body is
 // flattened to the enclosing scope (v1 has no module-scoped types), the same
 // simplification `CstWalk.implFileElems` applies to namespace groups. Earlier
 // the analysis passes never descended into `ModuleElem.Module` (Validation
-// `failwith`'d on it) and Freeze dropped the body, so a `let` inside a nested
+// `failwith`'d on it) and Elaborate dropped the body, so a `let` inside a nested
 // module silently vanished.
 [<Tests>]
 let nestedModuleTests =
@@ -323,7 +323,7 @@ let nestedModuleTests =
 // `TDecl.Type` whose method signatures are read from the *resolved* member types
 // in `ctx.Types.Class` (NameResolution registers the abstract member; Unification
 // fills its signature), with the declaring typars remapped to the `TyConst("'A", EqArray.empty)`
-// markers the backend consumes. Freeze no longer re-translates the CST signature.
+// markers the backend consumes. Elaborate no longer re-translates the CST signature.
 [<Tests>]
 let interfaceTests =
     testList

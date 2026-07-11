@@ -6,9 +6,9 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
 
-// Constant / string-literal parsing primitives for the Freeze pass. No dependency
+// Constant / string-literal parsing primitives for the Elaborate pass. No dependency
 // on the recursive `translateExpr`; shared by the pattern projection
-// (`FreezePatterns`) and the expression projection (`FreezeExpr`).
+// (`ElaboratePatterns`) and the expression projection (`ElaborateExpr`).
 
 /// Why a constant literal names no `TConstValue` — the reasons a USER can actually cause,
 /// and so exactly the ones a consumer with a diagnostic channel must distinguish (`52I` is
@@ -28,12 +28,12 @@ type internal ConstRejection =
     /// unsigned `-1uy` the lexer's negative-literal merge forms.
     | OutOfRange
 
-module internal FreezeLiterals =
+module internal ElaborateLiterals =
 
     /// Backslash-escape and string-part folding moved to the shared
     /// `StringLiterals` module (ahead of the passes) so the enum-case reader in
     /// NameResolution shares the identical decoding; re-exported here under the
-    /// historical `FreezeLiterals` names the Freeze/Elaborate call sites still use.
+    /// `ElaborateLiterals` names this pass's call sites already use.
     let private decodeEscape = StringLiterals.decodeEscape
 
     /// A char literal that reaches here already lexed clean; decode its (possibly
@@ -46,7 +46,7 @@ module internal FreezeLiterals =
         elif inner.Length >= 2 && inner.[0] = '\\' then
             decodeEscape inner
         else
-            failwithf "Freeze.parseCharLiteral: unexpected char literal text %s" text
+            failwithf "Elaborate.parseCharLiteral: unexpected char literal text %s" text
 
     /// Total projection of a constant literal onto `TConstValue`. `Error` carries WHY there
     /// is no constant (`ConstRejection`) — never a truncation, and never merely "no", so a
@@ -84,7 +84,7 @@ module internal FreezeLiterals =
                 | Error NumericLiteralRejection.CustomLiteral -> Error ConstRejection.CustomLiteral
                 | Error NumericLiteralRejection.OutOfRange -> Error ConstRejection.OutOfRange
                 | Error NumericLiteralRejection.NotNumeric ->
-                    failwithf "Freeze.tryParseConst: %A is not a literal token" t.Token
+                    failwithf "Elaborate.tryParseConst: %A is not a literal token" t.Token
 
         match c with
         | Constant.Literal t -> parseLiteral t
@@ -99,7 +99,7 @@ module internal FreezeLiterals =
                 | Constant.Literal t
                 | Constant.MeasuredLiteral(value = t) -> t
 
-            failwithf "Freeze.parseConst: non-representable literal %A (%A) in constant position" t.Token reason
+            failwithf "Elaborate.parseConst: non-representable literal %A (%A) in constant position" t.Token reason
 
     /// Concatenate the literal text of every string part via `ctx.NameOf`,
     /// rendering an interpolation hole (`StringPart.Expr`) through `onHole`.

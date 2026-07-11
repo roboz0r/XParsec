@@ -134,7 +134,7 @@ module UnificationInfer =
                 // Surface the unhandled case loudly rather than fabricating a
                 // free TyVar and silently producing a broken type for every
                 // use site. Matches the precedent in
-                // `Freeze.translateExpr` (file: Freeze.fs).
+                // `ElaborateExpr.translateExpr` (file: ElaborateExpr.fs).
                 failwithf "infer: TODO %A" e
 
         nodeTv.Link <- ValueSome inferredTy
@@ -151,7 +151,7 @@ module UnificationInfer =
     /// ref struct (it can't be boxed to the interface, so its own pattern `Dispose()` is
     /// called directly). `ValueNone` ⇒ not disposable. The interface key is the
     /// §5.0-resolved disposable identity (`ctx.CapabilityIds.Disposable`), NOT a
-    /// hardcoded `System.IDisposable` — so this `dispose` key crosses Freeze
+    /// hardcoded `System.IDisposable` — so this `dispose` key crosses Elaborate
     /// target-neutrally (each backend lowers it to its own slot: the CLR
     /// `IDisposable::Dispose`, the JS `Symbol.dispose`).
     and private tryExternalDispose
@@ -219,7 +219,7 @@ module UnificationInfer =
 
     /// The ref-struct carve-out: a `[<IsByRefLike>]` class can't be boxed to
     /// `IDisposable`, so a duck-typed pattern `Dispose()` is disposed by calling its
-    /// own method directly — recorded as a keyed member call so Freeze stamps
+    /// own method directly — recorded as a keyed member call so Elaborate stamps
     /// `dispose = ValueSome own-key` (each backend then calls the binder's own method,
     /// NOT the capability slot). Returns the own-`Dispose` member key when the class is
     /// byref-like and exposes such a member; `ValueNone` otherwise.
@@ -238,13 +238,13 @@ module UnificationInfer =
 
     /// Resolve the disposal target for one `use` binding. The §3b flip makes disposal
     /// INTERFACE-REQUIRED (real-F# parity): a *project-local* binder qualifies iff it
-    /// implements the `disposable` capability interface — recorded as nothing so Freeze
+    /// implements the `disposable` capability interface — recorded as nothing so Elaborate
     /// leaves `TExpr.Use.dispose = ValueNone` (each backend lowers to its own slot: the
     /// CLR `IDisposable::Dispose`, the JS `[Symbol.dispose]`). A `[<IsByRefLike>]` ref
     /// struct that can't implement the interface but exposes a pattern `Dispose` is the
     /// carve-out — its own method is recorded keyed (`ValueSome`). An *external* binder's
     /// keyed `Dispose` (interface, or an own-`Dispose` ref-struct fallback) is stashed in
-    /// `UseDispose` for Freeze. A binder that is none of these is a `use`-over-non-
+    /// `UseDispose` for Elaborate. A binder that is none of these is a `use`-over-non-
     /// disposable error; an unresolved binder type is left alone (pre-existing behaviour).
     and private resolveUseDispose (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
         match b.headPat with

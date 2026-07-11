@@ -23,7 +23,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // calls (e.g. `this.Source.GetEnumerator()`, `this.Source.MoveNext()`). Two fixes
 // made this work, both with isolation tests below:
 //   1. Front-end: a method call through a 3+-segment folded LongIdent chain is now
-//      recognised (`Resolve.(|ClassChainMethod|_|)` + the FreezeExpr `App` arms);
+//      recognised (`Resolve.(|ClassChainMethod|_|)` + the ElaborateExpr `App` arms);
 //      previously it mis-typed the trailing method as a property and lowered the
 //      call's `()` to a spurious `Vesper.Fun::Invoke`.
 //   2. Codegen: a struct-typed *field* receiver is addressed in place via `ldflda`
@@ -52,7 +52,7 @@ let structSeqTests =
             //      qualified key and `TyparInterfaceCall` is recorded (same side-table
             //      the local path uses) — so `f.Invoke x` no longer mis-resolves as a
             //      record FIELD get;
-            //   2. Freeze: unchanged — `mkInterfaceMethodCall` already mints the
+            //   2. Elaborate: unchanged — `mkInterfaceMethodCall` already mints the
             //      `CallVia.Interface` node off `TyparInterfaceCall`, and the external
             //      interface's `Invoke(int)` has a non-`obj` param so the empty local
             //      param model is correct (no spurious boxing);

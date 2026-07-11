@@ -395,7 +395,7 @@ let structTests =
 
             // An infix operator inside an `interface … with member …` body: desugar
             // must walk interface member bodies, not only the type's own members,
-            // or the operator gets no `DesugaredForm.OpName` entry and Freeze throws.
+            // or the operator gets no `DesugaredForm.OpName` entry and Elaborate throws.
             test "an infix operator inside a struct interface member resolves (SetIterator.MoveNext shape)" {
                 let _, artifact = compileSourceData "StructIfaceInfix"
 
@@ -479,7 +479,7 @@ let structTests =
             }
 
             // `ArrayPool<char>.Shared.Return` omits its optional `clearArray = false`
-            // trailing parameter. The provider surfaces `OptionalDefaults`; Freeze
+            // trailing parameter. The provider surfaces `OptionalDefaults`; Elaborate
             // synthesises the omitted constant so codegen sees the full call.
             test "ArrayPool<char>.Shared Rent + Return (omitted optional arg)" {
                 runsDataLines [ "ok" ] "arraypool-rent-return-optional-arg"
@@ -591,7 +591,7 @@ let structTests =
                 runsDataLines [ "abc"; "(x)" ] "chained-string-concat"
             }
 
-            // String escape sequences must decode to the char they denote: `FreezeLiterals`
+            // String escape sequences must decode to the char they denote: `ElaborateLiterals`
             // must not append the raw 2-char span verbatim.
             test "string literal escape sequences decode in the emitted value" {
                 runsDataLines [ "a"; "b"; "x\ty"; "q\"r" ] "string-escape-sequences"

@@ -739,7 +739,7 @@ let tests =
                 // its own UnclosedDelimiter diagnostic. The semantic-analysis
                 // backstop must surface the breakage on `ctx.Diagnostics` so
                 // downstream consumers that don't read the parser stream
-                // (Freeze, codegen) still see a problem.
+                // (Elaborate, codegen) still see a problem.
                 let ctx = analyse "let xs = [| 1; 2 ]"
 
                 let hasCloseDiag =

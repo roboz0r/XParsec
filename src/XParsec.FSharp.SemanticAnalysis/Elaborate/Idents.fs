@@ -3,14 +3,14 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
-open XParsec.FSharp.SemanticAnalysis.FreezeResolve
+open XParsec.FSharp.SemanticAnalysis.ElaborateResolve
 
-// Identifier and LongIdent-chain projection for the Freeze pass: a resolved
+// Identifier and LongIdent-chain projection for the Elaborate pass: a resolved
 // local becomes a `Var`, a provider hit an `External`, and a multi-segment
 // `r.X.Y` chain nested field/property reads. Pure leaves — nothing here
 // recurses into expression translation.
 
-module internal FreezeIdents =
+module internal ElaborateIdents =
 
     let translateIdent
         (ctx: PassContext)

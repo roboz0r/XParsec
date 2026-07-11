@@ -9,7 +9,8 @@ captures the requirements so the knowledge isn't lost.
 ## Clients (the algorithm is dual-/triple-useful)
 
 SCC detection was first identified as a potential optimisation for **region
-analysis** ([regions-plan](regions-plan.md)) and **closure optimisation**
+analysis** ([`Passes/Regions.fs`](../Passes/Regions.fs), whose solver runs a
+flat fixpoint loop today) and **closure optimisation**
 (mutually-recursive binding groups, [function-representation-plan](function-representation-plan.md)),
 and *then again* for **structural type hashing** in the TS-consumer provider
 ([codegen-js-symbol-provider-plan](codegen-js-symbol-provider-plan.md)). It is

@@ -59,7 +59,7 @@ module NameResolutionScope =
     /// once their union's namespace is opened/auto-opened. A qualified reference is NOT so
     /// gated (F# resolves `Union.Case` without the namespace opened). NameResolution — the
     /// one resolve-once layer — recognises the case HERE and stamps the resolved
-    /// identity; Unification and Freeze read the stamp rather than re-recognising from a
+    /// identity; Unification and Elaborate read the stamp rather than re-recognising from a
     /// spelling.
     let private tryExternalCase
         (ctx: PassContext)
@@ -133,7 +133,7 @@ module NameResolutionScope =
             if not (tryStampExternalValue ctx useKey name) then
                 // A bare external union case (`None` / `Some`) used in expression
                 // position: stamp the resolved identity so Unification's
-                // `tryExternalCtorType` and Freeze's `tryCtorRef` read it by key
+                // `tryExternalCtorType` and Elaborate's `tryCtorRef` read it by key
                 // instead of re-recognising `name` through the provider.
                 let bareCase = tryExternalCase ctx ValueNone name
 
@@ -173,7 +173,7 @@ module NameResolutionScope =
                 // type names used as static-access receivers resolve via the
                 // provider in Unification; an external union *case* (`Some` /
                 // `None`) resolves via the provider's reverse case index in
-                // Unification/Freeze, so it is
+                // Unification/Elaborate, so it is
                 // suppressed here the same way (it is ambient, like the `option`
                 // abbreviation, rather than open-gated in v1). Suppress the
                 // unresolved diagnostic for all four.
@@ -227,7 +227,7 @@ module NameResolutionScope =
     /// case (`isCtorName` on the last segment) AND the two-segment qualified-
     /// EXTERNAL case (`Color.Red`, `Result.Ok`) — the leg `isCtorName` alone
     /// misses, since a bare probe of an RQA case's short name is (correctly)
-    /// rejected. Mirrors the recognition InferPat / Freeze/Patterns apply, so a
+    /// rejected. Mirrors the recognition InferPat / Elaborate/Patterns apply, so a
     /// qualified external case's sub-patterns bind identically.
     let private isPatNamedCtorHead (ctx: PassContext) (li: LongIdent<SyntaxToken>) : bool =
         li.Idents.Length >= 1
@@ -304,7 +304,7 @@ module NameResolutionScope =
 
     /// Stamp every external union-case ctor head reachable in `p` with the resolved
     /// `ExternalUnionCase`, keyed by the head pattern's `CstKeys.ofPat` — the key
-    /// Unification's `InferPat` and Freeze's `translatePat` read. The traversal is
+    /// Unification's `InferPat` and Elaborate's `translatePat` read. The traversal is
     /// `CstWalk.iterPat` (exhaustive, so a new `Pat` case is loud there), which
     /// reaches EVERY sub-pattern, including the positions `bindingsOfPat` skips
     /// because they bind nothing (or-pattern alternatives `Some 1 | Some 2`, cons
@@ -469,7 +469,7 @@ module NameResolutionScope =
                 // it against the pre-pass `LocalModules` registry and record a
                 // use-site `Binding` entry pointing at the member's binding site —
                 // exactly the shape a single-ident local resolves to, so Unification
-                // (`inferIdentDefault` → `instantiateBinding`) and Freeze
+                // (`inferIdentDefault` → `instantiateBinding`) and Elaborate
                 // (`translateIdent` → `TExpr.Var`) treat it as an ordinary local
                 // reference. The module name is the second-to-last segment (handles
                 // the 2-segment `SetTree.add`).
@@ -545,7 +545,7 @@ module NameResolutionScope =
                         // provider's reverse index, so resolve it arity-free instead of
                         // probing the union type at a guessed arity. Mirrors the
                         // single-ident `TryLookupUnionCase` suppression and the local
-                        // `isQualifiedCtor` arm; Unification / Freeze resolve the case.
+                        // `isQualifiedCtor` arm; Unification / Elaborate resolve the case.
                         let isExternalQualifiedCase =
                             li.Idents.Length >= 2
                             && (ctx.Resolver.TryLookupUnionCase(ctx.NameOf li.Idents.[li.Idents.Length - 1])).IsSome
@@ -710,7 +710,7 @@ module NameResolutionScope =
             // `A.B.(+)` — a qualified operator reference. Translate the operator
             // segment to its compiled name (`(+)` → `op_Addition`) and route the
             // resulting `A.B.op_Addition` through the same `tryResolve` machinery a
-            // value long-ident uses; the resolved key is stamped for Freeze, exactly
+            // value long-ident uses; the resolved key is stamped for Elaborate, exactly
             // as the multi-segment `LongIdent` arm does.
             // The bare-operator form already resolves via the prelude; only the
             // qualified form needs this translation.
@@ -746,7 +746,7 @@ module NameResolutionScope =
             // resolves at the *exact* arity. The use-site key stamps `ResolvedType`
             // (any shape: it drives unresolved-name suppression, the generic ctor
             // path — where an abbreviation like `ResizeArray` stamps its OWN key and
-            // expands on read — and Freeze's class-ref verdict); a genuine CLASS
+            // expands on read — and Elaborate's class-ref verdict); a genuine CLASS
             // receiver additionally stamps the class-guaranteed
             // `ExternalStaticReceiver`, so the static-member reader
             // (`tryExternalTypeReceiver`) dispatches without a shape re-query at

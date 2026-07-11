@@ -3,13 +3,13 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
 
-// Pre:  Freeze has produced a `TastFile` (so the inline-expansion pass has run);
+// Pre:  Elaborate has produced a `TastFile` (so the inline-expansion pass has run);
 //       ctx.Bindings.Binding, ctx.Bindings.TypeVar populated.
 // Post: ctx.Bindings.Escape populated for every binding-site TypeVar that
 //       participated in the region graph; TypeVar.Region set on those TypeVars.
 //
 // Regions runs on the post-inline `TExpr` tree (after
-// `Freeze.run`, before `RefCellPromotion`) rather than the Desugared CST.
+// `Elaborate.run`, before `RefCellPromotion`) rather than the Desugared CST.
 // Inlining both removes closures (escape shrinks) and exposes new ones, so the
 // escape map must be computed on the tree codegen actually emits. The walk reads
 // each node's inline `.ty` and resolves a `TExpr.Var` to its binding region off
@@ -533,7 +533,12 @@ module Regions =
             inferRegion s ctx c |> ignore
             bodyR
         | TExpr.App _ ->
-            // The result region (if any) outlives the callee and every argument.
+            // The result region (if any) outlives the callee and every argument:
+            // absent an effect signature we must assume any callee returns its
+            // arguments, or values reachable through them. Deliberately coarse —
+            // per-function effect signatures would refine it (`'a -> 'a` captures
+            // nothing; `'a -> ('a -> 'b)` captures the argument), but that needs a
+            // way to carry effects on external symbols and inferred schemes.
             let head, args = TastWalk.collectSpine [] e
             joinArms s e [ yield inferRegion s ctx head; for (a, _, _) in args -> inferRegion s ctx a ] RegionId.Unknown
         | TExpr.MethodCall(recv, _, _, args, _, _) ->
@@ -653,9 +658,11 @@ module Regions =
 
             if isMutable then
                 // `let mutable x = rhs`: the cell is distinct from the rhs value.
-                // The cell outlives every value stored into it; the rhs lubs up
-                // to match if the cell is later classified wider. See
-                // Mutable cells need a separate region from the initial rhs value.
+                // One cell holds many values over its lifetime (`r <- (3, 4)`), so
+                // sharing a region with the initial rhs would claim "this region IS
+                // that tuple" and a later store would have to retroactively fold in.
+                // The cell outlives every value stored into it; each rhs lubs up to
+                // match if the cell is later classified wider.
                 let cell = freshCell s
                 s.Graph.AddEdge(rhsR, cell)
                 recordBindingRegion s ctx p cell

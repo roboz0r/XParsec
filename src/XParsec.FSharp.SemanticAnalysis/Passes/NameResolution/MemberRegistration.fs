@@ -144,7 +144,7 @@ module NameResolutionMemberRegistration =
     /// member-level generic params. In real F# `member s.Map f : Set<'U>` /
     /// `s.PartitionWith(p: 'T -> Choice<'T1,'T2>)` generalise `'U` / `'T1`,`'T2`
     /// as method generic parameters; registering them here lets the machinery
-    /// (inference scope seed + Freeze `GenericMethodParameters`) carry them through
+    /// (inference scope seed + Elaborate `GenericMethodParameters`) carry them through
     /// rather than the strict member scope diagnosing them as free. No off-the-shelf
     /// free-typar walker over `Type<SyntaxToken>` exists at this layer, so this
     /// small one walks only the structural cases that can carry a typar.
@@ -264,7 +264,7 @@ module NameResolutionMemberRegistration =
                 let cmi = addMember mName kind isStatic isOverride mKey
                 // A concrete generic method (`member this.Map<'C> …`) carries
                 // its own typars on the binding's `typarDefns`. Stamp prototype
-                // TyVars so Unification scopes the signature against them and Freeze
+                // TyVars so Unification scopes the signature against them and Elaborate
                 // surfaces them as GenericMethodParameters — mirroring the abstract
                 // path. A property's `typarDefns` is absent ⇒ empty.
                 //
@@ -305,7 +305,7 @@ module NameResolutionMemberRegistration =
                 let cmi =
                     addMember mName kind isStatic false (NodeKey.ofToken mTok NodeKind.PatIdent)
                 // The method's own `<'C, …>` typars get prototype TyVars so
-                // Unification scopes the signature against them and Freeze can
+                // Unification scopes the signature against them and Elaborate can
                 // surface them as GenericMethodParameters.
                 let explicit = memberTyparNames ctx tds
                 cmi.MethodTypeParams <- mkTypeParams explicit

@@ -3,7 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Lexer
 
 /// Target-neutral *semantic* model of a printf format hole — the single
-/// classification of a `FormatPlaceholder` every consumer shares: the Freeze
+/// classification of a `FormatPlaceholder` every consumer shares: the Elaborate
 /// lowering gate (does this hole lower to a structured `Format` node, or stay a
 /// generic printf call?) and both codegen backends.
 ///
@@ -11,7 +11,7 @@ open XParsec.FSharp.Lexer
 /// `tryClassify` makes — *is this specifier faithfully renderable as a structured
 /// format?* — is a statement about printf *meaning*, not about any one target.
 /// Both backends defer the same specifiers (`%a`/`%t`, the `%A` space flag, …), so
-/// the gate is shared, and `FreezeExpr` (upstream of every codegen assembly) must
+/// the gate is shared, and `ElaborateExpr` (upstream of every codegen assembly) must
 /// be able to consult it. The one genuinely target-specific projection — back to a
 /// *.NET format string* (`"x8"`, `"F2"`, `"+0;-0"`) — is a CLR dialect and lives
 /// only in `Codegen.Clr` (`ClrHoleFormat.toDotNetFormat`); no other backend ever

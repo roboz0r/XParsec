@@ -93,7 +93,7 @@ module EmitMember =
             recur env b receiver
 
         // The value→`obj` box for an `obj` parameter is now an explicit `Upcast`
-        // node synthesised at Freeze — codegen just pushes each argument.
+        // node synthesised at Elaborate — codegen just pushes each argument.
         for a in args do
             recur env b a
 
@@ -370,7 +370,7 @@ module EmitMember =
                         | many -> FTTuple(EqArray.ofList many)
 
                     env.Provider.ExternalMemberRef(key, false, true, FTFun(paramTy, ty))
-            // Obj-parameter boxes are explicit `Upcast` nodes from Freeze; push raw.
+            // Obj-parameter boxes are explicit `Upcast` nodes from Elaborate; push raw.
             for a in args do
                 recur env b a
 

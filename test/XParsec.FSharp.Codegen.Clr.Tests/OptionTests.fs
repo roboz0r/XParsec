@@ -221,7 +221,7 @@ let frontEndTests =
 // vesper-lib-test-plan Gap 2 **Layer B** — cross-package construction of an
 // external union's cases (`Some` / `None` from a referenced package, in scope via
 // `open Vesper`). The front end resolves the bare/qualified case name through the
-// provider's reverse case index and types it as a ctor; Freeze lowers the
+// provider's reverse case index and types it as a ctor; Elaborate lowers the
 // application to `TExpr.UnionCons`; the backend emits a `call` to the union's
 // emitted static case factory on the instantiated `TypeSpec`.
 //
@@ -295,11 +295,11 @@ let layerBRuntime =
 // external union's cases (`match o with Some x -> … | None -> …`). The front end
 // types the case pattern through the provider's reverse case index
 // (`tryExternalCasePattern`, unifying sub-patterns against the case's declared
-// field types); Freeze lowers it to `TPat.Union` exactly as the local arm does;
+// field types); Elaborate lowers it to `TPat.Union` exactly as the local arm does;
 // the backend reads `scrut._tag` against the case's declaration-order index and
 // `ldfld`s the `<case>_<i>` fields off the instantiated external `TypeSpec`
 // (`ExternalUnionTag` / `ExternalUnionCaseField` on the provider). This was the
-// doc's named gap #1 (`Freeze.translatePat: TODO Named`).
+// doc's named gap #1 (`Elaborate.translatePat: TODO Named`).
 [<Tests>]
 let layerCFrontEnd =
     testList
@@ -429,7 +429,7 @@ let layerDRuntime =
             // (the appearance-order typar collection must match the producer's). The
             // folder is written curried (`fun s -> fun x -> …`), not as a multi-arg
             // lambda (`fun s x -> …`): the latter parses to a lowercase-headed
-            // `Pat.Named` applicative pattern Freeze doesn't yet lower — a pre-existing
+            // `Pat.Named` applicative pattern Elaborate doesn't yet lower — a pre-existing
             // gap orthogonal to this layer.
             test "Option.fold accumulates over Some, returns state on None" {
                 runsOptionLines

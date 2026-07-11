@@ -1,7 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 /// The primitive `SemType`s the front end mints directly — the types literals and
-/// built-in constructs infer to (`Unification` / `Freeze`). Each is a `TyConst`
+/// built-in constructs infer to (`Unification` / `Elaborate`). Each is a `TyConst`
 /// over a `RuntimeNames` key, so identity is the key, never the spelling; codegen
 /// maps each key to its target representation via `IntrinsicRepr`.
 module BuiltinTypes =

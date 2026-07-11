@@ -187,7 +187,7 @@ All uncommitted. Keep as reference, then unwind:
   (`TyDynamic` subtype arms) — remove; `dynamic` has no special unify/subsume behaviour.
 - `InferRecordAccess.fs` — the `TyDynamic -> TyDynamic` field arm is already reverted;
   keep it reverted (`.foo` on `dynamic` errors).
-- `Infer.fs` / `FreezeExpr.fs` — the native `DynamicLookup → FieldGet` arms get replaced
+- `Infer.fs` / `ElaborateExpr.fs` — the native `DynamicLookup → FieldGet` arms get replaced
   by the `DynamicLookup → (?)`-call desugaring.
 - `ClrEncoder.fs` / `EmitResolve.fs` / `ExternalSymbols.argTypeName` / `Regions.fs`
   forced arms — drop (no DU case to match).

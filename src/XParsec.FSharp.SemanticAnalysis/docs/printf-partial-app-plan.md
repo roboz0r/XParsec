@@ -70,7 +70,7 @@ additive). Code is the source of truth — the anchors below are entry points, n
 Vesper handler. The happy-path gate (`Passes/Unification/InferApp.fs`, `tryInferPrintfApp`)
 marks for inline lowering only fully-applied literals (`idx = 0 && args.Length =
 specs.Length + 1 && lowerablePlaceholders`); an under-applied call is left unmarked, so
-`FreezeExpr.fs` keeps the `App printfn` intact and it lowers to
+`ElaborateExpr.fs` keeps the `App printfn` intact and it lowers to
 `Microsoft.FSharp.Core.PrintfModule`. Correct output, but it allocates the `PrintfFormat`
 object + closures the rest of `Vesper.Printf` is built to avoid.
 
@@ -227,7 +227,7 @@ through to FSharp.Core.
       `Fun`2`::Invoke` machinery (`emitInvoke`) — **no new representation analysis**. Drops the
       FSharp.Core `PrintfModule`/`PrintfFormat` path for these. Code: `PrintfSpec.hasConcreteArgType`,
       `SideTables.PrintfPartial`, the `InferApp.tryInferPrintfApp` under-applied marker,
-      `FreezeExpr.translatePrintfPartial`; tests in `PrintfPartialTests.fs`. Not zero-alloc (one
+      `ElaborateExpr.translatePrintfPartial`; tests in `PrintfPartialTests.fs`. Not zero-alloc (one
       closure object); that is 4c.
     - **4b — native breadth (its own sprint): close every remaining FSharp.Core cold-printf
       degradation.** Moved to **[printf-specifier-coverage-plan](printf-specifier-coverage-plan.md)**
@@ -243,7 +243,7 @@ through to FSharp.Core.
       slot — the free-standing-value-struct bridge + escape decision above. Covers `let p = … in
       p 3` and the `let f () = printf "%d %s %b"` / `let g d s b = f () d s b` return-crossing
       case (the `apply3` analogue). Within-chunk partials stay Phase B.
-- **Freeze:** `FreezeExpr.fs` currently diverts a marked happy-path call to a `TExpr.Format`
+- **Freeze:** `ElaborateExpr.fs` currently diverts a marked happy-path call to a `TExpr.Format`
   node. The partial case needs its own lowering — a value-struct closure of arity = hole count
   whose `Invoke`, given `h1..hn`, runs the same segment-unroll a `TExpr.Format` does.
 - **Invoke body = the `EmitFormat` unroll.** `Codegen.Clr/EmitFormat.fs` materialises the
@@ -282,7 +282,7 @@ flat-chunk loop, no flat→flat residual.
   (value-type base, param count, no box); an analogous `printf`-partial test is the step-4
   acceptance vehicle.
 - **Key source anchors:** gate = `Passes/Unification/InferApp.fs:tryInferPrintfApp`; arity seam
-  = `PrintfSpec.fs:argType`/`appliedTypeOf`; happy-path freeze = `FreezeExpr.fs` (`TExpr.Format`);
+  = `PrintfSpec.fs:argType`/`appliedTypeOf`; happy-path freeze = `ElaborateExpr.fs` (`TExpr.Format`);
   happy-path emit = `Codegen.Clr/EmitFormat.fs` + `ClrHoleFormat.fs`; the landed closure
   machinery = `Codegen.Clr/EmitClosures.fs` (`ExtraParams`, the peel) + `EmitTypes.fs`
   (`Emit.Closure`) + `ClrEnv.fs` (`flatFunEntity`) + the `…N` recipes in `ClrEncoder`/

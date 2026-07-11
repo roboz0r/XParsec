@@ -481,9 +481,9 @@ module EmitJsFormat =
         | [ FormatSegG.Lit s ] -> JsExpr.Literal(JsLiteral.String s, ValueNone)
         | [ FormatSegG.Hole(hole, operand) ] -> buildHole hole operand ValueNone ValueNone
         | [ FormatSegG.DynHole d ] -> buildHole d.Spec d.Value d.Width d.Precision
-        // `%a`/`%t`: Freeze lowered the callback to an ordinary residue-string expr; the
+        // `%a`/`%t`: Elaborate lowered the callback to an ordinary residue-string expr; the
         // splice is just that expr (on JS only `sprintf`'s `cb(undefined)[(v)]` reaches
-        // here — writer/builder `%a` diagnoses at the capability gate before Freeze).
+        // here — writer/builder `%a` diagnoses at the capability gate before Elaborate).
         | [ FormatSegG.CallbackHole(_, residue) ] -> buildExpr ctx residue
         | segs ->
             let pieces = ResizeArray<JsRawSeg>()

@@ -437,7 +437,7 @@ let enforcementTests =
 // (`Pipeline.analyseForSelfHost`), so the inferred order is genuinely inference's, not
 // a hand-built `FrozenType`. The canonical case is the plan's `<'b,'a>`-reorder: a
 // `.fs` that declares its typars in a different order than the `.fsi`'s appearance
-// order is the one species of drift this catches (see `FreezeTests`' "free function
+// order is the one species of drift this catches (see `ElaborateTests`' "free function
 // honours declared `<'b,'a>` typar order over appearance").
 
 /// A contract provider that publishes exactly `entries` (name → declared scheme) and

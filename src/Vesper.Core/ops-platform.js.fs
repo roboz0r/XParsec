@@ -304,7 +304,7 @@ module Operators =
     let inline int (value: ^T) : int = int32 value
 
     /// Indexed array read — desugaring target for `arr.[i]`. The `ldelem.any`
-    /// mnemonic is target-neutral (Freeze drops the element-type operand on JS); the
+    /// mnemonic is target-neutral (Elaborate drops the element-type operand on JS); the
     /// JS backend emits the computed member read `arr[i]`. Identical to the CLR body.
     let inline GetArray (array: 'T[]) (index: int) : 'T = (# "ldelem.any !0" type ('T) array index : 'T #)
 

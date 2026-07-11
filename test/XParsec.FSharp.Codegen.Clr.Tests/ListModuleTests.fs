@@ -131,7 +131,7 @@ let tests =
 // `Vesper.List` is in the default stack, so `runs` resolves `List.fold` + binds
 // `[…]` literals to the cons-list directly (no opt-in harness). The `(+)` operator
 // section is already proven by SelfHostTests' canonical sample; these add the
-// explicit folder lambda (curried — `fun s -> fun x -> …` — because Freeze does not
+// explicit folder lambda (curried — `fun s -> fun x -> …` — because Elaborate does not
 // lower the multi-arg `fun s x -> …` applicative pattern, the plan's known gap) and
 // the empty-list base case.
 

@@ -136,7 +136,7 @@ let tests =
             // A union case with an `obj` field constructed from a *value-type* argument.
             // Codegen could not box this
             // (the emitted case carries only field handles, not their types); the
-            // box is now an explicit `Upcast` synthesised at Freeze (which has the
+            // box is now an explicit `Upcast` synthesised at Elaborate (which has the
             // case field SemTypes), so the int reaches the `obj` field boxed and
             // unboxes back via `:?> int`. Without the box the field would hold a raw
             // value and the `unbox.any` would fault. Was the documented union-cons

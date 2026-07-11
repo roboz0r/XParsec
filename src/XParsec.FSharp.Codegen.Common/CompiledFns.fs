@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// returns each function's flat compiled signature (`CompiledForm`): the SOURCE arity
 /// groups (how many spine applications a saturated call collapses), the tuple-expanded
 /// / lone-unit-erased flat params, and the `void`-vs-value return — derived via the
-/// same `TastLower.peelValRepr` + `compiledOf` builders Freeze runs.
+/// same `TastLower.peelValRepr` + `compiledOf` builders Elaborate runs.
 ///
 /// The flat form is a function's ABI: a publicly reachable function ALWAYS exports it.
 /// A value-use / under-application is

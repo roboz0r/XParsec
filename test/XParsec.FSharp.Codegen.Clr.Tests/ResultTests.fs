@@ -223,7 +223,7 @@ let moduleCallRuntime =
             // `fold : ('State -> 'T -> 'State) -> 'State -> Result<'T,'TError> -> 'State`
             // — two state-bearing typars. The folder is written curried
             // (`fun s -> fun x -> …`): a multi-arg lambda (`fun s x -> …`) hits the
-            // pre-existing Freeze `Pat.Named` gap, orthogonal to this layer.
+            // pre-existing Elaborate `Pat.Named` gap, orthogonal to this layer.
             test "Result.fold accumulates over Ok, returns state on Error" {
                 runsResultLines
                     [ "13"; "3" ]

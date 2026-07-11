@@ -155,7 +155,7 @@ module internal UnificationInferExternalCall =
 
     /// Commit a call-site-resolved external overload (static or instance): record
     /// the chosen `SymbolKey` to `ExternalAccess` keyed on the member node where
-    /// Freeze reads it, freshen the member's method-owned typars (`Take<TSource>`)
+    /// Elaborate reads it, freshen the member's method-owned typars (`Take<TSource>`)
     /// via `ExternalSymbols.instantiateSignature` so the argument types drive their
     /// solution (a non-generic overload is unchanged), unify the signature against
     /// `argTy -> result`, and return the result type. Shared by the static and
@@ -348,7 +348,7 @@ module internal UnificationInferExternalCall =
     /// spurious arity mismatch. When the supplied arity sits between the member's
     /// required and full parameter counts, this unifies the supplied arguments against
     /// only the *leading* parameters and records the omitted constant defaults in
-    /// `ExternalOptionalFill` for Freeze to synthesise — leaving the head's own type
+    /// `ExternalOptionalFill` for Elaborate to synthesise — leaving the head's own type
     /// (and so the member-ref the backend recovers) at the full signature. Declines
     /// (so the ordinary path runs, unchanged) on every other shape, so it can only
     /// *admit* a call the old path rejected.
@@ -394,7 +394,7 @@ module internal UnificationInferExternalCall =
                             let resultTy = TyVar(freshTyVar ctx)
                             unifyAppliedSig ctx key (TyFun(argTy, resultTy)) (TyFun(tupleOrSingle ctx leading, ret))
                             // The omitted defaults are the last `fullCount - suppliedCount`
-                            // of the optional suffix; Freeze appends them.
+                            // of the optional suffix; Elaborate appends them.
                             let omitted = optDefaults |> List.skip (suppliedCount - requiredCount)
                             ctx.Resolution.ExternalOptionalFill.Set(fnKey, omitted)
                             ValueSome resultTy

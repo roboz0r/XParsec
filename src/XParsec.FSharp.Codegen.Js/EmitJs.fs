@@ -443,7 +443,7 @@ module EmitJs =
             let block = [ JsStatement.Const(name, buildExpr ctx value); tryFinally ]
             JsExpr.Call(JsExpr.Arrow([], JsFnBody.Block block, loc), [], loc)
 
-        // `e :> obj` (value→`obj` box, synthesised at Freeze for an `obj` parameter/field).
+        // `e :> obj` (value→`obj` box, synthesised at Elaborate for an `obj` parameter/field).
         // JS is dynamically typed — every value is already a boxed `obj` — so the box is a
         // no-op; emit the source verbatim. The downcast `e :?> T` is likewise identity (no
         // runtime nominal type to check).

@@ -297,7 +297,7 @@ type ICodegenProvider =
     /// multi-typar generic call can't recover its type arguments from the
     /// application's result alone (`printfn` reads the printer = result of `fnTy`;
     /// `List.fold` reads `'T` / `'State` from the folder parameter). `key` is
-    /// the resolved `SymbolKey.ValueKey` Freeze stamped onto the head
+    /// the resolved `SymbolKey.ValueKey` Elaborate stamped onto the head
     /// (`Resolution.ExternalValue`); the provider dispatches by *identity*
     /// when available — e.g. only the canonical `Vesper.Printf.printfn`
     /// trips the cold-printf recipe, never a project-local

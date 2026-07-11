@@ -5,17 +5,17 @@ open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
-open XParsec.FSharp.SemanticAnalysis.FreezeResolve
-open XParsec.FSharp.SemanticAnalysis.FreezePatterns
-open XParsec.FSharp.SemanticAnalysis.FreezeExprArgs
-open XParsec.FSharp.SemanticAnalysis.FreezeExpr
+open XParsec.FSharp.SemanticAnalysis.ElaborateResolve
+open XParsec.FSharp.SemanticAnalysis.ElaboratePatterns
+open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
+open XParsec.FSharp.SemanticAnalysis.ElaborateExpr
 
 // Type-declaration surfacing + the top-level `Elaborate.run` entry point: CST →
 // `TastFileG<SemType>`, inline-expanded, open typars quantified to `TyTypar` —
 // all still `SemType`. This is NOT the `SemType → FrozenType` freeze (that is the
 // `Freeze` module, the final pipeline step); renamed from `Freeze` to
 // retire that naming bug. The expression / pattern
-// projection lives in FreezeExpr (opened above).
+// projection lives in ElaborateExpr (opened above).
 //
 // Invariant: side tables can be discarded after this returns. The TAST is
 // sharable; the CST + side tables are scoped to one compilation.
@@ -1099,7 +1099,7 @@ module Elaborate =
             )
 
     /// Resolve one enum case's value `Expr` to a `TEnumLiteral` via the canonical
-    /// literal readers (`FreezeLiterals.parseConst` for a numeric / bool / char
+    /// literal readers (`ElaborateLiterals.parseConst` for a numeric / bool / char
     /// constant, `foldStringParts` for a string), classifying it as `Int` or
     /// `String`. A non-literal expression, an interpolated string, or a
     /// non-int-non-string constant (bool / char / float / decimal) is a hard
@@ -1127,7 +1127,7 @@ module Elaborate =
             // negative *unsigned* literal (`(-1uy)`/`(-1u)`) has no representation —
             // `tryParseConst` reports it as an `Error` (total; it no longer throws),
             // surfaced here as the hard error.
-            match FreezeLiterals.tryParseConst ctx c with
+            match ElaborateLiterals.tryParseConst ctx c with
             // Any integral width a CLR enum may be based on — `int` doubles as the
             // unsuffixed default, and the rest preserve the authored width for step 2.
             // `isEnumBase` excludes exactly the pointer pair; they fall to the error below.
@@ -1845,7 +1845,7 @@ module Elaborate =
             | ValueNone -> []
         | _ -> []
 
-    /// The first half of the split Freeze pass: translate
+    /// The first half of the split Elaborate pass: translate
     /// the CST to a `TExpr` tree whose `.ty` fields are zonk'd `SemType`, still
     /// `TyVar`-carrying (no `TyTypar`). Each decl is paired with the typar `env`
     /// it quantifies — the declaring / method / static-fn typar roots, collected at
@@ -1888,7 +1888,7 @@ module Elaborate =
             |> InlineExpansion.run ctx
             |> List.map (fun (d, env) -> freezeTypars env d)
 
-        // Freeze assumes well-typed input: it asserts its invariants with `failwith`
+        // Elaborate assumes well-typed input: it asserts its invariants with `failwith`
         // (it never diagnoses). Under an already-diagnosed type error — malformed
         // source (`let fmt : Format<int -> string> = "%d %s"`, an arity/type mismatch) —
         // an invariant may not hold, and a raw `failwith` would abort the whole

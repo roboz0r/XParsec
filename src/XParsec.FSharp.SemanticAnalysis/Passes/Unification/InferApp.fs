@@ -68,7 +68,7 @@ module internal UnificationInferApp =
             match resolveStep currTy with
             | TyFun(dom, cod) ->
                 // An argument lambda is usually parenthesised (`apply2 (fun … )`), so
-                // peel `EnclosedBlock` / `TypeAnnotation` wrappers — `Freeze` strips
+                // peel `EnclosedBlock` / `TypeAnnotation` wrappers — `Elaborate` strips
                 // them transparently, anchoring the frozen `Lambda` on the inner
                 // `Expr.Fun`'s FIRST parameter pattern's token (NOT the `fun` keyword).
                 // Key the verdict on the SAME `(firstTokenOfPat arg0, ExprLambda)` the
@@ -356,7 +356,7 @@ module internal UnificationInferApp =
                             // defer to standard inference.
                             | ValueNone -> ValueNone
                             | ValueSome(fnTy, fmtTy, _) ->
-                                // Stamp the function node so Freeze threads the
+                                // Stamp the function node so Elaborate threads the
                                 // curried result type through the App chain.
                                 (freshTv ctx fnKey).Link <- ValueSome fnTy
 
@@ -387,7 +387,7 @@ module internal UnificationInferApp =
                                         currTy <- resultTy
 
                                 // P1 happy-path lowering marker: fully-applied literal call, a
-                                // lowerable sink, and every specifier lowerable → Freeze mints a
+                                // lowerable sink, and every specifier lowerable → Elaborate mints a
                                 // `TExpr.Format`. Full application is `idx` leading args + the
                                 // format + one arg per hole (`specs.Length + idx + 1`). The
                                 // console/string sinks put the format at arg 0 (`idx = 0`);
@@ -470,10 +470,10 @@ module internal UnificationInferApp =
                                     // NOT the sink kind: `printf`/`eprintf` are writer families with a
                                     // `StdOut`/`StdErr` sink and still need a scratch. `sprintf`
                                     // (`ScratchSink = unit`) splices the callback's returned string, so
-                                    // it gets NO entry — and that absence is Freeze's sole signal to
+                                    // it gets NO entry — and that absence is Elaborate's sole signal to
                                     // take the sprintf path. Resolve the scratch + its *parameterless*
                                     // `ToString` ONCE here (the gate owns `ctx.Provider`) and stash it
-                                    // for Freeze, which has none.
+                                    // for Elaborate, which has none.
                                     //
                                     // A scratch-needing family is only reached with `not
                                     // rejectCallback`, i.e. `callbackSinkAvailable` already saw its
@@ -521,7 +521,7 @@ module internal UnificationInferApp =
                                 // literal partial (`printfn "%d"`, `printf "%d %s"`) — only the
                                 // format is supplied (`args.Length = idx + 1`), `1..K` holes,
                                 // none `%A`/`%O` (an unapplied `%A` hole is an unpinned typar,
-                                // so out of scope for 4a). Freeze synthesises a Vesper heap
+                                // so out of scope for 4a). Elaborate synthesises a Vesper heap
                                 // closure over the `EmitFormat` unroll instead of the FSharp.Core
                                 // `PrintfFormat` cold path. Mutually exclusive with `PrintfApp`
                                 // (which needs full application).
@@ -572,7 +572,7 @@ module internal UnificationInferApp =
         // at all is therefore a range in VALUE position; the type is left `TyUnknown`
         // (concrete, so a surviving `TExpr.Range` freezes cleanly) and the unsupported
         // use is rejected at the lowering choke point, where position is known
-        // (`Freeze/Elaborate.translateExpr`'s `Range` arms). `range-operators-plan.md`
+        // (`ElaborateExpr.translateExpr`'s `Range` arms). `range-operators-plan.md`
         // tracks making `(..)` a real seq operator so a range becomes a first-class value.
         let fromTy = infer ctx fromE
         unify ctx key fromTy ctx.Intrinsics.Int
@@ -604,7 +604,7 @@ module internal UnificationInferApp =
             | None ->
                 match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
                 | ValueSome sym ->
-                    // Record the resolved identity so Freeze stamps it onto the
+                    // Record the resolved identity so Elaborate stamps it onto the
                     // `TExpr.External(name, …)` it mints for this operator and
                     // `InlineExpansion` splices the contract's `let inline` body by KEY.
                     // EVERY resolved operator is stamped — there is no builtin-operator
@@ -649,7 +649,7 @@ module internal UnificationInferApp =
 
         match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
         | ValueSome sym ->
-            // Thread the resolved `op_Dynamic` identity to Freeze's `External` mint
+            // Thread the resolved `op_Dynamic` identity to Elaborate's `External` mint
             // (`translateDynamicLookup`, same `DynamicLookup` key) so the `$0[$1]`
             // body splices by KEY.
             ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
@@ -684,7 +684,7 @@ module internal UnificationInferApp =
 
         match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
         | ValueSome sym ->
-            // Thread the resolved `op_DynamicAssignment` identity to Freeze's
+            // Thread the resolved `op_DynamicAssignment` identity to Elaborate's
             // `External` mint (`translateAssignment`'s `DynamicLookup` arm, keyed by
             // the enclosing `Assignment` node) so the `$0[$1] = $2` body splices by KEY.
             ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
@@ -726,7 +726,7 @@ module internal UnificationInferApp =
         | ValueSome(DesugaredForm.OpName name) ->
             match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
             | ValueSome sym ->
-                // Thread the resolved identity to Freeze's `TExpr.External` mint (see
+                // Thread the resolved identity to Elaborate's `TExpr.External` mint (see
                 // the infix twin above) so the prefix operator splices by KEY.
                 ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
                 let resultTy = TyVar(freshTyVar ctx)

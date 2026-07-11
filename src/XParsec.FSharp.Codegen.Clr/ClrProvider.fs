@@ -314,7 +314,7 @@ type ClrProvider
             if compiledName = "List.fold" then
                 ValueSome(recipes.EmitFold(fnTy))
             else
-                // General external module-function call: route by the Freeze-stamped key to the
+                // General external module-function call: route by the Elaborate-stamped key to the
                 // declaring module (`ns`) + method (`name`), and mint
                 // a `call` (+ `MethodSpec` when generic) to the static method our backend emitted into
                 // the referenced package. Only a module-qualified value key (`ns <> ""`) is a module
@@ -322,7 +322,7 @@ type ClrProvider
                 // `TExpr.ILIntrinsic` by `Emit.lower` before emission anyway. `EmitExternalCall`
                 // returns `ValueNone` when the symbol is unknown to the provider, falling through to
                 // the caller's hard error. (Every lowerable printf call is now a `TExpr.Format`
-                // lowered in Freeze, so no `printfn` App reaches here — the cold recipe is gone.)
+                // lowered in Elaborate, so no `printfn` App reaches here — the cold recipe is gone.)
                 match key with
                 | ValueSome(SymbolKey.ValueKey(_, ns, name)) when ns <> "" -> recipes.EmitExternalCall(ns, name, fnTy)
                 | _ -> ValueNone

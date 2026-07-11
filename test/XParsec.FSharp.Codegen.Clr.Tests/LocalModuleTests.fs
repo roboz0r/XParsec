@@ -19,7 +19,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // Both ride the `runs` driver (compile → run → assert stdout) so the resolution
 // fix is proven end to end: name resolution records the use site as an ordinary
 // local `Binding`, Unification types it via the member's generalised scheme, and
-// Freeze lowers it to the same `TExpr.Var` a bare local reference produces.
+// Elaborate lowers it to the same `TExpr.Var` a bare local reference produces.
 
 [<Tests>]
 let tests =

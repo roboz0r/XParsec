@@ -325,7 +325,7 @@ let tests =
                 // `type Fun<'A,'B>` carries a single abstract `Invoke`. It parses
                 // as an anonymous (`= begin … end`) type, so the extractor records
                 // a non-interface `Class` shape — SAM-interface detection from an
-                // all-abstract body is a downstream (Freeze/codegen) concern. P1
+                // all-abstract body is a downstream (Elaborate/codegen) concern. P1
                 // only needs it to resolve with the package `Origin`.
                 // Generic compiled names are arity-suffixed (`Fun`2`), matching the
                 // emitted metadata name (`Vesper.Fun`2`) and the consumer's probe.

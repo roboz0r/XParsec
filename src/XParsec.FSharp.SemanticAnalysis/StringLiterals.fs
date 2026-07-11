@@ -7,16 +7,16 @@ open XParsec.FSharp.Parser
 // String-literal folding primitives shared across passes so what counts as a
 // string constant — and how its escapes decode — cannot drift between the
 // NameResolution enum-case reader (`TypeRegistration.registerEnumTypeDefn`),
-// the Freeze constant parsers, and `Elaborate.resolveEnumCaseValue`. Depends only
+// the Elaborate constant parsers, and `Elaborate.resolveEnumCaseValue`. Depends only
 // on `PassContext.NameOf` + the parser string-part shape, so it sits ahead of the
-// passes (earlier than Freeze, where these primitives used to live).
+// passes (earlier than Elaborate, where these primitives used to live).
 
 module internal StringLiterals =
 
     /// Decode one backslash escape body (`inner` starts with `\`) to its char.
     /// The escape set mirrors the lexer's `pCharChar` (Lexing.fs) exactly — a
     /// literal that reaches here already lexed clean, so any unexpected shape is a
-    /// broken invariant. Shared by `FreezeLiterals.parseCharLiteral` (a `'\n'` char
+    /// broken invariant. Shared by `ElaborateLiterals.parseCharLiteral` (a `'\n'` char
     /// literal) and `foldStringParts` (a `\n` *string*-part escape) so the two never
     /// diverge.
     let decodeEscape (inner: string) : char =

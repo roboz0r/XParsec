@@ -44,12 +44,12 @@ module PrintfSpec =
         | StringResult
         /// `fprintf` / `fprintfn` — a `TextWriter` leading argument (arg 0, the
         /// format at arg 1). `newline` records the trailing `\n` (`fprintfn`
-        /// sets it). Freeze reads the writer sink kind to recover the format arg
+        /// sets it). Elaborate reads the writer sink kind to recover the format arg
         /// index (writer ⇒ 1, else 0).
         | Writer of newline: bool
         /// `bprintf` — a `StringBuilder` leading argument (arg 0, the format at
         /// arg 1). No `bprintfn` exists in F#, so there is no trailing newline.
-        /// Freeze recovers the format arg index (builder ⇒ 1, else 0) the same way.
+        /// Elaborate recovers the format arg index (builder ⇒ 1, else 0) the same way.
         | Builder
 
     /// Sink for a natively-lowered printf family member. The console/string
@@ -363,15 +363,15 @@ module PrintfSpec =
     /// (`sprintf`). `sprintf` alone has `ScratchSink = unit`; every other family
     /// instantiates a concrete scratch. This is the sole legitimate reason a
     /// fully-applied callback call has *no* `PassContext.PrintfCallbackScratch`
-    /// entry — so the gate resolves a scratch iff this is true, and Freeze can read
+    /// entry — so the gate resolves a scratch iff this is true, and Elaborate can read
     /// "absence ⇒ sprintf" as an invariant rather than a coincidence.
     let familyNeedsScratch (fam: Family) : bool = fam.ScratchSink <> tyUnit
 
     /// The resolved scratch-sink facts a *writer/builder* `%a`/`%t` call needs to
-    /// lower capture-first: everything Freeze splices into the residue block
+    /// lower capture-first: everything Elaborate splices into the residue block
     /// `{ let s = new ScratchClassName() in cb s [value]; s.ToString() }`. The gate
     /// (which holds `ctx.Provider`) resolves these once per call and stashes them on
-    /// `PassContext.PrintfCallbackScratch`; Freeze reads them with no provider access.
+    /// `PassContext.PrintfCallbackScratch`; Elaborate reads them with no provider access.
     /// `sprintf` has no entry — its residue is the callback's returned string.
     type CallbackScratch =
         {

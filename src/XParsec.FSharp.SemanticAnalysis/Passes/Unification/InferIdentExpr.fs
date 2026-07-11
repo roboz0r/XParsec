@@ -26,7 +26,7 @@ module internal UnificationInferIdentExpr =
         // than emitting `Expr.DotLookup`.
         match e with
         // `(+)` used as a value: resolve the operator's compiled name through the
-        // provider and instantiate its scheme like any other external symbol. Freeze
+        // provider and instantiate its scheme like any other external symbol. Elaborate
         // projects this to `External("op_Addition", …)`, and `Passes.InlineExpansion`
         // eta-reifies that into `fun a b -> (+) a b` and splices the operator's contract
         // body at the call head it minted — which is what binds the value to a

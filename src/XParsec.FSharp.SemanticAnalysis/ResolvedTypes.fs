@@ -2,7 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
 
-// Pre:  Freeze has produced a TastFile.
+// Pre:  Elaborate has produced a TastFile.
 // Post: ctx.Diagnostics carries an Error per TDecl whose TAST still
 //       references an unresolved TyVar.
 //
@@ -137,7 +137,7 @@ module ResolvedTypes =
             TastWalk.iterExpr iter e
         | TDecl.Type _ ->
             // Surfaced type declarations carry no inferred TyVars to resolve
-            // (their signatures are already concrete / typar markers by Freeze).
+            // (their signatures are already concrete / typar markers by Elaborate).
             ()
 
         if acc.Count > 0 then

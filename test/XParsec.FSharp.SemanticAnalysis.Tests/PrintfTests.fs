@@ -639,7 +639,7 @@ let tests =
                 // `Format<int -> string>` declares one hole but the literal has two —
                 // real F# rejects this. Malformed source must surface an ERROR
                 // diagnostic; elaboration degrades to diagnostics-only rather than
-                // crashing on a Freeze invariant.
+                // crashing on a Elaborate invariant.
                 let tast =
                     analyse
                         "open Vesper\nlet fmt : Format<int -> string, unit, string, string> = \"%d %s\"\nlet s = sprintf fmt 1 \"a\""

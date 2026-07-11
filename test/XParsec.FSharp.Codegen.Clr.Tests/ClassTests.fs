@@ -653,7 +653,7 @@ let staticTests =
             // (`Box<'T>.Tag`) parses as `DotLookup(TypeApp(Box, <'T>), .Member)`, not
             // the folded `LongIdent[Box; Member]` the bare `Box.Member` form takes.
             // Asserted at the TAST level.
-            test "`Box<'T>.Member` lowers to Static{Method,Property} (no Freeze TODO TypeApp)" {
+            test "`Box<'T>.Member` lowers to Static{Method,Property} (no Elaborate TODO TypeApp)" {
                 let provider = ClrSymbolProviders.buildContract defaultManifests
 
                 // `Tag`/`Origin` are `'T`-free so the receiver's `<'T>` is the only

@@ -73,7 +73,7 @@ vector for generic unions. Two `TyUnion`s unify iff their keys are equal
 `FrozenType` has the post-freeze counterpart `FTUnion`; surviving open
 typars are rewritten to `TyTypar` at freeze time.
 
-### Registry (`SideTables.fs`)
+### Registry (`PassContext.fs`)
 
 `UnionCaseInfo` (`:145`) — one per case:
 
@@ -105,7 +105,7 @@ typars are rewritten to `TyTypar` at freeze time.
   registration, read by `checkConstraint`, projected onto the TAST
   type-decl for codegen.
 
-Storage lives on `PassContextTypes` (`SideTables.fs:453`):
+Storage lives on `PassContextTypes` (`PassContext.fs`):
 
 - `Union : Dictionary<string, UnionTypeInfo>` (`:458`) — by union name,
   arity-overloaded via `TypeRegistry` keying.
@@ -219,7 +219,7 @@ ctor-specific region arm: a ctor application is just an `Expr.App` whose
 result types as `TyUnion`. `bindersOfPat` extracts binders from
 `TPat.Union` sub-patterns (`:254`, `:609`).
 
-### Freeze / TAST (`Tast.fs`, `FreezeExpr.fs`)
+### Freeze / TAST (`Tast.fs`, `ElaborateExpr.fs`)
 
 Two TAST cases:
 
@@ -232,7 +232,7 @@ Two TAST cases:
 
 `ty` is always the `TyUnion`; the declaring union is recovered via the
 registry / `CtorIndex` at consumption time. Freeze translation
-(`FreezeExpr.fs`):
+(`ElaborateExpr.fs`):
 
 - Ctor reference outside an `App` (`:830`): a `TyUnion`-typed reference
   is a nullary ctor → `UnionCons(name, [], ty)`; a `TyFun`-typed one is

@@ -133,7 +133,7 @@ type NodeKind =
     | SynthUnsupportedDecl = 1005us
     /// Synthetic binder for `base` inside a derived class's member bodies.
     /// One per class with `inherit Base(...)`; shared across every member.
-    /// Mirrors `SynthThisBinding`. Wired into Unification / Freeze when inheritance is active.
+    /// Mirrors `SynthThisBinding`. Wired into Unification / Elaborate when inheritance is active.
     | SynthBaseBinding = 1006us
     /// Freshened binder produced when the *pre-freeze* inline-expansion pass
     /// (`InlineExpansion`) splices an `inline` body. A

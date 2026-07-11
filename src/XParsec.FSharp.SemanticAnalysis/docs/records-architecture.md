@@ -68,7 +68,7 @@ for generic records. Two `TyRecord`s unify iff their keys are equal
 post-freeze counterpart `FTRecord`; surviving open typars are rewritten
 to `TyTypar` at freeze time.
 
-### Registry (`SideTables.fs`)
+### Registry (`PassContext.fs`)
 
 `RecordFieldInfo` (`:44`) — one per field: `Name`, `Type` (declaration
 type; starts as a placeholder `TyVar`, linked during fill-in),
@@ -101,7 +101,7 @@ with `MkSelfType args = TyRecord(Key, args)` as the only record-specific
 piece (cf. `TyUnion` for unions, `TyClass` for classes). See
 [Interface implementations](#interface-implementations).
 
-Storage lives on `PassContextTypes` (`SideTables.fs:453`):
+Storage lives on `PassContextTypes` (`PassContext.fs`):
 
 - `Record : Dictionary<string, RecordTypeInfo>` (`:456`) — by record name.
 - `FieldIndex : Dictionary<string, EqArray<RecordTypeInfo>>` (`:471`) —
@@ -230,7 +230,7 @@ Two diagnostics:
 Non-Ident, non-`DotLookup` LHSes (array slot, deeper dotted access) stay
 out of scope; assignment validation handles the single-segment field case.
 
-### Freeze / TAST (`Tast.fs`, `FreezeExpr.fs`)
+### Freeze / TAST (`Tast.fs`, `ElaborateExpr.fs`)
 
 Four `TExpr` cases and one `TPat`:
 
@@ -246,7 +246,7 @@ Four `TExpr` cases and one `TPat`:
 
 `ty` on each is the `TyRecord` (for `FieldGet`/`FieldSet`, the field's
 type); the declaring record is recovered via the registry at consumption
-time. Freeze translation (`FreezeExpr.fs`): `Expr.Record → RecordCons`
+time. Freeze translation (`ElaborateExpr.fs`): `Expr.Record → RecordCons`
 (`:1005`), `Expr.RecordClone → RecordClone` (`:1016`), a `.X` step folds
 to `FieldGet` (`:669`, the multi-segment `r.X.Y` chain at `:1289`), a
 field-LHS `Expr.Assignment → FieldSet`, and `Pat.Record → TPat.Record`

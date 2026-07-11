@@ -4,16 +4,16 @@ open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
-open XParsec.FSharp.SemanticAnalysis.FreezePatterns
-open XParsec.FSharp.SemanticAnalysis.FreezeResolve
-open XParsec.FSharp.SemanticAnalysis.FreezeExprArgs
+open XParsec.FSharp.SemanticAnalysis.ElaboratePatterns
+open XParsec.FSharp.SemanticAnalysis.ElaborateResolve
+open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
 
-// Application lowering for the Freeze pass: the general `App` spine walk, the
+// Application lowering for the Elaborate pass: the general `App` spine walk, the
 // residual single `HighPrecedenceApp`, the external optional-argument fill both
 // consult first, SRTP member-trait invocations, and the desugared infix /
 // prefix operator forms.
 
-module internal FreezeApply =
+module internal ElaborateApply =
 
     /// A trailing optional argument the call omitted, synthesised from the constant
     /// default recorded in `ExternalOptionalFill`. A real constant default
@@ -138,7 +138,7 @@ module internal FreezeApply =
                     | TyFun(p, r) -> p, r
                     | _ ->
                         failwithf
-                            "Freeze.translateApp: expected function type for application, got %A (Unification bug or free TypeVar)"
+                            "Elaborate.translateApp: expected function type for application, got %A (Unification bug or free TypeVar)"
                             currTy
 
                 // Box a value / open-typar argument flowing into an `obj` parameter —
@@ -224,7 +224,7 @@ module internal FreezeApply =
         let memberName =
             match Desugar.opPatCompiledName ctx.NameOf ident with
             | ValueSome n -> n
-            | ValueNone -> failwithf "Freeze: unsupported static-member-trait operator %A" ident
+            | ValueNone -> failwithf "Elaborate: unsupported static-member-trait operator %A" ident
 
         let args = peelOneArg (translateExpr ctx) argExpr
         // The trait receiver is the LEFT operand's type — the operator's `^T1` typar.
@@ -272,7 +272,7 @@ module internal FreezeApply =
         | ValueNone ->
             // Desugar always attaches an OpName for an InfixApp key; reaching
             // here is a bug. Surface loudly.
-            failwithf "Freeze: InfixApp at %O missing DesugaredForm entry" key
+            failwithf "Elaborate: InfixApp at %O missing DesugaredForm entry" key
 
     let translatePrefix
         (translateExpr: TranslateExpr)
@@ -301,4 +301,4 @@ module internal FreezeApply =
             let opExpr = TExpr.External(name, opKey, opTy, tok)
             TExpr.App(opExpr, translateExpr ctx operand, resultTy, tok)
         | ValueSome _
-        | ValueNone -> failwithf "Freeze: PrefixApp at %O missing DesugaredForm entry" key
+        | ValueNone -> failwithf "Elaborate: PrefixApp at %O missing DesugaredForm entry" key

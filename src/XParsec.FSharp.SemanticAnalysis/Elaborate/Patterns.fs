@@ -5,14 +5,14 @@ open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
-open XParsec.FSharp.SemanticAnalysis.FreezeLiterals
-open XParsec.FSharp.SemanticAnalysis.FreezeResolve
+open XParsec.FSharp.SemanticAnalysis.ElaborateLiterals
+open XParsec.FSharp.SemanticAnalysis.ElaborateResolve
 
-// Pattern projection for the Freeze pass: the recursive CST `Pat` -> `TPat`
+// Pattern projection for the Elaborate pass: the recursive CST `Pat` -> `TPat`
 // translation and the list-case-name resolution it shares with the expression
-// projection (`FreezeExpr`).
+// projection (`ElaborateExpr`).
 
-module internal FreezePatterns =
+module internal ElaboratePatterns =
 
     /// The `(consName, nilName)` case names of the list union a `[…]` literal,
     /// `[]`/`h :: t` pattern, or `::` construction targets. Mirrors the
@@ -191,7 +191,7 @@ module internal FreezePatterns =
             let testTy =
                 match ctx.Resolution.TypeTestTargets.TryGetValue key with
                 | ValueSome t -> t
-                | ValueNone -> failwithf "Freeze.translatePat: no TypeTestTargets entry for type-test pattern %A" p
+                | ValueNone -> failwithf "Elaborate.translatePat: no TypeTestTargets entry for type-test pattern %A" p
 
             TPat.TypeTestAs(testTy, translatePat ctx inner, ty, tok)
         | Pat.TypeTest _ ->
@@ -201,7 +201,7 @@ module internal FreezePatterns =
             let testTy =
                 match ctx.Resolution.TypeTestTargets.TryGetValue key with
                 | ValueSome t -> t
-                | ValueNone -> failwithf "Freeze.translatePat: no TypeTestTargets entry for type-test pattern %A" p
+                | ValueNone -> failwithf "Elaborate.translatePat: no TypeTestTargets entry for type-test pattern %A" p
 
             TPat.TypeTestAs(testTy, TPat.Wildcard(testTy, tok), ty, tok)
         | Pat.Null _ ->
@@ -216,4 +216,4 @@ module internal FreezePatterns =
             // matches `CstKeys.ofBinding`, so the binding's `ModuleMembers` entry
             // (and thus the cross-package inline-body loader) finds it.
             TPat.NamedSimple(key, ty, tok)
-        | _ -> failwithf "Freeze.translatePat: TODO %A" p
+        | _ -> failwithf "Elaborate.translatePat: TODO %A" p

@@ -1228,7 +1228,7 @@ module SemType =
 module FrozenTypeBridge =
     /// `toFrozen` with the `TyVar` leaf as a POLICY parameter — the single
     /// `SemType -> FrozenType` structural fold; `toFrozen` (hard error) and
-    /// `Freeze.freezeTy`'s documented-temporary lenient placeholder are its two
+    /// `Elaborate.freezeTy`'s documented-temporary lenient placeholder are its two
     /// instantiations, so the fold body cannot drift between them.
     let rec toFrozenWith (onVar: SemType -> FrozenType) (ty: SemType) : FrozenType =
         let go = toFrozenWith onVar
@@ -1496,7 +1496,7 @@ type TypeScheme(quantified: TypeVar list, body: SemType, constraints: (TypeVar *
 /// optimization clause. Lives here (not in `Tast.fs`) because the side table
 /// that carries it is declared before `Tast.fs` in the compile order, and the
 /// constraint references only `SemType` — the clause *body* (a `TExpr`) is
-/// rebuilt by Freeze, not stored. The typar is a `TyVar` over the inline
+/// rebuilt by Elaborate, not stored. The typar is a `TyVar` over the inline
 /// binding's quantified root, so `Inline.inlineExpand`'s typar substitution
 /// turns it into the call site's concrete type before the clause is tested.
 [<RequireQualifiedAccess>]
@@ -1532,13 +1532,13 @@ type DesugaredForm =
     /// On an `Expr.EnclosedBlock(ParenKind.List, …)` /
     /// `Expr.EmptyBlock(ParenKind.List, …)` node — `[1; 2; 3]` or `[]`.
     /// Unification types as `Microsoft.FSharp.Collections.list<'elem>`
-    /// (single element-TyVar shared by every item); Freeze projects the
+    /// (single element-TyVar shared by every item); Elaborate projects the
     /// chain into nested `TExpr.UnionCons("Cons", [hd; tl])` /
     /// `UnionCons("Nil", [])` nodes.
     | ListLiteral
     /// On an `Expr.EnclosedBlock(ParenKind.Array, …)` /
     /// `Expr.EmptyBlock(ParenKind.Array, …)` node — `[|1; 2; 3|]` or
-    /// `[||]`. Same element-typing rule as `ListLiteral`; Freeze wraps
+    /// `[||]`. Same element-typing rule as `ListLiteral`; Elaborate wraps
     /// the lowered list chain in an `Array.ofList` external call so
     /// the same nested `UnionCons` shape feeds both literal forms.
     | ArrayLiteral
@@ -1546,6 +1546,6 @@ type DesugaredForm =
     /// `::` operator is not a provider-resolved function (unlike `+`/`|>`); it
     /// builds the list union directly. Unification types `h :: t` as the list
     /// type carrying `h`'s element type (`tail` unified to the same list);
-    /// Freeze projects it to `TExpr.UnionCons("Cons", [hd; tl])` against the
+    /// Elaborate projects it to `TExpr.UnionCons("Cons", [hd; tl])` against the
     /// resolved list union — the same shape `ListLiteral` lowers to.
     | ConsExpr

@@ -99,7 +99,7 @@ module OperatorNames =
 
     /// The canonical **union-case constructor name** for a case head. The
     /// cons-list's operator cases map to their source ctor names (`([])` →
-    /// `Empty`, `(::)` → `Cons`) — the names `FreezeExpr` mints and codegen
+    /// `Empty`, `(::)` → `Cons`) — the names `ElaborateExpr` mints and codegen
     /// resolves through — *not* the `op_Nil`/`op_ColonColon` compiled-op form
     /// (`ofIdentOp`/`identOrOpName`, the *value*-position binding-head surface).
     /// Shared by the front-end union registration (`TypeRegistration`) and the
@@ -129,7 +129,7 @@ module OperatorNames =
     /// The fully-qualified compiled name an operator-form long ident resolves to
     /// (`A.B.(+)` ⇒ `"A.B.op_Addition"`), the single translation shared by the
     /// resolver (`NameResolution`), the typer (`Unification.qualifiedNameOf`), and
-    /// the projector (`Freeze.translateIdent`) so the qualified-operator form is
+    /// the projector (`Elaborate.translateIdent`) so the qualified-operator form is
     /// keyed identically everywhere. `ValueNone` for a non-symbolic op segment
     /// (no `op_` member to qualify). The bare-operator form (`(+)` with no
     /// qualifier) resolves through the prelude and never reaches here.

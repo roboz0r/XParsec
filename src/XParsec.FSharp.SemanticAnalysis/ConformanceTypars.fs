@@ -26,7 +26,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 //    happen to differ today. An inline body is expanded and SRTP-solved at each call
 //    site; it is NEVER emitted as a fixed-arity generic method, so it has no
 //    emitted/extracted typar order for the contract's order to drive. The signature is
-//    the sole ABI surface, and `Freeze` drops inline templates, so they never reach
+//    the sole ABI surface, and `Elaborate` drops inline templates, so they never reach
 //    `checkFile`. 4.2 would exempt them even if the body matched the contract exactly.
 //    (Aside, lest the current state mislead: `ops-platform.fs` implements `(+)` as the
 //    homogeneous `^T -> ^T -> ^T`, while the contract — and real FSharp.Core's body,
@@ -106,7 +106,7 @@ module ConformanceTypars =
         [
             for decl in tast.Decls do
                 match decl with
-                // `Freeze` drops inline templates, so a surviving `Let` is never inline;
+                // `Elaborate` drops inline templates, so a surviving `Let` is never inline;
                 // matching `false` documents the scope and is robust to that changing.
                 | Frozen.TDecl.Let(Frozen.TPat.NamedSimple(key, _, _), _, false, ty) ->
                     let info = Map.tryFind key tast.ModuleMembers

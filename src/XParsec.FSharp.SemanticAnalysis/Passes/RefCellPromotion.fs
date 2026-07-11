@@ -3,7 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 open System.Collections.Generic
 open XParsec.FSharp.SemanticAnalysis
 
-// Pre:  Freeze has produced a `TastFile`; ctx.Bindings.Escape (Regions) and ctx.Bindings.Binding
+// Pre:  Elaborate has produced a `TastFile`; ctx.Bindings.Escape (Regions) and ctx.Bindings.Binding
 //       (NameResolution) are populated.
 // Post: every `let mutable x = init` whose binding-site has `Escape = HeapShared`
 //       is rewritten into `let x = { contents = init } : Vesper.Ref<'T>`; every

@@ -4,7 +4,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// The desugared-operator and synthesised-intrinsic `External` heads Freeze mints
+// The desugared-operator and synthesised-intrinsic `External` heads Elaborate mints
 // (`a + b` → `op_Addition`, `arr.[i]` → `GetArray`, `arr.Length` → `GetArrayLength`,
 // `arr.[i] <- v` → `SetArray`, …) MUST carry the resolved `SymbolKey` Unification
 // stamped in `Resolution.IntrinsicKey`. That key is the SOLE channel by which

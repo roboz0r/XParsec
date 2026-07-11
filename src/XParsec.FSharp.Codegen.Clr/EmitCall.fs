@@ -37,7 +37,7 @@ module EmitCall =
             | ValueNone -> failwithf "Emit: cannot apply argument to Vesper.Fun value of type %A" funcTy
 
     /// An `[| … |]` array literal reaches codegen as `ArrayModule.OfList <chain>`
-    /// where `<chain>` is the literal `Cons(e0, … Cons(e_{n-1}, Nil))` FreezeExpr
+    /// where `<chain>` is the literal `Cons(e0, … Cons(e_{n-1}, Nil))` ElaborateExpr
     /// built (`RuntimeNames.arrayOfListName`). On the BCL-only path FSharp.Core's
     /// `ArrayModule.OfList` is absent, so emit the array inline: `newarr`, then
     /// `dup; ldc i; <elem>; stelem` per element, leaving the array on the stack.
@@ -94,7 +94,7 @@ module EmitCall =
     /// generic-instantiation matching; an external recipe call ignores them). The
     /// lone-unit-erase / literal-vs-value tuple dispatch is `CompiledFns.flattenPlan`'s
     /// (shared with the JS backend); this interprets each `FlatStep` as IL: a scalar
-    /// arg pushed raw (the `obj` box is an explicit `Upcast` node from Freeze), a tuple
+    /// arg pushed raw (the `obj` box is an explicit `Upcast` node from Elaborate), a tuple
     /// literal's elements pushed directly, a tuple value spilled to a local then each
     /// `ValueTuple` `Item` field read (left-to-right order preserved).
     let private flattenGroupPushes
@@ -134,7 +134,7 @@ module EmitCall =
     /// Lower a `TExprG.App` chain. The head dispatch is shape-by-shape:
     /// - `TExprG.External(name, key, _)` — a provider-resolved call. The
     ///   recipe's generic instantiation is read from the head's full curried
-    ///   type. `key` (the Freeze-stamped `SymbolKey.ValueKey`) lets codegen
+    ///   type. `key` (the Elaborate-stamped `SymbolKey.ValueKey`) lets codegen
     ///   route by identity, not name.
     /// - `TExprG.Var k` where `env.StaticMethods.ContainsKey k` — a top-level
     ///   function emitted as a static method; generic instantiations are
@@ -154,15 +154,15 @@ module EmitCall =
             && tryEmitArrayLiteral recur env b (typeOfExpr e) spineArgs
             ->
             // Handled in the guard: an `[| … |]` literal lowered to
-            // `ArrayModule.OfList <cons-chain>` (FreezeExpr) emitted directly as
+            // `ArrayModule.OfList <cons-chain>` (ElaborateExpr) emitted directly as
             // newarr + stelem, so the BCL-only path needs no FSharp.Core. The guard
-            // only commits when the spine arg is the literal cons-chain FreezeExpr
+            // only commits when the spine arg is the literal cons-chain ElaborateExpr
             // builds; any other shape falls through to the recipe path below.
             ()
         | TExprG.External(name, key, _, _) ->
             // The recipe reads its generic instantiation from the head's full
             // curried type. `key` is the resolved `SymbolKey.ValueKey` stamped
-            // by Freeze when the front-end resolved the name through the symbol
+            // by Elaborate when the front-end resolved the name through the symbol
             // provider — codegen routes by identity, not name suffix.
             //
             // When a SOURCE-LAMBDA argument lowered to a
@@ -398,7 +398,7 @@ module EmitCall =
                     if argCount >= 2 then
                         // A multi-param .NET method is tupled; its arguments are
                         // pushed element-wise. The value→`obj` box for an `obj`
-                        // parameter is an explicit `Upcast` node from Freeze (which
+                        // parameter is an explicit `Upcast` node from Elaborate (which
                         // wraps the tuple element-wise), so push each element raw.
                         match argExpr with
                         | TExprG.Tuple(elems, _, _) when elems.Length = argCount ->

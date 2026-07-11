@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 
 // The per-hole classification lives in
 // `SemanticAnalysis.PrintfHoleForm` as a *semantic* `HoleForm` — the single
-// accept-gate (`tryClassify`) shared by the Freeze lowering decision and both
+// accept-gate (`tryClassify`) shared by the Elaborate lowering decision and both
 // codegen backends. The CLR-only `(HoleKind, .NET-format, alignment)` projection
 // is `Codegen.Clr.ClrHoleFormat.toDotNetFormat`.
 //

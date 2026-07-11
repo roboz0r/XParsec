@@ -81,7 +81,7 @@ type FrozenConstraint =
     | Coercion of typarIndex: int * target: FrozenType
 
 /// How a `for x in src do …` (`TExpr.ForIn`) sources its enumerator — resolved by
-/// `Unification.inferForIn` and read by `Freeze` to enrich the node, because
+/// `Unification.inferForIn` and read by `Elaborate` to enrich the node, because
 /// codegen can't re-derive the struct-vs-interface decision from the element type
 /// alone. Defined here (ahead of `Tast.fs`
 /// in compile order) so both the `ForInShape` side table and the `TExpr.ForIn`
@@ -160,7 +160,7 @@ type ForInEnumeratorG<'ty> =
 
 /// The `SemType`-domain axes + `ForInEnumerator` (inference + `PassContext`'s
 /// `ForInShape` table + the pre-freeze `TExpr.ForIn`). The frozen aliases live in `Tast.fs`'s `Frozen`
-/// module; `Freeze` maps the `'ty` payloads through `toFrozen` via `TastConvert`.
+/// module; `Elaborate` maps the `'ty` payloads through `toFrozen` via `TastConvert`.
 type ForInGetEnum = ForInGetEnumG<SemType>
 type ForInEnumMembers = ForInEnumMembersG<SemType>
 type ForInEnumerator = ForInEnumeratorG<SemType>

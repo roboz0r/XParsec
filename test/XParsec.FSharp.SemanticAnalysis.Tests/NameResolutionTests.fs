@@ -623,7 +623,7 @@ let tests =
 
             test "Union decl sites stamp ResolvedType with arity-qualified keys" {
                 // NameResolution stamps each union's decl-site NodeKey → the union's
-                // minted `SymbolKey`; the type-decl emitter (`Freeze.tryUnionType`)
+                // minted `SymbolKey`; the type-decl emitter (`Elaborate.tryUnionType`)
                 // reads it back by key rather than re-deriving `(name, arity)`.
                 let ctx =
                     analyse "type Color = | Red | Green\ntype Choice<'a, 'b> = | C1 of 'a | C2 of 'b"

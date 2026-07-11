@@ -3,7 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 /// Single source of truth for the well-known runtime type identities that flow
 /// through the pipeline. Before the
 /// SymbolKey refactor these names + the arity-strip that recognises them were
-/// duplicated across `ClrEnv.isVesperListName` (codegen), `FreezeExpr`'s list-
+/// duplicated across `ClrEnv.isVesperListName` (codegen), `ElaborateExpr`'s list-
 /// retarget (front end), and `RefCellPromotion` — each had independently re-derived
 /// "is this the Vesper cons-list / the ref cell?". This module collapses that to
 /// one place: the canonical `*Key` constants below, which the producers stamp and
@@ -68,7 +68,7 @@ module RuntimeNames =
         SymbolKey.TypeKey(Some "Vesper.List", "Vesper.Collections", "list")
 
     /// Canonical identity for FSharp.Core's `list` — the non-retargeted default
-    /// `FreezeExpr` / `Unification` fall back to. Home `FSharp.Core`, arity 1
+    /// `ElaborateExpr` / `Unification` fall back to. Home `FSharp.Core`, arity 1
     /// (`` list`1 ``); never project-local.
     let fsharpCoreListKey: SymbolKey =
         SymbolKey.TypeKey(Some "FSharp.Core", "Microsoft.FSharp.Collections", "list`1")
@@ -210,12 +210,12 @@ module RuntimeNames =
 
                 ok))
 
-    /// The external head an `[| … |]` array literal lowers to (`FreezeExpr`):
+    /// The external head an `[| … |]` array literal lowers to (`ElaborateExpr`):
     /// `ArrayModule.OfList` applied to the literal cons-chain. The FSharp.Core
     /// path resolves it as a real module call; the BCL-only path recognises this
     /// exact head in codegen and emits the array directly (newarr + stelem) so an
     /// array literal needs no FSharp.Core. Single source so the producer
-    /// (`FreezeExpr`) and the recogniser (`EmitCall`) can't drift.
+    /// (`ElaborateExpr`) and the recogniser (`EmitCall`) can't drift.
     let arrayOfListName: string = "Microsoft.FSharp.Collections.ArrayModule.OfList"
 
     // --- Anonymous-union reserved member names ---------
@@ -368,7 +368,7 @@ module RuntimeNames =
     /// True iff `k` denotes `PrintfFormat<'Printer,'State,'Residue,'Result>` — the
     /// format type a `printf` / `sprintf` literal freezes to. Asm-blind, matching the
     /// list/object recognisers; replaces the inline `bareName (qualifiedName key) =
-    /// PrintfSpec.printfFormatName` rebuild at the codegen / FreezeExpr consumer sites.
+    /// PrintfSpec.printfFormatName` rebuild at the codegen / ElaborateExpr consumer sites.
     let isPrintfFormatKey (k: SymbolKey) : bool =
         sameTypeAsmBlind printfFormatKey k || sameTypeAsmBlind vesperPrintfFormatKey k
 
@@ -383,7 +383,7 @@ module RuntimeNames =
     /// new numeric type is added in one place instead of drifting across four
     /// independently-maintained lists (the prior state — each had its own gaps):
     ///   * the unifier's SRTP-arithmetic synthesis (`Engine.numericPrimitives`);
-    ///   * the `%A` faithfulness gate (`FreezeExpr.structuredArgFaithful`, ∪ string/char/bool);
+    ///   * the `%A` faithfulness gate (`ElaborateExpr.structuredArgFaithful`, ∪ string/char/bool);
     ///   * the codegen value-type predicate (`EmitPattern.isValueType`, ∪ bool/char);
     ///   * the front-end primitive recogniser (`TypeTranslate.isPrimitiveName`) and the
     ///     TS-manifest recogniser (`TsManifestTranslate.intrinsicOrOpaque`), which both

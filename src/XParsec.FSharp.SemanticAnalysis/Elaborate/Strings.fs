@@ -4,15 +4,15 @@ open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
-open XParsec.FSharp.SemanticAnalysis.FreezeLiterals
-open XParsec.FSharp.SemanticAnalysis.FreezeResolve
-open XParsec.FSharp.SemanticAnalysis.FreezeExprArgs
+open XParsec.FSharp.SemanticAnalysis.ElaborateLiterals
+open XParsec.FSharp.SemanticAnalysis.ElaborateResolve
+open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
 
-// String-literal and interpolation lowering for the Freeze pass: a printf
+// String-literal and interpolation lowering for the Elaborate pass: a printf
 // format literal becomes `new PrintfFormat(text)`, a faithfully-renderable
 // interpolation a `TExpr.Format` (D9), everything else a stitched `Const`.
 
-module internal FreezeStrings =
+module internal ElaborateStrings =
 
     /// Interpolation holes have no rendering on this path, so they surface as
     /// `{<expr>}` placeholders. Only reached for plain strings, printf format
@@ -166,4 +166,4 @@ module internal FreezeStrings =
                 match tryTranslateInterpolation translateExpr ctx parts ty tok with
                 | Some node -> node
                 | None -> TExpr.Const(TConstValue.String(stitchLiteralString ctx parts), ty, tok)
-        | _ -> failwithf "Freeze.translateString: not a String expr: %A" e
+        | _ -> failwithf "Elaborate.translateString: not a String expr: %A" e

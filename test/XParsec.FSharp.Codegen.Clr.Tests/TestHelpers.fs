@@ -1254,7 +1254,7 @@ let typeChecksSeq (src: string) : unit = typeChecksPackages [ "Vesper.Seq" ] src
 // the once-bespoke routing is just the default behaviour now.
 //
 // NOTE on driver shape: HOF arguments (`Set.fold`/`partition`'s folder) are
-// written *curried* (`fun s -> fun x -> …`) per the same Freeze multi-arg-lambda
+// written *curried* (`fun s -> fun x -> …`) per the same Elaborate multi-arg-lambda
 // posture the struct-seq pipeline documents.
 
 let runsSet (expected: string) (src: string) : unit =

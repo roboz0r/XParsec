@@ -29,7 +29,7 @@ the same sequence to a template literal. Handlers are CLR-specific; the IR is no
 | format-as-value / non-literal / `%a` `%t` | runtime parse → spec-runner → handler | falls back to FSharp.Core `PrintfModule` |
 
 Anything not on the fully-applied-literal happy path currently routes to FSharp.Core's
-cold printf (`FreezeExpr.fs` leaves the `App printfn` intact). That path is correct
+cold printf (`ElaborateExpr.fs` leaves the `App printfn` intact). That path is correct
 but allocates the `PrintfFormat` object + closures the happy path avoids; the
 partial-app plan replaces it for the lowerable case.
 
@@ -205,7 +205,7 @@ string/`ToStringAndClear` (`sprintf`).
   (`args.Length = specs.Length + 1`), with lowerable placeholders. Partial
   application, `%a`/`%t`, format-as-value, and `fprintf`/shadowing cases are left
   unmarked and fall through to FSharp.Core.
-- **Freeze:** `FreezeExpr.fs` diverts a marked call to a `TExpr.Format` node — no
+- **Freeze:** `ElaborateExpr.fs` diverts a marked call to a `TExpr.Format` node — no
   `PrintfFormat` value, no closure.
 - **Emit:** `Codegen.Clr/EmitFormat.fs` materialises the ref-struct local in place:
   ctor, one `AppendLiteral`/`AppendFormatted<T>` per segment (arg evaluated at its

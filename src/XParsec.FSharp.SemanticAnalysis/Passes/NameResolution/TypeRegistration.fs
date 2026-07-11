@@ -205,7 +205,7 @@ module NameResolutionTypeRegistration =
                     // Explicit equality attribute wins; absent, the default
                     // ⇒ Structural when every field is immutable,
                     // Reference otherwise. Feeds Unification.checkConstraint and the
-                    // codegen triple gate (Freeze copies it onto EqualitySupport).
+                    // codegen triple gate (Elaborate copies it onto EqualitySupport).
                     info.EqualitySupport <-
                         match eqV with
                         | ValueSome v -> v
@@ -386,7 +386,7 @@ module NameResolutionTypeRegistration =
                     TypeRegistry.registerUnion ctx.Types name typeArity info
 
                     // Record the decl-site identity
-                    // so the type-decl emitter (`Freeze.tryUnionType`) recovers the
+                    // so the type-decl emitter (`Elaborate.tryUnionType`) recovers the
                     // union by key rather than re-deriving `(name, arity)`. `info.Key`
                     // is the arity-qualified `TypeKey(None, declNs, name\`arity)`; this
                     // stamp is co-populated with `ctx.Types.Union`, so the emitter's key
@@ -490,7 +490,7 @@ module NameResolutionTypeRegistration =
         | _ -> ()
 
     /// Stitch the inline-IL string of a `Type.ILIntrinsic` RHS
-    /// (`(# "System.Int32" #)` → `"System.Int32"`). Mirrors Freeze.stitchLiteralString.
+    /// (`(# "System.Int32" #)` → `"System.Int32"`). Mirrors Elaborate.stitchLiteralString.
     let private ilIntrinsicString (ctx: PassContext) (parts: ImmutableArray<StringPart<SyntaxToken>>) : string =
         let sb = System.Text.StringBuilder()
         // TODO: raise diagnostics for unsupported parts (Expr, InvalidText).

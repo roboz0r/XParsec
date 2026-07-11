@@ -25,13 +25,13 @@ open UnificationInferForwardSchemes
 
 module Unification =
 
-    // Re-exports for external callers (Freeze.fs, Validation.fs, Pipeline.fs)
+    // Re-exports for external callers (Elaborate.fs, Validation.fs, Pipeline.fs)
     let zonk = UnificationEngineCore.zonk
     let substituteWith = UnificationEngineCore.substituteWith
     let mkNamedTypeSubst = UnificationEngineCore.mkNamedTypeSubst
     let instantiateMember = UnificationEngineCore.instantiateMember
     /// Walk a class receiver's `inherit` chain for a non-static member, yielding
-    /// the declaring ancestor's instantiated type + the member's type. `FreezeExpr`
+    /// the declaring ancestor's instantiated type + the member's type. `ElaborateExpr`
     /// reuses this (the declaring type) so the inherited-member read isn't a second
     /// chain walk that must stay in sync with inference's.
     let tryClassChainMemberDecl = UnificationEngineCore.tryClassChainMemberDecl
@@ -440,7 +440,7 @@ module Unification =
                             // their registration prototypes so `inferBinding`
                             // reuses them in its fresh binding scope. The signature
                             // it infers then shares roots with the member's
-                            // `MethodTypeParams` — the same roots Freeze surfaces
+                            // `MethodTypeParams` — the same roots Elaborate surfaces
                             // and codegen installs as the ambient `!!i` set.
                             let savedSeed = ctx.Resolution.BindingTyparSeed
                             let savedMemberEnclosing = ctx.Resolution.EnclosingTypars
@@ -891,7 +891,7 @@ module Unification =
     /// `GetHashCode():int`, `ToString():string` — so the expected signatures are
     /// fixed. Without this, `override _.Equals that` leaves `that` a free TyVar
     /// that `generaliseMemberTypars` would have quantified (now skipped for
-    /// overrides), and Freeze would emit it as `bool Equals<M0>(!!0)` — a generic,
+    /// overrides), and Elaborate would emit it as `bool Equals<M0>(!!0)` — a generic,
     /// non-Object-matching method. Runs after the member bodies are typed (so the
     /// placeholder `mInfo.Type` carries the inferred `param -> ret` shape), the
     /// `Object`-slot analogue of `checkInterfaceConformance`. v1 supports only

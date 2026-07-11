@@ -365,7 +365,7 @@ module VesperLibTyparCapture =
                 for kv in ctx.TypeShapes do
                     match kv.Value with
                     // The cons-list's cases are now the canonical `Empty`/`Cons`
-                    // (shared `OperatorNames.unionCaseCtorName`), matching `FreezeExpr`
+                    // (shared `OperatorNames.unionCaseCtorName`), matching `ElaborateExpr`
                     // and codegen. They must NOT enter the bare-ctor-name index: the
                     // list is constructed/matched only via `[]`/`::` (which lower
                     // specially), never by writing `Cons`/`Empty`, so indexing them

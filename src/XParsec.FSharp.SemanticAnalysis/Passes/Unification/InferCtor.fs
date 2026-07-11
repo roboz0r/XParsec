@@ -283,7 +283,7 @@ module internal UnificationInferCtor =
     /// rather than a free TyVar the value-args alone can't resolve for a
     /// parameterless ctor. The pinned class then drives `inferExternalCtorOn`'s
     /// overload pick (so `List()` vs `List(IEnumerable<int>)` resolves) and gives
-    /// Freeze/codegen the `tyArgs` to emit `newobj List`1<!!T>::.ctor()`. A *local*
+    /// Elaborate/codegen the `tyArgs` to emit `newobj List`1<!!T>::.ctor()`. A *local*
     /// generic class (`Box<int>(x)`) isn't an in-scope external type, so its head
     /// carries no `ResolvedType` stamp and this declines — the local path
     /// (`inferTypeApp`'s nominal-unify arm) handles it.

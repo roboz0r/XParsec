@@ -21,7 +21,7 @@ module internal UnificationInferLiteralExpr =
     /// `pEnclosed` virtual-inserts a missing/mismatched close token with a
     /// parser-side diagnostic that isn't visible to semantic-analysis consumers,
     /// so surface the breakage on `ctx.Diagnostics` too — otherwise the malformed
-    /// literal types successfully and Freeze emits a well-shaped TAST.
+    /// literal types successfully and Elaborate emits a well-shaped TAST.
     let rec checkLiteralClose
         (ctx: PassContext)
         (key: NodeKey)
@@ -96,7 +96,7 @@ module internal UnificationInferLiteralExpr =
         (_key: NodeKey)
         (parts: ImmutableArray<StringPart<SyntaxToken>>)
         : SemType =
-        // Freeze lowers interpolated strings to a `TExpr.Format` (D9) and reads
+        // Elaborate lowers interpolated strings to a `TExpr.Format` (D9) and reads
         // each hole's computed type back to emit `AppendFormatted<T>`; a `%d{x}`
         // specifier additionally constrains the hole.
         for part in parts do

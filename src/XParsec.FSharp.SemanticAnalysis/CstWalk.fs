@@ -259,7 +259,7 @@ module CstWalk =
 
     /// `Expr.LetOrUse(body = ValueNone)` is `use fixed` — pinning a managed
     /// value to a pointer. Not supported in the current subset; this helper is
-    /// the single rejection point both Unification's `inferLet` and Freeze's
+    /// the single rejection point both Unification's `inferLet` and Elaborate's
     /// `translateLet` call, so the failwith demotion once `use fixed` lands
     /// lifts in one place. (Regions handles `ValueNone` distinctly — `use
     /// fixed`'s region story is independent of typing — so it doesn't route
@@ -883,7 +883,7 @@ module CstWalk =
         // The third tuple slot is the *declaring namespace* of each surfaced element
         // — the enclosing `namespace` group's
         // longident, "" for an anonymous/global/named-module file. It mirrors
-        // `Freeze.run`'s `ns` exactly (a nested `module` is a holder, not a namespace
+        // `Elaborate.run`'s `ns` exactly (a nested `module` is a holder, not a namespace
         // segment, so it passes the enclosing ns through unchanged), so a local
         // `SymbolKey` minted from it equals the type's emitted `TDecl.Namespace`.
         let out = ResizeArray<ModuleElem<SyntaxToken> * OpenScope * string>()
@@ -952,7 +952,7 @@ module CstWalk =
                 // The wrapper is dropped (as in `implFileElems`); the body is walked
                 // with the enclosing scope inherited as its seed. A module is a *holder*,
                 // not a namespace segment, so `declNs` passes through unchanged — this is
-                // the rule `Freeze.run` applies (the module name becomes the let-holder,
+                // the rule `Elaborate.run` applies (the module name becomes the let-holder,
                 // never part of a nested type's `Namespace`).
                 match inner with
                 | ValueSome innerElems ->
@@ -969,7 +969,7 @@ module CstWalk =
                 match g with
                 | NamespaceDeclGroup.Named(isRec = isRec; longIdent = nsLi; elements = elems) ->
                     // The namespace's own name is an implicit prefix for its body, and the
-                    // declaring namespace its types are emitted into (`Freeze.run`).
+                    // declaring namespace its types are emitted into (`Elaborate.run`).
                     processElems elems (addOpen ambient nsLi) isRec.IsSome isRec.IsSome (longIdentText nsLi)
                 | NamespaceDeclGroup.Global(elements = elems) -> processElems elems ambient false false ""
 

@@ -118,7 +118,7 @@ module internal UnificationInferPat =
         | Pat.Op _ ->
             // An operator-named binding head (`let (=) x y = …`) introduces a
             // single name, exactly like a `Pat.NamedSimple`; its name is the
-            // operator's compiled name (`op_Equality`), surfaced by Freeze.
+            // operator's compiled name (`op_Equality`), surfaced by Elaborate.
             TyVar(tvOf ctx key)
         | Pat.Named(argumentPats = args) & Stamped ctx.Resolution.ExternalEnumCaseStamp key enumKey ->
             // `| E.C1` external enum-case pattern (a TS-manifest enum), recognised upstream
@@ -366,7 +366,7 @@ module internal UnificationInferPat =
             // `:? T as x` — the inner binder `x` sees the tested type `T`; the
             // pattern itself matches values of the scrutinee's type (left free so
             // the scrutinee, typically `obj`, pins it via `inferRules`' unify).
-            // Stash the test type keyed on this node so Freeze can carry it into
+            // Stash the test type keyed on this node so Elaborate can carry it into
             // `TPat.TypeTestAs.testTy` for the `isinst` operand (mirrors the
             // `:?` *expression* form's `inferDynamicTypeTest`).
             let tgtTy = translateType ctx t
@@ -379,7 +379,7 @@ module internal UnificationInferPat =
             TyVar(freshTv ctx key)
         | Pat.TypeTest(typ = t) ->
             // `:? T` — the bare type-test (no `as`-binder). Same as `TypeTestAs`
-            // minus the inner binder: stash the tested type for Freeze's `isinst`
+            // minus the inner binder: stash the tested type for Elaborate's `isinst`
             // operand; the pattern matches the scrutinee's type (left free).
             let tgtTy = translateType ctx t
             ctx.Resolution.TypeTestTargets.Set(key, tgtTy)
@@ -407,7 +407,7 @@ module internal UnificationInferPat =
             ctx.Intrinsics.Unit
         | Pat.Or(left = leftPat; right = rightPat) ->
             // Here we only unify the alternatives' overall types for scrutinee
-            // consistency. Binding or-patterns are unsupported — `FreezePatterns`
+            // consistency. Binding or-patterns are unsupported — `ElaboratePatterns`
             // rejects any alternative that binds a name — so no name-set reconciliation
             // is needed.
             let leftTy = inferPat ctx leftPat

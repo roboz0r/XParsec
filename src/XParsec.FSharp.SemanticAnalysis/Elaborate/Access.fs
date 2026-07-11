@@ -3,17 +3,17 @@ namespace XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
-open XParsec.FSharp.SemanticAnalysis.FreezeResolve
-open XParsec.FSharp.SemanticAnalysis.FreezeExprArgs
+open XParsec.FSharp.SemanticAnalysis.ElaborateResolve
+open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
 
-// Element and member *access* lowering for the Freeze pass: assignment
+// Element and member *access* lowering for the Elaborate pass: assignment
 // (`<-` in its FieldSet / indexer-set / dynamic-set forms), indexer reads
 // (`arr.[i]`), dynamic-member reads (`recv?name`), and single-segment
 // `r.X` property/field reads. The get/set pairs mirror each other
 // (`GetArray`/`SetArray`, `GetIndex`/`SetIndex`, `op_Dynamic`/
 // `op_DynamicAssignment`), which is why they live together.
 
-module internal FreezeAccess =
+module internal ElaborateAccess =
 
     /// `r.X <- v` folds to FieldSet; everything else to Assignment.
     let translateAssignment
@@ -283,7 +283,7 @@ module internal FreezeAccess =
             // carrying `{ [k: K]: V }`) through `GetIndex` (the same `$0[$1]` bracket);
             // every other receiver through `GetArray` (`ldelem`). The inference picked
             // the matching intrinsic (`inferIndexedLookup`), so the names line up. The
-            // bracket lowering is identical for every index entry, so Freeze checks only
+            // bracket lowering is identical for every index entry, so Elaborate checks only
             // WHETHER the receiver has an index signature, never WHICH entry matched.
             let getName =
                 match Unification.zonk arrTy with

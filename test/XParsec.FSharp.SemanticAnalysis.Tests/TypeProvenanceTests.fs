@@ -7,7 +7,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // Type provenance: `PassContext.IsTypeDeclared` (a node's type was written in source)
 // and `IsInferenceHole` / `HasInferenceHoleIn` (a `_`-wildcard position inside an
 // otherwise-declared annotation, e.g. `Box<_>` — `Box` declared, the arg inferred).
-// Read off the LIVE (pre-freeze) ctx: Freeze zonks holes to their inferred fill.
+// Read off the LIVE (pre-freeze) ctx: Elaborate zonks holes to their inferred fill.
 
 let private analyse (input: string) : PassContext * TastFile =
     let lexed, file = parseFile input

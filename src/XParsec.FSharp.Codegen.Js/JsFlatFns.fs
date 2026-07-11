@@ -38,7 +38,7 @@ module JsFlatFns =
 
     /// The SOURCE groups of an EXTERNAL module function, read off the provider's
     /// recorded `ValRepr` (the cross-assembly compiled-form contract, Step C). The
-    /// `External` node carries the Freeze-stamped resolved `SymbolKey`, so the FQN the
+    /// `External` node carries the Elaborate-stamped resolved `SymbolKey`, so the FQN the
     /// provider keys symbols by is `SymbolKeyOps.qualifiedName key` directly — the SAME
     /// string the CLR backend builds from the key in `ClrProvider.TryEmitCall` /
     /// `ClrRecipes.emitExternalCall`. No ambient-prefix re-resolution (and no hard

@@ -46,7 +46,7 @@ let tests =
                     "printfn \"%d\" (match 9 with | 1 | 2 -> 10 | _ -> 0)", "0"
                     // DU constructor patterns: nullary + a payload-binding case.
                     // Let-bound (not inline as the printfn arg): an inline DU-match
-                    // in argument position currently trips a Freeze translateApp
+                    // in argument position currently trips a Elaborate translateApp
                     // bug, whereas the let-bound form is the proven Rung2 shape.
                     du
                     + "\nlet r = match Pair(3, 4) with | Dot -> 0 | Pair(a, b) -> a + b\nprintfn \"%d\" r",

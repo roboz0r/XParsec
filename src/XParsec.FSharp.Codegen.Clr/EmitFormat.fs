@@ -326,7 +326,7 @@ module EmitFormat =
                 b.Add(ILInstr.Call(fh.AppendLiteral, 2, 0))
             | FormatSegG.Hole(hole, arg) -> emitHole hole arg None None
             | FormatSegG.CallbackHole(_, residue) ->
-                // `%a`/`%t`: Freeze already lowered the callback (+ any scratch sink) to
+                // `%a`/`%t`: Elaborate already lowered the callback (+ any scratch sink) to
                 // an ordinary residue-*string* expr; splice it exactly like a literal —
                 // codegen has no sink knowledge. (`sprintf` = the callback's return;
                 // writer/builder = a `{ let s = new … in cb s …; s.ToString() }` block.)

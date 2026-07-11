@@ -110,7 +110,7 @@ type TypeMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: Sem
 
     /// `true` when the source declares the member with `MemberKeyword.Override`
     /// or `MemberKeyword.Default`. Stamped by the `registerInheritedSlots`
-    /// post-pass; consumed by Freeze/Codegen to choose `call` vs `callvirt`.
+    /// post-pass; consumed by Elaborate/Codegen to choose `call` vs `callvirt`.
     member val IsOverride: bool = false with get, set
 
 /// Field types start as fresh TyVar placeholders stamped by NameResolution and
@@ -226,13 +226,13 @@ type RecordTypeInfo
     /// attributes; the placeholder defaults to `Structural` so any path that
     /// overlooks the registration (mostly tests that synthesise records
     /// directly) stays equal-by-fields. `Unification.checkConstraint` reads it
-    /// to short-circuit `NoEquality` types; `Freeze` projects it onto
+    /// to short-circuit `NoEquality` types; `Elaborate` projects it onto
     /// `TTypeDecl.EqualitySupport` for codegen.
     member val EqualitySupport = EqualityVerdict.Structural with get, set
     /// Comparison posture for this record. Filled during
     /// `NameResolution.registerRecordTypeDefn` from the type's attributes. Defaults
     /// to `NoComparison` (opt-in). `Unification.checkConstraint` reads it to reject
-    /// `<` / `>` / `<=` / `>=` on un-annotated types; `Freeze` projects it onto
+    /// `<` / `>` / `<=` / `>=` on un-annotated types; `Elaborate` projects it onto
     /// `TTypeDecl.ComparisonSupport` for codegen.
     member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
     /// Augmentation members (`with member …` / `static member …`). Member types
@@ -248,7 +248,7 @@ type RecordTypeInfo
     /// Stamped by `NameResolution.registerNominalMembers`; each impl's interface type
     /// is resolved + verified, and its member bodies typed, by Unification's
     /// `fillHostMembers` (mirroring `UnionTypeInfo.InterfaceImpls`). Empty unless
-    /// the record declares an `interface … with` block. `Freeze` projects them onto
+    /// the record declares an `interface … with` block. `Elaborate` projects them onto
     /// `TTypeKind.Record.interfaces`.
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
 
@@ -304,20 +304,20 @@ type UnionTypeInfo
     member val ThisKey = Unchecked.defaultof<NodeKey> with get, set
     /// Equality posture for this union. Filled during
     /// `NameResolution.registerUnionTypeDefn`; defaults to `Structural`.
-    /// `Unification.checkConstraint` short-circuits on `NoEquality`; `Freeze`
+    /// `Unification.checkConstraint` short-circuits on `NoEquality`; `Elaborate`
     /// projects it onto `TTypeDecl.EqualitySupport` for codegen.
     member val EqualitySupport = EqualityVerdict.Structural with get, set
     /// Comparison posture for this union. Filled during
     /// `NameResolution.registerUnionTypeDefn` from the type's attributes. Defaults
     /// to `NoComparison` (opt-in). `Unification.checkConstraint` reads it to reject
-    /// `<` / `>` / `<=` / `>=` on un-annotated types; `Freeze` projects it onto
+    /// `<` / `>` / `<=` / `>=` on un-annotated types; `Elaborate` projects it onto
     /// `TTypeDecl.ComparisonSupport` for codegen.
     member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
     /// `interface IFace with member …` blocks declared on the union.
     /// Stamped by `NameResolution.registerNominalMembers`; each impl's interface type
     /// is resolved + verified, and its member bodies typed, by Unification's
     /// `fillHostMembers` (mirroring `ClassTypeInfo.InterfaceImpls`). Empty unless
-    /// the union declares an `interface … with` block. `Freeze` projects them onto
+    /// the union declares an `interface … with` block. `Elaborate` projects them onto
     /// `TTypeKind.Union.interfaces`; codegen emission is deferred.
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
 
@@ -488,7 +488,7 @@ type ClassCtorParamInfo(name: string, ty: SemType, declKey: NodeKey) =
 /// `Type` starts as a placeholder
 /// TyVar stamped at registration and is linked by Unification's `fillClassMembers`
 /// from `TypeCst` (the field is always annotated). `IsMutable` reflects the
-/// `mutable` keyword — `Freeze` projects it onto `TTypeKind.Class.fields` so a
+/// `mutable` keyword — `Elaborate` projects it onto `TTypeKind.Class.fields` so a
 /// `this.x <- …` mutation in a member body type-checks and codegen emits a
 /// writable `FieldDefinition`. `DeclKey` anchors the field's identity (and a
 /// `this.x` `FieldGet`/`FieldSet` resolves against the class member walk, not
@@ -504,7 +504,7 @@ type ClassFieldInfo(name: string, ty: SemType, isMutable: bool, typeCst: Type<Sy
 /// A class-level `static let x = <init>`.
 /// `Type` starts as a placeholder TyVar stamped by `NameResolution` and is linked
 /// by Unification's `fillClassMembers` once the `Init` expression is inferred.
-/// `Init` is the CST initialiser, re-read by Unification (to infer) and Freeze (to
+/// `Init` is the CST initialiser, re-read by Unification (to infer) and Elaborate (to
 /// translate into the synthesised `.cctor`). `DeclKey` is the binder's `NodeKey`
 /// (the same one `bindingsOfPat` mints for the head pattern), so a `static let`-bound
 /// name reference resolves to it and shares the placeholder TyVar.
@@ -522,7 +522,7 @@ type ClassStaticLetInfo(name: string, ty: SemType, declKey: NodeKey, init: Expr<
 /// `ClassCtorParamInfo`). `DeclKey` is a synthetic key minted from the `new`
 /// token so each overload is distinct. `Body` is the CST `AdditionalConstrExpr`
 /// re-read by Unification (to infer + unify the chain args against the primary
-/// ctor) and Freeze (to translate the let-preamble + primary-ctor args).
+/// ctor) and Elaborate (to translate the let-preamble + primary-ctor args).
 [<Sealed>]
 type ClassSecondaryCtorInfo
     (declKey: NodeKey, parms: ClassCtorParamInfo[], paramPat: Pat<SyntaxToken>, body: AdditionalConstrExpr<SyntaxToken>)
@@ -578,26 +578,26 @@ type ClassTypeInfo
     member val BaseCtorArgs: Expr<SyntaxToken> voption = ValueNone with get, set
     /// `[<Sealed>]`. Stamped by
     /// `NameResolution.registerClassTypeDefn` from the type's attributes;
-    /// `Freeze` projects it onto `TTypeKind.Class.isSealed` so codegen flips
+    /// `Elaborate` projects it onto `TTypeKind.Class.isSealed` so codegen flips
     /// `TypeAttributes.Sealed` on the emitted `TypeDefinition`.
     member val IsSealed: bool = false with get, set
     /// Class-level `static let` bindings in
     /// declaration order. Stamped by `NameResolution.registerClassTypeDefn` from
     /// the class's `classPreamble`; types are linked by Unification's
-    /// `fillClassMembers`; `Freeze` projects each onto a `TStaticLet`. Empty unless
+    /// `fillClassMembers`; `Elaborate` projects each onto a `TStaticLet`. Empty unless
     /// the class declares `static let`s. Generic classes reject `static let` (the
     /// per-instantiation cache lowering is deferred), so this is only populated for
     /// monomorphic classes.
     member val StaticLets: ClassStaticLetInfo[] = [||] with get, set
     /// Secondary constructors in declaration
     /// order. Stamped by `NameResolution.registerClassTypeDefn`; param types are
-    /// linked by Unification's `fillClassMembers`; `Freeze` projects each onto a
+    /// linked by Unification's `fillClassMembers`; `Elaborate` projects each onto a
     /// `TSecondaryCtor`. Empty unless the class declares `new(...)` overloads.
     member val SecondaryCtors: ClassSecondaryCtorInfo[] = [||] with get, set
     /// True when the class declares a *primary* constructor (`type T(args) =` /
     /// `type T() =`); false for the `val`-field form (`type T = val …; new(…) =`)
     /// whose only ctors are secondaries. Stamped by `registerClassTypeDefn` from the
-    /// parsed `PrimaryConstrArgs` presence; `Freeze` projects it onto
+    /// parsed `PrimaryConstrArgs` presence; `Elaborate` projects it onto
     /// `TClassG.HasPrimaryCtor` so codegen suppresses the synthesised primary `.ctor`
     /// for the val-field form (else it collides with a parameterless `new()`).
     /// Defaults `true` so any path that doesn't stamp it keeps the prior behaviour.
@@ -611,7 +611,7 @@ type ClassTypeInfo
     /// Stamped by `NameResolution.registerClassTypeDefn`; each impl's interface
     /// type is resolved + verified, and its member bodies typed, by Unification's
     /// `fillClassMembers`. Empty unless the class declares an `interface … with`
-    /// block. `Freeze` projects them onto `TTypeKind.Class.interfaces` for codegen
+    /// block. `Elaborate` projects them onto `TTypeKind.Class.interfaces` for codegen
     /// (deferred).
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
     /// `when 'a : ...` / `when 'a :> IFace` clause attached to the class's typar
@@ -623,7 +623,7 @@ type ClassTypeInfo
     /// `RecordTypeInfo.TyparConstraints`. `ValueNone` for an unconstrained class.
     member val TyparConstraints: TyparConstraints<SyntaxToken> voption = ValueNone with get, set
     /// `[<Struct>]` (or the `type X = struct … end` shape).
-    /// Stamped by `registerClassTypeDefn`; `Freeze`
+    /// Stamped by `registerClassTypeDefn`; `Elaborate`
     /// projects it onto `TTypeKind.Class.isStruct` so codegen emits a
     /// `System.ValueType`-based value type. A struct is implicitly sealed.
     member val IsValueType: bool = false with get, set
@@ -635,13 +635,13 @@ type ClassTypeInfo
     /// interface is recognised via `ExternalTypeShape.Class.IsInterface`.
     member val IsInterface: bool = false with get, set
     /// `[<IsByRefLike>]` — a byref-like (`ref struct`) value type. Stamped by
-    /// `registerClassTypeDefn` (implies `IsValueType`); `Freeze` projects it onto
+    /// `registerClassTypeDefn` (implies `IsValueType`); `Elaborate` projects it onto
     /// `TTypeKind.Class.isByRefLike` so codegen stamps
     /// `System.Runtime.CompilerServices.IsByRefLikeAttribute`.
     member val IsByRefLike: bool = false with get, set
     /// Explicit `val [mutable] x: T` instance fields in declaration order.
     /// Stamped by `registerClassTypeDefn`; field
-    /// types are linked by Unification's `fillClassMembers`; `Freeze` projects
+    /// types are linked by Unification's `fillClassMembers`; `Elaborate` projects
     /// each onto a `TRecordField` in `TTypeKind.Class.fields`. Empty unless the
     /// class declares any `val` fields.
     member val InstanceFields: ClassFieldInfo[] = [||] with get, set
@@ -649,7 +649,7 @@ type ClassTypeInfo
     /// posture (`Reference`); `NameResolution.registerClassTypeDefn` (a later
     /// phase) computes the kind-aware value — a `[<Struct>]` value type
     /// (`IsValueType = true`) defaults to `Structural`, and `[<CustomEquality>]`
-    /// stamps `Custom`. `Unification`/`Freeze` read this like the
+    /// stamps `Custom`. `Unification`/`Elaborate` read this like the
     /// record/union ones.
     member val EqualitySupport = EqualityVerdict.Reference with get, set
     /// Comparison posture for this class. The field default is also the resolved
@@ -657,7 +657,7 @@ type ClassTypeInfo
     /// `NoComparison` unless an attribute overrides it —
     /// `NameResolution.registerClassTypeDefn` (a later phase) stamps `Structural`
     /// for `[<StructuralComparison>]` and `Custom` for `[<CustomComparison>]`.
-    /// `Unification`/`Freeze` read this like the record/union ones.
+    /// `Unification`/`Elaborate` read this like the record/union ones.
     member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
 
     interface IInterfaceImplHost with
@@ -684,15 +684,15 @@ type ClassMemberIndexEntry =
 
 /// A member access on an *external* type that resolved through the provider
 /// Recorded by `Unification` keyed by the
-/// member-access node's `NodeKey`; `Freeze` reads it to mint a
+/// member-access node's `NodeKey`; `Elaborate` reads it to mint a
 /// `TExpr.ExternalMember` carrying the interned `SymbolKey`. `IsStatic`
-/// distinguishes `Type.Member` from `value.Member` (drives whether Freeze keeps
+/// distinguishes `Type.Member` from `value.Member` (drives whether Elaborate keeps
 /// the receiver), `Storage` a value member (field/property) from a method value
 /// (and, at CLR emission, a `Field` from a `Property`).
 ///
 /// `Signature` is the member's **declared** type in the receiver's instantiation
 /// (`ExternalSymbols.openSignature` / `instantiateSignature`): for a method,
-/// `TyFun(params → ret)`; for a property, the property type. Freeze reads it for
+/// `TyFun(params → ret)`; for a property, the property type. Elaborate reads it for
 /// the implicit value→`obj` box decision — the call *node*'s SemType is the
 /// *applied* shape with an `obj`-bound argument typar left un-grounded (the
 /// obj-absorption rule), so the `obj` parameter slot is visible only on this
@@ -713,5 +713,5 @@ type ResolvedExternalMember =
     }
 
     /// A value member (field/property) vs an arrow `Method` — the predicate the
-    /// optional-default gate and Freeze read; mirrors `ExternalMember.IsValueMember`.
+    /// optional-default gate and Elaborate read; mirrors `ExternalMember.IsValueMember`.
     member m.IsValueMember = m.Storage.IsValueMember

@@ -87,7 +87,7 @@ let tests =
                 let semRoots = constraintRoots semClauses
                 Expect.isNonEmpty semRoots "pre-freeze: a clause constraint carries a live TyVar root"
 
-                // (2) Freeze the whole decl through the functor. `onVar` stands in for the
+                // (2) Elaborate the whole decl through the functor. `onVar` stands in for the
                 //     real quantEnv (`Elaborate.mkMethodQuantEnv`): the spike tests
                 //     REPRESENTABILITY, not the typar index order, so a single placeholder
                 //     leaf for the lone `^T` is faithful enough. A strict `toFrozen` would

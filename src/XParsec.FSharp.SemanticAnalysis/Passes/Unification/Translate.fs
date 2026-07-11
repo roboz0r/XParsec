@@ -455,7 +455,7 @@ module internal UnificationTranslate =
                                 // arm is the deliberate fallback for a stack that has NOT
                                 // loaded that contract — mint the canonical `undefinedKey`
                                 // directly so the written name still agrees with the
-                                // optional-default / Freeze form. (Not
+                                // optional-default / Elaborate form. (Not
                                 // `ctx.Intrinsics.Undefined`, which would loud-fail
                                 // exactly when the contract is absent — the case this
                                 // handles.) Every other unresolved bare name is genuinely

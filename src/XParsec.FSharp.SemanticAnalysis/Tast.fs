@@ -124,7 +124,7 @@ type TPatG<'ty, 'tok> =
 /// `PrintfSpec.tryHoleFormat` produced — it carries the *classified*, target-neutral
 /// `HoleForm`, and the CLR triple (a runtime artifact) is projected on demand by
 /// `Codegen.Clr.ClrHoleFormat.toDotNetFormat`. Two origins:
-/// - `Classified` — the classification the lowering gate (`FreezeExpr`) already
+/// - `Classified` — the classification the lowering gate (`ElaborateExpr`) already
 ///   computed via `PrintfHoleForm.tryClassify` to decide whether the hole lowers at
 ///   all. Covers every printf specifier (`%d`, `%A`, `%08.2f`, …) and every
 ///   printf-style `%d{x}` interpolation hole. Both backends read `HoleForm`
@@ -164,13 +164,13 @@ type HoleSpecG<'ty, 'tok> =
 /// How an instance member access dispatches. `Self` is the normal virtual
 /// dispatch (`callvirt`); `Base` is a `base.M(...)` / `base.X` access, which
 /// must target the *parent's* method slot non-virtually (`call`) so an
-/// `override` doesn't recurse into itself. Set by Freeze when the receiver's
+/// `override` doesn't recurse into itself. Set by Elaborate when the receiver's
 /// head binding site is a class's `BaseKey`; read by codegen to pick the call opcode.
 /// `Interface` is a constrained dispatch on a *generic typar* receiver coerced to
 /// an interface (`'T :> IFace`): the `MethodCall`'s `key` declaring
 /// type is the interface, the receiver's type is the typar, and codegen emits
 /// `constrained. <typar> callvirt <iface-slot>` (no box for a struct typar, a
-/// reference dispatch for a class typar). Set by Freeze when the receiver resolved
+/// reference dispatch for a class typar). Set by Elaborate when the receiver resolved
 /// through `TyparInterfaceCall`; read by codegen. The carried `ifaceArgs`
 /// are the interface's instantiation type arguments (`'E` in `'T :> IStructSeq<'E>`),
 /// threaded from the typar's `Coercion` constraint so codegen can mint the slot on
@@ -191,7 +191,7 @@ type TExprG<'ty, 'tok> =
     /// .NET, native `+` on Rust, etc. — the inline IL is target-specific).
     /// `key` interns the resolved `SymbolKey` so codegen reads the binding off the
     /// node instead of re-resolving by name;
-    /// `ValueNone` until Freeze stamps it — every site is name-only today.
+    /// `ValueNone` until Elaborate stamps it — every site is name-only today.
     | External of compiledName: string * key: SymbolKey voption * ty: 'ty * tok: 'tok
     | Lambda of param: TPatG<'ty, 'tok> * body: TExprG<'ty, 'tok> * ty: 'ty * tok: 'tok
     | App of fn: TExprG<'ty, 'tok> * arg: TExprG<'ty, 'tok> * ty: 'ty * tok: 'tok
@@ -266,8 +266,8 @@ type TExprG<'ty, 'tok> =
     /// This node ONLY survives elaboration for an UNSUPPORTED range (value position,
     /// a stepped range, or a non-simple for-in binder): the supported form —
     /// `for i in a..b do` over a unit step with a simple binder — is lowered to a
-    /// counted `ForTo` by `Freeze.translateForIn` and never reaches here. A surviving
-    /// `Range` therefore carries a diagnostic (`FreezeExpr`) and `ty` is `TyUnknown`
+    /// counted `ForTo` by `Elaborate.translateForIn` and never reaches here. A surviving
+    /// `Range` therefore carries a diagnostic (`ElaborateExpr`) and `ty` is `TyUnknown`
     /// (a range has no first-class value in this compiler; see `range-operators-plan.md`).
     | Range of
         startExpr: TExprG<'ty, 'tok> *
@@ -294,11 +294,11 @@ type TExprG<'ty, 'tok> =
     /// the ctor's declared arity (0 for nullary). `ty` is a `TyUnion`.
     /// Nullary ctors (`Point`) and applied ctors (`Circle 1.0`,
     /// `Rectangle(2.0, 3.0)`) both fold to this node — the latter peels
-    /// the `Expr.App` chain in Freeze.
+    /// the `Expr.App` chain in Elaborate.
     | UnionCons of caseName: string * args: EqArray<TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
     /// Class primary-constructor invocation. `args` is the per-parameter
     /// list — the parser's tuple wrapper (`new Point(3, 4)` parses with
-    /// a `Tuple` arg) is peeled in Freeze so consumers see the ctor's
+    /// a `Tuple` arg) is peeled in Elaborate so consumers see the ctor's
     /// declared arity directly. `ty` is a `TyClass`.
     | New of className: string * args: EqArray<TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
     /// Instance method invocation: `r.M(args)`. `args` is the
@@ -319,7 +319,7 @@ type TExprG<'ty, 'tok> =
     | StaticMethodCall of key: SymbolKey * args: EqArray<TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
     | StaticPropertyGet of key: SymbolKey * ty: 'ty * tok: 'tok
     /// Read of a class-level `static let` backing field. Lowered from a `static let`-bound name reference in a member
-    /// body (Freeze rewrites the resolved `Var` exactly as a primary-ctor param
+    /// body (Elaborate rewrites the resolved `Var` exactly as a primary-ctor param
     /// becomes a `FieldGet`). Codegen emits `ldsfld` against the class's private
     /// static field — there is no method call (a static *property* would be a
     /// `StaticPropertyGet`). `ty` is the field's declared/inferred type. `declKey`
@@ -363,7 +363,7 @@ type TExprG<'ty, 'tok> =
     /// `typeOperand` carries the single type token a tokenful array opcode needs
     /// (`newarr`/`ldelem` → the element type); `ValueNone` for the balanced
     /// stack ops that take no operand (the operator surface, and `ldlen`). The
-    /// array forms are synthesised by Freeze from `arr.[i]` / `Array.zeroCreate`
+    /// array forms are synthesised by Elaborate from `arr.[i]` / `Array.zeroCreate`
     /// rather than written as `(# … #)` in source — F# treats array access as an
     /// IL intrinsic, so codegen owns one emission path for all three.
     | ILIntrinsic of opCode: string * typeOperand: 'ty voption * args: EqArray<TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
@@ -462,7 +462,7 @@ and [<RequireQualifiedAccess>] FormatSegG<'ty, 'tok> =
     /// placeholder.
     | DynHole of DynFormatHoleG<'ty, 'tok>
     /// A `%a` / `%t` printer-callback hole (`HoleForm.Callback`), lowered
-    /// capture-first to an ordinary residue-*string* expression Freeze synthesises:
+    /// capture-first to an ordinary residue-*string* expression Elaborate synthesises:
     /// `sprintf` splices the callback's returned string (`cb unit [value]`); the
     /// writer/builder families splice `{ let s = new Scratch() in cb s [value]; s.ToString() }`.
     /// `residue` is therefore just a `string`-typed `TExpr` (the callback + value ride
@@ -550,7 +550,7 @@ and CompiledFormG<'ty, 'tok> =
 /// type, or a `[<IsByRefLike>]` byref-like value type. Collapses the former
 /// `isStruct`/`isByRefLike` bool pair so the illegal `(isStruct = false,
 /// isByRefLike = true)` combination is unrepresentable; `RefStruct` implies
-/// value-type emission. Projected at `Freeze` from `ClassTypeInfo`
+/// value-type emission. Projected at `Elaborate` from `ClassTypeInfo`
 /// (`IsValueType` / `IsByRefLike`).
 [<RequireQualifiedAccess>]
 type ClassValueKind =
@@ -708,7 +708,7 @@ and TUnionCaseG<'ty> =
 
 /// A resolved enum-case literal — the classified result of reading
 /// `EnumTypeCase.constValue` through the canonical literal reader
-/// (`FreezeLiterals.parseConst` / `foldStringParts`). Restricting the shape to
+/// (`ElaborateLiterals.parseConst` / `foldStringParts`). Restricting the shape to
 /// `Int` / `String` makes the non-int-non-string values the elaborator rejects
 /// unrepresentable on the node (illegal cases never construct a `TEnumLiteral`;
 /// they record `ValueNone` on `TEnumCaseG.Value`).
@@ -801,7 +801,7 @@ and TTypeMemberG<'ty, 'tok> =
         /// The member's *own* generic parameters (`member this.Map<'C> …`) — distinct from the declaring
         /// type's `TTypeDecl.TypeParams`. Each entry pairs the source name
         /// (`"'C"`, for the `GenericParam` row) with the post-unification
-        /// union-find *root* `TypeVar`. `Freeze.remapMemberTypes` uses these roots to
+        /// union-find *root* `TypeVar`. `Elaborate.remapMemberTypes` uses these roots to
         /// flip the method axis in `Params` / `ReturnTy` / `Body` to
         /// `TyTypar(Method, i)`, exactly as the declaring
         /// type's typars ride `TyTypar(Declaring, i)`; codegen's encoder resolves

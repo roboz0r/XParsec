@@ -21,7 +21,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // Arrays are built through our own `zeroCreate` / `init` / `create`, so every row
 // stays on the BCL-only path (no FSharp.Core `ArrayModule.OfList` from an
 // `[| … |]` literal). Folders/mappers are *curried* (`fun s -> fun x -> …`) per
-// the Freeze multi-arg-lambda gap the plan documents.
+// the Elaborate multi-arg-lambda gap the plan documents.
 
 // ---- reflection over the built Vesper.Array.dll (zeroCreate, pure-data) -------
 
@@ -67,7 +67,7 @@ let tests =
 // ---- driver programs: Array.fold (the HOF) + .Length / .[i] intrinsics -------
 // Arrays are built with `Array.zeroCreate` (BCL-only), so these never touch the
 // FSharp.Core array-literal lowering. The folder is *curried* (`fun s -> fun x ->
-// …`) per the Freeze multi-arg-lambda gap the plan documents.
+// …`) per the Elaborate multi-arg-lambda gap the plan documents.
 
 [<Tests>]
 let runtimeTests =

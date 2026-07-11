@@ -13,7 +13,7 @@ Treat the function-arrow surface as sugar over an interface constraint:
 ```
 
 with a longer-term variant that adds `and 'T : allows ref struct` when
-region analysis ([regions-plan](regions-plan.md)) proves the value
+region analysis ([`Passes/Regions.fs`](../Passes/Regions.fs)) proves the value
 doesn't escape its frame.
 
 Practical consequence: every "function value" in IL is a value of some
@@ -422,7 +422,7 @@ independent of lifetime — RS2), and a `Repr: ClosureRepr` field on
 
 - `Inline.fs` — the `inlineExpand` helper this plan depends on for
   full devirtualisation.
-- [regions-plan](regions-plan.md) — escape analysis, prerequisite
+- [`Passes/Regions.fs`](../Passes/Regions.fs) — escape analysis, prerequisite
   for the `allows ref struct` extension.
 - [fsi-target-brainstorm](fsi-target-brainstorm.md) — where the
   `Fun<_, _>` interface lives (minimum-requirements `.fsi`) and

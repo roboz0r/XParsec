@@ -15,7 +15,7 @@ module Desugar =
     /// Compiled name for a symbolic operator used as a *value* (`(+)` →
     /// "op_Addition"). A parenthesised operator denotes the same FSharp.Core
     /// member the infix form desugars to, so the mapping is shared. Consumed
-    /// by NameResolution / Unification / Freeze to resolve `(op)` references.
+    /// by NameResolution / Unification / Elaborate to resolve `(op)` references.
     /// NOTE: a *bare* operator at a use site lexes to its distinct `Token`
     /// (`+` → `OpAddition`), so this enum match is reliable there; an operator
     /// inside parens (a binding head / value) lexes to a *generic* operator token
@@ -63,7 +63,7 @@ module Desugar =
 
     /// `[ … ]` / `[| … |]` literals share the same lowering target — the
     /// nested `Cons` / `Nil` chain, with arrays adding an `Array.ofList`
-    /// wrap at Freeze time.
+    /// wrap at Elaborate time.
     let private literalFormOfParen (pk: ParenKind<SyntaxToken>) : DesugaredForm voption =
         match pk with
         | ParenKind.List _ -> ValueSome DesugaredForm.ListLiteral
@@ -75,7 +75,7 @@ module Desugar =
         | Expr.InfixApp(_, op, _) ->
             // `::` is not a provider-resolved operator: it constructs the list
             // union directly, so it carries its own desugared form (consumed by
-            // Unification/Freeze) rather than an `op_*` member name.
+            // Unification/Elaborate) rather than an `op_*` member name.
             match op.Token with
             | Token.KWColonColon -> ctx.Desugared.Set(CstKeys.ofExpr e, DesugaredForm.ConsExpr)
             | _ ->
@@ -160,7 +160,7 @@ module Desugar =
                     // An `interface Foo with member …` body holds member bodies too —
                     // their operators need compiled-name entries exactly as the type's
                     // own members do, or Unification's `inferInfix` falls through to a
-                    // free TyVar and Freeze throws `InfixApp … missing DesugaredForm`.
+                    // free TyVar and Elaborate throws `InfixApp … missing DesugaredForm`.
                     // The members nest under `ObjectMembers`; reproject each onto a
                     // `TypeDefnElement.Member` and recurse (mirrors `extractInterfaceImpls`).
                     | TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(objectMembers = objMembersOpt)) ->

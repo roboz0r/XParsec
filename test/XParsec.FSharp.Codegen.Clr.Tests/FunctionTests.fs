@@ -147,12 +147,11 @@ let tests =
                 }
 
             // A lambda capturing a genuine local (a function parameter) is a closure.
-            // (module-representation-plan §10/§4: a top-level *value* is now a static
-            // field, so a lambda capturing only a top-level value — `let n = 10; let
-            // addN x = x + n` — captures nothing and lowers to a static method, not a
-            // closure. To still exercise closure synthesis, capture a real local: `mk`'s
-            // parameter `n`. `mk` itself is the one static method; its inner lambda is
-            // the closure.)
+            // A top-level *value* is a static field, so a lambda capturing only a
+            // top-level value — `let n = 10; let addN x = x + n` — captures nothing and
+            // lowers to a static method, not a closure. To still exercise closure
+            // synthesis, capture a real local: `mk`'s parameter `n`. `mk` itself is the
+            // one static method; its inner lambda is the closure.
             yield
                 test "a lambda capturing a function parameter is a closure (curried mk; prints 15)" {
                     let src = "let mk n = (fun x -> x + n)\nlet addN = mk 10\nprintfn \"%d\" (addN 5)"

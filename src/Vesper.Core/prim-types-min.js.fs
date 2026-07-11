@@ -15,7 +15,7 @@ namespace Vesper
 // `SemanticAnalysis.PlatformTypes` as "no JS representation" (that is how `decimal`/`nativeint`
 // are caught) — it does NOT silently fall back to the BCL base repr. The generic structural
 // constructors (`'T []`, `byref`) are deliberately NOT repointed: they too get `platform =
-// None`, but the back end lowers them structurally (`FreezeExpr` emits `FTConst("[]")`, a JS
+// None`, but the back end lowers them structurally (`ElaborateExpr` emits `FTConst("[]")`, a JS
 // array — no repr string needed), and `PlatformTypes` skips them on `arity ≥ 1`, so they are
 // representable by construction rather than via a tag here.
 

@@ -114,7 +114,7 @@ module internal TsManifestTranslate =
     /// identity. A generic nominal type's compiled name is arity-suffixed
     /// (`` Emitter`1 ``) and (name, arity) pairs are DISTINCT nominal types, so the
     /// SIMPLE name minted into the `TypeKey` carries the `` `n `` suffix by the declared
-    /// arity — matching what `TypeTranslate`/`Freeze` form when resolving an annotation
+    /// arity — matching what `TypeTranslate`/`Elaborate` form when resolving an annotation
     /// (`arityName`, suffixed-first; a no-op at arity 0). The returned pair is the two
     /// faces of that one identity: the MAP key (dotted qualified name — the exact string
     /// the front end hands to `TryLookupType`/`TryLookupMember`) and the

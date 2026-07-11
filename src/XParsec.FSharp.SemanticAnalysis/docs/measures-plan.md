@@ -1,7 +1,7 @@
 # Measures plan
 
 The build plan for **units of measure** in the semantic-analysis pipeline.
-Same shape as [`generalisation-plan.md`](generalisation-plan.md): the parser
+Same shape as generalisation was: the parser
 already produces the syntax, semantic-side is a placeholder, and the work is
 mostly wiring + the abelian-group unification step.
 

@@ -5,18 +5,18 @@ open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
-open XParsec.FSharp.SemanticAnalysis.FreezeResolve
+open XParsec.FSharp.SemanticAnalysis.ElaborateResolve
 
-// Argument-peeling and small literal helpers for the Freeze pass. The `peel*`
+// Argument-peeling and small literal helpers for the Elaborate pass. The `peel*`
 // helpers take the recursive `translateExpr` as a parameter (dependency
-// injection), so they live ahead of it; `FreezeExpr` opens this module.
+// injection), so they live ahead of it; `ElaborateExpr` opens this module.
 
-module internal FreezeExprArgs =
+module internal ElaborateExprArgs =
 
-    /// The recursive `FreezeExpr.translateExpr` entry point. The sibling `Freeze/`
+    /// The recursive `ElaborateExpr.translateExpr` entry point. The sibling `Elaborate/`
     /// modules compile ahead of the knot, so any helper that must recurse into
     /// expression translation takes it as its first parameter (the same dependency
-    /// injection the `peel*` helpers below use); `FreezeExpr` ties the knot at
+    /// injection the `peel*` helpers below use); `ElaborateExpr` ties the knot at
     /// each dispatch site.
     type TranslateExpr = PassContext -> Expr<SyntaxToken> -> TExpr
 

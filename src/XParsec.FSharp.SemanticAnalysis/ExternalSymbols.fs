@@ -102,7 +102,7 @@ type ExternalSymbol =
         Origin: SymbolOrigin
         /// Interned identity: a `SymbolKey.ValueKey` over the symbol's resolved
         /// origin + simple name. Front-end
-        /// passes write it into `Resolution.ExternalValue`; Freeze stamps it
+        /// passes write it into `Resolution.ExternalValue`; Elaborate stamps it
         /// onto `TExpr.External` so codegen can do robust identity checks
         /// (e.g. "is this exactly `Vesper.Printf.printfn`?") instead of
         /// suffix-matching the source-written name.
@@ -345,14 +345,14 @@ type ExternalMember =
         Origin: SymbolOrigin
         /// The interned identity: a
         /// `SymbolKey.MemberKey` over the *open* declaring type (its `argSig` in
-        /// `!0`-typars), minted by the resolving source. Freeze stamps it into
+        /// `!0`-typars), minted by the resolving source. Elaborate stamps it into
         /// `TExpr.ExternalMember` so codegen reads the binding off the node.
         Key: SymbolKey
         /// The compile-time-constant default values of this member's *trailing*
         /// optional parameters (`ArrayPool<'T>.Return(array, [<Optional>] clearArray =
         /// false)` ⇒ `[Bool false]`), in declaration order. A call may omit any
         /// suffix of these: the front end (`InferExternalCall.tryFillOptionalCall`)
-        /// permits the under-applied arity and Freeze synthesises the omitted defaults
+        /// permits the under-applied arity and Elaborate synthesises the omitted defaults
         /// as literal arguments so codegen sees the full tupled call unchanged. Empty
         /// for a member with no omittable optionals — every property, ctor, and the
         /// contract (`.fsi`) layer, which doesn't publish optional defaults yet. Only
@@ -821,7 +821,7 @@ type IExternalSymbolResolver =
     abstract AmbientOpenPrefixes: string list
 
 /// The **store face** of the external-symbol contract: *identity → payload*
-/// (`SymbolKey → payload`). What Unification, Freeze, InlineExpansion, and codegen
+/// (`SymbolKey → payload`). What Unification, Elaborate, InlineExpansion, and codegen
 /// speak once identity is already resolved — no consumer re-derives identity from a
 /// spelling here. Type/index/member/inline lookups are addressed by the resolved
 /// `SymbolKey` a front-end consumer already holds; a member *name* stays a string
@@ -878,7 +878,7 @@ type IExternalSymbolStore =
     /// whose `.fs` source the pre-freeze `Passes.InlineExpansion` pass *splices*
     /// at each use site rather than calling as a compiled member.
     /// Looked up by the inline value's resolved
-    /// `SymbolKey` — the same key `TryLookup` returns and `Freeze` stamps onto a
+    /// `SymbolKey` — the same key `TryLookup` returns and `Elaborate` stamps onto a
     /// use-site `TExpr.External`. The primary, identity-robust channel
     /// (disambiguates a referenced package's `hash` from a user shadow).
     /// Providers that carry no inline bodies (the front-end-only paths) return

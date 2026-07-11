@@ -29,7 +29,7 @@ module UnionFind =
 
         root
 
-    /// Does NOT resolve Link / Units / IfaceBounds / SrtpBounds — the caller
+    /// Does NOT resolve Link / Units / Constraints / SrtpBounds — the caller
     /// (Unification) handles compatibility checks and on-unified callbacks.
     /// The surviving root inherits `min` of the two roots' Levels so the
     /// representative remains authoritative for Rémy's level-based

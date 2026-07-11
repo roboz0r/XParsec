@@ -24,7 +24,7 @@ silently riding `emitPrintfFormatCtor` (an FSharp.Core `PrintfFormat`4` — the 
 contract-only, no `.fs`). Since every *use* of such an alias const-propagates the literal
 (`PrintfFormatLiterals`) and the self-host contract has *no cold runtime for a format value*
 (`Infer.fs`), the binding is dead: it is now **elided** at freeze (module-level in `Elaborate`,
-`let … in` in `FreezeExpr.translateLet`), so no `New PrintfFormat` reaches codegen. E2 (dynamic
+`let … in` in `ElaborateExpr.translateLet`), so no `New PrintfFormat` reaches codegen. E2 (dynamic
 format, §3) is deferrable and NOT on the critical path; the printf-independent list/option
 representation pin (below) is a separate axis.
 

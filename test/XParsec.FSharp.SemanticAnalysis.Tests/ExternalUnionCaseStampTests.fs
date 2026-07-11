@@ -11,7 +11,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 // BOTH pattern and expression position, applying the opens / RQA / qualifier
 // discipline, and stamps the resolved `ExternalUnionCase` under the ctor head's
 // `NodeKey` (`Resolution.ExternalUnionCaseStamp`). Unification's `InferPat` /
-// `InferIdentExpr` and Freeze's `translatePat` / `tryCtorRef` READ that stamp instead
+// `InferIdentExpr` and Elaborate's `translatePat` / `tryCtorRef` READ that stamp instead
 // of handing raw spelling back to `TryLookupUnionCase(string)`. A MISSED stamp where a
 // consumer reads is a phantom binder / mis-lowering, so these tests assert the stamp is
 // present at representative pattern sites — including or-pattern alternatives, which the

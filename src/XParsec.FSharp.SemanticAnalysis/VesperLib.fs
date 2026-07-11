@@ -668,7 +668,7 @@ module VesperLib =
         // module (`List` ⇒ compiled `ListModule`). The provider is probed with the
         // *source*-qualified name the front end writes (`List.fold`, not
         // `ListModule.fold`), so the val is additionally registered under that
-        // name; the compiled-name entry stays for the desugar/Freeze paths that key
+        // name; the compiled-name entry stays for the desugar/Elaborate paths that key
         // on it (and the VesperLib `…Module.Map` tests).
         (sourcePath: string list)
         (valSig: ValSig<SyntaxToken>)
@@ -920,7 +920,7 @@ module VesperLib =
         let mutable err = None
 
         // Operator-named cases (the cons-list's `([])` / `(::)`) take their
-        // canonical *ctor* names `Empty`/`Cons` — the names `FreezeExpr` mints and
+        // canonical *ctor* names `Empty`/`Cons` — the names `ElaborateExpr` mints and
         // codegen (both the CLR recipes and the JS external-union path) resolves
         // through — via the shared `OperatorNames.unionCaseCtorName`, so the
         // extracted contract's case names match a locally-compiled union's exactly.

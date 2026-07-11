@@ -35,7 +35,7 @@ let tests =
                 ] -> test src { runs expected src }
 
             // if-then with NO else: the missing else is `else ()`, so the whole
-            // expression is `unit` and the then-branch must be `unit`. Freeze
+            // expression is `unit` and the then-branch must be `unit`. Elaborate
             // synthesizes the `unit` else; codegen reuses the ordinary IfThenElse arm.
             yield
                 test "if-then (no else): taken branch runs the side effect" { runs "1" "if true then printfn \"%d\" 1" }

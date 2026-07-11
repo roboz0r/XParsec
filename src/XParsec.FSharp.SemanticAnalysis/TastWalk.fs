@@ -2,7 +2,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 // Single point where the TAST's recursion shape is enumerated. Six passes used
 // to each hand-roll a match over every `TExpr` case (`Inline.substExpr`,
-// `Inline.freshen.fE`, `Freeze.mapExprTypes`, `RefCellPromotion`'s collector +
+// `Inline.freshen.fE`, `Elaborate.mapExprTypes`, `RefCellPromotion`'s collector +
 // rewriter, `ResolvedTypes.walkExpr`); a new TExpr case would silently slip
 // past several of them via catch-alls. The walker centralises the enumeration
 // — F#'s incomplete-match check now fires here in one place when the TAST
@@ -319,7 +319,7 @@ module TastWalk =
             | TExpr.ILIntrinsic(op, operand, args, ty, tok) ->
                 TExpr.ILIntrinsic(op, ValueOption.map f operand, EqArray.map pe args, f ty, tok)
             // The default rebuild substitutes typars inside constraints too —
-            // `Freeze.mapExprTypes` (used to push a remap through generic
+            // `Elaborate.mapExprTypes` (used to push a remap through generic
             // member bodies) needs this. Passes that resolve clauses to a
             // single body (`Inline.substExpr`) override the node explicitly
             // and never reach this arm.

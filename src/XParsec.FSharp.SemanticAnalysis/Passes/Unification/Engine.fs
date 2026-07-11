@@ -553,7 +553,7 @@ module UnificationEngine =
                 // `comparer: IEqualityComparer` parameter of an `IStructuralEquatable`
                 // member, pinned by the interface-conformance unify only *after* the
                 // body — and its dot-accesses — were deferred). Resolve each member
-                // through the provider and record it for Freeze.
+                // through the provider and record it for Elaborate.
                 let pending = root.PendingDotAccess
                 root.PendingDotAccess <- []
                 let argArr = args.AsSpan().ToArray()
@@ -582,7 +582,7 @@ module UnificationEngine =
                         // arg into `d.ResultTv`'s domain while the receiver was
                         // still deferred, so the coercion happens here. The recorded
                         // `Signature` (the declared `obj`-bearing shape) is what
-                        // Freeze reads for the box, since this unify deliberately
+                        // Elaborate reads for the box, since this unify deliberately
                         // leaves the node typed with the un-grounded arg typar.
                         unifyAppliedSig ctx d.UseKey (TyVar d.ResultTv) memberSig
                     | _ ->

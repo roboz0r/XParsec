@@ -187,7 +187,7 @@ module internal UnificationInferRecordAccess =
     /// `Coercion` constraints; for each whose target zonks to a project-local
     /// *interface* `TyClass`, walks its members (and inherited interface members)
     /// for `memberName`. On a hit, records the interface key in
-    /// `TyparInterfaceCall` (keyed by the access node) so Freeze emits a
+    /// `TyparInterfaceCall` (keyed by the access node) so Elaborate emits a
     /// `CallVia.Interface` dispatch, and returns the member's instantiated type.
     /// `ValueNone` (the caller parks the access) when no coercion names a local
     /// interface declaring the member — an external interface coercion or a
@@ -222,7 +222,7 @@ module internal UnificationInferRecordAccess =
                             // member through the provider on the qualified key. The
                             // receiver stays a typar (never grounds to the interface), so
                             // we record `TyparInterfaceCall` — *not* `ExternalAccess` —
-                            // exactly as the local path does, and Freeze emits the same
+                            // exactly as the local path does, and Elaborate emits the same
                             // `CallVia.Interface` dispatch (now on an external `TypeSpec`).
                             match ctx.Provider.TryLookupMember(ifaceKey, memberName) with
                             | ValueSome m when not m.IsStatic ->
@@ -269,7 +269,7 @@ module internal UnificationInferRecordAccess =
                 // Not a project-local class — an *external* type (e.g. a BCL
                 // `TyClass("…EqualityComparer`1", [int])` produced by a prior static
                 // access). Resolve the instance member through the provider and
-                // record it for Freeze.
+                // record it for Elaborate.
                 let clsQual = SymbolKeyOps.qualifiedName clsKey
 
                 // Commit a resolved external instance member `m` whose signature is written
@@ -348,7 +348,7 @@ module internal UnificationInferRecordAccess =
                 // Not a project-local union — an *external* one (e.g. a referenced
                 // `Vesper.Option` whose `IsSome`/`Value`/`IsNone` augmentation
                 // members the contract provider publishes). Resolve through the
-                // provider and record it for Freeze, exactly as the external
+                // provider and record it for Elaborate, exactly as the external
                 // `TyClass` arm does.
                 let unionQual = SymbolKeyOps.qualifiedName unionKey
 
@@ -388,7 +388,7 @@ module internal UnificationInferRecordAccess =
             // generalise); instead resolve the member *now* through the interface the
             // typar is coerced to. The constraint's target zonks to the interface's
             // `TyClass` (a project-local interface is registered in `Types.Class`
-            // with `IsInterface` set). Record the interface key so Freeze mints a
+            // with `IsInterface` set). Record the interface key so Elaborate mints a
             // `CallVia.Interface` dispatch (codegen → `constrained. callvirt`).
             match tryTyparInterfaceMember ctx diagKey root memberName with
             | ValueSome ty -> ty
@@ -411,7 +411,7 @@ module internal UnificationInferRecordAccess =
         // An instance member on an *intrinsic* receiver whose `(# "…" #)` binding
         // maps it to a BCL type (`"hello".TryCopyTo(span)` / `s.Length`): resolve
         // through the provider by the canonical BCL name (`IntrinsicBclMember`,
-        // routed via `prim-types-string.fs`), recording it for Freeze exactly as
+        // routed via `prim-types-string.fs`), recording it for Elaborate exactly as
         // the external `TyClass` arm does. The single-pick member suffices for a
         // name with one overload; an arg-overloaded name (`string.CopyTo`) is
         // picked arg-aware earlier by `tryInferExternalInstanceMethodCall`. A
@@ -441,7 +441,7 @@ module internal UnificationInferRecordAccess =
         | TyArray _ when memberName = "Length" ->
             match ctx.CoreAccess.Value.GetArrayLength with
             | ValueSome sym ->
-                // Thread the resolved `GetArrayLength` identity to Freeze's
+                // Thread the resolved `GetArrayLength` identity to Elaborate's
                 // `External` mint (the `.Length` `DotLookup` / `LongIdent`-chain
                 // forms) so `InlineExpansion` splices the `ldlen` body by KEY.
                 ctx.Resolution.IntrinsicKey.Set(diagKey, sym.Key)
@@ -486,7 +486,7 @@ module internal UnificationInferRecordAccess =
         let getArrayIndex () =
             match ctx.CoreAccess.Value.GetArray with
             | ValueSome sym ->
-                // Thread the resolved `GetArray` identity to Freeze's `External` mint
+                // Thread the resolved `GetArray` identity to Elaborate's `External` mint
                 // (`translateIndexedLookup`, same `IndexedLookup` key) so the `ldelem`
                 // body splices by KEY.
                 ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
@@ -535,9 +535,9 @@ module internal UnificationInferRecordAccess =
         // `GetArray`/`ldelem`. Resolve it through the provider, record it in
         // `ExternalAccess`, and return the *element* type. The accessor's return is
         // either by-ref (`Span<char>.get_Item : T&`, needs an `ldobj` deref at
-        // Freeze) or by-value (`string.get_Chars : char`, `List<T>.get_Item : T`,
+        // Elaborate) or by-value (`string.get_Chars : char`, `List<T>.get_Item : T`,
         // `ITuple.get_Item : obj`) — detect it from the resolved signature so the
-        // unify RHS (and Freeze's lowering) match. A project-local class, an
+        // unify RHS (and Elaborate's lowering) match. A project-local class, an
         // intrinsic array, or a still-free receiver keeps the `GetArray` path.
         let resolveExternalIndexer (declKey: SymbolKey) (clsArgs: SemType[]) (accessorName: string) : SemType voption =
             match ctx.Provider.TryLookupMember(declKey, accessorName) with
@@ -619,7 +619,7 @@ module internal UnificationInferRecordAccess =
 
                 match ctx.CoreAccess.Value.GetIndex with
                 | ValueSome sym ->
-                    // Thread the resolved `GetIndex` identity to Freeze's `External`
+                    // Thread the resolved `GetIndex` identity to Elaborate's `External`
                     // mint (same `IndexedLookup` key) so the `$0[$1]` body splices by KEY.
                     ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
                     let resultTy = TyVar(freshTyVar ctx)
@@ -657,7 +657,7 @@ module internal UnificationInferRecordAccess =
         // member-contract identity, `RuntimeNames.arrayContractName` (see there for why
         // it's the backtick-escaped `` ``[]`` `` and how the consumer/harvest/receiver
         // keys agree). `TryLookupMember` lands the identical member the contract and the
-        // harvest store share, and Freeze lowers it through
+        // harvest store share, and Elaborate lowers it through
         // `TExpr.ExternalMember(get_Item)` (whose harvested `ldelem` body splices to the
         // same `arr[i]`). A MISS — the contract half absent (a non-JS target, or a key
         // disagreement) — falls back to the free `GetArray` path UNCHANGED, so nothing

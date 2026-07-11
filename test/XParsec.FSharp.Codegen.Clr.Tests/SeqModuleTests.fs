@@ -17,7 +17,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //
 // The `seq<'T>` source is `System.Linq.Enumerable.Range(start, count)` — a real
 // BCL `IEnumerable<int>`. Folders / reducers are *curried* (`fun s -> fun x -> …`)
-// because Freeze emits multi-arg lambdas as curried.
+// because Elaborate emits multi-arg lambdas as curried.
 
 // ---- driver programs: fold / reduce / toArray / truncate --------------------
 

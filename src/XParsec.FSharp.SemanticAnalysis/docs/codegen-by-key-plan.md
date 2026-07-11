@@ -118,7 +118,7 @@ Not blocked by the above, and each stands on its own.
   which makes the resolver reach *structurally impossible* in JS codegen, as
   `PassContext.Provider` did for the front end. This is the step that buys an invariant,
   not just tidiness.
-- **`RuntimeNames.arrayOfListKey`.** `FreezeExpr.fs:655` mints
+- **`RuntimeNames.arrayOfListKey`.** `ElaborateExpr.fs:655` mints
   `TExpr.External(arrayOfListName, ValueNone, …)` for an array literal — the one
   genuinely keyless head, and the sole supply for `EmitCall.fs:152`'s string match.
   Give it a well-known key (the `EmitJsContext.fs:320` `structuralFormatKey` precedent).

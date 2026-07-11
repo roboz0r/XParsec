@@ -316,7 +316,7 @@ module NumericLiterals =
     /// F#'s wrap semantics for radix literals.
     ///
     /// `Error` carries WHY there is no constant (`NumericLiteralRejection`) — never a
-    /// truncation, and never merely "no". The consumer (`FreezeLiterals.tryParseConst`)
+    /// truncation, and never merely "no". The consumer (`ElaborateLiterals.tryParseConst`)
     /// turns the reason into the diagnostic the user reads, so a custom numeric literal
     /// is not reported as an out-of-range magnitude.
     let parseNumericLiteral (token: Token) (text: string) : Result<NumericLiteralValue, NumericLiteralRejection> =

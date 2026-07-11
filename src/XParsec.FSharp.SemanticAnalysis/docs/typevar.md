@@ -20,17 +20,29 @@ least-upper-bound, not equality.
 
 ## Storage
 
+The live definition is in [`SemanticInfo.fs`](../SemanticInfo.fs) and has grown
+past the original sketch; read it there. In outline:
+
 ```fsharp
 [<Sealed>]
 type TypeVar() =
-    member val Link    : SemType voption       = ValueNone with get, set
-    member val Units   : MeasureTerm list      = []         with get, set
-    member val Region  : RegionId              = RegionId.Unknown with get, set
-    member val IfaceBounds : InterfaceBound list = []      with get, set
-    member val SrtpBounds  : MemberSignature list = []     with get, set
-    member val Parent  : TypeVar voption       = ValueNone with get, set  // union-find
-    member val Rank    : int                   = 0         with get, set  // union-find
+    member val Link   : SemType voption     = ValueNone         // solved? (union-find)
+    member val Units  : MeasureTerm voption = ValueNone         // axis 2
+    member val Region : RegionId            = RegionId.Unknown  // axis 3
+    member val Level  : int                 = 0                 // Rémy's let-depth
+    member val Parent : TypeVar voption     = ValueNone         // union-find
+    member val Rank   : int                 = 0                 // union-find
+    // Deferred obligations, all drained by `unify` when `Link` is set and
+    // merged across a `union` by `migrateBounds`:
+    member val Constraints      : SemanticConstraint list  = []  // `when 'a : equality`, `:> T`, …
+    member val SrtpBounds       : MemberSignature list     = []  // `when ^a : (member …)`
+    member val PendingDotAccess : DeferredMemberAccess list = [] // `x.Foo` on a still-free `x`
+    member val Defaults         : SemType list             = []  // `default ^T : dynamic`
 ```
+
+**Everything except `Parent` / `Rank` is authoritative only on the union-find
+representative — call `UnionFind.find` before reading it.** That is the single
+easiest mistake to make against this type.
 
 A few choices worth noting:
 
@@ -45,20 +57,35 @@ A few choices worth noting:
   the record. No separate `Dictionary<TypeVar, TypeVarRef>` indirection.
   `find` walks pointers; `union` rewires them.
 
-## SRTP and IWSAM bounds
+## Deferred obligations (the on-unified callbacks)
 
-F# has two species of ad-hoc polymorphism that have to be deferred:
+A constraint on a *free* TyVar cannot be checked yet — there is nothing to check
+it against. So it is parked on the variable and **drained when the variable is
+solved**: when `Unification` writes `Link`, it walks the obligation lists and
+dispatches. A `union` merges two variables' obligations onto the survivor via
+`migrateBounds`. Newly-discovered obligations can fire further unifications; that
+iteration is internal to the pass and never escapes into pass-level re-running
+(see [architecture.md](architecture.md#pass-order-is-strictly-forward)).
 
-- **SRTP** (`when ^a : (member Foo : unit -> int)`) — resolved when the
-  concrete type of `^a` becomes known. The bound is the member signature.
-- **IWSAM** (`when 'a :> ISomething<...>`) — resolved by trait/interface
-  lookup on the concrete type. Maps cleanly to .NET 7+ interfaces with
-  static abstract members, and to Rust traits.
+This machinery is **wired**. What varies is how much of each obligation kind is
+modelled:
 
-Both live on `TypeVar` as lists. When `Unification` writes `Link`, it walks
-both bound lists and dispatches the on-unified callbacks. Newly-discovered
-bounds during the callback can fire more unifications — the iteration is
-internal to the pass.
+- **`Constraints`** (`SemanticConstraint`) — the `when 'a : …` clauses. The
+  trait-table subset is live: `equality`, `comparison`, `struct` / `not struct`,
+  `: null` / `: not null`, plus `Coercion` (`:> T` subtype bounds, checked
+  through the read-only `subsumes` relation). Deferred: `MemberTrait`,
+  `DefaultConstructor`, `Enum`, `Unmanaged`, `Delegate`.
+- **`SrtpBounds`** (`when ^a : (member Foo : unit -> int)`) — the field and the
+  callback exist; the member-trait resolution behind them is the deferred
+  `MemberTrait` case above. This is the real remaining SRTP gap.
+- **`PendingDotAccess`** — `x.Foo` where `x`'s type is still free. Parked until
+  the receiver is known, then resolved against record fields vs class members.
+- **`Defaults`** — a `default ^T : dynamic` chain from an external symbol's
+  declared defaults; applied at generalisation if nothing else pinned the
+  variable.
+
+**IWSAM** (`when 'a :> ISomething<…>`) rides the `Coercion` constraint. It maps
+cleanly to .NET 7+ static-abstract interfaces, and to Rust traits.
 
 ### SRTP resolution and target capabilities
 
@@ -76,18 +103,39 @@ This means the on-unified callback for SRTP bounds is a two-step query:
    `decimal` is not supported on the JS target") than a generic SRTP
    resolution failure.
 
-The mock provider plus `MockBuiltins` skirts this entirely for the tiny
-subset — `(+) : int -> int -> int` is exposed as a monomorphic primitive
-with no SRTP machinery. The full FSharp.Core (+) story comes online when we
-start consuming real `FSharp.Core.dll`, which is firmly in the .NET-integration
-phase, not the self-contained-file slice.
+Which is why the inline IL is **not modelled here** — the resolved operator's
+compiled name drives target-specific dispatch, so it stays in the backend (see
+the header of [`ExternalSymbols.fs`](../ExternalSymbols.fs)). Primitive identity
+itself is **contract-sourced**: `int` / `string` resolve through the provider and
+the compiling target's `.fsi` contract ([`Intrinsics.fs`](../Intrinsics.fs)),
+never from a hardcoded name set in a pass.
 
 ## Generalisation
 
-After `Unification` finishes the main pass, any `TypeVar` whose `Link` is
-still `ValueNone` and which is bound at a `let` boundary gets generalised
-into a polymorphic parameter (`'a`). The value restriction (checked in
-`Validation`) catches generalisation of mutable references.
+Rémy's levels. Each `TypeVar` is stamped with the **let-depth it was minted at**
+(`Level`); `unify` lowers a variable's level when it becomes reachable from a
+shallower scope, and `union` propagates the `min` of the two roots'. Generalising
+a binding then means quantifying exactly those variables whose `Level` exceeds
+the enclosing scope's — an O(1) test per variable, instead of scanning the type
+environment for what's free in Γ.
+
+The result is a `TypeScheme` (quantified vars + body) in the `Scheme` side table.
+Each *use* of the name instantiates it with fresh variables at the current level,
+so independent use sites don't share variables — the same freshen-per-use shape
+`ExternalSymbols.instantiateSymbol` uses for provider-supplied symbols, but over
+the finitely many `'a`s a user-written `let` produces. Quantified variables stay
+live in the union-find graph; they are simply no longer free with respect to the
+outer scope.
+
+**Value restriction is split across two passes**, deliberately:
+
+- The **gate** is in `Unification` (`shouldGeneralise` skips a binding carrying a
+  `mutableToken`), so a mutable binding never gets a scheme and every use unifies
+  against the one shared variable.
+- The **diagnostic** is in `Validation`, which runs late enough that every use
+  site has already had its chance to pin a free variable. Emitting at `let`-time
+  would fire prematurely on `let mutable r = []` — legal, because a later
+  `r <- [1]` pins it.
 
 ## Why not just FCS's `TyparData`?
 
@@ -107,16 +155,24 @@ storage layout differs.
 
 ## Open questions
 
-These are deferred until a real implementation starts:
+- **Bounds on a *quantified* TyVar.** Generalisation quantifies a TyVar that may
+  carry `Constraints` / `SrtpBounds`. `instantiate` should re-instantiate those
+  obligations alongside the fresh variable, or a use site of a constrained
+  generic loses its constraint. Under-exercised while `MemberTrait` is still
+  deferred — revisit when SRTP member resolution lands.
 
-- **MeasureTerm representation.** Sorted list of `(unit, exponent)` pairs?
-  A small `Dictionary<UnitName, int>`? Cost depends on how many measure
-  variables a typical program uses — probably very few, in which case a
-  flat sorted list wins on every dimension.
-- **InterfaceBound vs SrtpBound: same type or two?** They have different
-  resolution semantics (interface lookup vs member-signature lookup) but
-  similar shape. Probably two distinct types; revisit if the validators end
-  up duplicating logic.
-- **RegionId allocation.** Sequential `int`? A `[<Struct>]` over `int`?
-  Whether we need union-find on regions too (we shouldn't — they're
-  inequality, not equality).
+Answered since this doc was written, kept as a record of the reasoning:
+
+- ~~**MeasureTerm representation.**~~ The flat sorted list won, as predicted:
+  `MeasureTerm` is a sealed class over a normalised, name-sorted
+  `(string * Rational) list` — zero exponents dropped, so structural list
+  equality *is* abelian-group equality.
+- ~~**InterfaceBound vs SrtpBound: same type or two?**~~ Two, and the split fell
+  differently than expected. Interface/subtype bounds became the `Coercion` case
+  of `SemanticConstraint` (checked via `subsumes`), sitting alongside the other
+  `when 'a : …` clauses rather than in a type of their own; `SrtpBounds` stayed
+  separate as `MemberSignature list`.
+- ~~**RegionId allocation.**~~ A `[<Struct>]` over a sequential `int`, with
+  `Unknown = -1`. No union-find on regions — they are an inequality (partial
+  order), solved by least-upper-bound propagation, not by merging equivalence
+  classes.

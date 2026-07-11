@@ -169,7 +169,7 @@ flag: a trailing run of optional parameters becomes the member's `OptionalDefaul
 (`TsManifestMembers.trailingOptionalCount` → `List.replicate n TConstValue.Unit`), so the SHARED
 optional-fill seam (`InferExternalCall.tryFillOptionalCall` admits the under-applied arity; the
 single-pick `resolveFieldStep` and `commitExternalOverload` both forward `OptionalDefaults` into
-`ExternalAccess`; `FreezeExpr.optionalDefaultNode` synthesises each omitted slot) permits
+`ExternalAccess`; `ElaborateExpr.optionalDefaultNode` synthesises each omitted slot) permits
 `api.readFile(path, cb)` and `api.greet("x")`. Each omitted slot is `TConstValue.Unit` — its JS
 VALUE repr is `undefined` (the correct absence value for an omitted TS optional). The `undefined`
 TYPE is a distinct identity from `unit` (`prim-types-undefined.js.fs`); the fill exploits only the
@@ -309,7 +309,7 @@ an intrinsic/`extern` type is now a real, reusable capability, end-to-end (parse
 - **2b** — array WRITE (`arr.[i] <- v` → `set_Item`) via the new `inferIndexedSet` from
   `inferAssignment` (`InferControlFlow.fs:811`, no write resolution exists today) + `arr.Length` via a
   `get_Length` member (retire the three `.Length` special-cases at `InferRecordAccess.fs:440`,
-  `FreezeExpr.fs:556`, `Resolve.fs:816`). Same escaped-name + byte-identical + white-box pattern as 2a.
+  `ElaborateExpr.fs:556`, `Resolve.fs:816`). Same escaped-name + byte-identical + white-box pattern as 2a.
 - **2c** — string `s.[i]` via a `get_Item`/`get_Chars` member (string keys CLEANLY as `"string"` — a
   simpler path than array's escaped name; `GetString`'s `$0[$1]` body migrates). Byte-identical
   (`ArrayLoopTests` string-index, `IndexSignatureTests`).
@@ -433,7 +433,7 @@ accessor `member _.Item with get (i) = (# "ldelem" … #)` IS the inline functio
    `$0[$1]` bracket, served via `TryLookupInlineBody` (so `GetIndex`/`SetIndex` become those bodies — no
    separate lowering flag). Then DELETE: `tryIndexSignature`, `TryLookupIndexSignature` (+ its ~12
    impls), the Freeze `zonk arrTy` re-derivation ladder (read + write — Finding 1's duplication with it),
-   the `TyConst(arrayName 1) && "Length"` special-cases (`InferRecordAccess.fs:440`, `FreezeExpr.fs:556`,
+   the `TyConst(arrayName 1) && "Length"` special-cases (`InferRecordAccess.fs:440`, `ElaborateExpr.fs:556`,
    `Resolve.fs:816`), and the now-unreferenced `GetArray`/`Get*` free functions. `[IndexerName]` stays
    NON-generalised: `string` is the sole `get_Chars` producer in .NET, so the string companion maps
    `get_Item` → `get_Chars` on CLR / native `s[i]` on JS by hand, not by attribute.

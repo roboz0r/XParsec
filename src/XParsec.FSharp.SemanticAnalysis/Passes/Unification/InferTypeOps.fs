@@ -151,8 +151,8 @@ module internal UnificationInferTypeOps =
     /// tuple — so its operand subtrees are solved — and yields the member signature's
     /// declared RETURN type. That is `^T3`, which for a heterogeneous operator
     /// (`Vec2 * float -> Vec2`) is neither operand's type; reading it off the first
-    /// argument instead would type the node as `^T1` and Freeze would stamp that wrong
-    /// type onto the `TExpr.TraitCall` it lowers to.
+    /// argument instead would type the node as `^T1` and Elaborate would stamp that
+    /// wrong type onto the `TExpr.TraitCall` it lowers to.
     and inferStaticMemberInvocation
         (infer: Infer)
         (ctx: PassContext)
@@ -252,7 +252,7 @@ module internal UnificationInferTypeOps =
         : SemType =
         let srcTy = infer ctx inner
         let tgtTy = translateType ctx t
-        // The node's own type is `bool`; stash the tested-against type so Freeze
+        // The node's own type is `bool`; stash the tested-against type so Elaborate
         // can carry it into `TExpr.TypeTest.testTy` for the `isinst` operand.
         ctx.Resolution.TypeTestTargets.Set(key, tgtTy)
 

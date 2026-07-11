@@ -871,7 +871,7 @@ let tests =
                 // `([])` and `(::)` are GADT-syntax. GADT-case extraction
                 // registers a real `Union` — cases named by their canonical *ctor*
                 // form (`Empty` / `Cons`, via the shared
-                // `OperatorNames.unionCaseCtorName`), matching `FreezeExpr` and
+                // `OperatorNames.unionCaseCtorName`), matching `ElaborateExpr` and
                 // codegen, fields drawn from the `(::)` signature's args, the
                 // return type ignored. (`Thing<'T>` stands in for `'T list` to keep
                 // the fixture self-contained — the self-referential field resolves

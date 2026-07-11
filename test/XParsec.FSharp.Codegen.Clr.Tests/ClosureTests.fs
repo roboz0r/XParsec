@@ -233,13 +233,13 @@ let tests =
 
             // A *generic* own-class `static member (+)` taken by value dispatches to that
             // member — and NOTHING in the front end special-cases it to make that happen.
-            // The value freezes to a plain keyed `External("op_Addition")`;
+            // The value elaborates to a plain keyed `External("op_Addition")`;
             // `InlineExpansion` eta-reifies it to `fun a b -> (+) a b`, splices the
             // contract body at the call head its own eta minted, and the body's SRTP
             // trait-call BASE resolves against the nominal `V<int>` receiver to
             // `V<_>.op_Addition(a, b)`. The type-directed decision F# makes here lives in
-            // that trait call, so the hand-rolled `resolveOperatorValues` scan + Freeze eta
-            // that used to make it are gone.
+            // that trait call, so the hand-rolled `resolveOperatorValues` scan + the
+            // Elaborate eta that used to make it are gone.
             //
             // The `Let`s between the lambdas and the call are the ordinary
             // beta-reduction bindings EVERY inline splice leaves — hence the search for

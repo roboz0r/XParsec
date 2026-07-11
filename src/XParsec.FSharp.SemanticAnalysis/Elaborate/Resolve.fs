@@ -6,12 +6,12 @@ open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
 
-// Name / member resolution helpers for the Freeze pass: the `try*` resolvers, the
+// Name / member resolution helpers for the Elaborate pass: the `try*` resolvers, the
 // active patterns each `translateExpr` arm guards on, and the `receiver.seg`
 // field-access projection. None depend on the recursive `translateExpr`; the
-// expression projection (`FreezeExpr`) opens this module.
+// expression projection (`ElaborateExpr`) opens this module.
 
-module internal FreezeResolve =
+module internal ElaborateResolve =
 
     // Public surface for the companion `Elaborate` (type-declaration) module: the
     // entry points it projects member bodies / ctor args / field types from.
@@ -33,8 +33,8 @@ module internal FreezeResolve =
 
     /// The enum key for a two-segment `E.C1` access/pattern, binding it once and
     /// collapsing the formerly-separate local-registry and type-signal arms into a
-    /// single freeze arm (used by both `FreezeExpr`'s `StaticFieldGet` and
-    /// `FreezePatterns`' `TPat.EnumCase`). `enumKeyOfTy` is the canonical signal —
+    /// single freeze arm (used by both `ElaborateExpr`'s `StaticFieldGet` and
+    /// `ElaboratePatterns`' `TPat.EnumCase`). `enumKeyOfTy` is the canonical signal —
     /// Unification types BOTH project-local and external `E.C1` as `TyEnum key`, so
     /// it alone resolves the valid case; the local registry is consulted only as the
     /// error-path fallback, where an invalid case (`E.BadCase`, already diagnosed
@@ -61,12 +61,12 @@ module internal FreezeResolve =
     /// A project-local class is read from `ctx.Types.Class`; an *external* head's
     /// identity is resolved ONCE upstream. NameResolution stamps the resolved type
     /// `SymbolKey` into `Resolution.ResolvedType`, keyed by this head node —
-    /// opens-aware, so Freeze reads the key rather than re-running `OpenScope.tryQualify`
+    /// opens-aware, so Elaborate reads the key rather than re-running `OpenScope.tryQualify`
     /// + a provider string lookup here (the resolve-once boundary). The stamp's
     /// PRESENCE is the "head names a constructible external type" verdict, mirroring
     /// Unification's `tryInferExternalCtorApp` / `tryInferExternalGenericCtorApp` — a
     /// `TypeApp` head's receiver carries the stamp, so peeling to the inner head finds
-    /// it. Presence suffices WITHOUT a shape check because Freeze runs after
+    /// it. Presence suffices WITHOUT a shape check because Elaborate runs after
     /// Unification: a stamped head that is not actually constructible (a generic
     /// union/record receiver) already failed inference, so it never reaches a
     /// well-typed lowering. The returned name is DIAGNOSTIC ONLY: both backends resolve the
@@ -108,12 +108,12 @@ module internal FreezeResolve =
     /// `decl` slot of the `MemberKey` minted for an instance member access. Only
     /// called where the receiver is already known to be nominal (the active
     /// patterns / `InstanceMethodCall` guard on `TyClass`/`TyUnion`), so a
-    /// non-nominal type is a Freeze invariant break.
+    /// non-nominal type is a Elaborate invariant break.
     let nominalDeclKey (ty: SemType) : SymbolKey =
         match Unification.zonk ty with
         | TyClass(key, _)
         | TyUnion(key, _) -> key
-        | other -> failwithf "Freeze: expected a class/union receiver for a member access, got %A" other
+        | other -> failwithf "Elaborate: expected a class/union receiver for a member access, got %A" other
 
     /// Look up `memberName` on `typeName` — a class or (P3d.3) a union
     /// augmentation. Returns the declaring type's `SymbolKey` (`info.Key`)
@@ -164,7 +164,7 @@ module internal FreezeResolve =
     //
     // The front end accepts a value / open typar flowing into an `obj` parameter
     // *without grounding* the typar (Engine's obj-absorption rule). The box that
-    // upcast implies is made explicit here, at Freeze, as a `TExpr.Upcast(arg,
+    // upcast implies is made explicit here, at Elaborate, as a `TExpr.Upcast(arg,
     // obj)` node — codegen's existing `buildUpcast` handler materialises the box
     // (`box` for a value/typar source, a JIT no-op for a reference one). This is
     // the single home for the box policy; codegen no longer re-derives it per
@@ -312,7 +312,7 @@ module internal FreezeResolve =
     /// Field SemTypes of a union case, in declaration order — for boxing a
     /// value-typed argument flowing into an `obj` case field (the union-cons obj
     /// gap codegen could not close: `EmittedCase.Fields` carries only handles, not
-    /// the field types Freeze has here). Empty for an external union.
+    /// the field types Elaborate has here). Empty for an external union.
     let unionCaseFieldTys (ctx: PassContext) (unionTy: SemType) (caseName: string) : SemType list =
         match Unification.zonk unionTy with
         | TyUnion(key, _) ->

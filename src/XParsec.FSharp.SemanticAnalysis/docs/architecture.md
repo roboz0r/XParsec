@@ -4,6 +4,51 @@ This document captures the design decisions made *after* the original
 `semantic-analysis.md` brainstorm — the ones that shape the project's physical
 layout and pass contracts.
 
+## The governing principle: immutable → mutable → immutable
+
+Most of what follows is a consequence of one shape:
+
+> **immutable shared CST → mutable in-flight TAST → immutable shared frozen TAST**
+
+Mutation is not forbidden; it is **confined**. The two ends are immutable because
+they are *shared* — with tooling, with other compilations, with the backends,
+potentially across threads. The middle is mutable because that is where mutation
+pays for itself (in-place union-find, dictionary side tables) and because nothing
+there escapes: it is scoped to one `PassContext`, which is scoped to one
+compilation.
+
+| Stage | Representation | Mutable? | Who may hold it |
+|---|---|---|---|
+| **In** | CST + trivia | no | the parser's other consumers — formatter, linter, IDE — and every compilation at once |
+| **Middle** | side tables + the `SemType` / `TypeVar` union-find graph, and the `TastFileG<SemType>` tree built over it | **yes** | exactly one `PassContext`. Nothing else, ever |
+| **Out** | `TastFileG<FrozenType>` | no | codegen, caches, other assemblies |
+
+Read that way, three decisions stop being independent choices and become the same
+decision:
+
+- **The CST is not mutated** — it is in the *shared* column. Attaching mutable
+  semantic state to it would mean every other consumer has to know when that
+  state is valid. So semantic facts go in side tables instead (§below).
+- **Side tables and `TypeVar` may be mutated freely** — they are in the *confined*
+  column. This is why we don't reach for persistent maps or path-copying: nothing
+  outside the pipeline can observe the mutation.
+- **`Freeze` exists at all** — it is the gate back out to the shared column. An
+  elaborated tree still points into a live, mutating `TypeVar` graph (`Regions`
+  writes `TypeVar.Region` *after* `Elaborate` has run), so it is not safe to hand
+  to a backend or cache across a compilation boundary. `Freeze` severs that link
+  by rebuilding into `FrozenType`, in which a metavar is unrepresentable **by
+  construction**.
+
+That last point is why `FrozenType` has no `TyVar` case, and why the
+`ResolvedTypes` / `PlatformTypes` guards run immediately before the freeze rather
+than after: they are the last chance to turn "this didn't resolve" into a decent
+diagnostic while the mutable graph is still around to explain itself.
+
+A caveat when reading the source: `Elaborate.fs` describes its output as
+"sharable". That means *independent of the CST and side tables* — narrower than it
+sounds. The elaborated tree is not yet shareable in the sense this section uses,
+because it still carries `SemType`.
+
 ## CST in, TAST out, side tables in between
 
 The `XParsec.FSharp` parser produces an **immutable** CST whose nodes preserve
@@ -17,14 +62,25 @@ So the rules are:
   CST records. No "promise to only touch this during analysis" hatch.
 - All in-flight semantic information lives in **side tables** keyed by
   [`NodeKey`](nodekey.md). One table per kind of information (resolved
-  binding, `TypeVar`, `RegionId`, etc.). See `SideTables.fs`.
-- When all passes have run, `Freeze.fs` projects the CST + side tables into a
-  brand-new immutable [`Tast`](../Tast.fs) tree. That projection is the
-  *only* tree-to-tree transformation in the whole pipeline.
+  binding, `TypeVar`, `EscapeState`, …). They live on the `PassContext` — see
+  [`PassContext.fs`](../PassContext.fs).
+- [`Elaborate.fs`](../Elaborate.fs) projects the CST + side tables into a
+  brand-new immutable [`Tast`](../Tast.fs) tree. It is the **one** CST → TAST
+  projection, and the side tables are discardable once it returns.
 
 This is the same shape Roslyn and FCS use: keep the syntax tree pure, attach
 semantic info alongside, and produce a separate bound/typed tree only when
 needed.
+
+> **Don't confuse the two.** [`Freeze.fs`](../Freeze.fs) is a *different, later*
+> step than `Elaborate`: the single `SemType → FrozenType` rebuild that ends the
+> pipeline. **`Elaborate` builds the tree; `Freeze` changes the type domain.** So
+> the CST → TAST projection is not the only tree-to-tree pass any more —
+> `RefCellPromotion` rewrites the TAST, and `Freeze` maps it across type domains.
+> It remains true that no pass rewrites the *CST*.
+>
+> `Elaborate` was itself once *called* `Freeze` (hence the historical confusion).
+> A stray `Freeze` in an old commit that plainly means "builds the TAST" is that.
 
 ## Why not a "working tree" wrapper?
 
@@ -63,15 +119,23 @@ Consequences:
 
 ## Pass order is strictly forward
 
-The pipeline order is:
+`Pipeline.fs` is the authoritative order and [`passes.md`](passes.md#pipeline)
+tabulates it — deliberately not duplicated here, because a second copy is a
+second thing to rot. In shape: annotate (`Desugar`) → resolve
+(`NameResolution`) → infer (`Unification`) → check (`Validation`) → build the
+tree (`Elaborate`) → analyse and rewrite the tree (`Regions`,
+`RefCellPromotion`) → guard (`ResolvedTypes`, `PlatformTypes`, `DynamicEscape`)
+→ change type domain (`Freeze`).
 
-1. **Desugar** — writes the `Desugared` side table; mints synthetic NodeKeys.
-2. **NameResolution** — writes the `Binding` side table.
-3. **Unification** — writes the `TypeVar` side table; runs the on-unified
-   callbacks for deferred SRTP / IWSAM constraints inside its own fixpoint.
-4. **Regions** — writes the `Region` side table.
-5. **Validation** — read-only; emits diagnostics.
-6. **Freeze** — builds the TAST from CST + all side tables.
+Two facts about that order are load-bearing rather than incidental:
+
+- **`Regions` runs *after* `Elaborate`, not before.** Escape analysis has to see
+  the closures codegen will actually emit, and inlining both destroys closures
+  and creates them. Running it on the CST would analyse a tree that no longer
+  exists by the time anything is emitted.
+- **The guards run before `Freeze`, in the `SemType` domain.** A leaked metavar
+  is a graceful per-decl diagnostic from `ResolvedTypes`; if it reached `Freeze`
+  it would be a hard error, because `FrozenType` cannot represent one.
 
 Each pass's contract:
 
@@ -92,6 +156,10 @@ only "optimisation" that has to live in semantic analysis. Everything else
 TAST and is out of scope here.
 
 ## Parallelism
+
+**Design intent, not built.** The orchestration described here does not exist
+yet; the multi-file story is still being planned. What follows is the shape the
+design keeps open, and the reason nothing about `PassContext` forecloses it.
 
 The side-table-per-`PassContext` design is what enables file-granularity
 parallelism. Each file's analysis owns its own `PassContext` — its own

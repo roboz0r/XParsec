@@ -54,7 +54,7 @@ workaround for two front-end gaps, both of which the idiomatic spelling
    lowers to a `TExpr.External` leaf that `InlineExpansion.fs:674`
    splices to `ilzero` *before* codegen. The qualified spelling lowers
    instead to a member read (`StaticPropertyGet`/`StaticMethodCall`,
-   `FreezeExpr.fs:189,307`), which the splice arm (matches only
+   `ElaborateExpr.fs:189,307`), which the splice arm (matches only
    `TExpr.External`) skips; it reaches `EmitExpr.fs:111/113` and emits a
    `call` into the never-materialised `Unchecked` class →
    **TypeLoadException / InvalidProgramException** at runtime. This is
@@ -65,7 +65,7 @@ workaround for two front-end gaps, both of which the idiomatic spelling
    non-nominal result (a bare typar `'T`) as a documented no-op
    (`InferTypeOps.fs:30-58`); and Freeze has no arm for a *value*
    `TypeApp` — only the `TypeAppStaticMember` class-receiver arms
-   (`FreezeExpr.fs:183,307`) — so `defaultof<'T>` hits the `failwith`
+   (`ElaborateExpr.fs:183,307`) — so `defaultof<'T>` hits the `failwith`
    fallthrough.
 
 The canonical example we want to compile — byte-identically to today's
@@ -153,7 +153,7 @@ not leak into Freeze; FSharp.Core encodes the verdict at the source with
 | # | File | Change |
 |---|------|--------|
 | 1 | `SymbolProviders.fs` (`buildContractCached`) | A qualified read of an *external* module value already froze to `TExpr.External` carrying the resolved (holder-scoped) `SymbolKey` — the SAME `ValueKey(asm, ns, name)` the provider mints for that value. The defect was in the inline-body **by-key store**: it resolved each value body via its *simple* name (`provider.TryLookup info.Name`), which the qualified-name-keyed index does not contain (and never did — `[<AutoOpen>]` only ever fed front-end resolution, not `TryLookup`), so `byKey` got no entry and `InlineExpansion.fs:674` missed the key channel → phantom `call`. Fix: key `byKey` by resolving the value's **fully-qualified** compiled name (`ValueInlineBody.Qualified`, reconstructed from its `ModuleMemberInfo`), exactly as the member channel already keys by `TryLookupMember(qualifiedTypeName, …)`. The use-site key then hits the identity-robust key channel directly — no Freeze-side name rewrite, and same-simple-name value inlines across modules no longer alias in the by-name map. |
-| 2 | `FreezeExpr.fs` | New arm: value `Expr.TypeApp(inner, types)` forwards to `inner`'s frozen `External` leaf. |
+| 2 | `ElaborateExpr.fs` | New arm: value `Expr.TypeApp(inner, types)` forwards to `inner`'s frozen `External` leaf. |
 | 3 | `InferTypeOps.fs:36` (optional) | `inferTypeApp` binds a generic value's scheme typar to the explicit arg. |
 | 4 | `EmitClosures.fs:164` | `classifyModuleValues`: admit `isInline` values that lack `[<NoDynamicInvocation>]`. |
 | 5a | `Vesper.Core/compiler-attributes.fsi` | Declare `NoDynamicInvocationAttribute`; and add `CompiledNameAttribute`, which is recognised by short name (`Elaborate.fs:1710` → `tryCompiledName`) but currently has **no source representation** — a latent gap to close while we are here. |

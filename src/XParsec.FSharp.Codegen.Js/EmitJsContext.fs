@@ -453,7 +453,7 @@ module EmitJsContext =
         // is the disjunction of the alternatives' tests. An irrefutable alternative
         // (`test = None`) makes the whole or-pattern irrefutable — `disjoin` folds
         // it to `None`. Alternatives bind nothing (name resolution drops or-pattern
-        // binders — `FreezePatterns` rejects a binding alternative), so the binding
+        // binders — `ElaboratePatterns` rejects a binding alternative), so the binding
         // lists are empty and discarded.
         | TPatG.Or(alts, _, _) ->
             let tests =

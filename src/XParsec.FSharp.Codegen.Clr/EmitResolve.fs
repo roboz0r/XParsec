@@ -165,7 +165,7 @@ module EmitResolve =
     /// A monomorphic union/class uses the member's `Def` token directly;
     /// a *generic* one goes through a `MemberRef` on the receiver's
     /// instantiated `TypeSpec` (`List<int>::get_Head`, `Box<int>::get_Value`).
-    /// The implicit value→`obj` box is now synthesised at Freeze as an explicit
+    /// The implicit value→`obj` box is now synthesised at Elaborate as an explicit
     /// `Upcast`, so this resolver no longer returns the member's parameter types.
     /// Returns the member-call handle *and* the resolved `EmittedMember` — the
     /// latter so a generic-instance-method call site (`set.Map mapping`) can read
@@ -306,7 +306,7 @@ module EmitResolve =
     /// route through the same `Member` arm as instances; a generic class's
     /// static member uses the class `MemberRef` instead of the union one.
     /// `resultTy` is still needed for `instantiationFor` (the generic deferred-gap
-    /// fix); the obj-box decision moved to Freeze, so no param types are returned.
+    /// fix); the obj-box decision moved to Elaborate, so no param types are returned.
     /// `argTys` are the call's actual argument types (empty for a property get) —
     /// the second instantiation-recovery source after the result type.
     let resolveStaticMember
@@ -465,7 +465,7 @@ module EmitResolve =
     /// `resolveInstanceMember`. A referenced-assembly record
     /// goes through the provider's `TryResolveExternalRecordField`. Classes reach
     /// here for primary-ctor parameter accesses rewritten to `FieldGet(this,
-    /// name)` by `Freeze.translateClassMember`.
+    /// name)` by `Elaborate.translateClassMember`.
     let resolveRecordField (env: EmitEnv) (receiverTy: FrozenType) (fieldName: string) : EntityHandle =
         // Project-local tables key by the receiver's nominal `SymbolKey`; the
         // external record-field lookup derives the qualified compiled name from it

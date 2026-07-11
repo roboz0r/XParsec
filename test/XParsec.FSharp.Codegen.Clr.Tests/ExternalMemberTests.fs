@@ -105,7 +105,7 @@ let tests =
 
             test "the frozen key matches the provider's own resolved member key" {
                 // The node's interned key must equal what the provider resolves the
-                // member to directly — Freeze stamps the resolver's verdict, it does
+                // member to directly — Elaborate stamps the resolver's verdict, it does
                 // not re-derive a key.
                 // Vesper.Core layers the `prim-types` intrinsics over the BCL leaf so
                 // the `int` literal/annotation resolve; the BCL `EqualityComparer`

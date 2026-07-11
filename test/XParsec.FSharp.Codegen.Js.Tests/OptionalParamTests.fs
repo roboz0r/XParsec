@@ -10,7 +10,7 @@ open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 // extractor's per-param `Optional` flag through to the seam. A trailing run of optional
 // parameters (`greet(name, title?)`, `readFile(path, cb, opts?)`) is recorded as the
 // member's `OptionalDefaults`, so the SHARED optional-fill seam
-// (`InferExternalCall.tryFillOptionalCall` + `FreezeExpr.optionalDefaultNode` — the same
+// (`InferExternalCall.tryFillOptionalCall` + `ElaborateExpr.optionalDefaultNode` — the same
 // machinery a .NET `[<Optional>]` rides) admits a call that omits the trailing suffix and
 // synthesises each omitted slot as `undefined` (the `unit`→`undefined` JS value repr).
 // Independently, two overloads that erase to the SAME `argSig` after numeric/structural

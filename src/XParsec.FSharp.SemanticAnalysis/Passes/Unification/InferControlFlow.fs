@@ -813,12 +813,12 @@ module internal UnificationInferControlFlow =
         let rightTy = infer ctx right
         unify ctx key leftTy rightTy
 
-        // `arr.[i] <- v` mints a `SetArray`/`SetIndex` `External` head in Freeze's
+        // `arr.[i] <- v` mints a `SetArray`/`SetIndex` `External` head in Elaborate's
         // `translateAssignment` (the write mirror of the `GetArray`/`GetIndex` read
         // resolved by `inferIndexedLookup` above). Unlike the read intrinsics, the
         // WRITE intrinsic is never resolved by the plain type-check, so resolve it
         // here and stamp its identity under this `Assignment` node key — the same key
-        // Freeze reads — so `InlineExpansion` splices the `stelem` / `$0[$1] = $2`
+        // Elaborate reads — so `InlineExpansion` splices the `stelem` / `$0[$1] = $2`
         // body by KEY. Receiver classification mirrors `translateAssignment` exactly
         // (an index-signature class → `SetIndex`, else `SetArray`): the receiver is
         // already grounded by the read resolution, so both passes agree.

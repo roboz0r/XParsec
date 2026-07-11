@@ -19,7 +19,7 @@ module EmitIntrinsic =
         match e with
         | TExprG.ILIntrinsic("newarr", operand, args, _, _) ->
             // `Array.zeroCreate count` — push the count, then `newarr <elem>`.
-            // The element type rides `typeOperand` (Freeze recovered it from the
+            // The element type rides `typeOperand` (Elaborate recovered it from the
             // result array type).
             for a in args do
                 recur env b a
@@ -37,7 +37,7 @@ module EmitIntrinsic =
             | ValueNone -> failwith "Emit: 'ldelem' without an element type operand"
         | TExprG.ILIntrinsic("stelem", operand, args, _, _) ->
             // `arr.[i] <- v` — push the array, the index, then the value, then
-            // `stelem <elem>`. The element type rides `typeOperand` (Freeze
+            // `stelem <elem>`. The element type rides `typeOperand` (Elaborate
             // recovered it from the value operand).
             for a in args do
                 recur env b a
@@ -55,7 +55,7 @@ module EmitIntrinsic =
             // `span.[i]` byref-return deref — emit the arg (the `call get_Item`,
             // which leaves a managed pointer `T&` on the stack), then `ldobj <elem>`
             // to load the pointed-to element value. The element type rides
-            // `typeOperand` (Freeze set it to the value-position result type).
+            // `typeOperand` (Elaborate set it to the value-position result type).
             for a in args do
                 recur env b a
 
@@ -75,7 +75,7 @@ module EmitIntrinsic =
             | _ -> failwith "Emit: 'ldloca' intrinsic expects exactly one operand"
         | TExprG.ILIntrinsic("box", operand, args, _, _) ->
             // `box value` — push the value, then `box <T>`. The boxed type rides
-            // `typeOperand` (Freeze recovered it from the argument's static type).
+            // `typeOperand` (Elaborate recovered it from the argument's static type).
             // Identical instruction to the value-type `:>`-upcast path above; the
             // runtime treats `box` on a reference type as a no-op.
             for a in args do

@@ -260,7 +260,7 @@ move is to reject any non-lowerable range up front. What landed:
   to int; `InferControlFlow.inferForIn`'s `isRangeSource` branch dropped the `unify srcTy tySeqInt`
   and just pins the pattern to int (the counted-`ForTo` lowering in `Freeze.translateForIn` is
   syntactic and was always independent of the range's type).
-- Rejection is emitted at the ELABORATION choke point (`FreezeExpr.translateExpr`'s `Range` arms),
+- Rejection is emitted at the ELABORATION choke point (`ElaborateExpr.translateExpr`'s `Range` arms),
   which fire ONLY for a range NOT consumed by the `ForTo` lowering — value position, a stepped range,
   or a non-simple for-in binder — all genuinely unsupported. Inference can't tell a for-in source
   from a value, so the position-aware place is lowering. `for i in 1..10` (unit step, simple binder)

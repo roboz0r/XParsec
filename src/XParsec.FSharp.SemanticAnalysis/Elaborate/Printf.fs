@@ -4,15 +4,15 @@ open System.Collections.Immutable
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis.Passes
-open XParsec.FSharp.SemanticAnalysis.FreezeResolve
-open XParsec.FSharp.SemanticAnalysis.FreezeExprArgs
+open XParsec.FSharp.SemanticAnalysis.ElaborateResolve
+open XParsec.FSharp.SemanticAnalysis.ElaborateExprArgs
 
-// Printf lowering for the Freeze pass: a marked happy-path call becomes a
+// Printf lowering for the Elaborate pass: a marked happy-path call becomes a
 // `TExpr.Format`, a marked fully-unapplied lowerable partial a synthesised
 // closure over one. Both read the markers `Unification.tryInferPrintfApp`
 // recorded; nothing here re-derives specifier classification per backend.
 
-module internal FreezePrintf =
+module internal ElaboratePrintf =
 
     /// Whether `%A` of an argument of this (zonked) type may lower to the structural
     /// engine. The runtime `%A` dispatcher is *total* and reflection-free: a
@@ -107,7 +107,7 @@ module internal FreezePrintf =
         let sink =
             match ctx.PrintfApp.TryGetValue key with
             | ValueSome s -> s
-            | ValueNone -> failwithf "Freeze.translatePrintfFormat: no PrintfApp marker at %O" key
+            | ValueNone -> failwithf "Elaborate.translatePrintfFormat: no PrintfApp marker at %O" key
 
         // The format argument's positional index, recovered from the sink kind:
         // `fprintf`/`fprintfn` (writer sink) put a `TextWriter` at arg 0 and the
@@ -134,7 +134,7 @@ module internal FreezePrintf =
         let parts =
             match formatArg with
             | Expr.String(parts = parts) -> parts
-            | other -> failwithf "Freeze.translatePrintfFormat: format arg is not a string literal: %A" other
+            | other -> failwithf "Elaborate.translatePrintfFormat: format arg is not a string literal: %A" other
 
         let segments = ResizeArray<FormatSeg>()
         let litRun = System.Text.StringBuilder()
@@ -186,9 +186,9 @@ module internal FreezePrintf =
                     | ValueSome v ->
                         match afterState with
                         | TyFun(_, residueTy) -> TExpr.App(appState, v, residueTy, t)
-                        | _ -> failwithf "Freeze.addCallbackSeg: %%a callback lacks a value arrow: %A" funcTy
+                        | _ -> failwithf "Elaborate.addCallbackSeg: %%a callback lacks a value arrow: %A" funcTy
                     | ValueNone -> appState
-                | _ -> failwithf "Freeze.addCallbackSeg: callback is not a function type: %A" funcTy
+                | _ -> failwithf "Elaborate.addCallbackSeg: callback is not a function type: %A" funcTy
 
             let residue =
                 match ctx.PrintfCallbackScratch.TryGetValue key with
@@ -332,7 +332,7 @@ module internal FreezePrintf =
                     match Lexing.parseFormatSpecifierView (ctx.ReadableOf t) with
                     | ValueSome p -> p
                     | ValueNone ->
-                        failwith "Freeze.translatePrintfFormat: unparsable specifier (marker invariant broken)"
+                        failwith "Elaborate.translatePrintfFormat: unparsable specifier (marker invariant broken)"
 
                 // Classify once here (also validating the marker invariant: the
                 // specifier must be one a backend renders faithfully). The node carries
@@ -341,7 +341,7 @@ module internal FreezePrintf =
                     match PrintfHoleForm.tryClassify placeholder with
                     | ValueSome hf -> hf
                     | ValueNone ->
-                        failwith "Freeze.translatePrintfFormat: unsupported specifier (marker invariant broken)"
+                        failwith "Elaborate.translatePrintfFormat: unsupported specifier (marker invariant broken)"
 
                 match holeForm with
                 | PrintfHoleForm.HoleForm.Callback hasValue -> addCallbackSeg t holeForm hasValue
@@ -349,7 +349,7 @@ module internal FreezePrintf =
             | StringPart.Expr _
             | StringPart.OrphanFormatSpecifier _
             | StringPart.InvalidText _ ->
-                failwith "Freeze.translatePrintfFormat: non-literal format part (marker invariant broken)"
+                failwith "Elaborate.translatePrintfFormat: non-literal format part (marker invariant broken)"
 
         flushLit ()
 
@@ -392,12 +392,12 @@ module internal FreezePrintf =
         let sink =
             match ctx.PrintfPartial.TryGetValue key with
             | ValueSome s -> s
-            | ValueNone -> failwithf "Freeze.translatePrintfPartial: no PrintfPartial marker at %O" key
+            | ValueNone -> failwithf "Elaborate.translatePrintfPartial: no PrintfPartial marker at %O" key
 
         let parts =
             match args.[0] with
             | Expr.String(parts = parts) -> parts
-            | other -> failwithf "Freeze.translatePrintfPartial: format arg is not a string literal: %A" other
+            | other -> failwithf "Elaborate.translatePrintfPartial: format arg is not a string literal: %A" other
 
         let segments = ResizeArray<FormatSeg>()
         let litRun = System.Text.StringBuilder()
@@ -428,20 +428,20 @@ module internal FreezePrintf =
                     match Lexing.parseFormatSpecifierView (ctx.ReadableOf t) with
                     | ValueSome p -> p
                     | ValueNone ->
-                        failwith "Freeze.translatePrintfPartial: unparsable specifier (marker invariant broken)"
+                        failwith "Elaborate.translatePrintfPartial: unparsable specifier (marker invariant broken)"
 
                 let holeForm =
                     match PrintfHoleForm.tryClassify placeholder with
                     | ValueSome hf -> hf
                     | ValueNone ->
-                        failwith "Freeze.translatePrintfPartial: unsupported specifier (marker invariant broken)"
+                        failwith "Elaborate.translatePrintfPartial: unsupported specifier (marker invariant broken)"
 
                 let holeTy, restTy =
                     match runningTy with
                     | TyFun(dom, cod) -> dom, cod
                     | _ ->
                         failwithf
-                            "Freeze.translatePrintfPartial: printer type has fewer arrows than holes: %A"
+                            "Elaborate.translatePrintfPartial: printer type has fewer arrows than holes: %A"
                             (Unification.zonk ty)
 
                 // A fresh parameter keyed off the specifier's own token offset —
@@ -465,7 +465,7 @@ module internal FreezePrintf =
             | StringPart.Expr _
             | StringPart.OrphanFormatSpecifier _
             | StringPart.InvalidText _ ->
-                failwith "Freeze.translatePrintfPartial: non-literal format part (marker invariant broken)"
+                failwith "Elaborate.translatePrintfPartial: non-literal format part (marker invariant broken)"
 
         flushLit ()
 
@@ -480,7 +480,7 @@ module internal FreezePrintf =
             | PrintfSpec.PrintfSink.Writer _
             | PrintfSpec.PrintfSink.Builder ->
                 failwith
-                    "Freeze.translatePrintfPartial: writer/builder sink is not a partial-lowering shape (marker invariant broken)"
+                    "Elaborate.translatePrintfPartial: writer/builder sink is not a partial-lowering shape (marker invariant broken)"
 
         // `runningTy` is now the tail; the `Format` node returns it.
         let mutable body = TExpr.Format(formatSink, EqArray.ofSeq segments, runningTy, tok)

@@ -5,7 +5,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
 // The pre-freeze inline-expansion pass. Runs
-// between `Freeze.elaborate` and `Freeze.freezeTypars`, on the still
+// between `Elaborate.elaborate` and `Elaborate.freezeTypars`, on the still
 // `TyVar`-carrying `TExpr` tree, where `zonk` / union-find are native. It
 // relocates module-level `let inline` expansion out of codegen
 // (`EmitLower.lowerWith`'s inline branches): a saturated use of a local
@@ -319,7 +319,7 @@ module InlineExpansion =
     /// inline-body channel is `provider` itself (`TryLookupInlineBody`, keyed by the
     /// resolved `SymbolKey`, a member of `IExternalSymbolProvider`); a front-end-only provider serves
     /// none and every lookup returns `ValueNone`, so the walk is an identity
-    /// rebuild — which `Freeze.freezeTypars` does to every decl immediately after
+    /// rebuild — which `Elaborate.freezeTypars` does to every decl immediately after
     /// regardless, so there is no node-identity to preserve by skipping it.
     let run
         (ctx: PassContext)
@@ -370,7 +370,7 @@ module InlineExpansion =
                 // `SymbolKey` — the sole channel. Every splice-eligible `External`
                 // head is key-stamped upstream: value refs by NameResolution
                 // (`ExternalValue`), operator / synthesised-intrinsic heads by
-                // `Freeze` (`Resolution.IntrinsicKey`), and intra-body sibling refs by
+                // `Elaborate` (`Resolution.IntrinsicKey`), and intra-body sibling refs by
                 // `collectInlineBodies`' rewrite. Operators are NOT an exception —
                 // a primitive `1 + 2` head is keyed and DOES splice `ops-platform.fs`'s
                 // `(+)`. A `key = ValueNone` head carries no inline body by
@@ -798,7 +798,7 @@ module InlineExpansion =
             // Expand the inlines embedded in every expression a type declaration
             // carries: member bodies, `static let`
             // initialisers, secondary-ctor `let`s + chain args, and the
-            // `inherit Base(args)` arguments. Mirrors `Freeze.freezeKind`'s
+            // `inherit Base(args)` arguments. Mirrors `Elaborate.freezeKind`'s
             // expr-bearing coverage, relocating codegen's
             // `EmitLower.spliceExternalInlinesInExpr` splice (`NominalEmit`'s three
             // sites) out of emission. `walkExpr` also covers local inlines a member

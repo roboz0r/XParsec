@@ -25,7 +25,7 @@ type SideTable<'V>() =
 
     member _.ContainsKey(key: NodeKey) = dict.ContainsKey key
 
-    /// Callers must treat the returned dictionary as read-only once Freeze starts.
+    /// Callers must treat the returned dictionary as read-only once Elaborate starts.
     member _.AsDictionary() : IReadOnlyDictionary<NodeKey, 'V> = dict :> _
 
 [<AutoOpen>]
@@ -67,7 +67,7 @@ type PassContextBindings =
         /// Module-level bindings inside a named `module Foo = …`: each
         /// binding's `NodeKey` → where its emitted static method belongs (a real
         /// `Foo`/`FooModule` holder type, not the anonymous "Program" holder).
-        /// Populated by `Freeze` and snapshotted into `TastFile.ModuleMembers`; the
+        /// Populated by `Elaborate` and snapshotted into `TastFile.ModuleMembers`; the
         /// backend keys off it to name + place a module function (`ListModule::fold`).
         ModuleMembers: Dictionary<NodeKey, ModuleMemberInfo>
         /// A *top-level* (implicit-"Program"-module, `holder = None`) binding's
@@ -106,7 +106,7 @@ module PassContextBindings =
 /// written spelling into an identity: it resolves each one exactly once, opens-aware
 /// (the `OpenScope.tryResolve` / `tryQualify` reach onto the resolver face), and
 /// stamps the resulting identity into whichever table below names that node class.
-/// Consumer passes (Unification, Freeze) READ those stamps by node key and never
+/// Consumer passes (Unification, Elaborate) READ those stamps by node key and never
 /// re-resolve a spelling — holding only the key-addressed `ctx.Provider` store face,
 /// they cannot. A few tables instead carry a *type-directed* verdict reachable only
 /// once the node is typed, and so are written by Unification
@@ -147,7 +147,7 @@ type PassContextResolution =
         /// declared typars, but when this seed is set it reuses the prototype TyVar
         /// for a matching name instead of allocating a fresh one. `fillTypeMembers`
         /// sets it from a generic member's `TypeMemberInfo.MethodTypeParams`, so the
-        /// typars flowing into the inferred signature are the same roots `Freeze`
+        /// typars flowing into the inferred signature are the same roots `Elaborate`
         /// surfaces and codegen installs as the ambient `!!i` set. `ValueNone` ⇒ the
         /// binding gets fresh typars.
         mutable BindingTyparSeed: Dictionary<string, TypeVar> voption
@@ -170,7 +170,7 @@ type PassContextResolution =
         mutable TyparScopeStrict: bool
         /// Keyed by a member-access node (`Expr.DotLookup`): the resolved external
         /// member (`TryLookupMember` hit) for an `<externalType>.Member` or static
-        /// `Type.Member` access. Freeze mints a `TExpr.ExternalMember` stamping the
+        /// `Type.Member` access. Elaborate mints a `TExpr.ExternalMember` stamping the
         /// resolved `SymbolKey`. Absent ⇒ project-local member access (resolved via
         /// `Types.Class` / `Types.Union`).
         ExternalAccess: SideTable<ResolvedExternalMember>
@@ -180,7 +180,7 @@ type PassContextResolution =
         /// Written by `Unification`'s optional-argument fill
         /// (`InferExternalCall.tryFillOptionalCall`) when a call supplies fewer
         /// arguments than the member's parameter count, from the member's
-        /// `ExternalMember.OptionalDefaults`; `Freeze.translateApp` synthesises them
+        /// `ExternalMember.OptionalDefaults`; `Elaborate.translateApp` synthesises them
         /// as literal arguments so codegen sees the full tupled call
         /// (`ArrayPool<'T>.Return(arr)` ⇒ `Return(arr, false)`). Absent ⇒ a fully
         /// applied call (the common case), emitted unchanged.
@@ -189,18 +189,18 @@ type PassContextResolution =
         /// constraining *interface*'s `SymbolKey.TypeKey` when the receiver's type is
         /// a generic typar coerced to a project-local interface (`'T :> IFace`).
         /// Written by `Unification.resolveFieldStep`'s typar arm when it resolves the
-        /// member through the typar's `Coercion` constraint; `Freeze` mints a
+        /// member through the typar's `Coercion` constraint; `Elaborate` mints a
         /// `TExpr.MethodCall` with `CallVia.Interface` (the declaring type is the
         /// interface; codegen emits `constrained. <typar> callvirt`). The paired
         /// `SemType list` is the interface's instantiation type arguments (`'E` in
         /// `'T :> IStructSeq<'E>`), taken from the `Coercion` constraint's target so
-        /// Freeze can thread them onto `CallVia.Interface` and codegen mint the slot
+        /// Elaborate can thread them onto `CallVia.Interface` and codegen mint the slot
         /// on the *instantiated* interface `TypeSpec`; empty for a non-generic
         /// interface. Absent ⇒ an ordinary nominal-receiver member access.
         TyparInterfaceCall: SideTable<SymbolKey * EqArray<SemType>>
         /// Keyed by an external-value use-site (the `Expr.Ident` / `Expr.LongIdentOrOp`
         /// that resolved through `IExternalSymbolProvider.TryLookup`): the resolved
-        /// value's `SymbolKey.ValueKey`. Freeze stamps it onto `TExpr.External` so
+        /// value's `SymbolKey.ValueKey`. Elaborate stamps it onto `TExpr.External` so
         /// codegen can do robust identity checks (e.g. "is this exactly
         /// `Vesper.Printf.printfn`?") instead of suffix-matching the source-written
         /// name.
@@ -214,7 +214,7 @@ type PassContextResolution =
         /// `InferIdentExpr`'s value / `(+)`-value arms and `InferApp`'s operator sites,
         /// which call `ExternalSymbols.instantiateSymbol` on it. The whole symbol is
         /// stamped, not just its `SymbolKey` (`ExternalValue` / `IntrinsicKey` carry
-        /// that for Freeze): instantiation needs the polymorphic `Scheme` / `TyparArity`
+        /// that for Elaborate): instantiation needs the polymorphic `Scheme` / `TyparArity`
         /// / `Constraints`, and the store face has no scheme-by-key lookup — a value key
         /// does not round-trip to its fully-qualified spelling, so no key-addressed form
         /// could serve. The value/operator companion to `ExternalUnionCaseStamp` (cases).
@@ -227,7 +227,7 @@ type PassContextResolution =
         /// used as a value / ctor function): the `ExternalUnionCase` it resolves to.
         /// NameResolution owns case recognition — it applies the opens / RQA / qualifier
         /// discipline (`ExternalUnionCase.ResolvesWith`) here; Unification's `InferPat` /
-        /// `InferIdentExpr` and Freeze's `translatePat` / `tryCtorRef` read the stamp.
+        /// `InferIdentExpr` and Elaborate's `translatePat` / `tryCtorRef` read the stamp.
         /// Absent ⇒ the head is not an external union case (a binder, a local ctor, or a
         /// bare reference to an `[<RequireQualifiedAccess>]` case, which resolves only
         /// qualified). A missed stamp where a consumer reads is a phantom binder /
@@ -249,14 +249,14 @@ type PassContextResolution =
         /// (arity-0 — enums are never generic); the key matches the type-annotation mint
         /// for an `(x: E)` annotation, so the access/pattern and the annotation unify.
         /// Unification's `InferIdentExpr` / `InferPat` enum arms read the stamp and type
-        /// the node `TyEnum key`. Freeze needs no stamp: it reads the enum key back off
-        /// the node's `TyEnum` type (`Freeze/Resolve.enumKeyOfTy`). Absent ⇒ the head is
+        /// the node `TyEnum key`. Elaborate needs no stamp: it reads the enum key back off
+        /// the node's `TyEnum` type (`Elaborate/Resolve.enumKeyOfTy`). Absent ⇒ the head is
         /// not an external enum case (a project-local enum, handled by the sibling
         /// `ctx.Types.Enum` arm, or an unrelated qualified name). The enum-case sibling
         /// of `ExternalUnionCaseStamp`, but a bare `SymbolKey` suffices rather than a
         /// payload: an enum case is a named constant on a closed set, not a ctor arrow.
         ExternalEnumCaseStamp: SideTable<SymbolKey>
-        /// Keyed by an expression Freeze lowers to a desugared
+        /// Keyed by an expression Elaborate lowers to a desugared
         /// `TExpr.External(<intrinsicName>, …)` head that splices a cross-package
         /// `let inline` body — an arithmetic/comparison/custom operator
         /// (`InfixApp`/`PrefixApp`), a dynamic-access operator (`op_Dynamic` on a
@@ -266,29 +266,29 @@ type PassContextResolution =
         /// `GetArrayLength` on the `.Length` `DotLookup` / `LongIdent` chain): the
         /// intrinsic's `SymbolKey`. Unification resolves the intrinsic's
         /// `ExternalSymbol` while typing the node (the same `OpenScope.tryResolve` that
-        /// grounds the call) and records its key; Freeze stamps it onto the minted
+        /// grounds the call) and records its key; Elaborate stamps it onto the minted
         /// `TExpr.External` so `InlineExpansion` splices the body by KEY. Absent ⇒ the
         /// head keeps `key = ValueNone` (`op_AddressOf` / other non-provider intrinsics,
         /// or a splice target whose symbol did not resolve — a diagnostic already fired).
         /// The operator/intrinsic twin of `ExternalValue` (resolved *value* refs),
-        /// separate because these heads are minted fresh by Freeze rather than routed
+        /// separate because these heads are minted fresh by Elaborate rather than routed
         /// through `translateIdent`'s `ExternalValue` path.
         IntrinsicKey: SideTable<SymbolKey>
         /// Keyed by a `:?` type-test expression's `NodeKey`: the resolved
         /// tested-against type (`Expr.DynamicTypeTest`'s target). The node's own
         /// inferred type is `bool` (the result), so the target type — which
         /// codegen needs for the `isinst` operand — is stashed here by
-        /// Unification and read by Freeze to populate `TExpr.TypeTest.testTy`.
+        /// Unification and read by Elaborate to populate `TExpr.TypeTest.testTy`.
         TypeTestTargets: SideTable<SemType>
         /// Keyed by a `use` binding's head-pattern `NodeKey`: the `SymbolKey` of the
         /// `Dispose` member to call when the binder's type is *external* (a BCL
         /// disposable). Recorded by `Unification`'s `use`-Dispose resolution and read
-        /// by `Freeze` to stamp `TExpr.Use.dispose` (`ValueSome`); absent for a
-        /// project-local binder, where Freeze leaves `ValueNone` and codegen takes the
+        /// by `Elaborate` to stamp `TExpr.Use.dispose` (`ValueSome`); absent for a
+        /// project-local binder, where Elaborate leaves `ValueNone` and codegen takes the
         /// duck-typed direct-call path.
         UseDispose: SideTable<SymbolKey>
         /// Keyed by a `for x in src do …` node's `NodeKey`: how the source yields
-        /// its enumerator. Recorded by `Unification.inferForIn` and read by `Freeze`
+        /// its enumerator. Recorded by `Unification.inferForIn` and read by `Elaborate`
         /// to stamp `TExpr.ForIn.enumerator`. Absent ⇒ `ForInEnumerator.Interface`
         /// (range sources and the interface path); present with
         /// `ForInEnumerator.Pattern` for a source exposing only a pattern-based
@@ -305,7 +305,7 @@ type PassContextResolution =
         /// (`System.Console` in `System.Console.Out`, the whole `Expr.LongIdent`
         /// node's key), and an external ctor-sugar head (`InvalidOperationException`
         /// as an `App` head).
-        /// Read by the type-decl emitter (`Freeze.tryUnionType`) and the enum use-site
+        /// Read by the type-decl emitter (`Elaborate.tryUnionType`) and the enum use-site
         /// elaborator by type key, and by Unification's `tryExternalTypeReceiver` /
         /// `splitExternalClassPrefix` / `tryInferExternalCtorApp`, which take the
         /// stamped declaring-type key into a key-addressed `TryLookupMember` /
@@ -372,7 +372,7 @@ type PassContextResolution =
         /// (`CstWalk.walkModuleTreeWith`) erases module boundaries, so a sibling
         /// module's function would otherwise be unresolvable. Read by the
         /// qualified-name path (`SetTree.add` resolves to the member's binding site,
-        /// recorded as a use-site `Binding` entry so Unification/Freeze treat it as an
+        /// recorded as a use-site `Binding` entry so Unification/Elaborate treat it as an
         /// ordinary local reference) and by the nested-type body walk (an enclosing
         /// module's bindings enter the type-body scope, unqualified). The `SetTree`
         /// *module* and a same-named `SetTree<'T>` *type* coexist: this table is keyed
@@ -426,7 +426,7 @@ type DynamicEscapeSite = { Root: TypeVar; Key: NodeKey }
 /// read+write lowering (`arr.[i]`, `arr.[i] <- v`, `arr.Length`, `s.[i]`, an
 /// index-signature `x.[k]`). Each field is the resolved `ExternalSymbol` the
 /// inference site instantiates (`ExternalSymbols.instantiateSymbol`) and whose `Key`
-/// it threads into `IntrinsicKey` for the Freeze/InlineExpansion splice. These names
+/// it threads into `IntrinsicKey` for the Elaborate/InlineExpansion splice. These names
 /// live in `[<AutoOpen>]` prelude modules (`Vesper.Operators` /
 /// `Vesper.StringIntrinsics` / `Vesper.IndexIntrinsics`), so they resolve through the
 /// AMBIENT open scope alone — opens-insensitive — and are resolved ONCE per file
@@ -477,7 +477,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     let types = PassContextTypes.empty ()
 
     /// The **store face** (`SymbolKey → payload`) of the external-symbol contract —
-    /// the default face every downstream pass (Unification, Freeze, InlineExpansion,
+    /// the default face every downstream pass (Unification, Elaborate, InlineExpansion,
     /// codegen) speaks once identity is already resolved. Narrowed from the full
     /// `IExternalSymbolProvider` on purpose: a consumer pass CANNOT reach a spelling
     /// lookup through `ctx.Provider` because the resolver face isn't on it. A genuine
@@ -610,7 +610,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// Keyed by the same `Expr.App` NodeKey as `PrintfApp`; present only for a
     /// fully-applied `%a`/`%t` call on a *writer/builder* family (a `Writer` /
     /// `Builder` sink whose scratch type the provider resolves). Carries the
-    /// resolved scratch class + `ToString` key Freeze splices into the capture-first
+    /// resolved scratch class + `ToString` key Elaborate splices into the capture-first
     /// residue block. `sprintf` `%a`/`%t` has no entry — its residue is the
     /// callback's returned string; absence means "no scratch needed".
     member val PrintfCallbackScratch = SideTable<PrintfSpec.CallbackScratch>() with get
@@ -618,7 +618,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// lowerable printf partial (`printfn "%d"`, `printf "%d %s"`, …) — a literal
     /// format, `idx = 0`, a `StdOut`/`StdErr`/`StringResult` sink, `1..K` holes,
     /// every specifier lowerable and none `%A`/`%O` (an unapplied `%A` hole is an
-    /// unpinned typar). Freeze synthesises a Vesper closure
+    /// unpinned typar). Elaborate synthesises a Vesper closure
     /// `fun h1 … hn -> Format(sink, …)` for it (heap, 4a) instead of the
     /// FSharp.Core `PrintfFormat` cold path. Mutually exclusive with `PrintfApp`
     /// (that fires only when the call is fully applied). Absence keeps the existing
@@ -628,7 +628,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// BINDING-SITE NodeKey (the head pattern's key — the same key a use-site
     /// `Ident` resolves to via `Bindings.Binding`). Recorded by `Infer.inferBinding`
     /// when `tryTypeFormatLiteral` types the literal against a `PrintfFormat`
-    /// annotation. The printf gate (`tryInferPrintfApp`) and Freeze
+    /// annotation. The printf gate (`tryInferPrintfApp`) and Elaborate
     /// (`translatePrintfFormat`) both const-propagate through it: a format position
     /// holding such an `Ident` recovers the literal and lowers natively, exactly like
     /// a syntactic literal — there is no cold runtime for a format value in the
@@ -640,9 +640,9 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// `LongIdent` bound to a format-string literal (recorded in
     /// `PrintfFormatLiterals` by `inferBinding` when `tryTypeFormatLiteral` typed it
     /// against a `PrintfFormat` annotation), return that underlying `Expr.String` so
-    /// the gate / Freeze can treat it exactly like a syntactic literal. `ValueNone`
+    /// the gate / Elaborate can treat it exactly like a syntactic literal. `ValueNone`
     /// for any other shape — a direct literal (handled by the ordinary path), or a
-    /// non-format binding. Consulted by BOTH the gate (`tryInferPrintfApp`) and Freeze
+    /// non-format binding. Consulted by BOTH the gate (`tryInferPrintfApp`) and Elaborate
     /// (`translatePrintfFormat`), so the two stay in lockstep.
     member this.TryRecoverFormatLiteral(argExpr: Expr<SyntaxToken>) : Expr<SyntaxToken> voption =
         match argExpr with
@@ -710,7 +710,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// a fully-written `Box<int>` (`false`) from a partly-inferred `Box<_>` (`true`) at a
     /// node that `IsTypeDeclared`. Follows a non-hole var's `Link` to reach structure but
     /// STOPS at a hole (its `Link` is the *inferred fill*, not part of the written type),
-    /// so a resolved `Box<_>` (`_` pinned to `int`) still reports its hole. Freeze zonks
+    /// so a resolved `Box<_>` (`_` pinned to `int`) still reports its hole. Elaborate zonks
     /// holes away, so this must run against the pre-zonk graph, not the frozen TAST.
     member this.HasInferenceHoleIn(ty: SemType) : bool =
         let seen = HashSet<TypeVar>(HashIdentity.Reference)
@@ -756,7 +756,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// Keyed by an `Expr.LibraryOnlyStaticOptimization` NodeKey: the resolved
     /// `when ^T : …` constraints of that one clause (the `and`-joined list), with
     /// the typar / required type translated to `SemType` while the binding's typar
-    /// scope is live. Freeze reads it to build each `TExpr.StaticOptimization`
+    /// scope is live. Elaborate reads it to build each `TExpr.StaticOptimization`
     /// clause; the typar carries the inline binding's quantified root so
     /// `Inline.inlineExpand` can substitute it at the call site.
     member val StaticOpt = SideTable<EqArray<TStaticOptConstraint>>() with get

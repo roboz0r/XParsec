@@ -72,16 +72,16 @@
     <Compile Include="Passes\Unification.fs" />
     <Compile Include="Passes\Regions.fs" />
     <Compile Include="Passes\Validation.fs" />
-    <Compile Include="Freeze\Literals.fs" />
-    <Compile Include="Freeze\Resolve.fs" />
-    <Compile Include="Freeze\Patterns.fs" />
-    <Compile Include="Freeze\Args.fs" />
-    <Compile Include="Freeze\Idents.fs" />
-    <Compile Include="Freeze\Strings.fs" />
-    <Compile Include="Freeze\Access.fs" />
-    <Compile Include="Freeze\Apply.fs" />
-    <Compile Include="Freeze\Printf.fs" />
-    <Compile Include="FreezeExpr.fs" />
+    <Compile Include="Elaborate\Literals.fs" />
+    <Compile Include="Elaborate\Resolve.fs" />
+    <Compile Include="Elaborate\Patterns.fs" />
+    <Compile Include="Elaborate\Args.fs" />
+    <Compile Include="Elaborate\Idents.fs" />
+    <Compile Include="Elaborate\Strings.fs" />
+    <Compile Include="Elaborate\Access.fs" />
+    <Compile Include="Elaborate\Apply.fs" />
+    <Compile Include="Elaborate\Printf.fs" />
+    <Compile Include="ElaborateExpr.fs" />
     <Compile Include="Passes\InlineExpansion.fs" />
     <Compile Include="Elaborate.fs" />
     <Compile Include="Passes\RefCellPromotion.fs" />
@@ -95,9 +95,7 @@
     <None Include="docs\nodekey.md" />
     <None Include="docs\passes.md" />
     <None Include="docs\typevar.md" />
-    <None Include="docs\generalisation-plan.md" />
     <None Include="docs\measures-plan.md" />
-    <None Include="docs\regions-plan.md" />
     <None Include="docs\extract-symbols-plan.md" />
   </ItemGroup>
   <ItemGroup>

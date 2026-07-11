@@ -70,7 +70,7 @@ module EmitConstruct =
                 // single seam — not inside each ctor arm — means no arm can forget
                 // it (a missing push would underflow the IL stack). The value→`obj`
                 // box for an `obj` parameter is now an explicit `Upcast` node from
-                // Freeze, so codegen just pushes each argument raw.
+                // Elaborate, so codegen just pushes each argument raw.
                 let emitNewobj =
                     match localClass with
                     | ValueSome(classKey, c) ->
@@ -169,7 +169,7 @@ module EmitConstruct =
 
                 // Fields push in declaration order (the ctor's parameter layout).
                 // A value flowing into an `obj` field is boxed by an explicit
-                // `Upcast` node from Freeze, so push each initialiser raw.
+                // `Upcast` node from Elaborate, so push each initialiser raw.
                 for (fieldName, _, _) in r.Fields do
                     match Map.tryFind fieldName srcMap with
                     | Some e -> recur env b e
@@ -248,7 +248,7 @@ module EmitConstruct =
             let qualName = SymbolKeyOps.qualifiedName key
 
             // A value-type arg flowing into a case field typed `obj` is boxed by an
-            // explicit `Upcast` node synthesised at Freeze (which has the case field
+            // explicit `Upcast` node synthesised at Elaborate (which has the case field
             // SemTypes this site lacks — `EmittedCase.Fields` carries only handles),
             // so codegen just pushes each argument raw.
             for a in args do

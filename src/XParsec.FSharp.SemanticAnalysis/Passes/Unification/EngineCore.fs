@@ -188,7 +188,7 @@ module UnificationEngineCore =
     /// Substitute TyVar roots that appear as keys in `subst` with their
     /// target `SemType`, recursing into compound shapes. Other TyVars are
     /// returned unchanged (followed through union-find but not their
-    /// `Link`s — that's `zonk`'s job). Public so Freeze can reuse the same
+    /// `Link`s — that's `zonk`'s job). Public so Elaborate can reuse the same
     /// substitution when reading field types off a generic receiver.
     let rec substituteWith (subst: Dictionary<TypeVar, SemType>) (t: SemType) : SemType =
         match t with
@@ -216,7 +216,7 @@ module UnificationEngineCore =
     /// Empty when the lengths don't match — the caller has already (or
     /// should) emit an arity diagnostic, and an empty subst keeps the field
     /// types unsubstituted rather than silently mismatching. Public so
-    /// Freeze can rebuild the same substitution when projecting fields off a
+    /// Elaborate can rebuild the same substitution when projecting fields off a
     /// generic receiver in a field-chain.
     let mkNamedTypeSubst
         (typeParams: EqArray<string * TypeVar>)
@@ -317,7 +317,7 @@ module UnificationEngineCore =
     /// member, or a parent name isn't a project-local class.
     /// The chain walk's full result: the *declaring* class's instantiated nominal
     /// type (`TyClass(info.Key, args)` at the level the member was found) plus the
-    /// member's type instantiated against that level's args. `FreezeExpr` reads the
+    /// member's type instantiated against that level's args. `ElaborateExpr` reads the
     /// declaring type to upcast the receiver onto the class that emits `get_<seg>`;
     /// `tryClassChainMember` keeps only the member type for inference's field-step.
     [<Struct>]

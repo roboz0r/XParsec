@@ -26,7 +26,7 @@ let private declType (tast: TastFile) : SemType =
 /// A range materialises no seq value in this compiler, so it is legal ONLY as the
 /// direct source of a `for i in a..b do` counted loop; using one as a first-class
 /// value (or a stepped range, which has no counted lowering) is rejected at
-/// elaboration (`FreezeExpr`).
+/// elaboration (`ElaborateExpr`).
 let private hasRangeValueError (tast: TastFile) =
     tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "first-class value")
 
