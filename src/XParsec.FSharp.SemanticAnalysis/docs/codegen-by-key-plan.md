@@ -142,58 +142,77 @@ val inline (+): x: ^T1 -> y: ^T2 -> ^T3
 `let inline (+) (x: ^T) (y: ^T) : ^T`, whose SRTP clause is the narrow
 `(^T: (static member (+): ^T * ^T -> ^T))`.
 
-Today that narrow trait only fires in last-clause position, so the drift is mostly
-inert. **Inverting makes it the sole dispatch for every non-primitive operand**, which
-would bake homogeneity into every user-defined `+` and make a heterogeneous operator
-(`Vector * float -> Vector`) permanently unresolvable — silently, by falling to a base
-that cannot express it. The `.fsi` is right and the `.fs` must come up to it, in the
-same change that moves the trait call to the base. See
-`typar-fsi-fs-faithfulness-plan.md`, which tracks this drift as a species.
+This was **not** inert drift — it was a live miscompile, and step 3 fixed it. Inference
+is already 3-typar: the `.fsi`'s support set survives as
+`ExternalSymbols.fs:43 MemberTrait of typarIndices: EqArray<int>`, and `instantiateSymbol`
+pushes the bound onto both `^T1` and `^T2`. Only the *body* was single-`^T`, and the two
+type worlds never meet — they are joined solely by `SymbolKey`, and
+`ConformanceTypars.fs:24-36` exempts `let inline` from any `.fsi`/`.fs` check.
+
+So the body's typars are the substitution slots `deriveInlineTypeArgs` fills — one per
+BODY root, first-ground-wins. With one root, `Vec2 * int -> Vec2` (a nominal on the left,
+which the unifier resolves correctly from the real member signature) folded both operands
+into `^T := Vec2` and bound the `int` argument into a `Vec2`-typed `let`: zero
+diagnostics, and a PE that threw `InvalidProgramException`.
+
+`typar-fsi-fs-faithfulness-plan.md` had listed this drift as an explicit **non-target**
+("a LONG-LIVED simplification"), on the reasoning that an inline body has no emitted typar
+order for the contract to drive. True of the ABI, false of the body. That entry is now
+corrected.
+
+### Deferred: disjunctive dispatch — lands with overload resolution
+
+The `.fs` bodies are now 3-typar but the trait call is **left-biased**:
+`TExpr.TraitCall` (`Tast.fs:397`) carries a single `receiver`, set to the left operand's
+type (`Freeze/Apply.fs:228`). So `Vector + int` (nominal left) resolves; `int + Vector`
+(nominal right) does not — it errors in `Engine.drainSrtpBounds` (`:1029`), which fires
+eagerly on whichever participant links first and, for a primitive `^T1`, manufactures a
+homogeneous `t*t -> t` candidate that pins `^T2 := int` before the right operand is ever
+consulted. This is the status quo, not a regression.
+
+Making it work needs to **defer** the SRTP drain until enough participants are ground, or
+**trial-unify both candidates and undo** — and this codebase has an explicit
+no-speculative-unification stop (`InferTypeOps.fs:110-113`). That is precisely the
+primitive `overload-resolution-plan.md:104-138` specifies as its preferred Option 1
+("trial unification into a scratch substitution"), and that doc already lists SRTP trait
+solutions as out of scope pending SRTPs (`:443-444`). **Accepted deferral: the two land
+together.** Widening `TraitCall` to a candidate set is the small half (~8 mechanical
+walker sites, and neither backend has a `TraitCall` arm); the unifier change is the real
+work, and it belongs to overload resolution.
 
 ## Steps
 
-**1. Verify the comparer base over a free typar, then splice the base unconditionally.**
-First the spike: emit a generic `let eq a b = a = b`, run it against a DU, confirm
-`EqualityComparer<!!0>` verifies and answers structurally. Only then delete the ground
-guard in `InlineExpansion.fs:593-596`. Note the edit is **not** scoped to the
-comparer-based families — the guard is `externalArgsGround … || not (isSaturatedBuiltin …)`,
-so removing the builtin special-case makes *every* saturated builtin splice, arithmetic
-included. Arithmetic is unaffected in behaviour (its spliced base is `(# "add" #)`, the
-same opcode `BuiltinOps` emitted), but the intermediate state should be stated, not
-discovered.
+Steps 1-3 have LANDED. They are kept here in brief because 4-7 read against them.
 
-Dead with the guard: `externalArgsGround` (`:407`), `isSpliceableOperatorArg` (`:158`),
-`isGroundType` (`:145`) if it has no other caller, `builtinOpArity` (`:281`) /
-`isSaturatedBuiltin` (`:304`), and the only cross-module consumer of
-`Inline.isNominalType` (see its `:155` comment).
+**1. ✅ Splice the base unconditionally.** The spike settled the load-bearing premise:
+`EqualityComparer<!!0>.Default.Equals` over a free *method* typar emits, verifies, and
+answers structurally. `eq (Tag 1) (Tag 1)` is now `true`. The ground guard and everything
+it kept alive (`externalArgsGround`, `isSpliceableOperatorArg`, the
+`builtinOpArity`/`isSaturatedBuiltin` table hand-synced against codegen's) are gone.
 
-Churn: `OperatorRoutingTests.fs:30` asserts `let f a b = a = b` lowers to a `ceq`
-`ILIntrinsic` — that assertion **encodes the bug** and flips to a comparer call. Add
-the `eq (Tag 1) (Tag 1) = true` regression test that currently fails.
+**2. ✅ Eta-reify inline externals pre-freeze.** `(+)` as a value now eta-reifies in
+`InlineExpansion`, so the `App` it mints is spliced by the pass that creates it, and the
+ordinary closure conversion emits a `Vesper.Fun` singleton with `add` inlined into
+`Invoke` — no new codegen mechanism. Exposed and fixed a latent hole: `Scope`'s `ParenOp`
+arm stamped the operator symbol but not its `SymbolKey`, so `(+)` in value position froze
+to a keyless `External` that `InlineExpansion` could never address.
 
-**2. Eta-reify inline externals pre-freeze.** Move the eta-reification of an `External`
-*with an inline body* out of codegen's post-freeze `TastLower.lower` and into
-`InlineExpansion`, so `(+)` as a value becomes `fun x y -> x + y` while the pass can
-still splice the body it produces. Codegen's `etaExpand` stays for genuine non-inline
-externals (`List.fold` as a value), which is what it is actually for. Without this,
-step 6 cannot happen.
-
-At an eta site the operator's type is pinned by the context (`List.fold (+) 0 xs` over
-an int list gives `int -> int -> int`), so the splice grounds and yields `add`. An
-eta'd operator inside a generic function stays free, falls to the base, and reaches
-step 5's diagnostic — which is the correct answer.
-
-**3. Bring `+ - * / %` up to the 3-typar contract.** Rewrite the `.fs` bodies to the
-`^T1 / ^T2 / ^T3` shape the `.fsi` publishes, including the `(^T1 or ^T2)` disjunctive
-support set. This may require `TExpr.TraitCall` (currently a single `recvTy`,
-`Inline.fs:199`) to carry a support *set* rather than one receiver; scope that first —
-it is the gate on step 4, not a detail of it.
+**3. ✅ 3-typar arithmetic bodies** (see above — it was a miscompile, not a fidelity nit),
+plus `inferStaticMemberInvocation`, which typed the trait-call node off its first argument
+instead of the member signature's return type.
 
 **4. Invert the arithmetic bodies** in `ops-platform.fs` (and its `ops-platform.js.fs`
-sibling): SRTP trait call as the base; explicit `when ^T : …` clauses for every
-primitive the old `add` base silently covered — `int`, `int64`, `float`, `float32`,
-`uint32`, `uint64`, `nativeint`, `unativeint` — alongside the narrow-width clauses that
-already exist. Same for `- * / %` and unary `~-`.
+sibling): SRTP trait call as the base; explicit `when ^T1 : … and ^T2 : … and ^T3 : …`
+clauses for every primitive the old `add` base silently covered — `int`, `int64`,
+`float`, `float32`, `uint32`, `uint64`, `nativeint`, `unativeint` — alongside the
+narrow-width clauses that already exist. Same for `- * / %` and unary `~-`.
+
+The base stays **left-biased** (see the deferral above). That is not a regression:
+`int + Vector` errors in the unifier today and will keep erroring, never reaching the
+base. What inverting changes is only the operand that is neither a listed primitive nor a
+nominal — an unpinned `^T` in a generic `let f a b = a + b` — which today emits `add` on
+whatever it is, including a garbage `add` on two references. That is the hole being
+closed.
 
 Then delete `Inline.clauseSelected`'s `TraitCall` special-case (`Inline.fs:178-184`).
 Its sole job is stopping a primitive operand from selecting the last-position SRTP

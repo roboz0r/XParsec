@@ -100,9 +100,19 @@ this is the one remaining FSharp.Core tie on the printf stack.
   `.fs` — it is the explicit JS target boundary, not drift.
 - **`IntrinsicRepr.tryEncodeValueType`** (repr string → `te.Int32()`) is SRM IL-encoding
   knowledge, not a Vesper contract. STAYS (single-sourced with `isEncodableValueType`).
-- The homogeneous one-typar inline-operator body (`ops-platform.fs` `(+)` as
-  `^T -> ^T -> ^T` vs the contract's general `^T1 -> ^T2 -> ^T3`) is a LONG-LIVED
-  simplification, not a T8 blocker — inline bodies have no emitted/extracted typar order
-  for the contract to drive (the signature is the sole ABI surface; `Freeze` drops inline
-  templates so they never reach `checkFile`/`checkMembers`). "T8 done" does NOT assert
-  operator FSharp.Core parity. Same dependency as Sprint B.
+- ~~The homogeneous one-typar inline-operator body is a LONG-LIVED simplification, not a
+  blocker.~~ **FALSIFIED — it was a miscompile, and it is fixed.** The reasoning here was
+  that an inline body has no emitted typar order for the contract to drive (the signature
+  is the sole ABI surface; `Freeze` drops inline templates before `checkFile`). True of
+  the *ABI*, false of the *body*: the body's typars are the substitution slots
+  `InlineExpansion.deriveInlineTypeArgs` fills, one per BODY root, first-ground-wins. With
+  one root, a heterogeneous `Vec2 * int -> Vec2` folded both operands into `^T := Vec2`
+  and bound the `int` argument into a `Vec2`-typed `let` — type-checking with zero
+  diagnostics and emitting a PE that threw `InvalidProgramException`. `ops-platform.fs`'s
+  `+ - * / %` now carry the contract's `^T1 / ^T2 / ^T3`.
+
+  The general lesson for this doc: `.fsi`/`.fs` typar drift is **not** confined to the ABI
+  just because the ABI is the only thing extracted. An inline body's typars are load-bearing
+  at the splice, and nothing checks them — `ConformanceTypars.fs:24-36` exempts `let inline`
+  by construction. That exemption is now the last thing standing between this class of bug
+  and the compiler; treat it as a gap, not a scope boundary.
