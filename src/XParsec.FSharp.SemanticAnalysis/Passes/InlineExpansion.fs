@@ -363,12 +363,13 @@ module InlineExpansion =
                 // head is key-stamped upstream: value refs by NameResolution
                 // (`ExternalValue`), operator / synthesised-intrinsic heads by
                 // `Freeze` (`Resolution.IntrinsicKey`), and intra-body sibling refs by
-                // `collectInlineBodies`' rewrite. A `key = ValueNone` head therefore
-                // carries no inline body by construction — a saturated builtin
-                // operator codegen emits directly, `Array.ofList` / ctor-as-value
-                // handled by codegen recipes / eta-expansion — so ValueNone here is a
-                // genuine "no body", never a missed keyless splice. A provider with no
-                // inline bodies returns `ValueNone`.
+                // `collectInlineBodies`' rewrite. Operators are NOT an exception —
+                // a primitive `1 + 2` head is keyed and DOES splice `ops-platform.fs`'s
+                // `(+)`. A `key = ValueNone` head carries no inline body by
+                // construction (`Array.ofList` / ctor-as-value, handled by codegen
+                // recipes / eta-expansion), so ValueNone here is a genuine "no body",
+                // never a missed keyless splice. A provider with no inline bodies
+                // returns `ValueNone`.
                 match keyOpt with
                 | ValueSome key -> provider.TryLookupInlineBody key
                 | ValueNone -> ValueNone

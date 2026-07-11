@@ -583,10 +583,11 @@ module internal UnificationInferApp =
                 | ValueSome sym ->
                     // Record the resolved identity so Freeze stamps it onto the
                     // `TExpr.External(name, …)` it mints for this operator and
-                    // `InlineExpansion` splices the cross-package `let inline` body by
-                    // KEY (the operand-general operators — a referenced package's
-                    // `(+)` etc.; a saturated builtin on primitives is emitted by
-                    // codegen and never splices).
+                    // `InlineExpansion` splices the contract's `let inline` body by KEY.
+                    // EVERY resolved operator is stamped — there is no builtin-operator
+                    // exclusion. A primitive `1 + 2` splices `ops-platform.fs`'s `(+)`
+                    // exactly like a referenced package's operator does; the static-opt
+                    // clause selection at splice time is what turns it into `add`.
                     ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
                     let resultTy = TyVar(freshTyVar ctx)
 

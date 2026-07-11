@@ -249,9 +249,11 @@ module internal FreezeApply =
             let partialTy = TyFun(rightTy, resultTy)
             let opTy = TyFun(leftTy, partialTy)
             // Unification (`inferInfix`) stamped the resolved operator identity under
-            // this InfixApp key; carry it so `InlineExpansion` splices the operand-
-            // general `let inline` body by KEY. Absent for a saturated builtin op
-            // (codegen's `BuiltinOps` emits it directly) — then the head stays keyless.
+            // this InfixApp key; carry it so `InlineExpansion` splices the contract's
+            // `let inline` body by KEY. Present for EVERY resolved operator, primitives
+            // included — an operator that resolved at all carries its key. `ValueNone`
+            // here means the operator did not resolve, which Unification already
+            // diagnosed ("Unknown operator symbol").
             let opKey = ctx.Resolution.IntrinsicKey.TryGetValue key
             let opExpr = TExpr.External(name, opKey, opTy, tok)
             let app1 = TExpr.App(opExpr, translateExpr ctx left, partialTy, tok)
