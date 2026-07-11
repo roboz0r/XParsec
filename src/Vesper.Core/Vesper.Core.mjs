@@ -120,6 +120,24 @@ function hashStructural(x) {
   return h;
 }
 
+// The zero-divisor guard the integral `/` and `%` clauses wrap their divisor in. JS `/`
+// is total — `1 / 0` is `Infinity` and `Infinity | 0` is `0` — so an unguarded masking
+// template would answer 0 where CIL `div` / `rem` fault. Returning the divisor is what
+// lets the clause keep the mask outside the call and read the operand exactly once.
+//
+// Both zeros are tested because the integral widths span two JS types: `number` (every
+// width up to 32 bits) and `bigint` (int64). `d === 0` is also true for `-0`, whose
+// quotient would be `-Infinity`.
+//
+// The message is the BCL's `DivideByZeroException` text. Vesper.Core cannot NAME that
+// type — the exception roster lives in `Vesper.Exceptions`, which depends on this package
+// — and on JS every exception erases to the `exn` root (`Error`) anyway, so what a caller
+// can observe is the words, not the class.
+export const checkedDivisor = (d) => {
+  if (d === 0 || d === 0n) { throw new Error("Attempted to divide by zero."); }
+  return d;
+};
+
 // Public entries — the surface the backend imports. The flat (Fable-style) compiled
 // form: a saturated `=` call collapses to `structuralEquals(a, b)`; `hash` to a single
 // `structuralHash(x)`.
