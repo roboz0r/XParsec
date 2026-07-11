@@ -429,3 +429,47 @@ module StructuralPrinter =
     // flat compiled-function ABI). `width = 0` ⇒ never break (`%0A`).
     let structuralFormat (value: obj) (width: int) (size: int) : string =
         renderRoot (fmtValue value (mkBudget size)) (mkStrCell "") width
+
+    // --- single-precision stringification (`%O` on a float32) ---------------------
+    //
+    // A `float32` REPRS to a JS `number` — an IEEE-754 *double* — so JS's own
+    // stringification renders it at DOUBLE precision: `0.1f + 0.2f` is the float32
+    // nearest 0.3 (`0x3E99999A`), whose exact double expansion is
+    // `0.30000001192092896`, where .NET prints `0.3`. The arithmetic is right; only the
+    // rendering is wrong. .NET's `Single.ToString()` is the SHORTEST decimal that
+    // round-trips back to the same float32, so search for it: the first
+    // significant-digit count whose parse survives `Math.fround` (JS's float32 rounding)
+    // unchanged. 9 significant digits always round-trip a float32, so every finite value
+    // finds one; `NaN` never compares equal and falls out to the plain rendering.
+    //
+    // This CANNOT be folded into the `fmtValue` walker above: a float32 reaching `%A` is
+    // an erased JS `number`, indistinguishable at run time from a `float`. Only the
+    // format hole's STATIC type knows the width, so the caller is the backend's `%O`
+    // lowering (`EmitJsFormat.buildHole`, which reads `HoleSpec.Ty`), never a walker.
+
+    let fround (x: float32) : float32 = (# "Math.fround($0)" x : float32 #)
+    let toPrecision (x: float32) (digits: int) : string = (# "$0.toPrecision($1)" x digits : string #)
+    let parseF32 (s: string) : float32 = (# "Number($0)" s : float32 #)
+    let f32Eq (a: float32) (b: float32) : bool = (# "$0 === $1" a b : bool #)
+    let f32Str (x: float32) : string = (# "String($0)" x : string #)
+
+    /// .NET `Single.ToString()` for a float32 carried in a JS `number`: the shortest
+    /// decimal that round-trips through `Math.fround`.
+    let float32ToString (v: float32) : string =
+        let mutable result = f32Str v
+        let mutable digits = 1
+        let mutable searching = true
+
+        while searching do
+            if intGt digits 9 then
+                searching <- false
+            else
+                let candidate = parseF32 (toPrecision v digits)
+
+                if f32Eq (fround candidate) v then
+                    result <- f32Str candidate
+                    searching <- false
+                else
+                    digits <- inc digits
+
+        result

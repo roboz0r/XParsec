@@ -26,10 +26,12 @@ module EmitJsFormat =
     /// `80` / `10000` defaults, shared with the CLR `AppendStructured`).
     ///
     /// Every `Field` hole is the specifier's per-hole formatting reproduced as an
-    /// inline JS expression (no runtime import), byte-matching the CLR `Formatter`
-    /// members. The operand is evaluated exactly once: single-reference forms splice
-    /// it directly; the one form that reads it repeatedly (`DecimalZeroPad`) binds it
-    /// in an arrow IIFE, so `%05d (f ())` still calls `f` once.
+    /// inline JS expression, byte-matching the CLR `Formatter` members — the sole
+    /// exception being a `%O` on a `float32`, whose shortest-round-trip search is a
+    /// loop and so rides the `Vesper.Printf` runtime (`float32ToString`). The operand
+    /// is evaluated exactly once: single-reference forms splice it directly; the one
+    /// form that reads it repeatedly (`DecimalZeroPad`) binds it in an arrow IIFE, so
+    /// `%05d (f ())` still calls `f` once.
     ///
     /// Covered: `%d`/`%i`/`%s`/`%O`/`%c`/`%M` (`Verbatim`), width + alignment
     /// (`padStart` / `padEnd`), `%x`/`%X`/`%B`/`%o` (`IntRadix`), `%u` (`Unsigned`
@@ -116,6 +118,14 @@ module EmitJsFormat =
             | Prec.Const n -> num (max 1 n)
             | Prec.Star -> invoke (id "Math") "max" [ num 1; id "p" ]
 
+        // The `float32ToString` runtime export a `%O` on a float32 renders through — a
+        // NAMED import from the same `Vesper.Printf.mjs` `%A` rides (`structuralFmtRef`).
+        let float32FmtRef () =
+            JsExpr.Identifier(
+                JsImports.addRef ctx.Imports "float32ToString" float32ToStringKey ImportForm.Named,
+                ValueNone
+            )
+
         // `emitField` builds the value string then applies the field-width `wrap` (a
         // static `padStart`/`padEnd` or a dynamic `%*d` pad). `wrap = None` means no
         // field width: only `Verbatim` cares — a bare `%d` keeps the raw operand so the
@@ -125,13 +135,21 @@ module EmitJsFormat =
             let wrapped = defaultArg wrap (fun e -> e)
 
             match fmt with
-            // `%d`/`%s`/`%O`/`%c`/`%M`: plain stringification. Bare ⇒ the raw operand
-            // (the surrounding concat coerces it, a lone `%d` stays `console.log(x)`);
-            // with a width ⇒ `String(v)` then pad.
+            // `%d`/`%s`/`%O`/`%c`/`%M`: plain stringification — by the operand's STATIC F#
+            // type (`plainRenderOf`), never by its JS runtime type, which is not the same
+            // width (an `int64` is a `bigint`, a `float32` a double-precision `number`).
+            // `Native` ⇒ JS's own coercion is already .NET's: bare gives the raw operand
+            // (the surrounding concat coerces it, a lone `%d` stays `console.log(x)`), a
+            // width gives `String(v)` then pad. The two mis-rendering widths must always
+            // render explicitly, bare or not, so `console.log` cannot inspect the value.
             | FieldFormat.Verbatim ->
-                match wrap with
-                | Option.Some w -> w (direct (fun v -> call (id "String") [ v ]))
-                | Option.None -> buildExpr ctx operand
+                match plainRenderOf ctx hole.Ty with
+                | PlainRender.Native ->
+                    match wrap with
+                    | Option.Some w -> w (direct (fun v -> call (id "String") [ v ]))
+                    | Option.None -> buildExpr ctx operand
+                | PlainRender.BigInt -> wrapped (direct (fun v -> call (id "String") [ v ]))
+                | PlainRender.Single -> wrapped (direct (fun v -> call (float32FmtRef ()) [ v ]))
             // `%0wd`: sign-aware zero-pad — zeros pad to `width` *after* the sign
             // (`(-42).ToString("D5") = "-00042"`), so the value is read three times.
             | FieldFormat.DecimalZeroPad width ->

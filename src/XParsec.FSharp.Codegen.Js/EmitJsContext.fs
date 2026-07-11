@@ -320,6 +320,56 @@ module EmitJsContext =
     let structuralFormatKey: SymbolKey voption =
         ValueSome(SymbolKey.ValueKey(Some "Vesper.Printf", "Vesper.StructuralPrinter", "structuralFormat"))
 
+    /// The runtime entry a `%O` on a `float32` renders through — `float32ToString` in the
+    /// same `Vesper.Printf.mjs`, synthesised exactly like `structuralFormatKey` (no
+    /// front-end symbol resolves to it; the specifier is front-end special-cased).
+    let float32ToStringKey: SymbolKey voption =
+        ValueSome(SymbolKey.ValueKey(Some "Vesper.Printf", "Vesper.StructuralPrinter", "float32ToString"))
+
+    /// The JS repr `int64` / `uint64` bind to (`prim-types-int.js.fs`).
+    [<Literal>]
+    let private BigIntRepr = "bigint"
+
+    /// The one canonical width whose JS repr is WIDER than itself (`prim-types-float.js.fs`
+    /// binds it to `number`, an IEEE-754 double).
+    [<Literal>]
+    let private Float32Canon = "float32"
+
+    /// How a plain-value (`%O`) hole's operand must be stringified. JS renders a number by
+    /// its RUNTIME type; F# renders it by the operand's STATIC WIDTH, and the two disagree
+    /// wherever a width's JS repr is not the width itself. `%O` is the only specifier whose
+    /// argument type the letter does not fix (`PrintfSpec.argType` types `%d` as `int` and
+    /// `%f` as `float`), so it is the only hole that can carry such a width.
+    [<RequireQualifiedAccess>]
+    type PlainRender =
+        /// The JS repr IS the F# width — JS's own coercion already renders it .NET's way.
+        | Native
+        /// A JS `bigint` (`int64` / `uint64`). `console.log` inspects a bigint WITH its
+        /// literal suffix (`1000000000001n`); .NET's `ToString()` prints the digits alone,
+        /// which is what an explicit `String(v)` yields.
+        | BigInt
+        /// A `float32`, whose repr is a JS `number` — an IEEE-754 DOUBLE — so JS renders
+        /// the single at double precision (`0.1f + 0.2f` → `0.30000001192092896`, not
+        /// `0.3`). Needs the runtime's shortest-round-trip search (`float32ToString`).
+        | Single
+
+    /// Classify a `%O` operand's static type. The `BigInt` arm reads the type's declared JS
+    /// repr — the single source of truth (`prim-types-*.js.fs`), so a width that later binds
+    /// to `bigint` inherits the suffix-stripping without touching this. `float32` cannot be
+    /// recovered that way and is keyed by CANON: its repr (`number`) is precisely what LOSES
+    /// the width, so the F# type name is the only carrier of the fact.
+    let plainRenderOf (ctx: WalkCtx) (ty: FrozenType) : PlainRender =
+        match ty with
+        | FTConst(key, _) when SymbolKeyOps.simpleName key = Float32Canon -> PlainRender.Single
+        | FTConst(key, _) ->
+            match ctx.Provider with
+            | ValueSome provider ->
+                match provider.IntrinsicForwardRepr.TryGetValue key with
+                | true, repr when repr = BigIntRepr -> PlainRender.BigInt
+                | _ -> PlainRender.Native
+            | ValueNone -> PlainRender.Native
+        | _ -> PlainRender.Native
+
     /// Compile a pattern against a pure scrutinee-access expression `access` into a
     /// refutability test (`None` ⇒ irrefutable) and the `const` bindings its named
     /// sub-patterns introduce. `access` must be pure — it is duplicated across test

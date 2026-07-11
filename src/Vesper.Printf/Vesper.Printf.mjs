@@ -218,3 +218,13 @@ export const fmtRecord = (v, budget) => ((ks) => ((klen) => (intEq(klen, 0) ? ne
 })(), ((outer) => ((outer = append(outer, new Doc_Text(cat(cat("{ ", k0), " = ")))), (outer = append(outer, new Doc_Nest(2, new Doc_Cat(inner)))), (outer = append(outer, new Doc_Text(" }"))), new Doc_Group(new Doc_Cat(outer), false)))(emptyDocs)))(1)))(emptyDocs))(sElem(ks, 0))))(lenOf(ks)))(keysOf(v));
 export const renderRoot = (d, out, width) => (renderDoc(new Doc_Group(d, false), out, 0, false, 0, width), getStr(out));
 export const structuralFormat = (value, width, size) => renderRoot(fmtValue(value, mkBudget(size)), mkStrCell(""), width);
+export const fround = (x) => (Math.fround((x)));
+export const toPrecision = (x, digits) => ((x).toPrecision((digits)));
+export const parseF32 = (s) => (Number((s)));
+export const f32Eq = (a, b) => ((a) === (b));
+export const f32Str = (x) => (String((x)));
+export const float32ToString = (v) => ((result) => ((digits) => ((searching) => ((() => {
+  while (searching) {
+    (intGt(digits, 9) ? (searching = false) : ((candidate) => (f32Eq(fround(candidate), v) ? ((result = f32Str(candidate)), (searching = false)) : (digits = inc(digits))))(parseF32(toPrecision(v, digits))));
+  }
+})(), result))(true))(1))(f32Str(v));
