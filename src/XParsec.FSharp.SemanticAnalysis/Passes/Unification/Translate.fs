@@ -166,92 +166,25 @@ module internal UnificationTranslate =
             ctx.MarkInferenceHole tv
             TyVar tv
         | Type.NamedType li when li.Idents.Length = 1 ->
-            let name = ctx.NameOf li.Idents.[0]
+            // Bare single-segment name. The local-registry cascade + opaque fallback
+            // is shared with the measure carrier below through `resolveBareTypeName`;
+            // a written annotation reads the STAMPED external head (store face). The
+            // head key comes from `CstKeys.ofTypeHead` — the SAME derivation
+            // NameResolution stamped with — so the two faces agree by construction.
+            let headKey = (CstKeys.ofTypeHead t).Value.Key
 
-            match name with
-            | _ when ctx.Types.IntrinsicReprTypes.ContainsKey name ->
-                // Primitive binding (`type int = (# "System.Int32" #)`): a
-                // nominal intrinsic, NOT a transparent abbreviation. Resolve to
-                // `TyConst name`; the representation string is consumed later by
-                // the codegen `encodeType` rekey.
-                // No hardcoded `"int" -> BuiltinTypes.tyInt` arms: primitives now
-                // resolve uniformly through this local check, the external provider
-                // (`ExternalTypeShape.Intrinsic` → `TyConst name`), or the opaque
-                // fallback below — all of which yield `TyConst name`, identical to
-                // the retired hardcoded arms.
-                TyConst(TypeRegistry.intrinsicKeyOf ctx.Types name, EqArray.empty)
-            | _ ->
-                match ctx.Types.Abbreviation.TryGetValue name with
-                | true, info ->
-                    // Eager expansion: force the body, then substitute fresh
-                    // TyVars for every declared typar.
-                    forceFill ctx info
-
-                    let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
-
-                    let diagKey = NodeKey.ofToken li.Idents.[0] NodeKind.TypeNamed
-                    expandAbbreviation ctx diagKey info args
-                | false, _ ->
-                    match ctx.Types.Record.TryGetValue name with
-                    | true, info ->
-                        // Back-fill generic args with fresh TyVars at the
-                        // current level — unpinned at the declaration site,
-                        // fixed by surrounding unification (e.g. `r : Box`
-                        // unifies the args with whatever `r`'s usage pins).
-                        let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
-
-                        TyRecord(info.Key, args)
-                    | false, _ ->
-                        match ctx.Types.Union.TryGetValue name with
-                        | true, info ->
-                            let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
-                            // Record the resolved
-                            // union identity at this use site (populate-only for now).
-                            ctx.Resolution.ResolvedType.Set(NodeKey.ofToken li.Idents.[0] NodeKind.TypeNamed, info.Key)
-                            TyUnion(info.Key, args)
-                        | false, _ ->
-                            match ctx.Types.Enum.TryGetValue name with
-                            // A `(x: E)` annotation referencing a project-local enum.
-                            // An enum is niladic (no type args), so the reference is
-                            // just `TyEnum Key`; stamp the use site like the union arm.
-                            | true, info ->
-                                ctx.Resolution.ResolvedType.Set(
-                                    NodeKey.ofToken li.Idents.[0] NodeKind.TypeNamed,
-                                    info.Key
-                                )
-
-                                TyEnum info.Key
-                            | false, _ ->
-                                match ctx.Types.Class.TryGetValue name with
-                                | true, info ->
-                                    let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
-
-                                    TyClass(info.Key, args)
-                                | false, _ ->
-                                    // Not project-local: probe the external provider
-                                    // (a short BCL name under its `open`) before the
-                                    // opaque fallback. See `tryResolveExternalType`.
-                                    match tryResolveExternalType ctx name EqArray.empty with
-                                    | ValueSome ty -> ty
-                                    // `undefined` is a JS-only intrinsic with NO CLR repr. A JS
-                                    // compilation resolves the written name through the provider
-                                    // above (the `prim-types-undefined.js` contract); this arm is
-                                    // the deliberate fallback for a stack that has NOT loaded that
-                                    // contract — mint the canonical `undefinedKey` directly so the
-                                    // written name still agrees with the optional-default / Freeze
-                                    // form. (Not `ctx.Intrinsics.Undefined`, which would loud-fail
-                                    // exactly when the contract is absent — the case this handles.)
-                                    // Every other unresolved bare name is genuinely origin-less.
-                                    | ValueNone when name = RuntimeNames.undefinedTypeName ->
-                                        TyConst(RuntimeNames.undefinedKey, EqArray.empty)
-                                    | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
+            resolveBareTypeName
+                ctx
+                li.Idents.[0]
+                (fun name -> tryResolveExternalTypeStamped ctx headKey name EqArray.empty)
         | Type.NamedType li ->
             // Multi-segment named type (`System.Text.StringBuilder`). Project-local
             // types are single-segment, so a dotted name is either external or
-            // unknown; probe the provider before the catch-all TyVar.
+            // unknown; read the stamped head before the catch-all TyVar.
             let qualName = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
+            let headKey = (CstKeys.ofTypeHead t).Value.Key
 
-            match tryResolveExternalType ctx qualName EqArray.empty with
+            match tryResolveExternalTypeStamped ctx headKey qualName EqArray.empty with
             | ValueSome ty -> ty
             | ValueNone -> TyVar(freshTyVar ctx)
         | Type.GenericType(longIdent = li; typeArgs = args) when
@@ -286,14 +219,28 @@ module internal UnificationTranslate =
             | ValueSome m ->
                 let mt = translateMeasure ctx diagKey m
                 let tv = freshTyVar ctx
-                tv.Link <- ValueSome(translateType ctx (Type.NamedType li))
+                // Resolve the carrier (`float`) BY NAME rather than fabricating a
+                // `Type.NamedType li` node and re-entering `translateType`: the carrier
+                // is SYNTHESIZED here, so NameResolution never walked it and no stamp
+                // exists — a store-face read would miss it. The by-name resolver is the
+                // sanctioned reach for a synthesized head (as for
+                // `tryResolveExternalNominal`). Routing it here — not through the
+                // store-face read — retires the one phantom-`Type.NamedType` reader, a
+                // prerequisite for the written-annotation sites ever dropping their own
+                // by-name fallback (which they still keep — see
+                // `tryResolveExternalTypeStamped`).
+                tv.Link <-
+                    ValueSome(
+                        resolveBareTypeName ctx carrierTok (fun name -> tryResolveExternalType ctx name EqArray.empty)
+                    )
+
                 tv.Units <- ValueSome mt
                 TyVar tv
             | ValueNone -> TyVar(freshTyVar ctx)
         | Type.GenericType(longIdent = li; typeArgs = args) when li.Idents.Length = 1 ->
             let nameTok = li.Idents.[0]
             let name = ctx.NameOf nameTok
-            let diagKey = NodeKey.ofToken nameTok NodeKind.TypeGeneric
+            let diagKey = (CstKeys.ofTypeHead t).Value.Key
 
             let translatedArgs =
                 EqArray.ofSeq (
@@ -325,7 +272,9 @@ module internal UnificationTranslate =
                     }
                 )
 
-            match tryResolveExternalType ctx qualName translatedArgs with
+            let headKey = (CstKeys.ofTypeHead t).Value.Key
+
+            match tryResolveExternalTypeStamped ctx headKey qualName translatedArgs with
             | ValueSome ty -> ty
             | ValueNone -> TyVar(freshTyVar ctx)
         | Type.SuffixedType(baseType = baseTy; longIdent = li) when li.Idents.Length = 1 ->
@@ -334,7 +283,7 @@ module internal UnificationTranslate =
             // and fall to the single-arg arity diagnostic — out of scope for v1.
             let nameTok = li.Idents.[0]
             let name = ctx.NameOf nameTok
-            let diagKey = NodeKey.ofToken nameTok NodeKind.TypeGeneric
+            let diagKey = (CstKeys.ofTypeHead t).Value.Key
             resolveNamedGeneric ctx diagKey name (EqArray.singleton (translateType ctx baseTy))
         | Type.FunctionType(fromType = from; toType = into) -> TyFun(translateType ctx from, translateType ctx into)
         | Type.TupleType(types = types) -> TyTuple(EqArray.ofSeq (seq { for t in types -> translateType ctx t }))
@@ -376,6 +325,89 @@ module internal UnificationTranslate =
             // anonymous records, etc.) aren't modelled yet. Hand back a free
             // TyVar so unification can pin it via context.
             TyVar(freshTyVar ctx)
+
+    /// Resolve a bare (single-segment, arity-0) type NAME to its `SemType` through the
+    /// local-registry cascade — intrinsic binding → transparent abbreviation → record →
+    /// union → enum → class — falling to `resolveExternal` when it misses every local
+    /// registry, then to the `undefined` / opaque residue. `resolveExternal` is the
+    /// pluggable external tail: a WRITTEN annotation (`Type.NamedType` arm) passes the
+    /// STAMPED store-face read (`tryResolveExternalTypeStamped`), whereas a SYNTHESIZED
+    /// carrier (the `float<m>` measure arm) — which NameResolution never walked and so
+    /// never stamped — passes the by-name resolver. Sharing the cascade keeps the two
+    /// faces resolving a bare name identically apart from that one external seam, and
+    /// lets the measure arm resolve its carrier WITHOUT fabricating a phantom
+    /// `Type.NamedType` node that a store-face read would miss.
+    and private resolveBareTypeName
+        (ctx: PassContext)
+        (nameTok: SyntaxToken)
+        (resolveExternal: string -> SemType voption)
+        : SemType =
+        let name = ctx.NameOf nameTok
+
+        if ctx.Types.IntrinsicReprTypes.ContainsKey name then
+            // Primitive binding (`type int = (# "System.Int32" #)`): a nominal
+            // intrinsic, NOT a transparent abbreviation. Resolve to `TyConst name`; the
+            // representation string is consumed later by the codegen `encodeType` rekey.
+            // No hardcoded `"int" -> BuiltinTypes.tyInt` arms: primitives resolve
+            // uniformly through this local check, the external provider
+            // (`ExternalTypeShape.Intrinsic` → `TyConst name`), or the opaque fallback
+            // below — all of which yield `TyConst name`, identical to the retired arms.
+            TyConst(TypeRegistry.intrinsicKeyOf ctx.Types name, EqArray.empty)
+        else
+            match ctx.Types.Abbreviation.TryGetValue name with
+            | true, info ->
+                // Eager expansion: force the body, then substitute fresh TyVars for
+                // every declared typar.
+                forceFill ctx info
+                let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
+                let diagKey = NodeKey.ofToken nameTok NodeKind.TypeNamed
+                expandAbbreviation ctx diagKey info args
+            | false, _ ->
+                match ctx.Types.Record.TryGetValue name with
+                | true, info ->
+                    // Back-fill generic args with fresh TyVars at the current level —
+                    // unpinned at the declaration site, fixed by surrounding unification
+                    // (e.g. `r : Box` unifies the args with whatever `r`'s usage pins).
+                    let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
+                    TyRecord(info.Key, args)
+                | false, _ ->
+                    match ctx.Types.Union.TryGetValue name with
+                    | true, info ->
+                        let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
+                        // Record the resolved union identity at this use site
+                        // (populate-only for now).
+                        ctx.Resolution.ResolvedType.Set(NodeKey.ofToken nameTok NodeKind.TypeNamed, info.Key)
+                        TyUnion(info.Key, args)
+                    | false, _ ->
+                        match ctx.Types.Enum.TryGetValue name with
+                        // A `(x: E)` annotation referencing a project-local enum. An enum
+                        // is niladic (no type args), so the reference is just `TyEnum
+                        // Key`; stamp the use site like the union arm.
+                        | true, info ->
+                            ctx.Resolution.ResolvedType.Set(NodeKey.ofToken nameTok NodeKind.TypeNamed, info.Key)
+                            TyEnum info.Key
+                        | false, _ ->
+                            match ctx.Types.Class.TryGetValue name with
+                            | true, info ->
+                                let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
+                                TyClass(info.Key, args)
+                            | false, _ ->
+                                match resolveExternal name with
+                                | ValueSome ty -> ty
+                                // `undefined` is a JS-only intrinsic with NO CLR repr. A
+                                // JS compilation resolves the written name through the
+                                // provider (the `prim-types-undefined.js` contract); this
+                                // arm is the deliberate fallback for a stack that has NOT
+                                // loaded that contract — mint the canonical `undefinedKey`
+                                // directly so the written name still agrees with the
+                                // optional-default / Freeze form. (Not
+                                // `ctx.Intrinsics.Undefined`, which would loud-fail
+                                // exactly when the contract is absent — the case this
+                                // handles.) Every other unresolved bare name is genuinely
+                                // origin-less.
+                                | ValueNone when name = RuntimeNames.undefinedTypeName ->
+                                    TyConst(RuntimeNames.undefinedKey, EqArray.empty)
+                                | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
 
     /// Resolve a single-segment generic type reference against the type
     /// registries, in the same precedence the bare-name arm uses: intrinsic
@@ -474,7 +506,10 @@ module internal UnificationTranslate =
                 match local with
                 | ValueSome ty -> ty
                 | ValueNone ->
-                    match tryResolveExternalType ctx name translatedArgs with
+                    // `diagKey` is the head's `NodeKey` (`TypeGeneric` off the name
+                    // token) — the same key NameResolution stamped `ResolvedTypeHead`
+                    // with, so the store-face read finds it.
+                    match tryResolveExternalTypeStamped ctx diagKey name translatedArgs with
                     | ValueSome ty -> ty
                     | ValueNone ->
                         // Unknown name with type args — opaque TyConst, args
@@ -505,6 +540,134 @@ module internal UnificationTranslate =
     /// (`int32` ⇒ `int`), and there is no surviving abbrev key to carry — the sole
     /// opens-sensitive reach for an abbrev, as for every nominal, is the single
     /// `TryLookupType` probe that fetches the shape.
+    // The resolved shape's syntactic arity — the guard both resolution faces apply
+    // so a generic type referenced at the wrong arity isn't mistaken for this type
+    // (and the abbrev/record builders get a right-length arg array).
+    and private shapeArity (shape: ExternalTypeShape) : int =
+        match shape with
+        | ExternalTypeShape.Class info -> info.Arity
+        | ExternalTypeShape.Intrinsic s -> s.Id.Arity
+        | ExternalTypeShape.IntrinsicInterface s -> s.Arity
+        | ExternalTypeShape.Enum _ -> 0 // enums are never generic
+        | ExternalTypeShape.Record(arity = a)
+        | ExternalTypeShape.Union(arity = a)
+        | ExternalTypeShape.Abbrev(arity = a)
+        | ExternalTypeShape.Opaque(arity = a) -> a
+
+    /// Build the annotation `SemType` from a resolved external shape + its matched
+    /// compiled name. Shared by both resolution faces (the stamped store-face read
+    /// and the by-name resolver read), so the identity a written type annotation
+    /// resolves to is minted in exactly one place. `None` for an `Opaque` residue,
+    /// which has no kind a type annotation can take.
+    and private buildExternalTy
+        (ctx: PassContext)
+        (compiled: string)
+        (shape: ExternalTypeShape)
+        (arity: int)
+        (translatedArgs: EqArray<SemType>)
+        : SemType option =
+        // Mint the nominal's `SymbolKey` from the resolved shape's origin + the
+        // matched compiled name. `asm = Some` marks it external.
+        match shape with
+        // A referenced intrinsic — scalar (`exn = (# "System.Exception" #)`)
+        // or heritable class: NON-transparent, its NOMINAL IDENTITY is the
+        // shape's canon `TyConst` (`Vesper.int`, `Vesper.exn`) regardless of
+        // the optional base/ctor surface. Preserving the `TyConst` keeps
+        // intrinsic member routing intact — `obj.ToString` / `exn.Message`
+        // resolve through the PLATFORM type (`IntrinsicBclMember`), which is
+        // per-target and which the contract deliberately does NOT name
+        // (ToString is CLR-only); member resolution thus MERGES the contract
+        // ctors with the platform type's members. A faced capability `Class`
+        // (`disposable`) is an INTERFACE, a constraint not a value type, so
+        // it stays a `TyClass` below. (The canon is read OFF the shape — the
+        // resolved identity, not a by-name re-mint.)
+        | ExternalTypeShape.Intrinsic s -> Some(TyConst(s.Id.Canon, translatedArgs))
+        // A source-written platform repr with a harvested non-interface
+        // canon (`System.Exception` → `exn`, `System.Object` → `obj`,
+        // `System.Int32` → `int`) resolves to the canon `TyConst` (the
+        // reverse-map bridge is retired); capability INTERFACES keep
+        // their `TyClass` form. See `externalClassTy`.
+        | ExternalTypeShape.Class info -> Some(externalClassTy ctx compiled info arity translatedArgs)
+        // A capability interface (`disposable`) is a `TyClass` CONSTRAINT — its
+        // value identity key is origin-homed exactly as a `Class`'s (the reverse
+        // map holds no interface canons, so `externalClassTy`'s reverse hit never
+        // fires for it; this bypasses that check and mints the `TyClass` directly).
+        | ExternalTypeShape.IntrinsicInterface iface ->
+            Some(TyClass(SymbolKeyOps.externalTypeKey iface.Origin compiled arity, translatedArgs))
+        | ExternalTypeShape.Record(origin = origin) ->
+            Some(TyRecord(SymbolKeyOps.externalTypeKey origin compiled arity, translatedArgs))
+        | ExternalTypeShape.Union(origin = origin) ->
+            Some(TyUnion(SymbolKeyOps.externalTypeKey origin compiled arity, translatedArgs))
+        // An external enum type annotation `(x: E)` → the nominal
+        // `TyEnum key` (no args — enums are never generic), keyed off
+        // the same `externalTypeKey origin key 0` an `E.Ci` use site
+        // mints, so the annotation and the case access unify. The
+        // enum is a DISTINCT nominal (NOT its underlying int/string),
+        // exactly like the authored `TyEnum`.
+        | ExternalTypeShape.Enum(origin = origin) -> Some(TyEnum(SymbolKeyOps.externalTypeKey origin compiled 0))
+        // A transparent abbreviation dealiases to its body: `int32 =
+        // int` (`int = (# "System.Int32" #)`) resolves to `TyConst
+        // "int"`, the form codegen actually encodes — without this an
+        // abbrev name (`int32`) leaked through as a nominal `TyConst
+        // "int32"` the IL encoder doesn't key. Mirrors the *local*
+        // abbrev expansion (`expandAbbreviation`); `instantiateDeclaring`
+        // substitutes the type args into the (already-translated) frozen RHS.
+        // The RHS is already kind-correct: the extractor's `mkNominal`
+        // baked every head against the defining package's scope
+        // so a union/class alias (`'T option = Option<'T>`)
+        // expands to a properly-kinded body.
+        | ExternalTypeShape.Abbrev(_, frozen) ->
+            Some(FrozenTypeBridge.instantiateDeclaring frozen (translatedArgs.AsSpan().ToArray()))
+        // An `Opaque` residue (a GADT union / enum / unmodelled body)
+        // has no kind to resolve a *type annotation* to — skip
+        // it, exactly as a name with no shape did before the
+        // residue was registered. The val-signature path that needs the
+        // `TyRecord` placeholder goes through `mkNominal`, not here.
+        | ExternalTypeShape.Opaque _ -> None
+
+    /// The store-face read of a written external type head — the resolve-once
+    /// boundary's type-annotation half (`docs/name-resolution-boundary-plan.md`).
+    /// NameResolution
+    /// resolved this head's spelling (opens-aware, at its syntactic arity) and
+    /// stamped its `SymbolKey` into `ResolvedTypeHead` keyed by the `Type` node's
+    /// `NodeKey`; when that stamp is present we fetch the shape through the
+    /// key-addressed store face (`ctx.Provider.TryLookupType`) — the boundary is
+    /// closed for every stamped head, which is the vast majority of written
+    /// annotations (return types, param/field/member-sig types, casts, type tests,
+    /// `new`/`inherit`/type-app heads). `qualifiedName` recovers the compiled name the
+    /// shape builder needs from the stamped key (identity-preserving: the stamp minted
+    /// the key from the same compiled name, so the round-trip is exact).
+    ///
+    /// A stamp is ABSENT for a `Type` node NameResolution never walked as a head — a
+    /// handful of signature / member positions the stamping driver does not yet reach
+    /// (a type member's ILIntrinsic-body result annotation, an intrinsic-abbrev host's
+    /// side-elaborated member sig). For those we fall back to the by-name resolver so
+    /// resolution is NON-REGRESSING. (The one head that USED to force this fallback — the
+    /// `float<m>` carrier synthesized during inference — no longer reaches here: the
+    /// measure arm resolves its carrier by name directly via `resolveBareTypeName`.)
+    /// Retiring the fallback entirely needs those remaining positions stamped upstream;
+    /// until then this narrows, not fully retires, blocker 2.
+    and private tryResolveExternalTypeStamped
+        (ctx: PassContext)
+        (nodeKey: NodeKey)
+        (qualName: string)
+        (translatedArgs: EqArray<SemType>)
+        : SemType voption =
+        let arity = translatedArgs.Length
+
+        let fallback () =
+            tryResolveExternalType ctx qualName translatedArgs
+
+        match ctx.Resolution.ResolvedTypeHead.TryGetValue nodeKey with
+        | ValueSome symKey ->
+            match ctx.Provider.TryLookupType symKey with
+            | ValueSome shape when shapeArity shape = arity ->
+                match buildExternalTy ctx (SymbolKeyOps.qualifiedName symKey) shape arity translatedArgs with
+                | Some ty -> ValueSome ty
+                | None -> fallback ()
+            | _ -> fallback ()
+        | ValueNone -> fallback ()
+
     and private tryResolveExternalType
         (ctx: PassContext)
         (qualName: string)
@@ -520,86 +683,19 @@ module internal UnificationTranslate =
             else
                 [ SymbolKeyOps.arityName n arity; n ]
 
-        let shapeArity (shape: ExternalTypeShape) : int =
-            match shape with
-            | ExternalTypeShape.Class info -> info.Arity
-            | ExternalTypeShape.Intrinsic s -> s.Id.Arity
-            | ExternalTypeShape.IntrinsicInterface s -> s.Arity
-            | ExternalTypeShape.Enum _ -> 0 // enums are never generic
-            | ExternalTypeShape.Record(arity = a)
-            | ExternalTypeShape.Union(arity = a)
-            | ExternalTypeShape.Abbrev(arity = a)
-            | ExternalTypeShape.Opaque(arity = a) -> a
-
         let lookup (candidate: string) : SemType voption =
             let picked =
                 keysFor candidate
                 |> List.tryPick (fun key ->
-                    // The one sanctioned resolver-face reach left in Unification: a
-                    // written type *spelling* resolved through `ctx.Resolver` (see the
-                    // member's doc / boundary plan § Remaining). The `SemType`
-                    // construction around it is inference-resident and key/store-only.
+                    // The remaining sanctioned resolver-face reach in Unification: a
+                    // written type *spelling* resolved through `ctx.Resolver`, for the
+                    // expression-position `tryResolveExternalNominal` ctor probe
+                    // (`ResizeArray<int>()`), which has no `Type` node to carry a stamp.
+                    // The type-annotation `translateType` sites read the store face via
+                    // `tryResolveExternalTypeStamped` and never reach here.
                     match ctx.Resolver.TryLookupType key with
                     | ValueSome shape when shapeArity shape = arity ->
-                        // Mint the nominal's `SymbolKey` from the resolved shape's
-                        // origin + the matched compiled name. `asm = Some` marks it external.
-                        match shape with
-                        // A referenced intrinsic — scalar (`exn = (# "System.Exception" #)`)
-                        // or heritable class: NON-transparent, its NOMINAL IDENTITY is the
-                        // shape's canon `TyConst` (`Vesper.int`, `Vesper.exn`) regardless of
-                        // the optional base/ctor surface. Preserving the `TyConst` keeps
-                        // intrinsic member routing intact — `obj.ToString` / `exn.Message`
-                        // resolve through the PLATFORM type (`IntrinsicBclMember`), which is
-                        // per-target and which the contract deliberately does NOT name
-                        // (ToString is CLR-only); member resolution thus MERGES the contract
-                        // ctors with the platform type's members. A faced capability `Class`
-                        // (`disposable`) is an INTERFACE, a constraint not a value type, so
-                        // it stays a `TyClass` below. (The canon is read OFF the shape — the
-                        // resolved identity, not a by-name re-mint.)
-                        | ExternalTypeShape.Intrinsic s -> Some(TyConst(s.Id.Canon, translatedArgs))
-                        // A source-written platform repr with a harvested non-interface
-                        // canon (`System.Exception` → `exn`, `System.Object` → `obj`,
-                        // `System.Int32` → `int`) resolves to the canon `TyConst` (the
-                        // reverse-map bridge is retired); capability INTERFACES keep
-                        // their `TyClass` form. See `externalClassTy`.
-                        | ExternalTypeShape.Class info -> Some(externalClassTy ctx key info arity translatedArgs)
-                        // A capability interface (`disposable`) is a `TyClass` CONSTRAINT — its
-                        // value identity key is origin-homed exactly as a `Class`'s (the reverse
-                        // map holds no interface canons, so `externalClassTy`'s reverse hit never
-                        // fires for it; this bypasses that check and mints the `TyClass` directly).
-                        | ExternalTypeShape.IntrinsicInterface iface ->
-                            Some(TyClass(SymbolKeyOps.externalTypeKey iface.Origin key arity, translatedArgs))
-                        | ExternalTypeShape.Record(origin = origin) ->
-                            Some(TyRecord(SymbolKeyOps.externalTypeKey origin key arity, translatedArgs))
-                        | ExternalTypeShape.Union(origin = origin) ->
-                            Some(TyUnion(SymbolKeyOps.externalTypeKey origin key arity, translatedArgs))
-                        // An external enum type annotation `(x: E)` → the nominal
-                        // `TyEnum key` (no args — enums are never generic), keyed off
-                        // the same `externalTypeKey origin key 0` an `E.Ci` use site
-                        // mints, so the annotation and the case access unify. The
-                        // enum is a DISTINCT nominal (NOT its underlying int/string),
-                        // exactly like the authored `TyEnum`.
-                        | ExternalTypeShape.Enum(origin = origin) ->
-                            Some(TyEnum(SymbolKeyOps.externalTypeKey origin key 0))
-                        // A transparent abbreviation dealiases to its body: `int32 =
-                        // int` (`int = (# "System.Int32" #)`) resolves to `TyConst
-                        // "int"`, the form codegen actually encodes — without this an
-                        // abbrev name (`int32`) leaked through as a nominal `TyConst
-                        // "int32"` the IL encoder doesn't key. Mirrors the *local*
-                        // abbrev expansion (`expandAbbreviation`); `instantiateDeclaring`
-                        // substitutes the type args into the (already-translated) frozen RHS.
-                        // The RHS is already kind-correct: the extractor's `mkNominal`
-                        // baked every head against the defining package's scope
-                        // so a union/class alias (`'T option = Option<'T>`)
-                        // expands to a properly-kinded body.
-                        | ExternalTypeShape.Abbrev(_, frozen) ->
-                            Some(FrozenTypeBridge.instantiateDeclaring frozen (translatedArgs.AsSpan().ToArray()))
-                        // An `Opaque` residue (a GADT union / enum / unmodelled body)
-                        // has no kind to resolve a *type annotation* to — skip
-                        // this candidate, exactly as a name with no shape did before the
-                        // residue was registered. The val-signature path that needs the
-                        // `TyRecord` placeholder goes through `mkNominal`, not here.
-                        | ExternalTypeShape.Opaque _ -> None
+                        buildExternalTy ctx key shape arity translatedArgs
                     | _ -> None
                 )
 

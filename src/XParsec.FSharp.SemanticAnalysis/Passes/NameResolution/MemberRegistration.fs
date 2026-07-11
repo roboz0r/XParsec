@@ -3,6 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 open System.Collections.Immutable
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open NameResolutionTypeHeadStamp
 open NameResolutionScope
 open NameResolutionTypeRegistration
 
@@ -171,42 +172,34 @@ module NameResolutionMemberRegistration =
                     acc.Add n
             | ValueNone -> ()
 
-        let rec walkTy (t: Type<SyntaxToken>) =
-            match t with
-            | Type.VarType tp -> addTypar tp
-            | Type.ParenType(typ = inner)
-            | Type.SuffixedType(baseType = inner)
-            | Type.DottedType(baseType = inner)
-            | Type.ArrayType(baseType = inner)
-            | Type.AnonymousSubtype(typ = inner) -> walkTy inner
-            | Type.FunctionType(fromType = f; toType = into) ->
-                walkTy f
-                walkTy into
-            | Type.TupleType(types = ts)
-            | Type.StructTupleType(types = ts) ->
-                for ty in ts do
-                    walkTy ty
-            | Type.GenericType(typeArgs = args) ->
-                for a in args do
-                    match a with
-                    | TypeArg.Type at -> walkTy at
-                    | TypeArg.Measure _ -> ()
-            | Type.WhenConstrainedType(typ = inner) -> walkTy inner
-            | Type.SubtypeConstraint(typar = tp; typ = inner) ->
-                addTypar tp
-                walkTy inner
-            | Type.UnionType(left = l; right = r) ->
-                walkTy l
-                walkTy r
-            | Type.AnonRecordType(fields = fs) ->
-                for AnonRecordField(typ = ty) in fs do
-                    walkTy ty
-            | Type.NamedType _
-            | Type.Null _
-            | Type.MeasureType _
-            | Type.ILIntrinsic _
-            | Type.Missing
-            | Type.SkipsTokens _ -> ()
+        // Free typar collection reuses `CstWalk.iterType`'s Type recursion — the
+        // single enumeration of the 18 `Type` cases — so this consumer supplies only
+        // the leaf action. `VarType` and a `SubtypeConstraint`'s constrained typar are
+        // the two typar-bearing heads. A `WhenConstrainedType`'s `when`-clause
+        // constraint types are deliberately NOT descended: an implicit method typar is
+        // drawn from the signature's arg/return SHAPE, not from a constraint target
+        // (preserving the reach of the hand-walk this replaced).
+        let typarIter: CstWalk.TypeIter =
+            { CstWalk.identityTypeIter with
+                VisitType =
+                    fun it t ->
+                        match t with
+                        | Type.VarType tp ->
+                            addTypar tp
+                            true
+                        | Type.SubtypeConstraint(typar = tp) ->
+                            addTypar tp
+                            true
+                        | Type.WhenConstrainedType(typ = inner) ->
+                            // Descend only the constrained type; returning false
+                            // suppresses the default recursion that would also visit
+                            // the `when` constraints (see note above).
+                            CstWalk.iterType it inner
+                            false
+                        | _ -> true
+            }
+
+        let walkTy (t: Type<SyntaxToken>) = CstWalk.iterType typarIter t
 
         // Only a `(p : T)` annotation contributes a signature type; an unannotated
         // binder carries no typar.

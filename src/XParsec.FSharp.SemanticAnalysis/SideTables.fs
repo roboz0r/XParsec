@@ -1451,6 +1451,27 @@ type PassContextResolution =
         /// here, opens-aware, ONCE; the post-dot member name stays a string, a
         /// non-opens-sensitive post-selector).
         ResolvedType: SideTable<SymbolKey>
+        /// Keyed by a written **type-annotation head**'s `NodeKey` (`CstKeys.ofTypeHead`
+        /// — a `NamedType`/`GenericType`/`SuffixedType` anchored on `li.Idents.[0]`):
+        /// the external `SymbolKey` that head resolves to, minted by NameResolution's
+        /// `tryResolveExternalTypeKey` (opens-aware, at the syntactic type-arg arity).
+        /// This is the structural closure of the type-annotation resolver escape hatch
+        /// (`docs/name-resolution-boundary-plan.md`): NameResolution — the one resolve-once layer —
+        /// resolves every written external type head HERE, so
+        /// `Translate.tryResolveExternalType` READS this stamp and fetches the shape
+        /// through the key-addressed store face (`ctx.Provider.TryLookupType key`)
+        /// instead of re-resolving the spelling through `ctx.Resolver` at inference
+        /// time. Distinct from `ResolvedType`: that records *expression*-position type
+        /// names (ctor-sugar heads, generic static receivers) keyed by their `Expr*`
+        /// `NodeKind`; this records *type*-position heads keyed by their `Type*`
+        /// `NodeKind`, so the two never collide even at a shared source offset. An
+        /// abbrev head stamps its OWN key (the resolver's `keyOf` returns it); Translate
+        /// dealiases on read. Absent ⇒ the head is project-local, a bare typar, or an
+        /// unreachable name — Translate takes its existing local-registry / opaque /
+        /// `TyVar` paths. (The expression-position `tryResolveExternalNominal` ctor
+        /// probe has no `Type` node and keeps the resolver face — see the plan's
+        /// non-goals.)
+        ResolvedTypeHead: SideTable<SymbolKey>
         /// Keyed by a folded static-member `Expr.LongIdent` node (`System.Console.Out`,
         /// `N.pickName`): the resolved `SymbolKey` of the receiver PREFIX (every
         /// segment but the last) when it resolves — opens-aware — to an external
@@ -1527,6 +1548,7 @@ module PassContextResolution =
             UseDispose = SideTable<_>()
             ForInShape = SideTable<_>()
             ResolvedType = SideTable<_>()
+            ResolvedTypeHead = SideTable<_>()
             ExternalStaticReceiver = SideTable<_>()
             ExternalUnionRecordQualifier = SideTable<_>()
             LocalModules = Dictionary<_, _>()

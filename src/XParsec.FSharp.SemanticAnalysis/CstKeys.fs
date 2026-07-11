@@ -235,6 +235,57 @@ module CstKeys =
 
         NodeKey.ofToken (firstTokenOfPat p) kind
 
+    /// A written external *type head* decomposed ONCE: its anchor `NodeKey`, the head
+    /// long-ident, and its syntactic type-arg arity. Both faces of the resolve-once
+    /// boundary go through `ofTypeHead` — NameResolution stamps `ResolvedTypeHead` on
+    /// `Key`, `Translate` reads that same `Key` — so the write and read keys agree by
+    /// construction rather than by two hand-spelled `NodeKey.ofToken … TypeNamed`
+    /// derivations kept in sync by comment.
+    [<NoEquality; NoComparison>]
+    type TypeHead =
+        {
+            /// Anchors on the head's first ident token (`li.Idents.[0]`), kinded
+            /// `TypeNamed` for a bare/dotted name or `TypeGeneric` for an applied one.
+            Key: NodeKey
+            /// The head's long-ident — its segments name the type, its first token is
+            /// the anchor.
+            LongIdent: LongIdent<SyntaxToken>
+            /// Syntactic type-arg count, the arity both faces resolve at: `NamedType`
+            /// ⇒ 0, `GenericType` ⇒ arg count, `SuffixedType` ⇒ 1 (postfix `'T list`).
+            Arity: int
+        }
+
+    /// Decompose a `Type` node's *head*, when it has one. Only the three head-bearing
+    /// shapes resolve to an external type: `NamedType` (a bare/dotted name), and
+    /// `GenericType` / `SuffixedType` (a name applied to type args — `List<int>` /
+    /// `int list`). Every non-head shape (`FunctionType`, `TupleType`, `VarType`, …)
+    /// resolves structurally in `translateType` and never reaches the resolver, so it
+    /// has no head — `ValueNone`.
+    let ofTypeHead (ty: Type<SyntaxToken>) : TypeHead voption =
+        match ty with
+        | Type.NamedType li ->
+            ValueSome
+                {
+                    Key = NodeKey.ofToken li.Idents.[0] NodeKind.TypeNamed
+                    LongIdent = li
+                    Arity = 0
+                }
+        | Type.GenericType(longIdent = li; typeArgs = args) ->
+            ValueSome
+                {
+                    Key = NodeKey.ofToken li.Idents.[0] NodeKind.TypeGeneric
+                    LongIdent = li
+                    Arity = args.Length
+                }
+        | Type.SuffixedType(longIdent = li) ->
+            ValueSome
+                {
+                    Key = NodeKey.ofToken li.Idents.[0] NodeKind.TypeGeneric
+                    LongIdent = li
+                    Arity = 1
+                }
+        | _ -> ValueNone
+
     /// A binding's identity is its headPat's NodeKey — that's the pattern
     /// that introduced the name(s) being bound.
     let ofBinding (b: Binding<SyntaxToken>) : NodeKey = ofPat b.headPat

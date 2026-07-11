@@ -474,6 +474,117 @@ module CstWalk =
                 iterExpr walker armEnv body
             | _ -> ()
 
+    /// The CST-`Type` analogue of `iterExpr` — the single point where a written
+    /// `Type` node's recursion shape is enumerated. `VisitType` fires on every
+    /// `Type` node before its children; returning `false` skips the default child
+    /// recursion (the visitor descended, or wants to skip, them itself), `true`
+    /// continues. Mirrors `TastWalk.Iter`'s visit-only shape (the API precedent).
+    ///
+    /// Case coverage is the exhaustive `AstTraversal.walkType` template (no
+    /// `| _ -> ()` catch-all), so a new `Type` case fails the incomplete-match
+    /// check here rather than silently no-oping in a consumer. The recursion
+    /// descends *every* nested `Type`, including those inside `when`-constraints
+    /// (`WhenConstrainedType`) and member-trait signatures (`MemberTrait`), so a
+    /// consumer's hook reaches every written type head reachable from `ty`.
+    ///
+    /// Types introduce no lexical binders, so — unlike `iterExpr` — this needs no
+    /// environment threading; a consumer keeps its own state in the `VisitType`
+    /// closure.
+    [<NoEquality; NoComparison>]
+    type TypeIter =
+        {
+            VisitType: TypeIter -> Type<SyntaxToken> -> bool
+        }
+
+    /// Identity iter: visits every node and recurses with no extra work. Compose
+    /// with `with` to override the one hook.
+    let identityTypeIter: TypeIter = { VisitType = fun _ _ -> true }
+
+    let rec iterType (it: TypeIter) (ty: Type<SyntaxToken>) : unit =
+        if it.VisitType it ty then
+            let walk = iterType it
+
+            match ty with
+            | Type.ParenType(typ = inner)
+            | Type.SuffixedType(baseType = inner)
+            | Type.DottedType(baseType = inner)
+            | Type.ArrayType(baseType = inner)
+            | Type.AnonymousSubtype(typ = inner)
+            | Type.SubtypeConstraint(typ = inner) -> walk inner
+            | Type.FunctionType(fromType = f; toType = t) ->
+                walk f
+                walk t
+            | Type.TupleType(types = ts)
+            | Type.StructTupleType(types = ts) ->
+                for t in ts do
+                    walk t
+            | Type.GenericType(typeArgs = args) ->
+                for a in args do
+                    match a with
+                    | TypeArg.Type at -> walk at
+                    // A measure arg carries no `Type` node; a consumer that needs
+                    // the measure descends it itself (measures are opaque here).
+                    | TypeArg.Measure _ -> ()
+            | Type.WhenConstrainedType(typ = inner; constraints = cs) ->
+                walk inner
+                iterTypeConstraints it cs
+            | Type.UnionType(left = l; right = r) ->
+                walk l
+                walk r
+            | Type.AnonRecordType(fields = fs) ->
+                for AnonRecordField(typ = t) in fs do
+                    walk t
+            // Leaves: no nested `Type`. `VarType`/`NamedType` heads and the
+            // measure/intrinsic/null forms bottom out here.
+            | Type.VarType _
+            | Type.NamedType _
+            | Type.Null _
+            | Type.MeasureType _
+            | Type.ILIntrinsic _
+            | Type.Missing
+            | Type.SkipsTokens _ -> ()
+
+    and iterTypeConstraints (it: TypeIter) (cs: TyparConstraints<SyntaxToken>) : unit =
+        let (TyparConstraints(constraints = constraints)) = cs
+
+        for c in constraints do
+            iterTypeConstraint it c
+
+    and iterTypeConstraint (it: TypeIter) (c: Constraint<SyntaxToken>) : unit =
+        match c with
+        | Constraint.Coercion(typ = t)
+        | Constraint.Enum(typ = t)
+        | Constraint.Default(typ = t) -> iterType it t
+        | Constraint.Delegate(type1 = t1; type2 = t2) ->
+            iterType it t1
+            iterType it t2
+        | Constraint.MemberTrait(membersign = ms) -> iterTypeMemberSig it ms
+        // Constraints with no embedded `Type`.
+        | Constraint.Nullness _
+        | Constraint.DefaultConstructor _
+        | Constraint.Struct _
+        | Constraint.ReferenceType _
+        | Constraint.NotNull _
+        | Constraint.Unmanaged _
+        | Constraint.Equality _
+        | Constraint.Comparison _ -> ()
+
+    and iterTypeMemberSig (it: TypeIter) (ms: MemberSig<SyntaxToken>) : unit =
+        match ms with
+        | MemberSig.MethodOrPropSig(sign = cs)
+        | MemberSig.PropSig(sign = cs) -> iterTypeCurriedSig it cs
+
+    and iterTypeCurriedSig (it: TypeIter) (cs: CurriedSig<SyntaxToken>) : unit =
+        let (CurriedSig(args = argGroups; returnType = ret)) = cs
+
+        for struct (argsSpec, _) in argGroups do
+            let (ArgsSpec.ArgsSpec(args = args)) = argsSpec
+
+            for (ArgSpec(typ = t)) in args do
+                iterType it t
+
+        iterType it ret
+
     /// The module elements an analysis pass walks for an implementation file.
     /// A `namespace`-headed file contributes every group's elements in source
     /// order: the passes don't yet track namespace qualification (v1 has no

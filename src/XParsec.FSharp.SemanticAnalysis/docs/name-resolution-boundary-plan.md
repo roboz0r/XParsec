@@ -244,8 +244,11 @@ section by construction. So the resolution is **not** hoisted upstream *by defau
 the escape hatch is the pragmatic home. The *structural* alternative — a general
 NameResolution `Type`-node walker that resolves every written head to a `SymbolKey` and
 stamps it, so this site reads the stamp on the store face and never resolves a spelling
-— is real, but a consistency investment rather than a forcing function (no pending
-sprint needs it); it is scoped separately in [cst-walker-plan](cst-walker-plan.md).
+— has since **landed** (`CstWalk.iterType` + `ResolvedTypeHead` stamping, read by
+`Translate.tryResolveExternalTypeStamped`). It **narrowed** this hatch — Translate now
+speaks the store face for every stamped head — but did **not** close it: a by-name
+fallback remains for the positions still unstamped upstream (see the *cst-walker update*
+below for which, and what retiring it would take).
 Until then the flip keeps a single documented `IExternalSymbolResolver` handle used ONLY
 by this site, and
 that handle's whole surface is the **already-existing**
@@ -281,6 +284,35 @@ is reachable, so this stays the single explicit string surface in Unification.
   doctrine, not a dependent of it. Both converge on the shared `instantiateWith`
   (`SemanticInfo.fs:1271`) seam; neither gates the other. The flip can land ahead of,
   behind, or independent of the freeze-thaw work.
+
+**cst-walker update — the structural alternative's coverage wall, and why no
+`Type` mapper unifies the descents (2026-07-10).** The CST `Type`-walker work (which
+built `CstWalk.iterType` and the type-head stamping) probed the "read the stamp, never
+resolve a spelling" alternative and mapped its real cost against this hatch:
+
+- The one head that forced the fallback from a **synthesized** node — the `float<m>`
+  measure carrier, which `translateType` rebuilt as a phantom `Type.NamedType` and
+  re-resolved — is gone: the measure arm now resolves its carrier by name directly
+  (`resolveBareTypeName`, off the stamped path), retiring that synthesized-node reader.
+- But the `translateType` sites **still cannot drop the by-name fallback**: dropping it
+  regresses (`ExternMemberElab` — an `int` at a member position resolves opaque `("", int)`
+  vs the contract's `("Vesper", int)`), because written positions BEYOND the measure arm
+  remain unstamped — a type member's **argument-pattern** annotations (`stampMethodOrProp`
+  stamps only the return type), a member body's **ILIntrinsic result-type** annotation
+  (`stampExprEmbeddedTypes` does not reach it), and the **intrinsic-abbrev host**'s
+  side-elaborated member signatures. Retiring the hatch's Unification reach needs those
+  three stamped upstream, then all three suites re-verified. So the hatch narrows but does
+  not close — consistent with "permanent escape hatch (decided)" above.
+- **A `Type` mapper does not unify the remaining `Type → SemType` descents — assessed,
+  declined.** `translateType` is fused with mutable inference state (levels, `TyparScope`
+  mutation, abbrev fill, `MarkInferenceHole`, fresh-TyVar back-fill for a bare generic) and
+  is not a pure fold — the same fact that makes the name→type construction inference-resident
+  here; `translateInheritArg` could be a fold but is the sole such consumer, with a bespoke
+  per-node algebra (its own registry cascade, immutable `typarScope`, deliberate opaque-abbrev
+  policy) and is a v1 registration-time stopgap; `resolveInheritParent.head` is a shallow
+  head-peel, not a fold. A shared catamorphism would serve ~one bespoke consumer, so no
+  mapper was built. Only the pure *iteration* (`implicitMemberTypars`'s free-typar walk) fit
+  the visit-only `CstWalk.iterType`, and was migrated.
 
 ### Wiring, as landed
 

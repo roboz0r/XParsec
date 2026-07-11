@@ -3,6 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 open System.Collections.Immutable
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open NameResolutionTypeHeadStamp
 open NameResolutionScope
 open NameResolutionTypeRegistration
 open NameResolutionMemberRegistration
@@ -407,6 +408,123 @@ module NameResolution =
                 | _ -> ()
         | _ -> ()
 
+    /// Stamp every external type head written in a `type` definition's *structure* —
+    /// record/union field types, member value/signature types, the `inherit` clause,
+    /// interface specs/impls, an abbreviation's RHS, and delegate signatures — into
+    /// `ResolvedTypeHead`. These are exactly the positions Unification's
+    /// `fillClassMembers` / `fillNominalMembers` / record-and-union field fill later
+    /// hand to `translateType`; stamping them here — under the element's own open
+    /// scope — lets that translation read the resolved store-face key instead of
+    /// re-resolving the spelling. Member *bodies* (their expressions and
+    /// argument-pattern annotations) are stamped by the expression / pattern walks;
+    /// this covers only the declared-signature surface.
+    let private stampTypeDefnTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
+        let stampRecordField (RecordField(typ = t)) = stampTypeHeads ctx t
+
+        let stampUnionField (f: UnionTypeField<SyntaxToken>) =
+            match f with
+            | UnionTypeField.Unnamed(typ = t)
+            | UnionTypeField.Named(typ = t) -> stampTypeHeads ctx t
+
+        let stampUnionCase (UnionTypeCase(data = data)) =
+            match data with
+            | UnionTypeCaseData.Nullary _ -> ()
+            | UnionTypeCaseData.Nary(fields = fs) ->
+                for f in fs do
+                    stampUnionField f
+            | UnionTypeCaseData.GadtNary(sign = s) -> stampUncurriedSig ctx s
+            | UnionTypeCaseData.GadtNullary(typ = t) -> stampTypeHeads ctx t
+
+        let stampMethodOrProp (d: MethodOrPropDefn<SyntaxToken>) =
+            match d with
+            | MethodOrPropDefn.Method(defn = b)
+            | MethodOrPropDefn.Property(defn = b) -> stampBindingSigTypes ctx b
+            | MethodOrPropDefn.PropertyWithGetSet(defns = bs) ->
+                for b in bs do
+                    stampBindingSigTypes ctx b
+            | MethodOrPropDefn.AutoProperty(returnType = ValueSome(ReturnType(typ = t))) -> stampTypeHeads ctx t
+            | MethodOrPropDefn.AutoProperty _ -> ()
+            | MethodOrPropDefn.AbstractSignature sign -> stampMemberSig ctx sign
+
+        let stampMemberDefn (md: MemberDefn<SyntaxToken>) =
+            match md with
+            | MemberDefn.Member(defn = d) -> stampMethodOrProp d
+            | MemberDefn.Value(typ = t) -> stampTypeHeads ctx t
+            | MemberDefn.AdditionalConstructor(pat = p) -> stampPatCases ctx p
+
+        let stampTypeDefnElement (el: TypeDefnElement<SyntaxToken>) =
+            match el with
+            | TypeDefnElement.Member md -> stampMemberDefn md
+            | TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(typ = t)) -> stampTypeHeads ctx t
+            | TypeDefnElement.InterfaceSpec(InterfaceSpec(typ = t)) -> stampTypeHeads ctx t
+            | TypeDefnElement.Inherit(ClassInheritsDecl(typ = t)) -> stampTypeHeads ctx t
+
+        let stampClassPreamble (d: ClassFunctionOrValueDefn<SyntaxToken>) =
+            match d with
+            | ClassFunctionOrValueDefn.LetBindings(bindings = bs) ->
+                for b in bs do
+                    stampBindingSigTypes ctx b
+            | ClassFunctionOrValueDefn.Do _ -> ()
+
+        let stampBody (body: ObjectModelBody<SyntaxToken>) =
+            match body.inherits with
+            | ValueSome(ClassInheritsDecl(typ = t)) -> stampTypeHeads ctx t
+            | ValueNone -> ()
+
+            for d in body.classPreamble do
+                stampClassPreamble d
+
+            for el in body.elements do
+                stampTypeDefnElement el
+
+        let stampExtensions (ext: TypeExtensionElements<SyntaxToken> voption) =
+            match ext with
+            | ValueSome(TypeExtensionElements(elements = els)) ->
+                for el in els do
+                    stampTypeDefnElement el
+            | ValueNone -> ()
+
+        let stampTypeDefn (td: TypeDefn<SyntaxToken>) =
+            match td with
+            | TypeDefn.Abbrev(typ = t; extensions = ext) ->
+                stampTypeHeads ctx t
+                stampExtensions ext
+            | TypeDefn.Record(fields = fs; extensions = ext) ->
+                for f in fs do
+                    stampRecordField f
+
+                stampExtensions ext
+            | TypeDefn.Union(cases = cs; extensions = ext) ->
+                for c in cs do
+                    stampUnionCase c
+
+                stampExtensions ext
+            | TypeDefn.Anon(primaryConstr = pc; body = body)
+            | TypeDefn.Class(primaryConstr = pc; body = body)
+            | TypeDefn.Struct(primaryConstr = pc; body = body) ->
+                // Primary-constructor parameter annotations (`type Point(x: int, …)`)
+                // are pattern-embedded; `stampPatCases` stamps their type heads.
+                match pc with
+                | ValueSome(PrimaryConstrArgs(pat = ValueSome p)) -> stampPatCases ctx p
+                | _ -> ()
+
+                stampBody body
+            | TypeDefn.Interface(body = body) -> stampBody body
+            | TypeDefn.Delegate(sign = DelegateSig(sign = s)) -> stampUncurriedSig ctx s
+            | TypeDefn.TypeExtension(elements = TypeExtensionElements(elements = els)) ->
+                for el in els do
+                    stampTypeDefnElement el
+            | TypeDefn.Enum _
+            | TypeDefn.AbstractType _
+            | TypeDefn.Missing
+            | TypeDefn.SkipsTokens _ -> ()
+
+        match m with
+        | ModuleElem.Type defs ->
+            for td in defs do
+                stampTypeDefn td
+        | _ -> ()
+
     let private walkModuleElem
         (ctx: PassContext)
         (walker: CstWalk.ExprWalker<Scope list>)
@@ -418,6 +536,9 @@ module NameResolution =
             let isRecursive = isRec.IsSome
 
             for b in bindings do
+                // Stamp the binding's return-type annotation head (its pattern
+                // annotations are stamped by `stampPatCases` via the RHS scope hook).
+                stampBindingSigTypes ctx b
                 let rhsScope = walker.EnterBindingRhs scope isRecursive bindings b
                 CstWalk.iterExpr walker rhsScope b.expr
             // `bindingsToScope` writes binding-site self-entries to ctx.Bindings.Binding
@@ -474,6 +595,15 @@ module NameResolution =
         // itself (P3d.3).
         for (m, _, _) in pairs do
             registerNominalMembers ctx m
+
+        // Stamp the written external type heads in each type definition's structure
+        // (fields, member sigs, inherit, interface, abbrev RHS, delegate) under the
+        // element's own open scope, so `translateType` reads the resolved store-face
+        // key for these signature positions. Independent of the expression / pattern
+        // walks below, which stamp the member-body and value positions.
+        for (m, openScope, _) in pairs do
+            ctx.Resolution.OpenScope <- openScope
+            stampTypeDefnTypes ctx m
 
         // walkModuleElem skips ModuleElem.Type, so class/union member bodies are
         // walked here with each type's own scope (`this` + ctor params), giving

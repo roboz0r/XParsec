@@ -49,6 +49,7 @@
     <Compile Include="ExternalSymbolStampTests.fs" />
     <Compile Include="ExternalEnumCaseStampTests.fs" />
     <Compile Include="ExternalUnionRecordQualifierStampTests.fs" />
+    <Compile Include="ResolvedTypeHeadStampTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

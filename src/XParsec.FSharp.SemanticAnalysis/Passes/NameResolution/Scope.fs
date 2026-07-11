@@ -3,6 +3,7 @@ namespace XParsec.FSharp.SemanticAnalysis.Passes
 open System.Collections.Immutable
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open NameResolutionTypeHeadStamp
 
 // Scope tracking and ident-use resolution for NameResolution.
 //
@@ -21,65 +22,6 @@ open XParsec.FSharp.SemanticAnalysis
 module NameResolutionScope =
 
     type Scope = Map<string, NodeKey * bool>
-
-    /// Resolve `name` (possibly dotted) as an external *type* at exactly `arity` —
-    /// the receiver's type-arg count, supplied by the enclosing `Expr.TypeApp`
-    /// (0 for a non-generic static-access receiver like `System.Console`). Applies
-    /// the in-scope `open` prefixes (`tryResolve`'s candidate order: bare/abbrev-
-    /// expanded then each prefix); per qualified candidate it probes the arity-
-    /// suffixed compiled name first (metadata keys a generic `Name`arity`; the
-    /// contract layer keys it bare). Returns the use-site `SymbolKey` minted from
-    /// the matched shape's origin + compiled name. This replaces the former bounded
-    /// `[1;2;3;4]` arity scan: the arity is now exact because the TypeApp visit
-    /// resolves receiver+arity together.
-    let tryResolveExternalTypeKey (ctx: PassContext) (name: string) (arity: int) : SymbolKey voption =
-        let keysFor (n: string) =
-            if arity = 0 then
-                [ n ]
-            else
-                [ SymbolKeyOps.arityName n arity; n ]
-
-        let shapeArity (shape: ExternalTypeShape) =
-            match shape with
-            | ExternalTypeShape.Class info -> info.Arity
-            | ExternalTypeShape.Intrinsic s -> s.Id.Arity
-            | ExternalTypeShape.IntrinsicInterface s -> s.Arity
-            | ExternalTypeShape.Enum _ -> 0 // enums are never generic
-            | ExternalTypeShape.Record(arity = a)
-            | ExternalTypeShape.Union(arity = a)
-            | ExternalTypeShape.Abbrev(arity = a)
-            | ExternalTypeShape.Opaque(arity = a) -> a
-
-        // Mint from the matched shape's origin where one exists (Class/Union/Record
-        // carry the home assembly + namespace); the origin-less shapes fall back to
-        // splitting the qualified compiled name. Mirrors `Translate`'s nominal mint.
-        let keyOf (compiled: string) (shape: ExternalTypeShape) =
-            match shape with
-            | ExternalTypeShape.Class info -> SymbolKeyOps.externalTypeKey info.Origin compiled arity
-            // A capability interface's VALUE identity key is origin-homed (asm-qualified),
-            // exactly as a `Class`'s — NOT the asm-blind canon the `Intrinsic` arm uses.
-            | ExternalTypeShape.IntrinsicInterface s -> SymbolKeyOps.externalTypeKey s.Origin compiled arity
-            | ExternalTypeShape.Record(origin = o)
-            | ExternalTypeShape.Union(origin = o)
-            | ExternalTypeShape.Enum(origin = o) -> SymbolKeyOps.externalTypeKey o compiled arity
-            | ExternalTypeShape.Abbrev _
-            // An intrinsic's identity is the canon (asm-blind), keyed off the compiled
-            // name — the optional base/ctor surface does not change the key.
-            | ExternalTypeShape.Intrinsic _
-            | ExternalTypeShape.Opaque _ -> SymbolKeyOps.qualifiedTypeKey compiled arity
-
-        let lookup (candidate: string) : SymbolKey voption =
-            let rec go (keys: string list) =
-                match keys with
-                | [] -> ValueNone
-                | key :: rest ->
-                    match ctx.Resolver.TryLookupType key with
-                    | ValueSome shape when shapeArity shape = arity -> ValueSome(keyOf key shape)
-                    | _ -> go rest
-
-            go (keysFor candidate)
-
-        OpenScope.tryResolve ctx.Resolution.OpenScope lookup name
 
     /// Class-only variant of `tryResolveExternalTypeKey`: resolve `name` (possibly
     /// dotted) — opens-aware, at `arity` — but return the use-site `SymbolKey` ONLY
@@ -446,11 +388,20 @@ module NameResolutionScope =
                 match a with
                 | UnionArgPat.Named(pat = sub)
                 | UnionArgPat.Positional(pat = sub) -> stampPatCases ctx sub
+        // Pattern type annotations (`(x: T)`, `:? T as x`) carry a written type
+        // head — stamp it, then recurse the inner pattern. `stampPatCases` runs at
+        // every pattern-scope site (lambda args, match arms, for-in, let head/args,
+        // member args), so this is the single point that covers every pattern-embedded
+        // annotation for the resolve-once boundary.
+        | Pat.Typed(pat = inner; typ = t)
+        | Pat.TypeTestAs(pat = inner; typ = t) ->
+            stampTypeHeads ctx t
+            stampPatCases ctx inner
+        // Bare `:? T` test — the type head with no inner binder.
+        | Pat.TypeTest(typ = t) -> stampTypeHeads ctx t
         | Pat.EnclosedBlock(pat = inner)
-        | Pat.Typed(pat = inner)
         | Pat.Attributed(pat = inner)
         | Pat.As(pat = inner)
-        | Pat.TypeTestAs(pat = inner)
         | Pat.Optional(pat = inner) -> stampPatCases ctx inner
         | Pat.Tuple(patterns = pats)
         | Pat.StructTuple(patterns = pats)
@@ -468,7 +419,6 @@ module NameResolutionScope =
         | Pat.Const _
         | Pat.EmptyBlock _
         | Pat.Wildcard _
-        | Pat.TypeTest _
         | Pat.Null _
         | Pat.Op _
         | Pat.String _
@@ -535,6 +485,14 @@ module NameResolutionScope =
         | _ -> ()
 
     let private visit (ctx: PassContext) (scope: Scope list) (e: Expr<SyntaxToken>) : unit =
+        // Type-annotation boundary: stamp every external type head embedded in this
+        // node (`ResolvedTypeHead`) so `Translate.tryResolveExternalType` reads the
+        // stamp rather than re-resolving the spelling. Runs for every visited node;
+        // recursion into child expressions is the walker's, so each embedded type is
+        // stamped once. Additive to — and independent of — the expression-position
+        // `ResolvedType` stamping the arms below still perform.
+        stampExprEmbeddedTypes ctx e
+
         match e with
         | Expr.Ident tok -> resolveIdent ctx scope tok (CstKeys.ofExpr e)
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->

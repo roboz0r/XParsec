@@ -40,6 +40,7 @@
     <Compile Include="Inline.fs" />
     <Compile Include="Passes\Attributes.fs" />
     <Compile Include="Passes\Desugar.fs" />
+    <Compile Include="Passes\NameResolution\TypeHeadStamp.fs" />
     <Compile Include="Passes\NameResolution\Scope.fs" />
     <Compile Include="Passes\NameResolution\TypeRegistration.fs" />
     <Compile Include="Passes\NameResolution\MemberRegistration.fs" />
