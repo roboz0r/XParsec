@@ -17,33 +17,34 @@ namespace Vesper
 // expression node. Templates carry their own grouping parens where precedence
 // needs it, so they stay correct under any backend substitution strategy.
 //
-// WHY THIS DIVERGES FROM THE CLR BODIES. The CLR base ops are CIL mnemonics that
-// are stack-type-polymorphic — one `(# "add" #)` serves int32 / int64 / float /
-// native because the CIL arithmetic opcodes read the eval-stack type. JS has no
-// such polymorphism: `+` is float (and string) addition, with NO integer
-// semantics. So the JS bodies need EXPLICIT per-width clauses where the CLR base
-// sufficed:
+// WHY THIS DIVERGES FROM THE CLR BODIES. The CLR clauses are CIL mnemonics; the JS
+// ones are `$N` templates. JS also has no stack-typed arithmetic — `+` is float
+// (and string) addition, with NO integer semantics — so the widths need different
+// templates:
 //   - int32  : `| 0`  truncates the IEEE-double result back to signed 32-bit
 //              (`Math.imul` for `*`, because `a * b | 0` loses precision before
 //              the mask once the product exceeds 2^53).
 //   - int64  : `BigInt.asIntN(64, …)` — int64 is a JS BigInt; BigInt arithmetic is
 //              arbitrary-precision, so it must be wrapped back to 64-bit. BigInt
 //              shifts also require a BigInt shift amount (`BigInt($1)`).
-//   - float / float32 / bool / char go through the polymorphic JS operator base.
+//   - every other width: the bare JS operator.
 //
-// SCOPE (F1). This file covers the int32 / int64 / float / bool / char widths that
-// backend Step 1 exercises (and can execute under Node), plus the SRTP `when ^T :
-// ^T` user-type fallback (a user type's own static operator — target-neutral,
-// kept identical to the CLR file). The narrow/unsigned masking clauses
-// (byte/sbyte/int16/uint16/uint32/uint64 — `& 0xFF`, `<< 24 >> 24`, `>>> 0`, …)
-// are deferred to the F-step gated by the backend step that first exercises those
-// widths, so each width's mask lands WITH an execution test rather than as
-// untested template surface. `hash` is re-authored here as part of Step 6
-// (equality + hashing) — for an aggregate it delegates to the non-inline
-// `Vesper.Core` runtime entry `structuralHash` (imported from `Vesper.Core.mjs`
-// through the ordinary external-call path; see `module StructuralRuntime` /
-// `module Operators` below), as `=` / `<>` delegate to `structuralEquals`.
-// `raise` / `failwith` ARE re-authored here (a
+// The arithmetic BASE is the SRTP trait call, exactly as on CLR: a user type
+// dispatches to its own `static member (+)`, and a receiver that is neither a listed
+// primitive nor a nominal is DIAGNOSED rather than emitted as a nonsense JS operator
+// application. The clause set therefore mirrors the CLR file's primitive-by-primitive
+// enumeration (`decimal` excluded there and here).
+//
+// SCOPE. The narrow/unsigned widths (byte/sbyte/int16/uint16/uint32/uint64/native)
+// carry the bare JS operator, which is what they got from the old polymorphic base:
+// their masking templates (`& 0xFF`, `<< 24 >> 24`, `>>> 0`, …) still await the
+// backend step that first executes those widths, so each mask lands WITH an
+// execution test rather than as untested template surface. `hash` is re-authored
+// here as part of Step 6 (equality + hashing) — for an aggregate it delegates to the
+// non-inline `Vesper.Core` runtime entry `structuralHash` (imported from
+// `Vesper.Core.mjs` through the ordinary external-call path; see `module
+// StructuralRuntime` / `module Operators` below), as `=` / `<>` delegate to
+// `structuralEquals`. `raise` / `failwith` ARE re-authored here (a
 // Step 7 adjacent slice) as FFI `throw` templates: `failwith` builds its own native
 // `Error`, so a `failwith` use site (e.g. `list.fs`'s `head`/`tail`) lowers with no
 // per-call template. The array ops (`GetArray`/`SetArray`/`GetArrayLength`) ARE
@@ -56,60 +57,117 @@ namespace Vesper
 [<AutoOpen>]
 module ArithmeticOperators =
 
-    /// Overloaded addition. JS `+` is the float base; int32 truncates with `| 0`,
-    /// int64 (BigInt) wraps to 64 bits. The `when ^T1 : ^T1` clause dispatches a
-    /// user type to its own `static member (+)` (target-neutral, as in the CLR body).
+    /// Overloaded addition. Base: the user type's own `static member (+)`
+    /// (target-neutral, as in the CLR body). int32 truncates with `| 0`, int64
+    /// (BigInt) wraps to 64 bits, and JS `+` already concatenates two strings.
     /// The three typars are the `.fsi`'s (`(^T1 or ^T2)` support set), so a
     /// heterogeneous user operator keeps its operand types distinct through the splice
     /// — see the CLR body's note.
     let inline (+) (x: ^T1) (y: ^T2) : ^T3 =
-        (# "$0 + $1" x y : ^T3 #)
+        ((^T1 or ^T2): (static member (+): ^T1 * ^T2 -> ^T3) (x, y))
         when ^T1: int and ^T2: int and ^T3: int = (# "($0 + $1) | 0" x y : int #)
         when ^T1: int64 and ^T2: int64 and ^T3: int64 = (# "BigInt.asIntN(64, $0 + $1)" x y : int64 #)
-        when ^T1: ^T1 = ((^T1 or ^T2): (static member (+): ^T1 * ^T2 -> ^T3) (x, y))
+        when ^T1: float and ^T2: float and ^T3: float = (# "$0 + $1" x y : float #)
+        when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "$0 + $1" x y : float32 #)
+        when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "$0 + $1" x y : uint32 #)
+        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "$0 + $1" x y : uint64 #)
+        when ^T1: nativeint and ^T2: nativeint and ^T3: nativeint = (# "$0 + $1" x y : nativeint #)
+        when ^T1: unativeint and ^T2: unativeint and ^T3: unativeint = (# "$0 + $1" x y : unativeint #)
+        when ^T1: byte and ^T2: byte and ^T3: byte = (# "$0 + $1" x y : byte #)
+        when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "$0 + $1" x y : sbyte #)
+        when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "$0 + $1" x y : int16 #)
+        when ^T1: uint16 and ^T2: uint16 and ^T3: uint16 = (# "$0 + $1" x y : uint16 #)
+        when ^T1: string and ^T2: string and ^T3: string = (# "$0 + $1" x y : string #)
 
-    /// Overloaded subtraction. Same shape as `(+)`.
+    /// Overloaded subtraction. Same shape as `(+)`, minus the string clause.
     let inline (-) (x: ^T1) (y: ^T2) : ^T3 =
-        (# "$0 - $1" x y : ^T3 #)
+        ((^T1 or ^T2): (static member (-): ^T1 * ^T2 -> ^T3) (x, y))
         when ^T1: int and ^T2: int and ^T3: int = (# "($0 - $1) | 0" x y : int #)
         when ^T1: int64 and ^T2: int64 and ^T3: int64 = (# "BigInt.asIntN(64, $0 - $1)" x y : int64 #)
-        when ^T1: ^T1 = ((^T1 or ^T2): (static member (-): ^T1 * ^T2 -> ^T3) (x, y))
+        when ^T1: float and ^T2: float and ^T3: float = (# "$0 - $1" x y : float #)
+        when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "$0 - $1" x y : float32 #)
+        when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "$0 - $1" x y : uint32 #)
+        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "$0 - $1" x y : uint64 #)
+        when ^T1: nativeint and ^T2: nativeint and ^T3: nativeint = (# "$0 - $1" x y : nativeint #)
+        when ^T1: unativeint and ^T2: unativeint and ^T3: unativeint = (# "$0 - $1" x y : unativeint #)
+        when ^T1: byte and ^T2: byte and ^T3: byte = (# "$0 - $1" x y : byte #)
+        when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "$0 - $1" x y : sbyte #)
+        when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "$0 - $1" x y : int16 #)
+        when ^T1: uint16 and ^T2: uint16 and ^T3: uint16 = (# "$0 - $1" x y : uint16 #)
 
     /// Overloaded multiplication. int32 uses `Math.imul` (a plain `$0 * $1 | 0`
     /// loses precision before the truncation once the product exceeds 2^53);
     /// int64 wraps the BigInt product. Written `( * )` (spaces required — `(*`
     /// opens a block comment).
     let inline ( * ) (x: ^T1) (y: ^T2) : ^T3 =
-        (# "$0 * $1" x y : ^T3 #)
+        ((^T1 or ^T2): (static member ( * ): ^T1 * ^T2 -> ^T3) (x, y))
         when ^T1: int and ^T2: int and ^T3: int = (# "Math.imul($0, $1)" x y : int #)
         when ^T1: int64 and ^T2: int64 and ^T3: int64 = (# "BigInt.asIntN(64, $0 * $1)" x y : int64 #)
-        when ^T1: ^T1 = ((^T1 or ^T2): (static member ( * ): ^T1 * ^T2 -> ^T3) (x, y))
+        when ^T1: float and ^T2: float and ^T3: float = (# "$0 * $1" x y : float #)
+        when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "$0 * $1" x y : float32 #)
+        when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "$0 * $1" x y : uint32 #)
+        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "$0 * $1" x y : uint64 #)
+        when ^T1: nativeint and ^T2: nativeint and ^T3: nativeint = (# "$0 * $1" x y : nativeint #)
+        when ^T1: unativeint and ^T2: unativeint and ^T3: unativeint = (# "$0 * $1" x y : unativeint #)
+        when ^T1: byte and ^T2: byte and ^T3: byte = (# "$0 * $1" x y : byte #)
+        when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "$0 * $1" x y : sbyte #)
+        when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "$0 * $1" x y : int16 #)
+        when ^T1: uint16 and ^T2: uint16 and ^T3: uint16 = (# "$0 * $1" x y : uint16 #)
 
     /// Overloaded division. int32 truncates toward zero with `| 0` (JS `/` is
     /// always true division); int64 BigInt `/` already truncates toward zero, then
     /// wraps to 64 bits.
     let inline (/) (x: ^T1) (y: ^T2) : ^T3 =
-        (# "$0 / $1" x y : ^T3 #)
+        ((^T1 or ^T2): (static member (/): ^T1 * ^T2 -> ^T3) (x, y))
         when ^T1: int and ^T2: int and ^T3: int = (# "($0 / $1) | 0" x y : int #)
         when ^T1: int64 and ^T2: int64 and ^T3: int64 = (# "BigInt.asIntN(64, $0 / $1)" x y : int64 #)
-        when ^T1: ^T1 = ((^T1 or ^T2): (static member (/): ^T1 * ^T2 -> ^T3) (x, y))
+        when ^T1: float and ^T2: float and ^T3: float = (# "$0 / $1" x y : float #)
+        when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "$0 / $1" x y : float32 #)
+        when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "$0 / $1" x y : uint32 #)
+        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "$0 / $1" x y : uint64 #)
+        when ^T1: nativeint and ^T2: nativeint and ^T3: nativeint = (# "$0 / $1" x y : nativeint #)
+        when ^T1: unativeint and ^T2: unativeint and ^T3: unativeint = (# "$0 / $1" x y : unativeint #)
+        when ^T1: byte and ^T2: byte and ^T3: byte = (# "$0 / $1" x y : byte #)
+        when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "$0 / $1" x y : sbyte #)
+        when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "$0 / $1" x y : int16 #)
+        when ^T1: uint16 and ^T2: uint16 and ^T3: uint16 = (# "$0 / $1" x y : uint16 #)
 
     /// Overloaded remainder. JS `%` is the truncated remainder (sign of the
     /// dividend), matching F#; int32 re-truncates, int64 wraps. The bare `%` rides
     /// through verbatim: a plain/IL-intrinsic string is not a printf format, so the
     /// front end keeps the format-scanned `%` as literal text (`parsePlainStringLiteral`).
     let inline (%) (x: ^T1) (y: ^T2) : ^T3 =
-        (# "$0 % $1" x y : ^T3 #)
+        ((^T1 or ^T2): (static member (%): ^T1 * ^T2 -> ^T3) (x, y))
         when ^T1: int and ^T2: int and ^T3: int = (# "($0 % $1) | 0" x y : int #)
         when ^T1: int64 and ^T2: int64 and ^T3: int64 = (# "BigInt.asIntN(64, $0 % $1)" x y : int64 #)
-        when ^T1: ^T1 = ((^T1 or ^T2): (static member (%): ^T1 * ^T2 -> ^T3) (x, y))
+        when ^T1: float and ^T2: float and ^T3: float = (# "$0 % $1" x y : float #)
+        when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "$0 % $1" x y : float32 #)
+        when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "$0 % $1" x y : uint32 #)
+        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "$0 % $1" x y : uint64 #)
+        when ^T1: nativeint and ^T2: nativeint and ^T3: nativeint = (# "$0 % $1" x y : nativeint #)
+        when ^T1: unativeint and ^T2: unativeint and ^T3: unativeint = (# "$0 % $1" x y : unativeint #)
+        when ^T1: byte and ^T2: byte and ^T3: byte = (# "$0 % $1" x y : byte #)
+        when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "$0 % $1" x y : sbyte #)
+        when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "$0 % $1" x y : int16 #)
+        when ^T1: uint16 and ^T2: uint16 and ^T3: uint16 = (# "$0 % $1" x y : uint16 #)
 
-    /// Overloaded unary negation. JS unary `-` is the float base; int32 wraps the
-    /// negation (`-(Int32.MinValue)` overflows to itself), int64 wraps the BigInt.
+    /// Overloaded unary negation. int32 wraps the negation (`-(Int32.MinValue)`
+    /// overflows to itself), int64 wraps the BigInt; every other width is the bare
+    /// JS unary `-`.
     let inline (~-) (n: ^T) : ^T =
-        (# "-$0" n : ^T #)
+        (^T: (static member (~-): ^T -> ^T) n)
         when ^T: int = (# "(-$0) | 0" n : int #)
         when ^T: int64 = (# "BigInt.asIntN(64, -$0)" n : int64 #)
+        when ^T: float = (# "-$0" n : float #)
+        when ^T: float32 = (# "-$0" n : float32 #)
+        when ^T: uint32 = (# "-$0" n : uint32 #)
+        when ^T: uint64 = (# "-$0" n : uint64 #)
+        when ^T: nativeint = (# "-$0" n : nativeint #)
+        when ^T: unativeint = (# "-$0" n : unativeint #)
+        when ^T: byte = (# "-$0" n : byte #)
+        when ^T: sbyte = (# "-$0" n : sbyte #)
+        when ^T: int16 = (# "-$0" n : int16 #)
+        when ^T: uint16 = (# "-$0" n : uint16 #)
 
     /// Overloaded unary plus — the identity. No template: it just yields its
     /// operand (target-neutral, identical to the CLR body).

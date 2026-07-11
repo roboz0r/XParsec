@@ -198,8 +198,8 @@ module internal FreezeApply =
             TExpr.App(fnT, argT, ty, tok)
 
     /// `((^T1 or ^T2): (static member (+) : ^T1 * ^T2 -> ^T3) (x, y))` — an SRTP
-    /// member-trait call (the body of a `let inline` operator's `when ^T1 : ^T1`
-    /// static-opt clause, `ops-platform.fs`). Lower to a `TExpr.TraitCall` carrying the
+    /// member-trait call (the static-opt BASE of a `let inline` arithmetic operator,
+    /// `ops-platform.fs`). Lower to a `TExpr.TraitCall` carrying the
     /// RECEIVER type, the resolved compiled member name, the peeled arguments, and the
     /// node's own `^T3` result type (which for a heterogeneous operator is neither
     /// operand's). `Inline.substMapper` resolves it to a `StaticMethodCall` once the

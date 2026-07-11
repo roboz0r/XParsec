@@ -147,9 +147,9 @@ module InlineExpansion =
 
     /// Recover an inline binding's type arguments at a call site by matching its
     /// declared parameter (and return) types — carrying the quantified typars —
-    /// against the actual spine-arg types. Tolerant: a typar the params don't pin
-    /// is left as its own `TyVar` so the reflexive `when ^T1 : ^T1` clause still
-    /// selects. Returned in `Inline.quantifiedTypars` order. A verbatim port of
+    /// against the actual spine-arg types. Tolerant: a typar the params don't pin is
+    /// left as its own `TyVar`, which selects no `when ^T : Type` clause and so falls
+    /// to the body's base. Returned in `Inline.quantifiedTypars` order. A verbatim port of
     /// `EmitLower.deriveInlineTypeArgs` (`zonk` → `Unification.zonk`,
     /// `typeOfExpr` → `TastWalk.exprTy`).
     let private deriveInlineTypeArgs (declTy: SemType) (spineArgs: (TExpr * SemType * SyntaxToken) list) : SemType[] =
@@ -405,6 +405,20 @@ module InlineExpansion =
                     |> fst
                     |> ValueSome
 
+            // An SRTP trait call the splice could not resolve (`Inline.unsupportedOperators`)
+            // is a real user error — "the type 'decimal' does not support the operator '+'".
+            // It is reported HERE, not in the expander: the expander is `PassContext`-free,
+            // and the spliced body's tokens address the LIBRARY file it came from, so the
+            // call-site token is the only honest anchor. Reporting also keeps the node out
+            // of a compile that emits: the driver stops on error-severity diagnostics, which
+            // is what makes the arithmetic bodies' trait-call BASE safe (neither backend has
+            // a `TraitCall` arm).
+            let reportUnsupported (siteTok: SyntaxToken) (expanded: TExpr) : TExpr =
+                for msg in Inline.unsupportedOperators expanded do
+                    ctx.Error(NodeKey.ofToken siteTok NodeKind.ExprApp, msg)
+
+                expanded
+
             let expandLocalAt (k: NodeKey) (spineArgs: (TExpr * SemType * SyntaxToken) list) : TExpr =
                 let decl = localInlines.[k]
 
@@ -428,11 +442,16 @@ module InlineExpansion =
             let expandLocal (k: NodeKey) : TExpr =
                 Inline.inlineExpand localInlines.[k] [||] |> Inline.freshen mint
 
-            let expandExternalAt (decl: TDecl) (spineArgs: (TExpr * SemType * SyntaxToken) list) : TExpr =
+            let expandExternalAt
+                (siteTok: SyntaxToken)
+                (decl: TDecl)
+                (spineArgs: (TExpr * SemType * SyntaxToken) list)
+                : TExpr =
                 match decl with
                 | TDecl.Let(_, _, _, declTy) ->
                     Inline.inlineExpand decl (deriveInlineTypeArgs declTy spineArgs)
                     |> Inline.freshen mint
+                    |> reportUnsupported siteTok
                 | _ -> failwith "InlineExpansion: external inline body must be a TDecl.Let"
 
             // Inline-first lambda elimination. A lambda
@@ -614,7 +633,7 @@ module InlineExpansion =
                                 // lambda's arity — no surviving closure.
                                 | TExpr.Var(k, _, _) when lambdaEnv.ContainsKey k ->
                                     ValueSome(walk (betaReduce (Inline.freshen mint lambdaEnv.[k]) spineArgs))
-                                | TExpr.External(_, keyOpt, _, _) ->
+                                | TExpr.External(_, keyOpt, _, headTok) ->
                                     match lookupExternal keyOpt with
                                     // An external WITH an inline body ALWAYS splices —
                                     // no operand-groundness gate. An un-ground `^T`
@@ -630,7 +649,7 @@ module InlineExpansion =
                                             reduceApplication
                                                 walk
                                                 ib.ParamAttrs
-                                                (expandExternalAt ib.Decl spineArgs)
+                                                (expandExternalAt headTok ib.Decl spineArgs)
                                                 spineArgs
                                         )
                                     // An external with no inline body (a real
@@ -668,7 +687,7 @@ module InlineExpansion =
                                             reduceApplication
                                                 walk
                                                 ib.ParamAttrs
-                                                (expandExternalAt ib.Decl fullSpine)
+                                                (expandExternalAt memberTok ib.Decl fullSpine)
                                                 fullSpine
                                         )
                                     | ValueNone ->

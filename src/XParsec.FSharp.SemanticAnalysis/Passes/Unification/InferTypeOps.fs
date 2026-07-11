@@ -145,8 +145,8 @@ module internal UnificationInferTypeOps =
         baseTy
 
     /// `((^T1 or ^T2): (static member (+) : ^T1 * ^T2 -> ^T3) (x, y))` — an SRTP
-    /// member-trait call, only ever the body of a `when ^T1 : ^T1` static-opt clause in
-    /// a `let inline` operator (`ops-platform.fs`). The member is resolved at inline
+    /// member-trait call, only ever the static-opt BASE of a `let inline` arithmetic
+    /// operator (`ops-platform.fs`). The member is resolved at inline
     /// expansion (the typars are abstract here), so inference only types the argument
     /// tuple — so its operand subtrees are solved — and yields the member signature's
     /// declared RETURN type. That is `^T3`, which for a heterogeneous operator

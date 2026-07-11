@@ -99,10 +99,10 @@ module Inline =
 
     /// Structural match of two (already typar-substituted) `SemType`s for a
     /// static-optimization `when ^T : Type` clause. `TyVar`s compare by union-find
-    /// root identity — so the reflexive `when ^T1 : ^T1`, whose two sides are the
-    /// same typar, matches once both substitute to one concrete type (or, if the
-    /// operand type was never pinned, still matches as the generic fall clause).
-    /// `TyConst`s compare by canonical primitive name.
+    /// root identity — so a REFLEXIVE `when ^T : ^T` clause (both sides the same
+    /// typar) matches unconditionally, which is what makes it a user catch-all
+    /// whether or not the operand was ever pinned. `TyConst`s compare by canonical
+    /// primitive name.
     let rec private staticOptTypesMatch (a: SemType) (b: SemType) : bool =
         match a, b with
         | TyVar x, TyVar y -> System.Object.ReferenceEquals(UnionFind.find x, UnionFind.find y)
@@ -137,22 +137,17 @@ module Inline =
             | _ -> false
         | _ -> false
 
-    /// The declaring `SymbolKey` of a project-local nominal (class / union /
-    /// record) — the operand shape for which F#'s reflexive `when ^T1 : ^T1`
-    /// static-optimization condition holds (the type carries its own static
-    /// operator member). The single definition of "is a nominal operand", so the
-    /// clause-selection gate (`clauseSelected`) and the `TraitCall` resolution
-    /// (`resolveTraitCall`) can never disagree on what counts — a record selects
-    /// the clause *and* resolves, rather than selecting then failing.
+    /// The declaring `SymbolKey` of a nominal (class / union / record) — the operand
+    /// shape that can carry a static operator member, and so the ONLY shape an SRTP
+    /// trait call can dispatch to. The single definition of "is a nominal operand";
+    /// `resolveTraitCall` alone consults it, and a receiver it declines is exactly the
+    /// "this type does not support this operator" diagnostic (`unsupportedOperators`).
     let private nominalHeadKey (t: SemType) : SymbolKey voption =
         match UnionFind.headZonk t with
         | TyClass(k, _)
         | TyUnion(k, _)
         | TyRecord(k, _) -> ValueSome k
         | _ -> ValueNone
-
-    /// `true` when `t`'s head is a project-local nominal (class / union / record).
-    let private isNominalType (t: SemType) : bool = (nominalHeadKey t).IsSome
 
     /// Build the typar-substituting mapper for one inline expansion. The
     /// `StaticOptimization` override is the only customisation: at call-site
@@ -167,20 +162,12 @@ module Inline =
             | TStaticOptConstraint.TyconEquals(typar, required) -> staticOptTypesMatch (sub typar) (sub required)
             | TStaticOptConstraint.IsStruct typar -> isStructType (sub typar)
 
-        // A clause whose body is an SRTP member-trait call (the operators'
-        // `when ^T1 : ^T1` dispatch clause) additionally requires the substituted
-        // RECEIVER (the left operand) to be a nominal carrying that member — F#'s "^T is
-        // a nominal type" condition. That check, not the reflexive constraint (which is
-        // trivially true), is what actually gates the clause: a primitive operand skips
-        // it and falls through to the operator's primitive clauses / inline-IL base,
-        // while a plain-bodied reflexive clause (a user catch-all) stays unconditional.
-        let clauseSelected (cl: TStaticOptClause) =
-            (cl.Constraints |> EqArray.forall holds)
-            && (
-                match cl.Body with
-                | TExpr.TraitCall(recvTy, _, _, _, _) -> isNominalType (sub recvTy)
-                | _ -> true
-            )
+        // The clause conditions ALONE decide. No clause body is a trait call: the
+        // arithmetic bodies carry the SRTP dispatch in the BASE (an ungated position),
+        // with an explicit clause per supported primitive — so a `when ^T : Type` clause
+        // is selected iff its type matches, and an operand that matches none falls to the
+        // base, where `resolveTraitCall` decides whether the type supports the operator.
+        let clauseSelected (cl: TStaticOptClause) = cl.Constraints |> EqArray.forall holds
 
         let resolveStaticOpt (clauses: EqArray<TStaticOptClause>) (defaultExpr: TExpr) : TExpr =
             let m = substMapper subst
@@ -191,12 +178,12 @@ module Inline =
 
         // Resolve a `TraitCall` once the trait typars have been substituted and the
         // receiver is a concrete nominal: rewrite it to a `StaticMethodCall` on that
-        // type's static operator member. This fires for the `when ^T1 : ^T1` clause body
-        // selected by `clauseSelected` above (so the receiver is always a nominal here,
-        // via the SAME `nominalHeadKey` — class, union, OR record); a non-nominal
-        // receiver is left as a substituted `TraitCall` for a later phase to surface
-        // loudly. The result type is `sub ty` (`^T3`), NOT the receiver's — a
-        // heterogeneous operator (`Vec2 * float -> Vec2`) returns neither operand's type.
+        // type's static operator member (class, union, OR record). A non-nominal
+        // receiver — an unpinned `^T`, or a `TyConst` with no clause of its own — leaves
+        // the substituted `TraitCall` standing; `Passes.InlineExpansion` collects it
+        // (`unsupportedOperators`) and reports it at the call site. The result type is
+        // `sub ty` (`^T3`), NOT the receiver's — a heterogeneous operator
+        // (`Vec2 * float -> Vec2`) returns neither operand's type.
         let resolveTraitCall
             (m: TastWalk.Mapper)
             (recvTy: SemType)
@@ -255,6 +242,55 @@ module Inline =
             if subst.Count = 0 then value else substExpr subst value
         | TDecl.Expression _ -> invalidArg "decl" "Inline.inlineExpand expects a TDecl.Let, got a TDecl.Expression"
         | TDecl.Type _ -> invalidArg "decl" "Inline.inlineExpand expects a TDecl.Let, got a TDecl.Type"
+
+    /// A short display name for the receiver in the "does not support the operator"
+    /// diagnostic. An unpinned typar prints as F#'s anonymous `'a` — the honest
+    /// rendering of "a generic type parameter nothing pinned".
+    let private receiverName (t: SemType) : string =
+        match UnionFind.headZonk t with
+        | TyConst(key, _) -> SymbolKeyOps.simpleName key
+        | TyClass(k, _)
+        | TyUnion(k, _)
+        | TyRecord(k, _) -> SymbolKeyOps.qualifiedName k
+        | TyVar _ -> "'a"
+        | TyFun _ -> "function"
+        | TyTuple _ -> "tuple"
+        | other -> sprintf "%A" other
+
+    /// The unresolvable SRTP trait calls left standing in an expanded inline body:
+    /// the substituted receiver is not a nominal, so nothing can carry the operator
+    /// member. `resolveTraitCall` rewrites every RESOLVABLE trait call away, and no
+    /// static-opt CLAUSE body is a trait call (the operators carry the SRTP dispatch in
+    /// the BASE, with a clause per supported primitive), so a surviving `TraitCall` is
+    /// exactly "this type does not support this operator" — nothing else.
+    ///
+    /// Returns the ready-to-report messages rather than the nodes: the walker here is
+    /// deliberately `PassContext`-free (it is called from the type-erased
+    /// `TastWalk.Mapper` surface), and the spliced body's own tokens address the LIBRARY
+    /// file it came from, not the user's — so the caller (`Passes.InlineExpansion`) owns
+    /// both the diagnostic channel and the call-site key these must be anchored at.
+    let unsupportedOperators (e: TExpr) : string list =
+        let acc = ResizeArray<string>()
+
+        let it =
+            { TastWalk.identityIter with
+                VisitExpr =
+                    fun _ x ->
+                        match x with
+                        | TExpr.TraitCall(recvTy, memberName, _, _, _) ->
+                            let op =
+                                match OperatorNames.sourceSymbol memberName with
+                                | ValueSome sym -> sym
+                                | ValueNone -> memberName
+
+                            acc.Add(sprintf "The type '%s' does not support the operator '%s'" (receiverName recvTy) op)
+                        | _ -> ()
+
+                        true
+            }
+
+        TastWalk.iterExpr it e
+        List.ofSeq acc
 
     /// Rename every binder NodeKey in `body` (and the references to it) to a
     /// fresh key from `mint`, returning a structurally-new TExpr. Two

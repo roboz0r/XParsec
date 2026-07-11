@@ -385,18 +385,19 @@ type TExprG<'ty, 'tok> =
     /// emits `isinst <testTy>; ldnull; cgt.un`.
     | TypeTest of source: TExprG<'ty, 'tok> * testTy: 'ty * ty: 'ty * tok: 'tok
     /// SRTP member-trait call, the lowering of a `let inline` operator body's
-    /// `when ^T1 : ^T1 = ((^T1 or ^T2): (static member (+) : ^T1 * ^T2 -> ^T3) (x, y))`
-    /// static-opt clause (`ops-platform.fs`). `receiver` is the LEFT operand's type
+    /// `((^T1 or ^T2): (static member (+) : ^T1 * ^T2 -> ^T3) (x, y))` static-opt BASE
+    /// (`ops-platform.fs`). `receiver` is the LEFT operand's type
     /// (`^T1`) — one receiver, so the `(^T1 or ^T2)` support set is searched left-only
     /// and a right-operand-only member does not resolve; `ty` is the member's `^T3`
     /// result, which for a heterogeneous operator is neither operand's type.
     /// `memberName` is the resolved compiled member name (`op_Addition`). The node is
     /// transient: at `let inline` expansion `Inline.substMapper` substitutes `receiver`
-    /// to the concrete operand type and, when that is a project-local nominal carrying
-    /// the named static member, rewrites the whole node to a `StaticMethodCall` on it
-    /// (the F# "^T is a nominal type" static-optimization condition). It is therefore
-    /// resolved — or its clause discarded by static-opt selection — during
-    /// `InlineExpansion` and never reaches codegen.
+    /// to the concrete operand type and, when that is a nominal carrying the named
+    /// static member, rewrites the whole node to a `StaticMethodCall` on it (the F#
+    /// "^T is a nominal type" static-optimization condition). A receiver that is NOT a
+    /// nominal cannot carry the member, and `InlineExpansion` reports it as "the type
+    /// 'X' does not support the operator '+'" — so the node never reaches codegen
+    /// (neither backend has an arm for it).
     | TraitCall of receiver: 'ty * memberName: string * args: EqArray<TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
 
 and TMatchArmG<'ty, 'tok> =

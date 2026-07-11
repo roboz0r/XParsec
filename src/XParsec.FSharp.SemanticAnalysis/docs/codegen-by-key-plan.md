@@ -201,40 +201,34 @@ to a keyless `External` that `InlineExpansion` could never address.
 plus `inferStaticMemberInvocation`, which typed the trait-call node off its first argument
 instead of the member signature's return type.
 
-**4. Invert the arithmetic bodies** in `ops-platform.fs` (and its `ops-platform.js.fs`
-sibling): SRTP trait call as the base; explicit `when ^T1 : … and ^T2 : … and ^T3 : …`
-clauses for every primitive the old `add` base silently covered — `int`, `int64`,
-`float`, `float32`, `uint32`, `uint64`, `nativeint`, `unativeint` — alongside the
-narrow-width clauses that already exist. Same for `- * / %` and unary `~-`.
+**4. ✅ Invert the arithmetic bodies** in `ops-platform.fs` and `ops-platform.js.fs`:
+SRTP trait call as the base, one explicit clause per supported primitive. The supported
+set is `RuntimeNames.numericTypeNames` (what `Engine.tryPrimitiveTraitCandidate`
+synthesises an arithmetic candidate for — everything else already errors in the unifier)
+minus `decimal`, plus `string` for `(+)`: `int`, `int64`, `float`, `float32`, `uint32`,
+`uint64`, `nativeint`, `unativeint`, `byte`, `sbyte`, `int16`, `uint16`. `~-` got the
+same enumeration from scratch. `Inline.clauseSelected`'s `TraitCall` special-case is
+gone with it — no clause body is a trait call any more, so the conjunct was dead and the
+"can never disagree" invariant it advertised dissolved: the base is ungated and
+`resolveTraitCall` alone decides.
 
 The base stays **left-biased** (see the deferral above). That is not a regression:
 `int + Vector` errors in the unifier today and will keep erroring, never reaching the
-base. What inverting changes is only the operand that is neither a listed primitive nor a
-nominal — an unpinned `^T` in a generic `let f a b = a + b` — which today emits `add` on
-whatever it is, including a garbage `add` on two references. That is the hole being
-closed.
+base. What inverting changed is only the operand that is neither a listed primitive nor a
+nominal — an unpinned `^T`, a `decimal` — which used to emit `add` on whatever it was,
+including a garbage `add` on two references.
 
-Then delete `Inline.clauseSelected`'s `TraitCall` special-case (`Inline.fs:178-184`).
-Its sole job is stopping a primitive operand from selecting the last-position SRTP
-clause; once the trait call is the *base* and every primitive has an explicit clause, no
-clause body is a `TraitCall` and the conjunct is dead. The invariant its comment
-advertises at `:143-146` — that `clauseSelected` and `resolveTraitCall` "can never
-disagree" — dissolves with it: the base is ungated, and `resolveTraitCall` alone
-decides. Leaving it in place is dead code that reads as load-bearing.
-
-Risk: this is the load-bearing edit. The existing dense operator corpus
-(`ArithmeticOperatorTests`) is the net — every primitive that was riding the base must
-keep its opcode. Confirm the corpus actually covers each one before trusting it.
-
-**5. Diagnose an unresolvable trait call.** `Inline.resolveTraitCall`
-(`Inline.fs:199-217`) currently returns `ValueNone` for a non-nominal receiver and
-leaves a substituted `TraitCall` "for a later phase to surface loudly" — there is no
-such phase, so it reaches codegen and dies in a `failwithf`. Emit a real diagnostic:
-*"type X does not support the operator `+`"*. This is what makes step 4's base safe.
-
-**Do not let it become the place inference failures go to hide**: if a case turns up
-where a use site or a default *should* have grounded the typar and didn't, that is a bug
-in defaulting / unification, not something for this diagnostic to swallow.
+**5. ✅ Diagnose an unresolvable trait call.** A `TraitCall` a splice cannot resolve
+(non-nominal receiver) survives expansion; `Inline.unsupportedOperators` collects them
+and `Passes.InlineExpansion` reports each at the CALL SITE — the spliced body's own
+tokens address the library file, so the site token is the only honest anchor. Message:
+*"The type 'decimal' does not support the operator '+'"*, the operator spelled from
+source via `OperatorNames.sourceSymbol` (inverted from the lexer's
+`Lexing.Operator.standardOperators`, so it cannot drift). The driver stops on
+error-severity diagnostics, so the node never reaches either backend's missing
+`TraitCall` arm. Eager defaulting still grounds `let f a b = a + b` to `int` before the
+base is reached — if that ever stops, it is a defaulting bug, not something for this
+diagnostic to swallow.
 
 **6. Delete `BuiltinOps`.** With 1-5 landed nothing reaches it. Remove
 `EmitLower.BuiltinOps` (the table, `isSaturated`, `expandBuiltinOps`). The
@@ -259,10 +253,18 @@ exist today, so this can land per-operator, each with its own tests.
 
 **`decimal` has no clause and is not a nominal.** It is a `TyConst`
 (`Inline.isStructType:136`), so post-inversion it falls to the base, fails
-`nominalHeadKey`, and diagnoses. Today it silently emits CIL `add` on a `System.Decimal`
-— garbage — so a diagnostic is strictly an improvement, but the real fix is a clause
-that calls `Decimal::op_Addition`, or a `nominalHeadKey` that accepts BCL `TyConst`
-heads. Same for any other primitive not enumerated in step 4.
+`nominalHeadKey`, and diagnoses (confirmed: `1.5M + 2.5M` is now an error, where it
+used to emit CIL `add` on a `System.Decimal` — garbage). The real fix is a clause that
+calls `Decimal::op_Addition`, or a `nominalHeadKey` that accepts BCL `TyConst` heads.
+
+**Narrow signed literals do not project.** `Freeze.parseConst` throws
+"non-representable literal NumSByte" on a NEGATIVE `sbyte` / `int16` literal (`-56y`,
+`-25536s`): `Lexing.tryParseNumericLiteral` folds every width `TConstValue` cannot hold
+through `Convert.ToUInt64`, which rejects the minus sign. `uint64` / `nativeint` /
+`unativeint` literals fold to a `TConstValue.Int` instead — silently. Pre-existing and
+independent of the operator work (`ArithmeticOperatorTests` pins those widths' clauses
+structurally, off annotated parameters, because no literal can reach them), but it is
+why the corpus writes `int (100y + 100y)` rather than `100y + 100y = -56y`.
 
 **Typar defaulting fires too early.** `default ^T: int` is a *last resort*. F# leaves the
 typar open, lets every use site in scope constrain it, and only defaults what is *still*
@@ -323,8 +325,9 @@ Not blocked by the above, and each stands on its own.
 - `Inline.isStructType` (`Inline.fs:122-138`) is a hardcoded primitive list, so
   `when ^T : struct` does not see user-defined structs.
 - JS codegen has **no** `StaticOptimization` / `TraitCall` case at all — it relies
-  wholly on the inline pass having eliminated them. Step 5's diagnostic protects this;
-  without it an unresolved node reaches `EmitJs.fs:516`'s catch-all `failwithf`.
+  wholly on the inline pass having eliminated them. Step 5's diagnostic now protects
+  this: an unresolvable node is an error-severity diagnostic, and the driver does not
+  emit, so `EmitJs.fs:516`'s catch-all `failwithf` is unreachable for it.
 
 ## Non-goals — where the name IS the right key
 

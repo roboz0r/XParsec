@@ -62,6 +62,26 @@ module OperatorNames =
         | Token.OpDynamicAssignment -> ValueSome "op_DynamicAssignment"
         | _ -> ValueNone
 
+    /// The SOURCE spelling of a compiled operator member name (`op_Addition` ⇒ `+`),
+    /// for a DIAGNOSTIC that must name the operator the user wrote rather than the
+    /// member it compiled to ("the type 'decimal' does not support the operator '+'").
+    ///
+    /// INVERTED from the lexer's `Lexing.Operator.standardOperators` — the symbol→name
+    /// table `generateOperatorName` itself reads — rather than hand-copied, so the
+    /// spelling of an operator cannot drift from the name it compiles to. Names outside
+    /// that table (an operator `generateOperatorName` spells out per-character, or a
+    /// plain method name) yield `ValueNone`: the caller falls back to the compiled name.
+    let private symbolOfCompiledName: Map<string, string> =
+        Lexing.Operator.standardOperators
+        |> Map.toSeq
+        |> Seq.map (fun (symbol, compiled) -> compiled, symbol)
+        |> Map.ofSeq
+
+    let sourceSymbol (compiledName: string) : string voption =
+        match Map.tryFind compiledName symbolOfCompiledName with
+        | Some symbol -> ValueSome symbol
+        | None -> ValueNone
+
     /// Compiled name for a parenthesised *symbolic* operator head (`(<<<)`,
     /// `(~-)`, `(|>)`). The dedicated-token operators resolve through `ofToken`;
     /// everything else — the generic-token family a `(...)` head collapses to —

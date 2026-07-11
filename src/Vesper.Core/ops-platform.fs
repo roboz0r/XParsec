@@ -13,9 +13,23 @@ open System.Collections.Generic
 // structurally. Inline IL therefore belongs ONLY in a per-primitive clause; a base
 // must be a safe generic default (see `docs/codegen-by-key-plan.md`).
 //
-// Arithmetic (`+ - * / %`): the base `(# "add" x y : ^T3 #)` covers every wide
-// signed/float type; sub-`int32` widths add a `conv.*` to truncate the int32-on-stack
-// result, and unsigned `/`/`%` use the `*.un` opcodes.
+// Arithmetic (`+ - * / %`, `~-`): the base is the SRTP trait call — a user type
+// dispatches to its own `static member (+)`. Every primitive the operator supports
+// carries its OWN clause with its own IL, so no primitive ever rides the base. A
+// receiver that is neither a listed primitive nor a nominal (an unpinned `^T`, a
+// `decimal`) reaches the base, cannot resolve a trait member, and is diagnosed
+// ("does not support the operator") by `Passes.InlineExpansion` — never emitted as
+// a raw `add` on whatever it happened to be.
+//
+// The clause set is the arithmetic-reachable primitive set: the numeric intrinsics
+// `Engine.tryPrimitiveTraitCandidate` synthesises a trait candidate for
+// (`RuntimeNames.numericTypeNames`, minus `decimal` — see below), plus `string` for
+// `(+)`. `decimal` is deliberately ABSENT: it is a `TyConst`, not a nominal, and CIL
+// `add` on a `System.Decimal` is garbage, so it diagnoses until a clause calling
+// `Decimal::op_Addition` lands.
+//
+// Sub-`int32` widths add a `conv.*` to truncate the int32-on-stack result; unsigned
+// `/` / `%` use the `*.un` opcodes.
 //
 // The binary arithmetic operators carry the THREE typars their `.fsi` publishes
 // (`x: ^T1 -> y: ^T2 -> ^T3`, support set `(^T1 or ^T2)`), so a heterogeneous
@@ -27,10 +41,17 @@ open System.Collections.Generic
 [<AutoOpen>]
 module ArithmeticOperators =
 
-    /// Overloaded addition. The base `(# "add" … #)` covers all wide types;
-    /// sub-int32 widths truncate with `conv.*`.
+    /// Overloaded addition. Base: the user type's own `static member (+)`.
     let inline (+) (x: ^T1) (y: ^T2) : ^T3 =
-        (# "add" x y : ^T3 #)
+        ((^T1 or ^T2): (static member (+): ^T1 * ^T2 -> ^T3) (x, y))
+        when ^T1: int and ^T2: int and ^T3: int = (# "add" x y : int #)
+        when ^T1: int64 and ^T2: int64 and ^T3: int64 = (# "add" x y : int64 #)
+        when ^T1: float and ^T2: float and ^T3: float = (# "add" x y : float #)
+        when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "add" x y : float32 #)
+        when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "add" x y : uint32 #)
+        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "add" x y : uint64 #)
+        when ^T1: nativeint and ^T2: nativeint and ^T3: nativeint = (# "add" x y : nativeint #)
+        when ^T1: unativeint and ^T2: unativeint and ^T3: unativeint = (# "add" x y : unativeint #)
         when ^T1: byte and ^T2: byte and ^T3: byte = (# "conv.u1" (# "add" x y : int32 #) : byte #)
         when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "conv.i1" (# "add" x y : int32 #) : sbyte #)
         when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "conv.i2" (# "add" x y : int32 #) : int16 #)
@@ -40,54 +61,89 @@ module ArithmeticOperators =
         // (clause must type-check while they are unpinned; selected only when `string`).
         when ^T1: string and ^T2: string and ^T3: string =
             (# "" (System.String.Concat((# "" x: string #), (# "" y: string #))) : ^T3 #)
-        // The user-type dispatch clause. Its condition is the reflexive `^T1 : ^T1`
-        // (always true); what actually gates it is the trait call's receiver being a
-        // nominal carrying the member (`Inline.clauseSelected`).
-        when ^T1: ^T1 = ((^T1 or ^T2): (static member (+): ^T1 * ^T2 -> ^T3) (x, y))
 
     /// Overloaded subtraction. `sub` is sign-agnostic; narrow widths need truncation.
     let inline (-) (x: ^T1) (y: ^T2) : ^T3 =
-        (# "sub" x y : ^T3 #)
+        ((^T1 or ^T2): (static member (-): ^T1 * ^T2 -> ^T3) (x, y))
+        when ^T1: int and ^T2: int and ^T3: int = (# "sub" x y : int #)
+        when ^T1: int64 and ^T2: int64 and ^T3: int64 = (# "sub" x y : int64 #)
+        when ^T1: float and ^T2: float and ^T3: float = (# "sub" x y : float #)
+        when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "sub" x y : float32 #)
+        when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "sub" x y : uint32 #)
+        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "sub" x y : uint64 #)
+        when ^T1: nativeint and ^T2: nativeint and ^T3: nativeint = (# "sub" x y : nativeint #)
+        when ^T1: unativeint and ^T2: unativeint and ^T3: unativeint = (# "sub" x y : unativeint #)
         when ^T1: byte and ^T2: byte and ^T3: byte = (# "conv.u1" (# "sub" x y : int32 #) : byte #)
         when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "conv.i1" (# "sub" x y : int32 #) : sbyte #)
         when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "conv.i2" (# "sub" x y : int32 #) : int16 #)
         when ^T1: uint16 and ^T2: uint16 and ^T3: uint16 = (# "conv.u2" (# "sub" x y : int32 #) : uint16 #)
-        when ^T1: ^T1 = ((^T1 or ^T2): (static member (-): ^T1 * ^T2 -> ^T3) (x, y))
 
     /// Overloaded multiplication. Written `( * )` — `(*` opens a block comment.
     let inline ( * ) (x: ^T1) (y: ^T2) : ^T3 =
-        (# "mul" x y : ^T3 #)
+        ((^T1 or ^T2): (static member ( * ): ^T1 * ^T2 -> ^T3) (x, y))
+        when ^T1: int and ^T2: int and ^T3: int = (# "mul" x y : int #)
+        when ^T1: int64 and ^T2: int64 and ^T3: int64 = (# "mul" x y : int64 #)
+        when ^T1: float and ^T2: float and ^T3: float = (# "mul" x y : float #)
+        when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "mul" x y : float32 #)
+        when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "mul" x y : uint32 #)
+        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "mul" x y : uint64 #)
+        when ^T1: nativeint and ^T2: nativeint and ^T3: nativeint = (# "mul" x y : nativeint #)
+        when ^T1: unativeint and ^T2: unativeint and ^T3: unativeint = (# "mul" x y : unativeint #)
         when ^T1: byte and ^T2: byte and ^T3: byte = (# "conv.u1" (# "mul" x y : int32 #) : byte #)
         when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "conv.i1" (# "mul" x y : int32 #) : sbyte #)
         when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "conv.i2" (# "mul" x y : int32 #) : int16 #)
         when ^T1: uint16 and ^T2: uint16 and ^T3: uint16 = (# "conv.u2" (# "mul" x y : int32 #) : uint16 #)
-        when ^T1: ^T1 = ((^T1 or ^T2): (static member ( * ): ^T1 * ^T2 -> ^T3) (x, y))
 
-    /// Overloaded division. Base is signed `div`; unsigned widths use `div.un`,
-    /// sub-int32 widths additionally truncate.
+    /// Overloaded division. `div` is the signed form; the unsigned widths need
+    /// `div.un`, and sub-int32 widths additionally truncate.
     let inline (/) (x: ^T1) (y: ^T2) : ^T3 =
-        (# "div" x y : ^T3 #)
+        ((^T1 or ^T2): (static member (/): ^T1 * ^T2 -> ^T3) (x, y))
+        when ^T1: int and ^T2: int and ^T3: int = (# "div" x y : int #)
+        when ^T1: int64 and ^T2: int64 and ^T3: int64 = (# "div" x y : int64 #)
+        when ^T1: float and ^T2: float and ^T3: float = (# "div" x y : float #)
+        when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "div" x y : float32 #)
         when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "div.un" x y : uint32 #)
         when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "div.un" x y : uint64 #)
+        when ^T1: nativeint and ^T2: nativeint and ^T3: nativeint = (# "div" x y : nativeint #)
+        when ^T1: unativeint and ^T2: unativeint and ^T3: unativeint = (# "div.un" x y : unativeint #)
         when ^T1: byte and ^T2: byte and ^T3: byte = (# "conv.u1" (# "div.un" x y : int32 #) : byte #)
         when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "conv.i1" (# "div" x y : int32 #) : sbyte #)
         when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "conv.i2" (# "div" x y : int32 #) : int16 #)
         when ^T1: uint16 and ^T2: uint16 and ^T3: uint16 = (# "conv.u2" (# "div.un" x y : int32 #) : uint16 #)
-        when ^T1: ^T1 = ((^T1 or ^T2): (static member (/): ^T1 * ^T2 -> ^T3) (x, y))
 
     /// Overloaded remainder. Unsigned widths need `rem.un`.
     let inline (%) (x: ^T1) (y: ^T2) : ^T3 =
-        (# "rem" x y : ^T3 #)
+        ((^T1 or ^T2): (static member (%): ^T1 * ^T2 -> ^T3) (x, y))
+        when ^T1: int and ^T2: int and ^T3: int = (# "rem" x y : int #)
+        when ^T1: int64 and ^T2: int64 and ^T3: int64 = (# "rem" x y : int64 #)
+        when ^T1: float and ^T2: float and ^T3: float = (# "rem" x y : float #)
+        when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "rem" x y : float32 #)
         when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "rem.un" x y : uint32 #)
         when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "rem.un" x y : uint64 #)
+        when ^T1: nativeint and ^T2: nativeint and ^T3: nativeint = (# "rem" x y : nativeint #)
+        when ^T1: unativeint and ^T2: unativeint and ^T3: unativeint = (# "rem.un" x y : unativeint #)
         when ^T1: byte and ^T2: byte and ^T3: byte = (# "conv.u1" (# "rem.un" x y : int32 #) : byte #)
         when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "conv.i1" (# "rem" x y : int32 #) : sbyte #)
         when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "conv.i2" (# "rem" x y : int32 #) : int16 #)
         when ^T1: uint16 and ^T2: uint16 and ^T3: uint16 = (# "conv.u2" (# "rem.un" x y : int32 #) : uint16 #)
-        when ^T1: ^T1 = ((^T1 or ^T2): (static member (%): ^T1 * ^T2 -> ^T3) (x, y))
 
-    /// Overloaded unary negation.
-    let inline (~-) (n: ^T) : ^T = (# "neg" n : ^T #)
+    /// Overloaded unary negation. `neg` is the two's-complement negation for every
+    /// integral width (the unsigned ones included) and the sign flip for the floats,
+    /// so each clause carries the same opcode at its own width.
+    let inline (~-) (n: ^T) : ^T =
+        (^T: (static member (~-): ^T -> ^T) n)
+        when ^T: int = (# "neg" n : int #)
+        when ^T: int64 = (# "neg" n : int64 #)
+        when ^T: float = (# "neg" n : float #)
+        when ^T: float32 = (# "neg" n : float32 #)
+        when ^T: uint32 = (# "neg" n : uint32 #)
+        when ^T: uint64 = (# "neg" n : uint64 #)
+        when ^T: nativeint = (# "neg" n : nativeint #)
+        when ^T: unativeint = (# "neg" n : unativeint #)
+        when ^T: byte = (# "neg" n : byte #)
+        when ^T: sbyte = (# "neg" n : sbyte #)
+        when ^T: int16 = (# "neg" n : int16 #)
+        when ^T: uint16 = (# "neg" n : uint16 #)
 
     /// Overloaded unary plus — identity.
     let inline (~+) (value: ^T) : ^T = value
