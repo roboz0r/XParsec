@@ -136,6 +136,21 @@ type RecordMember =
     /// The public field named `fieldName` (records preserve source field
     /// names — no positional encoding).
     | Field of fieldName: string
+    /// An augmentation member (`get_X` instance property, `M` instance method,
+    /// or static counterpart) of a generic record. `metaName` is the emitted
+    /// method name (a property is `get_<name>`); the signature (`paramTys` /
+    /// `retTy`) is in the type's declaring-typar markers, written into the member
+    /// ref as `!0` with the parent `TypeSpec` supplying the instantiation — same
+    /// shape as `ClassMember.Member`. `methodTyparCount` > 0 ⇒ the member is a
+    /// *generic method* (`member r.Map<'U> …`): its own typars ride `!!i`, the
+    /// member-ref carries the `GENERIC` calling-convention header, and the call
+    /// site wraps the ref in a `MethodSpec`.
+    | Member of
+        metaName: string *
+        isStatic: bool *
+        methodTyparCount: int *
+        paramTys: FrozenType list *
+        retTy: FrozenType
 
 /// Which member of an emitted *generic* class a `UserGenericMemberRef`
 /// resolves to. A class is shaped

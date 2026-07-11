@@ -116,7 +116,16 @@ with `for … in` (not the manual protocol) precisely so they stay portable — 
 the sited comment in `src/Vesper.Seq/seq.fs`. `truncate` stays CLR-Linq
 (`System.Linq.Enumerable.Take`) and is a separate portability concern.
 
-### 3. Generic user interface impls — orthogonal front-end gaps
+### 3. `for … in` over a RECORD source
+
+`InferControlFlow.tryForInEnumerator` admits `TyClass`, `TyUnion`, and `TyVar` sources but has no
+`TyRecord` arm, so a record implementing `interface seq<'T>` is rejected with "for-in: source is not
+a supported enumerable" — even though it *codegens* fine (the CLR backend synthesises its capability
+co-slots, proven by the generic-record test in `RecordTests.fs`, which therefore has to drive the
+manual `GetEnumerator` / `MoveNext` walk instead of `for … in`). A front-end-only gap: the backend is
+already ready. Closing it is one more arm, symmetric with the existing `TyUnion` one.
+
+### 4. Generic user interface impls — orthogonal front-end gaps
 
 The `Interface` path already substitutes class typars with use-site args, so it is
 ready for generic user sources *once two pre-existing impl/upcast gaps close*: a

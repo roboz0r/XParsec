@@ -17,10 +17,14 @@ namespace Vesper.Collections
 //     without a runtime adapter — see `get-enumerator-gaps.md`), so these terminals stay
 //     portable by expressing iteration as `for … in`. Their functional arguments are
 //     `Vesper.Fun`s, so each application lowers to `callvirt Fun::Invoke`.
-//   - The lazy `truncate` delegates to `System.Linq.Enumerable.Take`, which yields
-//     BCL-correct lazy semantics without an F# `seq { }` state machine (the backend
-//     does not lower sequence expressions). `Take` takes no delegate, so this needs
-//     no `Vesper.Fun → System.Func` bridge. It is a CLR-Linq concern, not portable here.
+//   - The lazy `truncate` delegates to `System.Linq.Enumerable.Take` and so does NOT port to
+//     JS. This is a stopgap, and no longer a blocked one: it does not need `seq { }` state
+//     machines. Now that `seq`/`enumerator` are AUTHORABLE capabilities, a lazy combinator is
+//     plain Vesper code — a `TakeSeq<'T>` (source + count, `interface seq<'T>`) plus a
+//     `TakeEnumerator<'T>` (inner `enumerator<'T>` + remaining, `interface enumerator<'T>`),
+//     exactly the shape `List`/`ListEnumerator` and `struct-seq.fs`'s `MapSeq`/`MapEnumerator`
+//     already take. Rewriting it that way drops the `System.Linq` dependency and makes it
+//     portable; the same route opens the rest of the lazy surface (`map`/`filter`/…).
 // A focused starter surface (just what `set.fs` consumes); the rest of the
 // FSharp.Core `Seq` surface is additive later.
 

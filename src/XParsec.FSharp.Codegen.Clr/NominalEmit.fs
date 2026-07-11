@@ -1057,11 +1057,7 @@ module internal NominalEmit =
                         | NominalEmissionInput.Class _ ->
                             UserMemberKind.ClassMember(ClassMember.Member(metaName, false, 0, paramTys, mem.ReturnTy))
                         | NominalEmissionInput.Record _ ->
-                            // `RecordMember` has no augmentation-member case, so a generic
-                            // record cannot mint a self-`TypeSpec` ref to its own method.
-                            // No such type exists yet; fail loudly rather than emit a
-                            // `MethodDef` token that would bind to the wrong instantiation.
-                            failwithf "Emit: capability co-slot synthesis on a record ('%A') is not supported" td.Key
+                            UserMemberKind.RecordMember(RecordMember.Member(metaName, false, 0, paramTys, mem.ReturnTy))
 
                     selfMemberRef kind (toEntity (asm.MethodDef(MethodKey.Member(td.Key, i)))), mem.ReturnTy
 

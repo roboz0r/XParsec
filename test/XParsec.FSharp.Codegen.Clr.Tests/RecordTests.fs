@@ -472,4 +472,85 @@ let interfaceImplTests =
                     [| "true"; "false"; "5" |]
                     "structural `=` (synthesised IEquatable) and `Rank()` (user IRank) both dispatch correctly"
             }
+
+            // A GENERIC record implementing the iteration CAPABILITY (`interface seq<'T>`,
+            // never the BCL `IEnumerable`). The BCL co-slots the platform face inherits but
+            // the capability's member surface never declares — non-generic
+            // `IEnumerable.GetEnumerator`, `object IEnumerator.get_Current`, `IEnumerator.Reset` —
+            // are synthesised by the backend. A generic type's shim forwards to the AUTHORED
+            // capability member through a `MemberRef` on its open self-`TypeSpec`, which for a
+            // record needs `RecordMember.Member` (the union/class arms already had it).
+            //
+            // Enumeration below goes through the NON-GENERIC `System.Collections.IEnumerable`
+            // face on purpose: that face is made ENTIRELY of synthesised co-slots, so a BCL
+            // consumer holding nothing but `System.Collections` walks a Vesper record it knows
+            // nothing about. Without the co-slots the type would not even load.
+            test
+                "a generic record implementing the seq capability iterates through the synthesised IEnumerable co-slots" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "open Vesper.Collections"
+                            "[<Struct>]"
+                            "type BagEnumerator<'T> ="
+                            "    val Items : 'T[]"
+                            "    val mutable Idx : int"
+                            "    new(items: 'T[]) = { Items = items; Idx = -1 }"
+                            "    interface enumerator<'T> with"
+                            "        member this.Current : 'T = this.Items.[this.Idx]"
+                            "        member this.MoveNext() : bool ="
+                            "            this.Idx <- this.Idx + 1"
+                            "            this.Idx < this.Items.Length"
+                            "    interface Vesper.disposable with"
+                            "        member this.Dispose() : unit = ()"
+                            "type Bag<'T> ="
+                            "    { Items: 'T[] }"
+                            "    interface seq<'T> with"
+                            "        member this.GetEnumerator() = (new BagEnumerator<'T>(this.Items) :> enumerator<'T>)"
+                            "let sum (b: Bag<int>) : int ="
+                            "    let e = (b :> seq<int>).GetEnumerator()"
+                            "    let mutable total = 0"
+                            "    while e.MoveNext() do"
+                            "        total <- total + e.Current"
+                            "    total"
+                            "printfn \"%d\" (sum { Items = [| 1; 2; 3 |] })"
+                        ]
+
+                let tast, artifact = compileSource "RecordSeqCapability" src
+                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+
+                let bytes = Codegen.toBytes artifact
+
+                // The Vesper-side `for x in b` walk (the capability's own pull protocol).
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Replace("\r", "").Trim()) "6" "`for x in b` sums the record's elements"
+
+                // The BCL-consumer side: reflect the record, build `Bag<int>` through its
+                // record ctor, and walk it through the non-generic face.
+                let asm = loadAssembly bytes
+                let bagTy = (asm.GetType "Bag`1").MakeGenericType typeof<int>
+                let bag = Activator.CreateInstance(bagTy, [| box [| 1; 2; 3 |] |])
+
+                let generic = bag :?> Collections.Generic.IEnumerable<int>
+                Expect.sequenceEqual generic [ 1; 2; 3 ] "IEnumerable<int> (the authored member) yields the elements"
+
+                let e = (bag :?> Collections.IEnumerable).GetEnumerator()
+
+                let walked =
+                    [
+                        while e.MoveNext() do
+                            yield e.Current
+                    ]
+
+                Expect.equal
+                    walked
+                    [ box 1; box 2; box 3 ]
+                    "the non-generic IEnumerator co-slots yield the boxed elements"
+
+                // The pull protocol has no rewind, so the synthesised `Reset` throws rather
+                // than pretending to work — it exists only because the face demands the slot.
+                Expect.throwsT<NotSupportedException> (fun () -> e.Reset()) "the synthesised Reset co-slot throws"
+            }
         ]

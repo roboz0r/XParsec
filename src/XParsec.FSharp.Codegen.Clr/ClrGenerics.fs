@@ -143,6 +143,28 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                 encodeType (BlobEncoder(s).FieldSignature()) declTy
                 toEntity (ctx.MemberRef(parent, fieldName, s))
             | None -> failwithf "ClrProvider: generic record '%A' has no field '%s'" key fieldName
+        | RecordMember.Member(metaName, isStatic, methodTyparCount, paramTys, retTy) ->
+            let s = BlobBuilder()
+
+            BlobEncoder(s)
+                .MethodSignature(genericParameterCount = methodTyparCount, isInstanceMethod = not isStatic)
+                .Parameters(
+                    List.length paramTys,
+                    // `unit`-returning INSTANCE method ⇒ `void` (see the union arm) —
+                    // matches the producer + external-ref encoding so a generic record's
+                    // intra-/cross-assembly instance call binds the void `MethodDef`.
+                    (fun (ret: ReturnTypeEncoder) ->
+                        match retTy with
+                        | FTConst(key, _) when not isStatic && SymbolKeyOps.simpleName key = "unit" -> ret.Void()
+                        | _ -> encodeType (ret.Type()) retTy
+                    ),
+                    (fun (pars: ParametersEncoder) ->
+                        for p in paramTys do
+                            encodeType (pars.AddParameter().Type()) p
+                    )
+                )
+
+            toEntity (ctx.MemberRef(parent, metaName, s))
 
     let genericClassTypeSpec (key: SymbolKey) (args: FrozenType list) : EntityHandle =
         let typars, _, _ = genericClasses.[key]
