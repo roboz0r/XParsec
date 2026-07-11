@@ -951,7 +951,7 @@ module Unification =
             let isInterface =
                 match resolved with
                 | TyClass(ifaceKey, _) ->
-                    match ExternalSymbols.tryLookupType ctx.Provider ifaceKey with
+                    match ctx.Provider.TryLookupType ifaceKey with
                     | ValueSome shape -> ExternalSymbols.isInterfaceShape shape
                     // A project-local interface has no external-provider entry — its
                     // interface-ness is on the registered `ClassTypeInfo`.

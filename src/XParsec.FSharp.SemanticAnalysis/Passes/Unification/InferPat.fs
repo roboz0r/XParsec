@@ -84,7 +84,7 @@ module internal UnificationInferPat =
 
                 TyVar(freshTv ctx key)
             | ValueNone -> TyVar(freshTv ctx key)
-        | Pat.NamedSimple t when ctx.Resolution.ExternalUnionCaseStamp.ContainsKey key ->
+        | Pat.NamedSimple t & Stamped ctx.Resolution.ExternalUnionCaseStamp key uc ->
             // Nullary case of an *external* (referenced-package) union (`None`),
             // recognised upstream by NameResolution and read here by node key — the
             // cross-package analogue of the local nullary-ctor arm above. A bare RQA
@@ -92,27 +92,24 @@ module internal UnificationInferPat =
             // reaches this arm — it lands on the `Pat.NamedSimple _` binder arm below,
             // matching F#, which treats a bare uppercase RQA name in a pattern as a
             // fresh variable.
-            let n = ctx.NameOf t
+            let unionTy, fields = externalCasePattern ctx uc
 
-            match tryExternalCasePattern ctx key with
-            | ValueSome(unionTy, fields) ->
-                if fields.Length <> 0 then
-                    ctx.Diagnostics.Add
-                        {
-                            Key = key
-                            Message =
-                                sprintf
-                                    "Constructor '%s' takes %d argument(s) but is used nullary in pattern position"
-                                    n
-                                    fields.Length
-                            Code = ""
-                            Severity = Severity.Error
-                        }
+            if fields.Length <> 0 then
+                ctx.Diagnostics.Add
+                    {
+                        Key = key
+                        Message =
+                            sprintf
+                                "Constructor '%s' takes %d argument(s) but is used nullary in pattern position"
+                                (ctx.NameOf t)
+                                fields.Length
+                        Code = ""
+                        Severity = Severity.Error
+                    }
 
-                let nodeTv = freshTv ctx key
-                nodeTv.Link <- ValueSome unionTy
-                unionTy
-            | ValueNone -> TyVar(tvOf ctx key)
+            let nodeTv = freshTv ctx key
+            nodeTv.Link <- ValueSome unionTy
+            unionTy
         | Pat.NamedSimple _ ->
             // Use tvOf so a let-rec sibling whose TyVar was already lazy-minted
             // by a forward reference (or pre-allocated by inferBindingGroup)
@@ -123,15 +120,13 @@ module internal UnificationInferPat =
             // single name, exactly like a `Pat.NamedSimple`; its name is the
             // operator's compiled name (`op_Equality`), surfaced by Freeze.
             TyVar(tvOf ctx key)
-        | Pat.Named(argumentPats = args) when ctx.Resolution.ExternalEnumCaseStamp.ContainsKey key ->
+        | Pat.Named(argumentPats = args) & Stamped ctx.Resolution.ExternalEnumCaseStamp key enumKey ->
             // `| E.C1` external enum-case pattern (a TS-manifest enum), recognised upstream
             // by NameResolution and read here by node key. Types as the enum nominal
             // `TyEnum key` — the external mirror of the project-local enum arm below; the key
             // matches the `E.C1` expression access and an `(x: E)` annotation, so the
             // scrutinee unifies. Nullary, but any (ill-formed) sub-patterns are still walked
             // so their binders register.
-            let enumKey = (ctx.Resolution.ExternalEnumCaseStamp.TryGetValue key).Value
-
             for sub in args do
                 inferPat ctx sub |> ignore
 
@@ -256,7 +251,7 @@ module internal UnificationInferPat =
                 let nodeTv = freshTv ctx key
                 nodeTv.Link <- ValueSome ty
                 ty
-        | Pat.Named(longIdent = li; argumentPats = args) when ctx.Resolution.ExternalUnionCaseStamp.ContainsKey key ->
+        | Pat.Named(longIdent = li; argumentPats = args) & Stamped ctx.Resolution.ExternalUnionCaseStamp key uc ->
             // A case (with fields) of an *external* union (`Some x`, `Result.Ok x`),
             // bare or qualified — the cross-package analogue of the local-ctor
             // `Pat.Named` arm above. NameResolution recognised the head (applying the
@@ -264,50 +259,44 @@ module internal UnificationInferPat =
             // unify against the case's declared field types in the union's fresh
             // instantiation.
             let caseName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+            let unionTy, fields = externalCasePattern ctx uc
 
-            match tryExternalCasePattern ctx key with
-            | ValueNone ->
-                for sub in args do
-                    inferPat ctx sub |> ignore
+            // The parser wraps multi-arg ctor patterns in
+            // `EnclosedBlock(Tuple [...])`; flatten to the field list.
+            let subPats =
+                if args.Length = 1 then
+                    unwrapCtorArgPattern args.[0]
+                else
+                    List.ofSeq args
 
-                TyVar(freshTv ctx key)
-            | ValueSome(unionTy, fields) ->
-                // The parser wraps multi-arg ctor patterns in
-                // `EnclosedBlock(Tuple [...])`; flatten to the field list.
-                let subPats =
-                    if args.Length = 1 then
-                        unwrapCtorArgPattern args.[0]
-                    else
-                        List.ofSeq args
+            if subPats.Length <> fields.Length then
+                ctx.Diagnostics.Add
+                    {
+                        Key = key
+                        Message =
+                            sprintf
+                                "Constructor '%s' expects %d argument(s) but got %d"
+                                caseName
+                                fields.Length
+                                subPats.Length
+                        Code = ""
+                        Severity = Severity.Error
+                    }
 
-                if subPats.Length <> fields.Length then
-                    ctx.Diagnostics.Add
-                        {
-                            Key = key
-                            Message =
-                                sprintf
-                                    "Constructor '%s' expects %d argument(s) but got %d"
-                                    caseName
-                                    fields.Length
-                                    subPats.Length
-                            Code = ""
-                            Severity = Severity.Error
-                        }
+            let m = min subPats.Length fields.Length
 
-                let m = min subPats.Length fields.Length
+            for j = 0 to m - 1 do
+                let sub = subPats.[j]
+                let subTy = inferPat ctx sub
+                unify ctx (CstKeys.ofPat sub) subTy fields.[j]
 
-                for j = 0 to m - 1 do
-                    let sub = subPats.[j]
-                    let subTy = inferPat ctx sub
-                    unify ctx (CstKeys.ofPat sub) subTy fields.[j]
+            // Walk any extra sub-patterns so binders still register.
+            for j = m to subPats.Length - 1 do
+                inferPat ctx subPats.[j] |> ignore
 
-                // Walk any extra sub-patterns so binders still register.
-                for j = m to subPats.Length - 1 do
-                    inferPat ctx subPats.[j] |> ignore
-
-                let nodeTv = freshTv ctx key
-                nodeTv.Link <- ValueSome unionTy
-                unionTy
+            let nodeTv = freshTv ctx key
+            nodeTv.Link <- ValueSome unionTy
+            unionTy
         | Pat.Wildcard _ -> TyVar(freshTv ctx key)
         | Pat.Null _ ->
             // A `null` pattern matches a reference value. Leave the node type a

@@ -16,7 +16,7 @@ open XParsec.FSharp.SemanticAnalysis
 /// `reprs` is the Vesper-primitive-name → IL-representation map; `references` maps an assembly's
 /// simple name to the identity read off its file, so an emitted `AssemblyRef` matches that exact
 /// artifact; `symbols` is the front end's resolution provider — pass
-/// `ExternalSymbols.nullProvider` on paths that emit no external member access.
+/// `ExternalSymbolProviders.nullProvider` on paths that emit no external member access.
 type ClrProvider
     (
         ctx: MetadataContext,

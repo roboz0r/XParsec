@@ -79,7 +79,7 @@ module Codegen =
 
     /// Frozen TAST → in-memory JS artifact. When `Source` is `Some`, a V3 source map
     /// is produced. `provider` resolves external union/record shapes; pass
-    /// `ExternalSymbols.nullProvider` for a program that touches none. `manifestPaths`
+    /// `ExternalSymbolProviders.nullProvider` for a program that touches none. `manifestPaths`
     /// is the package set whose `runtime-js` assets back the program's runtime imports.
     /// A `Default`-shaped TS export (mitt's factory) lowers to a default import with no
     /// extra wiring here: the fact rides the resolved symbol (`ExternalSymbol.ImportForm`,
@@ -169,7 +169,7 @@ module Codegen =
     /// `compileWith` with the null provider and empty manifest set — for a program
     /// that references no external union/record and imports no package runtime.
     let compile (project: JsProjectInfo) (tast: Frozen.TastFile) : JsArtifact =
-        compileWith ExternalSymbols.nullProvider [] project tast
+        compileWith ExternalSymbolProviders.nullProvider [] project tast
 
     let toSource (artifact: JsArtifact) : string = artifact.Source
     let toSourceMap (artifact: JsArtifact) : string option = artifact.Map

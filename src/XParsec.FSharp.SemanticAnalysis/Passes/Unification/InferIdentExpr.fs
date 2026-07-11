@@ -60,11 +60,10 @@ module internal UnificationInferIdentExpr =
         // `(x: E)` annotation (`Translate.tryResolveExternalType`), so the two unify.
         // Guarded ahead of the general two-segment cascade so an external enum head
         // never falls through to the class/union static path.
-        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) when
-            ctx.Resolution.ExternalEnumCaseStamp.ContainsKey key
-            && not (ctx.Bindings.Binding.ContainsKey key)
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) & Stamped ctx.Resolution.ExternalEnumCaseStamp key enumKey when
+            not (ctx.Bindings.Binding.ContainsKey key)
             ->
-            TyEnum (ctx.Resolution.ExternalEnumCaseStamp.TryGetValue key).Value
+            TyEnum enumKey
         // A project-local enum-case access `E.C1`: the head names a project-local
         // enum (a separate registry, so no class/union collision). Types as the enum
         // nominal `TyEnum Key`, NOT its underlying int/string; an unknown case is a
@@ -121,8 +120,8 @@ module internal UnificationInferIdentExpr =
                         | ValueNone -> errorTy ctx key (sprintf "Union '%s' has no case '%s'" headName tailName)
                 | false, _ ->
                     // Qualified external union case (`Option.Some`) — the head is
-                    // an external union, not a local one (Gap 2 Layer B). NameResolution
-                    // stamped the resolved case at this node's key.
+                    // an external union, not a local one. NameResolution stamped
+                    // the resolved case at this node's key.
                     match tryExternalCtorType ctx key with
                     | ValueSome t -> t
                     | ValueNone -> inferIdentDefault ctx e key

@@ -2,12 +2,10 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 // TAST-adjacent value types pulled ahead of `Tast.fs` in compile order so
 // `TExpr` / `TastFile` can name them while the provider surface
-// (`IExternalSymbolProvider`, `PassContext` in `SideTables`) compiles *after*
-// `Tast` — which is what lets `IExternalSymbolProvider` name `TDecl` for the
-// cross-package inline-body channel. All are provider-free pure data
-// (`SemType` / `SymbolKey` / `NodeKey` only); their definitions used to sit in
-// `SideTables.fs` (`ModuleMemberInfo`, `ForInEnumerator`) and in `PassContext`'s
-// recursive group (`Diagnostic`, `Severity`).
+// (`IExternalSymbolProvider`, `PassContext.fs`) compiles *after* `Tast` — which is
+// what lets `IExternalSymbolProvider` name `TDecl` for the cross-package
+// inline-body channel. All are provider-free pure data (`SemType` / `SymbolKey` /
+// `NodeKey` only).
 
 // `RequireQualifiedAccess` because this now compiles ahead of the VesperLib /
 // ReferencedProject extractors, whose `Result` plumbing uses a bare `Error`
@@ -86,7 +84,7 @@ type FrozenConstraint =
 /// `Unification.inferForIn` and read by `Freeze` to enrich the node, because
 /// codegen can't re-derive the struct-vs-interface decision from the element type
 /// alone. Defined here (ahead of `Tast.fs`
-/// in compile order) so both the `SideTables` side table and the `TExpr.ForIn`
+/// in compile order) so both the `ForInShape` side table and the `TExpr.ForIn`
 /// field can name it.
 /// How codegen resolves the `GetEnumerator` handle of a `Pattern` for-in source —
 /// one of the two independent axes of a duck-typed walk (the other is
@@ -160,8 +158,8 @@ type ForInEnumeratorG<'ty> =
         isValueType: bool *
         dispose: bool
 
-/// The `SemType`-domain axes + `ForInEnumerator` (inference + `SideTables.ForInShape`
-/// + the pre-freeze `TExpr.ForIn`). The frozen aliases live in `Tast.fs`'s `Frozen`
+/// The `SemType`-domain axes + `ForInEnumerator` (inference + `PassContext`'s
+/// `ForInShape` table + the pre-freeze `TExpr.ForIn`). The frozen aliases live in `Tast.fs`'s `Frozen`
 /// module; `Freeze` maps the `'ty` payloads through `toFrozen` via `TastConvert`.
 type ForInGetEnum = ForInGetEnumG<SemType>
 type ForInEnumMembers = ForInEnumMembersG<SemType>

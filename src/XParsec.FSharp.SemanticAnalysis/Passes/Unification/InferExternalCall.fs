@@ -287,17 +287,15 @@ module internal UnificationInferExternalCall =
             // `infer ctx fn`. If a fluent chain shows it up, thread the receiver
             // `SemType` out of the probe instead of re-inferring.
             //
-            // Resolve the receiver to an external `(qualifiedName, typeArgs)` — a
+            // Resolve the receiver to an external `(SymbolKey, typeArgs)` — a
             // non-project-local `TyClass` or an intrinsic `TyConst` mapped to a BCL
             // type (`tryExternalReceiver`). A project-local class / array / byref
             // declines and keeps its own path.
             match tryExternalReceiver ctx recvTy with
             | ValueNone -> ValueNone
-            | ValueSome(clsQual, typeArgs) ->
-                // `clsQual` is a canonicalised BCL spelling (`tryExternalReceiver`), not a
-                // stamped key — mint an asm-blind key for the key-addressed store face.
+            | ValueSome(declKey, typeArgs) ->
                 let candidates =
-                    ctx.Provider.TryLookupMembers(SymbolKeyOps.qualifiedTypeKey clsQual 0, memberName)
+                    ctx.Provider.TryLookupMembers(declKey, memberName)
                     |> Array.filter (fun m -> not m.IsStatic)
 
                 if candidates.Length <= 1 then

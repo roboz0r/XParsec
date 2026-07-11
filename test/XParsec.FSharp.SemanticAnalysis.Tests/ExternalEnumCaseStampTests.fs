@@ -20,8 +20,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// A provider that knows two external enums: `Tests.Direction` (cases `Up`/`Down`) whose
 /// namespace `Tests` is AUTO-OPENED via `AmbientOpenPrefixes`, and `Other.Mode` (case
 /// `On`) whose namespace `Other` is NOT ambient, so its short name `Mode` resolves only
-/// under an explicit `open Other`. Only the resolver-face `TryLookupType(string)` is
-/// exercised (NameResolution stamps on enum-case resolution); the store face is unused.
+/// under an explicit `open Other`.
 let private provider: IExternalSymbolProvider =
     let enum names =
         ExternalTypeShape.Enum(
@@ -36,58 +35,25 @@ let private provider: IExternalSymbolProvider =
             SymbolOrigin.Empty
         )
 
-    { new IExternalSymbolProvider
+    ExternalSymbolProviders.ofNamedLeaf
+        { ExternalSymbolProviders.NamedLeaf.empty with
+            TryLookupType =
+                fun n ->
+                    match n with
+                    | "Tests.Direction" -> ValueSome(enum [ "Up"; "Down" ])
+                    | "Other.Mode" -> ValueSome(enum [ "On" ])
+                    | _ -> ValueNone
+            AmbientOpenPrefixes = [ "Tests" ]
+        }
 
-      interface IExternalSymbolResolver with
-          member _.TryLookup _ = ValueNone
-
-          member _.TryLookupType(n: string) =
-              match n with
-              | "Tests.Direction" -> ValueSome(enum [ "Up"; "Down" ])
-              | "Other.Mode" -> ValueSome(enum [ "On" ])
-              | _ -> ValueNone
-
-          member _.TryLookupUnionCase _ = ValueNone
-          member _.AmbientOpenPrefixes = [ "Tests" ]
-      interface IExternalSymbolStore with
-          member _.TryLookupType(_: SymbolKey) = ValueNone
-          member _.TryLookupMember(_, _) = ValueNone
-          member _.TryLookupMembers(_, _) = [||]
-          member _.TryLookupIndexSignature _ = []
-          member _.TryLookupInlineBody _ = ValueNone
-          member _.IntrinsicReverseCanon = Map.empty
-          member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
-    }
-
-let private analyse (input: string) : PassContext * ImplementationFile<SyntaxToken> =
-    let lexed, file = parseFile input
-    let ctx = PassContext(provider, input, lexed)
-    Desugar.run ctx file
-    NameResolution.run ctx file
-    ctx, file
-
-/// The RHS expression of the file's first `let` binding.
-let private firstBindingExpr (file: ImplementationFile<SyntaxToken>) : Expr<SyntaxToken> =
-    CstWalk.implFileElems file
-    |> Seq.pick (fun m ->
-        match m with
-        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) when bindings.Length > 0 ->
-            Some bindings.[0].expr
-        | _ -> None
-    )
+let private analyse (input: string) = analyseNameRes provider input
 
 /// Every match-arm pattern reachable in `file`.
 let private matchArmPats (file: ImplementationFile<SyntaxToken>) : Pat<SyntaxToken> list =
     let acc = ResizeArray<Pat<SyntaxToken>>()
 
-    let walker: CstWalk.ExprWalker<unit> =
-        {
-            Visit = fun () _ -> ()
-            EnterFun = fun () _ -> ()
-            EnterBindingRhs = fun () _ _ _ -> ()
-            EnterLetBody = fun () _ -> ()
-            EnterForTo = fun () _ -> ()
-            EnterForIn = fun () _ -> ()
+    let walker =
+        { CstWalk.identityExprWalker with
             EnterMatchArm = fun () p -> acc.Add p
         }
 

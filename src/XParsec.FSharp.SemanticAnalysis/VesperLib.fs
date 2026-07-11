@@ -562,7 +562,7 @@ module VesperLib =
         // `IntrinsicInterface`, now that the member surface is populated (the interface
         // member-copy loop above copied the deferred members into `shape.Members`). Recorded at
         // the `TypeSignature.Extern` arm (`PendingCapabilityInterfaces`) because intrinsic-ness
-        // + interface-ness is decided there. `Origin` stays `Empty`; `ExternalSymbols.stack`'s
+        // + interface-ness is decided there. `Origin` stays `Empty`; `ExternalSymbolProviders.stack`'s
         // `stampType` stamps the manifest home later (its `IntrinsicInterface` arm), exactly as
         // for the faced `Class` this replaces. The reconciliation face is `Id.Platform`.
         for KeyValue(compiled, struct (canon, platform)) in ctx.PendingCapabilityInterfaces do
@@ -790,9 +790,10 @@ module VesperLib =
                 // Arity-suffix generic types (`Vesper.Choice`2`) so an arity-
                 // overloaded type doesn't collapse onto its bare compiled name in
                 // `ctx.TypeShapes` / the reverse case index. This matches the emitted
-                // metadata name (`TypeRegistry.keyFor`) and the consumer's arity-
-                // suffixed `keysFor` probe in `tryResolveExternalType`. Non-generic
-                // types keep their bare name.
+                // metadata name (`TypeRegistry.keyFor`) and the arity-suffixed probe
+                // the consumer resolves a written head with
+                // (`NameResolutionTypeHeadStamp.arityProbes`). Non-generic types keep
+                // their bare name.
                 let compiled = SymbolKeyOps.arityName baseName arity
 
                 // First declaration wins on a *short-name* collision; arity-overloaded

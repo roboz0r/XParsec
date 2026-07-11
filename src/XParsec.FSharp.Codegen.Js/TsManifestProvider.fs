@@ -124,11 +124,11 @@ module TsManifestProvider =
             Some(qn, sym)
         | _ -> None
 
-    /// Concrete provider holding the manifest's resolved state — the JS analog of
-    /// `MetadataSymbols`'s `MetadataSymbolProvider`: the ctor builds every map/guard
-    /// into `let` fields and the `IExternalSymbolProvider` members serve them. It is a
-    /// named type (not an object expression) precisely because it carries that state.
-    type internal TsManifestSymbolProvider(man: Schema.PackageManifest) =
+    /// Build the manifest's resolved state (every map/guard, EAGERLY — the same
+    /// work the former provider class's ctor did) and serve it as a by-name leaf.
+    /// `ExternalSymbolProviders.ofNamedLeaf` derives the store face from these functions,
+    /// so the two `TryLookupType` faces cannot drift apart.
+    let private manifestLeaf (man: Schema.PackageManifest) : ExternalSymbolProviders.NamedLeaf =
         let pkg = man.Package
         // Flat single-file package: the module specifier IS the package name. A
         // later tier supplies nested namespace paths here instead of `pkg` directly.
@@ -238,48 +238,33 @@ module TsManifestProvider =
             |> List.map (fun (qn, index) -> qn, index |> List.map (fun (k, v) -> toFrozen ctx k, toFrozen ctx v))
             |> Map.ofList
 
-        interface IExternalSymbolProvider
-
-        interface IExternalSymbolResolver with
-            member _.TryLookup name =
-                match Map.tryFind name funcs with
-                | Some s -> ValueSome s
-                | None -> ValueNone
-
-            member _.TryLookupType(name: string) =
-                match Map.tryFind name types with
-                | Some s -> ValueSome s
-                | None -> ValueNone
-
-            member _.TryLookupUnionCase _ = ValueNone
-            member _.AmbientOpenPrefixes = []
-
-        interface IExternalSymbolStore with
-            member _.TryLookupType(key: SymbolKey) =
-                match Map.tryFind (SymbolKeyOps.qualifiedName key) types with
-                | Some s -> ValueSome s
-                | None -> ValueNone
-
-            member _.TryLookupMember(key, memberName) =
-                match membersOf (SymbolKeyOps.qualifiedName key) memberName with
-                | [||] -> ValueNone
-                | arr -> ValueSome arr.[0]
-
-            member _.TryLookupMembers(key, memberName) =
-                membersOf (SymbolKeyOps.qualifiedName key) memberName
-
-            member _.TryLookupIndexSignature key =
-                match Map.tryFind (SymbolKeyOps.qualifiedName key) indexSigs with
-                | Some pairs -> pairs
-                | None -> []
-
-            member _.TryLookupInlineBody _ = ValueNone
-            member _.IntrinsicReverseCanon = Map.empty
-            member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
+        { ExternalSymbolProviders.NamedLeaf.empty with
+            TryLookup =
+                fun name ->
+                    match Map.tryFind name funcs with
+                    | Some s -> ValueSome s
+                    | None -> ValueNone
+            TryLookupType =
+                fun name ->
+                    match Map.tryFind name types with
+                    | Some s -> ValueSome s
+                    | None -> ValueNone
+            TryLookupMember =
+                fun (typeName, memberName) ->
+                    match membersOf typeName memberName with
+                    | [||] -> ValueNone
+                    | arr -> ValueSome arr.[0]
+            TryLookupMembers = fun (typeName, memberName) -> membersOf typeName memberName
+            TryLookupIndexSignature =
+                fun typeName ->
+                    match Map.tryFind typeName indexSigs with
+                    | Some pairs -> pairs
+                    | None -> []
+        }
 
     /// Build a provider from an already-parsed manifest.
     let providerOfManifest (man: Schema.PackageManifest) : IExternalSymbolProvider =
-        TsManifestSymbolProvider man :> IExternalSymbolProvider
+        ExternalSymbolProviders.ofNamedLeaf (manifestLeaf man)
 
     /// Parse a manifest JSON file and build its provider.
     let tryLoadFile (path: string) : Result<IExternalSymbolProvider, string> =
@@ -312,4 +297,4 @@ module TsManifestProvider =
         |> NumberCovariance.wrap
         // One general per-lookup cache atop the whole stack (the `stack` fall-through and
         // the `number` rewrite otherwise re-run on every hit of a hot symbol).
-        |> ExternalSymbols.memoize
+        |> ExternalSymbolProviders.memoize

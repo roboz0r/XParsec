@@ -229,7 +229,7 @@ let runJs (name: string) (input: string) : (int * string) option =
 // ─── TS-provider test scaffolding (shared by the provider tests) ─────────
 
 /// Aggregate the sources' ambient `open` prefixes, exactly as the production composite
-/// (`ExternalSymbols.composite` via `collectAmbient`) does. `stackTs`/`stackTsMany` must
+/// (`ExternalSymbolProviders.composite` via `collectAmbient`) does. `stackTs`/`stackTsMany` must
 /// surface this (not `[]`): the JS-native provider carries `Vesper` ambient, and
 /// `canonName`'s forward intrinsic resolution reaches `Vesper.undefined` (a JS-only
 /// intrinsic registered under its qualified name) only through it — dropping ambient
@@ -238,12 +238,12 @@ let runJs (name: string) (input: string) : (int * string) option =
 /// assembly) then applies the covariant `number → float` resolution and the per-lookup
 /// cache in the SAME order as production (`TsManifestProvider.buildContractFor`). EVERY
 /// hand-built front-end test stack MUST go through here so the `NumberCovariance.wrap` /
-/// `ExternalSymbols.memoize` steps can never be silently dropped at one site and quietly
+/// `ExternalSymbolProviders.memoize` steps can never be silently dropped at one site and quietly
 /// diverge from production behaviour.
 let stackJs (ambient: string list) (sources: IExternalSymbolProvider list) : IExternalSymbolProvider =
-    ExternalSymbols.stack ValueNone ambient sources
+    ExternalSymbolProviders.stack ValueNone ambient sources
     |> NumberCovariance.wrap
-    |> ExternalSymbols.memoize
+    |> ExternalSymbolProviders.memoize
 
 /// `stackJs` with the ambient prefix set AGGREGATED from the sources (mirroring
 /// production `TsManifestProvider.buildContractFor`). A hand-built stack MUST use

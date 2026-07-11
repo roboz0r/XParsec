@@ -6,8 +6,8 @@ open System.Collections.Generic
 // to their CONTRACT-sourced identities (never authored from a hardcoded name
 // set), and the lazily-resolved bag a `PassContext` exposes as `ctx.Intrinsics`.
 // Lives in its own compile unit between `ExternalSymbols` (the provider shapes it
-// reads) and `SideTables` (the `PassContext` that instantiates it) — neither an
-// external-symbol concern nor a side table.
+// reads) and `PassContext` (which instantiates it) — neither an external-symbol
+// concern nor a side table.
 
 /// Try to resolve ONE intrinsic name to its identity the way a written `int` annotation resolves:
 /// this unit's own registered intrinsics first (`intrinsicKeys` — the

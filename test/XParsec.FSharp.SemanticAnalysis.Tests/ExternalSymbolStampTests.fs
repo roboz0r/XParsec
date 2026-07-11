@@ -21,54 +21,25 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// A provider that knows one dotted *value* (`A.B.thing`), the qualified
 /// operator `A.B.(+)` (compiled `A.B.op_Addition`), and the bare intrinsic
 /// operators `op_Addition` / `op_Dynamic` / `op_DynamicAssignment` (ambient, as
-/// the real prelude auto-opens `Vesper.Core`'s operator module). Only the
-/// resolver face is exercised — the store face is unused by these front-end
-/// stamp assertions.
+/// the real prelude auto-opens `Vesper.Core`'s operator module).
 let private provider: IExternalSymbolProvider =
     let mono name =
         ValueSome(ExternalSymbols.monoFrozen name (FTConst(RuntimeNames.intKey, EqArray.empty)))
 
-    { new IExternalSymbolProvider
+    ExternalSymbolProviders.ofNamedLeaf
+        { ExternalSymbolProviders.NamedLeaf.empty with
+            TryLookup =
+                fun n ->
+                    match n with
+                    | "A.B.thing" -> mono "thing"
+                    | "A.B.op_Addition" -> mono "op_Addition"
+                    | "op_Addition" -> mono "op_Addition"
+                    | "op_Dynamic" -> mono "op_Dynamic"
+                    | "op_DynamicAssignment" -> mono "op_DynamicAssignment"
+                    | _ -> ValueNone
+        }
 
-      interface IExternalSymbolResolver with
-          member _.TryLookup n =
-              match n with
-              | "A.B.thing" -> mono "thing"
-              | "A.B.op_Addition" -> mono "op_Addition"
-              | "op_Addition" -> mono "op_Addition"
-              | "op_Dynamic" -> mono "op_Dynamic"
-              | "op_DynamicAssignment" -> mono "op_DynamicAssignment"
-              | _ -> ValueNone
-
-          member _.TryLookupType(_: string) = ValueNone
-          member _.TryLookupUnionCase _ = ValueNone
-          member _.AmbientOpenPrefixes = []
-      interface IExternalSymbolStore with
-          member _.TryLookupType(_: SymbolKey) = ValueNone
-          member _.TryLookupMember(_, _) = ValueNone
-          member _.TryLookupMembers(_, _) = [||]
-          member _.TryLookupIndexSignature _ = []
-          member _.TryLookupInlineBody _ = ValueNone
-          member _.IntrinsicReverseCanon = Map.empty
-          member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
-    }
-
-let private analyse (input: string) : PassContext * ImplementationFile<SyntaxToken> =
-    let lexed, file = parseFile input
-    let ctx = PassContext(provider, input, lexed)
-    Desugar.run ctx file
-    NameResolution.run ctx file
-    ctx, file
-
-/// The RHS expression of the file's first `let` binding.
-let private firstBindingExpr (file: ImplementationFile<SyntaxToken>) : Expr<SyntaxToken> =
-    CstWalk.implFileElems file
-    |> Seq.pick (fun m ->
-        match m with
-        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) when bindings.Length > 0 ->
-            Some bindings.[0].expr
-        | _ -> None
-    )
+let private analyse (input: string) = analyseNameRes provider input
 
 let private isStamped (ctx: PassContext) (e: Expr<SyntaxToken>) : bool =
     ctx.Resolution.ExternalSymbolStamp.ContainsKey(CstKeys.ofExpr e)

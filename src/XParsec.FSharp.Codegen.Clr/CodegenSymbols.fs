@@ -17,13 +17,14 @@ module CodegenSymbols =
         { new ICodegenSymbols with
             member _.TryLookupType name = provider.TryLookupType name
 
-            // `ICodegenSymbols` is still string-addressed (Stage 5); bridge to the
-            // key-addressed store face by minting an asm-blind key from the compiled name.
+            // `ICodegenSymbols` is string-addressed; the store face is key-addressed,
+            // so bridge by minting the lookup key from the compiled name
+            // (`lookupKeyOfCompiledName` owns the losslessness/asm-blindness invariants).
             member _.TryLookupMember(typeName, memberName) =
-                provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey typeName 0, memberName)
+                provider.TryLookupMember(SymbolKeyOps.lookupKeyOfCompiledName typeName, memberName)
 
             member _.TryLookupMembers(typeName, memberName) =
-                provider.TryLookupMembers(SymbolKeyOps.qualifiedTypeKey typeName 0, memberName)
+                provider.TryLookupMembers(SymbolKeyOps.lookupKeyOfCompiledName typeName, memberName)
 
             member _.TryLookupOpenSignature name =
                 match provider.TryLookup name with

@@ -135,7 +135,7 @@ let tests =
                           member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
                     }
 
-                let provider = ExternalSymbols.composite [ myIdStub; realProvider.Value ]
+                let provider = ExternalSymbolProviders.composite [ myIdStub; realProvider.Value ]
 
                 let input = "let r = let f = myId in f 1, f true"
                 let lexed, file = parseFile input

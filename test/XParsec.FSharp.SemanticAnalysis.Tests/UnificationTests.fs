@@ -13,11 +13,6 @@ let private analyse (input: string) =
     Unification.run ctx file
     ctx
 
-let private typeOf (ctx: PassContext) (key: NodeKey) : SemType =
-    match ctx.Bindings.TypeVar.TryGetValue key with
-    | ValueSome tv -> Unification.zonk (TyVar tv)
-    | ValueNone -> failwithf "no TypeVar entry for %O" key
-
 [<Tests>]
 let tests =
     testList
@@ -130,7 +125,9 @@ let tests =
                           member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
                     }
 
-                let provider = ExternalSymbols.composite [ brokenProvider; realProvider.Value ]
+                let provider =
+                    ExternalSymbolProviders.composite [ brokenProvider; realProvider.Value ]
+
                 let input = "let y = broken"
                 let lexed, file = parseFile input
                 let ctx = PassContext(provider, input, lexed)

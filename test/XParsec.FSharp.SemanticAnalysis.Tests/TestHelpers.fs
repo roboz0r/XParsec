@@ -156,3 +156,37 @@ let parseSigFile (input: string) : Lexed * SignatureFile<SyntaxToken> =
         | Result.Error e -> failwithf "parse failed: %A" e
         | Result.Ok(FSharpAst.SignatureFile f) -> lexed, f
         | Result.Ok ast -> failwithf "unexpected AST: %A" ast
+
+/// Parse `input` and run the front-end passes up to NameResolution against
+/// `provider` — the shared harness of the stamp suites, which assert on the side
+/// tables NameResolution writes. (Run `Passes.Unification.run` on the returned
+/// pair to take a test through inference as well.)
+let analyseNameRes (provider: IExternalSymbolProvider) (input: string) : PassContext * ImplementationFile<SyntaxToken> =
+    let lexed, file = parseFile input
+    let ctx = PassContext(provider, input, lexed)
+    Passes.Desugar.run ctx file
+    Passes.NameResolution.run ctx file
+    ctx, file
+
+/// The file's first `let` binding.
+let firstBinding (file: ImplementationFile<SyntaxToken>) : Binding<SyntaxToken> =
+    CstWalk.implFileElems file
+    |> Seq.pick (fun m ->
+        match m with
+        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) when bindings.Length > 0 ->
+            Some bindings.[0]
+        | _ -> None
+    )
+
+/// The RHS expression of the file's first `let` binding.
+let firstBindingExpr (file: ImplementationFile<SyntaxToken>) : Expr<SyntaxToken> = (firstBinding file).expr
+
+/// The zonked `SemType` inference settled on at `key` — the node's TypeVar
+/// resolved through the substitution. Asserting on this pins the type's IDENTITY,
+/// which a diagnostics-only assertion cannot: an unresolved head still yields a
+/// well-formed type (`TyConst(RuntimeNames.opaqueKey name)`), so it unifies and
+/// clashes exactly like a resolved one.
+let typeOf (ctx: PassContext) (key: NodeKey) : SemType =
+    match ctx.Bindings.TypeVar.TryGetValue key with
+    | ValueSome tv -> Passes.Unification.zonk (TyVar tv)
+    | ValueNone -> failwithf "no TypeVar entry for %O" key

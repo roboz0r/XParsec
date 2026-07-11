@@ -33,7 +33,7 @@ let private provider: IExternalSymbolProvider =
                   ValueNone
 
           // `Color` is `[<RequireQualifiedAccess>]` (its case `Red` carries the flag);
-          // `Hue` is an ordinary union (`Blue` does not). Drives the Gap 1 suppression
+          // `Hue` is an ordinary union (`Blue` does not). Drives the RQA-suppression
           // tests below.
           member _.TryLookupUnionCase caseName =
               let mk union rqa name =
@@ -145,7 +145,7 @@ let tests =
                 Expect.isTrue (hasUnresolved ctx) "bare Blue is unresolved with Tests not opened"
             }
 
-            // Gap 4 — operator-form qualified long idents.
+            // Operator-form qualified long idents.
             test "a qualified operator long-ident resolves to its compiled name" {
                 let ctx = analyse "let f = A.B.(+)"
                 Expect.isFalse (hasUnresolved ctx) "A.B.(+) resolves via A.B.op_Addition"

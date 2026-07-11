@@ -3,7 +3,7 @@ module XParsec.FSharp.SemanticAnalysis.Tests.MapProviderTypesTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// `ExternalSymbols.mapProviderTypes` — the TOTAL value-flow surface mapper. These
+// `ExternalSymbolProviders.mapProviderTypes` — the TOTAL value-flow surface mapper. These
 // pin only the SURFACE coverage (which `FrozenType` field is threaded, and at which
 // ROOT variance) — NOT the variance algebra, which `FrozenType.mapVariant` owns and
 // `FrozenTypeTests` exercises. So the `transform` here is deliberately non-threading:
@@ -141,7 +141,7 @@ let private fake: IExternalSymbolProvider =
           member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
     }
 
-let private wrapped = ExternalSymbols.mapProviderTypes resolveMarker fake
+let private wrapped = ExternalSymbolProviders.mapProviderTypes resolveMarker fake
 
 /// The `Class` shape of `Cls`, or fail.
 let private clsShape () =
@@ -152,7 +152,7 @@ let private clsShape () =
 [<Tests>]
 let tests =
     testList
-        "ExternalSymbols.mapProviderTypes"
+        "ExternalSymbolProviders.mapProviderTypes"
         [
             test "a symbol Scheme is mapped covariantly" {
                 match wrapped.TryLookup "sym" with

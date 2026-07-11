@@ -3,7 +3,7 @@ module XParsec.FSharp.SemanticAnalysis.Tests.MemoizeTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// `ExternalSymbols.memoize` — the general per-lookup cache. Two properties: it changes
+// `ExternalSymbolProviders.memoize` — the general per-lookup cache. Two properties: it changes
 // NO result (a hit or a miss reads the same as the inner provider), and it consults the
 // inner AT MOST ONCE per key (subsequent calls, including cached MISSES, never re-hit).
 // A counting inner provider pins both.
@@ -56,11 +56,11 @@ type private CountingProvider(name: string) =
 [<Tests>]
 let tests =
     testList
-        "ExternalSymbols.memoize"
+        "ExternalSymbolProviders.memoize"
         [
             test "a hit reads through to the inner result" {
                 let inner = CountingProvider "known"
-                let cached = ExternalSymbols.memoize inner
+                let cached = ExternalSymbolProviders.memoize inner
 
                 match cached.TryLookup "known" with
                 | ValueSome s ->
@@ -73,7 +73,7 @@ let tests =
 
             test "a repeated hit consults the inner exactly once" {
                 let inner = CountingProvider "known"
-                let cached = ExternalSymbols.memoize inner
+                let cached = ExternalSymbolProviders.memoize inner
 
                 cached.TryLookup "known" |> ignore
                 cached.TryLookup "known" |> ignore
@@ -84,7 +84,7 @@ let tests =
 
             test "a repeated MISS is cached too (no re-hit)" {
                 let inner = CountingProvider "known"
-                let cached = ExternalSymbols.memoize inner
+                let cached = ExternalSymbolProviders.memoize inner
 
                 Expect.isTrue (cached.TryLookup "absent" |> ValueOption.isNone) "miss reads as None"
                 cached.TryLookup "absent" |> ignore
@@ -94,7 +94,7 @@ let tests =
 
             test "channels cache independently" {
                 let inner = CountingProvider "known"
-                let cached = ExternalSymbols.memoize inner
+                let cached = ExternalSymbolProviders.memoize inner
 
                 cached.TryLookup "known" |> ignore
                 cached.TryLookup "known" |> ignore

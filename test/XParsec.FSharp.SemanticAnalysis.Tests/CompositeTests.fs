@@ -3,7 +3,7 @@ module XParsec.FSharp.SemanticAnalysis.Tests.CompositeTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// `ExternalSymbols.composite` is the first-hit-wins composition primitive
+// `ExternalSymbolProviders.composite` is the first-hit-wins composition primitive
 // These tests pin the priority semantics
 // with trivial in-line providers, independent of any real `.fsi` extraction.
 
@@ -101,7 +101,7 @@ let tests =
                 let b = tagged "shared" "b"
                 let c = tagged "shared" "c"
 
-                let composed = ExternalSymbols.composite [ a; b; c ]
+                let composed = ExternalSymbolProviders.composite [ a; b; c ]
 
                 Expect.equal (valueTag composed "shared") (ValueSome "a") "a (first) wins over b and c"
             }
@@ -112,7 +112,7 @@ let tests =
                 let b = tagged "early" "b"
                 let c = tagged "late" "c"
 
-                let composed = ExternalSymbols.composite [ a; b; c ]
+                let composed = ExternalSymbolProviders.composite [ a; b; c ]
 
                 Expect.equal (valueTag composed "late") (ValueSome "c") "c answers after a/b miss"
                 Expect.equal (valueTag composed "early") (ValueSome "a") "a still wins its own name"
@@ -120,7 +120,7 @@ let tests =
 
             test "three-deep: an unknown name misses through every source" {
                 let composed =
-                    ExternalSymbols.composite [ tagged "x" "a"; tagged "y" "b"; tagged "z" "c" ]
+                    ExternalSymbolProviders.composite [ tagged "x" "a"; tagged "y" "b"; tagged "z" "c" ]
 
                 Expect.equal (valueTag composed "nope") ValueNone "value miss"
                 Expect.isTrue (composed.TryLookupType "nope" |> ValueOption.isNone) "type miss"
@@ -134,7 +134,7 @@ let tests =
             test "priority applies to the type and member channels too" {
                 let a = tagged "shared" "a"
                 let b = tagged "shared" "b"
-                let composed = ExternalSymbols.composite [ a; b ]
+                let composed = ExternalSymbolProviders.composite [ a; b ]
 
                 match composed.TryLookupType "shared" with
                 | ValueSome(ExternalTypeShape.Class info) -> Expect.equal info.Origin.Namespace "a" "type: a wins"
@@ -146,7 +146,7 @@ let tests =
             }
 
             test "empty list behaves as nullProvider" {
-                let composed = ExternalSymbols.composite []
+                let composed = ExternalSymbolProviders.composite []
 
                 Expect.isTrue (composed.TryLookup "anything" |> ValueOption.isNone) "value miss"
                 Expect.isTrue (composed.TryLookupType "anything" |> ValueOption.isNone) "type miss"
@@ -158,7 +158,7 @@ let tests =
             }
 
             test "singleton list delegates to its one source" {
-                let composed = ExternalSymbols.composite [ tagged "only" "a" ]
+                let composed = ExternalSymbolProviders.composite [ tagged "only" "a" ]
 
                 Expect.equal (valueTag composed "only") (ValueSome "a") "the one source answers"
                 Expect.equal (valueTag composed "other") ValueNone "and nothing else does"

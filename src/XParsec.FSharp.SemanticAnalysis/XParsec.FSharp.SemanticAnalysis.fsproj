@@ -27,6 +27,8 @@
     <Compile Include="TastLower.fs" />
     <Compile Include="TastConvert.fs" />
     <Compile Include="ExternalSymbols.fs" />
+    <Compile Include="ExternalSymbolProviders.fs" />
+    <Compile Include="BuiltinTypes.fs" />
     <Compile Include="VesperLib\Manifest.fs" />
     <Compile Include="VesperLib\TyparCapture.fs" />
     <Compile Include="VesperLib\TypeTranslate.fs" />
@@ -35,7 +37,9 @@
     <Compile Include="ConformancePass.fs" />
     <Compile Include="ConformanceTypars.fs" />
     <Compile Include="Intrinsics.fs" />
-    <Compile Include="SideTables.fs" />
+    <Compile Include="TypeInfos.fs" />
+    <Compile Include="TypeRegistry.fs" />
+    <Compile Include="PassContext.fs" />
     <Compile Include="StringLiterals.fs" />
     <Compile Include="Inline.fs" />
     <Compile Include="Passes\Attributes.fs" />

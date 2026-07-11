@@ -211,39 +211,23 @@ module JsNativeSymbols =
         | Some(ExternalTypeShape.Class shape) -> shape.Members |> Array.filter (fun m -> m.Name = memberName)
         | _ -> [||]
 
-    /// The layer-2 provider for JS-native runtime types.
+    /// The layer-2 provider for JS-native runtime types — a by-name leaf;
+    /// `ofNamedLeaf` derives the store face, so the two faces cannot drift.
     let provider: IExternalSymbolProvider =
-        { new IExternalSymbolProvider
-
-          interface IExternalSymbolResolver with
-              member _.TryLookup _ = ValueNone
-
-              member _.TryLookupType(name: string) =
-                  match Map.tryFind name types with
-                  | Some s -> ValueSome s
-                  | None -> ValueNone
-
-              member _.TryLookupUnionCase _ = ValueNone
-              member _.AmbientOpenPrefixes = []
-          interface IExternalSymbolStore with
-              member _.TryLookupType(key: SymbolKey) =
-                  match Map.tryFind (SymbolKeyOps.qualifiedName key) types with
-                  | Some s -> ValueSome s
-                  | None -> ValueNone
-
-              member _.TryLookupMember(key, memberName) =
-                  match membersOf (SymbolKeyOps.qualifiedName key) memberName with
-                  | [||] -> ValueNone
-                  | arr -> ValueSome arr.[0]
-
-              member _.TryLookupMembers(key, memberName) =
-                  membersOf (SymbolKeyOps.qualifiedName key) memberName
-
-              member _.TryLookupIndexSignature _ = []
-              member _.TryLookupInlineBody _ = ValueNone
-              member _.IntrinsicReverseCanon = Map.empty
-              member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
-        }
+        ExternalSymbolProviders.ofNamedLeaf
+            { ExternalSymbolProviders.NamedLeaf.empty with
+                TryLookupType =
+                    fun name ->
+                        match Map.tryFind name types with
+                        | Some s -> ValueSome s
+                        | None -> ValueNone
+                TryLookupMember =
+                    fun (typeName, memberName) ->
+                        match membersOf typeName memberName with
+                        | [||] -> ValueNone
+                        | arr -> ValueSome arr.[0]
+                TryLookupMembers = fun (typeName, memberName) -> membersOf typeName memberName
+            }
 
     /// The JS-native layer-2 leaf factory: the JS-native tail instead of BCL reflection,
     /// so `Vesper.Exceptions` contract types resolve through `exn`'s `(# "Error" #)` repr

@@ -181,3 +181,15 @@ module SymbolKeyOps =
     /// self-type signatures projected by name; test-helper constructors; the
     /// MetadataSymbols/contract scrapes that have only a compiled name).
     let qualifiedTypeKey (compiled: string) (arity: int) : SymbolKey = qualifiedTypeKeyOf None compiled arity
+
+    /// The store-face LOOKUP key for a fully-qualified COMPILED name held as a
+    /// string (a platform repr, a fixed printf-sink name, a codegen bridge name).
+    /// The single home for the mint's two invariants: arity 0 is lossless because
+    /// a compiled generic name already carries its `` `N `` suffix (`arityName` is
+    /// a no-op on a suffixed name), and the key is asm-blind BY DESIGN — store
+    /// lookup is addressed by `(ns, arity-name)` and never consults `asm` at all
+    /// (`qualifiedName`, which every store face projects through, discards it), so
+    /// an asm-blind key answers exactly the entries an asm-carrying one does. Use
+    /// this, not `qualifiedTypeKey <name> 0`, wherever a bare compiled-name string
+    /// must reach the key-addressed store face.
+    let lookupKeyOfCompiledName (compiled: string) : SymbolKey = qualifiedTypeKeyOf None compiled 0

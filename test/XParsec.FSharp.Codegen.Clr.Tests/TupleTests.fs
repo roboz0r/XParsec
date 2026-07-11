@@ -21,7 +21,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 let private ownIntrinsics = Map [ "int", "System.Int32"; "string", "System.String" ]
 
 let private provider () =
-    ClrProvider(MetadataContext(), ownIntrinsics, Map.empty, ExternalSymbols.nullProvider, "TupleTest")
+    ClrProvider(MetadataContext(), ownIntrinsics, Map.empty, ExternalSymbolProviders.nullProvider, "TupleTest")
 
 let private ftConst (name: string) =
     FTConst(RuntimeNames.primitiveKey name, EqArray.empty)

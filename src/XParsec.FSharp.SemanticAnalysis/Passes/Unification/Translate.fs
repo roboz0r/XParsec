@@ -114,6 +114,65 @@ module internal UnificationTranslate =
         | true, (canon :: _) -> TyConst(canon, args)
         | _ -> TyClass(SymbolKeyOps.externalTypeKey info.Origin compiled arity, args)
 
+    /// DEBUG-only witness for a DOTTED written head whose store-face read yielded no
+    /// type. A dotted name can never be project-local (local types are single-segment),
+    /// so it is external or unknown — and because the read side has no by-name
+    /// fallback, a defect here degrades to a free `TyVar` that unifies with anything,
+    /// surfacing as a baffling error (or wrong codegen) far from the cause. This fails
+    /// loudly at the cause instead, discriminating the two ways the read can miss:
+    ///
+    /// - **No stamp at all**, yet the resolver CAN resolve the spelling — the stamping
+    ///   walk failed to reach this syntax position.
+    /// - **Stamped, but the store cannot serve the key** — NameResolution's mint and
+    ///   the store face disagree on identity, so the round-trip the whole boundary
+    ///   rests on is broken for this key.
+    ///
+    /// A stamp the store DOES serve but whose shape declines to build a type
+    /// (`ExternalTypeShape.Opaque` — a body-less residue with no kind to resolve an
+    /// annotation to) is NOT a defect: the walk reached the node and the store answered.
+    /// The `TyVar` fallback is the designed outcome there, so the witness stays silent.
+    ///
+    /// The probes are resolver-face / store-face reaches sanctioned as diagnostics only:
+    /// their results are never used to resolve, and Release builds compile them out.
+    let private assertNoDottedStampGap
+        (ctx: PassContext)
+        (nodeKey: NodeKey)
+        (li: LongIdent<SyntaxToken>)
+        (arity: int)
+        : unit =
+#if DEBUG
+        if li.Idents.Length > 1 then
+            let name = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
+
+            match ctx.Resolution.ResolvedTypeHead.TryGetValue nodeKey with
+            | ValueNone ->
+                match NameResolutionTypeHeadStamp.tryResolveExternalTypeKey ctx name arity with
+                | ValueSome key ->
+                    failwithf
+                        "NameResolution stamping gap: dotted type head '%s' (arity %d) resolves externally to %s but carries no ResolvedTypeHead stamp — a stamping walk missed this syntax position"
+                        name
+                        arity
+                        (SymbolKeyOps.qualifiedName key)
+                | ValueNone -> ()
+            | ValueSome stamped ->
+                match ctx.Provider.TryLookupType stamped with
+                | ValueNone ->
+                    failwithf
+                        "External identity round-trip broken: dotted type head '%s' (arity %d) is stamped %s, but the store face cannot serve that key — NameResolution's mint and the store disagree"
+                        name
+                        arity
+                        (SymbolKeyOps.qualifiedName stamped)
+                // Served, but the shape declined to build (an `Opaque` residue, or an
+                // arity the shape does not carry). The walk reached the node and the
+                // store answered — the `TyVar` fallback is by design.
+                | ValueSome _ -> ()
+#else
+        ignore ctx
+        ignore nodeKey
+        ignore li
+        ignore arity
+#endif
+
     /// Reads `ctx.Resolution.TyparScope` for `'a` typar resolution; callers open a
     /// fresh scope per signature (binding or type defn) before walking.
     /// Bare references to generic named types back-fill the arg list with
@@ -171,18 +230,20 @@ module internal UnificationTranslate =
             // a written annotation reads the STAMPED external head (store face). The
             // head key comes from `CstKeys.ofTypeHead` — the SAME derivation
             // NameResolution stamped with — so the two faces agree by construction.
-            let headKey = (CstKeys.ofTypeHead t).Value.Key
+            let headKey = CstKeys.typeHeadKey t
 
             resolveBareTypeName ctx li.Idents.[0] (fun _name -> tryResolveExternalTypeStamped ctx headKey EqArray.empty)
         | Type.NamedType li ->
             // Multi-segment named type (`System.Text.StringBuilder`). Project-local
             // types are single-segment, so a dotted name is either external or
             // unknown; read the stamped head before the catch-all TyVar.
-            let headKey = (CstKeys.ofTypeHead t).Value.Key
+            let headKey = CstKeys.typeHeadKey t
 
             match tryResolveExternalTypeStamped ctx headKey EqArray.empty with
             | ValueSome ty -> ty
-            | ValueNone -> TyVar(freshTyVar ctx)
+            | ValueNone ->
+                assertNoDottedStampGap ctx headKey li 0
+                TyVar(freshTyVar ctx)
         | Type.GenericType(longIdent = li; typeArgs = args) when
             li.Idents.Length = 1
             && args.Length = 1
@@ -218,11 +279,10 @@ module internal UnificationTranslate =
                 // Resolve the carrier (`float`) BY NAME rather than fabricating a
                 // `Type.NamedType li` node and re-entering `translateType`: the carrier
                 // is SYNTHESIZED here, so NameResolution never walked it and no stamp
-                // exists — a store-face read would miss it. This and the
-                // expression-position `tryResolveExternalNominal` ctor probe are the only
-                // two by-name reaches left in Unification: heads with no `Type` node to
-                // carry a stamp. Every WRITTEN annotation is stamped upstream and reads
-                // the store face through `tryResolveExternalTypeStamped`, which has no
+                // exists — a store-face read would miss it. This is the ONLY by-name
+                // reach left in Unification: the one head with no `Type` node to carry
+                // a stamp. Every WRITTEN annotation is stamped upstream and reads the
+                // store face through `tryResolveExternalTypeStamped`, which has no
                 // by-name fallback.
                 tv.Link <-
                     ValueSome(
@@ -235,7 +295,7 @@ module internal UnificationTranslate =
         | Type.GenericType(longIdent = li; typeArgs = args) when li.Idents.Length = 1 ->
             let nameTok = li.Idents.[0]
             let name = ctx.NameOf nameTok
-            let diagKey = (CstKeys.ofTypeHead t).Value.Key
+            let diagKey = CstKeys.typeHeadKey t
 
             let translatedArgs =
                 EqArray.ofSeq (
@@ -265,18 +325,20 @@ module internal UnificationTranslate =
                     }
                 )
 
-            let headKey = (CstKeys.ofTypeHead t).Value.Key
+            let headKey = CstKeys.typeHeadKey t
 
             match tryResolveExternalTypeStamped ctx headKey translatedArgs with
             | ValueSome ty -> ty
-            | ValueNone -> TyVar(freshTyVar ctx)
+            | ValueNone ->
+                assertNoDottedStampGap ctx headKey li translatedArgs.Length
+                TyVar(freshTyVar ctx)
         | Type.SuffixedType(baseType = baseTy; longIdent = li) when li.Idents.Length = 1 ->
             // Postfix generic syntax: `'T list` ≡ `list<'T>`. Multi-arg
             // postfix forms (`(int, string) Map`) parse the base as a tuple
             // and fall to the single-arg arity diagnostic — out of scope for v1.
             let nameTok = li.Idents.[0]
             let name = ctx.NameOf nameTok
-            let diagKey = (CstKeys.ofTypeHead t).Value.Key
+            let diagKey = CstKeys.typeHeadKey t
             resolveNamedGeneric ctx diagKey name (EqArray.singleton (translateType ctx baseTy))
         | Type.FunctionType(fromType = from; toType = into) -> TyFun(translateType ctx from, translateType ctx into)
         | Type.TupleType(types = types) -> TyTuple(EqArray.ofSeq (seq { for t in types -> translateType ctx t }))
@@ -344,7 +406,7 @@ module internal UnificationTranslate =
             // No hardcoded `"int" -> BuiltinTypes.tyInt` arms: primitives resolve
             // uniformly through this local check, the external provider
             // (`ExternalTypeShape.Intrinsic` → `TyConst name`), or the opaque fallback
-            // below — all of which yield `TyConst name`, identical to the retired arms.
+            // below — all of which yield `TyConst name`.
             TyConst(TypeRegistry.intrinsicKeyOf ctx.Types name, EqArray.empty)
         else
             match ctx.Types.Abbreviation.TryGetValue name with
@@ -509,44 +571,6 @@ module internal UnificationTranslate =
                         // ignored (matches the bare-name arm).
                         TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
 
-    /// Resolve a named/generic type reference that missed every project-local
-    /// registry against the external provider — the type-annotation analogue of
-    /// `tryExternalTypeReceiver` (which only typed static-member *receivers*, so a
-    /// `(c : EqualityComparer<int>)` annotation used to land as an opaque
-    /// `TyConst`). A short name resolves through `OpenScope` exactly like that
-    /// sibling, so `EqualityComparer<int>` under `open System.Collections.Generic`
-    /// reaches the qualified metadata name. The resolved provider key *is* the
-    /// canonical SemType name — the same name member signatures and list literals
-    /// carry — so the annotation unifies with the resolved receiver type. Both the
-    /// metadata (BCL) layer and the contract layer now key generic types by their
-    /// arity-suffixed name (`` EqualityComparer`1 `` / `` Vesper.Choice`2 ``), so a
-    /// type name overloaded by arity stays unambiguous; the suffixed form is probed
-    /// first (then the bare name, for arity-0 types) and the hit's key becomes the
-    /// SemType name. An arity-mismatched hit is rejected (a generic type
-    /// referenced at the wrong arity isn't this type, and guards the abbrev/record
-    /// builders against a wrong-length arg array). An external abbreviation is
-    /// *dealiased* to its (already-frozen) body here (the `Abbrev` arm below),
-    /// exactly as the producer inlines it — `mkNominal`'s `Abbrev` arm
-    /// (`VesperLib/TypeTranslate.fs`) `substituteDeclaring`-expands an abbrev named in
-    /// a contract body. So an abbrev never survives as a nominal identity in either
-    /// direction: the underlying body is what unifies and what the IL encoder keys on
-    /// (`int32` ⇒ `int`), and there is no surviving abbrev key to carry — the sole
-    /// opens-sensitive reach for an abbrev, as for every nominal, is the single
-    /// `TryLookupType` probe that fetches the shape.
-    // The resolved shape's syntactic arity — the guard both resolution faces apply
-    // so a generic type referenced at the wrong arity isn't mistaken for this type
-    // (and the abbrev/record builders get a right-length arg array).
-    and private shapeArity (shape: ExternalTypeShape) : int =
-        match shape with
-        | ExternalTypeShape.Class info -> info.Arity
-        | ExternalTypeShape.Intrinsic s -> s.Id.Arity
-        | ExternalTypeShape.IntrinsicInterface s -> s.Arity
-        | ExternalTypeShape.Enum _ -> 0 // enums are never generic
-        | ExternalTypeShape.Record(arity = a)
-        | ExternalTypeShape.Union(arity = a)
-        | ExternalTypeShape.Abbrev(arity = a)
-        | ExternalTypeShape.Opaque(arity = a) -> a
-
     /// Build the annotation `SemType` from a resolved external shape + its matched
     /// compiled name. Shared by both resolution faces (the stamped store-face read
     /// and the by-name resolver read), so the identity a written type annotation
@@ -577,9 +601,8 @@ module internal UnificationTranslate =
         | ExternalTypeShape.Intrinsic s -> Some(TyConst(s.Id.Canon, translatedArgs))
         // A source-written platform repr with a harvested non-interface
         // canon (`System.Exception` → `exn`, `System.Object` → `obj`,
-        // `System.Int32` → `int`) resolves to the canon `TyConst` (the
-        // reverse-map bridge is retired); capability INTERFACES keep
-        // their `TyClass` form. See `externalClassTy`.
+        // `System.Int32` → `int`) resolves to the canon `TyConst`; capability
+        // INTERFACES keep their `TyClass` form. See `externalClassTy`.
         | ExternalTypeShape.Class info -> Some(externalClassTy ctx compiled info arity translatedArgs)
         // A capability interface (`disposable`) is a `TyClass` CONSTRAINT — its
         // value identity key is origin-homed exactly as a `Class`'s (the reverse
@@ -618,14 +641,34 @@ module internal UnificationTranslate =
         // `TyRecord` placeholder goes through `mkNominal`, not here.
         | ExternalTypeShape.Opaque _ -> None
 
-    /// The store-face read of a written external type head — the resolve-once
-    /// boundary's type-annotation half (`docs/name-resolution-boundary-plan.md`).
-    /// NameResolution resolved this head's spelling (opens-aware, at its syntactic
-    /// arity) and stamped its `SymbolKey` into `ResolvedTypeHead` keyed by the `Type`
-    /// node's `NodeKey`; we fetch the shape through the key-addressed store face
-    /// (`ctx.Provider.TryLookupType`). `qualifiedName` recovers the compiled name the
-    /// shape builder needs from the stamped key (identity-preserving: the stamp minted
-    /// the key from the same compiled name, so the round-trip is exact).
+    /// Fetch + build from an already-resolved external type identity: the
+    /// key-addressed store-face read shared by every consumer holding a
+    /// NameResolution-minted `SymbolKey` (the stamped annotation path, the by-name
+    /// hatch, and the generic-ctor stamp read), so the `SemType` a resolved head
+    /// yields is minted in exactly one place. `qualifiedName` recovers the compiled
+    /// name the shape builder needs from the key (identity-preserving: the key was
+    /// minted from the same compiled name, so the round-trip is exact). An
+    /// arity-mismatched shape is rejected (a generic type referenced at the wrong
+    /// arity isn't this type, and guards the abbrev/record builders against a
+    /// wrong-length arg array).
+    and tryExternalTypeOfKey
+        (ctx: PassContext)
+        (symKey: SymbolKey)
+        (translatedArgs: EqArray<SemType>)
+        : SemType voption =
+        let arity = translatedArgs.Length
+
+        match ctx.Provider.TryLookupType symKey with
+        | ValueSome shape when shape.Arity = arity ->
+            match buildExternalTy ctx (SymbolKeyOps.qualifiedName symKey) shape arity translatedArgs with
+            | Some ty -> ValueSome ty
+            | None -> ValueNone
+        | _ -> ValueNone
+
+    /// The store-face read of a written external type head. NameResolution resolved
+    /// this head's spelling (opens-aware, at its syntactic arity) and stamped its
+    /// `SymbolKey` into `ResolvedTypeHead` keyed by the `Type` node's `NodeKey`;
+    /// `tryExternalTypeOfKey` fetches the shape through the key-addressed store face.
     ///
     /// This has **no by-name fallback** — every written-annotation head is stamped
     /// upstream, so the annotation path is purely store-face and never reaches
@@ -635,64 +678,34 @@ module internal UnificationTranslate =
     /// ILIntrinsic-body result annotation, and a type header's typar-definition
     /// constraints), so a node it left unstamped is project-local, a bare typar, or
     /// unresolvable — exactly the cases `translateType`'s caller resolves as a local
-    /// shape / `TyVar` / opaque `TyConst`. The two by-name reaches that remain
-    /// (`tryResolveExternalType`) are for heads with NO `Type` node to carry a stamp:
-    /// the `float<m>` measure carrier synthesized during inference, and the
-    /// expression-position `tryResolveExternalNominal` ctor probe.
+    /// shape / `TyVar` / opaque `TyConst`. The one by-name reach that remains
+    /// (`tryResolveExternalType`) is for a head with NO `Type` node to carry a
+    /// stamp: the `float<m>` measure carrier synthesized during inference.
     and private tryResolveExternalTypeStamped
         (ctx: PassContext)
         (nodeKey: NodeKey)
         (translatedArgs: EqArray<SemType>)
         : SemType voption =
-        let arity = translatedArgs.Length
-
         match ctx.Resolution.ResolvedTypeHead.TryGetValue nodeKey with
-        | ValueSome symKey ->
-            match ctx.Provider.TryLookupType symKey with
-            | ValueSome shape when shapeArity shape = arity ->
-                match buildExternalTy ctx (SymbolKeyOps.qualifiedName symKey) shape arity translatedArgs with
-                | Some ty -> ValueSome ty
-                | None -> ValueNone
-            | _ -> ValueNone
+        | ValueSome symKey -> tryExternalTypeOfKey ctx symKey translatedArgs
         | ValueNone -> ValueNone
 
+    /// The sanctioned by-name resolver reach — a written type *spelling* resolved
+    /// through `ctx.Resolver` for a head with no `Type` node to carry a stamp (its
+    /// sole client is the `float<m>` measure carrier synthesized during inference).
+    /// Spelling → key goes through NameResolution's own engine
+    /// (`tryResolveExternalTypeKey` — the one home for opens-aware external-type
+    /// resolution, so the hatch cannot drift from what the stamper would have
+    /// stamped), then the identity builds through the same store-face read the
+    /// stamped path uses.
     and private tryResolveExternalType
         (ctx: PassContext)
         (qualName: string)
         (translatedArgs: EqArray<SemType>)
         : SemType voption =
-        let arity = translatedArgs.Length
-
-        // Metadata keys generic types `Name`arity`; the contract layer keys them
-        // bare. Probe the suffixed form first so it wins when both could match.
-        let keysFor (n: string) : string list =
-            if arity = 0 then
-                [ n ]
-            else
-                [ SymbolKeyOps.arityName n arity; n ]
-
-        let lookup (candidate: string) : SemType voption =
-            let picked =
-                keysFor candidate
-                |> List.tryPick (fun key ->
-                    // The two remaining sanctioned resolver-face reaches in Unification: a
-                    // written type *spelling* resolved through `ctx.Resolver` for a head
-                    // with no `Type` node to carry a stamp — the expression-position
-                    // `tryResolveExternalNominal` ctor probe (`ResizeArray<int>()`) and the
-                    // `float<m>` measure carrier synthesized during inference. Every
-                    // WRITTEN type-annotation head is stamped upstream and read on the
-                    // store face via `tryResolveExternalTypeStamped`, never reaching here.
-                    match ctx.Resolver.TryLookupType key with
-                    | ValueSome shape when shapeArity shape = arity ->
-                        buildExternalTy ctx key shape arity translatedArgs
-                    | _ -> None
-                )
-
-            match picked with
-            | Some ty -> ValueSome ty
-            | None -> ValueNone
-
-        OpenScope.tryResolve ctx.Resolution.OpenScope lookup qualName
+        match NameResolutionTypeHeadStamp.tryResolveExternalTypeKey ctx qualName translatedArgs.Length with
+        | ValueSome symKey -> tryExternalTypeOfKey ctx symKey translatedArgs
+        | ValueNone -> ValueNone
 
     /// Attach to the constrained typar's TyVar through the current
     /// `ctx.Resolution.TyparScope`. Unsupported kinds (Coercion, MemberTrait, etc.) are
@@ -852,13 +865,3 @@ module internal UnificationTranslate =
         match info.Body with
         | ValueSome body -> instantiateMember (info.TypeParams, args) body
         | ValueNone -> TyVar(freshTyVar ctx)
-
-    /// Public entry to the external-type resolver, for the no-`new` external
-    /// generic-class construction probe (`ResizeArray<int>()` →
-    /// `inferExternalGenericCtorApp`). Resolves a written type name + already-
-    /// translated type args to its external nominal `SemType` — a class, or an
-    /// abbreviation expanded to its underlying class (`ResizeArray<int>` →
-    /// `TyClass(System.Collections.Generic.List`1, [int])`) — through the open
-    /// scope. `ValueNone` when the name is not an in-scope external type.
-    let tryResolveExternalNominal (ctx: PassContext) (name: string) (args: EqArray<SemType>) : SemType voption =
-        tryResolveExternalType ctx name args

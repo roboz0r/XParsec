@@ -148,9 +148,11 @@ let tests =
             }
 
             test "manifest interface return freezes to FTClass with the identity-equation key" {
-                // The minted key's `qualifiedName` MUST equal the provider's map key — the
-                // exact string `resolveFieldStep` hands to `TryLookupMember`. Prove it by
-                // reading the key back and confirming the member lookup hits under it.
+                // The frozen `FTClass` key must be servable by the provider's store
+                // face, and its `qualifiedName` must equal the manifest's map key —
+                // the producer-side invariant the provider build (and the store
+                // face's internal name projection) rely on. Prove it by reading the
+                // key back and confirming the key-addressed member lookup hits.
                 match returnOf "makeBox" with
                 | FTClass(key, args) ->
                     Expect.equal
@@ -164,7 +166,7 @@ let tests =
                         (match boxProviderRaw.TryLookupMember(key, "get") with
                          | ValueSome _ -> true
                          | ValueNone -> false)
-                        "the member must resolve under the key's qualifiedName (identity equation)"
+                        "the member must resolve by the frozen key (identity equation)"
                 | other -> failtestf "makeBox return should be FTClass, got %A" other
             }
 

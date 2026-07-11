@@ -436,14 +436,14 @@ module ReferencedProject =
     /// BEHIND explicit `open`s, so an explicit `open` can shadow a prelude
     /// name. The actual
     /// composition / stamping / `IAmbientOpenScope` plumbing is the shared
-    /// `ExternalSymbols.stack` primitive — `wrap` is a 1-source instantiation
+    /// `ExternalSymbolProviders.stack` primitive — `wrap` is a 1-source instantiation
     /// of it with origin stamping.
     let private wrap
         (origin: SymbolOrigin)
         (ambient: string list)
         (inner: IExternalSymbolProvider)
         : IExternalSymbolProvider =
-        ExternalSymbols.stack (ValueSome origin) ambient [ inner ]
+        ExternalSymbolProviders.stack (ValueSome origin) ambient [ inner ]
 
     /// Stand up a referenced project (layer 1) from its `manifest.toml`, with
     /// read access to its dependencies' already-built type shapes
@@ -479,7 +479,7 @@ module ReferencedProject =
         | None -> None
 
     /// A package built by `buildProviderWith`, plus the census the composition-time
-    /// duplicate sweep reads. `DeclaredTypeKeys` are the qualified compiled names of the
+    /// duplicate sweep reads. `DeclaredTypeNames` are the qualified compiled names of the
     /// NOMINAL types this package OWNS (Class/Record/Union/Enum — the shapes that mint a
     /// lookup key and would silently first-hit-shadow a peer package's same-named type).
     /// Intrinsics and capability faces are asm-blind by design (`sameTypeAsmBlind`) and so
@@ -489,7 +489,7 @@ module ReferencedProject =
             Provider: IExternalSymbolProvider
             Diagnostics: (VesperLib.LibFile * string) list
             HomeAssembly: string
-            DeclaredTypeKeys: string list
+            DeclaredTypeNames: string list
         }
 
     let buildProviderWith
@@ -618,16 +618,24 @@ module ReferencedProject =
 
             // The nominal types this package declares (own shapes only — `shapeOf`
             // consults dependency `AmbientShapes` as a fallback but never inserts them
-            // into `TypeShapes`), for the composition-time duplicate sweep.
-            let declaredTypeKeys =
+            // into `TypeShapes`), for the composition-time duplicate sweep. EXHAUSTIVE
+            // over the shape cases so a NEW shape forces an include/exclude decision
+            // here: intrinsics and capability interfaces are asm-blind by design (every
+            // package's `int` is THE `int`, so cross-package repetition is the norm,
+            // not a collision); an `Abbrev` shadow silently re-points an alias and an
+            // `Opaque` shadow hides a residue, so both ARE swept.
+            let declaredTypeNames =
                 [
                     for kv in ctx.TypeShapes do
                         match kv.Value with
                         | ExternalTypeShape.Class _
                         | ExternalTypeShape.Record _
                         | ExternalTypeShape.Union _
-                        | ExternalTypeShape.Enum _ -> yield kv.Key
-                        | _ -> ()
+                        | ExternalTypeShape.Enum _
+                        | ExternalTypeShape.Abbrev _
+                        | ExternalTypeShape.Opaque _ -> yield kv.Key
+                        | ExternalTypeShape.Intrinsic _
+                        | ExternalTypeShape.IntrinsicInterface _ -> ()
                 ]
 
             Ok
@@ -635,7 +643,7 @@ module ReferencedProject =
                     Provider = wrap origin ambient (VesperLib.ExtractCtx.toProvider ctx)
                     Diagnostics = List.ofSeq ctx.Diagnostics
                     HomeAssembly = manifest.Name
-                    DeclaredTypeKeys = declaredTypeKeys
+                    DeclaredTypeNames = declaredTypeNames
                 }
 
     /// Stand up a referenced project in isolation — no dependency shapes in scope
@@ -683,15 +691,16 @@ module ReferencedProject =
         let byPath =
             System.Collections.Generic.Dictionary<string, IExternalSymbolProvider>(System.StringComparer.Ordinal)
 
-        // Composition-time duplicate sweep: a qualified type key owned by two DIFFERENT
-        // peer packages resolves as a silent first-hit shadow (`composite` → `firstHit`),
+        // Composition-time duplicate sweep: a qualified type key declared twice in the
+        // referenced set resolves as a silent first-hit shadow (`composite` → `firstHit`),
         // so the loser's type is minted a correct key but is unreachable by lookup. Refuse
-        // the ambiguity here — a CS0433-equivalent — rather than let it shadow. Keyed by the
-        // qualified compiled name; the home assembly disambiguates a genuine collision (two
-        // packages) from a package that legitimately re-lists a dependency's name (same home,
-        // which `shapeOf` does not produce here anyway). The package-vs-metadata-tail overlap
-        // is NOT swept (the BCL/native tail is not enumerable) — that case is diagnosed lazily
-        // downstream, per the boundary plan.
+        // the ambiguity here — a CS0433-equivalent. ANY second sighting is a collision:
+        // one package never declares a key twice (`TypeShapes` is a map), so a repeat is
+        // either two peer packages sharing a namespace+name, or two copies/versions of
+        // one package (same `manifest.Name` at different paths) — both are exactly the
+        // shadowing this sweep exists to refuse, so no home-assembly comparison waives
+        // either. The package-vs-metadata-tail overlap is NOT swept (the BCL/native
+        // tail is not enumerable) — that case is diagnosed lazily downstream.
         let seenTypeHomes =
             System.Collections.Generic.Dictionary<string, string>(System.StringComparer.Ordinal)
 
@@ -711,7 +720,9 @@ module ReferencedProject =
             // with the reverse map of the deps built so far so a dependency's BCL member
             // sigs canonicalize during extraction.
             let depComposite =
-                ExternalSymbols.composite (depProviders @ metaTail (ExternalSymbols.mergeReverseCanon depProviders))
+                ExternalSymbolProviders.composite (
+                    depProviders @ metaTail (ExternalSymbolProviders.mergeReverseCanon depProviders)
+                )
 
             let ambientShapes = (fun (name: string) -> depComposite.TryLookupType name)
 
@@ -724,16 +735,20 @@ module ReferencedProject =
 
             match buildProviderWith target ambientShapes depAmbientPrefixes path with
             | Ok bp ->
-                for typeKey in bp.DeclaredTypeKeys do
-                    match seenTypeHomes.TryGetValue typeKey with
+                for typeName in bp.DeclaredTypeNames do
+                    match seenTypeHomes.TryGetValue typeName with
                     | true, otherHome when otherHome <> bp.HomeAssembly ->
                         failwithf
                             "The type '%s' exists in both '%s' and '%s'. A referenced package set must declare each type once; reference only one of the two packages."
-                            typeKey
+                            typeName
                             otherHome
                             bp.HomeAssembly
-                    | true, _ -> ()
-                    | false, _ -> seenTypeHomes.[typeKey] <- bp.HomeAssembly
+                    | true, _ ->
+                        failwithf
+                            "The type '%s' is declared twice by package '%s' — the referenced set contains two copies (or versions) of it. Reference the package once."
+                            typeName
+                            bp.HomeAssembly
+                    | false, _ -> seenTypeHomes.[typeName] <- bp.HomeAssembly
 
                 built.Add bp.Provider
                 byPath.[key] <- bp.Provider
@@ -742,7 +757,7 @@ module ReferencedProject =
         // The final composite's leaf IS seeded with the full harvested reverse map, so a
         // consumer's BCL member sigs canonicalize (`System.Int32 → int`).
         let builtList = List.ofSeq built
-        ExternalSymbols.composite (builtList @ metaTail (ExternalSymbols.mergeReverseCanon builtList))
+        ExternalSymbolProviders.composite (builtList @ metaTail (ExternalSymbolProviders.mergeReverseCanon builtList))
 
     /// `composeOrdered` over a raw manifest set, ordering it (and computing each
     /// package's transitive `depends-on` closure) via `buildClosureWithDeps`. A cycle

@@ -66,7 +66,10 @@ module internal FreezeResolve =
     /// PRESENCE is the "head names a constructible external type" verdict, mirroring
     /// Unification's `tryInferExternalCtorApp` / `tryInferExternalGenericCtorApp` — a
     /// `TypeApp` head's receiver carries the stamp, so peeling to the inner head finds
-    /// it. The returned name is DIAGNOSTIC ONLY: both backends resolve the
+    /// it. Presence suffices WITHOUT a shape check because Freeze runs after
+    /// Unification: a stamped head that is not actually constructible (a generic
+    /// union/record receiver) already failed inference, so it never reaches a
+    /// well-typed lowering. The returned name is DIAGNOSTIC ONLY: both backends resolve the
     /// construction by the node's result-type `SymbolKey` (`TExpr.New`'s `ty`), never
     /// this string — so no abbreviation expansion is needed here, the node's `ty`
     /// already carries the expanded underlying class (`ResizeArray<'T>` → `List\`1`)
@@ -443,21 +446,21 @@ module internal FreezeResolve =
 
     /// DU ctor reference (`Circle`, `Result2.Ok`, or an external `Some` / `None`),
     /// returning the case name. Excludes local bindings whose names happen to
-    /// match a ctor — they have a `Binding` entry. An external case is recognised
-    /// through the provider's reverse index; the case name alone is returned (the
-    /// CtorRef arms read the declaring union off the node's resolved `TyUnion`
-    /// type), so the local and external paths emit `TExpr.UnionCons` identically
-
+    /// match a ctor — they have a `Binding` entry. An external case is read from
+    /// NameResolution's `ExternalUnionCaseStamp` (keyed by this expression node);
+    /// the case name alone is returned (the CtorRef arms read the declaring union
+    /// off the node's resolved `TyUnion` type), so the local and external paths
+    /// emit `TExpr.UnionCons` identically.
     let private tryCtorRef (ctx: PassContext) (e: Expr<SyntaxToken>) : string voption =
         let key = CstKeys.ofExpr e
 
         if ctx.Bindings.Binding.ContainsKey key then
             ValueNone
         else
-            // A local *or* external union declares `n` as a case. The external leg
-            // is read from NameResolution's stamp (keyed by this expression node);
-            // a bare reference to an RQA external case is never stamped — only its
-            // qualified form (the length-2 arms below) is a ctor ref.
+            // A local *or* external union declares this node's name as a case. The
+            // external leg is the stamp's presence; a bare reference to an RQA
+            // external case is never stamped — only its qualified form (the
+            // length-2 arms below) is a ctor ref.
             let isCase (n: string) =
                 ctx.Types.CtorIndex.ContainsKey n
                 || ctx.Resolution.ExternalUnionCaseStamp.ContainsKey key

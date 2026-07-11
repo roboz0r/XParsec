@@ -47,7 +47,7 @@ let private builtProvider =
 let private libWithIntrinsics =
     lazy
         (let libProvider, _ = builtProvider.Value
-         ExternalSymbols.composite [ libProvider; realProvider.Value ])
+         ExternalSymbolProviders.composite [ libProvider; realProvider.Value ])
 
 [<Tests>]
 let tests =

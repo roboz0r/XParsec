@@ -140,7 +140,7 @@ module EmitJsContext =
             match ctx.Provider with
             | ValueNone -> ValueNone
             | ValueSome provider ->
-                match ExternalSymbols.tryLookupType provider key with
+                match provider.TryLookupType key with
                 | ValueSome(ExternalTypeShape.Union(_, cases, _, _)) ->
                     let baseName = SymbolKeyOps.simpleName key
 

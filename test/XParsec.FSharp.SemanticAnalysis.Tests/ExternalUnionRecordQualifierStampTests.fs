@@ -22,55 +22,25 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// resolves only under an explicit `open Other`). No union case ever resolves, so a
 /// qualified tail is always an unresolved member.
 let private provider: IExternalSymbolProvider =
-    { new IExternalSymbolProvider
+    ExternalSymbolProviders.ofNamedLeaf
+        { ExternalSymbolProviders.NamedLeaf.empty with
+            TryLookupType =
+                fun n ->
+                    match n with
+                    | "Tests.Colour" -> ValueSome(ExternalTypeShape.Union(0, [||], [||], SymbolOrigin.Empty))
+                    | "Other.Palette" -> ValueSome(ExternalTypeShape.Union(0, [||], [||], SymbolOrigin.Empty))
+                    | "Tests.Widget" -> ValueSome(ExternalTypeShape.Record(0, [||], SymbolOrigin.Empty))
+                    | "Tests.Gadget" ->
+                        ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, SymbolOrigin.Empty)))
+                    | _ -> ValueNone
+            AmbientOpenPrefixes = [ "Tests" ]
+        }
 
-      interface IExternalSymbolResolver with
-          member _.TryLookup _ = ValueNone
-
-          member _.TryLookupType(n: string) =
-              match n with
-              | "Tests.Colour" -> ValueSome(ExternalTypeShape.Union(0, [||], [||], SymbolOrigin.Empty))
-              | "Other.Palette" -> ValueSome(ExternalTypeShape.Union(0, [||], [||], SymbolOrigin.Empty))
-              | "Tests.Widget" -> ValueSome(ExternalTypeShape.Record(0, [||], SymbolOrigin.Empty))
-              | "Tests.Gadget" ->
-                  ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, SymbolOrigin.Empty)))
-              | _ -> ValueNone
-
-          member _.TryLookupUnionCase _ = ValueNone
-          member _.AmbientOpenPrefixes = [ "Tests" ]
-      interface IExternalSymbolStore with
-          member _.TryLookupType(_: SymbolKey) = ValueNone
-          member _.TryLookupMember(_, _) = ValueNone
-          member _.TryLookupMembers(_, _) = [||]
-          member _.TryLookupIndexSignature _ = []
-          member _.TryLookupInlineBody _ = ValueNone
-          member _.IntrinsicReverseCanon = Map.empty
-          member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
-    }
-
-let private analyse (input: string) : PassContext * ImplementationFile<SyntaxToken> =
-    let lexed, file = parseFile input
-    let ctx = PassContext(provider, input, lexed)
-    Desugar.run ctx file
-    NameResolution.run ctx file
-    ctx, file
-
-/// The RHS expression of the file's first `let` binding.
-let private firstBindingExpr (file: ImplementationFile<SyntaxToken>) : Expr<SyntaxToken> =
-    CstWalk.implFileElems file
-    |> Seq.pick (fun m ->
-        match m with
-        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) when bindings.Length > 0 ->
-            Some bindings.[0].expr
-        | _ -> None
-    )
+let private analyse (input: string) = analyseNameRes provider input
 
 /// Run every pass so the member-miss diagnostic (raised in Unification) fires.
 let private diagnose (input: string) : PassContext =
-    let lexed, file = parseFile input
-    let ctx = PassContext(provider, input, lexed)
-    Desugar.run ctx file
-    NameResolution.run ctx file
+    let ctx, file = analyseNameRes provider input
     Unification.run ctx file
     ctx
 

@@ -120,18 +120,26 @@ module internal UnificationInferCtor =
         // type" error; a self-host compile of the contract itself has no provider
         // shape and errors the same way.
         | TyConst(canonKey, tyArgs) ->
-            // Type-position resolution: `new T(…)`'s written type `t` lives in a `Type`
-            // node Unification does not traverse, so NameResolution's dedicated
-            // `new`-head resolve stamped the written platform CLASS (opens-aware,
-            // Class-only) into `ResolvedType`, keyed by this `Expr.New` node. A stamped
-            // key means the WRITTEN head named a metadata class — the deliberate opt-in
-            // to the platform's wider ctor catalogue (`new System.Exception(msg, inner)`
-            // canonicalizes to the same `TyConst` but the written head reaches the
-            // metadata ctors); the `.ctor` lookup off it is key-addressed. No stamp
-            // means a heritable-primitive canon head (`new exn "boom"`) whose
-            // constructible surface is the CONTRACT `.ctor` set riding the intrinsic
-            // shape.
-            match ctx.Resolution.ResolvedType.TryGetValue key with
+            // The written head canonicalized to an intrinsic `TyConst`, but a written
+            // PLATFORM spelling (`new System.Exception(msg, inner)`) still names the
+            // metadata class — the deliberate opt-in to the platform's wider ctor
+            // catalogue. NameResolution stamped every written head's identity into
+            // `ResolvedTypeHead`, so read the head's stamp and confirm the CLASS shape
+            // by key (the stamp is any-shape: a canon spelling like `new exn "boom"`
+            // stamps its intrinsic identity, which must fall to the contract
+            // constructible-surface path below, not the metadata catalogue).
+            let stampedClassKey =
+                match CstKeys.ofTypeHead t with
+                | ValueSome head ->
+                    match ctx.Resolution.ResolvedTypeHead.TryGetValue head.Key with
+                    | ValueSome symKey ->
+                        match ctx.Provider.TryLookupType symKey with
+                        | ValueSome(ExternalTypeShape.Class _) -> ValueSome symKey
+                        | _ -> ValueNone
+                    | ValueNone -> ValueNone
+                | ValueNone -> ValueNone
+
+            match stampedClassKey with
             | ValueSome declTypeKey -> inferExternalCtorOn infer ctx key declTypeKey tyArgs receiverTy argExpr
             | ValueNone ->
                 match ExternalSymbols.tryIntrinsicClass ctx.Provider canonKey with
@@ -276,9 +284,9 @@ module internal UnificationInferCtor =
     /// parameterless ctor. The pinned class then drives `inferExternalCtorOn`'s
     /// overload pick (so `List()` vs `List(IEnumerable<int>)` resolves) and gives
     /// Freeze/codegen the `tyArgs` to emit `newobj List`1<!!T>::.ctor()`. A *local*
-    /// generic class (`Box<int>(x)`) isn't an in-scope external type, so the resolver
-    /// returns `ValueNone` and this declines — the local path (`inferTypeApp`'s
-    /// nominal-unify arm) handles it.
+    /// generic class (`Box<int>(x)`) isn't an in-scope external type, so its head
+    /// carries no `ResolvedType` stamp and this declines — the local path
+    /// (`inferTypeApp`'s nominal-unify arm) handles it.
     and tryInferExternalGenericCtorApp
         (infer: Infer)
         (ctx: PassContext)
@@ -288,31 +296,35 @@ module internal UnificationInferCtor =
         : SemType voption =
         match fn with
         | Expr.TypeApp(expr = headExpr; types = tyArgs) ->
-            let headName =
+            // A head shadowed by a local binding is never external construction —
+            // the stamp is minted opens-aware from the spelling alone, so the
+            // local-binder guard must stay on the read side.
+            let headUnbound =
                 match headExpr with
-                | Expr.Ident tok when not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken tok NodeKind.ExprIdent)) ->
-                    ValueSome(ctx.NameOf tok)
-                | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+                | Expr.Ident tok -> not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken tok NodeKind.ExprIdent))
+                | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
                     li.Idents.Length >= 1
                     && not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent))
-                    ->
-                    ValueSome(li.Idents |> Seq.map ctx.NameOf |> String.concat ".")
-                | _ -> ValueNone
+                | _ -> false
 
-            match headName with
-            | ValueNone -> ValueNone
-            | ValueSome name ->
-                let explicit = EqArray.ofSeq (seq { for t in tyArgs -> translateType ctx t })
+            if not headUnbound then
+                ValueNone
+            else
+                // NameResolution's TypeApp visit resolved receiver+arity together and
+                // stamped the head's `ResolvedType` (any shape, exact arity — an
+                // abbreviation stamps its OWN key). `tryExternalTypeOfKey` fetches the
+                // shape on the store face and expands an abbreviation to its underlying
+                // class (`ResizeArray<int>` → `TyClass(System.Collections.Generic.List`1,
+                // [int])`), so construction proceeds by the resolved class key.
+                match ctx.Resolution.ResolvedType.TryGetValue(CstKeys.ofExpr headExpr) with
+                | ValueSome symKey ->
+                    let explicit = EqArray.ofSeq (seq { for t in tyArgs -> translateType ctx t })
 
-                match tryResolveExternalNominal ctx name explicit with
-                | ValueSome(TyClass(clsKey, args) as receiverTy) ->
-                    // `tryResolveExternalNominal` (the shared type-annotation resolver)
-                    // already expanded any abbreviation (`ResizeArray` → `List`1`) to the
-                    // underlying class key, which the `ResolvedType` stamp does not do —
-                    // so this generic path keeps the type resolver and constructs by its
-                    // resolved `clsKey` directly.
-                    ValueSome(inferExternalCtorOn infer ctx key clsKey args receiverTy argExpr)
-                | _ -> ValueNone
+                    match tryExternalTypeOfKey ctx symKey explicit with
+                    | ValueSome(TyClass(clsKey, args) as receiverTy) ->
+                        ValueSome(inferExternalCtorOn infer ctx key clsKey args receiverTy argExpr)
+                    | _ -> ValueNone
+                | ValueNone -> ValueNone
         | _ -> ValueNone
 
     /// Construction of a *local* generic class/struct through a **secondary**

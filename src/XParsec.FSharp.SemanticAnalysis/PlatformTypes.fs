@@ -34,18 +34,16 @@ module PlatformTypes =
     /// no representation on the compiling target. A generic intrinsic (`'T []`) is
     /// representable structurally regardless of its own `platform` face, so it is
     /// never flagged here (its args are judged by the caller's recursion). Answered by
-    /// the receiver's own resolved `SymbolKey` on the store face
-    /// (`ExternalSymbols.tryLookupType`): the caller holds the key, and a canon intrinsic
-    /// key carries its namespace, so no ambient-prelude re-resolution of a short name is
-    /// needed — the former `tryRuntimeType` over `AmbientOpenPrefixes` downgraded the key
-    /// to a spelling only to resolve it back, a vestigial round-trip.
+    /// the receiver's own resolved `SymbolKey` on the store face: the caller holds the
+    /// key, and a canon intrinsic key carries its namespace, so no ambient-prelude
+    /// re-resolution of a short name is needed.
     ///
     /// A capability interface (`disposable` …) is an `IntrinsicInterface` (CLR) or a plain
     /// interface `Class` (JS) — never an `Intrinsic` — so it is excluded here BY CONSTRUCTION:
     /// an interface has no value representation, so "no platform repr" is correct, not a gap.
     /// Keep this match `Intrinsic`-only — do NOT broaden it to flag interfaces.
     let private isUnrepresentable (ctx: PassContext) (key: SymbolKey) : bool =
-        match ExternalSymbols.tryLookupType ctx.Provider key with
+        match ctx.Provider.TryLookupType key with
         // Scalar or heritable primitive alike — the identity axis is one pattern; only
         // a nullary intrinsic with no repr on this target is unrepresentable.
         | ValueSome(ExternalTypeShape.Intrinsic { Id = { Arity = 0; Platform = None } }) -> true

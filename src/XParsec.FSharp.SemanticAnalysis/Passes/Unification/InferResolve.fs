@@ -87,34 +87,31 @@ module internal UnificationInferResolve =
         | 1 -> TyFun(walkedFields.[0], unionTy)
         | _ -> TyFun(TyTuple(EqArray.ofArray walkedFields), unionTy)
 
-    /// The external union case NameResolution stamped at `key` (a pattern head
-    /// `CstKeys.ofPat` or an expression head `CstKeys.ofExpr`), freshly instantiating
-    /// the declaring union's typars (one TyVar per declared arity, so two uses of `Some`
-    /// don't share a `'a`) and returning the union type plus the per-field types in that
-    /// instantiation — the union to return as the pattern's type, and the field types to
-    /// unify the sub-patterns against. `ValueNone` when NameResolution recognised no
-    /// external case at `key` (the opens / RQA / qualifier discipline lives upstream in
-    /// the stamp, not here — this reads its verdict).
-    let tryExternalCasePattern (ctx: PassContext) (key: NodeKey) : (SemType * SemType[]) voption =
-        match ctx.Resolution.ExternalUnionCaseStamp.TryGetValue key with
-        | ValueSome uc ->
-            let freshArgs = Array.init uc.Arity (fun _ -> TyVar(freshTyVar ctx))
+    /// The union + per-field types of a resolved external case (the payload
+    /// NameResolution stamped in `ExternalUnionCaseStamp`), freshly instantiating
+    /// the declaring union's typars (one TyVar per declared arity, so two uses of
+    /// `Some` don't share a `'a`) — the union to return as the pattern's type, and
+    /// the field types to unify the sub-patterns against. TOTAL: the opens / RQA /
+    /// qualifier discipline lives upstream in the stamp; a caller that holds the
+    /// payload already holds the verdict.
+    let externalCasePattern (ctx: PassContext) (uc: ExternalUnionCase) : SemType * SemType[] =
+        let freshArgs = Array.init uc.Arity (fun _ -> TyVar(freshTyVar ctx))
 
-            let unionTy =
-                TyUnion(SymbolKeyOps.externalTypeKey uc.Origin uc.UnionName uc.Arity, EqArray.ofArray freshArgs)
+        let unionTy =
+            TyUnion(SymbolKeyOps.externalTypeKey uc.Origin uc.UnionName uc.Arity, EqArray.ofArray freshArgs)
 
-            let fields = ExternalSymbols.instantiateCaseFieldTypes uc.Case freshArgs
-            ValueSome(unionTy, fields)
-        | ValueNone -> ValueNone
+        let fields = ExternalSymbols.instantiateCaseFieldTypes uc.Case freshArgs
+        unionTy, fields
 
     /// External (referenced-package) analogue of `ctorType`: build the case
-    /// ctor's function/value type `field… → TyUnion(union, freshArgs)` from
-    /// `tryExternalCasePattern`'s union + field types, reading the case NameResolution
-    /// stamped at the expression head `key`.
+    /// ctor's function/value type `field… → TyUnion(union, freshArgs)` from the
+    /// case NameResolution stamped at the expression head `key`.
     let tryExternalCtorType (ctx: PassContext) (key: NodeKey) : SemType voption =
-        match tryExternalCasePattern ctx key with
+        match ctx.Resolution.ExternalUnionCaseStamp.TryGetValue key with
         | ValueNone -> ValueNone
-        | ValueSome(unionTy, fields) ->
+        | ValueSome uc ->
+            let unionTy, fields = externalCasePattern ctx uc
+
             match fields.Length with
             | 0 -> ValueSome unionTy
             | 1 -> ValueSome(TyFun(fields.[0], unionTy))
@@ -189,20 +186,20 @@ module internal UnificationInferResolve =
     /// NameResolution — the resolve-once layer — classified the qualifier
     /// (opens-aware) and stamped its key in `ExternalUnionRecordQualifier`; this
     /// reads that stamp by node key instead of re-resolving the qualifier through
-    /// the resolver-face `TryLookupType(string)` at inference time. The `(qualifier,
-    /// member)` strings for the message are recovered from the node.
+    /// the resolver-face `TryLookupType(string)` at inference time. The qualifier
+    /// in the message is the stamp's RESOLVED identity (`Vesper.Option`), not the
+    /// re-joined written spelling — the diagnostic names the type the reference
+    /// actually hit; the member name is the written last segment.
     let tryQualifiedExternalMemberMiss (ctx: PassContext) (e: Expr<SyntaxToken>) : (string * string) voption =
         match e with
-        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
-            li.Idents.Length >= 2
-            && ctx.Resolution.ExternalUnionRecordQualifier.ContainsKey(CstKeys.ofExpr e)
-            ->
-            let qualifier =
-                seq { for i in 0 .. li.Idents.Length - 2 -> ctx.NameOf li.Idents.[i] }
-                |> String.concat "."
-
-            let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
-            ValueSome(qualifier, memberName)
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length >= 2 ->
+            match ctx.Resolution.ExternalUnionRecordQualifier.TryGetValue(CstKeys.ofExpr e) with
+            | ValueSome qualifierKey ->
+                let memberName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
+                // `bareName` drops the arity suffix a generic union's key carries
+                // (`Vesper.Option`1` reads as `Vesper.Option` in a user diagnostic).
+                ValueSome(SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName qualifierKey), memberName)
+            | ValueNone -> ValueNone
         | _ -> ValueNone
 
     /// Split a folded static-member LongIdent (`System.Console.Out`) into
@@ -267,35 +264,27 @@ module internal UnificationInferResolve =
     /// receiver (`EqualityComparer<int>` in `EqualityComparer<int>.Default`),
     /// return the declaring type's stamped `SymbolKey` and the raw CST type args
     /// (translation is deferred to the caller). NameResolution's `Expr.TypeApp`
-    /// visit already resolves the receiver at its exact arity (opens-aware) and
-    /// stamps the type key in `ResolvedType`, keyed by the receiver *head* expr; this
-    /// reads that stamp instead of re-running `OpenScope.tryQualify` at inference
-    /// time. v1 handles the `TypeApp` form only; non-generic external static access
-    /// (`System.Console.Out`) folds into a single LongIdent (see
-    /// `tryExternalStaticLongIdent`).
+    /// visit already resolves the receiver at its exact arity (opens-aware) and,
+    /// for a genuine CLASS, stamps the key in `ExternalStaticReceiver`, keyed by
+    /// the receiver *head* expr — class-guaranteed at the writer, so this reads
+    /// the stamp with no shape re-query. A generic union/record/abbrev receiver
+    /// carries no entry and keeps its own path. v1 handles the `TypeApp` form
+    /// only; non-generic external static access (`System.Console.Out`) folds into
+    /// a single LongIdent (see `tryExternalStaticLongIdent`).
     let tryExternalTypeReceiver
         (ctx: PassContext)
         (recv: Expr<SyntaxToken>)
         : (SymbolKey * Type<SyntaxToken> list) voption =
         // The receiver head as written: a single-segment name parses as `Expr.Ident`
         // (`EqualityComparer<int>`), a dotted one as a `LongIdent`
-        // (`System.Collections.Generic.EqualityComparer<int>`). NameResolution stamps
-        // `ResolvedType` at the head expr's `NodeKey`.
+        // (`System.Collections.Generic.EqualityComparer<int>`).
         match recv with
         | Expr.TypeApp(expr = head; types = typeArgs) ->
             match head with
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _)
             | Expr.Ident _ ->
-                match ctx.Resolution.ResolvedType.TryGetValue(CstKeys.ofExpr head) with
-                // The `ResolvedType` stamp is broad (any external type, for the
-                // arity-based diagnostic suppression it also drives); a static-member
-                // receiver dispatches only on a genuine CLASS (as the former
-                // `isExternalClass` filter did), so confirm the shape by key. A generic
-                // union/record/abbrev receiver declines here and keeps its own path.
-                | ValueSome declTypeKey ->
-                    match ctx.Provider.TryLookupType declTypeKey with
-                    | ValueSome(ExternalTypeShape.Class _) -> ValueSome(declTypeKey, List.ofSeq typeArgs)
-                    | _ -> ValueNone
+                match ctx.Resolution.ExternalStaticReceiver.TryGetValue(CstKeys.ofExpr head) with
+                | ValueSome declTypeKey -> ValueSome(declTypeKey, List.ofSeq typeArgs)
                 | ValueNone -> ValueNone
             | _ -> ValueNone
         | _ -> ValueNone

@@ -39,7 +39,7 @@ module JsExternalMembers =
             let origin =
                 match provider with
                 | ValueSome provider ->
-                    match ExternalSymbols.tryLookupType provider key with
+                    match provider.TryLookupType key with
                     | ValueSome(ExternalTypeShape.Union(_, _, _, o))
                     | ValueSome(ExternalTypeShape.Record(_, _, o)) -> o.Assembly
                     | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Assembly
@@ -51,7 +51,7 @@ module JsExternalMembers =
             | None -> failwithf "EmitJs (Step 7): %s has no resolvable home assembly (key %A)" what key
 
     /// The declaring type's `ExternalClassFlags`, resolved through the provider
-    /// (`tryLookupType` → `Class` shape → `Flags`) in ONE lookup — the
+    /// (`TryLookupType` → `Class` shape → `Flags`) in ONE lookup — the
     /// `ExternalMember` dispatch reads `Erased` and `AttachMembers` off the same
     /// result. `ValueNone` when there is no provider or the key names no `Class`
     /// shape; every flag then reads as `false`, so the normal mangled
@@ -73,7 +73,7 @@ module JsExternalMembers =
         match provider with
         | ValueNone -> ValueNone
         | ValueSome provider ->
-            match ExternalSymbols.tryLookupType provider declKey with
+            match provider.TryLookupType declKey with
             | ValueSome(ExternalTypeShape.Class shape) -> ValueSome shape.Flags
             | _ -> ValueNone
 
@@ -88,7 +88,7 @@ module JsExternalMembers =
                 match ft with
                 | FTClass(key, _)
                 | FTUnion(key, _)
-                | FTRecord(key, _) -> ExternalSymbols.tryLookupType provider key
+                | FTRecord(key, _) -> provider.TryLookupType key
                 | FTConst(key, _) -> ExternalSymbols.tryRuntimeType provider (SymbolKeyOps.simpleName key)
                 | _ -> ValueNone
 

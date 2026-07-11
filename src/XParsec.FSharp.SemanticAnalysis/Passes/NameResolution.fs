@@ -458,12 +458,11 @@ module NameResolution =
             | TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(typ = t; objectMembers = oms)) ->
                 stampTypeHeads ctx t
                 // Stamp the impl block's member SIGNATURES too (`member _.MoveNext() : bool`,
-                // `member _.Current : obj`). The body walk stamps their param patterns and
-                // bodies but NOT their return types, and this declared-signature path
-                // previously stamped only the interface `t` — so an interface-impl member's
-                // return-type head (`bool`/`obj`/`unit`/`IEnumerator<'T>`) reached
-                // `ResolvedTypeHead` from neither, and `translateType` fell back to a
-                // spelling resolve.
+                // `member _.Current : obj`): an interface-impl member's return-type head
+                // (`bool`/`obj`/`unit`/`IEnumerator<'T>`) is reachable from NEITHER the
+                // body walk (which stamps its param patterns and body only) NOR the
+                // interface-type stamp above, so it must be stamped here — the read side
+                // has no by-name fallback.
                 match oms with
                 | ValueSome(ObjectMembers(memberDefns = mds)) ->
                     for md in mds do

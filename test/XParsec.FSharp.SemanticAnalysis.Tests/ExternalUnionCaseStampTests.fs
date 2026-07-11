@@ -1,6 +1,5 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.ExternalUnionCaseStampTests
 
-open System.Collections.Generic
 open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
@@ -27,88 +26,45 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// reverse case index NameResolution resolves through; F# gates a bare hit on the
 /// declaring namespace being open (no global reverse case index).
 let private provider: IExternalSymbolProvider =
-    { new IExternalSymbolProvider
+    ExternalSymbolProviders.ofNamedLeaf
+        { ExternalSymbolProviders.NamedLeaf.empty with
+            TryLookupUnionCase =
+                fun caseName ->
+                    let mk union name =
+                        ValueSome
+                            {
+                                UnionName = union
+                                Arity = 0
+                                Origin = SymbolOrigin.Empty
+                                Case = ExternalCaseShape.create (name, [||])
+                                IsRequireQualifiedAccess = false
+                            }
 
-      interface IExternalSymbolResolver with
-          member _.TryLookup _ = ValueNone
-          member _.TryLookupType(_: string) = ValueNone
+                    match caseName with
+                    | "Blue" -> mk "Tests.Hue" "Blue"
+                    | "Green" -> mk "Other.Shade" "Green"
+                    | _ -> ValueNone
+            AmbientOpenPrefixes = [ "Tests" ]
+        }
 
-          member _.TryLookupUnionCase caseName =
-              let mk union name =
-                  ValueSome
-                      {
-                          UnionName = union
-                          Arity = 0
-                          Origin = SymbolOrigin.Empty
-                          Case = ExternalCaseShape.create (name, [||])
-                          IsRequireQualifiedAccess = false
-                      }
+let private analyse (input: string) = analyseNameRes provider input
 
-              match caseName with
-              | "Blue" -> mk "Tests.Hue" "Blue"
-              | "Green" -> mk "Other.Shade" "Green"
-              | _ -> ValueNone
+/// Every sub-pattern node of `p`, `p` first — the SAME `CstWalk.iterPat`
+/// recursion the stamping walk uses, so a stamp missed on any position the
+/// walker reaches surfaces here by construction.
+let private patNodes (p: Pat<SyntaxToken>) : Pat<SyntaxToken> list =
+    let acc = ResizeArray<Pat<SyntaxToken>>()
 
-          member _.AmbientOpenPrefixes = [ "Tests" ]
-      interface IExternalSymbolStore with
-          member _.TryLookupType(_: SymbolKey) = ValueNone
-          member _.TryLookupMember(_, _) = ValueNone
-          member _.TryLookupMembers(_, _) = [||]
-          member _.TryLookupIndexSignature _ = []
-          member _.TryLookupInlineBody _ = ValueNone
-          member _.IntrinsicReverseCanon = Map.empty
-          member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
-    }
+    CstWalk.iterPat
+        {
+            VisitPat =
+                fun _ pat ->
+                    acc.Add pat
+                    true
+        }
+        p
 
-let private analyse (input: string) : PassContext * ImplementationFile<SyntaxToken> =
-    let lexed, file = parseFile input
-    let ctx = PassContext(provider, input, lexed)
-    Desugar.run ctx file
-    NameResolution.run ctx file
-    ctx, file
-
-/// Every sub-pattern node of `p`, `p` first (the same exhaustive recursion the
-/// stamping walk uses, so a stamp missed on any position surfaces here).
-let rec private patNodes (p: Pat<SyntaxToken>) : Pat<SyntaxToken> list =
-    p
-    :: (
-        match p with
-        | Pat.Named(argumentPats = args)
-        | Pat.OpNamed(argumentPats = args) ->
-            [
-                for sub in args do
-                    yield! patNodes sub
-            ]
-        | Pat.NamedFieldPats(args = args) ->
-            [
-                for a in args do
-                    match a with
-                    | UnionArgPat.Named(pat = sub)
-                    | UnionArgPat.Positional(pat = sub) -> yield! patNodes sub
-            ]
-        | Pat.EnclosedBlock(pat = inner)
-        | Pat.Typed(pat = inner)
-        | Pat.Attributed(pat = inner)
-        | Pat.As(pat = inner)
-        | Pat.TypeTestAs(pat = inner)
-        | Pat.Optional(pat = inner) -> patNodes inner
-        | Pat.Tuple(patterns = pats)
-        | Pat.StructTuple(patterns = pats)
-        | Pat.Elems(pats = pats) ->
-            [
-                for sub in pats do
-                    yield! patNodes sub
-            ]
-        | Pat.Record(fieldPats = fieldPats) ->
-            [
-                for FieldPat(pat = sub) in fieldPats do
-                    yield! patNodes sub
-            ]
-        | Pat.Cons(head = h; tail = t)
-        | Pat.Or(left = h; right = t)
-        | Pat.And(left = h; right = t) -> patNodes h @ patNodes t
-        | _ -> []
-    )
+    List.ofSeq acc
 
 /// Every pattern node reachable in `file` — module-let heads/args plus the patterns
 /// entering scope in lambda / for-in / match-arm bodies.
@@ -116,9 +72,8 @@ let private allPats (file: ImplementationFile<SyntaxToken>) : Pat<SyntaxToken> l
     let acc = ResizeArray<Pat<SyntaxToken>>()
     let add (p: Pat<SyntaxToken>) = acc.AddRange(patNodes p)
 
-    let walker: CstWalk.ExprWalker<unit> =
-        {
-            Visit = fun () _ -> ()
+    let walker =
+        { CstWalk.identityExprWalker with
             EnterFun =
                 fun () pats ->
                     (for p in pats do
@@ -131,7 +86,6 @@ let private allPats (file: ImplementationFile<SyntaxToken>) : Pat<SyntaxToken> l
                 fun () bindings ->
                     (for b in bindings do
                         add b.headPat)
-            EnterForTo = fun () _ -> ()
             EnterForIn = fun () p -> add p
             EnterMatchArm = fun () p -> add p
         }

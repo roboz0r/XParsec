@@ -548,19 +548,20 @@ module UnificationEngineCore =
             | true, platform -> platform
             | _ -> n
 
-    /// Resolve a *receiver* type to the external `(qualifiedPlatformName, typeArgs)`
-    /// a provider member lookup keys on: a non-project-local `TyClass` (a BCL /
-    /// contract class), or an *intrinsic* `TyConst` whose `(# "…" #)` binding gives
-    /// its platform type name (`intrinsicPlatformName`, via `prim-types-*.fs`).
-    /// `ValueNone` for a project-local class (which routes through
-    /// `resolveLocalInstanceMember`), an array (`"[]"`), or byref (`"byref"`) — each
-    /// keeps its own path. Shared by the dot-access resolver
-    /// (`resolveFieldStep`) and the arg-aware external instance-method probe so
-    /// neither re-derives the receiver→platform-name mapping.
-    let tryExternalReceiver (ctx: PassContext) (ty: SemType) : struct (string * EqArray<SemType>) voption =
+    /// Resolve a *receiver* type to the external `(SymbolKey, typeArgs)` a provider
+    /// member lookup keys on: a non-project-local `TyClass` (a BCL / contract
+    /// class) passes its resolved key through UNCHANGED, and an *intrinsic*
+    /// `TyConst` whose `(# "…" #)` binding gives its platform type name
+    /// (`intrinsicPlatformName`, via `prim-types-*.fs`) mints the lookup key from
+    /// that repr HERE, once — consumers never see the string. `ValueNone` for a
+    /// project-local class (which routes through `resolveLocalInstanceMember`), an
+    /// array (`"[]"`), or byref (`"byref"`) — each keeps its own path. Shared by
+    /// the dot-access resolver (`resolveFieldStep`) and the arg-aware external
+    /// instance-method probe so neither re-derives the receiver→key mapping.
+    let tryExternalReceiver (ctx: PassContext) (ty: SemType) : struct (SymbolKey * EqArray<SemType>) voption =
         match resolveStep ty with
         | TyClass(clsKey, typeArgs) when (TypeRegistry.tryClassByKey ctx.Types clsKey).IsNone ->
-            ValueSome(struct (SymbolKeyOps.qualifiedName clsKey, typeArgs))
+            ValueSome(struct (clsKey, typeArgs))
         // A structural constructor (`'T []`/`byref`) is a generic intrinsic whose
         // `platform` repr (`"!0[]"`) is an IL/codegen artefact, NOT a nominal receiver
         // key — its members ride dedicated backend paths, so honour the documented
@@ -572,7 +573,7 @@ module UnificationEngineCore =
             let platformQual = intrinsicPlatformName ctx key
 
             if platformQual <> name then
-                ValueSome(struct (platformQual, typeArgs))
+                ValueSome(struct (SymbolKeyOps.lookupKeyOfCompiledName platformQual, typeArgs))
             else
                 ValueNone
         | _ -> ValueNone
@@ -712,15 +713,15 @@ module UnificationEngineCore =
                     let key =
                         // `n` is an already-qualified interface compiled name harvested off
                         // the resolved shape — not a source spelling — so the store face
-                        // answers it by key directly (asm-blind mint; opens don't apply).
-                        match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKey n 0) with
+                        // answers it by key directly (opens don't apply).
+                        match ctx.Provider.TryLookupType(SymbolKeyOps.lookupKeyOfCompiledName n) with
                         | ValueSome(ExternalTypeShape.Class ifaceShape) ->
                             SymbolKeyOps.externalTypeKey ifaceShape.Origin n ta.Length
                         // A surfaced capability interface is origin-homed exactly as a `Class`,
                         // so its key compares equal to the resolution-time `TyClass`.
                         | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
                             SymbolKeyOps.externalTypeKey iface.Origin n ta.Length
-                        | _ -> SymbolKeyOps.qualifiedTypeKey n 0
+                        | _ -> SymbolKeyOps.lookupKeyOfCompiledName n
 
                     TyClass(key, EqArray.ofArray ta)
                 )

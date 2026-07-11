@@ -286,6 +286,16 @@ module CstKeys =
                 }
         | _ -> ValueNone
 
+    /// The head `NodeKey` of a type that syntactically HAS a head — the total
+    /// projection of `ofTypeHead` for a call site already inside a
+    /// `NamedType`/`GenericType`/`SuffixedType` match arm, so the guarantee is
+    /// local to the arm rather than a bare `.Value` whose crash would point
+    /// nowhere. A headless shape here is an invariant break: fail with the shape.
+    let typeHeadKey (ty: Type<SyntaxToken>) : NodeKey =
+        match ofTypeHead ty with
+        | ValueSome head -> head.Key
+        | ValueNone -> failwithf "CstKeys.typeHeadKey: type node carries no resolvable head: %A" ty
+
     /// A binding's identity is its headPat's NodeKey — that's the pattern
     /// that introduced the name(s) being bound.
     let ofBinding (b: Binding<SyntaxToken>) : NodeKey = ofPat b.headPat

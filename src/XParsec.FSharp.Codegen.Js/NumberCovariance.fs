@@ -44,4 +44,5 @@ module NumberCovariance =
                 | Variance.Contra -> ValueSome t
             | _ -> ValueNone
 
-        inner |> ExternalSymbols.mapProviderTypes (FrozenType.mapVariant resolveNumber)
+        inner
+        |> ExternalSymbolProviders.mapProviderTypes (FrozenType.mapVariant resolveNumber)

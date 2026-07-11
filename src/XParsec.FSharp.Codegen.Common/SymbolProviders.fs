@@ -320,34 +320,30 @@ module SymbolProviders =
             System.StringComparer.Ordinal
         )
 
-    /// Wrap `inner` to serve cross-package inline bodies. `byKey` (resolved
-    /// `SymbolKey`) is the sole channel: every splice-eligible `External` head is
-    /// key-stamped upstream, so a keyless head carries no body by construction.
+    /// Serve cross-package inline bodies over `inner`. `byKey` (resolved `SymbolKey`)
+    /// is the sole inline channel: every splice-eligible `External` head is key-stamped
+    /// upstream, so a keyless head carries no body by construction.
+    ///
+    /// An inline-only leaf composed OVER `inner`, not a hand-written decorator: every
+    /// other channel misses on the leaf and falls through, so this states the ONE
+    /// channel it overrides instead of restating the other eleven — and a channel added
+    /// to the contract does not have to be re-forwarded here.
     let private withInlineBodies
         (inner: IExternalSymbolProvider)
         (byKey: System.Collections.Generic.Dictionary<SymbolKey, InlineBody>)
         : IExternalSymbolProvider =
-        { new IExternalSymbolProvider
-
-          interface IExternalSymbolResolver with
-              member _.TryLookup name = inner.TryLookup name
-              member _.TryLookupType(name: string) = inner.TryLookupType name
-              member _.TryLookupUnionCase c = inner.TryLookupUnionCase c
-              member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
-          interface IExternalSymbolStore with
-              member _.TryLookupType(key: SymbolKey) = inner.TryLookupType key
-              member _.TryLookupMember(k, m) = inner.TryLookupMember(k, m)
-              member _.TryLookupMembers(k, m) = inner.TryLookupMembers(k, m)
-              member _.TryLookupIndexSignature k = inner.TryLookupIndexSignature k
-
-              member _.TryLookupInlineBody key =
-                  match byKey.TryGetValue key with
-                  | true, v -> ValueSome v
-                  | _ -> ValueNone
-
-              member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
-              member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
-        }
+        ExternalSymbolProviders.composite
+            [
+                ExternalSymbolProviders.ofNamedLeaf
+                    { ExternalSymbolProviders.NamedLeaf.empty with
+                        TryLookupInlineBody =
+                            fun key ->
+                                match byKey.TryGetValue key with
+                                | true, v -> ValueSome v
+                                | _ -> ValueNone
+                    }
+                inner
+            ]
 
     /// Build and cache the provider stack + inline bodies for a manifest set.
     /// The raw `Map` is exposed via `contractInlineBodies` for tests.
@@ -407,7 +403,10 @@ module SymbolProviders =
                          // `MemberKey` here — that would risk key disagreement.
                          for mb in memberInlines do
                              match
-                                 provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey mb.TypeName 0, mb.MemberName)
+                                 provider.TryLookupMember(
+                                     SymbolKeyOps.lookupKeyOfCompiledName mb.TypeName,
+                                     mb.MemberName
+                                 )
                              with
                              | ValueSome mem -> byKey.[mem.Key] <- mb.Body
                              | ValueNone -> ()

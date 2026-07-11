@@ -20,7 +20,7 @@ module internal UnificationInferRecordAccess =
 
     /// A member named `memberName` on an *intrinsic* receiver (`TyConst`) whose
     /// `(# "…" #)` binding canonicalises to a BCL type (`tryExternalReceiver`).
-    /// Yields the canonical BCL name, the receiver's type args, and the single-
+    /// Yields the declaring type's key, the receiver's type args, and the single-
     /// pick member — so the consuming arm resolves the member without re-running
     /// the canonicalisation or the provider lookup. Declines (the arm falls
     /// through to the array / other `TyConst` cases) when the receiver isn't an
@@ -30,13 +30,11 @@ module internal UnificationInferRecordAccess =
         (ctx: PassContext)
         (memberName: string)
         (ty: SemType)
-        : struct (string * EqArray<SemType> * ExternalMember) voption =
+        : struct (SymbolKey * EqArray<SemType> * ExternalMember) voption =
         match tryExternalReceiver ctx ty with
-        | ValueSome(clsQual, args) ->
-            // `clsQual` is a canonicalised BCL spelling (from `tryExternalReceiver`), not a
-            // stamped key — mint an asm-blind key to reach the key-addressed store face.
-            match ctx.Provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey clsQual 0, memberName) with
-            | ValueSome m -> ValueSome(struct (clsQual, args, m))
+        | ValueSome(declKey, args) ->
+            match ctx.Provider.TryLookupMember(declKey, memberName) with
+            | ValueSome m -> ValueSome(struct (declKey, args, m))
             | ValueNone -> ValueNone
         | ValueNone -> ValueNone
 
@@ -419,7 +417,7 @@ module internal UnificationInferRecordAccess =
         // picked arg-aware earlier by `tryInferExternalInstanceMethodCall`. A
         // member-name miss declines the pattern, so arrays (`"[]"`) / byref
         // (`"byref"`) — and any unknown member — fall through to the arms below.
-        | IntrinsicBclMember ctx memberName (clsQual, args, m) ->
+        | IntrinsicBclMember ctx memberName (declKey, args, m) ->
             if not m.IsStatic then
                 let memberSig = ExternalSymbols.openSignature m (args.AsSpan().ToArray())
 
@@ -436,7 +434,10 @@ module internal UnificationInferRecordAccess =
 
                 memberSig
             else
-                errorTy ctx diagKey (sprintf "Type '%s' has no instance member '%s'" clsQual memberName)
+                errorTy
+                    ctx
+                    diagKey
+                    (sprintf "Type '%s' has no instance member '%s'" (SymbolKeyOps.qualifiedName declKey) memberName)
         | TyArray _ when memberName = "Length" ->
             match ctx.CoreAccess.Value.GetArrayLength with
             | ValueSome sym ->
@@ -538,8 +539,8 @@ module internal UnificationInferRecordAccess =
         // `ITuple.get_Item : obj`) — detect it from the resolved signature so the
         // unify RHS (and Freeze's lowering) match. A project-local class, an
         // intrinsic array, or a still-free receiver keeps the `GetArray` path.
-        let resolveExternalIndexer (clsQual: string) (clsArgs: SemType[]) (accessorName: string) : SemType voption =
-            match ctx.Provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey clsQual 0, accessorName) with
+        let resolveExternalIndexer (declKey: SymbolKey) (clsArgs: SemType[]) (accessorName: string) : SemType voption =
+            match ctx.Provider.TryLookupMember(declKey, accessorName) with
             | ValueSome m when not m.IsStatic ->
                 let memberSig = ExternalSymbols.openSignature m clsArgs
 
@@ -580,8 +581,8 @@ module internal UnificationInferRecordAccess =
         // `getArrayIndex` attempts. `GetIndex`'s scheme is `'T -> 'K -> 'V` with three
         // INDEPENDENT typars, so unifying it against `recv -> idx -> result` alone leaves
         // `'V` free — the declared key/value are pinned separately from the provider entry.
-        let tryIndexSignature (clsQual: string) (clsArgs: SemType[]) : SemType voption =
-            match ctx.Provider.TryLookupIndexSignature(SymbolKeyOps.qualifiedTypeKey clsQual 0) with
+        let tryIndexSignature (declKey: SymbolKey) (clsArgs: SemType[]) : SemType voption =
+            match ctx.Provider.TryLookupIndexSignature declKey with
             | [] -> ValueNone
             | entries ->
                 // Realise each entry's key/value template against the receiver's args
@@ -642,13 +643,12 @@ module internal UnificationInferRecordAccess =
 
         match resolveStep recvTy with
         | TyClass(clsKey, clsArgs) when (TypeRegistry.tryClassByKey ctx.Types clsKey).IsNone ->
-            let clsQual = SymbolKeyOps.qualifiedName clsKey
             let clsArgsArr = clsArgs.AsSpan().ToArray()
 
-            match tryIndexSignature clsQual clsArgsArr with
+            match tryIndexSignature clsKey clsArgsArr with
             | ValueSome resultTy -> resultTy
             | ValueNone ->
-                match resolveExternalIndexer clsQual clsArgsArr "get_Item" with
+                match resolveExternalIndexer clsKey clsArgsArr "get_Item" with
                 | ValueSome resultTy -> resultTy
                 | ValueNone -> getArrayIndex ()
         // A rank-1 array `'T[]` (a bare `TyConst("[]", [elem])`, NOT a `TyClass`) reads
@@ -663,7 +663,12 @@ module internal UnificationInferRecordAccess =
         // disagreement) — falls back to the free `GetArray` path UNCHANGED, so nothing
         // regresses if resolution doesn't hit.
         | TyArray elem ->
-            match resolveExternalIndexer RuntimeNames.arrayContractName [| elem |] "get_Item" with
+            match
+                resolveExternalIndexer
+                    (SymbolKeyOps.lookupKeyOfCompiledName RuntimeNames.arrayContractName)
+                    [| elem |]
+                    "get_Item"
+            with
             | ValueSome resultTy -> resultTy
             | ValueNone -> getArrayIndex ()
         | _ ->
@@ -673,8 +678,8 @@ module internal UnificationInferRecordAccess =
             // `"string"`, so `tryExternalReceiver` declines), a `string` falls to the
             // `GetString` intrinsic, anything else to `GetArray`.
             match tryExternalReceiver ctx recvTy with
-            | ValueSome(clsQual, clsArgs) ->
-                match resolveExternalIndexer clsQual (clsArgs.AsSpan().ToArray()) "get_Chars" with
+            | ValueSome(declKey, clsArgs) ->
+                match resolveExternalIndexer declKey (clsArgs.AsSpan().ToArray()) "get_Chars" with
                 | ValueSome resultTy -> resultTy
                 | ValueNone -> stringOrArrayIndex ()
             | ValueNone -> stringOrArrayIndex ()

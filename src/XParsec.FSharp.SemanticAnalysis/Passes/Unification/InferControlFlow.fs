@@ -377,7 +377,7 @@ module internal UnificationInferControlFlow =
             // own instantiation (`List`1+Enumerator` over the source's `'T`).
             match ExternalSymbols.openSignature ge srcArgs with
             | TyFun(_, (TyClass(enumKey, enumArgsEq) as enumTy)) ->
-                match ExternalSymbols.tryLookupType ctx.Provider enumKey with
+                match ctx.Provider.TryLookupType enumKey with
                 | ValueSome(ExternalTypeShape.Class enumShape) ->
                     match probeExternalEnumerator ctx enumShape (enumArgsEq.AsSpan().ToArray()) with
                     | ValueSome probe ->
@@ -452,7 +452,7 @@ module internal UnificationInferControlFlow =
                     // `ExternalMemberRefOn`. Local source, external `E`: a local
                     // `GetEnumerator`, external enumerator members.
                     | ValueNone ->
-                        match ExternalSymbols.tryLookupType ctx.Provider enumKey with
+                        match ctx.Provider.TryLookupType enumKey with
                         | ValueSome(ExternalTypeShape.Class enumShape) ->
                             probeExternalEnumerator ctx enumShape (enumArgs.AsSpan().ToArray())
                             |> ValueOption.map (fun probe ->
@@ -619,7 +619,7 @@ module internal UnificationInferControlFlow =
         | TyClass(nameKey, args) when RuntimeNames.matchesKey ctx.CapabilityIds.Enumerable nameKey && args.Length = 1 ->
             ValueSome(args.[0], ForInEnumeratorG.Interface)
         | TyClass(nameKey, args) ->
-            match ExternalSymbols.tryLookupType ctx.Provider nameKey with
+            match ctx.Provider.TryLookupType nameKey with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 let argArr = args.AsSpan().ToArray()
 
@@ -651,7 +651,7 @@ module internal UnificationInferControlFlow =
         // returning the boxing `Interface` enumerator (the union's `GetEnumerator` impl
         // is dispatched through `IEnumerable<'T>` — `List` implements it on both targets).
         | TyUnion(nameKey, args) ->
-            match ExternalSymbols.tryLookupType ctx.Provider nameKey with
+            match ctx.Provider.TryLookupType nameKey with
             | ValueSome(ExternalTypeShape.Union(_, _, interfaces, _)) ->
                 let argArr = args.AsSpan().ToArray()
 

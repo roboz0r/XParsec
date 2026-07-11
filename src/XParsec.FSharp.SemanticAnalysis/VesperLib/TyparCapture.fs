@@ -462,66 +462,58 @@ module VesperLibTyparCapture =
 
                 d :> System.Collections.Generic.IReadOnlyDictionary<_, _>
 
-            { new IExternalSymbolProvider
+            // The extractor's provider is a pure by-name leaf: every channel answers
+            // from an index keyed by the qualified compiled name. `ofNamedLeaf` derives
+            // the key-addressed store face from these SAME functions, so the two
+            // `TryLookupType` faces cannot drift apart.
+            ExternalSymbolProviders.ofNamedLeaf
+                { ExternalSymbolProviders.NamedLeaf.empty with
+                    TryLookup =
+                        fun name ->
+                            match ctx.Symbols.TryGetValue name with
+                            | true, sym -> ValueSome sym
+                            | _ -> ValueNone
+                    TryLookupType =
+                        fun name ->
+                            match ctx.TypeShapes.TryGetValue name with
+                            | true, shape -> ValueSome shape
+                            | _ -> ValueNone
+                    TryLookupUnionCase =
+                        fun caseName ->
+                            match unionCaseIndex.TryGetValue caseName with
+                            | true, hit -> ValueSome hit
+                            | _ -> ValueNone
+                    AmbientOpenPrefixes = List.ofSeq ctx.AutoOpenPrefixes
+                    TryLookupMember =
+                        fun (typeName, memberName) ->
+                            match ctx.TypeMembers.TryGetValue typeName with
+                            | true, members ->
+                                let mutable found = ValueNone
+                                let mutable i = 0
 
-              interface IExternalSymbolResolver with
-                  member _.TryLookup(name) =
-                      match ctx.Symbols.TryGetValue name with
-                      | true, sym -> ValueSome sym
-                      | _ -> ValueNone
+                                while found.IsNone && i < members.Count do
+                                    if members.[i].Name = memberName then
+                                        found <- ValueSome members.[i]
 
-                  member _.TryLookupType(name: string) =
-                      match ctx.TypeShapes.TryGetValue name with
-                      | true, shape -> ValueSome shape
-                      | _ -> ValueNone
+                                    i <- i + 1
 
-                  member _.TryLookupUnionCase caseName =
-                      match unionCaseIndex.TryGetValue caseName with
-                      | true, hit -> ValueSome hit
-                      | _ -> ValueNone
-
-                  member _.AmbientOpenPrefixes = List.ofSeq ctx.AutoOpenPrefixes
-              interface IExternalSymbolStore with
-                  // Store face: project the resolved key to its qualified name internally
-                  // and answer from the same by-name index the resolver face reads.
-                  member _.TryLookupType(key: SymbolKey) =
-                      match ctx.TypeShapes.TryGetValue(SymbolKeyOps.qualifiedName key) with
-                      | true, shape -> ValueSome shape
-                      | _ -> ValueNone
-
-                  member _.TryLookupMember(key, memberName) =
-                      match ctx.TypeMembers.TryGetValue(SymbolKeyOps.qualifiedName key) with
-                      | true, members ->
-                          let mutable found = ValueNone
-                          let mutable i = 0
-
-                          while found.IsNone && i < members.Count do
-                              if members.[i].Name = memberName then
-                                  found <- ValueSome members.[i]
-
-                              i <- i + 1
-
-                          found
-                      | _ -> ValueNone
-
-                  member _.TryLookupMembers(key, memberName) =
-                      match ctx.TypeMembers.TryGetValue(SymbolKeyOps.qualifiedName key) with
-                      | true, members ->
-                          [|
-                              for m in members do
-                                  if m.Name = memberName then
-                                      m
-                          |]
-                      | _ -> [||]
-
-                  // A `.fsi` contract does not (yet) publish TS index signatures.
-                  member _.TryLookupIndexSignature(_: SymbolKey) = []
-
-                  // The extractor exposes signatures, not spliceable inline bodies —
-                  // those are collected separately and served by the codegen
-                  // contract-stack wrapper that layers over this provider.
-                  member _.TryLookupInlineBody _ = ValueNone
-
-                  member _.IntrinsicReverseCanon = intrinsicReverse
-                  member _.IntrinsicForwardRepr = intrinsicForward
-            }
+                                found
+                            | _ -> ValueNone
+                    TryLookupMembers =
+                        fun (typeName, memberName) ->
+                            match ctx.TypeMembers.TryGetValue typeName with
+                            | true, members ->
+                                [|
+                                    for m in members do
+                                        if m.Name = memberName then
+                                            m
+                                |]
+                            | _ -> [||]
+                    // A `.fsi` contract does not (yet) publish TS index signatures, and
+                    // the extractor exposes signatures rather than spliceable inline
+                    // bodies — those are collected separately and served by the codegen
+                    // contract-stack wrapper layered over this provider. Both channels
+                    // keep `NamedLeaf.empty`'s miss.
+                    IntrinsicReverseCanon = intrinsicReverse
+                    IntrinsicForwardRepr = intrinsicForward
+                }

@@ -8,6 +8,12 @@ open XParsec.FSharp.Parser
 /// Drives short-name resolution: a bare `EqualityComparer` (under
 /// `open System.Collections.Generic`) becomes the qualified
 /// `System.Collections.Generic.EqualityComparer` before a provider probe.
+///
+/// The prefix list is FLAT and kind-blind: it cannot distinguish a type from a
+/// module of the same name, so F#'s type-vs-module shadowing rules are not modelled.
+/// Deliberate — a kind tag (or a real namespace tree) is a large change and nothing
+/// in the corpus forces it yet. TRIGGER: surface the ambiguity as a diagnostic first;
+/// generalise only against a case that actually needs it, not speculatively.
 type OpenScope =
     {
         /// Each entry is a dotted namespace/module prefix (`"System.Collections.Generic"`),
@@ -43,10 +49,18 @@ module OpenScope =
                     yield p + "." + expanded
         ]
 
-    /// Resolve `name` to a value via `lookup`, trying each candidate (§ `candidates`)
+    /// Resolve `name` to a value via `lookup`, trying each candidate (see `candidates`)
     /// in priority order; first hit wins. The value-returning sibling of
     /// `tryQualify`, for the typing sites that need the resolved descriptor, not
     /// just its name.
+    ///
+    /// UNCACHED, on purpose: a per-`PassContext` memo keyed by
+    /// `(OpenScope identity, name)` — file-lifetime — would cover the ENTIRE
+    /// spelling-lookup seam now that the resolver face is the only string surface.
+    /// That is precisely why it should wait: land it against a MEASURED hot path, not
+    /// on principle. Resolution already happens once per written name (NameResolution
+    /// stamps; consumers read keys), so the memo's remaining win is repeated spellings
+    /// within a file, which may not be worth the invalidation surface.
     let tryResolve (scope: OpenScope) (lookup: string -> 'a voption) (name: string) : 'a voption =
         let rec go cs =
             match cs with
@@ -227,6 +241,20 @@ module CstWalk =
             /// Environment a match-arm's guard + body sees. The argument is
             /// the arm's pattern.
             EnterMatchArm: 'env -> Pat<SyntaxToken> -> 'env
+        }
+
+    /// Identity walker: visits every node, changes no environment. Compose with
+    /// `with` to override just the hook(s) a consumer needs — the
+    /// `identityTypeIter` precedent for the expression walk.
+    let identityExprWalker<'env> : ExprWalker<'env> =
+        {
+            Visit = fun _ _ -> ()
+            EnterFun = fun env _ -> env
+            EnterBindingRhs = fun env _ _ _ -> env
+            EnterLetBody = fun env _ -> env
+            EnterForTo = fun env _ -> env
+            EnterForIn = fun env _ -> env
+            EnterMatchArm = fun env _ -> env
         }
 
     /// `Expr.LetOrUse(body = ValueNone)` is `use fixed` — pinning a managed
@@ -474,6 +502,149 @@ module CstWalk =
                 iterExpr walker armEnv body
             | _ -> ()
 
+    /// Every `Type` (and member-signature) node syntactically embedded in ONE
+    /// expression node. Fires `onType` / `onMemberSig` for the node's OWN embedded
+    /// types only: recursion into child *expressions* is `iterExpr`'s job, so
+    /// calling this once per visited node reaches every expression-embedded type
+    /// exactly once. Pattern annotations (`fun` / `match` / `for` binders and a
+    /// binding's `headPat` / argument pats) are a pattern-walk concern and are NOT
+    /// visited here; a binding contributes only its return-type annotation.
+    ///
+    /// Exhaustive over `Expr` with no catch-all — a new parser case fails the
+    /// incomplete-match check HERE, beside `iterExpr`'s, instead of silently going
+    /// unstamped in a consumer whose read side deliberately has no by-name
+    /// fallback (`Translate.tryResolveExternalTypeStamped`).
+    let iterExprEmbeddedTypes
+        (onType: Type<SyntaxToken> -> unit)
+        (onMemberSig: MemberSig<SyntaxToken> -> unit)
+        (e: Expr<SyntaxToken>)
+        : unit =
+        let bindingSig (b: Binding<SyntaxToken>) : unit =
+            match b.returnType with
+            | ValueSome(ReturnType(typ = t)) -> onType t
+            | ValueNone -> ()
+
+        // An object-expression member's *signature* types: a method/property
+        // binding's return annotation, an auto-property's type, an abstract
+        // signature's member sig. Bodies are child expressions (the walker's job);
+        // argument patterns are the pattern walk's.
+        let memberDefnSigs (defns: ImmutableArray<MemberDefn<SyntaxToken>>) : unit =
+            for d in defns do
+                match d with
+                | MemberDefn.Member(defn = mdef) ->
+                    match mdef with
+                    | MethodOrPropDefn.Method(defn = b)
+                    | MethodOrPropDefn.Property(defn = b) -> bindingSig b
+                    | MethodOrPropDefn.PropertyWithGetSet(defns = bs) ->
+                        for b in bs do
+                            bindingSig b
+                    | MethodOrPropDefn.AutoProperty(returnType = rt) ->
+                        match rt with
+                        | ValueSome(ReturnType(typ = t)) -> onType t
+                        | ValueNone -> ()
+                    | MethodOrPropDefn.AbstractSignature(sign = ms) -> onMemberSig ms
+                | MemberDefn.Value _
+                | MemberDefn.AdditionalConstructor _ -> ()
+
+        match e with
+        // No directly-embedded `Type`: leaves, and shapes whose children are
+        // expressions/patterns only.
+        | Expr.Const _
+        | Expr.EmptyBlock _
+        | Expr.LongIdentOrOp _
+        | Expr.OptionalArgExpr _
+        | Expr.Null _
+        | Expr.Wildcard _
+        | Expr.Missing
+        | Expr.SkipsTokens _
+        | Expr.Ident _
+        | Expr.SliceAll _
+        | Expr.String _
+        | Expr.EnclosedBlock _
+        | Expr.DotLookup _
+        | Expr.PrefixApp _
+        | Expr.DynamicLookup _
+        | Expr.ControlFlow _
+        | Expr.SliceFrom _
+        | Expr.SliceTo _
+        | Expr.App _
+        | Expr.HighPrecedenceApp _
+        | Expr.InfixApp _
+        | Expr.Assignment _
+        | Expr.IndexedLookup _
+        | Expr.Tuple _
+        | Expr.StructTuple _
+        | Expr.Sequential _
+        | Expr.TryFinally _
+        | Expr.Range _
+        | Expr.SliceFromTo _
+        | Expr.SteppedRange _
+        | Expr.Fun _
+        | Expr.IfThenElse _
+        | Expr.While _
+        | Expr.ForTo _
+        | Expr.ForIn _
+        | Expr.Match _
+        | Expr.Function _
+        | Expr.TryWith _
+        | Expr.Record _
+        | Expr.RecordClone _
+        | Expr.Pat _ -> ()
+
+        | Expr.New(typ = t)
+        | Expr.TypeAnnotation(typ = t)
+        | Expr.StaticUpcast(typ = t)
+        | Expr.DynamicTypeTest(typ = t)
+        | Expr.DynamicDowncast(typ = t) -> onType t
+
+        // An inline-IL body's result annotation (`(# "…" : T #)`). Its type-arg
+        // slot (`type('T)`) carries raw tokens, not a `Type` node — nothing to
+        // visit there.
+        | Expr.ILIntrinsic(returnType = rt) ->
+            match rt with
+            | ValueSome(ReturnType(typ = t)) -> onType t
+            | ValueNone -> ()
+
+        | Expr.TypeApp(types = types) ->
+            for t in types do
+                onType t
+
+        | Expr.LetOrUse(bindings = bindings) ->
+            for b in bindings do
+                bindingSig b
+
+        // An SRTP member-trait invocation (`((^T): (static member …) args`).
+        | Expr.StaticMemberInvocation(membersign = ms) -> onMemberSig ms
+
+        // A static-optimization clause's tycon-equality constraint names a type on
+        // its RHS (`when ^T : int` / `when ^T : System.DateTime`).
+        | Expr.LibraryOnlyStaticOptimization(constraints = cs) ->
+            for c in cs do
+                match c with
+                | StaticOptimizationConstraint.WhenTyparTyconEqualsTycon(rhsType = rhs) -> onType rhs
+                | StaticOptimizationConstraint.WhenTyparIsStruct _ -> ()
+
+        | Expr.Object(baseCall = baseCall; members = members; interfaceImpls = impls) ->
+            let ctorTy =
+                match baseCall with
+                | BaseCall.AnonBaseCall c
+                | BaseCall.NamedBaseCall(construction = c) ->
+                    match c with
+                    | ObjectConstruction.ObjectConstruction(typ = t)
+                    | ObjectConstruction.InterfaceConstruction(typ = t) -> t
+
+            onType ctorTy
+
+            let (ObjectMembers(memberDefns = memberDefns)) = members
+            memberDefnSigs memberDefns
+
+            for InterfaceImpl.InterfaceImpl(typ = t; objectMembers = objMembers) in impls do
+                onType t
+
+                match objMembers with
+                | ValueSome(ObjectMembers(memberDefns = ds)) -> memberDefnSigs ds
+                | ValueNone -> ()
+
     /// The CST-`Type` analogue of `iterExpr` — the single point where a written
     /// `Type` node's recursion shape is enumerated. `VisitType` fires on every
     /// `Type` node before its children; returning `false` skips the default child
@@ -584,6 +755,69 @@ module CstWalk =
                 iterType it t
 
         iterType it ret
+
+    /// The CST-`Pat` analogue of `iterType` — the single point where a pattern's
+    /// recursion shape is enumerated. `VisitPat` fires on every `Pat` node before
+    /// its children; returning `false` skips the default child recursion.
+    ///
+    /// Case coverage is exhaustive (no `| _ -> ()` catch-all), so a new `Pat` case
+    /// fails the incomplete-match check here rather than silently no-oping in a
+    /// consumer — the same discipline as `iterExpr` / `iterType`. Patterns
+    /// introduce binders but no scopes, so no environment threading is needed.
+    [<NoEquality; NoComparison>]
+    type PatIter =
+        {
+            VisitPat: PatIter -> Pat<SyntaxToken> -> bool
+        }
+
+    let rec iterPat (it: PatIter) (p: Pat<SyntaxToken>) : unit =
+        if it.VisitPat it p then
+            let walk = iterPat it
+
+            match p with
+            | Pat.EnclosedBlock(pat = inner)
+            | Pat.Typed(pat = inner)
+            | Pat.Attributed(pat = inner)
+            | Pat.As(pat = inner)
+            | Pat.Optional(pat = inner)
+            | Pat.TypeTestAs(pat = inner) -> walk inner
+            | Pat.Named(argumentPats = args)
+            | Pat.OpNamed(argumentPats = args) ->
+                for sub in args do
+                    walk sub
+            | Pat.NamedFieldPats(args = args) ->
+                for a in args do
+                    match a with
+                    | UnionArgPat.Named(pat = sub)
+                    | UnionArgPat.Positional(pat = sub) -> walk sub
+            | Pat.Tuple(patterns = pats)
+            | Pat.StructTuple(patterns = pats)
+            | Pat.Elems(pats = pats) ->
+                for sub in pats do
+                    walk sub
+            | Pat.Record(fieldPats = fieldPats) ->
+                for FieldPat(pat = sub) in fieldPats do
+                    walk sub
+            | Pat.Cons(head = a; tail = b)
+            | Pat.Or(left = a; right = b)
+            | Pat.And(left = a; right = b) ->
+                walk a
+                walk b
+            // Leaves: no sub-pattern. `TypeTest` carries a written type but no
+            // inner pattern (a type-reading consumer takes its `typ` in the
+            // visitor); `Pat.Expr` embeds an *expression*, not walked here
+            // (mirroring `iterExpr`'s `Expr.Pat` leaf).
+            | Pat.NamedSimple _
+            | Pat.TypeTest _
+            | Pat.Const _
+            | Pat.EmptyBlock _
+            | Pat.Wildcard _
+            | Pat.Null _
+            | Pat.Op _
+            | Pat.String _
+            | Pat.Expr _
+            | Pat.Missing
+            | Pat.SkipsTokens _ -> ()
 
     /// The module elements an analysis pass walks for an implementation file.
     /// A `namespace`-headed file contributes every group's elements in source
