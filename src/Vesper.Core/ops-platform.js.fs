@@ -57,49 +57,52 @@ namespace Vesper
 module ArithmeticOperators =
 
     /// Overloaded addition. JS `+` is the float base; int32 truncates with `| 0`,
-    /// int64 (BigInt) wraps to 64 bits. The `when ^T : ^T` clause dispatches a
+    /// int64 (BigInt) wraps to 64 bits. The `when ^T1 : ^T1` clause dispatches a
     /// user type to its own `static member (+)` (target-neutral, as in the CLR body).
-    let inline (+) (x: ^T) (y: ^T) : ^T =
-        (# "$0 + $1" x y : ^T #)
-        when ^T: int = (# "($0 + $1) | 0" x y : int #)
-        when ^T: int64 = (# "BigInt.asIntN(64, $0 + $1)" x y : int64 #)
-        when ^T: ^T = (^T: (static member (+): ^T * ^T -> ^T) (x, y))
+    /// The three typars are the `.fsi`'s (`(^T1 or ^T2)` support set), so a
+    /// heterogeneous user operator keeps its operand types distinct through the splice
+    /// — see the CLR body's note.
+    let inline (+) (x: ^T1) (y: ^T2) : ^T3 =
+        (# "$0 + $1" x y : ^T3 #)
+        when ^T1: int and ^T2: int and ^T3: int = (# "($0 + $1) | 0" x y : int #)
+        when ^T1: int64 and ^T2: int64 and ^T3: int64 = (# "BigInt.asIntN(64, $0 + $1)" x y : int64 #)
+        when ^T1: ^T1 = ((^T1 or ^T2): (static member (+): ^T1 * ^T2 -> ^T3) (x, y))
 
     /// Overloaded subtraction. Same shape as `(+)`.
-    let inline (-) (x: ^T) (y: ^T) : ^T =
-        (# "$0 - $1" x y : ^T #)
-        when ^T: int = (# "($0 - $1) | 0" x y : int #)
-        when ^T: int64 = (# "BigInt.asIntN(64, $0 - $1)" x y : int64 #)
-        when ^T: ^T = (^T: (static member (-): ^T * ^T -> ^T) (x, y))
+    let inline (-) (x: ^T1) (y: ^T2) : ^T3 =
+        (# "$0 - $1" x y : ^T3 #)
+        when ^T1: int and ^T2: int and ^T3: int = (# "($0 - $1) | 0" x y : int #)
+        when ^T1: int64 and ^T2: int64 and ^T3: int64 = (# "BigInt.asIntN(64, $0 - $1)" x y : int64 #)
+        when ^T1: ^T1 = ((^T1 or ^T2): (static member (-): ^T1 * ^T2 -> ^T3) (x, y))
 
     /// Overloaded multiplication. int32 uses `Math.imul` (a plain `$0 * $1 | 0`
     /// loses precision before the truncation once the product exceeds 2^53);
     /// int64 wraps the BigInt product. Written `( * )` (spaces required — `(*`
     /// opens a block comment).
-    let inline ( * ) (x: ^T) (y: ^T) : ^T =
-        (# "$0 * $1" x y : ^T #)
-        when ^T: int = (# "Math.imul($0, $1)" x y : int #)
-        when ^T: int64 = (# "BigInt.asIntN(64, $0 * $1)" x y : int64 #)
-        when ^T: ^T = (^T: (static member ( * ): ^T * ^T -> ^T) (x, y))
+    let inline ( * ) (x: ^T1) (y: ^T2) : ^T3 =
+        (# "$0 * $1" x y : ^T3 #)
+        when ^T1: int and ^T2: int and ^T3: int = (# "Math.imul($0, $1)" x y : int #)
+        when ^T1: int64 and ^T2: int64 and ^T3: int64 = (# "BigInt.asIntN(64, $0 * $1)" x y : int64 #)
+        when ^T1: ^T1 = ((^T1 or ^T2): (static member ( * ): ^T1 * ^T2 -> ^T3) (x, y))
 
     /// Overloaded division. int32 truncates toward zero with `| 0` (JS `/` is
     /// always true division); int64 BigInt `/` already truncates toward zero, then
     /// wraps to 64 bits.
-    let inline (/) (x: ^T) (y: ^T) : ^T =
-        (# "$0 / $1" x y : ^T #)
-        when ^T: int = (# "($0 / $1) | 0" x y : int #)
-        when ^T: int64 = (# "BigInt.asIntN(64, $0 / $1)" x y : int64 #)
-        when ^T: ^T = (^T: (static member (/): ^T * ^T -> ^T) (x, y))
+    let inline (/) (x: ^T1) (y: ^T2) : ^T3 =
+        (# "$0 / $1" x y : ^T3 #)
+        when ^T1: int and ^T2: int and ^T3: int = (# "($0 / $1) | 0" x y : int #)
+        when ^T1: int64 and ^T2: int64 and ^T3: int64 = (# "BigInt.asIntN(64, $0 / $1)" x y : int64 #)
+        when ^T1: ^T1 = ((^T1 or ^T2): (static member (/): ^T1 * ^T2 -> ^T3) (x, y))
 
     /// Overloaded remainder. JS `%` is the truncated remainder (sign of the
     /// dividend), matching F#; int32 re-truncates, int64 wraps. The bare `%` rides
     /// through verbatim: a plain/IL-intrinsic string is not a printf format, so the
     /// front end keeps the format-scanned `%` as literal text (`parsePlainStringLiteral`).
-    let inline (%) (x: ^T) (y: ^T) : ^T =
-        (# "$0 % $1" x y : ^T #)
-        when ^T: int = (# "($0 % $1) | 0" x y : int #)
-        when ^T: int64 = (# "BigInt.asIntN(64, $0 % $1)" x y : int64 #)
-        when ^T: ^T = (^T: (static member (%): ^T * ^T -> ^T) (x, y))
+    let inline (%) (x: ^T1) (y: ^T2) : ^T3 =
+        (# "$0 % $1" x y : ^T3 #)
+        when ^T1: int and ^T2: int and ^T3: int = (# "($0 % $1) | 0" x y : int #)
+        when ^T1: int64 and ^T2: int64 and ^T3: int64 = (# "BigInt.asIntN(64, $0 % $1)" x y : int64 #)
+        when ^T1: ^T1 = ((^T1 or ^T2): (static member (%): ^T1 * ^T2 -> ^T3) (x, y))
 
     /// Overloaded unary negation. JS unary `-` is the float base; int32 wraps the
     /// negation (`-(Int32.MinValue)` overflows to itself), int64 wraps the BigInt.

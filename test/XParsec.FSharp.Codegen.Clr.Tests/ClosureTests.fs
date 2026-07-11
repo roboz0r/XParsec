@@ -280,7 +280,7 @@ let tests =
 
         // `Unification.resolveOperatorValues` scans *every* operand for the
         // declaring nominal (F#'s `(^T1 or ^T2)` rule), not just the first.
-        // Until SRTP operand-typar heterogeneity is supported, all-operand scanning
-        // is observationally equivalent to first-operand; the two tests above (both
-        // homogeneous) are the live coverage.
+        // Right-operand-only dispatch does not resolve yet (see that function's TODO),
+        // so all-operand scanning stays observationally equivalent to first-operand; the
+        // two tests above (both homogeneous) are the live coverage.
         ]

@@ -148,7 +148,7 @@ module InlineExpansion =
     /// Recover an inline binding's type arguments at a call site by matching its
     /// declared parameter (and return) types — carrying the quantified typars —
     /// against the actual spine-arg types. Tolerant: a typar the params don't pin
-    /// is left as its own `TyVar` so the catch-all `when ^T : ^T` clause still
+    /// is left as its own `TyVar` so the reflexive `when ^T1 : ^T1` clause still
     /// selects. Returned in `Inline.quantifiedTypars` order. A verbatim port of
     /// `EmitLower.deriveInlineTypeArgs` (`zonk` → `Unification.zonk`,
     /// `typeOfExpr` → `TastWalk.exprTy`).
@@ -171,17 +171,17 @@ module InlineExpansion =
                         match result.[i] with
                         | ValueNone -> result.[i] <- ValueSome act
                         // A later position mapping to the SAME typar can upgrade a
-                        // non-ground candidate to a ground one. A chained `a + b + c`
-                        // matches `^T` first against the inner `(+) a b`-App, whose
-                        // recorded result type is still an abstract `TyVar` at this
-                        // pre-freeze pass; the concrete sibling `c : string` (and the
-                        // application's `string` return position) must be allowed to
-                        // win, or `^T` stays abstract, no `when ^T : string` clause
-                        // selects, and the operator falls to its numeric `add` base —
-                        // emitting `add` on two string references (an AccessViolation
-                        // at runtime). Keeping the first ground match is intentional: a
-                        // genuinely generic `let f a b = a + b` never sees a ground
-                        // candidate, so `^T` stays abstract.
+                        // non-ground candidate to a ground one — so a still-abstract
+                        // operand cannot starve a static-opt clause that a concrete
+                        // SIBLING position would have selected. This only arises where
+                        // one typar spans several positions: the HOMOGENEOUS operators
+                        // (`(=) : ^T -> ^T -> bool`, `(<)`, `hash`) map both operands to
+                        // one slot. The arithmetic family does not — its three typars get
+                        // three independent slots, which is exactly what lets a
+                        // heterogeneous operand pair keep its distinct types.
+                        // Keeping the first ground match is intentional: a genuinely
+                        // generic `let f a b = a = b` never sees a ground candidate, so
+                        // the typar stays abstract and the body falls to its base.
                         | ValueSome prev when not (isGroundType prev) && isGroundType act -> result.[i] <- ValueSome act
                         | ValueSome _ -> ()
                     | None -> ()

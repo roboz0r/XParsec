@@ -9,13 +9,14 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // The arithmetic / unary-negation operator family (`+ - * / %`, `~-`) is now
 // sourced from the `Vesper.Core/ops-platform.fs` contract bodies — the second
 // operator family (after equality) to leave the `Emit.BuiltinOps` stopgap. Each
-// body is an F# static-optimization whose *base* `(# "add" x y : ^T #)` covers
-// every wide signed/float width and whose `when ^T : …` clauses carry the cases
-// that need DIFFERENT IL (narrow-int `conv.*` truncation, unsigned `*.un`). Those
-// clauses return DIFFERENT types (`byte` / `int16` / …) than the declared `^T`,
-// which only type-checks because `inferLibraryOnlyStaticOptimization` no longer
-// cross-unifies clause bodies (the per-clause static-opt return typing fix
-// — arithmetic/bitwise/unary task).
+// binary body carries the three typars its `.fsi` publishes
+// (`x: ^T1 -> y: ^T2 -> ^T3`, support set `(^T1 or ^T2)`) and is an F#
+// static-optimization whose *base* `(# "add" x y : ^T3 #)` covers every wide
+// signed/float width and whose `when ^T1 : … and ^T2 : … and ^T3 : …` clauses carry
+// the cases that need DIFFERENT IL (narrow-int `conv.*` truncation, unsigned
+// `*.un`). Those clauses return DIFFERENT types (`byte` / `int16` / …) than the
+// declared `^T3`, which only type-checks because
+// `inferLibraryOnlyStaticOptimization` no longer cross-unifies clause bodies.
 //
 // This file is the Layer-1 exemplar for docs/codegen-test-strategy-plan.md: the
 // dense `(expr, result)` corpus below is the broad, cheap regression net (it
@@ -116,6 +117,28 @@ let tests =
 
                  Expect.equal exitCode 0 "Main returns 0"
                  Expect.equal (output.Trim()) "1" "byte multiplication wraps mod 256"
+             }
+
+             // A HETEROGENEOUS user operator (`Vec2 * int -> Vec2`): the contract's
+             // `(^T1 or ^T2): (static member ( * ): ^T1 * ^T2 -> ^T3)` admits distinct
+             // operand types, so the `.fs` body must carry the same three typars. A
+             // single-`^T` body folds both operands into one substitution slot, binding
+             // the `int` scale factor into a `Vec2`-typed `let` — a type lie the CLR
+             // rejects.
+             test "a heterogeneous user operator (Vec2 * int -> Vec2) dispatches to its own static member" {
+                 runs
+                     "6"
+                     (String.concat
+                         "\n"
+                         [
+                             "type Vec2(x: int, y: int) ="
+                             "    member this.X = x"
+                             "    member this.Y = y"
+                             "    static member ( * ) (v: Vec2, s: int) : Vec2 = Vec2(v.X * s, v.Y * s)"
+                             "let v = Vec2(2, 3)"
+                             "let r = v * 3"
+                             "printfn \"%d\" r.X"
+                         ])
              }
 
              test "primitive arithmetic pins no FSharp.Core dependency (no runtime library)" {

@@ -124,7 +124,8 @@ module UnificationInfer =
             | Expr.ILIntrinsic(args = args; returnType = rt) -> inferILIntrinsic infer ctx args rt
             | Expr.LibraryOnlyStaticOptimization(expr = baseE; constraints = cs; optimizedExpr = optE) ->
                 inferLibraryOnlyStaticOptimization infer ctx key baseE cs optE
-            | Expr.StaticMemberInvocation(expr = argExpr) -> inferStaticMemberInvocation infer ctx argExpr
+            | Expr.StaticMemberInvocation(membersign = msig; expr = argExpr) ->
+                inferStaticMemberInvocation infer ctx msig argExpr
             | Expr.TypeApp(expr = inner; types = typeArgs) -> inferTypeApp infer ctx key inner typeArgs
             // `recv?name` — dynamic member access, routed through the `op_Dynamic`
             // operator so its `default ^TResult : dynamic` drives target typing.

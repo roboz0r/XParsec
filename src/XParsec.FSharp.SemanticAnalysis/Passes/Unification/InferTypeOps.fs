@@ -97,16 +97,16 @@ module internal UnificationInferTypeOps =
     /// `expr when ^T : Type [and ^U : Type]* = optimizedExpr` — one clause of an
     /// F# library-only static optimization. Type the default `baseE` (its type is
     /// the node's type — the operator's declared result, e.g. `bool` for the
-    /// equality family, `^T` for `(+)`) and type this clause's `optimizedExpr` so
+    /// equality family, `^T3` for `(+)`) and type this clause's `optimizedExpr` so
     /// its own subtree (operands, nested inline IL) is solved.
     ///
     /// The clause body is **NOT** cross-unified with the base. F#'s static-opt
     /// rule is per-clause — "assume the constraint, then check the body against the
-    /// return type": under `when ^T : int` the body's `int` matches the (then-also
-    /// -`int`) declared result `^T`. The earlier blanket `unify baseTy optTy` only
+    /// return type": under `when ^T1 : int …` the body's `int` matches the (then-also
+    /// -`int`) declared result `^T3`. The earlier blanket `unify baseTy optTy` only
     /// happens to work when every clause shares one concrete type (the equality
     /// family's `bool`); it wrongly fuses the distinct clause results of an
-    /// `^T`-returning op — `byte`/`int16`/`^T` for `(+)` — and fails to unify them.
+    /// `^T3`-returning op — `byte`/`int16`/`^T3` for `(+)` — and fails to unify them.
     /// We omit that check (a fully sound version would speculatively unify under
     /// the assumed constraint and undo — out of scope, by the
     /// no-speculative-unification stop); soundness rides on the clause being
@@ -144,19 +144,29 @@ module internal UnificationInferTypeOps =
         ctx.StaticOpt.Set(key, resolved)
         baseTy
 
-    /// `((^T): (static member (+) : ^T * ^T -> ^T) (x, y))` — an SRTP member-trait
-    /// call, only ever the body of a `when ^T : ^T` static-opt clause in a `let inline`
-    /// operator (`ops-platform.fs`). The member is resolved at inline expansion (the
-    /// typar is abstract here), so inference only types the argument tuple and yields
-    /// the member's return type. For the arithmetic operators that is the operand type
-    /// `^T`, recovered from the (tupled) argument; Freeze lowers the node to a
-    /// `TExpr.TraitCall` carrying the operand type + member name.
-    and inferStaticMemberInvocation (infer: Infer) (ctx: PassContext) (argExpr: Expr<SyntaxToken>) : SemType =
-        let argTy = infer ctx argExpr
+    /// `((^T1 or ^T2): (static member (+) : ^T1 * ^T2 -> ^T3) (x, y))` — an SRTP
+    /// member-trait call, only ever the body of a `when ^T1 : ^T1` static-opt clause in
+    /// a `let inline` operator (`ops-platform.fs`). The member is resolved at inline
+    /// expansion (the typars are abstract here), so inference only types the argument
+    /// tuple — so its operand subtrees are solved — and yields the member signature's
+    /// declared RETURN type. That is `^T3`, which for a heterogeneous operator
+    /// (`Vec2 * float -> Vec2`) is neither operand's type; reading it off the first
+    /// argument instead would type the node as `^T1` and Freeze would stamp that wrong
+    /// type onto the `TExpr.TraitCall` it lowers to.
+    and inferStaticMemberInvocation
+        (infer: Infer)
+        (ctx: PassContext)
+        (msig: MemberSig<SyntaxToken>)
+        (argExpr: Expr<SyntaxToken>)
+        : SemType =
+        infer ctx argExpr |> ignore
 
-        match zonk argTy with
-        | TyTuple items when items.Length > 0 -> items.[0]
-        | other -> other
+        // The trait's typars resolve through the enclosing `let inline`'s
+        // `ctx.Resolution.TyparScope`, so `^T3` here IS the binding's declared result
+        // typar — the same root the operator's `: ^T3` return annotation carries.
+        match msig with
+        | MemberSig.MethodOrPropSig(sign = CurriedSig(returnType = ret))
+        | MemberSig.PropSig(sign = CurriedSig(returnType = ret)) -> translateType ctx ret
 
     and inferTypeAnnotation
         (infer: Infer)

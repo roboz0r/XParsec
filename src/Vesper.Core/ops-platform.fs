@@ -13,68 +13,78 @@ open System.Collections.Generic
 // structurally. Inline IL therefore belongs ONLY in a per-primitive clause; a base
 // must be a safe generic default (see `docs/codegen-by-key-plan.md`).
 //
-// Arithmetic (`+ - * / %`): the base `(# "add" x y : ^T #)` covers every wide
+// Arithmetic (`+ - * / %`): the base `(# "add" x y : ^T3 #)` covers every wide
 // signed/float type; sub-`int32` widths add a `conv.*` to truncate the int32-on-stack
 // result, and unsigned `/`/`%` use the `*.un` opcodes.
+//
+// The binary arithmetic operators carry the THREE typars their `.fsi` publishes
+// (`x: ^T1 -> y: ^T2 -> ^T3`, support set `(^T1 or ^T2)`), so a heterogeneous
+// user operator (`Vec2 * float -> Vec2`) keeps its operand types distinct through
+// the splice. A single-`^T` body would fold every operand and the result into ONE
+// substitution slot, binding the right operand's value into a left-operand-typed
+// `let` — a type lie codegen cannot emit.
 
 [<AutoOpen>]
 module ArithmeticOperators =
 
     /// Overloaded addition. The base `(# "add" … #)` covers all wide types;
     /// sub-int32 widths truncate with `conv.*`.
-    let inline (+) (x: ^T) (y: ^T) : ^T =
-        (# "add" x y : ^T #)
-        when ^T: byte = (# "conv.u1" (# "add" x y : int32 #) : byte #)
-        when ^T: sbyte = (# "conv.i1" (# "add" x y : int32 #) : sbyte #)
-        when ^T: int16 = (# "conv.i2" (# "add" x y : int32 #) : int16 #)
-        when ^T: uint16 = (# "conv.u2" (# "add" x y : int32 #) : uint16 #)
+    let inline (+) (x: ^T1) (y: ^T2) : ^T3 =
+        (# "add" x y : ^T3 #)
+        when ^T1: byte and ^T2: byte and ^T3: byte = (# "conv.u1" (# "add" x y : int32 #) : byte #)
+        when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "conv.i1" (# "add" x y : int32 #) : sbyte #)
+        when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "conv.i2" (# "add" x y : int32 #) : int16 #)
+        when ^T1: uint16 and ^T2: uint16 and ^T3: uint16 = (# "conv.u2" (# "add" x y : int32 #) : uint16 #)
         // String concatenation: `add` on string references is a garbage pointer.
-        // The `(# "" … #)` coerces coerce the free `^T` ↔ `string` at extraction
-        // (clause must type-check while `^T` is unpinned; selected only when `string`).
-        when ^T: string =
-            (# "" (System.String.Concat((# "" x: string #), (# "" y: string #))) : ^T #)
-        when ^T: ^T = (^T: (static member (+): ^T * ^T -> ^T) (x, y))
+        // The `(# "" … #)` coercions bridge the free typars ↔ `string` at extraction
+        // (clause must type-check while they are unpinned; selected only when `string`).
+        when ^T1: string and ^T2: string and ^T3: string =
+            (# "" (System.String.Concat((# "" x: string #), (# "" y: string #))) : ^T3 #)
+        // The user-type dispatch clause. Its condition is the reflexive `^T1 : ^T1`
+        // (always true); what actually gates it is the trait call's receiver being a
+        // nominal carrying the member (`Inline.clauseSelected`).
+        when ^T1: ^T1 = ((^T1 or ^T2): (static member (+): ^T1 * ^T2 -> ^T3) (x, y))
 
     /// Overloaded subtraction. `sub` is sign-agnostic; narrow widths need truncation.
-    let inline (-) (x: ^T) (y: ^T) : ^T =
-        (# "sub" x y : ^T #)
-        when ^T: byte = (# "conv.u1" (# "sub" x y : int32 #) : byte #)
-        when ^T: sbyte = (# "conv.i1" (# "sub" x y : int32 #) : sbyte #)
-        when ^T: int16 = (# "conv.i2" (# "sub" x y : int32 #) : int16 #)
-        when ^T: uint16 = (# "conv.u2" (# "sub" x y : int32 #) : uint16 #)
-        when ^T: ^T = (^T: (static member (-): ^T * ^T -> ^T) (x, y))
+    let inline (-) (x: ^T1) (y: ^T2) : ^T3 =
+        (# "sub" x y : ^T3 #)
+        when ^T1: byte and ^T2: byte and ^T3: byte = (# "conv.u1" (# "sub" x y : int32 #) : byte #)
+        when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "conv.i1" (# "sub" x y : int32 #) : sbyte #)
+        when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "conv.i2" (# "sub" x y : int32 #) : int16 #)
+        when ^T1: uint16 and ^T2: uint16 and ^T3: uint16 = (# "conv.u2" (# "sub" x y : int32 #) : uint16 #)
+        when ^T1: ^T1 = ((^T1 or ^T2): (static member (-): ^T1 * ^T2 -> ^T3) (x, y))
 
     /// Overloaded multiplication. Written `( * )` — `(*` opens a block comment.
-    let inline ( * ) (x: ^T) (y: ^T) : ^T =
-        (# "mul" x y : ^T #)
-        when ^T: byte = (# "conv.u1" (# "mul" x y : int32 #) : byte #)
-        when ^T: sbyte = (# "conv.i1" (# "mul" x y : int32 #) : sbyte #)
-        when ^T: int16 = (# "conv.i2" (# "mul" x y : int32 #) : int16 #)
-        when ^T: uint16 = (# "conv.u2" (# "mul" x y : int32 #) : uint16 #)
-        when ^T: ^T = (^T: (static member ( * ): ^T * ^T -> ^T) (x, y))
+    let inline ( * ) (x: ^T1) (y: ^T2) : ^T3 =
+        (# "mul" x y : ^T3 #)
+        when ^T1: byte and ^T2: byte and ^T3: byte = (# "conv.u1" (# "mul" x y : int32 #) : byte #)
+        when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "conv.i1" (# "mul" x y : int32 #) : sbyte #)
+        when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "conv.i2" (# "mul" x y : int32 #) : int16 #)
+        when ^T1: uint16 and ^T2: uint16 and ^T3: uint16 = (# "conv.u2" (# "mul" x y : int32 #) : uint16 #)
+        when ^T1: ^T1 = ((^T1 or ^T2): (static member ( * ): ^T1 * ^T2 -> ^T3) (x, y))
 
     /// Overloaded division. Base is signed `div`; unsigned widths use `div.un`,
     /// sub-int32 widths additionally truncate.
-    let inline (/) (x: ^T) (y: ^T) : ^T =
-        (# "div" x y : ^T #)
-        when ^T: uint32 = (# "div.un" x y : uint32 #)
-        when ^T: uint64 = (# "div.un" x y : uint64 #)
-        when ^T: byte = (# "conv.u1" (# "div.un" x y : int32 #) : byte #)
-        when ^T: sbyte = (# "conv.i1" (# "div" x y : int32 #) : sbyte #)
-        when ^T: int16 = (# "conv.i2" (# "div" x y : int32 #) : int16 #)
-        when ^T: uint16 = (# "conv.u2" (# "div.un" x y : int32 #) : uint16 #)
-        when ^T: ^T = (^T: (static member (/): ^T * ^T -> ^T) (x, y))
+    let inline (/) (x: ^T1) (y: ^T2) : ^T3 =
+        (# "div" x y : ^T3 #)
+        when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "div.un" x y : uint32 #)
+        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "div.un" x y : uint64 #)
+        when ^T1: byte and ^T2: byte and ^T3: byte = (# "conv.u1" (# "div.un" x y : int32 #) : byte #)
+        when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "conv.i1" (# "div" x y : int32 #) : sbyte #)
+        when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "conv.i2" (# "div" x y : int32 #) : int16 #)
+        when ^T1: uint16 and ^T2: uint16 and ^T3: uint16 = (# "conv.u2" (# "div.un" x y : int32 #) : uint16 #)
+        when ^T1: ^T1 = ((^T1 or ^T2): (static member (/): ^T1 * ^T2 -> ^T3) (x, y))
 
     /// Overloaded remainder. Unsigned widths need `rem.un`.
-    let inline (%) (x: ^T) (y: ^T) : ^T =
-        (# "rem" x y : ^T #)
-        when ^T: uint32 = (# "rem.un" x y : uint32 #)
-        when ^T: uint64 = (# "rem.un" x y : uint64 #)
-        when ^T: byte = (# "conv.u1" (# "rem.un" x y : int32 #) : byte #)
-        when ^T: sbyte = (# "conv.i1" (# "rem" x y : int32 #) : sbyte #)
-        when ^T: int16 = (# "conv.i2" (# "rem" x y : int32 #) : int16 #)
-        when ^T: uint16 = (# "conv.u2" (# "rem.un" x y : int32 #) : uint16 #)
-        when ^T: ^T = (^T: (static member (%): ^T * ^T -> ^T) (x, y))
+    let inline (%) (x: ^T1) (y: ^T2) : ^T3 =
+        (# "rem" x y : ^T3 #)
+        when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "rem.un" x y : uint32 #)
+        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "rem.un" x y : uint64 #)
+        when ^T1: byte and ^T2: byte and ^T3: byte = (# "conv.u1" (# "rem.un" x y : int32 #) : byte #)
+        when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "conv.i1" (# "rem" x y : int32 #) : sbyte #)
+        when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "conv.i2" (# "rem" x y : int32 #) : int16 #)
+        when ^T1: uint16 and ^T2: uint16 and ^T3: uint16 = (# "conv.u2" (# "rem.un" x y : int32 #) : uint16 #)
+        when ^T1: ^T1 = ((^T1 or ^T2): (static member (%): ^T1 * ^T2 -> ^T3) (x, y))
 
     /// Overloaded unary negation.
     let inline (~-) (n: ^T) : ^T = (# "neg" n : ^T #)

@@ -1320,19 +1320,22 @@ module Unification =
     /// `Freeze.translateIdent`, which eta-expands the value into a closure calling the
     /// member; no hit ⇒ the built-in / `External` value path is left untouched.
     ///
-    /// TODO(heterogeneous SRTP): scanning every operand is the correct
-    /// F# rule (`(+): ^T1 -> ^T2 -> ^T3 when (^T1 or ^T2): static member (+)`), but it
-    /// is not yet *observable*, because the unifier collapses the three operator typars
-    /// to one — the `(+)` *inline body* (`ops-platform.fs`) is written `^T -> ^T -> ^T`
-    /// (homogeneous) even though its `.fsi` is `^T1 -> ^T2 -> ^T3`, and the
-    /// `default ^T1: ^T3` / `default ^T2: ^T3` chain (`InferGeneralize.applyDefaults`)
-    /// fuses what survives. So a mixed-operand operator can't type at all today
-    /// (`int * V` → `int vs V`). The exemplar to support is fully-generic mixed-type
+    /// TODO(right-operand SRTP dispatch): scanning every operand is the correct
+    /// F# rule (`(+): ^T1 -> ^T2 -> ^T3 when (^T1 or ^T2): static member (+)`), but only
+    /// the LEFT half of it is observable. `ops-platform.fs`'s body now carries the same
+    /// three typars its `.fsi` does, so a heterogeneous operator whose declaring nominal
+    /// is the LEFT operand (`Vec2 * float -> Vec2`) types, splices, and emits. A member
+    /// declared only on the RIGHT operand (`static member (+) (i: int, v: Vector)`) still
+    /// does not resolve: `TExpr.TraitCall` carries ONE receiver (the left operand), so the
+    /// `(^T1 or ^T2)` support set is searched left-only, and the `default ^T1: ^T3` /
+    /// `default ^T2: ^T3` chain (`InferGeneralize.applyDefaults`) then fuses what the
+    /// trait bound did not pin — so `int * Vector` errors `int vs Vector` at unification
+    /// rather than dispatching. The exemplar to support is fully-generic mixed-type
     /// SRTP inlining, e.g. `let inline lerp c p t = t * c + p * (GenericOne - c)`
     /// instantiated at `lerp 0.1f Vector2.Zero Vector2.One` (so `*` is `float32 * Vector2`,
-    /// resolved via `Vector2`'s `op_Multiply`). When the typar collapse is lifted, this
-    /// scan needs no change — the member already resolves off whichever operand declares
-    /// it — so the remaining work is in the SRTP/defaulting layer, not here.
+    /// resolved via `Vector2`'s `op_Multiply`). Carrying a candidate SET on `TraitCall`
+    /// is what buys that; this scan needs no change — the member already resolves off
+    /// whichever operand declares it.
     let private resolveOperatorValues (ctx: PassContext) : unit =
         // The static-operator member declared on the project-local nominal the
         // operand's `TyClass`/`TyUnion` key identifies — returns the declaring type's

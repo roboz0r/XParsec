@@ -197,12 +197,18 @@ module internal FreezeApply =
 
             TExpr.App(fnT, argT, ty, tok)
 
-    /// `((^T): (static member (+) : ^T * ^T -> ^T) (x, y))` — an SRTP member-trait
-    /// call (the body of a `let inline` operator's `when ^T : ^T` static-opt clause,
-    /// `ops-platform.fs`). Lower to a `TExpr.TraitCall` carrying the operand type
-    /// (the operator's `^T`, taken from the first argument), the resolved compiled
-    /// member name, and the peeled arguments. `Inline.substMapper` resolves it to a
-    /// `StaticMethodCall` once `^T` is substituted to a concrete nominal at expansion.
+    /// `((^T1 or ^T2): (static member (+) : ^T1 * ^T2 -> ^T3) (x, y))` — an SRTP
+    /// member-trait call (the body of a `let inline` operator's `when ^T1 : ^T1`
+    /// static-opt clause, `ops-platform.fs`). Lower to a `TExpr.TraitCall` carrying the
+    /// RECEIVER type, the resolved compiled member name, the peeled arguments, and the
+    /// node's own `^T3` result type (which for a heterogeneous operator is neither
+    /// operand's). `Inline.substMapper` resolves it to a `StaticMethodCall` once the
+    /// typars are substituted to concrete types at expansion.
+    ///
+    /// The receiver is the LEFT operand: `TExpr.TraitCall` carries ONE receiver, so the
+    /// `(^T1 or ^T2)` support set is searched left-only. A right-operand-only member
+    /// (`int * Vector -> Vector`) therefore does not resolve — carrying a candidate SET
+    /// is what would buy that.
     let translateStaticMemberInvocation
         (translateExpr: TranslateExpr)
         (ctx: PassContext)
@@ -222,9 +228,9 @@ module internal FreezeApply =
             | ValueNone -> failwithf "Freeze: unsupported static-member-trait operator %A" ident
 
         let args = peelOneArg (translateExpr ctx) argExpr
-        // The trait receiver is the operand type — the operator's `^T` typar, carried
-        // on the first argument. Substitution at expansion rewrites it to the concrete
-        // nominal and this node to a `StaticMethodCall`.
+        // The trait receiver is the LEFT operand's type — the operator's `^T1` typar.
+        // Substitution at expansion rewrites it to the concrete nominal and this node to
+        // a `StaticMethodCall`.
         let receiverTy = if args.Length > 0 then TastWalk.exprTy args.[0] else ty
 
         TExpr.TraitCall(receiverTy, memberName, args, ty, tok)

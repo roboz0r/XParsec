@@ -99,7 +99,7 @@ module Inline =
 
     /// Structural match of two (already typar-substituted) `SemType`s for a
     /// static-optimization `when ^T : Type` clause. `TyVar`s compare by union-find
-    /// root identity — so the catch-all `when ^T : ^T`, whose two sides are the
+    /// root identity — so the reflexive `when ^T1 : ^T1`, whose two sides are the
     /// same typar, matches once both substitute to one concrete type (or, if the
     /// operand type was never pinned, still matches as the generic fall clause).
     /// `TyConst`s compare by canonical primitive name.
@@ -138,7 +138,7 @@ module Inline =
         | _ -> false
 
     /// The declaring `SymbolKey` of a project-local nominal (class / union /
-    /// record) — the operand shape for which F#'s reflexive `when ^T : ^T`
+    /// record) — the operand shape for which F#'s reflexive `when ^T1 : ^T1`
     /// static-optimization condition holds (the type carries its own static
     /// operator member). The single definition of "is a nominal operand", so the
     /// clause-selection gate (`clauseSelected`) and the `TraitCall` resolution
@@ -167,12 +167,13 @@ module Inline =
             | TStaticOptConstraint.TyconEquals(typar, required) -> staticOptTypesMatch (sub typar) (sub required)
             | TStaticOptConstraint.IsStruct typar -> isStructType (sub typar)
 
-        // A clause whose body is an SRTP member-trait call (the operators' `when ^T : ^T`
-        // dispatch clause) additionally requires the substituted operand to be a nominal
-        // carrying that member — F#'s "^T is a nominal type" condition. A primitive
-        // operand therefore skips it and falls through to the operator's primitive
-        // clauses / inline-IL base, while a plain-bodied `^T : ^T` clause (a user catch-all)
-        // stays unconditional.
+        // A clause whose body is an SRTP member-trait call (the operators'
+        // `when ^T1 : ^T1` dispatch clause) additionally requires the substituted
+        // RECEIVER (the left operand) to be a nominal carrying that member — F#'s "^T is
+        // a nominal type" condition. That check, not the reflexive constraint (which is
+        // trivially true), is what actually gates the clause: a primitive operand skips
+        // it and falls through to the operator's primitive clauses / inline-IL base,
+        // while a plain-bodied reflexive clause (a user catch-all) stays unconditional.
         let clauseSelected (cl: TStaticOptClause) =
             (cl.Constraints |> EqArray.forall holds)
             && (
@@ -188,12 +189,14 @@ module Inline =
             | ValueSome cl -> TastWalk.mapExpr m cl.Body
             | ValueNone -> TastWalk.mapExpr m defaultExpr
 
-        // Resolve a `TraitCall` once the trait typar has been substituted to a concrete
-        // nominal: rewrite it to a `StaticMethodCall` on that type's static operator
-        // member. This fires for the `when ^T : ^T` clause body selected by `clauseSelected`
-        // above (so the receiver is always a nominal here, via the SAME `nominalHeadKey`
-        // — class, union, OR record); a non-nominal receiver is left as a substituted
-        // `TraitCall` for a later phase to surface loudly.
+        // Resolve a `TraitCall` once the trait typars have been substituted and the
+        // receiver is a concrete nominal: rewrite it to a `StaticMethodCall` on that
+        // type's static operator member. This fires for the `when ^T1 : ^T1` clause body
+        // selected by `clauseSelected` above (so the receiver is always a nominal here,
+        // via the SAME `nominalHeadKey` — class, union, OR record); a non-nominal
+        // receiver is left as a substituted `TraitCall` for a later phase to surface
+        // loudly. The result type is `sub ty` (`^T3`), NOT the receiver's — a
+        // heterogeneous operator (`Vec2 * float -> Vec2`) returns neither operand's type.
         let resolveTraitCall
             (m: TastWalk.Mapper)
             (recvTy: SemType)
