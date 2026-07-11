@@ -415,26 +415,11 @@ type internal ClrEnv
 
     // The single key→string funnel for *type-shape* lookups. A provider may key a
     // generic type bare (`Vesper.Option`, contract layer) or arity-suffixed
-    // (`Vesper.Option`1`, metadata layer). A `SymbolKey`'s `qualifiedName` is the
-    // already-well-formed compiled name (arity suffix retained, nested `+` segments
-    // intact), so this probes that form and then its bare fallback — the *one* place
-    // the two registration conventions are reconciled, replacing the per-lookup
+    // (`Vesper.Option`1`, metadata layer); `CodegenSymbols.lookupTypeByKey` is the *one*
+    // place the two registration conventions are reconciled, replacing the per-lookup
     // `bareName` dual probe that used to leak into every shape consumer.
-    // `bareName` strips at the first
-    // backtick, so the qual-first order is what keeps a nested `List`1+Enumerator`
-    // resolvable (its bare form would mangle to `List`).
     let lookupTypeByKey (key: SymbolKey) : ExternalTypeShape voption =
-        let qual = SymbolKeyOps.qualifiedName key
-
-        match symbols.TryLookupType qual with
-        | ValueSome _ as hit -> hit
-        | ValueNone ->
-            let bare = SymbolKeyOps.bareName qual
-
-            if bare = qual then
-                ValueNone
-            else
-                symbols.TryLookupType bare
+        CodegenSymbols.lookupTypeByKey symbols key
 
     let lookupClassShape (key: SymbolKey) : ExternalClassShape voption =
         match lookupTypeByKey key with

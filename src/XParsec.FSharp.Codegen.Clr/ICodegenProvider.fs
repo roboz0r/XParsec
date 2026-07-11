@@ -88,21 +88,6 @@ type UnionMember =
     /// Payload field named `<Case>_<index>`.
     | Field of caseName: string * fieldIndex: int
     | Factory of caseName: string
-    /// An augmentation member (`get_Head` instance property, `Single` static
-    /// method) of a generic union. `metaName` is the emitted method name
-    /// (a property is `get_<name>`); the signature (`paramTys` / `retTy`) is in
-    /// the type's declaring-typar markers, written into the member ref as `!0`
-    /// with the parent `TypeSpec` supplying the instantiation — same shape as
-    /// `Factory`, but the member name + signature are explicit (not read from the
-    /// case table). `methodTyparCount` > 0 ⇒ the member is itself a *generic
-    /// method* (its own `'U` typars ride `!!i`); the member-ref must carry the
-    /// `GENERIC` header and the call site a `MethodSpec` (mirrors `ClassMember.Member`).
-    | Member of
-        metaName: string *
-        isStatic: bool *
-        methodTyparCount: int *
-        paramTys: FrozenType list *
-        retTy: FrozenType
 
 /// Which member of an emitted *generic* closure a `GenericClosureMemberRef`
 /// resolves to. A generic closure is a real generic `TypeDefinition` (one
@@ -136,21 +121,6 @@ type RecordMember =
     /// The public field named `fieldName` (records preserve source field
     /// names — no positional encoding).
     | Field of fieldName: string
-    /// An augmentation member (`get_X` instance property, `M` instance method,
-    /// or static counterpart) of a generic record. `metaName` is the emitted
-    /// method name (a property is `get_<name>`); the signature (`paramTys` /
-    /// `retTy`) is in the type's declaring-typar markers, written into the member
-    /// ref as `!0` with the parent `TypeSpec` supplying the instantiation — same
-    /// shape as `ClassMember.Member`. `methodTyparCount` > 0 ⇒ the member is a
-    /// *generic method* (`member r.Map<'U> …`): its own typars ride `!!i`, the
-    /// member-ref carries the `GENERIC` calling-convention header, and the call
-    /// site wraps the ref in a `MethodSpec`.
-    | Member of
-        metaName: string *
-        isStatic: bool *
-        methodTyparCount: int *
-        paramTys: FrozenType list *
-        retTy: FrozenType
 
 /// Which member of an emitted *generic* class a `UserGenericMemberRef`
 /// resolves to. A class is shaped
@@ -172,25 +142,9 @@ type ClassMember =
     | SecondaryCtor of paramTys: FrozenType list
     /// The backing field named `fieldName` for a primary-ctor parameter.
     | Field of fieldName: string
-    /// An augmentation member (`get_X` instance property, `M` instance method,
-    /// or static counterpart). `metaName` is the emitted method name (a
-    /// property is `get_<name>`); the signature (`paramTys` / `retTy`) is in
-    /// the type's declaring-typar markers, written into the member ref as
-    /// `!0` with the parent `TypeSpec` supplying the instantiation — same
-    /// shape as `UnionMember.Member`. `methodTyparCount` > 0 ⇒ the member is a
-    /// *generic method* (`member s.Map<'U> …`): its own typars ride `!!i`, the
-    /// member-ref carries the `GENERIC` calling-convention header, and the call
-    /// site wraps the ref in a `MethodSpec` (the instance-method analogue of the
-    /// generic-static-fn `MethodSpec`).
-    | Member of
-        metaName: string *
-        isStatic: bool *
-        methodTyparCount: int *
-        paramTys: FrozenType list *
-        retTy: FrozenType
 
 /// Discriminator across the user-emitted generic-type-member families
-/// (`UserGenericMemberRef`). Each variant wraps the family's specific
+/// (`UserGenericMemberRef`). The three family variants wrap the family's specific
 /// member info, preserving the case data (a record's field name, a union
 /// case's payload index, …) that a pure ordinal couldn't carry.
 /// `ClrProvider.userGenericMemberRef`'s dispatch grows one arm — no fourth
@@ -200,6 +154,26 @@ type UserMemberKind =
     | UnionMember of UnionMember
     | RecordMember of RecordMember
     | ClassMember of ClassMember
+    /// An augmentation member (`get_X` instance property, `M` instance method, or static
+    /// counterpart) of any emitted generic type — union, record, class, or interface. NOT a
+    /// per-family case: a member is described the same way whatever declares it (unlike a
+    /// ctor / field / case payload, whose shape IS the family), and the declaring `key`
+    /// already selects the parent `TypeSpec`, so a family tag here would be redundant data
+    /// the caller has to invent — which is what drove `EmitMember` to label an *interface*
+    /// slot a `ClassMember`.
+    ///
+    /// `metaName` is the emitted method name (a property is `get_<name>`); the signature
+    /// (`paramTys` / `retTy`) is in the type's declaring-typar markers, written into the
+    /// member ref as `!0` with the parent `TypeSpec` supplying the instantiation.
+    /// `methodTyparCount` > 0 ⇒ the member is itself a *generic method* (`member s.Map<'U>
+    /// …`): its own typars ride `!!i`, the member-ref carries the `GENERIC`
+    /// calling-convention header, and the call site wraps the ref in a `MethodSpec`.
+    | Member of
+        metaName: string *
+        isStatic: bool *
+        methodTyparCount: int *
+        paramTys: FrozenType list *
+        retTy: FrozenType
 
 /// Resolved metadata handles for lowering a `TExpr.Format` to the write-through
 /// handler (`Vesper.Formatter`). A `Format` can't be a `CallRecipe` — it

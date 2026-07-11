@@ -13,6 +13,24 @@ open XParsec.FSharp.SemanticAnalysis
 /// rather than in the front-end module) and freezes its `TyVar`-free result.
 module CodegenSymbols =
 
+    /// The shape a resolved `SymbolKey` names, probing the qualified compiled name then
+    /// its bare (arity-suffix-stripped) form — the two registration conventions the
+    /// metadata layer (suffixed) and the contract layer (bare) use. The SINGLE spelling of
+    /// that probe: `ClrEnv`'s type/member refs and `CapabilityCoSlots`' capability
+    /// recognition both go through it.
+    let lookupTypeByKey (symbols: ICodegenSymbols) (key: SymbolKey) : ExternalTypeShape voption =
+        let qual = SymbolKeyOps.qualifiedName key
+
+        match symbols.TryLookupType qual with
+        | ValueSome _ as hit -> hit
+        | ValueNone ->
+            let bare = SymbolKeyOps.bareName qual
+
+            if bare = qual then
+                ValueNone
+            else
+                symbols.TryLookupType bare
+
     let ofProvider (provider: IExternalSymbolProvider) : ICodegenSymbols =
         { new ICodegenSymbols with
             member _.TryLookupType name = provider.TryLookupType name

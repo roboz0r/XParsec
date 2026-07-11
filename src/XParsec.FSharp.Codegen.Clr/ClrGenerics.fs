@@ -79,30 +79,6 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                 )
 
             toEntity (ctx.MemberRef(parent, caseName, s))
-        | UnionMember.Member(metaName, isStatic, methodTyparCount, paramTys, retTy) ->
-            let s = BlobBuilder()
-
-            BlobEncoder(s)
-                .MethodSignature(genericParameterCount = methodTyparCount, isInstanceMethod = not isStatic)
-                .Parameters(
-                    List.length paramTys,
-                    // A `unit`-returning INSTANCE method is emitted `void` by the
-                    // producer (`NominalEmit`'s `returnsVoid`) and the external-ref path
-                    // — so this generic-type MemberRef must encode `void` too, or it
-                    // misses the void `MethodDef` (`MissingMethodException`). Static
-                    // `unit` methods keep the `unit`-as-`ValueTuple` convention.
-                    (fun (ret: ReturnTypeEncoder) ->
-                        match retTy with
-                        | FTConst(key, _) when not isStatic && SymbolKeyOps.simpleName key = "unit" -> ret.Void()
-                        | _ -> encodeType (ret.Type()) retTy
-                    ),
-                    (fun (pars: ParametersEncoder) ->
-                        for p in paramTys do
-                            encodeType (pars.AddParameter().Type()) p
-                    )
-                )
-
-            toEntity (ctx.MemberRef(parent, metaName, s))
 
     let genericRecordTypeSpec (key: SymbolKey) (args: FrozenType list) : EntityHandle =
         let typars, _ = genericRecords.[key]
@@ -143,28 +119,6 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                 encodeType (BlobEncoder(s).FieldSignature()) declTy
                 toEntity (ctx.MemberRef(parent, fieldName, s))
             | None -> failwithf "ClrProvider: generic record '%A' has no field '%s'" key fieldName
-        | RecordMember.Member(metaName, isStatic, methodTyparCount, paramTys, retTy) ->
-            let s = BlobBuilder()
-
-            BlobEncoder(s)
-                .MethodSignature(genericParameterCount = methodTyparCount, isInstanceMethod = not isStatic)
-                .Parameters(
-                    List.length paramTys,
-                    // `unit`-returning INSTANCE method ⇒ `void` (see the union arm) —
-                    // matches the producer + external-ref encoding so a generic record's
-                    // intra-/cross-assembly instance call binds the void `MethodDef`.
-                    (fun (ret: ReturnTypeEncoder) ->
-                        match retTy with
-                        | FTConst(key, _) when not isStatic && SymbolKeyOps.simpleName key = "unit" -> ret.Void()
-                        | _ -> encodeType (ret.Type()) retTy
-                    ),
-                    (fun (pars: ParametersEncoder) ->
-                        for p in paramTys do
-                            encodeType (pars.AddParameter().Type()) p
-                    )
-                )
-
-            toEntity (ctx.MemberRef(parent, metaName, s))
 
     let genericClassTypeSpec (key: SymbolKey) (args: FrozenType list) : EntityHandle =
         let typars, _, _ = genericClasses.[key]
@@ -232,28 +186,59 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                 encodeType (BlobEncoder(s).FieldSignature()) declTy
                 toEntity (ctx.MemberRef(parent, fieldName, s))
             | None -> failwithf "ClrProvider: generic class '%A' has no field '%s'" key fieldName
-        | ClassMember.Member(metaName, isStatic, methodTyparCount, paramTys, retTy) ->
-            let s = BlobBuilder()
 
-            BlobEncoder(s)
-                .MethodSignature(genericParameterCount = methodTyparCount, isInstanceMethod = not isStatic)
-                .Parameters(
-                    List.length paramTys,
-                    // `unit`-returning INSTANCE method ⇒ `void` (see the union arm) —
-                    // matches the producer + external-ref encoding so a generic class's
-                    // intra-/cross-assembly instance call binds the void `MethodDef`.
-                    (fun (ret: ReturnTypeEncoder) ->
-                        match retTy with
-                        | FTConst(key, _) when not isStatic && SymbolKeyOps.simpleName key = "unit" -> ret.Void()
-                        | _ -> encodeType (ret.Type()) retTy
-                    ),
-                    (fun (pars: ParametersEncoder) ->
-                        for p in paramTys do
-                            encodeType (pars.AddParameter().Type()) p
-                    )
+    /// The parent `TypeSpec` of a generic user type, whichever family declares it. Every
+    /// family's registry is keyed by the nominal `SymbolKey`, so the key alone picks the
+    /// arm — the caller never has to say which family it is. (The arms are NOT one shared
+    /// encoder: only the class arm tags a `[<Struct>]` value type's instantiation
+    /// `VALUETYPE`, and collapsing them would silently change how a struct record or a
+    /// struct-declared union encodes.)
+    let genericTypeSpec (key: SymbolKey) (args: FrozenType list) : EntityHandle =
+        if genericUnions.ContainsKey key then
+            genericUnionTypeSpec key args
+        elif genericRecords.ContainsKey key then
+            genericRecordTypeSpec key args
+        elif genericClasses.ContainsKey key then
+            genericClassTypeSpec key args
+        else
+            failwithf "ClrProvider: '%A' is not a registered generic union / record / class" key
+
+    /// An augmentation member of ANY generic user type (`UserMemberKind.Member`) — the one
+    /// encoding, because the member ref does not depend on what declares the member: the
+    /// `key` picks the parent `TypeSpec`, and the rest is the member's own signature.
+    let genericMemberRef
+        (key: SymbolKey)
+        (args: FrozenType list)
+        (metaName: string)
+        (isStatic: bool)
+        (methodTyparCount: int)
+        (paramTys: FrozenType list)
+        (retTy: FrozenType)
+        : EntityHandle =
+        let parent = genericTypeSpec key args
+        let s = BlobBuilder()
+
+        BlobEncoder(s)
+            .MethodSignature(genericParameterCount = methodTyparCount, isInstanceMethod = not isStatic)
+            .Parameters(
+                List.length paramTys,
+                // A `unit`-returning INSTANCE method is emitted `void` by the producer
+                // (`NominalEmit`'s `returnsVoid`) and by the external-ref path — so this
+                // MemberRef must encode `void` too, or it misses the void `MethodDef`
+                // (`MissingMethodException`). Static `unit` methods keep the
+                // `unit`-as-`ValueTuple` convention.
+                (fun (ret: ReturnTypeEncoder) ->
+                    match retTy with
+                    | FTConst(retKey, _) when not isStatic && SymbolKeyOps.simpleName retKey = "unit" -> ret.Void()
+                    | _ -> encodeType (ret.Type()) retTy
+                ),
+                (fun (pars: ParametersEncoder) ->
+                    for p in paramTys do
+                        encodeType (pars.AddParameter().Type()) p
                 )
+            )
 
-            toEntity (ctx.MemberRef(parent, metaName, s))
+        toEntity (ctx.MemberRef(parent, metaName, s))
 
     let genericClosureTypeSpec (name: string) (args: FrozenType list) : EntityHandle =
         let shape = genericClosures.[name]
@@ -328,6 +313,10 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
     member _.GenericUnionMemberRef(key, args, which) = genericUnionMemberRef key args which
     member _.GenericRecordMemberRef(key, args, which) = genericRecordMemberRef key args which
     member _.GenericClassMemberRef(key, args, which) = genericClassMemberRef key args which
+
+    member _.GenericMemberRef(key, args, metaName, isStatic, methodTyparCount, paramTys, retTy) =
+        genericMemberRef key args metaName isStatic methodTyparCount paramTys retTy
+
     member _.GenericClosureTypeSpec(name, args) = genericClosureTypeSpec name args
     member _.GenericClosureMemberRef(name, args, which) = genericClosureMemberRef name args which
 

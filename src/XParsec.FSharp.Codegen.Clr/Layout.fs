@@ -299,11 +299,6 @@ type internal AssemblyLayout =
         /// `Format` body) all read, so the row reservation and the body emission can
         /// never disagree.
         DefinesStructuralFormatInterfaces: bool
-        /// Per nominal, the capability co-slots it must synthesise (absent ⇒ none).
-        /// Computed once here from each type's implemented interfaces; `coSlotRows`
-        /// (row reservation) and `NominalEmit` (body preparation) both read it, so the
-        /// two can never disagree about which shims exist.
-        CoSlots: Dictionary<SymbolKey, CoSlot list>
     }
 
 /// The resolved handle lookup derived from the layout once: `TypeKey` →
@@ -532,24 +527,25 @@ module internal Layout =
                 }
             ]
 
-    /// The capability co-slot rows, in `NominalEmit` emission order. Read off the
-    /// layout's precomputed `coSlots` — the SINGLE source this row reservation and the
-    /// body preparation (`NominalEmit`, via `Assembler.CoSlotsOf`) both consume, so a
-    /// reserved row can never go un-prepared. Each is a new virtual slot the runtime
-    /// binds to the inherited BCL interface method by name + signature, like the typed
-    /// `Equals(Self)`.
-    let private coSlotRows (coSlots: Dictionary<SymbolKey, CoSlot list>) (td: Frozen.TTypeDecl) : MethodRow list =
-        match coSlots.TryGetValue td.Key with
-        | true, slots ->
-            [
-                for slot in slots ->
-                    {
-                        Key = MethodKey.CapCoSlot(td.Key, slot)
-                        Name = CapabilityCoSlots.metaName slot
-                        Attrs = ifaceEqualsAttrs
-                    }
-            ]
-        | _ -> []
+    /// The capability co-slot rows, in `NominalEmit` emission order. `CapabilityCoSlots.required`
+    /// is a pure function of the type's implemented interfaces, and `NominalEmit` prepares
+    /// the bodies by calling it on the SAME interfaces — so a reserved row can never go
+    /// un-prepared, without a shared side table to keep in step. Each is a new virtual slot
+    /// the runtime binds to the inherited BCL interface method by name + signature, like the
+    /// typed `Equals(Self)`.
+    let private coSlotRows
+        (symbols: ICodegenSymbols)
+        (td: Frozen.TTypeDecl)
+        (interfaces: (FrozenType * Frozen.TTypeMember list) list)
+        : MethodRow list =
+        [
+            for (_, slot) in CapabilityCoSlots.required symbols [ for (ifaceTy, _) in interfaces -> ifaceTy ] ->
+                {
+                    Key = MethodKey.CapCoSlot(td.Key, slot)
+                    Name = CapabilityCoSlots.metaName slot
+                    Attrs = ifaceEqualsAttrs
+                }
+        ]
 
     let private nominalSlot
         (kind: TypeSlotKind)
@@ -572,7 +568,7 @@ module internal Layout =
     /// named holders → the anonymous "Program" holder (present only when an
     /// exe or holder-less fns exist). Reuses the existing lowering/discovery
     /// passes unchanged and carries their products.
-    let build (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tast: Frozen.TastFile) : AssemblyLayout =
+    let build (symbols: ICodegenSymbols) (project: ProjectInfo) (tast: Frozen.TastFile) : AssemblyLayout =
         let lowered0 = Emit.lower tast.Decls
         // The anonymous "Program" holder's key — `(None, project.ModuleName)` — owns
         // the holder-less fns + `Main` + the top-level value fields / `.cctor`.
@@ -628,26 +624,6 @@ module internal Layout =
         let definesStructuralFormatInterfaces =
             partitioned.Interfaces
             |> List.exists (fun (td, _) -> RuntimeNames.isStructuralFormattableKey td.Key)
-
-        // The capability co-slots each nominal owes the CLR, resolved once from the
-        // interfaces it implements (a capability's platform face inherits BCL members its
-        // member surface never declared — see `CoSlot`). Only unions/records/classes can
-        // implement an interface, so those three partitions are the whole domain.
-        let coSlots = Dictionary<SymbolKey, CoSlot list>()
-
-        let addCoSlots (td: Frozen.TTypeDecl) (interfaces: (FrozenType * Frozen.TTypeMember list) list) =
-            match CapabilityCoSlots.required symbols [ for (ifaceTy, _) in interfaces -> ifaceTy ] with
-            | [] -> ()
-            | slots -> coSlots.[td.Key] <- slots
-
-        for ud in partitioned.Unions do
-            addCoSlots ud.Decl ud.Interfaces
-
-        for rd in partitioned.Records do
-            addCoSlots rd.Decl rd.Interfaces
-
-        for cd in partitioned.Classes do
-            addCoSlots cd.Decl cd.Interfaces
 
         // Closure-discovery roots from every (expanded) member body, each tagged
         // with its declaring type's typar count (0 ⇒ monomorphic).
@@ -780,7 +756,7 @@ module internal Layout =
                             yield! equalityRows td
                             yield! comparisonRows td
                             yield! formatRows definesStructuralFormatInterfaces td
-                            yield! coSlotRows coSlots td
+                            yield! coSlotRows symbols td ud.Interfaces
                         ]
 
                     nominalSlot TypeSlotKind.Union td (List.length fields) (List.length methodRows), fields, methodRows
@@ -817,7 +793,7 @@ module internal Layout =
                             yield! equalityRows td
                             yield! comparisonRows td
                             yield! formatRows definesStructuralFormatInterfaces td
-                            yield! coSlotRows coSlots td
+                            yield! coSlotRows symbols td rd.Interfaces
                         ]
 
                     nominalSlot TypeSlotKind.Record td (List.length fields) (List.length methodRows), fields, methodRows
@@ -907,7 +883,7 @@ module internal Layout =
                                 )
 
                             yield! ownAndIfaceMemberRows td.Key cd.Members cd.Interfaces
-                            yield! coSlotRows coSlots td
+                            yield! coSlotRows symbols td cd.Interfaces
                         ]
 
                     nominalSlot
@@ -1309,7 +1285,6 @@ module internal Layout =
             Partitioned = partitioned
             EmitEntryPoint = emitEntryPoint
             DefinesStructuralFormatInterfaces = definesStructuralFormatInterfaces
-            CoSlots = coSlots
         }
 
     /// Derive every handle from the layout once: TypeDef handle = list position

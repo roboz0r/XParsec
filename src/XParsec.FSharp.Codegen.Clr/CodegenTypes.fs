@@ -48,30 +48,20 @@ module internal CapabilityCoSlots =
         | "System.Collections.Generic.IEnumerator`1" -> [ CoSlot.EnumeratorCurrent; CoSlot.EnumeratorReset ]
         | _ -> []
 
-    /// The co-slots the implemented `interfaces` require, in emission order. Probes the
-    /// qualified key then its bare form — the two provider registration conventions, as
-    /// `ClrEnv.lookupTypeByKey` does.
-    let required (symbols: IExternalSymbolProvider) (interfaces: FrozenType list) : CoSlot list =
+    /// The co-slots the implemented `interfaces` require, in emission order, each paired
+    /// with the capability interface that demands it — so the shim's forwarding target is
+    /// looked up in THAT interface's impl block (`NominalMembers.ofInterface`) rather than
+    /// re-guessed by name across every impl member. A pure function of the interface list:
+    /// `Layout` (row reservation) and `NominalEmit` (body preparation) each call it on the
+    /// same interfaces and cannot disagree.
+    let required (symbols: ICodegenSymbols) (interfaces: FrozenType list) : (FrozenType * CoSlot) list =
         [
             for iface in interfaces do
                 match iface with
                 | FTClass(key, _) ->
-                    let qual = SymbolKeyOps.qualifiedName key
-
-                    let shape =
-                        match symbols.TryLookupType qual with
-                        | ValueSome _ as hit -> hit
-                        | ValueNone ->
-                            let bare = SymbolKeyOps.bareName qual
-
-                            if bare = qual then
-                                ValueNone
-                            else
-                                symbols.TryLookupType bare
-
-                    match shape with
+                    match CodegenSymbols.lookupTypeByKey symbols key with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
-                        yield! ofPlatformFace platform
+                        for slot in ofPlatformFace platform -> iface, slot
                     | _ -> ()
                 | _ -> ()
         ]
@@ -82,6 +72,15 @@ module internal CapabilityCoSlots =
         | CoSlot.EnumerableGetEnumerator -> "GetEnumerator"
         | CoSlot.EnumeratorCurrent -> "get_Current"
         | CoSlot.EnumeratorReset -> "Reset"
+
+    /// The capability member a co-slot forwards to, by its SOURCE name (the member the
+    /// author wrote in the `interface <capability> with` block). `ValueNone` for `Reset`:
+    /// the pull protocol has no rewind, so that shim throws instead of forwarding.
+    let forwardsTo (slot: CoSlot) : string voption =
+        match slot with
+        | CoSlot.EnumerableGetEnumerator -> ValueSome "GetEnumerator"
+        | CoSlot.EnumeratorCurrent -> ValueSome "Current"
+        | CoSlot.EnumeratorReset -> ValueNone
 
 /// One disjoint walk over `tast.Decls`: every `TDecl.Type` is routed to exactly
 /// one list by its `TTypeKind`. Adding a new nominal kind is one field + one
@@ -244,6 +243,34 @@ module internal NominalMembers =
             let ownCount = List.length members
             yield! flattenIfaceMembers interfaces |> List.mapi (fun i m -> ownCount + i, true, m)
         ]
+
+    /// The `(index, member)` pairs of ONE interface's impl block, in the same index space
+    /// `indexed` defines. The lookup for a consumer that already knows WHICH interface it
+    /// needs (a capability co-slot shim forwards to a member of the capability it was
+    /// derived from), so it never has to scan every impl member by name and hope no other
+    /// interface declares that name too.
+    let ofInterface
+        (members: Frozen.TTypeMember list)
+        (interfaces: (FrozenType * Frozen.TTypeMember list) list)
+        (iface: FrozenType)
+        : (int * Frozen.TTypeMember) list =
+        // The own-then-impl-blocks-in-order walk `indexed` defines, carrying each block's
+        // start index instead of discarding it.
+        let rec go (index: int) (rest: (FrozenType * Frozen.TTypeMember list) list) =
+            match rest with
+            | [] -> []
+            | (ifaceTy, ms) :: tail ->
+                let next = index + List.length ms
+
+                let here =
+                    if ifaceTy = iface then
+                        ms |> List.mapi (fun i m -> index + i, m)
+                    else
+                        []
+
+                here @ go next tail
+
+        go (List.length members) interfaces
 
 /// The in-memory assembled PE plus enough to inspect / write it.
 type ClrArtifact =

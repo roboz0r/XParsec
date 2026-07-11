@@ -167,9 +167,7 @@ module EmitMember =
                     iface.Typars
                     ifaceKey
                     (EqArray.toList ifaceArgs)
-                    (UserMemberKind.ClassMember(
-                        ClassMember.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy)
-                    ))
+                    (UserMemberKind.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy))
                     m.Handle
             | false, _ ->
                 // External interface: encode the declaring type from the interface key

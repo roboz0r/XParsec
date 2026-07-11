@@ -194,9 +194,7 @@ module EmitResolve =
                     u.Typars
                     key
                     tyArgs
-                    (UserMemberKind.UnionMember(
-                        UnionMember.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy)
-                    ))
+                    (UserMemberKind.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy))
                     m.Handle,
                 m
             | false, _ -> failwithf "Emit: union '%A' has no emitted member '%s'" key name
@@ -212,9 +210,7 @@ module EmitResolve =
                         c.Typars
                         key
                         tyArgs
-                        (UserMemberKind.ClassMember(
-                            ClassMember.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy)
-                        ))
+                        (UserMemberKind.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy))
                         m.Handle,
                     m
                 | false, _ -> failwithf "Emit: class '%A' has no emitted member '%s'" key name
@@ -234,9 +230,7 @@ module EmitResolve =
                             iface.Typars
                             key
                             tyArgs
-                            (UserMemberKind.ClassMember(
-                                ClassMember.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy)
-                            ))
+                            (UserMemberKind.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy))
                             m.Handle,
                         m
                     | false, _ -> failwithf "Emit: interface '%A' has no emitted member '%s'" key name
@@ -384,9 +378,7 @@ module EmitResolve =
                         c.Typars
                         key
                         (instantiationFor c.Typars m)
-                        (UserMemberKind.ClassMember(
-                            ClassMember.Member(m.MetaName, true, m.MethodTyparCount, m.ParamTys, m.RetTy)
-                        ))
+                        (UserMemberKind.Member(m.MetaName, true, m.MethodTyparCount, m.ParamTys, m.RetTy))
                         m.Handle
                 | false, _ -> failwithf "Emit: class '%A' has no emitted static member '%s'" key name
             | false, _ -> failwithf "Emit: no emitted type carrying static members for '%A'" key

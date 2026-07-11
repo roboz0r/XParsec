@@ -377,6 +377,8 @@ type ClrProvider
             | UserMemberKind.UnionMember which -> generics.GenericUnionMemberRef(key, zonkedArgs, which)
             | UserMemberKind.RecordMember which -> generics.GenericRecordMemberRef(key, zonkedArgs, which)
             | UserMemberKind.ClassMember which -> generics.GenericClassMemberRef(key, zonkedArgs, which)
+            | UserMemberKind.Member(metaName, isStatic, methodTyparCount, paramTys, retTy) ->
+                generics.GenericMemberRef(key, zonkedArgs, metaName, isStatic, methodTyparCount, paramTys, retTy)
 
         member _.UserClosureMemberRef(name, args, which) =
             generics.GenericClosureMemberRef(name, args, which)

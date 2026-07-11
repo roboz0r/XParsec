@@ -51,6 +51,11 @@ type internal Assembler
     let icodegen = provider :> ICodegenProvider
     let encodeLocals (locals: FrozenType list) = icodegen.EncodeLocalSignature locals
 
+    // The narrow emission-side view of the provider (type/member shapes only). `Layout`
+    // reads it to recognise the capability interfaces a nominal implements, and
+    // `NominalEmit` re-derives the same co-slots from it when preparing their bodies.
+    let codegenSymbols = CodegenSymbols.ofProvider symbols
+
     // One body-stream encoder shared by every method: a fresh encoder per body
     // would throw once a tiny body left the 4-byte-aligned builder unaligned;
     // `AddMethodBody` realigns per body internally, so reuse is correct.
@@ -60,7 +65,7 @@ type internal Assembler
     // a lookup into the prefix-sum derivation, not arithmetic. The layout also
     // carries the lowering products (lowered decls, holder plan, closures,
     // partition) computed once inside `Layout.build`.
-    let layout = Layout.build symbols project tast
+    let layout = Layout.build codegenSymbols project tast
     let layoutHandles = Layout.deriveHandles layout
 
     let lowered = layout.Lowered
@@ -589,12 +594,10 @@ type internal Assembler
     /// and this body-emission gate share one source of truth.
     member _.DefinesStructuralFormatInterfaces = layout.DefinesStructuralFormatInterfaces
 
-    /// The capability co-slots this nominal must synthesise — the same list `Layout`
-    /// reserved rows for, so the bodies and the rows cannot drift.
-    member _.CoSlotsOf(key: SymbolKey) : CoSlot list =
-        match layout.CoSlots.TryGetValue key with
-        | true, slots -> slots
-        | _ -> []
+    /// The emission-side symbol view — `NominalEmit` derives a nominal's capability
+    /// co-slots from it (`CapabilityCoSlots.required`) exactly as `Layout` did when it
+    /// reserved their rows.
+    member _.Symbols: ICodegenSymbols = codegenSymbols
 
     /// The layout's prefix-sum handle derivation — the only place a
     /// first-field / first-method / TypeDef / MethodDef handle comes from.

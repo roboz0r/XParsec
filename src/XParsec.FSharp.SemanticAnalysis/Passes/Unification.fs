@@ -922,6 +922,83 @@ module Unification =
                 | ValueSome expectedTy -> unify ctx mInfo.DeclKey (stripReferenceNull mInfo.Type) expectedTy
                 | ValueNone -> ()
 
+    /// A CAPABILITY (`seq<'T>`, `enumerator<'T>`, `disposable`) is not implemented
+    /// alongside its platform face — it IS that face. The backend publishes the face for the
+    /// capability (`interface seq<'T>` yields `IEnumerable<'T>`, and with it the non-generic
+    /// `IEnumerable` whose members the capability never declared and the backend therefore
+    /// synthesises), so authoring a face the capability already publishes emits the same
+    /// interface and the same method slot twice — metadata the runtime rejects at load with a
+    /// `TypeLoadException` no diagnostic preceded. Reject it here instead, where the author
+    /// can fix it.
+    ///
+    /// The rule is DERIVED, not enumerated: a capability's forbidden set is its `Platform`
+    /// face plus every interface that face inherits, read off the provider. Implementing
+    /// another CAPABILITY whose face is in that set stays legal, and is in fact required —
+    /// `IEnumerator<'T>` inherits `IDisposable`, and `enumerator`'s `Dispose` is exactly the
+    /// separate `disposable` capability an author must implement. Only the BCL *spelling* of
+    /// such a face is the error, and the fix is always to write the capability instead.
+    let private checkCapabilityFaceCollisions (ctx: PassContext) (info: IInterfaceImplHost) : unit =
+        // Faces compare on the bare (arity-suffix-stripped) compiled name: the metadata layer
+        // keys `IEnumerable`1`, the contract layer `IEnumerable`, and `SymbolKeyOps.bareName`
+        // is where that reconciliation already lives.
+        let resolvedImpls =
+            [
+                for impl in info.InterfaceImpls do
+                    match impl.Resolved with
+                    | ValueSome(TyClass(key, _)) -> impl, key, ctx.Provider.TryLookupType key
+                    | _ -> ()
+            ]
+
+        // The transitive interface closure of a platform face. On the metadata layer
+        // `FrozenInterfaces` is already transitive (it is reflection's `GetInterfaces`); the
+        // walk is what makes a contract-layer provider, which records only direct bases, agree.
+        // A face arrives as a compiled NAME (`IntrinsicInterfaceShape.Platform`,
+        // `ExternalClassShape.FrozenInterfaces`); it is minted straight back to a key, so the
+        // probe stays on the key-addressed store face — no spelling resolution is needed
+        // (`qualifiedTypeKeyOf` is the same mint `ClrEnv`'s face redirect uses).
+        let rec closeOver (seen: Set<string>) (name: string) : Set<string> =
+            let bare = SymbolKeyOps.bareName name
+
+            if Set.contains bare seen then
+                seen
+            else
+                let seen = Set.add bare seen
+
+                match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKeyOf None name 0) with
+                | ValueSome(ExternalTypeShape.Class shape) ->
+                    (seen, shape.FrozenInterfaces)
+                    ||> Array.fold (fun acc (baseName, _) -> closeOver acc baseName)
+                | _ -> seen
+
+        let capabilityFaces =
+            [
+                for (_, key, shape) in resolvedImpls do
+                    match shape with
+                    | ValueSome(ExternalTypeShape.IntrinsicInterface cap) ->
+                        SymbolKeyOps.qualifiedName key, closeOver Set.empty cap.Platform
+                    | _ -> ()
+            ]
+
+        if not (List.isEmpty capabilityFaces) then
+            for (impl, key, shape) in resolvedImpls do
+                match shape with
+                // Another capability: legal, and the only way to implement an inherited
+                // capability face (`enumerator` + `disposable`).
+                | ValueSome(ExternalTypeShape.IntrinsicInterface _) -> ()
+                | _ ->
+                    let qual = SymbolKeyOps.qualifiedName key
+                    let bare = SymbolKeyOps.bareName qual
+
+                    for (capability, faces) in capabilityFaces do
+                        if Set.contains bare faces then
+                            ctx.Error(
+                                impl.DeclKey,
+                                sprintf
+                                    "'%s' is part of the platform face of capability '%s', which this type already implements — the backend publishes that face, and everything it inherits, for the capability. Remove this interface implementation."
+                                    qual
+                                    capability
+                            )
+
     /// Interface-impl resolution pre-pass: resolve
     /// each `interface IFace with member …` block's interface type and stamp
     /// `impl.Resolved` *before* any member body — the class's own members or a
@@ -970,6 +1047,8 @@ module Unification =
                     | other -> sprintf "%A" other
 
                 ctx.Error(impl.DeclKey, sprintf "Type '%s' is not an interface" shown)
+
+        checkCapabilityFaceCollisions ctx info
 
     /// Type-check each `interface IFace with member …` block's member bodies and
     /// conformance-check them against the interface. Member bodies type through

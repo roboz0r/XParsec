@@ -80,7 +80,7 @@ module EmitLoops =
             iface.Typars
             ifaceKey
             (EqArray.toList ifaceArgs)
-            (UserMemberKind.ClassMember(ClassMember.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy)))
+            (UserMemberKind.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy))
             m.Handle
 
     /// The `System.IDisposable::Dispose` handle — disposal for *every* `for … in`

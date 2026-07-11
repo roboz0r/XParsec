@@ -553,4 +553,60 @@ let interfaceImplTests =
                 // than pretending to work — it exists only because the face demands the slot.
                 Expect.throwsT<NotSupportedException> (fun () -> e.Reset()) "the synthesised Reset co-slot throws"
             }
+
+            // The capability IS its platform face, so a type cannot author both: the backend
+            // publishes `IEnumerable<'T>` (and the non-generic `IEnumerable` co-slots) for
+            // `interface seq<'T>`, and a hand-written face would emit the same interface and
+            // the same slot twice — a `TypeLoadException` at the consumer, if the front end
+            // let it through. Both spellings of the face are rejected: the capability's own,
+            // and the one it only INHERITS.
+            let faceCollisionSrc (face: string) (getEnumerator: string) =
+                String.concat
+                    "\n"
+                    [
+                        "open Vesper.Collections"
+                        "type Bag<'T> ="
+                        "    { Items: 'T[] }"
+                        "    interface seq<'T> with"
+                        "        member this.GetEnumerator() : enumerator<'T> = failwith \"x\""
+                        sprintf "    interface %s with" face
+                        sprintf "        member this.GetEnumerator() : %s = failwith \"x\"" getEnumerator
+                    ]
+
+            let capabilityFaceErrors (src: string) =
+                let provider = ClrSymbolProviders.buildContract defaultManifests
+                let lexed, file = parseFile src
+                let _, tast = Pipeline.analyseSemWithContext provider src lexed file
+
+                tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+            test "implementing the seq capability and its generic BCL face is a diagnostic" {
+                let errors =
+                    capabilityFaceErrors (
+                        faceCollisionSrc
+                            "System.Collections.Generic.IEnumerable<'T>"
+                            "System.Collections.Generic.IEnumerator<'T>"
+                    )
+
+                Expect.isNonEmpty errors "the capability's own platform face collides"
+
+                Expect.isTrue
+                    (errors
+                     |> List.exists (fun d -> d.Message.Contains "platform face of capability"))
+                    (sprintf "the diagnostic names the capability collision (%A)" errors)
+            }
+
+            test "implementing the seq capability and the non-generic IEnumerable is a diagnostic" {
+                let errors =
+                    capabilityFaceErrors (
+                        faceCollisionSrc "System.Collections.IEnumerable" "System.Collections.IEnumerator"
+                    )
+
+                Expect.isNonEmpty errors "a face the capability only INHERITS collides too"
+
+                Expect.isTrue
+                    (errors
+                     |> List.exists (fun d -> d.Message.Contains "platform face of capability"))
+                    (sprintf "the diagnostic names the capability collision (%A)" errors)
+            }
         ]
