@@ -19,6 +19,12 @@ module IntrinsicRepr =
     /// `System.ValueTuple` (`unit`) are deliberately ABSENT — the encoder writes them
     /// via their own `TypeRef`-backed arms (`ClrEncoder`'s `eDecimal`/`eValueTuple`),
     /// not as direct value types.
+    ///
+    /// A key is the repr string the `.fs` declares, verbatim — usually a BCL name, but
+    /// the pointer-width pair is spelled in IL signature syntax (`prim-types-nativeint.fs`:
+    /// `type nativeint = (# "native int" #)`), because `native int` / `unsigned native int`
+    /// ARE the ECMA-335 element types (`ELEMENT_TYPE_I` / `_U`) — not a nominal struct that
+    /// happens to be pointer-sized. `IntPtr()` / `UIntPtr()` write exactly those tags.
     let private valueTypeWriters: Map<string, SignatureTypeEncoder -> unit> =
         Map
             [
@@ -35,6 +41,8 @@ module IntrinsicRepr =
                 "System.Boolean", (fun te -> te.Boolean())
                 "System.Char", (fun te -> te.Char())
                 "System.String", (fun te -> te.String())
+                "native int", (fun te -> te.IntPtr())
+                "unsigned native int", (fun te -> te.UIntPtr())
             ]
 
     /// Encode a primitive value type directly onto `te`. Returns `false` for

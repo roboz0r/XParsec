@@ -471,6 +471,28 @@ module EmitTypes =
         let ofContext (ctx: EmitContext) (args: Dictionary<NodeKey, int>) : EmitEnv =
             create ctx ValueNone (Dictionary()) args
 
+    /// Push an integral constant that the front end folded onto `TConstValue.Int`
+    /// (an int32-shaped payload), widening it to the pointer width when that is the
+    /// constant's actual type.
+    ///
+    /// Every other integral width the lexer folds into `Int` (`sbyte` / `int16` /
+    /// `uint16`) already HAS int32 as its CIL stack type, so a bare `ldc.i4` is the
+    /// whole load. `nativeint` / `unativeint` are the exception: `native int` is a
+    /// distinct stack type from `int32`, so a `10n` argument / local / match constant
+    /// must be converted, or the value lands in a `native int` slot as an `int32` and
+    /// the IL is unverifiable. `conv.i` sign-extends, `conv.u` zero-extends — the
+    /// signedness the width itself declares.
+    let pushIntConst (b: IlBuilder) (n: int) (ty: FrozenType) : unit =
+        b.Add(ILInstr.LdcI4 n)
+
+        match ty with
+        | FTConst(key, _) ->
+            match SymbolKeyOps.simpleName key with
+            | "nativeint" -> b.Add(ILInstr.Un ILOpCode.Conv_i)
+            | "unativeint" -> b.Add(ILInstr.Un ILOpCode.Conv_u)
+            | _ -> ()
+        | _ -> ()
+
     /// Materialise the `unit` value (`()`) on the stack. `unit` is the zero-field
     /// BCL struct `System.ValueTuple` (its `prim-types-min.fs` binding), not
     /// FSharp.Core's null `Unit`, so the value is reified by zero-initialising a

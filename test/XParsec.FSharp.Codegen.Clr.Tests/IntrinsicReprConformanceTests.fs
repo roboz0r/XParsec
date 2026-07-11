@@ -25,9 +25,12 @@ open XParsec.FSharp.Codegen.Clr
 // (a typo, a new primitive) that the encoder can't follow fails HERE.
 //
 // SCOPE: the directly-encodable scalar value types only — the closed set
-// `tryEncodeValueType` exists for. The reference (`obj`/`exn`/capability), pointer
-// (`nativeint`/`voidptr`/`nativeptr`), and structural (`'T[]`) intrinsics encode
-// through other (nominal / SZArray) arms, not this one, and are out of scope.
+// `tryEncodeValueType` exists for. `nativeint` / `unativeint` ARE in it: their reprs
+// (`native int` / `unsigned native int`) are the ECMA-335 element types
+// `ELEMENT_TYPE_I` / `_U`, which the encoder writes directly. The reference
+// (`obj`/`exn`/capability), the remaining pointer (`voidptr`/`nativeptr`/`ilsigptr`),
+// and structural (`'T[]`) intrinsics encode through other (nominal / SZArray) arms,
+// not this one, and are out of scope.
 
 /// The contract's harvested forward `{ canon → platform-repr }` map for the default
 /// CLR stack — the single source of each primitive's IL representation.
@@ -59,6 +62,12 @@ let private directScalarCanons =
         "bool"
         "char"
         "string"
+        // The pointer-width pair. Unlike every other entry their repr is an IL
+        // signature spelling, not a BCL name — `native int` / `unsigned native int` are
+        // element types in their own right, so they encode directly (`IntPtr()` /
+        // `UIntPtr()`) rather than through a `TypeRef` to `System.IntPtr`.
+        "nativeint"
+        "unativeint"
     ]
 
 [<Tests>]

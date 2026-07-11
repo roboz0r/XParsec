@@ -196,11 +196,14 @@ module EmitPattern =
             // nothing.
             b.Add(ILInstr.Ldloc scrutSlot)
             b.Add(ILInstr.Brtrue nextLabel)
-        | TPatG.Const(value, _, _) ->
+        | TPatG.Const(value, ty, _) ->
             b.Add(ILInstr.Ldloc scrutSlot)
 
             match value with
-            | TConstValue.Int n -> b.Add(ILInstr.LdcI4 n)
+            // The scrutinee slot carries the pattern's type, so an `Int`-folded
+            // `nativeint` / `unativeint` constant must be widened to the pointer
+            // width before `bne.un` compares it (see `pushIntConst`).
+            | TConstValue.Int n -> pushIntConst b n ty
             | TConstValue.UInt n -> b.Add(ILInstr.LdcI4(int n))
             | TConstValue.Bool v -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
             | TConstValue.Byte n -> b.Add(ILInstr.LdcI4(int n))

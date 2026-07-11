@@ -54,8 +54,12 @@ namespace Vesper
 // The arithmetic BASE is the SRTP trait call, exactly as on CLR: a user type
 // dispatches to its own `static member (+)`, and a receiver that is neither a listed
 // primitive nor a nominal is DIAGNOSED rather than emitted as a nonsense JS operator
-// application. The clause set therefore mirrors the CLR file's primitive-by-primitive
-// enumeration (`decimal` excluded there and here).
+// application. The clause set is the CLR file's primitive-by-primitive enumeration MINUS
+// the widths JS cannot represent at all: `decimal` (excluded there too), and `nativeint`
+// / `unativeint`, which ship no `.js.fs` repr — a JS program mentioning either is
+// rejected by `SemanticAnalysis.PlatformTypes` ("no representation on the target
+// platform") before any operator clause is consulted, so a clause for them here would be
+// unreachable. The clause list below is therefore exactly the widths JS supports.
 //
 // RE-AUTHORED HERE, and why each needs a JS body rather than the CLR one. `hash` — for
 // an aggregate it delegates to the non-inline `Vesper.Core` runtime entry
@@ -90,8 +94,6 @@ module ArithmeticOperators =
         when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "Math.fround($0 + $1)" x y : float32 #)
         when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "($0 + $1) >>> 0" x y : uint32 #)
         when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "$0 + $1" x y : uint64 #)
-        when ^T1: nativeint and ^T2: nativeint and ^T3: nativeint = (# "$0 + $1" x y : nativeint #)
-        when ^T1: unativeint and ^T2: unativeint and ^T3: unativeint = (# "$0 + $1" x y : unativeint #)
         when ^T1: byte and ^T2: byte and ^T3: byte = (# "($0 + $1) & 0xFF" x y : byte #)
         when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "($0 + $1) << 24 >> 24" x y : sbyte #)
         when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "($0 + $1) << 16 >> 16" x y : int16 #)
@@ -109,8 +111,6 @@ module ArithmeticOperators =
         when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "Math.fround($0 - $1)" x y : float32 #)
         when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "($0 - $1) >>> 0" x y : uint32 #)
         when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "$0 - $1" x y : uint64 #)
-        when ^T1: nativeint and ^T2: nativeint and ^T3: nativeint = (# "$0 - $1" x y : nativeint #)
-        when ^T1: unativeint and ^T2: unativeint and ^T3: unativeint = (# "$0 - $1" x y : unativeint #)
         when ^T1: byte and ^T2: byte and ^T3: byte = (# "($0 - $1) & 0xFF" x y : byte #)
         when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "($0 - $1) << 24 >> 24" x y : sbyte #)
         when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "($0 - $1) << 16 >> 16" x y : int16 #)
@@ -134,8 +134,6 @@ module ArithmeticOperators =
         when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "Math.fround($0 * $1)" x y : float32 #)
         when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "Math.imul($0, $1) >>> 0" x y : uint32 #)
         when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "$0 * $1" x y : uint64 #)
-        when ^T1: nativeint and ^T2: nativeint and ^T3: nativeint = (# "$0 * $1" x y : nativeint #)
-        when ^T1: unativeint and ^T2: unativeint and ^T3: unativeint = (# "$0 * $1" x y : unativeint #)
         when ^T1: byte and ^T2: byte and ^T3: byte = (# "($0 * $1) & 0xFF" x y : byte #)
         when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "($0 * $1) << 24 >> 24" x y : sbyte #)
         when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "($0 * $1) << 16 >> 16" x y : int16 #)
@@ -165,8 +163,6 @@ module ArithmeticOperators =
         when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "Math.fround($0 / $1)" x y : float32 #)
         when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "($0 / $1) >>> 0" x (checkedDivisor y) : uint32 #)
         when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "$0 / $1" x y : uint64 #)
-        when ^T1: nativeint and ^T2: nativeint and ^T3: nativeint = (# "$0 / $1" x y : nativeint #)
-        when ^T1: unativeint and ^T2: unativeint and ^T3: unativeint = (# "$0 / $1" x y : unativeint #)
         when ^T1: byte and ^T2: byte and ^T3: byte = (# "($0 / $1) & 0xFF" x (checkedDivisor y) : byte #)
         when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "($0 / $1) << 24 >> 24" x (checkedDivisor y) : sbyte #)
         when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "($0 / $1) << 16 >> 16" x (checkedDivisor y) : int16 #)
@@ -189,8 +185,6 @@ module ArithmeticOperators =
         when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "Math.fround($0 % $1)" x y : float32 #)
         when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "($0 % $1) >>> 0" x (checkedDivisor y) : uint32 #)
         when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "$0 % $1" x y : uint64 #)
-        when ^T1: nativeint and ^T2: nativeint and ^T3: nativeint = (# "$0 % $1" x y : nativeint #)
-        when ^T1: unativeint and ^T2: unativeint and ^T3: unativeint = (# "$0 % $1" x y : unativeint #)
         when ^T1: byte and ^T2: byte and ^T3: byte = (# "($0 % $1) & 0xFF" x (checkedDivisor y) : byte #)
         when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "($0 % $1) << 24 >> 24" x (checkedDivisor y) : sbyte #)
         when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "($0 % $1) << 16 >> 16" x (checkedDivisor y) : int16 #)
@@ -208,8 +202,6 @@ module ArithmeticOperators =
         when ^T: float32 = (# "Math.fround(-$0)" n : float32 #)
         when ^T: uint32 = (# "(-$0) >>> 0" n : uint32 #)
         when ^T: uint64 = (# "-$0" n : uint64 #)
-        when ^T: nativeint = (# "-$0" n : nativeint #)
-        when ^T: unativeint = (# "-$0" n : unativeint #)
         when ^T: byte = (# "(-$0) & 0xFF" n : byte #)
         when ^T: sbyte = (# "(-$0) << 24 >> 24" n : sbyte #)
         when ^T: int16 = (# "(-$0) << 16 >> 16" n : int16 #)

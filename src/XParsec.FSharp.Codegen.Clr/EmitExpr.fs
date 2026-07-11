@@ -20,7 +20,11 @@ module EmitExpr =
     let rec buildExpr (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
         | TExprG.Const(TConstValue.String s, _, _) -> b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
-        | TExprG.Const(TConstValue.Int n, _, _) -> b.Add(ILInstr.LdcI4 n)
+        // Every integral width the lexer cannot represent folds onto `Int`
+        // (`NumericLiteralValue.Int32`), so the constant's TYPE — not its payload —
+        // decides the load: `pushIntConst` widens to the pointer width for a
+        // `nativeint` / `unativeint` literal and is a bare `ldc.i4` for the rest.
+        | TExprG.Const(TConstValue.Int n, ty, _) -> EmitTypes.pushIntConst b n ty
         // `uint32` shares the 32-bit stack representation of `int32`; `ldc.i4`
         // pushes its two's-complement bit pattern (the value's signedness is a
         // type-level distinction the verifier reads off the slot, not the load).
