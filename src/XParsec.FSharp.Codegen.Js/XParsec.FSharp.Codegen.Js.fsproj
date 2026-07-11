@@ -15,6 +15,7 @@
     <Compile Include="JsEmitHelpers.fs" />
     <Compile Include="JsFlatFns.fs" />
     <Compile Include="JsExternalMembers.fs" />
+    <Compile Include="EmitJsCapabilities.fs" />
     <Compile Include="EmitJsTypes.fs" />
     <Compile Include="EmitJsContext.fs" />
     <Compile Include="EmitJsFormat.fs" />

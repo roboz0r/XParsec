@@ -280,13 +280,12 @@ type PassContextResolution =
         /// codegen needs for the `isinst` operand — is stashed here by
         /// Unification and read by Elaborate to populate `TExpr.TypeTest.testTy`.
         TypeTestTargets: SideTable<SemType>
-        /// Keyed by a `use` binding's head-pattern `NodeKey`: the `SymbolKey` of the
-        /// `Dispose` member to call when the binder's type is *external* (a BCL
-        /// disposable). Recorded by `Unification`'s `use`-Dispose resolution and read
-        /// by `Elaborate` to stamp `TExpr.Use.dispose` (`ValueSome`); absent for a
-        /// project-local binder, where Elaborate leaves `ValueNone` and codegen takes the
-        /// duck-typed direct-call path.
-        UseDispose: SideTable<SymbolKey>
+        /// Keyed by a `use` binding's head-pattern `NodeKey`: how the binder is disposed.
+        /// Recorded by `Unification`'s `use`-Dispose resolution and read by `Elaborate` to
+        /// stamp `TExpr.Use.dispose`. Absent ⇒ `Disposal.Unresolved` — Unification reported
+        /// a `use`-over-non-disposable error (or the binder's type never resolved), so no
+        /// backend may lower the node.
+        UseDispose: SideTable<Disposal>
         /// Keyed by a `for x in src do …` node's `NodeKey`: how the source yields
         /// its enumerator. Recorded by `Unification.inferForIn` and read by `Elaborate`
         /// to stamp `TExpr.ForIn.enumerator`. Absent ⇒ `ForInEnumerator.Interface`

@@ -103,30 +103,17 @@ module Codegen =
 
         // Source text drives variable naming (recovering source identifiers from binder
         // offsets) independently of whether maps are emitted.
-        let ctx: EmitJsContext.WalkCtx =
-            {
-                Resolver = resolver
-                Source =
-                    match project.Source with
-                    | Some src -> ValueSome src.Content
-                    | None -> ValueNone
-                Records = System.Collections.Generic.Dictionary()
-                Unions = System.Collections.Generic.Dictionary()
-                Classes = System.Collections.Generic.Dictionary()
-                // Populated by `buildProgram` from `collectTypes`.
-                Enums = System.Collections.Generic.Dictionary()
-                Provider = provider
-                ExternalUnions = System.Collections.Generic.Dictionary()
-                Imports = JsImports.create runtimeAssets
-                ExportTopLevel =
-                    match project.Kind with
-                    | Library -> true
-                    | Script -> false
-                // Populated by `buildProgram` from the lowered decls.
-                CompiledFns = System.Collections.Generic.Dictionary()
-                // Populated by `buildProgram` from the file's interface decls.
-                LocalInterfaces = System.Collections.Generic.HashSet()
-            }
+        let ctx =
+            EmitJsContext.WalkCtx.create
+                resolver
+                (match project.Source with
+                 | Some src -> ValueSome src.Content
+                 | None -> ValueNone)
+                provider
+                (JsImports.create runtimeAssets)
+                (match project.Kind with
+                 | Library -> true
+                 | Script -> false)
 
         let result = JsPrint.print (EmitJs.buildProgram ctx tast)
         let jsFile = jsFileName project

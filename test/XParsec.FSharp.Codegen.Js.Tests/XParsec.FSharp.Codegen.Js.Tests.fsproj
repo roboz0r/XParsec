@@ -28,6 +28,7 @@
     <Compile Include="ArrayLoopTests.fs" />
     <Compile Include="UseTests.fs" />
     <Compile Include="ForInTests.fs" />
+    <Compile Include="ManualEnumerationTests.fs" />
     <Compile Include="ClassEmitTests.fs" />
     <Compile Include="StructuralFormatRecipeTests.fs" />
     <Compile Include="PrintfHoleFormTests.fs" />

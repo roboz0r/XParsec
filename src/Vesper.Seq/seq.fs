@@ -9,14 +9,10 @@ namespace Vesper.Collections
 // These are the *minimal* reference impls, not the zero-allocation struct-chaining
 // design of brainstorm-seq-module.md (a future sprint). The split follows operation shape:
 //   - The eager terminals (`fold` / `reduce` / `toArray`) iterate with `for x in source`
-//     over a mutable accumulator. `for … in` is the ONE iteration construct both backends
-//     lower: CLR takes the `IEnumerator` interface path, JS lowers to `for…of` over the
-//     native `Symbol.iterator`. The manual `GetEnumerator()`/`MoveNext()`/`Current` pull
-//     protocol is CLR-idiomatic and has NO JS lowering yet (JS's `next()→{value,done}`
-//     combines advance+read, which the split `MoveNext`/`Current` capability cannot express
-//     without a runtime adapter — see `get-enumerator-gaps.md`), so these terminals stay
-//     portable by expressing iteration as `for … in`. Their functional arguments are
-//     `Vesper.Fun`s, so each application lowers to `callvirt Fun::Invoke`.
+//     over a mutable accumulator — the clearest way to write these three, and no longer a
+//     portability constraint (the manual `GetEnumerator()`/`MoveNext()`/`Current` pull
+//     protocol `for … in` is sugar for now lowers on both backends). Their functional
+//     arguments are `Vesper.Fun`s, so each application lowers to `callvirt Fun::Invoke`.
 //   - The lazy `truncate` delegates to `System.Linq.Enumerable.Take` and so does NOT port to
 //     JS. This is a stopgap, and no longer a blocked one: it does not need `seq { }` state
 //     machines. Now that `seq`/`enumerator` are AUTHORABLE capabilities, a lazy combinator is
@@ -35,10 +31,6 @@ open System.Linq
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Seq =
 
-    // `fold` / `reduce` / `toArray` iterate via `for x in source` for cross-target
-    // portability: `for … in` lowers on BOTH backends (CLR interface path, JS `for…of`),
-    // whereas the manual `GetEnumerator`/`MoveNext`/`Current` protocol is CLR-idiomatic and
-    // has no JS lowering yet (see `get-enumerator-gaps.md`).
     let fold<'T, 'State> (folder: 'State -> 'T -> 'State) (state: 'State) (source: seq<'T>) : 'State =
         let mutable acc = state
 

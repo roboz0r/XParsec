@@ -745,10 +745,15 @@ module internal ElaborateExpr =
 
                 result <-
                     if isUse then
-                        // An external (BCL) binder's keyed `Dispose` is recorded by
-                        // Unification under the head-pattern's key; a project-local binder
-                        // has none and codegen takes the duck-typed direct call (§4.3).
-                        let dispose = ctx.Resolution.UseDispose.TryGetValue(CstKeys.ofPat b.headPat)
+                        // Unification records the binder's resolved disposal path under the
+                        // head-pattern's key. Absent ⇒ it could not resolve one and reported
+                        // a `use`-over-non-disposable error, so the node carries `Unresolved`
+                        // (an erroneous file still elaborates; no backend lowers it).
+                        let dispose =
+                            match ctx.Resolution.UseDispose.TryGetValue(CstKeys.ofPat b.headPat) with
+                            | ValueSome d -> d
+                            | ValueNone -> Disposal.Unresolved
+
                         TExpr.Use(tpat, valT, result, dispose, resultTy, bindTok)
                     else
                         TExpr.Let(tpat, valT, result, resultTy, bindTok)

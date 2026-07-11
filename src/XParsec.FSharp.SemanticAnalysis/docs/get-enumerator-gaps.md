@@ -14,6 +14,12 @@ by construction, not an oversight — a duck-typed source never type-checks agai
 the BCL-free JS provider, so on JS a source's only enumerable surface *is* the
 interface.
 
+The **manual** pull protocol — `let e = src.GetEnumerator()` then `while e.MoveNext()
+do … e.Current`, which `for … in` is sugar for — also lowers on **both** targets, as
+does disposing the cursor (`use e = …` / an explicit `e.Dispose()`). On JS it goes
+through the capability protocol's **consumer** table; that protocol (both halves, and
+why `GetEnumerator` needs a runtime adapter) is documented in `EmitJsCapabilities`.
+
 | source | enumerator | path |
 |---|---|---|
 | `IEnumerable<'T>` directly (`Linq.Range`) | interface `IEnumerator<'T>` | `Interface` |
@@ -120,7 +126,7 @@ separate case per source/enumerator combination:
 
 ## Remaining work
 
-### 1. Ref-struct enumerator with a pattern `Dispose()` (no `IDisposable`)
+### Ref-struct enumerator with a pattern `Dispose()` (no `IDisposable`)
 
 `dispose` is currently a `bool`, and disposal always goes through the
 `System.IDisposable::Dispose` interface slot. A `[<IsByRefLike>]` enumerator can't be
@@ -135,28 +141,13 @@ This mirrors the `use`-binder precedent `Infer.tryExternalDispose` (prefer the t
 own `Dispose`, fall back to the interface slot). See the sited TODO in
 `probeLocalEnumerator`.
 
-### 2. Manual enumeration protocol — no JS lowering (`GetEnumerator`/`MoveNext`/`Current`)
+### `Vesper.Seq.truncate` is CLR-only
 
-`for … in` lowers on both targets (through the `Interface` case — see the scope note
-above), but the **manual** pull protocol — `let e = source.GetEnumerator()` then
-`while e.MoveNext() do … e.Current` — is CLR/F#-idiomatic and does **not** lower on JS
-today. JS iteration is `Symbol.iterator` + `next() → { value, done }`, which
-*combines* advance+read; the capability deliberately **splits** them into `MoveNext`
-(advance, `bool`) and `Current` (read, `'T`), and a stateless `(# … #)` intrinsic
-cannot carry the shared `next()`-result state the split needs.
-
-Intended lowering (future work):
-- Map `seq.GetEnumerator()` via an intrinsic to `$0[Symbol.iterator]()` (the
-  native JS iterator).
-- Provide a small `Vesper.Core.mjs` runtime **adapter** that wraps that native
-  iterator and exposes the `MoveNext` / `Current` split over `next() →
-  { value, done }` (holding the last `next()` result between the `MoveNext`
-  advance and the `Current` read — the state a `(# … #)` can't express).
-
-Until then, `Vesper.Seq`'s terminals (`fold` / `reduce` / `toArray`) are written
-with `for … in` (not the manual protocol) precisely so they stay portable — see
-the sited comment in `src/Vesper.Seq/seq.fs`. `truncate` stays CLR-Linq
-(`System.Linq.Enumerable.Take`) and is a separate portability concern.
+Unrelated to enumeration lowering, but the remaining thing keeping `Vesper.Seq` off
+JS: `truncate` delegates to `System.Linq.Enumerable.Take`. Now that `seq`/`enumerator`
+are authorable capabilities, the fix is plain Vesper code — a `TakeSeq<'T>` /
+`TakeEnumerator<'T>` pair, the shape `List`/`ListEnumerator` already take. See the
+sited comment in `src/Vesper.Seq/seq.fs`.
 
 ---
 

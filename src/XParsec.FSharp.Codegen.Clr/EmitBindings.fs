@@ -57,10 +57,9 @@ module EmitBindings =
             // and reloaded after the finally as the expression's value (works for a
             // unit body too — `Unit` is `null`, parked and reloaded like any value).
             // The disposal is guarded by a null check so a null binder is a no-op
-            // like F#'s `use`. `dispose` selects the path: `ValueNone` is the
-            // duck-typed direct `x.Dispose()` call on a project-local binder (no
-            // `IDisposable` upcast); `ValueSome key` disposes an external (BCL)
-            // binder through the keyed `Dispose` member the front end resolved.
+            // like F#'s `use`. `dispose` (see `Disposal`) selects the path: the
+            // capability's slot — on the CLR, the resolved `IDisposable::Dispose`
+            // interface member — or the binder's own pattern `Dispose()`.
             //
             // `use` is a statement-position binding, so the surrounding stack is
             // empty here: the region opens at depth 0 and the final `ldloc` leaves
@@ -119,39 +118,13 @@ module EmitBindings =
 
                 b.Add ILInstr.Pop
 
-            // True iff the keyed `Dispose`'s declaring type is project-local — an
-            // `ExternalMemberRef` would fault on a local handle (mirrors `EmitMember`'s
-            // `env.Unions`/`env.Classes` locality test).
-            let isLocalDisposeKey (key: SymbolKey) =
-                match key with
-                | SymbolKey.MemberKey(declKey, _, _, _) ->
-                    env.Classes.ContainsKey declKey || env.Unions.ContainsKey declKey
-                | _ -> false
-
-            match dispose with
-            | ValueNone ->
-                emitLocalDispose (
-                    SymbolKey.MemberKey(
-                        fst (nominalShape "use-dispose receiver" varTy),
-                        "Dispose",
-                        EqArray.empty,
-                        MemberKind.Method
-                    )
-                )
-            // The project-local `[<IsByRefLike>]` ref-struct carve-out
-            // (`Infer.tryRefStructOwnDispose`) also arrives as `ValueSome`, but its
-            // declaring type is LOCAL, so it disposes through the same `CallVia.Self` path
-            // as `ValueNone` — `ExternalMemberRef` would fault on a local handle.
-            | ValueSome key when isLocalDisposeKey key -> emitLocalDispose key
-            | ValueSome key ->
-                // External (BCL) binder: dispose through the keyed `Dispose` the front
-                // end resolved (the type's own `Dispose`, or `System.IDisposable`'s),
-                // minted as an `ExternalMemberRef` `callvirt`. The external member
-                // carries a real `void` return, so it pushes nothing: a receiver-only
-                // `callvirt`, no `pop`.
+            // Dispose through a keyed `Dispose` on an EXTERNAL type, minted as an
+            // `ExternalMemberRef` `callvirt`. The external member carries a real `void`
+            // return, so it pushes nothing: a receiver-only `callvirt`, no `pop`.
+            let emitExternalDispose (disposeKey: SymbolKey) =
                 let dispHandle =
                     env.Provider.ExternalMemberRef(
-                        key,
+                        disposeKey,
                         false,
                         false,
                         FTFun(
@@ -162,6 +135,47 @@ module EmitBindings =
 
                 b.Add(ILInstr.Ldloc slot)
                 b.Add(ILInstr.Callvirt(dispHandle, 1, 0))
+
+            // Locality decides the call shape, in both disposal paths: an
+            // `ExternalMemberRef` would fault on a project-local handle (mirrors
+            // `EmitMember`'s `env.Unions`/`env.Classes` test), so a local type is always
+            // disposed through the `CallVia.Self` path on its OWN `Dispose` method.
+            let isLocalType (key: SymbolKey) =
+                env.Classes.ContainsKey key || env.Unions.ContainsKey key
+
+            let isLocalBinder =
+                match TastLower.receiverShape varTy with
+                | ValueSome(headKey, _) -> isLocalType headKey
+                | ValueNone -> false
+
+            let isLocalDisposeKey (key: SymbolKey) =
+                match key with
+                | SymbolKey.MemberKey(declKey, _, _, _) -> isLocalType declKey
+                | _ -> false
+
+            match dispose with
+            // The binder implements the disposal capability. A LOCAL impl disposes through
+            // its own `Dispose` method; an EXTERNAL one through the capability's interface
+            // slot (the key the front end resolved) — the type's own `Dispose` may not even
+            // exist on it (`MemoryStream` inherits `Stream.Dispose`).
+            | Disposal.ViaCapability _ when isLocalBinder ->
+                emitLocalDispose (
+                    SymbolKey.MemberKey(
+                        fst (nominalShape "use-dispose receiver" varTy),
+                        "Dispose",
+                        EqArray.empty,
+                        MemberKind.Method
+                    )
+                )
+            | Disposal.ViaCapability slot -> emitExternalDispose slot
+            // The carve-out: an own pattern `Dispose()`, called directly. The project-local
+            // `[<IsByRefLike>]` ref struct (`Infer.tryRefStructOwnDispose`) lands here too.
+            | Disposal.ViaOwnMember key when isLocalDisposeKey key -> emitLocalDispose key
+            | Disposal.ViaOwnMember key -> emitExternalDispose key
+            | Disposal.Unresolved ->
+                failwithf
+                    "Emit: `use` over a binder with no resolved disposal (%A) — Unification reported an error, so this file should never have reached codegen"
+                    varTy
 
             b.SetDepth 0
             b.Add(ILInstr.Mark skipLabel)

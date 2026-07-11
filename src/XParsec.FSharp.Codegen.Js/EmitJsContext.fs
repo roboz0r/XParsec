@@ -110,7 +110,41 @@ module EmitJsContext =
             /// interface dispatch handles both); JS, lacking it, recovers the fact here.
             /// Empty until `buildProgram` populates it from `tast.Decls`.
             LocalInterfaces: HashSet<SymbolKey>
+            /// The language-capability identities behind both halves of the JS capability
+            /// protocol (`EmitJsCapabilities`). Unlike the tables above, this depends only on
+            /// the provider, not on the file — so `WalkCtx.create` resolves it up front and no
+            /// caller ever holds a `WalkCtx` whose capabilities are a placeholder.
+            Capabilities: RuntimeNames.CapabilityIds
         }
+
+    module WalkCtx =
+        /// The ONE `WalkCtx` constructor — production (`Codegen.compileWith`) and the tests
+        /// share it. The file-derived tables start empty for `EmitJs.buildProgram` to fill
+        /// (they need the `TastFile`); `Capabilities` is resolved HERE, since it needs only the
+        /// provider. A provider that names no capability resolves to the all-unnamed set, so
+        /// there is no absent-provider case to carry.
+        let create
+            (resolver: Resolver)
+            (source: string voption)
+            (provider: IExternalSymbolProvider)
+            (imports: JsImports)
+            (exportTopLevel: bool)
+            : WalkCtx =
+            {
+                Resolver = resolver
+                Source = source
+                Records = Dictionary()
+                Unions = Dictionary()
+                Classes = Dictionary()
+                Enums = Dictionary()
+                Provider = provider
+                ExternalUnions = Dictionary()
+                Imports = imports
+                ExportTopLevel = exportTopLevel
+                CompiledFns = Dictionary()
+                LocalInterfaces = HashSet()
+                Capabilities = ExternalSymbols.resolveCapabilities provider
+            }
 
     let locOf (ctx: WalkCtx) (tok: SyntaxToken) : JsLoc voption =
         match ctx.Resolver with
@@ -256,21 +290,6 @@ module EmitJsContext =
             JsStatement.Let(name, init)
         else
             JsStatement.Const(name, init)
-
-    /// A NATIVE well-known symbol — a member access on the global `Symbol`
-    /// (`Symbol.dispose`, `Symbol.iterator`). Distinct from a `Symbol.for("…")` registry
-    /// call (`registrySymbol`).
-    let nativeSymbol (name: string) : JsExpr =
-        JsExpr.Member(JsExpr.Identifier("Symbol", ValueNone), JsExpr.Identifier(name, ValueNone), false, ValueNone)
-
-    /// A process-wide REGISTRY symbol — `Symbol.for("<key>")`, resolving to the same
-    /// symbol in every module with no import wiring (the eq/comp/hash dispatch slots).
-    let registrySymbol (key: string) : JsExpr =
-        JsExpr.Call(nativeSymbol "for", [ JsExpr.Literal(JsLiteral.String key, ValueNone) ], ValueNone)
-
-    /// `Symbol.dispose` — shared by the disposable-impl method KEY (`emitDisposeMethod`)
-    /// and `use`'s disposal call site (`disposeStmts`) so both name the identical slot.
-    let symbolDispose: JsExpr = nativeSymbol "dispose"
 
     /// `console.<method>` — the sink for `printf`/`eprintf`.
     let console (method: string) : JsExpr =

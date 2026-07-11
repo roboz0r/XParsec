@@ -4,6 +4,7 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open JsEmitHelpers
+open EmitJsCapabilities
 open EmitJsTypes
 open EmitJsContext
 
@@ -116,11 +117,18 @@ module EmitJs =
         | TExprG.App(fn, arg, _, _) ->
             let head, spine = TastWalk.collectSpine [] e
 
-            // Flat dispatch: a native attached-member call (`JsExternalMembers.
-            // tryAttachedCall`) folds the whole spine into ONE `receiver.member(args)`;
-            // else a saturated module-function call collapses to a flat call; anything
-            // else keeps the curried unary fallback.
-            match JsExternalMembers.tryAttachedCall ctx.Provider (buildExpr ctx) head spine loc with
+            // Flat dispatch: a capability-protocol member call (`tryCapabilityCall` —
+            // `src.GetEnumerator()`, `e.MoveNext()`, `e.Dispose()`) folds head + the lone
+            // `unit` spine element into its JS form; a native attached-member call
+            // (`JsExternalMembers.tryAttachedCall`) folds the whole spine into ONE
+            // `receiver.member(args)`; else a saturated module-function call collapses to a
+            // flat call; anything else keeps the curried unary fallback.
+            let folded =
+                match tryCapabilityCall ctx.Capabilities ctx.Imports (buildExpr ctx) head spine loc with
+                | ValueSome call -> ValueSome call
+                | ValueNone -> JsExternalMembers.tryAttachedCall ctx.Provider (buildExpr ctx) head spine loc
+
+            match folded with
             | ValueSome call -> call
             | ValueNone ->
                 // Resolve a spine head that names a module function to its flat callee +
@@ -338,6 +346,12 @@ module EmitJs =
         //     Vesper-provided runtime module (`JsImports.entryFor` fails loudly
         //     when the package has none — a real npm package cannot export a
         //     mangled name).
+        // A capability-member property read (`e.Current`) — the applied calls (`e.MoveNext()`)
+        // are folded in the `App` arm. Same convention as the `LocalInterfaces` arm above and
+        // `emitIteratorMethod`: an interface property is a zero-arg method, so the read is the
+        // call.
+        | CapabilityRead ctx.Capabilities ctx.Imports (recv, emit) -> emit (buildExpr ctx recv) loc
+
         | TExprG.ExternalMember(receiver, key, memberName, storage, _, _) ->
             let declKey = JsExternalMembers.declKey key
             // JS has no field/property distinction at access — both are a value member
@@ -752,13 +766,13 @@ module EmitJs =
 
     /// The `finally` body that disposes a `use` binder: a null-guarded disposal call.
     /// F# `use` is null-safe — JS loose `!= null` catches both `null` and `undefined`
-    /// (matching the `Null` pattern convention). Under the §3b disposal-model flip, a
-    /// project-local `use` binder always implements `disposable` (the front end records
-    /// `ValueNone`), so disposal is the native `binder[Symbol.dispose]()` — the same
-    /// `Symbol.dispose` member-access node the disposable impl emits its method under
-    /// (`emitDisposeMethod`). The `ValueSome key` path (the ref-struct carve-out / an
-    /// external own-`Dispose`) keeps calling the keyed member's free receiver-first fn.
-    and private disposeStmts (ctx: WalkCtx) (dispose: SymbolKey voption) (name: string) : JsStatement list =
+    /// (matching the `Null` pattern convention). The disposal capability's JS slot is the
+    /// native `binder[Symbol.dispose]()` — the same slot a disposable impl emits its method
+    /// under (`emitDisposeMethod`) — whether the binder is a project-local impl or an external
+    /// one reached through the capability interface (`use e = src.GetEnumerator()`, since
+    /// `enumerator<'T> : disposable`). Only the carve-out (`ViaOwnMember`) calls a keyed
+    /// member's free receiver-first function.
+    and private disposeStmts (ctx: WalkCtx) (dispose: Disposal) (name: string) : JsStatement list =
         let binder = JsExpr.Identifier(name, ValueNone)
 
         let guard =
@@ -766,14 +780,19 @@ module EmitJs =
 
         let disposeCall =
             match dispose with
-            // Ref-struct carve-out / external own-`Dispose`: the front end resolved a
-            // keyed `Dispose` member; call its free receiver-first function.
-            | ValueSome key ->
+            // The capability's slot: a COMPUTED member access on the well-known symbol, no
+            // args. The CLR-only interface `slot` key the node carries is irrelevant here —
+            // JS names its own slot.
+            | Disposal.ViaCapability _ -> disposeSlotCall binder ValueNone
+            // Ref-struct carve-out / an external type's own pattern `Dispose()`: call the
+            // keyed member's free receiver-first function.
+            | Disposal.ViaOwnMember key ->
                 let disposeFn = Members.localFn ctx key false false ValueNone
                 JsExpr.Call(disposeFn, [ binder ], ValueNone)
-            // Implements `disposable`: lower to the native `binder[Symbol.dispose]()`
-            // (a COMPUTED member access on the well-known symbol), with no args.
-            | ValueNone -> JsExpr.Call(JsExpr.Member(binder, symbolDispose, true, ValueNone), [], ValueNone)
+            | Disposal.Unresolved ->
+                failwithf
+                    "EmitJs: `use` over a binder with no resolved disposal ('%s') — Unification reported an error, so this file should never have reached codegen"
+                    name
 
         [ JsStatement.If(guard, [ JsStatement.Expression disposeCall ], []) ]
 
@@ -781,13 +800,7 @@ module EmitJs =
     /// (classes are not hoisted); remaining decls are lowered — `let inline` templates
     /// and `type` decls drop out, leaving module values and effectful expressions.
     let buildProgram (ctx0: WalkCtx) (tast: Frozen.TastFile) : JsProgram =
-        // The language-capability identities, resolved through the provider — drives the
-        // `seq<'T>`-impl → `[Symbol.iterator]` routing in `partitionClassMembers`. A
-        // provider-less compile passes `nullProvider`, whose empty leaf resolves to the
-        // all-unnamed set (`CapabilityIds.none`), so absence needs no arm of its own.
-        let caps = ExternalSymbols.resolveCapabilities ctx0.Provider
-
-        let collected = collectTypes caps ctx0.ExportTopLevel tast
+        let collected = collectTypes ctx0.Capabilities ctx0.ExportTopLevel tast
 
         let lowered = TastLower.lower tast.Decls
 

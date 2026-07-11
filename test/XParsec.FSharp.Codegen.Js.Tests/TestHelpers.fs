@@ -293,20 +293,12 @@ let private jsWalkCtx
     (exportTopLevel: bool)
     (input: string)
     : EmitJsContext.WalkCtx =
-    {
-        Resolver = ValueSome(EmitJsContext.LineIndex.build input)
-        Source = ValueSome input
-        Records = System.Collections.Generic.Dictionary()
-        Unions = System.Collections.Generic.Dictionary()
-        Classes = System.Collections.Generic.Dictionary()
-        Enums = System.Collections.Generic.Dictionary()
-        Provider = provider
-        ExternalUnions = System.Collections.Generic.Dictionary()
-        Imports = JsImports.create runtime
-        ExportTopLevel = exportTopLevel
-        CompiledFns = System.Collections.Generic.Dictionary()
-        LocalInterfaces = System.Collections.Generic.HashSet()
-    }
+    EmitJsContext.WalkCtx.create
+        (ValueSome(EmitJsContext.LineIndex.build input))
+        (ValueSome input)
+        provider
+        (JsImports.create runtime)
+        exportTopLevel
 
 /// Front-end + freeze `input` through `provider`, then emit JS with the injected
 /// `runtime` modules — the shared body of the per-package `emitWithX` helpers. Routes

@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.Codegen.Js
 
 open XParsec.FSharp.SemanticAnalysis
+open EmitJsCapabilities
 
 /// Member partitioning and nominal-`type`-decl collection for the JS backend — the
 /// `WalkCtx`-free, `buildExpr`-free front half of emission. `collectTypes` reads the
@@ -137,38 +138,12 @@ module EmitJsTypes =
             Members: (string * Frozen.TTypeMember) list
         }
 
-    // The JS capability protocol table — the ONE place the `caps.* → JS anchor` mapping is
-    // enumerated. The CLR/JS asymmetry made concrete: a CLR anchor is a TYPE
-    // (`System.IDisposable`) so it stays in source; a JS anchor is a SYMBOL
-    // (`Symbol.dispose`, a dispatch key) so it lives here, in the backend. Dispatch is
-    // keyed on the resolved `caps.*` identity (`partitionClassMembers`/`capMatches`).
-    //
-    //   capability | JS anchor                       | kind            | emission
-    //   -----------|---------------------------------|-----------------|---------------------------
-    //   iteration  | Symbol.iterator                 | native          | *[…]() GENERATOR (adapter)
-    //   disposal   | Symbol.dispose                  | native          | [...]() plain method
-    //   equality   | Symbol.for("vesper.equality")   | Vesper registry | [...]() plain method
-    //   comparison | Symbol.for("vesper.comparison") | Vesper registry | [...]() plain method
-    //   hashing    | Symbol.for("vesper.hash")       | Vesper registry | [...]() plain method
-    //
-    // Iteration is the only generator (the MoveNext/Current → next/{value,done} adapter);
-    // the rest are plain methods under a computed key — native well-known (`EmitJs`
-    // `symbolDispose`/`nativeSymbol`) vs registry (`registrySymbol`, from the keys below).
-    // The two shapes route by a direct `if/elif` — the bucket IS the table. `hashing` is
-    // the `override GetHashCode`, routed separately in `partitionClassMembers`.
-
-    /// Registry-symbol keys for the eq/comp/hash JS capability protocols.
-    /// These three protocols have no native JS dispatch, so they ride a process-wide
-    /// `Symbol.for("vesper.X")` the Vesper runtimes look up — collision-proof against a
-    /// foreign object's same-named string method.
-    [<Literal>]
-    let equalityRegistryKey = "vesper.equality"
-
-    [<Literal>]
-    let comparisonRegistryKey = "vesper.comparison"
-
-    [<Literal>]
-    let hashRegistryKey = "vesper.hash"
+    // The IMPLEMENTER half of the capability protocol — the dispatch slot a type that
+    // *implements* a capability emits, routed off `EmitJsCapabilities.capabilityOf` (which is
+    // also what the CONSUMER half routes on; the protocol as a whole is documented there).
+    // A slot lands the member in one of four buckets — `Iterators` (the `*[Symbol.iterator]()`
+    // generator), `Disposers` (`[Symbol.dispose]()`), `Protocols` (a registry-symbol method),
+    // or `Attached` (a plain named method) — and the bucket IS the table.
 
     /// The head nominal key of a frozen interface type (`FTClass(key, _)`).
     let ifaceHeadKey (ty: FrozenType) : SymbolKey voption =
@@ -206,48 +181,42 @@ module EmitJsTypes =
         let disposers = ResizeArray<Frozen.TTypeMember>()
         let claimed = System.Collections.Generic.HashSet<string>()
 
-        let capMatches (cap: RuntimeNames.CapabilityIdentity voption) (iface: FrozenType) =
-            match ifaceHeadKey iface with
-            | ValueSome key -> RuntimeNames.matchesKey cap key
-            | ValueNone -> false
+        let attachNamed (ifaceMembers: EqArray<Frozen.TTypeMember>) =
+            for m in ifaceMembers do
+                if claimed.Add m.Name then
+                    attached.Add m
 
-        // Interface impls claim their name slot first. The capability interfaces are the
-        // exceptions: an enumerable (`seq<'T>`) impl drives a native `[Symbol.iterator]`
-        // generator, and an equatable (`IEquatable<Self>`) / comparable (`IComparable<Self>`)
-        // impl drives a registry-symbol `[Symbol.for("vesper.X")]` method (see the
-        // capability protocol table above) — neither claims a string name slot.
+        // Interface impls claim their name slot first. A capability impl is the exception: it
+        // drives its capability's dispatch slot instead — a symbol key, which claims no string
+        // name — with the CURSOR capability (`enumerator<'T>`) the one that doesn't, because
+        // its slot IS a pair of plain named methods (`MoveNext()` / `Current()`), the very
+        // methods the consumer half calls.
         for (iface, ifaceMembers) in interfaces do
-            let isEnumerable = capMatches caps.Enumerable iface
-            let isEquatable = capMatches caps.Equatable iface
-            let isComparable = capMatches caps.Comparable iface
-            let isDisposable = capMatches caps.Disposable iface
-
             let isNonGenericEnumerable =
                 match ifaceHeadKey iface with
                 | ValueSome key -> SymbolKeyOps.qualifiedName key = nonGenericEnumerableName
                 | ValueNone -> false
 
-            if isEnumerable then
-                for m in ifaceMembers do
-                    iterators.Add m
-            elif isEquatable then
-                for m in ifaceMembers do
-                    protocols.Add(equalityRegistryKey, m)
-            elif isComparable then
-                for m in ifaceMembers do
-                    protocols.Add(comparisonRegistryKey, m)
-            elif isDisposable then
-                // The disposable interface's `Dispose` impl drives a native
-                // `[Symbol.dispose]()` method (the slot `use`'s `obj[Symbol.dispose]()`
-                // lowering calls); it claims no string name slot.
-                for m in ifaceMembers do
-                    disposers.Add m
-            elif isNonGenericEnumerable then
+            let capability = ifaceHeadKey iface |> ValueOption.bind (capabilityOf caps)
+
+            if isNonGenericEnumerable then
                 ()
             else
-                for m in ifaceMembers do
-                    if claimed.Add m.Name then
-                        attached.Add m
+                match capability with
+                | ValueSome JsCapability.Iteration ->
+                    for m in ifaceMembers do
+                        iterators.Add m
+                | ValueSome JsCapability.Equality ->
+                    for m in ifaceMembers do
+                        protocols.Add(equalityRegistryKey, m)
+                | ValueSome JsCapability.Comparison ->
+                    for m in ifaceMembers do
+                        protocols.Add(comparisonRegistryKey, m)
+                | ValueSome JsCapability.Disposal ->
+                    for m in ifaceMembers do
+                        disposers.Add m
+                | ValueSome JsCapability.Cursor
+                | ValueNone -> attachNamed ifaceMembers
 
         let free = ResizeArray<Frozen.TTypeMember>()
 

@@ -138,8 +138,52 @@ export const checkedDivisor = (d) => {
   return d;
 };
 
+// `src.GetEnumerator()` — the backend lowers it to `enumeratorOf(src)` (its capability
+// protocol is documented in `EmitJsCapabilities`). It is a runtime adapter rather than a
+// stateless `(# … #)` template because JS's `next() → { value, done }` COMBINES advance and
+// read where the Vesper cursor SPLITS them (`MoveNext(): bool`, `Current(): 'T`): the last
+// `next()` result has to be parked somewhere between the two calls, and that state is what
+// this class is.
+//
+// The wrapper's shape is exactly what an authored `interface enumerator<'T>` emits —
+// attached `MoveNext()` / `Current()` methods (an interface property compiles to a zero-arg
+// method) plus `[Symbol.dispose]()` for the disposal capability `enumerator` inherits — so a
+// consumer of the protocol cannot tell which of the two it holds. `Current()` outside the
+// sequence (before the first `MoveNext()`, or after one returns false) is `undefined`, which
+// is why exhausting the iterator clears `cur`; reading a CLR `IEnumerator<T>.Current` outside
+// the sequence is likewise unspecified.
+class NativeEnumerator {
+  constructor(iter) {
+    this.iter = iter;
+    this.cur = undefined;
+  }
+  MoveNext() {
+    const r = this.iter.next();
+    if (r.done) {
+      this.cur = undefined;
+      return false;
+    }
+    this.cur = r.value;
+    return true;
+  }
+  Current() {
+    return this.cur;
+  }
+  // Closing the underlying iterator is the JS analogue of disposing a cursor: a generator
+  // implements `return()` by running its `finally` blocks. A plain array iterator has none,
+  // so the call is guarded.
+  [Symbol.dispose]() {
+    if (typeof this.iter.return === "function") this.iter.return();
+  }
+}
+
 // Public entries — the surface the backend imports. The flat (Fable-style) compiled
 // form: a saturated `=` call collapses to `structuralEquals(a, b)`; `hash` to a single
 // `structuralHash(x)`.
 export const structuralEquals = (a, b) => eq(a, b);
 export const structuralHash = (x) => hashOf(x);
+// EVERY `seq` source is wrapped, Vesper or native: a source's only enumerable surface on JS
+// *is* `Symbol.iterator` (a Vesper `interface seq<'T>` impl emits a `*[Symbol.iterator]()`
+// generator; a native array / TS iterable has nothing else), so there is no `GetEnumerator`
+// method on either to dispatch against.
+export const enumeratorOf = (src) => new NativeEnumerator(src[Symbol.iterator]());

@@ -140,25 +140,28 @@ module UnificationInfer =
         nodeTv.Link <- ValueSome inferredTy
         inferredTy
 
-    /// Resolve a keyed `Dispose` for a `use` binder of *external* (BCL) type.
+    /// The disposal capability's `Dispose` member key — the §5.0-resolved disposable
+    /// identity (`ctx.CapabilityIds.Disposable`), NOT a hardcoded `System.IDisposable`. It
+    /// is the ONE key `Disposal.ViaCapability` carries, so it crosses Elaborate
+    /// target-neutrally: each backend lowers the capability to its own slot (the CLR's
+    /// interface slot — this key; JS's `[Symbol.dispose]()` — which ignores it).
+    /// `ValueNone` only for a compile that names no disposable capability at all.
+    and private capabilityDisposeSlot (ctx: PassContext) : SymbolKey voption =
+        match ctx.CapabilityIds.Disposable with
+        | ValueSome disp -> ValueSome(SymbolKey.MemberKey(disp.Key, "Dispose", EqArray.empty, MemberKind.Method))
+        | ValueNone -> ValueNone
+
+    /// Resolve the disposal path of a `use` binder of *external* (BCL) type.
     /// The PRIMARY qualifier is the disposable-capability *interface*: scan the type's
-    /// (instantiated) interfaces for `caps.Disposable` and mint the interface's
-    /// `Dispose` member key. This is the real-F# rule (a `use` binder must implement
-    /// `System.IDisposable`) and covers the common BCL case where `Dispose` is declared
-    /// on a base — `MemoryStream` inherits `Stream.Dispose`, so the `DeclaredOnly`
-    /// `TryLookupMember` misses it but `GetInterfaces` surfaces the interface
-    /// transitively. The own-`Dispose` fallback survives only for a *non-`IDisposable`*
-    /// ref struct (it can't be boxed to the interface, so its own pattern `Dispose()` is
-    /// called directly). `ValueNone` ⇒ not disposable. The interface key is the
-    /// §5.0-resolved disposable identity (`ctx.CapabilityIds.Disposable`), NOT a
-    /// hardcoded `System.IDisposable` — so this `dispose` key crosses Elaborate
-    /// target-neutrally (each backend lowers it to its own slot: the CLR
-    /// `IDisposable::Dispose`, the JS `Symbol.dispose`).
-    and private tryExternalDispose
-        (ctx: PassContext)
-        (declKey: SymbolKey)
-        (args: EqArray<SemType>)
-        : SymbolKey voption =
+    /// (instantiated) interfaces for `caps.Disposable` and dispose through the capability.
+    /// This is the real-F# rule (a `use` binder must implement `System.IDisposable`) and
+    /// covers the common BCL case where `Dispose` is declared on a base — `MemoryStream`
+    /// inherits `Stream.Dispose`, so the `DeclaredOnly` `TryLookupMember` misses it but
+    /// `GetInterfaces` surfaces the interface transitively. The own-`Dispose` fallback
+    /// survives only for a *non-`IDisposable`* ref struct (it can't be boxed to the
+    /// interface, so its own pattern `Dispose()` is called directly). `ValueNone` ⇒ not
+    /// disposable.
+    and private tryExternalDispose (ctx: PassContext) (declKey: SymbolKey) (args: EqArray<SemType>) : Disposal voption =
         // The directly-implemented interface set an external nominal carries today: a
         // class's `FrozenInterfaces` or a union's `interface <ty>` impls (the union
         // analogue, the cons-list's `interface seq<'T>` channel). Scanned kind-agnostically
@@ -182,9 +185,11 @@ module UnificationInfer =
             | _ -> [||]
 
         let viaInterface =
-            match ctx.CapabilityIds.Disposable with
-            | ValueSome disp when externalInterfaces () |> Array.exists (fun (n, _) -> disp.MatchesName n) ->
-                ValueSome(SymbolKey.MemberKey(disp.Key, "Dispose", EqArray.empty, MemberKind.Method))
+            match ctx.CapabilityIds.Disposable, capabilityDisposeSlot ctx with
+            | ValueSome disp, ValueSome slot when
+                externalInterfaces () |> Array.exists (fun (n, _) -> disp.MatchesName n)
+                ->
+                ValueSome(Disposal.ViaCapability slot)
             | _ -> ValueNone
 
         match viaInterface with
@@ -195,7 +200,7 @@ module UnificationInfer =
             // `declKey` is the binder's already-resolved external type identity, so the
             // own-`Dispose` fallback is a key-addressed store-face lookup.
             match ctx.Provider.TryLookupMember(declKey, "Dispose") with
-            | ValueSome m when not m.IsStatic && not m.IsValueMember -> ValueSome m.Key
+            | ValueSome m when not m.IsStatic && not m.IsValueMember -> ValueSome(Disposal.ViaOwnMember m.Key)
             | _ -> ValueNone
 
     /// True iff a project-local nominal type (class / union / record) implements the
@@ -219,10 +224,9 @@ module UnificationInfer =
 
     /// The ref-struct carve-out: a `[<IsByRefLike>]` class can't be boxed to
     /// `IDisposable`, so a duck-typed pattern `Dispose()` is disposed by calling its
-    /// own method directly — recorded as a keyed member call so Elaborate stamps
-    /// `dispose = ValueSome own-key` (each backend then calls the binder's own method,
-    /// NOT the capability slot). Returns the own-`Dispose` member key when the class is
-    /// byref-like and exposes such a member; `ValueNone` otherwise.
+    /// own method directly — recorded as `Disposal.ViaOwnMember` (each backend then calls
+    /// the binder's own method, NOT the capability slot). Returns the own-`Dispose` member
+    /// key when the class is byref-like and exposes such a member; `ValueNone` otherwise.
     and private tryRefStructOwnDispose (ctx: PassContext) (clsKey: SymbolKey) : SymbolKey voption =
         match TypeRegistry.tryClassByKey ctx.Types clsKey with
         | ValueSome info when info.IsByRefLike ->
@@ -236,19 +240,21 @@ module UnificationInfer =
                 ValueNone
         | _ -> ValueNone
 
-    /// Resolve the disposal target for one `use` binding. The §3b flip makes disposal
-    /// INTERFACE-REQUIRED (real-F# parity): a *project-local* binder qualifies iff it
-    /// implements the `disposable` capability interface — recorded as nothing so Elaborate
-    /// leaves `TExpr.Use.dispose = ValueNone` (each backend lowers to its own slot: the
-    /// CLR `IDisposable::Dispose`, the JS `[Symbol.dispose]`). A `[<IsByRefLike>]` ref
-    /// struct that can't implement the interface but exposes a pattern `Dispose` is the
-    /// carve-out — its own method is recorded keyed (`ValueSome`). An *external* binder's
-    /// keyed `Dispose` (interface, or an own-`Dispose` ref-struct fallback) is stashed in
-    /// `UseDispose` for Elaborate. A binder that is none of these is a `use`-over-non-
+    /// Resolve the disposal path for one `use` binding into `UseDispose`, where Elaborate
+    /// reads it. Disposal is INTERFACE-REQUIRED (real-F# parity): a binder qualifies iff it
+    /// implements the `disposable` capability — `Disposal.ViaCapability`, whether the binder
+    /// is project-local or external (a BCL type reaching the interface through a base). The
+    /// `[<IsByRefLike>]` ref struct that cannot implement the interface but exposes a pattern
+    /// `Dispose`, and an external type with an own-`Dispose` and no `IDisposable`, are the
+    /// carve-out — `Disposal.ViaOwnMember`. A binder that is neither is a `use`-over-non-
     /// disposable error; an unresolved binder type is left alone (pre-existing behaviour).
+    /// Both leave `UseDispose` empty, which Elaborate reads as `Disposal.Unresolved`.
     and private resolveUseDispose (ctx: PassContext) (b: Binding<SyntaxToken>) : unit =
         match b.headPat with
-        | Pat.NamedSimple _ ->
+        // `use _ = e` (the RAII-guard form) resolves exactly like a named binder — the value
+        // is still parked in a local and disposed; the body just has no name for it.
+        | Pat.NamedSimple _
+        | Pat.Wildcard _ ->
             let patKey = CstKeys.ofPat b.headPat
             let binderTy = zonk (TyVar(tvOf ctx patKey))
 
@@ -264,12 +270,14 @@ module UnificationInfer =
             // `use` iff it implements the `disposable` capability interface; else the
             // ref-struct carve-out; else an error.
             let resolveLocal (host: IInterfaceImplHost) (headKey: SymbolKey) (simple: string) (args: EqArray<SemType>) =
-                if localImplementsDisposable ctx host args then
-                    ()
-                else
-                    match tryRefStructOwnDispose ctx headKey with
-                    | ValueSome key -> ctx.Resolution.UseDispose.Set(patKey, key)
-                    | ValueNone -> notDisposable simple
+                match
+                    (if localImplementsDisposable ctx host args then
+                         capabilityDisposeSlot ctx |> ValueOption.map Disposal.ViaCapability
+                     else
+                         tryRefStructOwnDispose ctx headKey |> ValueOption.map Disposal.ViaOwnMember)
+                with
+                | ValueSome disposal -> ctx.Resolution.UseDispose.Set(patKey, disposal)
+                | ValueNone -> notDisposable simple
 
             // Any nominal binder (class / union / record) resolves the same way: a
             // project-local host qualifies via its interface impls (or the ref-struct
@@ -291,7 +299,7 @@ module UnificationInfer =
                 | ValueSome host -> resolveLocal host headKey simple args
                 | ValueNone ->
                     match tryExternalDispose ctx headKey args with
-                    | ValueSome key -> ctx.Resolution.UseDispose.Set(patKey, key)
+                    | ValueSome disposal -> ctx.Resolution.UseDispose.Set(patKey, disposal)
                     | ValueNone -> notDisposable (SymbolKeyOps.qualifiedName headKey)
             | _ -> ()
         | _ -> ()

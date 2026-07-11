@@ -2,6 +2,7 @@ namespace XParsec.FSharp.Codegen.Js
 
 open XParsec.FSharp.SemanticAnalysis
 open JsEmitHelpers
+open EmitJsCapabilities
 open EmitJsTypes
 open EmitJsContext
 

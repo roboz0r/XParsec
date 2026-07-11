@@ -181,6 +181,33 @@ type CallVia<'ty> =
     | Base
     | Interface of ifaceArgs: EqArray<'ty>
 
+/// How a `use` binder is disposed — the resolved verdict of Unification's
+/// `resolveUseDispose`, read by every backend to pick its disposal call.
+///
+/// The two disposal paths are semantically distinct, so they are distinct cases: a binder
+/// that implements the `disposable` CAPABILITY disposes through whatever slot the target
+/// gives that capability (the CLR `IDisposable::Dispose` interface slot, the JS
+/// `[Symbol.dispose]()` method), while the ref-struct carve-out and an external type's own
+/// pattern `Dispose()` are ordinary member calls that happen to be named `Dispose`. Keeping
+/// both in one `SymbolKey voption` forced each backend to re-derive which it held.
+[<RequireQualifiedAccess>]
+type Disposal =
+    /// The binder implements the disposal capability. `slot` is the capability's resolved
+    /// `Dispose` member key (`disposable::Dispose`) — used by a target that dispatches
+    /// through the interface (the CLR, for an *external* binder); a target with a native
+    /// disposal slot (JS's `[Symbol.dispose]()`) names that slot itself and ignores `slot`.
+    | ViaCapability of slot: SymbolKey
+    /// The binder does NOT implement the capability but exposes its own pattern `Dispose()`:
+    /// the `[<IsByRefLike>]` ref-struct carve-out (it cannot be boxed to the interface), or
+    /// an external type with an own-`Dispose` and no `IDisposable`. Call the keyed member
+    /// directly — NOT the capability slot.
+    | ViaOwnMember of key: SymbolKey
+    /// Unification could not resolve disposal for this binder — it reported a
+    /// `use`-over-non-disposable error (or the binder's type never resolved). The node
+    /// exists only so an erroneous file still elaborates; codegen fails loudly on it,
+    /// because a file carrying an error never reaches a backend.
+    | Unresolved
+
 [<RequireQualifiedAccess>]
 type TExprG<'ty, 'tok> =
     | Const of value: TConstValue * ty: 'ty * tok: 'tok
@@ -199,17 +226,12 @@ type TExprG<'ty, 'tok> =
     /// `use x = value in body`. Same shape as `Let`; the distinction is that
     /// codegen wraps `body` in a `try … finally x.Dispose()` exception region so
     /// `x` is disposed on every exit. `ty` is the body's type — the expression's
-    /// result. `dispose` selects the disposal path:
-    /// `ValueNone` lowers a direct `x.Dispose()` call on the binder (the duck-typed
-    /// path for *user* types — no `IDisposable` upcast); `ValueSome key`
-    /// disposes an *external* (BCL) binder through the keyed `Dispose` member that
-    /// the front-end resolved (its declared `Dispose`, or `System.IDisposable`'s
-    /// when the type implements it), emitted as an `ExternalMemberRef` `callvirt`.
+    /// result. `dispose` is the resolved disposal path (see `Disposal`).
     | Use of
         binding: TPatG<'ty, 'tok> *
         value: TExprG<'ty, 'tok> *
         body: TExprG<'ty, 'tok> *
-        dispose: SymbolKey voption *
+        dispose: Disposal *
         ty: 'ty *
         tok: 'tok
     | IfThenElse of
