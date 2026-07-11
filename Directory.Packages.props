@@ -10,7 +10,9 @@
     <PackageVersion Include="System.Collections.Immutable" Version="8.0.0" />
     <PackageVersion Include="System.Reflection.MetadataLoadContext" Version="8.0.0" />
   </ItemGroup>
-  <ItemGroup Condition="'$(IsTestProject)' == 'true'" Label="Test">
+  <!-- `IsTestLibrary` is a test-SUPPORT library: it is referenced by test exes and
+       needs the test package versions, but it is not itself discovered or run. -->
+  <ItemGroup Condition="'$(IsTestProject)' == 'true' or '$(IsTestLibrary)' == 'true'" Label="Test">
     <PackageVersion Include="Expecto" Version="10.2.2" />
     <PackageVersion Include="Expecto.FsCheck" Version="10.2.2" />
     <PackageVersion Include="Fable.Pyxpecto" Version="1.2.0" />

@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <!-- A LIBRARY, not a test exe: it holds the corpus loader + the assertions every
+         backend owes, and the per-backend test projects reference it. It defines no
+         `[<Tests>]` of its own — a `Backend` record is what turns the corpus into
+         tests, and only a backend project can build one. -->
+    <IsTestProject>false</IsTestProject>
+    <IsTestLibrary>true</IsTestLibrary>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The conformance corpus: programs in OUR F# dialect plus their goldens, read
+         as TEXT and compiled through this repo's own pipeline at test time. A
+         `<Compile>` item on any of them would hand them to the HOST compiler, which
+         is exactly what they are not for. -->
+    <None Include="..\Codegen.Conformance\manifest.toml" LinkBase="Codegen.Conformance" />
+    <None Include="..\Codegen.Conformance\ops\**\*" LinkBase="Codegen.Conformance" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Conformance.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Expecto" />
+    <PackageReference Include="FSharp.Core" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The manifest is TOML, read with this repo's own reader. -->
+    <ProjectReference Include="..\..\src\XParsec.Toml\XParsec.Toml.fsproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,103 @@
+# The backend conformance corpus.
+#
+# Every `.fs` under `ops/` is a self-contained program in OUR dialect — data, never
+# a `<Compile>` item — read as text and compiled through this repo's own pipeline.
+# It PRINTS computed values and nothing else: the judgement lives in the `.expected`
+# golden beside it, which carries F# semantics rather than any backend's current
+# opinion. A program that judged itself (`if x = y then 1 else 0`) would be trusting
+# `=`, one of the very things a backend can get wrong.
+#
+# This file states, per program, what each backend OWES. These are the only legal
+# obligations, and there is no state in which a clause exists but quietly computes the
+# wrong thing:
+#
+#   run       — compile it, run it, exit 0, and match the golden byte for byte.
+#   faults    — compile it, run it, and DIE with a runtime error mentioning this text
+#               (case-insensitively). Replaces the golden: a program that must die
+#               produces no stdout worth asserting on. Not an exit code — the CLR
+#               harness runs the entry point in-process, where an uncaught exception
+#               never becomes one.
+#   diagnose  — REJECT it at COMPILE time, with an error containing the given
+#               substring. A width the target cannot represent must have no clause at
+#               all; emitting garbage for it is the failure this corpus exists to
+#               forbid.
+#
+# `run` / `faults` are program-wide (every backend listed in `run` owes the same
+# outcome); `diagnose` is per backend, because rejection is exactly where two targets
+# legitimately differ. A backend named nowhere owes nothing for that program.
+
+[[program]]
+path = "ops/arith-int.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "ops/arith-int64.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "ops/arith-byte.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "ops/arith-sbyte.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "ops/arith-int16.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "ops/arith-uint16.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "ops/arith-uint32.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "ops/arith-uint64.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "ops/arith-float.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "ops/arith-float32.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "ops/arith-string.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "ops/arith-unsigned-div.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "ops/arith-negate.fs"
+run = ["clr", "js"]
+
+# Integer division by zero raises rather than returning a value. The one width whose
+# clause throws today is int32 (CIL `div`); the message is the BCL's, and a target
+# whose `/` cannot throw is expected to say the same words.
+[[program]]
+path = "ops/arith-div-by-zero.fs"
+run = ["clr", "js"]
+faults = "attempted to divide by zero"
+
+# `nativeint` / `unativeint` have a CLR representation and no decided JS one. The
+# asymmetry is stated here rather than smuggled into a file header: JS must REJECT
+# these, and the message it owes is the platform-representation verdict — the type
+# itself has no JS form, so the question never reaches an operator clause.
+# (`diagnose` is an inline table because a `[program.diagnose]` sub-table cannot hang
+# off an array-of-tables entry in this repo's TOML reader.)
+[[program]]
+path = "ops/arith-nativeint.fs"
+run = ["clr"]
+diagnose = { js = "no representation on the target platform" }
+
+[[program]]
+path = "ops/arith-unativeint.fs"
+run = ["clr"]
+diagnose = { js = "no representation on the target platform" }

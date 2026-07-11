@@ -30,6 +30,7 @@
     <Compile Include="DefaultOfInlineTests.fs" />
     <Compile Include="OperatorRoutingTests.fs" />
     <Compile Include="ArithmeticOperatorTests.fs" />
+    <Compile Include="ConformanceTests.fs" />
     <Compile Include="OpsPlatformClrTests.fs" />
     <Compile Include="LiteralTests.fs" />
     <Compile Include="ComparisonTests.fs" />
@@ -97,5 +98,8 @@
     <ProjectReference Include="..\..\src\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />
     <ProjectReference Include="..\..\src\XParsec.FSharp.Codegen.Common\XParsec.FSharp.Codegen.Common.fsproj" />
     <ProjectReference Include="..\..\src\XParsec.FSharp.Codegen.Clr\XParsec.FSharp.Codegen.Clr.fsproj" />
+    <!-- The backend-neutral conformance corpus loader + assertions; this project
+         supplies only the `Backend` record (see `ConformanceTests.fs`). -->
+    <ProjectReference Include="..\XParsec.FSharp.Codegen.Common.Tests\XParsec.FSharp.Codegen.Common.Tests.fsproj" />
   </ItemGroup>
 </Project>

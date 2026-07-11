@@ -66,6 +66,7 @@
     <Compile Include="TypeArgNumberTests.fs" />
     <Compile Include="ExternMemberInlineTests.fs" />
     <Compile Include="ArrayIndexMemberTests.fs" />
+    <Compile Include="ConformanceTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
@@ -85,5 +86,8 @@
          backend is needed. The cross-target / CLR-repr contrasts (which need the BCL
          metadata leaf) live in `Codegen.Clr.Tests.OpsPlatformClrTests` instead. -->
     <ProjectReference Include="..\..\src\XParsec.FSharp.Codegen.Common\XParsec.FSharp.Codegen.Common.fsproj" />
+    <!-- The backend-neutral conformance corpus loader + assertions; this project
+         supplies only the `Backend` record (see `ConformanceTests.fs`). -->
+    <ProjectReference Include="..\XParsec.FSharp.Codegen.Common.Tests\XParsec.FSharp.Codegen.Common.Tests.fsproj" />
   </ItemGroup>
 </Project>
