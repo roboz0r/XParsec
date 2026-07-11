@@ -113,6 +113,17 @@ module NameResolutionTypeHeadStamp =
     let stampMemberSig (ctx: PassContext) (ms: MemberSig<SyntaxToken>) : unit =
         CstWalk.iterTypeMemberSig (stampTypeIter ctx) ms
 
+    /// Stamp the type heads inside a `when`-constraint block. A `Type` position
+    /// recurses its OWN inline `when` clause through `iterType`
+    /// (`Type.WhenConstrainedType`), but a *type header*'s trailing typar-definition
+    /// constraints (`type M<'F when 'F :> Fun<'T,'U>>`) hang off `TypeName`, reached
+    /// by neither the field/member/param stampers nor `iterType` — so a coercion bound
+    /// there (`Fun<'T,'U>`) must be stamped here for the constraint-resolution phase to
+    /// read the store face rather than re-resolve the spelling (without it a
+    /// struct-function typar keeps a bare-typar `.Invoke` that codegen cannot lower).
+    let stampTyparConstraints (ctx: PassContext) (cs: TyparConstraints<SyntaxToken>) : unit =
+        CstWalk.iterTypeConstraints (stampTypeIter ctx) cs
+
     /// Stamp the type heads of an uncurried signature (`DelegateSig`, a GADT case's
     /// `Name : arg -> ret`) — every arg type and the return type.
     let stampUncurriedSig (ctx: PassContext) (sign: UncurriedSig<SyntaxToken>) : unit =
@@ -137,7 +148,10 @@ module NameResolutionTypeHeadStamp =
     /// Stamp the type heads embedded *directly* in one expression node — the
     /// positions `translateType` reaches from expression inference: `new T(…)`, the
     /// explicit type args of `f<T>` / `T<T>`, the annotation / upcast / dynamic-test
-    /// target types, a nested `let x : T = …` return type, and an object
+    /// target types, a nested `let x : T = …` return type, an inline-IL body's
+    /// result annotation (`(# "…" : T #)`, the sole external head an intrinsic-abbrev
+    /// host member carries that neither its arg-pattern nor its return-type sig
+    /// already stamps), and an object
     /// expression's construction + interface-impl types. Recursion into child
     /// *expressions* is the walker's job — this stamps only what hangs off `e`
     /// itself, so calling it once per visited node (the walker visits every node)
@@ -150,6 +164,7 @@ module NameResolutionTypeHeadStamp =
         | Expr.StaticUpcast(typ = t)
         | Expr.DynamicTypeTest(typ = t)
         | Expr.DynamicDowncast(typ = t) -> stampTypeHeads ctx t
+        | Expr.ILIntrinsic(returnType = ValueSome(ReturnType(typ = t))) -> stampTypeHeads ctx t
         | Expr.TypeApp(types = types) ->
             for t in types do
                 stampTypeHeads ctx t

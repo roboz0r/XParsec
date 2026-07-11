@@ -15,10 +15,14 @@ downstream of that layer speaks only `SymbolKey`.**
   a spelling, and no consumer pass stringifies a key to feed a string lookup.
 
 **Target end state for Unification: no *type-directed* resolver-face calls.** The
-single surviving resolver reach (`tryResolveExternalType`, § Remaining) is a
+surviving resolver reach (`tryResolveExternalType`, § Remaining) is a
 *written-spelling* resolution fused with live-`SemType` construction — name → type,
 not type-directed name resolution — and is the one sanctioned exception, on a
-documented handle. Beyond it, nothing audited is type-directed name resolution: the
+documented handle. It now fires for exactly two heads that have **no `Type` node to carry
+a stamp** (the `tryResolveExternalNominal` ctor probe and the synthesized `float<m>`
+measure carrier); every WRITTEN type annotation reads the store face
+(`tryResolveExternalTypeStamped`, no by-name fallback). Beyond it, nothing audited is
+type-directed name resolution: the
 two things that *feel* like inference-time resolution are not: member access `x.M`
 needs the receiver's inferred type, but
 that is a store-face lookup (`declaring key × member name`) — the member name is
@@ -224,14 +228,19 @@ The boundary is in place, **exposure flip included**. In brief:
 
 ## Remaining — post-flip follow-ups
 
-The flip has landed; **nothing gates the boundary now.** One resolver reader remains by
-design and one is deferred to its own sprint.
+The flip has landed; **nothing gates the boundary now.** The annotation-path fallback
+that once made this section a "narrows-not-closes" caveat is **retired** (see the
+*cst-walker update* above); what remains is one permanent by-design resolver reader (for
+the two stampless heads) and one deferred codegen sprint.
 
 ### `Translate.tryResolveExternalType` — the permanent escape hatch (decided)
 
-`Translate.fs:502–600`, reached from `translateType` / `resolveNamedGeneric` at
-`:234/254/328/477/769`. Resolves a written type *spelling* to a full `SemType` — abbrev
-dealias, canon `TyConst`, capability `TyClass`, `TyRecord`/`TyUnion`/`TyEnum`.
+Reached from `translateType`'s `float<m>` measure-carrier arm and the expression-position
+`tryResolveExternalNominal` ctor probe — the two heads with no `Type` node to carry a
+`ResolvedTypeHead` stamp. (It is **no longer** reached from
+`tryResolveExternalTypeStamped`: that annotation path is pure store face.) Resolves a
+written type *spelling* to a full `SemType` — abbrev dealias, canon `TyConst`, capability
+`TyClass`, `TyRecord`/`TyUnion`/`TyEnum`.
 
 This is **not** the same category as `intrinsicPlatformName`. That caller already held
 a resolved key, so its string reach was vestigial and rework was the obvious call.
@@ -245,18 +254,19 @@ the escape hatch is the pragmatic home. The *structural* alternative — a gener
 NameResolution `Type`-node walker that resolves every written head to a `SymbolKey` and
 stamps it, so this site reads the stamp on the store face and never resolves a spelling
 — has since **landed** (`CstWalk.iterType` + `ResolvedTypeHead` stamping, read by
-`Translate.tryResolveExternalTypeStamped`). It **narrowed** this hatch — Translate now
-speaks the store face for every stamped head — but did **not** close it: a by-name
-fallback remains for the positions still unstamped upstream (see the *cst-walker update*
-below for which, and what retiring it would take).
-Until then the flip keeps a single documented `IExternalSymbolResolver` handle used ONLY
-by this site, and
-that handle's whole surface is the **already-existing**
-`IExternalSymbolResolver.TryLookupType : string` (`ExternalSymbols.fs:798`) — no new
-method. This is the one sanctioned exception to the boundary statement (a spelling →
-identity reach outside NameResolution), justified because the head-resolution is fused
-here with the live-`SemType` construction it can't be cleanly severed from; the handle
-is reachable, so this stays the single explicit string surface in Unification.
+`Translate.tryResolveExternalTypeStamped`) **and the annotation-path by-name fallback is
+now fully RETIRED** (see the *cst-walker update* below). `tryResolveExternalTypeStamped`
+is pure store face — no `qualName`, no `ctx.Resolver`, absent stamp → `ValueNone`. So a
+written type annotation no longer resolves a spelling anywhere in Unification.
+What remains on the `ctx.Resolver` handle is NOT the annotation path: it is the two heads
+that have **no `Type` node to carry a stamp** — the expression-position
+`tryResolveExternalNominal` ctor probe (`ResizeArray<int>()`) and the `float<m>` measure
+carrier synthesized during inference. Both reach the **already-existing**
+`IExternalSymbolResolver.TryLookupType : string` (`ExternalSymbols.fs:798`) via
+`tryResolveExternalType` — no new method. This is the one sanctioned exception to the
+boundary statement (a spelling → identity reach outside NameResolution), justified
+because these heads never pass through a stampable `Type` node; the handle is reachable,
+so this stays the single explicit string surface in Unification.
 
 **Why the handle is that minimal — the blocker-2 trace:**
 
@@ -285,24 +295,37 @@ is reachable, so this stays the single explicit string surface in Unification.
   (`SemanticInfo.fs:1271`) seam; neither gates the other. The flip can land ahead of,
   behind, or independent of the freeze-thaw work.
 
-**cst-walker update — the structural alternative's coverage wall, and why no
-`Type` mapper unifies the descents (2026-07-10).** The CST `Type`-walker work (which
-built `CstWalk.iterType` and the type-head stamping) probed the "read the stamp, never
-resolve a spelling" alternative and mapped its real cost against this hatch:
+**cst-walker update — the annotation-path fallback is RETIRED (2026-07-11).** The CST
+`Type`-walker work (which built `CstWalk.iterType` and the type-head stamping) first
+narrowed this hatch; a follow-up sweep then found and stamped the last unstamped
+annotation positions, and the by-name fallback in `tryResolveExternalTypeStamped` is now
+gone. All three suites (SA + CLR + JS) are green with **zero** by-name resolution on the
+annotation path.
 
 - The one head that forced the fallback from a **synthesized** node — the `float<m>`
   measure carrier, which `translateType` rebuilt as a phantom `Type.NamedType` and
-  re-resolved — is gone: the measure arm now resolves its carrier by name directly
-  (`resolveBareTypeName`, off the stamped path), retiring that synthesized-node reader.
-- But the `translateType` sites **still cannot drop the by-name fallback**: dropping it
-  regresses (`ExternMemberElab` — an `int` at a member position resolves opaque `("", int)`
-  vs the contract's `("Vesper", int)`), because written positions BEYOND the measure arm
-  remain unstamped — a type member's **argument-pattern** annotations (`stampMethodOrProp`
-  stamps only the return type), a member body's **ILIntrinsic result-type** annotation
-  (`stampExprEmbeddedTypes` does not reach it), and the **intrinsic-abbrev host**'s
-  side-elaborated member signatures. Retiring the hatch's Unification reach needs those
-  three stamped upstream, then all three suites re-verified. So the hatch narrows but does
-  not close — consistent with "permanent escape hatch (decided)" above.
+  re-resolved — was retired first: the measure arm resolves its carrier by name directly
+  (`resolveBareTypeName`, off the stamped path). This is now one of the two *permanent*
+  by-name reaches (no `Type` node), not a gap.
+- **The three unstamped written positions were found empirically (drop the fallback →
+  observe the regressions) and stamped upstream — the enumeration in the earlier draft was
+  wrong on two of three:**
+  - a member body's **ILIntrinsic result-type** annotation (`(# "…" : T #)`) — the SOLE
+    SA-suite gap (`ExternMemberElab`); now an `Expr.ILIntrinsic` arm in
+    `stampExprEmbeddedTypes`.
+  - **interface-impl member signatures** (`interface IEnumerator with member _.MoveNext() :
+    bool = …`) — the JS-suite gap; `stampTypeDefnElement`'s `InterfaceImpl` arm stamped only
+    the interface `t`, never the impl members' return types, and the body walk stamps their
+    params + body but not the return type. Now routed through `stampMemberDefn`.
+  - a type header's **typar-definition constraints** (`type M<'F when 'F :> Fun<'T,'U>>`) —
+    the CLR-suite gap; an unstamped coercion bound left a struct-function typar with a
+    bare-typar `.Invoke` that CLR codegen could not lower. Now `stampHeaderConstraints` →
+    `stampTyparConstraints` over `TypeName`'s constraint lists.
+  - The two positions the earlier draft named — a member's **argument-pattern** annotations
+    and the **intrinsic-abbrev host**'s member sigs — were already stamped (the body walk's
+    `extendScope` → `stampPatCases` for params; `stampExtensions` → `stampMethodOrProp`
+    → `stampBindingSigTypes` for the host member's return type). Stamping params in
+    `stampMethodOrProp` was tried and proved inert, so it was reverted.
 - **A `Type` mapper does not unify the remaining `Type → SemType` descents — assessed,
   declined.** `translateType` is fused with mutable inference state (levels, `TyparScope`
   mutation, abbrev fill, `MarkInferenceHole`, fresh-TyVar back-fill for a bare generic) and

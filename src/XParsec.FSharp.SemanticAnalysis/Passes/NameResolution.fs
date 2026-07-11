@@ -455,7 +455,20 @@ module NameResolution =
         let stampTypeDefnElement (el: TypeDefnElement<SyntaxToken>) =
             match el with
             | TypeDefnElement.Member md -> stampMemberDefn md
-            | TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(typ = t)) -> stampTypeHeads ctx t
+            | TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(typ = t; objectMembers = oms)) ->
+                stampTypeHeads ctx t
+                // Stamp the impl block's member SIGNATURES too (`member _.MoveNext() : bool`,
+                // `member _.Current : obj`). The body walk stamps their param patterns and
+                // bodies but NOT their return types, and this declared-signature path
+                // previously stamped only the interface `t` — so an interface-impl member's
+                // return-type head (`bool`/`obj`/`unit`/`IEnumerator<'T>`) reached
+                // `ResolvedTypeHead` from neither, and `translateType` fell back to a
+                // spelling resolve.
+                match oms with
+                | ValueSome(ObjectMembers(memberDefns = mds)) ->
+                    for md in mds do
+                        stampMemberDefn md
+                | ValueNone -> ()
             | TypeDefnElement.InterfaceSpec(InterfaceSpec(typ = t)) -> stampTypeHeads ctx t
             | TypeDefnElement.Inherit(ClassInheritsDecl(typ = t)) -> stampTypeHeads ctx t
 
@@ -484,7 +497,37 @@ module NameResolution =
                     stampTypeDefnElement el
             | ValueNone -> ()
 
+        // A type header's typar-definition `when` clause (`type M<'F when 'F :> …>`)
+        // lives on its `TypeName` — either the `TyparDefns`' trailing constraint list
+        // or the separate `postfixConstraints`. Stamp both; the constraint bound is an
+        // external head no field/member/param stamper reaches.
+        let stampHeaderConstraints (tn: TypeName<SyntaxToken>) =
+            let (TypeName(typarDefns = tds; postfixConstraints = post)) = tn
+
+            match tds with
+            | ValueSome(TyparDefns(constraints = ValueSome cs)) -> stampTyparConstraints ctx cs
+            | _ -> ()
+
+            match post with
+            | ValueSome cs -> stampTyparConstraints ctx cs
+            | ValueNone -> ()
+
         let stampTypeDefn (td: TypeDefn<SyntaxToken>) =
+            match td with
+            | TypeDefn.Abbrev(typeName = tn)
+            | TypeDefn.Record(typeName = tn)
+            | TypeDefn.Union(typeName = tn)
+            | TypeDefn.Anon(typeName = tn)
+            | TypeDefn.Class(typeName = tn)
+            | TypeDefn.Struct(typeName = tn)
+            | TypeDefn.Interface(typeName = tn)
+            | TypeDefn.Delegate(typeName = tn)
+            | TypeDefn.TypeExtension(typeName = tn)
+            | TypeDefn.Enum(typeName = tn)
+            | TypeDefn.AbstractType(typeName = tn) -> stampHeaderConstraints tn
+            | TypeDefn.Missing
+            | TypeDefn.SkipsTokens _ -> ()
+
             match td with
             | TypeDefn.Abbrev(typ = t; extensions = ext) ->
                 stampTypeHeads ctx t

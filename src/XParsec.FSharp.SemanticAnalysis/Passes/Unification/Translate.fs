@@ -173,18 +173,14 @@ module internal UnificationTranslate =
             // NameResolution stamped with — so the two faces agree by construction.
             let headKey = (CstKeys.ofTypeHead t).Value.Key
 
-            resolveBareTypeName
-                ctx
-                li.Idents.[0]
-                (fun name -> tryResolveExternalTypeStamped ctx headKey name EqArray.empty)
+            resolveBareTypeName ctx li.Idents.[0] (fun _name -> tryResolveExternalTypeStamped ctx headKey EqArray.empty)
         | Type.NamedType li ->
             // Multi-segment named type (`System.Text.StringBuilder`). Project-local
             // types are single-segment, so a dotted name is either external or
             // unknown; read the stamped head before the catch-all TyVar.
-            let qualName = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
             let headKey = (CstKeys.ofTypeHead t).Value.Key
 
-            match tryResolveExternalTypeStamped ctx headKey qualName EqArray.empty with
+            match tryResolveExternalTypeStamped ctx headKey EqArray.empty with
             | ValueSome ty -> ty
             | ValueNone -> TyVar(freshTyVar ctx)
         | Type.GenericType(longIdent = li; typeArgs = args) when
@@ -222,13 +218,12 @@ module internal UnificationTranslate =
                 // Resolve the carrier (`float`) BY NAME rather than fabricating a
                 // `Type.NamedType li` node and re-entering `translateType`: the carrier
                 // is SYNTHESIZED here, so NameResolution never walked it and no stamp
-                // exists — a store-face read would miss it. The by-name resolver is the
-                // sanctioned reach for a synthesized head (as for
-                // `tryResolveExternalNominal`). Routing it here — not through the
-                // store-face read — retires the one phantom-`Type.NamedType` reader, a
-                // prerequisite for the written-annotation sites ever dropping their own
-                // by-name fallback (which they still keep — see
-                // `tryResolveExternalTypeStamped`).
+                // exists — a store-face read would miss it. This and the
+                // expression-position `tryResolveExternalNominal` ctor probe are the only
+                // two by-name reaches left in Unification: heads with no `Type` node to
+                // carry a stamp. Every WRITTEN annotation is stamped upstream and reads
+                // the store face through `tryResolveExternalTypeStamped`, which has no
+                // by-name fallback.
                 tv.Link <-
                     ValueSome(
                         resolveBareTypeName ctx carrierTok (fun name -> tryResolveExternalType ctx name EqArray.empty)
@@ -260,8 +255,6 @@ module internal UnificationTranslate =
             // Multi-segment generic type
             // (`System.Collections.Generic.EqualityComparer<int>`); the
             // single-segment forms are handled above.
-            let qualName = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
-
             let translatedArgs =
                 EqArray.ofSeq (
                     seq {
@@ -274,7 +267,7 @@ module internal UnificationTranslate =
 
             let headKey = (CstKeys.ofTypeHead t).Value.Key
 
-            match tryResolveExternalTypeStamped ctx headKey qualName translatedArgs with
+            match tryResolveExternalTypeStamped ctx headKey translatedArgs with
             | ValueSome ty -> ty
             | ValueNone -> TyVar(freshTyVar ctx)
         | Type.SuffixedType(baseType = baseTy; longIdent = li) when li.Idents.Length = 1 ->
@@ -509,7 +502,7 @@ module internal UnificationTranslate =
                     // `diagKey` is the head's `NodeKey` (`TypeGeneric` off the name
                     // token) — the same key NameResolution stamped `ResolvedTypeHead`
                     // with, so the store-face read finds it.
-                    match tryResolveExternalTypeStamped ctx diagKey name translatedArgs with
+                    match tryResolveExternalTypeStamped ctx diagKey translatedArgs with
                     | ValueSome ty -> ty
                     | ValueNone ->
                         // Unknown name with type args — opaque TyConst, args
@@ -627,36 +620,31 @@ module internal UnificationTranslate =
 
     /// The store-face read of a written external type head — the resolve-once
     /// boundary's type-annotation half (`docs/name-resolution-boundary-plan.md`).
-    /// NameResolution
-    /// resolved this head's spelling (opens-aware, at its syntactic arity) and
-    /// stamped its `SymbolKey` into `ResolvedTypeHead` keyed by the `Type` node's
-    /// `NodeKey`; when that stamp is present we fetch the shape through the
-    /// key-addressed store face (`ctx.Provider.TryLookupType`) — the boundary is
-    /// closed for every stamped head, which is the vast majority of written
-    /// annotations (return types, param/field/member-sig types, casts, type tests,
-    /// `new`/`inherit`/type-app heads). `qualifiedName` recovers the compiled name the
+    /// NameResolution resolved this head's spelling (opens-aware, at its syntactic
+    /// arity) and stamped its `SymbolKey` into `ResolvedTypeHead` keyed by the `Type`
+    /// node's `NodeKey`; we fetch the shape through the key-addressed store face
+    /// (`ctx.Provider.TryLookupType`). `qualifiedName` recovers the compiled name the
     /// shape builder needs from the stamped key (identity-preserving: the stamp minted
     /// the key from the same compiled name, so the round-trip is exact).
     ///
-    /// A stamp is ABSENT for a `Type` node NameResolution never walked as a head — a
-    /// handful of signature / member positions the stamping driver does not yet reach
-    /// (a type member's ILIntrinsic-body result annotation, an intrinsic-abbrev host's
-    /// side-elaborated member sig). For those we fall back to the by-name resolver so
-    /// resolution is NON-REGRESSING. (The one head that USED to force this fallback — the
-    /// `float<m>` carrier synthesized during inference — no longer reaches here: the
-    /// measure arm resolves its carrier by name directly via `resolveBareTypeName`.)
-    /// Retiring the fallback entirely needs those remaining positions stamped upstream;
-    /// until then this narrows, not fully retires, blocker 2.
+    /// This has **no by-name fallback** — every written-annotation head is stamped
+    /// upstream, so the annotation path is purely store-face and never reaches
+    /// `ctx.Resolver`. An ABSENT stamp is not an external type: NameResolution walks
+    /// every written head (`CstWalk.iterType` over field / member-sig / param /
+    /// return / cast / type-test / `new` / `inherit` / type-app positions, the
+    /// ILIntrinsic-body result annotation, and a type header's typar-definition
+    /// constraints), so a node it left unstamped is project-local, a bare typar, or
+    /// unresolvable — exactly the cases `translateType`'s caller resolves as a local
+    /// shape / `TyVar` / opaque `TyConst`. The two by-name reaches that remain
+    /// (`tryResolveExternalType`) are for heads with NO `Type` node to carry a stamp:
+    /// the `float<m>` measure carrier synthesized during inference, and the
+    /// expression-position `tryResolveExternalNominal` ctor probe.
     and private tryResolveExternalTypeStamped
         (ctx: PassContext)
         (nodeKey: NodeKey)
-        (qualName: string)
         (translatedArgs: EqArray<SemType>)
         : SemType voption =
         let arity = translatedArgs.Length
-
-        let fallback () =
-            tryResolveExternalType ctx qualName translatedArgs
 
         match ctx.Resolution.ResolvedTypeHead.TryGetValue nodeKey with
         | ValueSome symKey ->
@@ -664,9 +652,9 @@ module internal UnificationTranslate =
             | ValueSome shape when shapeArity shape = arity ->
                 match buildExternalTy ctx (SymbolKeyOps.qualifiedName symKey) shape arity translatedArgs with
                 | Some ty -> ValueSome ty
-                | None -> fallback ()
-            | _ -> fallback ()
-        | ValueNone -> fallback ()
+                | None -> ValueNone
+            | _ -> ValueNone
+        | ValueNone -> ValueNone
 
     and private tryResolveExternalType
         (ctx: PassContext)
@@ -687,12 +675,13 @@ module internal UnificationTranslate =
             let picked =
                 keysFor candidate
                 |> List.tryPick (fun key ->
-                    // The remaining sanctioned resolver-face reach in Unification: a
-                    // written type *spelling* resolved through `ctx.Resolver`, for the
-                    // expression-position `tryResolveExternalNominal` ctor probe
-                    // (`ResizeArray<int>()`), which has no `Type` node to carry a stamp.
-                    // The type-annotation `translateType` sites read the store face via
-                    // `tryResolveExternalTypeStamped` and never reach here.
+                    // The two remaining sanctioned resolver-face reaches in Unification: a
+                    // written type *spelling* resolved through `ctx.Resolver` for a head
+                    // with no `Type` node to carry a stamp — the expression-position
+                    // `tryResolveExternalNominal` ctor probe (`ResizeArray<int>()`) and the
+                    // `float<m>` measure carrier synthesized during inference. Every
+                    // WRITTEN type-annotation head is stamped upstream and read on the
+                    // store face via `tryResolveExternalTypeStamped`, never reaching here.
                     match ctx.Resolver.TryLookupType key with
                     | ValueSome shape when shapeArity shape = arity ->
                         buildExternalTy ctx key shape arity translatedArgs
