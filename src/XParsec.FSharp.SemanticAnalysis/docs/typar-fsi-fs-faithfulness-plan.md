@@ -68,19 +68,19 @@ The host-TPA conveniences (`bclMetaTail`, `buildContract`, `MetadataSymbols.prov
 remain as `Codegen.Clr.Tests` conveniences; existing tests stay on them (a systematic
 test refactor is a later, separate effort).
 
-### Sprint B — retire `BuiltinOps` (drift inventory Species 2)
+### Sprint B — retire `BuiltinOps` (drift inventory Species 2) — ✅ DONE
 
-`Codegen.Clr/EmitLower.fs` `module BuiltinOps` hard-codes 18 operators → IL, a
-"DELETE-WHEN-COMPLETE" fallback for un-ground / eta operator values (it emits monomorphic
-bodies). Most operator emission already flows through real `ops-platform.fs` bodies spliced
-by `InlineExpansion`; this is the residue.
+`BuiltinOps` is deleted. Every operator now emits from its `ops-platform.fs` /
+`comparison.fs` contract body, spliced by `SymbolKey` in `Passes.InlineExpansion` —
+applied *and* eta'd-as-a-value (that pass eta-reifies an inline external pre-freeze, so
+the `App` it mints is spliced by the pass that minted it). Codegen holds no op→opcode
+table and recognises no operator by name.
 
-**Blocked on:** the homogeneous `^T -> ^T -> ^T` inline-operator body's non-inlined (eta /
-`reduce (+)`) form needs the ported **dynamic-operator runtime** (`AdditionDynamic` &c.),
-which Vesper has not ported — owned by the per-target inline-IL stack, NOT this seam (see
-[project_inline_il_target_specific]). NOT a `.fsi`-substitute-for-missing-`.fs`, so the
-hard gate does not regress on it; it is a pure codegen EMISSION fallback. Retire once the
-inline path covers the residue.
+No dynamic-operator runtime (`AdditionDynamic` &c.) was needed after all. The premise
+that one was — that the non-inlined eta form has no home — dissolved once the eta moved
+pre-freeze. The arithmetic bodies now put the SRTP trait call in the static-optimization
+BASE with one explicit clause per primitive, so an operand with no clause and no
+resolvable trait call is a *diagnostic* rather than a garbage `add`.
 
 ### Sprint C — retire the FSharp.Core `PrintfFormat` substitution (Species 4)
 

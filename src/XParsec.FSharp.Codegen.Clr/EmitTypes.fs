@@ -310,8 +310,7 @@ module EmitTypes =
     ///. Only values on a *named* module classify
     /// (anonymous "Program" values keep their `Main`-local treatment, see
     /// `collectModuleValues`), so the holder is always known. `Init` is the
-    /// initialiser the `.cctor` evaluates and `stsfld`s — taken from the lowered
-    /// decls, so built-in operators are already expanded.
+    /// initialiser the `.cctor` evaluates and `stsfld`s — taken from the lowered decls.
     type ModuleValue =
         {
             Key: NodeKey

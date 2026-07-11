@@ -14,10 +14,9 @@ open EmitJsContext
 ///   * Functions are **curried unary arrows** — `Lambda` → nested `(a) => (b) => …`,
 ///     `App` → unary calls (`f a b` → `f(a)(b)`). Tail self-recursion trampolines to
 ///     `while (true)` with param-shadow mutation for constant stack.
-///   * Operator bodies arrive pre-spliced as `ILIntrinsic` `$N`-templates;
-///     `finishOps` is identity (templates are already JS-emit-able). `TastLower.lower`
-///     drops `type` decls — record/union/member shapes are read off the un-lowered
-///     decls in `collectTypes`.
+///   * Operator bodies arrive pre-spliced as `ILIntrinsic` `$N`-templates, already
+///     JS-emit-able. `TastLower.lower` drops `type` decls — record/union/member shapes
+///     are read off the un-lowered decls in `collectTypes`.
 ///   * Records/unions emit as data-only JS `class`es (positional ctor; union = base
 ///     `tag` + one `extends`-subclass per case). Members emit as free, curried,
 ///     *receiver-first* functions — never prototype methods (match + the structural
@@ -778,9 +777,6 @@ module EmitJs =
 
         [ JsStatement.If(guard, [ JsStatement.Expression disposeCall ], []) ]
 
-    /// `finishOps` knob for JS: identity — operators are already `$N`-templates pre-freeze.
-    let private jsFinishOps (e: Frozen.TExpr) : Frozen.TExpr = e
-
     /// The whole frozen file → a `Program`. Type declarations become JS `class`es first
     /// (classes are not hoisted); remaining decls are lowered — `let inline` templates
     /// and `type` decls drop out, leaving module values and effectful expressions.
@@ -795,7 +791,7 @@ module EmitJs =
 
         let collected = collectTypes caps ctx0.ExportTopLevel tast
 
-        let lowered = TastLower.lower jsFinishOps tast.Decls
+        let lowered = TastLower.lower tast.Decls
 
         // The top-level module functions and their flat compiled form — the same
         // `Codegen.Common.CompiledFns` analysis the CLR backend reads. Drives the FLAT

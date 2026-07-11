@@ -20,14 +20,14 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // generic `let f a b = a = b` — falls to the static-opt BASE,
 // `EqualityComparer<^T>.Default.Equals`, which compares structurally and encodes fine
 // over a free method typar. The base is spliced UNCONDITIONALLY: an inline body is
-// never declined for un-ground operands, because the fallback that used to catch them
-// was a name-keyed reference `ceq`.
+// never declined for un-ground operands.
 //
 // An operator used as a VALUE (`List.fold (+) 0 xs`) is not an application, so
 // `InlineExpansion` eta-reifies it first (`fun x y -> x + y`) and splices the body into
 // the `App` its own eta minted. The assertions below pin that against the FROZEN decls
-// — i.e. before `Emit.lower` runs at all — so a `BuiltinOps` name-keyed collapse cannot
-// masquerade as the contract body.
+// — before codegen runs at all — so they hold on the contract body itself, not on
+// whatever a backend might make of it. Codegen has no operator dispatch to fall back on:
+// an operator that reached it unspliced would emit as an unresolved `External`.
 
 /// Every expression reachable from `e` (itself included) — so a test can assert what an
 /// operator lowered TO structurally, rather than string-matching a `%A` render.
@@ -59,11 +59,39 @@ let private hasIlIntrinsic (op: string) (e: Frozen.TExpr) : bool =
         | _ -> false
     )
 
+/// `Vesper.Core` alone — `<` lives in `Vesper.Comparison`, which this stack does NOT
+/// reference, so `2 < 3` cannot resolve.
+let private coreOnly =
+    lazy (ClrSymbolProviders.buildContract [ vesperCoreManifest ])
+
+let private analyseCoreOnly (input: string) : TastFile =
+    let lexed, file = parseFile input
+    Pipeline.analyseSem coreOnly.Value input lexed file
+
 [<Tests>]
 let tests =
     testList
         "OperatorRouting"
         [
+            test "an operator whose contract is not referenced diagnoses by its SOURCE spelling" {
+                // The user typed `<`, never `op_LessThan` — the compiled name is an
+                // implementation detail and must not leak into a diagnostic. No package is
+                // named: the declaring contract is absent from the referenced set, so
+                // nothing the compiler can see knows `<` exists (naming `Vesper.Comparison`
+                // would take a hardcoded operator→package table).
+                let tast = analyseCoreOnly "let b = 2 < 3"
+
+                let messages = [ for d in tast.Diagnostics -> d.Message ]
+
+                Expect.isTrue
+                    (messages |> List.exists (fun m -> m.Contains "No definition for '<' found"))
+                    (sprintf "expected the `<` not-in-scope diagnostic, got %A" messages)
+
+                Expect.isFalse
+                    (messages |> List.exists (fun m -> m.Contains "op_LessThan"))
+                    (sprintf "the compiled name must not leak into a diagnostic, got %A" messages)
+            }
+
             test "`let f a b = a = b` lowers the un-ground `=` to the comparer base (no External op_Equality survives)" {
                 let tast = analyse "let f a b = a = b"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -201,8 +229,7 @@ let tests =
             test "`=`/`<>` freeze from the Vesper.Core contract and are collected as cross-package inlines" {
                 // The operator-named bindings `let inline (=)` / `let inline (<>)` in
                 // `ops-platform.fs` freeze and are sourced by the codegen inline-body
-                // loader — so `=`/`<>` emit from the contract `.fs`, not just the
-                // `BuiltinOps` stopgap.
+                // loader — the sole supply of `=`/`<>` semantics.
                 let inlines = ClrSymbolProviders.contractInlineBodies defaultManifests
 
                 Expect.isTrue (Map.containsKey "op_Equality" inlines) "op_Equality body sourced from ops-platform.fs"
@@ -285,9 +312,9 @@ let tests =
                 // `List.fold (+) 0 xs` pins `(+)` to `int -> int -> int` from `0` and the
                 // element type, so `InlineExpansion`'s eta (`fun x y -> x + y`) grounds
                 // `^T := int`, the `when ^T : int` clause selects, and `(# "add" #)`
-                // survives. Asserted on the FROZEN decls — `Emit.lower`'s `BuiltinOps`
-                // has not run — so a surviving `External(op_Addition)` here would be the
-                // name-keyed collapse, not the contract body.
+                // survives. Asserted on the FROZEN decls, so the `add` is provably the
+                // contract body's own clause — a surviving `External(op_Addition)` here
+                // would mean the eta ran too late for the splice to reach it.
                 let tast = analyse "let xs = [1; 2; 3]\nprintfn \"%d\" (List.fold (+) 0 xs)"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
@@ -325,8 +352,8 @@ let tests =
                 // `(=) (Tag 1)` reaches `List.filter` as a function value; the operator's
                 // body is spliced with `^T := Tag`, which selects no primitive clause and
                 // falls to `EqualityComparer<Tag>.Default.Equals`. The list holds two
-                // DISTINCT heap instances equal to `Tag 1`, so a reference `ceq` (what
-                // `BuiltinOps` emitted for an operator value) would count 0.
+                // DISTINCT heap instances equal to `Tag 1`, so a reference `ceq` would
+                // count 0 — the structural base counts 2.
                 let src =
                     String.concat
                         "\n"
@@ -344,9 +371,9 @@ let tests =
                 // which closure-converts exactly as a hand-written `fun x y -> x + y`
                 // would — a curried `Vesper.Fun`2` pair whose innermost `Invoke` carries
                 // the spliced `add` opcode (CIL 0x58) directly, with no call out to an
-                // operator. A `BuiltinOps` collapse would have produced the same opcode,
-                // so the load-bearing half is the TAST assertion above; this pins that
-                // the pre-freeze eta did not cost the backend anything.
+                // operator. The load-bearing half is the TAST assertion above (which pins
+                // WHERE the `add` came from); this pins that the pre-freeze eta did not
+                // cost the backend anything.
                 let _, artifact =
                     compileSource "EtaClosureShape" "printfn \"%d\" (List.fold (+) 0 [1; 2; 3])"
 

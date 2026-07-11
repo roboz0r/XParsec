@@ -259,7 +259,7 @@ module internal FreezeApply =
             // `let inline` body by KEY. Present for EVERY resolved operator, primitives
             // included — an operator that resolved at all carries its key. `ValueNone`
             // here means the operator did not resolve, which Unification already
-            // diagnosed ("Unknown operator symbol").
+            // diagnosed ("No definition for '<' found …").
             let opKey = ctx.Resolution.IntrinsicKey.TryGetValue key
             let opExpr = TExpr.External(name, opKey, opTy, tok)
             let app1 = TExpr.App(opExpr, translateExpr ctx left, partialTy, tok)

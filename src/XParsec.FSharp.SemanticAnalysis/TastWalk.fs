@@ -261,7 +261,7 @@ module TastWalk =
             // instantiation args. They reference the enclosing function's typars, so a
             // declaring-typar remap (`freezeTypars`) must reach them too (the same
             // `mapVia` precedent for `CallVia.Interface`), else they leak as un-ground
-            // `TyVar`s → `?ungrounded-operator` at the freeze cut.
+            // `TyVar`s → `?free-typar` at the freeze cut.
             | TExpr.ForIn(p, src, b, en, ty, tok) -> TExpr.ForIn(pp p, pe src, pe b, mapForInEnumerator f en, f ty, tok)
             | TExpr.Match(sc, arms, ty, tok) -> TExpr.Match(pe sc, EqArray.map pa arms, f ty, tok)
             | TExpr.TryWith(b, arms, ty, tok) -> TExpr.TryWith(pe b, EqArray.map pa arms, f ty, tok)

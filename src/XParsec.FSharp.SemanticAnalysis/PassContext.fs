@@ -268,9 +268,8 @@ type PassContextResolution =
         /// `ExternalSymbol` while typing the node (the same `OpenScope.tryResolve` that
         /// grounds the call) and records its key; Freeze stamps it onto the minted
         /// `TExpr.External` so `InlineExpansion` splices the body by KEY. Absent ⇒ the
-        /// head keeps `key = ValueNone` (a saturated builtin operator codegen emits
-        /// directly via `BuiltinOps`, `op_AddressOf` / other non-provider intrinsics, or
-        /// a splice target whose symbol did not resolve — a diagnostic already fired).
+        /// head keeps `key = ValueNone` (`op_AddressOf` / other non-provider intrinsics,
+        /// or a splice target whose symbol did not resolve — a diagnostic already fired).
         /// The operator/intrinsic twin of `ExternalValue` (resolved *value* refs),
         /// separate because these heads are minted fresh by Freeze rather than routed
         /// through `translateIdent`'s `ExternalValue` path.

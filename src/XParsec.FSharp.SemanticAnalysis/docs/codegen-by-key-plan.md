@@ -230,16 +230,37 @@ error-severity diagnostics, so the node never reaches either backend's missing
 base is reached — if that ever stops, it is a defaulting bug, not something for this
 diagnostic to swallow.
 
-**6. Delete `BuiltinOps`.** With 1-5 landed nothing reaches it. Remove
-`EmitLower.BuiltinOps` (the table, `isSaturated`, `expandBuiltinOps`). The
-match-any-package `op_Addition` unsoundness dies with it. `TastLower.lower`'s
-backend-supplied `finishOps` hook becomes identity for the CLR — check whether JS still
-needs it (`TastLower.fs:671-674` says JS keeps a template / `BinaryExpr`) before
-deleting the parameter itself.
+**6. ✅ `BuiltinOps` is deleted.** Re-verified unreachable first (rigging `isSaturated`
+to `failwithf` on any table hit: zero hits, all five suites green), then removed — the
+table, `isSaturated`, `buildApp`, `ilBin`/`ilBinNot`, `expandBuiltinOps`, and `Emit.fs`'s
+re-export. The match-any-package `op_Addition` unsoundness died with it. Codegen now
+recognises no operator by name.
 
-**7. Improve the not-in-scope message.** `Unknown operator symbol: op_LessThan`
-(`InferApp.fs:600`) leaks the compiled name and does not hint at the cause. It should
-read like *"no definition for `<` found — is `Vesper.Comparison` referenced?"*.
+`finishOps` went too: JS's was ALREADY `id` (`jsFinishOps`, a literal identity function —
+the `TastLower` comment claiming JS "keeps a template / `BinaryExpr`" was describing the
+*data* that arrives, not any work the hook did), and the CLR's was `expandBuiltinOps`. A
+hook both backends pass `id` to is dead weight, so `TastLower.lower` lost the parameter.
+Its CLR call sites collapsed with it: `Layout.expandMember` (an identity rebuild of the
+whole partition) and `NominalEmit`'s three `Emit.expandBuiltinOps` preps.
+
+`Freeze.fs`'s lenient `TyVar` arm **stays** — its stated justification was not merely
+stale but *wrong*. Rigging it to `failwithf` fails two `CapturedMutable` tests whose
+sources contain no operator at all (`let f () = let g = fun x -> x in (g, g)`). The real
+residue is a typar quantified by a *local* `let`'s own scheme: it is instantiated afresh
+at each use site, so it never occurs in the enclosing decl's type, and
+`Elaborate.mkMethodQuantEnv` — which derives the `TyVar -> TyTypar(Method, i)` remap by
+walking exactly that type — never maps it. The placeholder is renamed
+`?ungrounded-operator` → `?free-typar`, which is what it always actually was.
+
+**7. ✅ The not-in-scope message names the source spelling.** `Unknown operator symbol:
+op_LessThan` → *"No definition for '<' found — is the package that defines it referenced
+and opened?"*, via `OperatorNames.sourceSymbol`; `inferPrefix`'s identical leak
+(*"Unknown prefix operator"*) shares the one helper.
+
+The hint names **no package**, deliberately. The failure IS that the declaring contract is
+absent from the referenced set, so nothing the compiler can see knows the operator exists;
+naming `Vesper.Comparison` would take a hardcoded operator→package table — exactly the
+by-name coupling this plan removes. A correct half-message beats a wrong whole one.
 
 ## Independent follow-ons — not blocking, one commit + tests each
 

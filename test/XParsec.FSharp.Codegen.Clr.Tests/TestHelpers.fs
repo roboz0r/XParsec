@@ -202,8 +202,8 @@ let vesperPrintfManifest: string = srcManifest "Vesper.Printf"
 /// bare program needs now comes from real `Vesper.*` `.fsi` contracts, and an
 /// operator *emits* from the matching `.fs` contract body too — spliced by
 /// `Passes.InlineExpansion`, whether applied (`1 + 2`) or used as a value
-/// (`List.fold (+) 0 xs`, which the same pass eta-reifies first). Nothing routes
-/// through `Emit.BuiltinOps` any more.
+/// (`List.fold (+) 0 xs`, which the same pass eta-reifies first). Codegen owns no
+/// per-operator dispatch at all.
 ///
 /// Vesper.Core (primitives + arithmetic/equality operators + `hash` + `failwith`),
 /// Vesper.List (`List.fold` over the cons-list), Vesper.Comparison (the ordering

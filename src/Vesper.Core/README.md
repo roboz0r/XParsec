@@ -77,15 +77,14 @@ operators alone force it: a `let inline (+)` body needs inline IL /
 parsed by `XParsec.FSharp` and walked into an `IExternalSymbolProvider`; the
 `.fs` are compiled by our own backend once the self-host ladder lands.
 
-> **`ops-platform.fs` now carries the operator + `hash` implementations.** The live
+> **`ops-platform.fs` carries the operator + `hash` implementations.** The live
 > `=`/`<>`, arithmetic/bitwise/unary, and `hash` semantics in emitted programs come
 > from this frozen `.fs` (F# static-optimization over inline IL), read across the
 > package boundary by the codegen inline-body loader (`SymbolProviders.inlineBodies`)
-> and spliced at each use site. The `Emit.BuiltinOps` op→opcode table remains only as
-> the un-ground / nested / generic fallback (and `Emit.isHash` is gone). Both
-> front-end gaps that once blocked this are closed — operator-named bindings freeze
-> with their compiled name, and BCL generic-member resolution reaches the
-> `EqualityComparer<'T>` fall-clauses.
+> and spliced at each use site by `Passes.InlineExpansion`. This is the *only* source
+> of operator semantics: codegen holds no op→opcode table and recognises no operator
+> by name. An operator with no applicable clause and no resolvable trait call is a
+> compiler diagnostic, not a silent fallback.
 
 Parser coverage is verified: every `.fsi`/`.fs` here parses with zero recovery
 diagnostics — the same bar as the FSharp.Core corpus — by

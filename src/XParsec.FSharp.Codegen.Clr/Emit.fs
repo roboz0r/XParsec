@@ -9,8 +9,8 @@ open EmitPattern
 open EmitExpr
 
 /// The codegen TAST walker, split across modules: `EmitLower` (External-as-value
-/// eta-reification + the `expandBuiltinOps` operator→IL pass; inline expansion
-/// itself ran pre-freeze in `Passes.InlineExpansion`), `EmitClosures` (closure / static-method
+/// eta-reification; inline expansion — operators included —
+/// ran pre-freeze in `Passes.InlineExpansion`), `EmitClosures` (closure / static-method
 /// discovery), `EmitExpr` (`Frozen.TExpr` -> IL via the depth-tracked `Cil` helpers),
 /// and this `Emit` (the method/body builders codegen calls). The shared data
 /// types live in `EmitTypes`. This module re-exports the public surface of the
@@ -34,7 +34,6 @@ module Emit =
 
     let closureIsCached = EmitTypes.closureIsCached
 
-    let expandBuiltinOps = EmitLower.expandBuiltinOps
     let lower = EmitLower.lower
     let collectModuleValues = EmitClosures.collectModuleValues
     let collectGenericModuleValues = EmitClosures.collectGenericModuleValues

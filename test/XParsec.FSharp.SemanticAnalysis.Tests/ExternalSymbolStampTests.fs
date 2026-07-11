@@ -104,7 +104,7 @@ let tests =
             }
 
             // An operator the provider does not surface (`op_Multiply`) is not stamped —
-            // `inferInfix` then reports "Unknown operator symbol", never re-resolving.
+            // `inferInfix` then reports "No definition for '*' found", never re-resolving.
             test "unknown infix operator is not stamped" {
                 let ctx, file = analyse "let m = 1 * 2"
 

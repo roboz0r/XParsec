@@ -584,46 +584,11 @@ module internal Layout =
 
         let lowered = plan.Lowered
 
-        // Member bodies never pass through `Emit.lower`; they only need the
-        // closing `expandBuiltinOps` pass (`NominalEmit` used to apply it per
-        // member). We run it **once here** so the expanded body is the single
-        // object both closure discovery and `buildMember` walk — closure node
-        // identity (`HashIdentity.Reference`) demands they be the same nodes.
-        // The expanded partition is stored as `Partitioned`; `NominalEmit` reads
-        // the already-expanded bodies.
-        let expandMember (m: Frozen.TTypeMember) : Frozen.TTypeMember =
-            { m with
-                Body = Emit.expandBuiltinOps m.Body
-            }
-
-        let rawPartitioned = partitionTypeDecls tast.Decls
-
-        let partitioned =
-            { rawPartitioned with
-                Unions =
-                    [
-                        for ud in rawPartitioned.Unions ->
-                            { ud with
-                                Members = List.map expandMember ud.Members
-                                Interfaces = [ for (ty, ms) in ud.Interfaces -> ty, List.map expandMember ms ]
-                            }
-                    ]
-                Records =
-                    [
-                        for rd in rawPartitioned.Records ->
-                            { rd with
-                                Members = List.map expandMember rd.Members
-                            }
-                    ]
-                Classes =
-                    [
-                        for cd in rawPartitioned.Classes ->
-                            { cd with
-                                Members = List.map expandMember cd.Members
-                                Interfaces = [ for (ty, ms) in cd.Interfaces -> ty, List.map expandMember ms ]
-                            }
-                    ]
-            }
+        // Member bodies never pass through `Emit.lower` — they need no lowering at all;
+        // they arrive from the freeze ready to emit. Partitioned **once** here and
+        // published as `Partitioned`, so closure discovery and `buildMember` walk the
+        // same node objects — closure node identity (`HashIdentity.Reference`) demands it.
+        let partitioned = partitionTypeDecls tast.Decls
 
         // The assembly that *defines* the `%A` structural-format interfaces
         // (`Vesper.Core`) does not get the per-type `Format` row / body — its own

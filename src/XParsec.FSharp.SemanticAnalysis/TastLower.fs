@@ -8,11 +8,10 @@ open XParsec.FSharp.Parser
 /// that traffics only in `Frozen.TExpr` / `FrozenType` / `NodeKey` lives here, in
 /// `SemanticAnalysis`, where both backends already depend.
 ///
-/// What stays backend-local is the *operator-finish* pass: `lower` takes a
-/// `finishOps` knob so each backend supplies its own. The CLR backend passes
-/// `EmitLower.expandBuiltinOps` (collapse saturated operators to stack-machine
-/// `ILIntrinsic`); the JS backend keeps operators as something it can emit as a
-/// `BinaryExpression` / template, with no CIL collapse.
+/// Lowering is backend-uniform: no operator reaches it needing a per-backend finish.
+/// `Passes.InlineExpansion` splices every operator's contract body by `SymbolKey`
+/// pre-freeze, so what arrives here is already the body — an `ILIntrinsic` clause, a
+/// `StaticMethodCall`, or a diagnostic that stopped the compile.
 module TastLower =
 
     /// One flattened parameter of a top-level function lowered to a static method.
@@ -666,18 +665,17 @@ module TastLower =
     /// pre-freeze in `Passes.InlineExpansion`, so the
     /// frozen decls reaching codegen carry no `External(inlineName)` call heads and
     /// no `StaticOptimization` nodes. Inline TEMPLATES (`TDeclG.Let(isInline)`) are
-    /// still dropped here. What remains codegen-only is (1) eta-reifying an
-    /// `External` function VALUE into a closure (it must run after the front end,
-    /// where closures are a codegen concept) and (2) the closing `finishOps` pass,
-    /// supplied by the backend.
+    /// still dropped here. What remains codegen-only is eta-reifying an `External`
+    /// function VALUE into a closure — it must run after the front end, where closures
+    /// are a codegen concept.
     ///
-    /// The eta here only ever sees an external with NO inline body (`List.fold`
-    /// passed as a value). An inline-bodied one (`(+)` in `List.fold (+) 0 xs`) is
-    /// eta-reified pre-freeze by `Passes.InlineExpansion`, which then splices the
-    /// body into the `App` its own eta minted — reifying it here instead would mint
-    /// that `App` past the last point its body can be reached, leaving nothing but a
-    /// name-keyed IL fallback to finish it.
-    let lower (finishOps: Frozen.TExpr -> Frozen.TExpr) (decls: EqArray<Frozen.TDecl>) : Frozen.TDecl list =
+    /// That eta only ever sees an external with NO inline body (`List.fold` passed as
+    /// a value). An inline-bodied one (`(+)` in `List.fold (+) 0 xs`) is eta-reified
+    /// pre-freeze by `Passes.InlineExpansion`, which then splices the body into the
+    /// `App` its own eta minted — reifying it here instead would mint that `App` past
+    /// the last point its body can be reached, leaving codegen an operator it has no
+    /// way to finish.
+    let lower (decls: EqArray<Frozen.TDecl>) : Frozen.TDecl list =
         // Build-wide monotone counter for eta parameters, so independent
         // eta-reifications never share a NodeKey.
         let mutable counter = 0
@@ -767,16 +765,13 @@ module TastLower =
                 TDeclG.Let(pat, value, false, typeOfExpr value) :: flattenTopLevel body
             | _ -> [ TDeclG.Expression(e, typeOfExpr e) ]
 
-        // Eta lowering surfaces operator applications (an eta-reified `(+)`);
-        // `finishOps` then finishes every saturated one — a closing phase so it
-        // sees them all.
         let result = ResizeArray<Frozen.TDecl>()
 
         let lowerOne (d: Frozen.TDecl) =
             match d with
             | TDeclG.Let(_, _, true, _) -> ()
-            | TDeclG.Let(p, value, false, t) -> result.Add(TDeclG.Let(p, finishOps (lowerExpr value), false, t))
-            | TDeclG.Expression(e, t) -> result.Add(TDeclG.Expression(finishOps (lowerExpr e), t))
+            | TDeclG.Let(p, value, false, t) -> result.Add(TDeclG.Let(p, lowerExpr value, false, t))
+            | TDeclG.Expression(e, t) -> result.Add(TDeclG.Expression(lowerExpr e, t))
             // Type declarations are emitted as metadata, not through the expr stream.
             | TDeclG.Type _ -> ()
 

@@ -948,8 +948,7 @@ type internal Assembler
 
         // A holder's `.cctor` initialises its module values in declaration order
         // (the static analogue of the class `static let` cctor — same
-        // `buildStaticCctor` recipe, `stsfld` into each field). `mv.Init` comes
-        // from the lowered decls, so built-in operators are already expanded.
+        // `buildStaticCctor` recipe, `stsfld` into each field).
         let prepareHolderCctor (h: Emit.HolderKey) =
             let lets =
                 [

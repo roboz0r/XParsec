@@ -36,26 +36,37 @@ module Freeze =
     /// not deep-zonk every embedded `.ty`, so a field can hold a `TyVar root` linked
     /// to a concrete type. `zonk` resolves the link; the ground shape is then frozen.
     ///
-    /// One residual free (unlinked) `TyVar` is **tolerated** and mapped to
-    /// `FTUnknown`: the head type of an *un-ground built-in operator* (`13 &&& 11`)
-    /// whose `External` head keeps a generic function type because the operator rides
-    /// codegen's surviving `expandBuiltinOps` fallback (it was not inline-expanded).
-    /// `expandBuiltinOps` runs POST-freeze and dispatches on the operator *name* +
-    /// the (ground) operand/result types, discarding this head type entirely — so it
-    /// is semantically irrelevant and `FTUnknown` round-trips harmlessly through
-    /// `ofFrozen`. `toFrozen` itself stays strict (its `TyVar` hard-error + the 3B-1
-    /// round-trip oracle are unchanged); the strict-everywhere invariant is restored
-    /// in the codegen-flip follow-up, which moves `expandBuiltinOps` pre-freeze so no
-    /// un-ground operator reaches `freezeTy` (then this lenient arm + the placeholder
-    /// can be deleted). Genuine unresolved-`TyVar` inference bugs are still caught
-    /// upstream by `ResolvedTypes` (a graceful per-decl diagnostic), which runs before
-    /// the freeze.
+    /// A residual free (unlinked) `TyVar` is **tolerated** and mapped to `FTUnknown`.
+    /// The source is a typar quantified by a *local* `let`'s own scheme: it is
+    /// instantiated afresh at every use site, so it never occurs in the ENCLOSING
+    /// decl's type — and `Elaborate.mkMethodQuantEnv`, which derives the
+    /// `TyVar -> TyTypar(Method, i)` remap by walking exactly that type, therefore
+    /// never maps it. The local binding's own nodes keep the unmapped root.
+    ///
+    ///     let f () = let g = fun x -> x in (g, g)
+    ///
+    /// `g` is generalised locally over `'x`; the two `(g, g)` occurrences instantiate
+    /// it at fresh roots, so `f`'s type names those and not `'x`. `g`'s lambda node
+    /// still carries `'x`, which reaches here free. (Contrast `let mkConst x = fun () -> x`:
+    /// `x`'s typar is free in the environment, so the local `let` cannot quantify it —
+    /// it IS in the enclosing type, and it maps.)
+    ///
+    /// The typar is phantom in the emitted code (no value of it is ever constructed —
+    /// a closure over it is `Vesper.Fun`-boxed), so `FTUnknown` is sound here and
+    /// round-trips harmlessly through `ofFrozen`. `toFrozen` itself stays strict (its
+    /// `TyVar` hard-error is unchanged), and genuine unresolved-`TyVar` inference bugs
+    /// are still caught upstream by `ResolvedTypes` (a graceful per-decl diagnostic),
+    /// which runs before the freeze.
+    ///
+    /// Making this strict means teaching local generalisation to project its own
+    /// quantified roots onto the enclosing method's typar axis — a real change to the
+    /// typar ABI, not a cleanup.
     let private freezeTy (t: SemType) : FrozenType =
         // `toFrozenWith` is the one structural fold; only the `TyVar` POLICY differs
-        // here: the un-ground-operator residue (see the doc comment) maps to a fixed
-        // placeholder name for determinism, since the node is discarded post-freeze.
+        // here: the residue (see the doc comment) maps to a fixed placeholder name for
+        // determinism, since no emitted type ever depends on it.
         Unification.zonk t
-        |> FrozenTypeBridge.toFrozenWith (fun _ -> FTUnknown "?ungrounded-operator")
+        |> FrozenTypeBridge.toFrozenWith (fun _ -> FTUnknown "?free-typar")
 
     let run (tast: TastFile) : Frozen.TastFile =
         let emittable =

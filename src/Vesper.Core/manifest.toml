@@ -11,14 +11,13 @@
 # operators alone force the contract to be signature-only (a `let inline (+)`
 # body needs inline IL / `--compiling-fslib`).
 #
-# NOTE (2026-05-25): the OPERATOR bodies now live here. `hash`, the equality family
-# (`=`/`<>`), and arithmetic/bitwise/unary (`+ - * / %`, `~- ~+`, `&&& ||| ^^^ <<<
-# >>> ~~~`) all have real `.fs` bodies in `ops-platform.fs` (listed in `impl` below).
-# Codegen reads them across the package boundary via the inline-body loader
-# (`SymbolProviders.inlineBodies`) and splices each at its use site — the
-# operator-named-binding freeze gap that once blocked this is closed, and the
-# `Emit.BuiltinOps` op→opcode table now only catches an eta-reified operator VALUE
-# (`List.fold (+) 0 xs`), whose saturated `App` is minted post-freeze.
+# The OPERATOR bodies live here. `hash`, the equality family (`=`/`<>`), and
+# arithmetic/bitwise/unary (`+ - * / %`, `~- ~+`, `&&& ||| ^^^ <<< >>> ~~~`) all have
+# real `.fs` bodies in `ops-platform.fs` (listed in `impl` below). Codegen reads them
+# across the package boundary via the inline-body loader (`SymbolProviders.inlineBodies`)
+# and `Passes.InlineExpansion` splices each at its use site — including an operator used
+# as a VALUE (`List.fold (+) 0 xs`), which that pass eta-reifies first. Codegen itself
+# holds no op→opcode table.
 #
 # See ./README.md.
 

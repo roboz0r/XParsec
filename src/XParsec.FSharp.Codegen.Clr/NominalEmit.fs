@@ -545,13 +545,7 @@ module internal NominalEmit =
             if not (List.isEmpty staticLets) then
                 let staticFields = classes.[td.Key].StaticFields
 
-                let cctorInits =
-                    [
-                        for sl in staticLets ->
-                            // Inline splicing ran pre-freeze (Passes.InlineExpansion);
-                            // codegen only collapses the residual saturated built-in ops.
-                            staticFields.[sl.Name], Emit.expandBuiltinOps sl.Init
-                    ]
+                let cctorInits = [ for sl in staticLets -> staticFields.[sl.Name], sl.Init ]
 
                 let cctorBody =
                     Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStaticCctor emitCtx cctorInits))
@@ -579,11 +573,7 @@ module internal NominalEmit =
                 |> List.iteri (fun i sc ->
                     let paramTys = [ for (_, t) in sc.Params -> t ]
 
-                    // Inline splicing ran pre-freeze (Passes.InlineExpansion);
-                    // codegen only collapses the residual saturated built-in ops.
-                    let prep (e: Frozen.TExpr) = Emit.expandBuiltinOps e
-
-                    let lets = [ for l in sc.Lets -> { l with Init = prep l.Init } ]
+                    let lets = EqArray.toList sc.Lets
 
                     // A secondary ctor takes one of two forms (Tast
                     // `TSecondaryCtorG`): the explicit field-init form stores
@@ -610,11 +600,11 @@ module internal NominalEmit =
                                 else
                                     failwithf "Emit: class '%s' secondary ctor inits unknown field '%s'" td.Name name
 
-                            let fieldInits = [ for fi in sc.FieldInits -> fieldHandleOf fi.Field, prep fi.Init ]
+                            let fieldInits = [ for fi in sc.FieldInits -> fieldHandleOf fi.Field, fi.Init ]
 
                             Emit.buildSecondaryCtorFieldInit emitCtx sc.Params lets fieldInits
                         else
-                            let primaryArgs = [ for a in sc.PrimaryArgs -> prep a ]
+                            let primaryArgs = EqArray.toList sc.PrimaryArgs
                             Emit.buildSecondaryCtor emitCtx sc.Params lets primaryCtorRef primaryArgs
 
                     let scBody = Cil.buildBody encodeLocals bodyStream (IlIr.lower ctorIr)
@@ -683,18 +673,7 @@ module internal NominalEmit =
                     Cil.buildBody
                         encodeLocals
                         bodyStream
-                        (IlIr.lower (
-                            Emit.buildMember
-                                emitCtx
-                                mem.ThisKey
-                                mem.BaseKey
-                                mem.Params
-                                returnsVoid
-                                // The body is already `expandBuiltinOps`-expanded in
-                                // `Layout.build` (once, so closure discovery and this
-                                // walk share node identity); no re-expansion here.
-                                mem.Body
-                        ))
+                        (IlIr.lower (Emit.buildMember emitCtx mem.ThisKey mem.BaseKey mem.Params returnsVoid mem.Body))
                 with ex ->
                     raise (
                         System.Exception(

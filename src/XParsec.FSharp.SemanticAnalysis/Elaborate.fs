@@ -250,7 +250,7 @@ module Elaborate =
         // parameters too, so they are genuine method typars; fold each collected
         // typar's `Coercion` targets in to a fixpoint (a bound may itself reference a
         // typar with bounds), `ResizeArray` growth driving the worklist. Without this a
-        // constrained `for … in` over `'S` leaks `'E` as `?ungrounded` at the freeze cut.
+        // constrained `for … in` over `'S` leaks `'E` as `?free-typar` at the freeze cut.
         let mutable depIdx = 0
 
         while depIdx < acc.Count do

@@ -23,6 +23,29 @@ open UnificationInferIdentExpr
 
 module internal UnificationInferApp =
 
+    /// An operator whose symbol name resolution never resolved: no contract in the
+    /// referenced set declares it. Spell it as the user WROTE it — the compiled name
+    /// (`op_LessThan`) is an implementation detail they never typed. `sourceSymbol`
+    /// inverts the lexer's own table, so the spelling cannot drift from the name;
+    /// an operator outside that table (spelled out per-character by
+    /// `generateOperatorName`) has no inverse and keeps its compiled name.
+    ///
+    /// The hint names no package deliberately. The failure IS that the declaring
+    /// contract is absent from the referenced set, so nothing the compiler can see
+    /// knows the operator exists — the only way to name `Vesper.Comparison` here
+    /// would be a hardcoded operator→package table, i.e. exactly the by-name coupling
+    /// that recognising operators by name string cost us everywhere else.
+    let private unresolvedOperator (ctx: PassContext) (key: NodeKey) (name: string) : SemType =
+        let spelling =
+            match OperatorNames.sourceSymbol name with
+            | ValueSome symbol -> symbol
+            | ValueNone -> name
+
+        errorTy
+            ctx
+            key
+            (sprintf "No definition for '%s' found — is the package that defines it referenced and opened?" spelling)
+
     /// Record the node-keyed `Fun`-arity verdict (and its
     /// result-typar position) for each source-lambda argument of an application.
     /// Walk the head's curried domains in lockstep with the source arguments; when a
@@ -598,7 +621,7 @@ module internal UnificationInferApp =
                         (TyFun(leftTy, TyFun(rightTy, resultTy)))
 
                     resultTy
-                | ValueNone -> errorTy ctx key (sprintf "Unknown operator symbol: %s" name)
+                | ValueNone -> unresolvedOperator ctx key name
         | ValueSome DesugaredForm.ConsExpr ->
             // `h :: t` builds the list union directly (not a provider operator):
             // `h`'s type is the element, `t` is unified to the same list type,
@@ -709,6 +732,6 @@ module internal UnificationInferApp =
                 let resultTy = TyVar(freshTyVar ctx)
                 unify ctx key (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel) (TyFun(operandTy, resultTy))
                 resultTy
-            | ValueNone -> errorTy ctx key (sprintf "Unknown prefix operator: %s" name)
+            | ValueNone -> unresolvedOperator ctx key name
         | ValueSome _
         | ValueNone -> TyVar(freshTyVar ctx)

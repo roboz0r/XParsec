@@ -687,9 +687,8 @@ module EmitClosures =
     /// closures), since a reference to one is a direct call. A closure walked from
     /// a generic static fn's body inherits that fn's `staticFnTypars` on its
     /// `Closure.Typars`; an inner closure inherits the enclosing closure's set.
-    /// A closure-discovery root from a *type member body*: the member's
-    /// already-`expandBuiltinOps`-expanded body paired with the
-    /// number of typars in scope at its construction site — the declaring type's
+    /// A closure-discovery root from a *type member body*: the member's body paired with
+    /// the number of typars in scope at its construction site — the declaring type's
     /// typar count (the closure re-projects those onto its own class typars, the
     /// same `Typars` count a static-fn closure inherits). `0` for a monomorphic
     /// type, so its member closures stay the plain monomorphic-closure path.

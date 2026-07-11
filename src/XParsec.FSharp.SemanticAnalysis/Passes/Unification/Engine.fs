@@ -855,7 +855,7 @@ module UnificationEngine =
                 // domains (`fun x y -> x + y` — no literal pins `x`/`y`) coerced into a
                 // GROUND constrained slot (`'TF :> Fun<int,int,int>`) must ground from
                 // the slot's args, so the lambda body's SRTP operators resolve instead
-                // of leaking `?ungrounded-operator`. `subsumes` itself stays read-only
+                // of leaking `?free-typar`. `subsumes` itself stays read-only
                 // (it only *checks* invariant-equality); this is the one place the
                 // grounding `unify` lives. Arity-parametric (1..4): peel exactly
                 // `targs.Length - 1` arrow domains, `unify` each with the slot's ground

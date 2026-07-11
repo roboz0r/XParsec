@@ -312,7 +312,7 @@ module internal UnificationInferGeneralize =
         // typars that appear ONLY in constraints, never in the binding type itself
         // (`let f (s: 'S when 'S :> IStructSeq<'E> and 'E :> IStructEnumerator>)` — `'E`
         // is in no parameter/return position). F# generalises these phantom parameters
-        // too; without them they leak as un-ground `TyVar`s → `?ungrounded-operator` at
+        // too; without them they leak as un-ground `TyVar`s → `?free-typar` at
         // the freeze cut (a constrained `for … in` over `'S`). Walk each quantified
         // typar's `Coercion` targets to a fixpoint (a bound may itself reference a typar
         // with its own bounds), `ResizeArray` growth driving the worklist.

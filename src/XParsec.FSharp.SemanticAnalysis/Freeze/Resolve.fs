@@ -330,12 +330,10 @@ module internal FreezeResolve =
     /// value to the type's **own** static member, not the built-in arithmetic
     /// operator; so eta-expand it here into a closure whose body `call`s that static
     /// member — `fun a b -> T.op_Addition(a, b)` as a `StaticMethodCall` — rather
-    /// than leaving a bare `External("op_Addition", …)` value. The latter is wrong
-    /// two ways: codegen's eta path is only reached for module-level decls (not
-    /// member bodies, so the value would survive to `buildExpr`'s catch-all as
-    /// `Emit: unsupported expression: External`), and even when it *is* reached,
-    /// `expandBuiltinOps` collapses the saturated `op_Addition` to an inline `add`
-    /// opcode — emitting integer arithmetic over object references.
+    /// than leaving a bare `External("op_Addition", …)` value — which codegen's eta
+    /// path never reaches for a MEMBER body (only module-level decls), so the value
+    /// would survive to `buildExpr`'s catch-all as
+    /// `Emit: unsupported expression: External`.
     ///
     /// The *resolution* (which member, scanning every operand) is type-directed and
     /// lives in `Unification.resolveOperatorValues`; it records the declaring type's

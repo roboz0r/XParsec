@@ -552,7 +552,7 @@ let structTests =
             // Same-name overloaded generic members: each overload carries its own
             // method typar `'T`. Elaboration must match the exact overload by `DeclKey`,
             // not by name — otherwise all overloads share the first one's typars and
-            // the others' `'T` freezes as `?ungrounded-operator`.
+            // the others' `'T` freezes as `?free-typar`.
             test "same-name overloaded generic members each generalise their own 'T" {
                 runsDataLines [ "42" ] "overloaded-generic-members-own-typar"
             }

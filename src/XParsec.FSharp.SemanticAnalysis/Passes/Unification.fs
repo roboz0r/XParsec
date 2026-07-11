@@ -276,7 +276,7 @@ module Unification =
     /// free root of the member type by first-left-to-right appearance (params L→R,
     /// then return), excluding the enclosing class typars. This both (a) generalises
     /// body-inferred free typars an annotation never named (`member s.Fold f z = …`
-    /// introduces a fresh `'State`; without this it leaks as `?ungrounded-operator`
+    /// introduces a fresh `'State`; without this it leaks as `?free-typar`
     /// at codegen for an uncalled library API) AND (b) re-orders annotation-implicit
     /// typars by appearance — replacing the former 3-tier `explicit @ annotation @
     /// body` append, which diverged from F# whenever an annotated param followed an
