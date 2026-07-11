@@ -1,11 +1,7 @@
 namespace Vesper.Collections
 
-open System
-open System.Collections
-open System.Collections.Generic
-
-// Vesper's cons-list. BCL-only; `List.fold` is compiled into this DLL so it
-// carries a `Vesper.Core` `AssemblyRef`.
+// Vesper's cons-list. `List.fold` is compiled into this DLL so it carries a
+// `Vesper.Core` `AssemblyRef`.
 //
 // NOT Fantomas-formatted (this dir is in `.fantomasignore`): Fantomas strips the
 // `[]` / `::` operator-union-case payloads.
@@ -29,37 +25,31 @@ type List<'T> =
         | [] -> failwith "The input list was empty."
         | _ :: t -> t
 
-    // The cons-list IS a `seq<'T>`: it implements `IEnumerable<'T>` directly,
+    // The cons-list IS a `seq<'T>`: it implements the ITERATION CAPABILITY directly,
     // walking its cells through the `ListEnumerator` cursor (mutual recursion
-    // `and ListEnumerator`). This retires the old `ListSeq` wrapper — `for x in xs`
-    // over a bare list now drives `GetEnumerator` on the list itself.
-    interface IEnumerable<'T> with
-        member this.GetEnumerator() = (new ListEnumerator<'T>(this) :> IEnumerator<'T>)
-
-    interface IEnumerable with
-        member this.GetEnumerator() = (new ListEnumerator<'T>(this) :> IEnumerator)
+    // `and ListEnumerator`). The BCL faces (`IEnumerable<'T>` and the non-generic
+    // `IEnumerable`) are NOT authored here — the CLR backend synthesizes them as
+    // forwarding co-slots during capability reconciliation, so BCL interop is
+    // unchanged while the source stays platform-agnostic.
+    interface seq<'T> with
+        member this.GetEnumerator() = (new ListEnumerator<'T>(this) :> enumerator<'T>)
 
 // Struct enumerator: advance/read logic is inlined in interface members (a struct
 // member calling another on `this` copies `this`, losing the mutation). The `'T
 // list` abbreviation stays LAST in the rec group (mirroring the original
 // declaration order); `ListEnumerator` sits between `List` and the abbreviation.
+//
+// `Reset` and the non-generic `IEnumerator` co-slots are likewise synthesized, not
+// authored: the capability declares only the pull protocol. Disposal is the SEPARATE
+// `disposable` capability (which `enumerator` inherits) — a no-op for an in-memory cursor.
 and [<NoEquality; NoComparison; Struct>] ListEnumerator<'T> =
     val mutable cursor: List<'T>
     val mutable started: bool
-    val source: List<'T>
 
-    new(s: List<'T>) =
-        {
-            cursor = s
-            started = false
-            source = s
-        }
+    new(s: List<'T>) = { cursor = s; started = false }
 
-    interface IEnumerator<'T> with
+    interface enumerator<'T> with
         member this.Current = this.cursor.Head
-
-    interface IEnumerator with
-        member this.Current = box this.cursor.Head
 
         member this.MoveNext() =
             if this.started then
@@ -72,11 +62,7 @@ and [<NoEquality; NoComparison; Struct>] ListEnumerator<'T> =
                 this.started <- true // The first call to MoveNext "starts" the enumeration.
                 not this.cursor.IsEmpty
 
-        member this.Reset() =
-            this.cursor <- this.source
-            this.started <- false
-
-    interface IDisposable with
+    interface Vesper.disposable with
         member this.Dispose() = ()
 
 and 'T list = List<'T>
@@ -144,8 +130,8 @@ module List =
         | h :: t -> append (rev t) (h :: [])
 
     // `toSeq` upcasts the list directly — the cons-list IS a `seq<'T>` now that
-    // `List<'T>` implements `IEnumerable<'T>` (the `ListSeq` wrapper is retired).
-    let toSeq (list: 'T list) : IEnumerable<'T> = (list :> IEnumerable<'T>)
+    // `List<'T>` implements the iteration capability (the `ListSeq` wrapper is retired).
+    let toSeq (list: 'T list) : seq<'T> = (list :> seq<'T>)
 
     // `ofSeq` iterates the source with `for x in source`, consing each element to the
     // front and reversing at the end. The `for .. in` form (not a manual

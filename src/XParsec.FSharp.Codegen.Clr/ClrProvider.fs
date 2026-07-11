@@ -262,6 +262,10 @@ type ClrProvider
 
     member _.ArgumentExceptionCtor: EntityHandle = env.EArgumentExceptionCtor.Value
 
+    /// `System.NotSupportedException::.ctor()` — the synthesised `IEnumerator.Reset`
+    /// capability co-slot throws it (the pull protocol has no rewind).
+    member _.NotSupportedExceptionCtor: EntityHandle = env.ENotSupportedExceptionCtor.Value
+
     member _.CompareToOverrideSignature() : BlobBuilder = enc.CompareToOverrideSignature()
 
     member _.CompareToTypedSignature(selfTy: FrozenType) : BlobBuilder = enc.CompareToTypedSignature selfTy

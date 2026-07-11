@@ -293,6 +293,23 @@ type internal ClrEnv
 
              toEntity (ctx.MemberRef(eArgumentException.Value, ".ctor", s)))
 
+    // `System.NotSupportedException::.ctor()` — thrown by the synthesised
+    // `IEnumerator.Reset` co-slot. The parameterless ctor: the BCL's own default message
+    // ("Specified method is not supported.") is exactly right, and it keeps the shim's
+    // body three instructions with no user string to mint.
+    let eNotSupportedException =
+        lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "NotSupportedException")))
+
+    let eNotSupportedExceptionCtor =
+        lazy
+            (let s = BlobBuilder()
+
+             BlobEncoder(s)
+                 .MethodSignature(isInstanceMethod = true)
+                 .Parameters(0, (fun (ret: ReturnTypeEncoder) -> ret.Void()), (fun (_: ParametersEncoder) -> ()))
+
+             toEntity (ctx.MemberRef(eNotSupportedException.Value, ".ctor", s)))
+
     let eDecimalCtor =
         lazy
             (let s = BlobBuilder()
@@ -591,6 +608,7 @@ type internal ClrEnv
     member _.EObjectCtor = eObjectCtor
     member _.EExceptionCtor = eExceptionCtor
     member _.EArgumentExceptionCtor = eArgumentExceptionCtor
+    member _.ENotSupportedExceptionCtor = eNotSupportedExceptionCtor
     member _.EDecimalCtor = eDecimalCtor
     member _.EHashCodeToHashCode = eHashCodeToHashCode
 

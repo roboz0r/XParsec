@@ -90,17 +90,14 @@ open System.Collections.Generic
         /// <remarks>This is an O(1) operation.</remarks>
         static member Cons: head: 'T * tail: 'T list -> 'T list
 
-        // The enumerable interfaces, advertised because each is either emitted or a
-        // semantic no-op on every target. The generic `IEnumerable<'T>` drives iteration
-        // on both (CLR `list.fs`; JS `list.js.fs`'s `[Symbol.iterator]`). The non-generic
-        // `IEnumerable` is a real impl on CLR and a no-op on JS — the generic iterator
-        // already drives JS iteration, so JS needs no separate emission. Contrast
-        // `IReadOnlyCollection<'T>`/`IReadOnlyList<'T>`: those carry real members
-        // (`Count`/`Item`) that NEITHER target implements and that cannot be no-ops, so
-        // the contract must not advertise them — a consumer resolving `List :>
-        // IReadOnlyList<'T>` would type-check then fail at codegen.
-        interface IEnumerable<'T>
-        interface IEnumerable
+        // The ITERATION CAPABILITY, advertised because it is implemented on every target
+        // (CLR `list.fs`; JS `list.js.fs`'s `[Symbol.iterator]`). The BCL faces are NOT
+        // advertised: on CLR they are synthesized co-slots of this same capability, and on
+        // JS they do not exist. Contrast `IReadOnlyCollection<'T>`/`IReadOnlyList<'T>`:
+        // those carry real members (`Count`/`Item`) that NEITHER target implements and that
+        // cannot be no-ops, so the contract must not advertise them — a consumer resolving
+        // `List :> IReadOnlyList<'T>` would type-check then fail at codegen.
+        interface seq<'T>
 
     /// <summary>The type of immutable singly-linked lists. </summary>
     ///

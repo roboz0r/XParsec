@@ -1019,6 +1019,82 @@ module internal NominalEmit =
                 }
             )
 
+        // The synthesised capability co-slots (`CoSlot`): the BCL members a capability's
+        // platform face INHERITS but its member surface never declared, so no author ever
+        // wrote them and the CLR would refuse to load the type. Only the non-generic slots
+        // need synthesis — the face's own generic slots are already bound implicitly by the
+        // authored members' name + signature. The slot list is the layout's (`asm.CoSlotsOf`),
+        // so a reserved row can never go un-prepared.
+        let coSlots = asm.CoSlotsOf td.Key
+
+        if not (List.isEmpty coSlots) then
+            // The authored capability member a shim forwards to, as a handle callable from
+            // inside this type: a generic type reaches it through its open self-`TypeSpec`
+            // `MemberRef`, a mono type through its `MethodDef`. Located by name over the
+            // SAME `NominalMembers.indexed` sequence the bodies were prepared under, so the
+            // `MethodKey.Member` index is the one the member's row actually holds.
+            let capabilityMember (name: string) : EntityHandle * FrozenType =
+                let hit =
+                    NominalMembers.indexed members userInterfaces
+                    |> List.tryPick (fun (i, isIfaceImpl, m) ->
+                        if isIfaceImpl && m.Name = name then Some(i, m) else None
+                    )
+
+                match hit with
+                | None ->
+                    failwithf
+                        "Emit: type '%A' implements a capability whose co-slot forwards to member '%s', but no such interface-impl member was frozen"
+                        td.Key
+                        name
+                | Some(i, mem) ->
+                    let metaName = memberMetaName mem
+                    let paramTys = [ for (_, t) in mem.Params -> t ]
+
+                    let kind =
+                        match input with
+                        | NominalEmissionInput.Union _ ->
+                            UserMemberKind.UnionMember(UnionMember.Member(metaName, false, 0, paramTys, mem.ReturnTy))
+                        | NominalEmissionInput.Class _ ->
+                            UserMemberKind.ClassMember(ClassMember.Member(metaName, false, 0, paramTys, mem.ReturnTy))
+                        | NominalEmissionInput.Record _ ->
+                            // `RecordMember` has no augmentation-member case, so a generic
+                            // record cannot mint a self-`TypeSpec` ref to its own method.
+                            // No such type exists yet; fail loudly rather than emit a
+                            // `MethodDef` token that would bind to the wrong instantiation.
+                            failwithf "Emit: capability co-slot synthesis on a record ('%A') is not supported" td.Key
+
+                    selfMemberRef kind (toEntity (asm.MethodDef(MethodKey.Member(td.Key, i)))), mem.ReturnTy
+
+            for slot in coSlots do
+                let signature, body =
+                    match slot with
+                    | CoSlot.EnumerableGetEnumerator ->
+                        let getEnumerator, _ = capabilityMember "GetEnumerator"
+
+                        provider.InstanceMethodSignature(
+                            [],
+                            FTClass(SymbolKey.TypeKey(None, "System.Collections", "IEnumerator"), EqArray.empty)
+                        ),
+                        Emit.buildEnumerableGetEnumeratorCoSlot getEnumerator
+                    | CoSlot.EnumeratorCurrent ->
+                        let current, elemTy = capabilityMember "Current"
+
+                        provider.InstanceMethodSignature([], FTConst(RuntimeNames.objKey, EqArray.empty)),
+                        Emit.buildEnumeratorCurrentCoSlot current (icodegen.TypeToken elemTy)
+                    | CoSlot.EnumeratorReset ->
+                        provider.InstanceMethodSignatureVoid [],
+                        Emit.buildEnumeratorResetCoSlot provider.NotSupportedExceptionCtor
+
+                asm.AddPrepared(
+                    MethodKey.CapCoSlot(td.Key, slot),
+                    {
+                        Signature = signature
+                        BodyOffset = bodyOf body
+                        ParamNames = []
+                        MethodTypars = []
+                    }
+                )
+
         // One `InterfaceImpl` entity handle per implemented interface — the
         // synthesised structural-equality / comparison interfaces (unions /
         // records) and the user-declared `interface … with` impls,

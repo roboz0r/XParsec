@@ -901,3 +901,40 @@ module Emit =
         b.Add(ILInstr.LdcI4 1)
         b.Add ILInstr.Ret
         b.Body
+
+    // The capability co-slot shims (`CoSlot`). Each forwards to the authored capability
+    // member through `capabilityMember` — a `MethodDef` on a mono type, a self-`TypeSpec`
+    // `MemberRef` on a generic one — so a `call` (not `callvirt`) binds the exact method.
+    // The receiver is `ldarg.0`: an object reference for a class/union, a managed pointer
+    // for a struct enumerator, and `call` on a value type's own instance method takes the
+    // pointer directly — so one shape serves both.
+
+    /// `IEnumerator IEnumerable.GetEnumerator()` — the non-generic co-slot. Forwards to the
+    /// capability's `GetEnumerator`, whose `IEnumerator`1<T>` return already IS an
+    /// `IEnumerator`, so no cast is needed.
+    let buildEnumerableGetEnumeratorCoSlot (capabilityGetEnumerator: EntityHandle) : ILBody =
+        let b = IlBuilder()
+        b.Add(ILInstr.Ldarg 0)
+        b.Add(ILInstr.Call(capabilityGetEnumerator, 1, 1))
+        b.Add ILInstr.Ret
+        b.Body
+
+    /// `object IEnumerator.get_Current()` — the non-generic co-slot. Forwards to the
+    /// capability's `Current` and boxes its `'T` (`elemType` is the element's type token —
+    /// for a generic enumerator, the declaring typar `!0`).
+    let buildEnumeratorCurrentCoSlot (capabilityCurrent: EntityHandle) (elemType: EntityHandle) : ILBody =
+        let b = IlBuilder()
+        b.Add(ILInstr.Ldarg 0)
+        b.Add(ILInstr.Call(capabilityCurrent, 1, 1))
+        b.Add(ILInstr.Box elemType)
+        b.Add ILInstr.Ret
+        b.Body
+
+    /// `void IEnumerator.Reset()` — the co-slot with no capability member to forward to:
+    /// the pull protocol has no rewind. Throws, as every non-resettable BCL enumerator
+    /// does (F#'s own sequence enumerators included).
+    let buildEnumeratorResetCoSlot (notSupportedExceptionCtor: EntityHandle) : ILBody =
+        let b = IlBuilder()
+        b.Add(ILInstr.Newobj(notSupportedExceptionCtor, 0))
+        b.Add ILInstr.Throw
+        b.Body

@@ -3,6 +3,86 @@ namespace XParsec.FSharp.Codegen.Clr
 open System.Reflection.Metadata
 open XParsec.FSharp.SemanticAnalysis
 
+/// A method the CLR demands but the *capability* contract never declared, so no author
+/// ever wrote it. A capability's platform face drags in a wider BCL interface hierarchy
+/// than the capability's own member surface: `interface seq<'T>` declares only
+/// `GetEnumerator`, but its face `IEnumerable`1` inherits the non-generic `IEnumerable`,
+/// and `enumerator`'s face `IEnumerator`1` inherits `IEnumerator`'s `object Current` and
+/// `Reset`. The CLR requires EVERY method in a declared interface's transitive closure to
+/// be implemented, so the backend synthesises these as forwarding shims — without them the
+/// type does not load (`TypeLoadException: … does not have an implementation`), and a C#
+/// consumer could not iterate a Vesper type at all.
+///
+/// This is the concrete meaning of "each backend lowers the abstract protocol to its
+/// platform idiom". The BCL knowledge lives HERE, in the CLR backend (as it already does
+/// in `EmitLoops`' `for … in` slots), never in the platform-agnostic capability contract.
+/// The *generic* face slots need no synthesis: the authored members already bind to them
+/// implicitly by name + signature (which is also why `MoveNext`, whose signature is
+/// identical on the non-generic `IEnumerator`, needs no shim).
+[<RequireQualifiedAccess>]
+type internal CoSlot =
+    /// `IEnumerable.GetEnumerator() : IEnumerator` — forwards to the capability's
+    /// `GetEnumerator`, whose `IEnumerator`1<T>` return already IS an `IEnumerator`.
+    | EnumerableGetEnumerator
+    /// `IEnumerator.get_Current() : object` — forwards to the capability's `Current`,
+    /// boxing the `'T`.
+    | EnumeratorCurrent
+    /// `IEnumerator.Reset() : void` — the pull protocol has no rewind, so there is no
+    /// capability member to forward to. Throws `NotSupportedException`, exactly as a
+    /// non-resettable BCL enumerator does.
+    | EnumeratorReset
+
+/// Which co-slots a nominal must synthesise, derived from the capability interfaces it
+/// implements. A capability is recognised STRUCTURALLY — an `IntrinsicInterface` shape and
+/// the platform face it reconciles to — never by a canonical `Vesper.Collections.seq`
+/// string literal, so this stays keyed off resolution rather than a hardcoded contract name.
+module internal CapabilityCoSlots =
+
+    /// The BCL faces whose inherited members outrun their capability's member surface.
+    /// Every other capability face (`System.IDisposable`, `IEquatable`1`, `IComparable`1`)
+    /// is a single-method interface with no bases — hence no co-slots, and hence why this
+    /// synthesis is new with the iteration cluster.
+    let private ofPlatformFace (platform: string) : CoSlot list =
+        match platform with
+        | "System.Collections.Generic.IEnumerable`1" -> [ CoSlot.EnumerableGetEnumerator ]
+        | "System.Collections.Generic.IEnumerator`1" -> [ CoSlot.EnumeratorCurrent; CoSlot.EnumeratorReset ]
+        | _ -> []
+
+    /// The co-slots the implemented `interfaces` require, in emission order. Probes the
+    /// qualified key then its bare form — the two provider registration conventions, as
+    /// `ClrEnv.lookupTypeByKey` does.
+    let required (symbols: IExternalSymbolProvider) (interfaces: FrozenType list) : CoSlot list =
+        [
+            for iface in interfaces do
+                match iface with
+                | FTClass(key, _) ->
+                    let qual = SymbolKeyOps.qualifiedName key
+
+                    let shape =
+                        match symbols.TryLookupType qual with
+                        | ValueSome _ as hit -> hit
+                        | ValueNone ->
+                            let bare = SymbolKeyOps.bareName qual
+
+                            if bare = qual then
+                                ValueNone
+                            else
+                                symbols.TryLookupType bare
+
+                    match shape with
+                    | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
+                        yield! ofPlatformFace platform
+                    | _ -> ()
+                | _ -> ()
+        ]
+
+    /// The emitted method name of a co-slot — the BCL slot it implicitly binds to.
+    let metaName (slot: CoSlot) : string =
+        match slot with
+        | CoSlot.EnumerableGetEnumerator -> "GetEnumerator"
+        | CoSlot.EnumeratorCurrent -> "get_Current"
+        | CoSlot.EnumeratorReset -> "Reset"
+
 /// One disjoint walk over `tast.Decls`: every `TDecl.Type` is routed to exactly
 /// one list by its `TTypeKind`. Adding a new nominal kind is one field + one
 /// `match` arm in `partitionTypeDecls`.

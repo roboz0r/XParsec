@@ -357,6 +357,55 @@ let tests =
                     (sprintf "Vesper.List.dll references Vesper.Core (fold's folder is a Vesper.Fun) (refs: %A)" refs)
             }
 
+            // `List<'T>` authors ONLY the platform-agnostic iteration capability
+            // (`interface seq<'T>` / `interface enumerator<'T>`, `src/Vesper.List/list.fs`):
+            // it never writes `IEnumerable`, `IEnumerator`, `object Current`, or `Reset`.
+            // The CLR backend synthesises those BCL co-slots during capability
+            // reconciliation, so a plain BCL consumer — this test host, holding nothing but
+            // `System.Collections` — can iterate a Vesper type it knows nothing about. That
+            // round-trip is the whole point of co-slot synthesis; without it the type does
+            // not even load. Enumeration goes through the NON-GENERIC face on purpose: that
+            // is the face made entirely of synthesised members.
+            test "a BCL consumer iterates Vesper.List through the synthesised IEnumerable co-slots" {
+                let listAsm = Assembly.LoadFrom vesperListDll.Value
+                let listTy = listAsm.GetType "Vesper.Collections.List`1"
+                let intList = listTy.MakeGenericType typeof<int>
+
+                let empty () =
+                    intList.GetMethod("Empty").Invoke(null, [||])
+
+                let cons (h: int) (t: obj) =
+                    intList.GetMethod("Cons").Invoke(null, [| box h; t |])
+
+                // [1; 2; 3], built through the union's own factories.
+                let xs = cons 1 (cons 2 (cons 3 (empty ())))
+
+                // The generic face: `IEnumerable<int>` — its `GetEnumerator` is the AUTHORED
+                // capability member, bound to the BCL slot implicitly by name + signature.
+                let generic = xs :?> System.Collections.Generic.IEnumerable<int>
+                Expect.sequenceEqual generic [ 1; 2; 3 ] "IEnumerable<int> yields the elements in order"
+
+                // The non-generic face: every member here is a co-slot the author never
+                // wrote. `IEnumerable.GetEnumerator` forwards to the capability's; the
+                // `object Current` boxes the capability's `'T`.
+                let nonGeneric = xs :?> System.Collections.IEnumerable
+                let e = nonGeneric.GetEnumerator()
+
+                let walked =
+                    [
+                        while e.MoveNext() do
+                            yield e.Current
+                    ]
+
+                Expect.equal walked [ box 1; box 2; box 3 ] "the non-generic IEnumerator yields the boxed elements"
+
+                // `Reset` has no capability member to forward to — the pull protocol has no
+                // rewind — so the synthesised slot throws, as a non-resettable BCL
+                // enumerator does. It must EXIST (else the type would not load); it just
+                // must not pretend to work.
+                Expect.throwsT<NotSupportedException> (fun () -> e.Reset()) "the synthesised Reset co-slot throws"
+            }
+
             // ---- The canonical sample: FSharp.Core-free in-process + bundle ----
             // The bare-program list literal + `List.fold` retarget onto the Vesper
             // `List` — the literal builds a `Vesper.Collections.List` and `List.fold`

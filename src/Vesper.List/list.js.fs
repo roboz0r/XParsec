@@ -40,15 +40,14 @@ type List<'T> =
     | ([]): 'T list
     | (::): Head: 'T * Tail: 'T list -> 'T list
 
-    // The cons-list IS a `seq<'T>`: its `IEnumerable<'T>` impl lands on the base
+    // The cons-list IS a `seq<'T>`: its iteration-capability impl lands on the base
     // class `List` (a JS union value is a case-subclass instance, so the
     // `*[Symbol.iterator]()` adapter must be inherited by every case), driving the
     // `ListEnumerator` cursor. `for x in xs` over a bare list now drives this — no
     // `:> seq` upcast. Because the JS union emits NO `.Head`/`.Tail` accessors, the
     // enumerator walks the cells with cons-pattern `match`, not member access.
-    interface System.Collections.Generic.IEnumerable<'T> with
-        member this.GetEnumerator() : System.Collections.Generic.IEnumerator<'T> =
-            (new ListEnumerator<'T>(this) :> System.Collections.Generic.IEnumerator<'T>)
+    interface seq<'T> with
+        member this.GetEnumerator() : enumerator<'T> = (new ListEnumerator<'T>(this) :> enumerator<'T>)
 
 // JS-target cons enumerator: a `val mutable` cursor walked by `MoveNext`/`Current`
 // (the duck-typed protocol the `*[Symbol.iterator]()` generator adapter drives).
@@ -61,7 +60,7 @@ and ListEnumerator<'T> =
 
     new(s: 'T list) = { cursor = s; started = false }
 
-    interface System.Collections.Generic.IEnumerator<'T> with
+    interface enumerator<'T> with
         member this.MoveNext() : bool =
             // Advance the cursor (the first call only "starts" it, leaving the head),
             // then report non-empty ONCE — the started/first-call branches differ only

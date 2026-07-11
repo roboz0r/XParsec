@@ -60,7 +60,7 @@ type internal Assembler
     // a lookup into the prefix-sum derivation, not arithmetic. The layout also
     // carries the lowering products (lowered decls, holder plan, closures,
     // partition) computed once inside `Layout.build`.
-    let layout = Layout.build project tast
+    let layout = Layout.build symbols project tast
     let layoutHandles = Layout.deriveHandles layout
 
     let lowered = layout.Lowered
@@ -588,6 +588,13 @@ type internal Assembler
     /// the layout (computed once in `Layout.build`) so the `Format`-row reservation
     /// and this body-emission gate share one source of truth.
     member _.DefinesStructuralFormatInterfaces = layout.DefinesStructuralFormatInterfaces
+
+    /// The capability co-slots this nominal must synthesise — the same list `Layout`
+    /// reserved rows for, so the bodies and the rows cannot drift.
+    member _.CoSlotsOf(key: SymbolKey) : CoSlot list =
+        match layout.CoSlots.TryGetValue key with
+        | true, slots -> slots
+        | _ -> []
 
     /// The layout's prefix-sum handle derivation — the only place a
     /// first-field / first-method / TypeDef / MethodDef handle comes from.
