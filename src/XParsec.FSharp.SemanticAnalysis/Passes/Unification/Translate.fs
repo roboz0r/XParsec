@@ -496,9 +496,15 @@ module internal UnificationTranslate =
     /// first (then the bare name, for arity-0 types) and the hit's key becomes the
     /// SemType name. An arity-mismatched hit is rejected (a generic type
     /// referenced at the wrong arity isn't this type, and guards the abbrev/record
-    /// builders against a wrong-length arg array). Abbreviations are left to the
-    /// caller's opaque fallback rather than expanded here — expanding would discard
-    /// the abbrev name the extractor convention pins.
+    /// builders against a wrong-length arg array). An external abbreviation is
+    /// *dealiased* to its (already-frozen) body here (the `Abbrev` arm below),
+    /// exactly as the producer inlines it — `mkNominal`'s `Abbrev` arm
+    /// (`VesperLib/TypeTranslate.fs`) `substituteDeclaring`-expands an abbrev named in
+    /// a contract body. So an abbrev never survives as a nominal identity in either
+    /// direction: the underlying body is what unifies and what the IL encoder keys on
+    /// (`int32` ⇒ `int`), and there is no surviving abbrev key to carry — the sole
+    /// opens-sensitive reach for an abbrev, as for every nominal, is the single
+    /// `TryLookupType` probe that fetches the shape.
     and private tryResolveExternalType
         (ctx: PassContext)
         (qualName: string)

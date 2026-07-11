@@ -524,28 +524,29 @@ module UnificationEngineCore =
             ctx.IntrinsicCanonCache.[key] <- canon
             canon
 
-    /// The **platform** face of an intrinsic name: the runtime/BCL repr its
-    /// `(# "…" #)` binding records (`"string"` ⇒ `"System.String"` on CLR,
-    /// `prim-types-*.fs`; local-first, provider-fallback). Returns `n` unchanged for
-    /// a name that is not a known intrinsic (so a project-local / already-qualified
-    /// name passes through). Lets the dot-access resolvers (`resolveFieldStep`, the
-    /// external instance-method probe) route an intrinsic *receiver*'s instance
+    /// The **platform** face of an intrinsic: the runtime/BCL repr its `(# "…" #)`
+    /// binding records (`"string"` ⇒ `"System.String"` on CLR, `prim-types-*.fs`).
+    /// Keyed by the intrinsic's already-resolved canon `SymbolKey` — the
+    /// opens-discharged identity the receiver `TyConst` carries — so the store answers
+    /// by key and no OpenScope short→qualified re-resolution is needed: the
+    /// self-compiling unit's own intrinsics from the local short-name `IntrinsicReprTypes`
+    /// table, a referenced package's from the store's forward axis
+    /// (`IntrinsicForwardRepr : canon SymbolKey → repr`). Returns the bare short name
+    /// for a non-intrinsic key (a project-local / already-qualified name passes
+    /// through) or an intrinsic with no repr on the compiling target (`decimal` on JS,
+    /// absent from the forward map). Lets the dot-access resolvers (`resolveFieldStep`,
+    /// the external instance-method probe) route an intrinsic *receiver*'s instance
     /// members through the provider keyed on the platform type name — distinct from
     /// `canonKey`'s identity axis (which stays on the `.fsi` `SymbolKey`).
-    let intrinsicPlatformName (ctx: PassContext) (n: string) : string =
+    let intrinsicPlatformName (ctx: PassContext) (key: SymbolKey) : string =
+        let n = SymbolKeyOps.intrinsicName key
+
         match ctx.Types.IntrinsicReprTypes.TryGetValue n with
         | true, platform -> platform
         | _ ->
-            let providerPlatform (c: string) : string voption =
-                match ctx.Provider.TryLookupType c with
-                | ValueSome(ExternalTypeShape.Intrinsic { Id = { Platform = Some platform } }) -> ValueSome platform
-                // `platform = None`: a primitive with no repr on the compiling target
-                // (`decimal` on JS) has no platform type name to key a member lookup on.
-                | _ -> ValueNone
-
-            match OpenScope.tryResolve ctx.Resolution.OpenScope providerPlatform n with
-            | ValueSome platform -> platform
-            | ValueNone -> n
+            match ctx.Provider.IntrinsicForwardRepr.TryGetValue key with
+            | true, platform -> platform
+            | _ -> n
 
     /// Resolve a *receiver* type to the external `(qualifiedPlatformName, typeArgs)`
     /// a provider member lookup keys on: a non-project-local `TyClass` (a BCL /
@@ -568,7 +569,7 @@ module UnificationEngineCore =
         | TyStructuralCtor -> ValueNone
         | TyConst(key, typeArgs) ->
             let name = SymbolKeyOps.intrinsicName key
-            let platformQual = intrinsicPlatformName ctx name
+            let platformQual = intrinsicPlatformName ctx key
 
             if platformQual <> name then
                 ValueSome(struct (platformQual, typeArgs))
