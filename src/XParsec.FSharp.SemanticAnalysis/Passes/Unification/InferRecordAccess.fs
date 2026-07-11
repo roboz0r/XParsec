@@ -438,7 +438,7 @@ module internal UnificationInferRecordAccess =
             else
                 errorTy ctx diagKey (sprintf "Type '%s' has no instance member '%s'" clsQual memberName)
         | TyArray _ when memberName = "Length" ->
-            match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "GetArrayLength" with
+            match ctx.CoreAccess.Value.GetArrayLength with
             | ValueSome sym ->
                 // Thread the resolved `GetArrayLength` identity to Freeze's
                 // `External` mint (the `.Length` `DotLookup` / `LongIdent`-chain
@@ -483,7 +483,7 @@ module internal UnificationInferRecordAccess =
         // resolved call) grounds the types so `InlineExpansion` can splice the
         // source `ldelem` at the use site. The mnemonic never originates here.
         let getArrayIndex () =
-            match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "GetArray" with
+            match ctx.CoreAccess.Value.GetArray with
             | ValueSome sym ->
                 // Thread the resolved `GetArray` identity to Freeze's `External` mint
                 // (`translateIndexedLookup`, same `IndexedLookup` key) so the `ldelem`
@@ -507,7 +507,7 @@ module internal UnificationInferRecordAccess =
         // string-vs-array mismatch the `GetArray` fallback would raise never happens.
         // On CLR `get_Chars` resolves first, so a string never reaches here.
         let getStringIndex () =
-            match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "GetString" with
+            match ctx.CoreAccess.Value.GetString with
             | ValueSome sym ->
                 // Thread the resolved `GetString` identity (see `getArrayIndex`).
                 ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
@@ -616,7 +616,7 @@ module internal UnificationInferRecordAccess =
                         | Some e -> e
                         | None -> List.head realised
 
-                match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup "GetIndex" with
+                match ctx.CoreAccess.Value.GetIndex with
                 | ValueSome sym ->
                     // Thread the resolved `GetIndex` identity to Freeze's `External`
                     // mint (same `IndexedLookup` key) so the `$0[$1]` body splices by KEY.

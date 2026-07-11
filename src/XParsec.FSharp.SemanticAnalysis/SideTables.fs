@@ -1541,6 +1541,30 @@ module PassContextResolution =
 /// to attribute the warning and to match a suppressing `(d?foo : T)` ascription.
 type DynamicEscapeSite = { Root: TypeVar; Key: NodeKey }
 
+/// The fixed set of Vesper.Core inline *access* intrinsics — the array/string/index
+/// read+write lowering (`arr.[i]`, `arr.[i] <- v`, `arr.Length`, `s.[i]`, an
+/// index-signature `x.[k]`). Each field is the resolved `ExternalSymbol` the
+/// inference site instantiates (`ExternalSymbols.instantiateSymbol`) and whose `Key`
+/// it threads into `IntrinsicKey` for the Freeze/InlineExpansion splice. These names
+/// live in `[<AutoOpen>]` prelude modules (`Vesper.Operators` /
+/// `Vesper.StringIntrinsics` / `Vesper.IndexIntrinsics`), so they resolve through the
+/// AMBIENT open scope alone — opens-insensitive — and are resolved ONCE per file
+/// (`PassContext.CoreAccess`) rather than re-run per node. `ValueNone` = the name is
+/// not in scope (no Vesper.Core referenced), which each reader turns into the same
+/// "intrinsic not in scope" diagnostic the former per-node `TryLookup` miss produced.
+/// Resolving here — not at each use site — is the read-side removal that lets
+/// `PassContext.Provider` eventually narrow to the key-addressed `IExternalSymbolStore`
+/// face.
+type CoreAccessIntrinsics =
+    {
+        GetArrayLength: ExternalSymbol voption
+        GetArray: ExternalSymbol voption
+        GetString: ExternalSymbol voption
+        GetIndex: ExternalSymbol voption
+        SetArray: ExternalSymbol voption
+        SetIndex: ExternalSymbol voption
+    }
+
 /// **Thread-safety:** a `PassContext` is single-threaded — its side tables,
 /// `Diagnostics` channel, and the `TypeVar` graph it owns all mutate in
 /// place and are not safe to access from multiple threads. Parallelism
@@ -1582,6 +1606,28 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// `ValueNone` (resolve-on-use, §5.4); the passes carry zero hardcoded BCL
     /// identities.
     member val CapabilityIds = ExternalSymbols.resolveCapabilities provider with get
+
+    /// The Vesper.Core inline access intrinsics (`CoreAccessIntrinsics`), resolved
+    /// ONCE against the ambient prelude scope. `lazy` so files that touch no array /
+    /// string / index access pay nothing; the access/assignment inference sites
+    /// (`inferIndexedLookup`, `resolveFieldStep`'s `.Length`, `inferAssignment`) read
+    /// the stored `ExternalSymbol` by field instead of resolving the spelling through
+    /// the provider per node. These names are ambient (`[<AutoOpen>]` prelude modules),
+    /// so resolving against `ambientOpenScope` reproduces the former per-node
+    /// `OpenScope.tryResolve ctx.Resolution.OpenScope …` hit exactly.
+    member val CoreAccess: Lazy<CoreAccessIntrinsics> =
+        lazy
+            (let one (name: string) =
+                OpenScope.tryResolve ambientOpenScope provider.TryLookup name
+
+             {
+                 GetArrayLength = one "GetArrayLength"
+                 GetArray = one "GetArray"
+                 GetString = one "GetString"
+                 GetIndex = one "GetIndex"
+                 SetArray = one "SetArray"
+                 SetIndex = one "SetIndex"
+             }) with get
 
     member val Input = input
     member val Lexed = lexed

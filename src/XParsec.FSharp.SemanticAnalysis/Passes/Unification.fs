@@ -850,7 +850,7 @@ module Unification =
 
             // A capability interface (`disposable`) is an `IntrinsicInterface`, not a `Class`,
             // but conforms identically off its member surface.
-            match ctx.Provider.TryLookupType ifaceName with
+            match ctx.Provider.TryLookupType ifaceKey with
             | ValueSome(ExternalSymbols.ExternalMembers ifaceMembers) ->
                 let argArr = ifaceArgs.AsSpan().ToArray()
 

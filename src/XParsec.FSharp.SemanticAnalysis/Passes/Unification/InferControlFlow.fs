@@ -832,13 +832,13 @@ module internal UnificationInferControlFlow =
         | Expr.IndexedLookup(expr = arrE) ->
             let arrTy = zonk (TyVar(tvOf ctx (CstKeys.ofExpr arrE)))
 
-            let setName =
+            let setSym =
                 match arrTy with
                 | TyClass(clsKey, _) when not (ctx.Provider.TryLookupIndexSignature clsKey |> List.isEmpty) ->
-                    "SetIndex"
-                | _ -> "SetArray"
+                    ctx.CoreAccess.Value.SetIndex
+                | _ -> ctx.CoreAccess.Value.SetArray
 
-            match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Provider.TryLookup setName with
+            match setSym with
             | ValueSome sym -> ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
             | ValueNone -> ()
         | _ -> ()

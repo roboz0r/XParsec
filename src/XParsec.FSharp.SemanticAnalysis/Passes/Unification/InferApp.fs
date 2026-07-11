@@ -290,9 +290,19 @@ module internal UnificationInferApp =
                     let fam =
                         fam
                         |> PrintfSpec.resolveExternalSlots (fun name ->
-                            match NameResolutionScope.tryResolveExternalTypeKey ctx name 0 with
-                            | ValueSome key -> ValueSome(TyClass(key, EqArray.empty))
-                            | ValueNone -> ValueNone
+                            // The sink slot names (`System.IO.TextWriter`,
+                            // `System.Text.StringBuilder`, `System.IO.StringWriter`) are
+                            // FIXED and fully qualified, so the declaring type resolves by
+                            // KEY on the store face — no opens-aware resolver call. The
+                            // minted `TyClass` key matches a real sink argument's
+                            // (`Console.Out`) exactly: both origin-home the class the same
+                            // way (`externalTypeKey`), and `qualifiedTypeKey name 0`
+                            // round-trips to `name` so the store's key lookup is the string
+                            // lookup the resolver face would have done.
+                            match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKey name 0) with
+                            | ValueSome(ExternalTypeShape.Class info) when info.Arity = 0 ->
+                                ValueSome(TyClass(SymbolKeyOps.externalTypeKey info.Origin name 0, EqArray.empty))
+                            | _ -> ValueNone
                         )
 
                     let idx = fam.FormatArgIndex
