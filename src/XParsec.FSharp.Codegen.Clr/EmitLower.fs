@@ -28,12 +28,14 @@ module EmitLower =
     /// codegen owns no per-operator dispatch. Bodies are monomorphic at the
     /// use-site type (primitive clauses share an opcode; no `when ^T : …`).
     ///
-    /// DELETE-WHEN-COMPLETE: operator `.fs` bodies in `ops-platform.fs` now win on
-    /// the primary path (the `=`/`<>` contract body is spliced pre-freeze by
-    /// `Passes.InlineExpansion` at every ground use site). This table only still
-    /// serves the residue the pass leaves: an *un-ground* operator operand
-    /// (`let f a b = a = b`) and an eta-reified operator value, until those route
-    /// through the inline bodies too.
+    /// DELETE-WHEN-COMPLETE: operator `.fs` bodies in `ops-platform.fs` win on the
+    /// primary path — `Passes.InlineExpansion` splices the contract body at EVERY
+    /// saturated use site, ground or not (an un-ground `^T` selects no primitive
+    /// clause and falls to the body's safe generic base). The one residue left is the
+    /// eta-reified operator VALUE (`List.fold (+) 0 xs`): eta runs post-freeze in
+    /// `TastLower.lower`, minting a saturated `App` the inline pass can no longer see,
+    /// so this table still collapses it — by name, to a monomorphic opcode. Moving eta
+    /// of an inline external pre-freeze retires the table.
     module private BuiltinOps =
 
         let private ilBin (op: string) : EqArray<Frozen.TExpr> -> FrozenType -> SyntaxToken -> Frozen.TExpr =
@@ -55,9 +57,10 @@ module EmitLower =
 
         /// compiled name → (arity, body builder over the operand expressions).
         /// `&&` / `||` are intentionally absent — they short-circuit and freeze to
-        /// `IfThenElse`, not an opcode. Ordering uses `clt`/`cgt` (IEEE on floats); bitwise/shift use the signed/default IL form (the `ops-platform.fs`
-        /// contract bodies, with narrow-int/unsigned refinements, win at a ground
-        /// use site — these serve the un-ground fallback).
+        /// `IfThenElse`, not an opcode. Ordering uses `clt`/`cgt` (IEEE on floats);
+        /// bitwise/shift use the signed/default IL form. The `ops-platform.fs` contract
+        /// bodies, with their narrow-int/unsigned refinements, win at every applied use
+        /// site — these serve only the post-freeze eta residue.
         let private table: Map<string, int * (EqArray<Frozen.TExpr> -> FrozenType -> SyntaxToken -> Frozen.TExpr)> =
             Map
                 [

@@ -7,46 +7,74 @@ open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // An operator use site (`a = b`, `x + y`, `a < b`) freezes to an `External(op_*)`
-// call head; `Emit` rewrites the saturated application to the operator's inline-IL
-// body so it emits through the single `TExprG.ILIntrinsic` path — codegen owns no
-// per-operator recipe. These tests pin the rewrite at the TAST level (`Emit.lower`,
-// which exercises the `BuiltinOps` fallback) and end to end (compile + run real CIL).
+// call head; the pre-freeze `Passes.InlineExpansion` pass splices the operator's
+// contract body there and resolves its `StaticOptimization` clauses — codegen owns no
+// per-operator recipe. These tests pin the result at the TAST level (`Emit.lower`) and
+// end to end (compile + run real CIL).
 //
 // The equality family (`=`/`<>`) is sourced from the frozen
-// `Vesper.Core/ops-platform.fs` contract body when compiled through the contract
-// stack: the operator-named binding `let inline (=) …` is collected by
-// `ClrSymbolProviders.inlineBodies` and spliced + static-opt-resolved at each use site
-// by the pre-freeze `Passes.InlineExpansion` pass. The static-opt *base* is
-// `EqualityComparer<^T>.Default.Equals` — a distinct-but-equal aggregate compares
-// structurally, not by reference (see the "DU `=` is structural" test). An unpinned
-// generic operand falls back to `BuiltinOps`'s `ceq` via `expandBuiltinOps`.
+// `Vesper.Core/ops-platform.fs` contract body: the operator-named binding
+// `let inline (=) …` is collected by `ClrSymbolProviders.inlineBodies` and spliced at
+// each use site. A GROUND primitive operand selects the `when ^T : int` clause and
+// emits `(# "ceq" #)`; every other operand — an aggregate, or a still-free `^T` in a
+// generic `let f a b = a = b` — falls to the static-opt BASE,
+// `EqualityComparer<^T>.Default.Equals`, which compares structurally and encodes fine
+// over a free method typar. The base is spliced UNCONDITIONALLY: an inline body is
+// never declined for un-ground operands, because the fallback that used to catch them
+// was a name-keyed reference `ceq`.
 
 [<Tests>]
 let tests =
     testList
         "OperatorRouting"
         [
-            test
-                "`let f a b = a = b` lowers the `=` use site to a `ceq` TExprG.ILIntrinsic (no External op_Equality survives)" {
+            test "`let f a b = a = b` lowers the un-ground `=` to the comparer base (no External op_Equality survives)" {
                 let tast = analyse "let f a b = a = b"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
+                // `a`/`b` are never pinned, so no per-primitive `when ^T : …` clause
+                // selects and the body's base — `EqualityComparer<^T>.Default.Equals(a, b)`
+                // — is what survives. A `ceq` ILIntrinsic here would be the reference
+                // comparison the ground guard used to fall back to.
                 match Emit.lower (Freeze.run tast).Decls with
-                | [ TDeclG.Let(TPatG.NamedSimple _,
-                               TExprG.Lambda(_,
-                                             TExprG.Lambda(_,
-                                                           TExprG.ILIntrinsic("ceq",
-                                                                              _,
-                                                                              EqList [ TExprG.Var _; TExprG.Var _ ],
-                                                                              FTConst(key, _),
-                                                                              _),
-                                                           _,
-                                                           _),
-                                             _,
-                                             _),
-                               false,
-                               _) ] when SymbolKeyOps.simpleName key = "bool" -> ()
-                | other -> failtestf "expected `=` to lower to a ceq ILIntrinsic, got %A" other
+                | [ TDeclG.Let(TPatG.NamedSimple _, TExprG.Lambda(_, TExprG.Lambda(_, body, _, _), _, _), false, _) ] ->
+                    let rendered = sprintf "%A" body
+
+                    Expect.isTrue
+                        (rendered.Contains "EqualityComparer")
+                        (sprintf "expected the `=` base (EqualityComparer.Equals), got %A" body)
+
+                    Expect.isFalse
+                        (rendered.Contains "ILIntrinsic(\"ceq\"")
+                        (sprintf "an un-ground `=` must not emit a reference `ceq`, got %A" body)
+                | other -> failtestf "expected `let f a b = a = b` to lower to a two-lambda let, got %A" other
+            }
+
+            test "`let eq a b = a = b` over a DU answers STRUCTURALLY (the comparer base over a free method typar)" {
+                // The spike the whole by-key plan rests on: the static-opt base
+                // `EqualityComparer<^T>.Default.Equals` must EMIT, VERIFY, and answer
+                // structurally when `^T` is a free *method* typar — i.e. `EqualityComparer<!!0>`
+                // is encodable. Two distinct-but-equal `Tag` instances must compare
+                // equal through the generic `eq`; a reference `ceq` gives 0.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Tag = Tag of int"
+                            "let eq a b = a = b"
+                            "printfn \"%d\" (if eq (Tag 1) (Tag 1) then 1 else 0)"
+                            "printfn \"%d\" (if eq (Tag 1) (Tag 2) then 1 else 0)"
+                        ]
+
+                let _, artifact = compileSource "OpEqGenericDU" src
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Replace("\r", "").Trim())
+                    "1\n0"
+                    "a generic `eq` compares two distinct-but-equal DU values structurally"
             }
 
             test "`let f a b = a = b` (the handoff target): `ceq` is true for 2=2, false for 2<>3" {

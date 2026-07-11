@@ -22,19 +22,11 @@ open System.Collections.Generic
 // opcode), realised the same way the equality family realises `<>`: an
 // outer `ceq (... : bool) false` against the inner compare result.
 //
-// KNOWN DEFECT — an **unpinned** generic operand (`let f a b = a < b`) does NOT
-// reach the comparer base: `InlineExpansion`'s ground guard declines to splice and
-// the head falls through to `Emit.BuiltinOps`'s raw `clt` / `cgt`, which on object
-// references is a reference comparison (and unverifiable IL), not the structural
-// ordering this contract promises. The equality family has the identical defect
-// (`ceq`), where it is demonstrable: `let eq a b = a = b` returns FALSE for two
-// distinct-but-equal DU values, while a direct `x = y` returns true.
-//
-// The guard is NOT an encoding limitation. `Comparer<^T>.Default` over a free
-// METHOD typar encodes and runs correctly (a generic function calling
-// `EqualityComparer<'a>.Default.Equals` emits and answers structurally). The base
-// clause is therefore always emittable, and the fix is to splice it unconditionally
-// and delete the fallback — see `docs/codegen-by-key-plan.md`.
+// An **unpinned** generic operand (`let f a b = a < b`) selects no primitive clause
+// and so reaches the base: `Comparer<!!0>.Default.Compare` over a free METHOD typar
+// encodes, verifies, and orders structurally. That is what makes inline IL safe to
+// confine to the per-primitive clauses — a base must always be a generic default
+// (see `docs/codegen-by-key-plan.md`).
 
 [<AutoOpen>]
 module ComparisonOperators =

@@ -17,8 +17,8 @@
 # Codegen reads them across the package boundary via the inline-body loader
 # (`SymbolProviders.inlineBodies`) and splices each at its use site — the
 # operator-named-binding freeze gap that once blocked this is closed, and the
-# `Emit.BuiltinOps` op→opcode table is now only the un-ground / nested / generic
-# fallback.
+# `Emit.BuiltinOps` op→opcode table now only catches an eta-reified operator VALUE
+# (`List.fold (+) 0 xs`), whose saturated `App` is minted post-freeze.
 #
 # See ./README.md.
 

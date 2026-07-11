@@ -8,14 +8,10 @@ open System.Collections.Generic
 //
 // Equality (`=` / `<>`): each per-primitive clause lowers to `(# "ceq" … #)` IL;
 // the base (aggregate operand) delegates to `EqualityComparer<^T>.Default.Equals`.
-//
-// KNOWN DEFECT — an unpinned generic operand does NOT reach that base: the
-// `isGround` guard in `InlineExpansion` declines to splice and the head falls
-// through to `Emit.BuiltinOps`'s raw `ceq`, i.e. a REFERENCE comparison. So
-// `let eq a b = a = b` returns FALSE for two distinct-but-equal DU values, where a
-// direct `x = y` correctly returns true. The guard is not an encoding limitation
-// (the comparer base emits fine over a free typar); the fix is to splice the base
-// unconditionally and delete the fallback — see `docs/codegen-by-key-plan.md`.
+// The base also carries an UNPINNED `^T` — a generic `let eq a b = a = b` selects no
+// primitive clause, so it emits `EqualityComparer<!!0>.Default.Equals` and compares
+// structurally. Inline IL therefore belongs ONLY in a per-primitive clause; a base
+// must be a safe generic default (see `docs/codegen-by-key-plan.md`).
 //
 // Arithmetic (`+ - * / %`): the base `(# "add" x y : ^T #)` covers every wide
 // signed/float type; sub-`int32` widths add a `conv.*` to truncate the int32-on-stack

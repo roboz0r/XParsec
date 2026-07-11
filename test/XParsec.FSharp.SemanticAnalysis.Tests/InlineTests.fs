@@ -131,12 +131,14 @@ let tests =
             test "`let inline succ x = x + 1 in succ 41` keeps the inline template and expands its use site" {
                 // At module level the parser lifts `let inline succ … in body`
                 // into a top-level inline binding followed by the body as its
-                // own expression — so the §C marker lands on a TDecl.Let. The
+                // own expression — so the marker lands on a TDecl.Let. The
                 // template (decl 0) is retained verbatim, but the use site `succ
-                // 41` is now expanded *pre-freeze* by `InlineExpansion`
-                // the call beta-reduces to a `Let`
-                // binding the argument, with `succ`'s `x + 1` body inlined (the
-                // `op_Addition` head is left for codegen's `BuiltinOps`).
+                // 41` is expanded *pre-freeze* by `InlineExpansion`: the call
+                // beta-reduces to a `Let` binding the argument, with `succ`'s
+                // `x + 1` body inlined. The `op_Addition` head survives here
+                // because `realProvider` is a CONTRACT-only stack (`.fsi`
+                // signatures, no `.fs` inline bodies), so there is no `(+)` body
+                // to splice; a codegen provider serves one and it splices.
                 let tast = analyse "let inline succ x = x + 1 in succ 41"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 

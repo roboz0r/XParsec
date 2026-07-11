@@ -47,7 +47,8 @@ let tests =
     testList
         "InlineFreezeThawSpike"
         [
-            test "freeze-inline: StaticOptimization body freezes, but clause Constraints retain the live SemType cell (plan gap)" {
+            test
+                "freeze-inline: StaticOptimization body freezes, but clause Constraints retain the live SemType cell (plan gap)" {
                 // The known-good SRTP inline shape (identical to StaticOptimizationTests):
                 // a `when ^T : …` cascade that elaborates to a `TExpr.StaticOptimization`.
                 let src =
@@ -71,7 +72,8 @@ let tests =
                     |> List.tryPick (fun d ->
                         match d with
                         | TDeclG.Let(_, _, true, _) -> Some d
-                        | _ -> None)
+                        | _ -> None
+                    )
                     |> Option.defaultWith (fun () -> failtest "no inline decl in tast.Decls")
 
                 let semClauses =

@@ -199,9 +199,10 @@ let vesperComparisonManifest: string = srcManifest "Vesper.Comparison"
 let vesperPrintfManifest: string = srcManifest "Vesper.Printf"
 
 /// The default contract stack the compile path resolves through. Everything a
-/// bare program needs now comes from real `Vesper.*` `.fsi` contracts (operators
-/// still *emit* via `Emit.BuiltinOps` regardless — emission is
-/// resolution-source-agnostic).
+/// bare program needs now comes from real `Vesper.*` `.fsi` contracts, and an
+/// applied operator *emits* from the matching `.fs` contract body too (spliced by
+/// `Passes.InlineExpansion`); only an eta-reified operator value still reaches
+/// `Emit.BuiltinOps`.
 ///
 /// Vesper.Core (primitives + arithmetic/equality operators + `hash` + `failwith`),
 /// Vesper.List (`List.fold` over the cons-list), Vesper.Comparison (the ordering

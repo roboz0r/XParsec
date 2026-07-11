@@ -152,9 +152,7 @@ module Inline =
         | _ -> ValueNone
 
     /// `true` when `t`'s head is a project-local nominal (class / union / record).
-    /// Public so `InlineExpansion.isSpliceableOperatorArg` shares the one nominal
-    /// predicate rather than re-matching the three cases against its own zonk.
-    let isNominalType (t: SemType) : bool = (nominalHeadKey t).IsSome
+    let private isNominalType (t: SemType) : bool = (nominalHeadKey t).IsSome
 
     /// Build the typar-substituting mapper for one inline expansion. The
     /// `StaticOptimization` override is the only customisation: at call-site

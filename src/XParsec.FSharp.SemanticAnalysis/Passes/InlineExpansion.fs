@@ -136,30 +136,16 @@ module InlineExpansion =
         TastWalk.iterExpr it core
         bad
 
-    /// A (zonked) `SemType` with no free `TyVar` anywhere — fully monomorphic, so
-    /// codegen can encode it. The `SemType` sibling of `FrozenTypeBridge.ftIsGround`
-    /// (this one zonks; the frozen one has no vars to zonk): the cross-package
-    /// equality / `hash` inline bodies reach `EqualityComparer<^T>`, emittable
-    /// only when `^T` is ground; an unpinned operand leaves it free and must fall
-    /// back to codegen's `BuiltinOps`.
+    /// A (zonked) `SemType` with no free `TyVar` anywhere — fully monomorphic. The
+    /// `SemType` sibling of `FrozenTypeBridge.ftIsGround` (this one zonks; the frozen
+    /// one has no vars to zonk). Used to rank competing candidates for one typar in
+    /// `deriveInlineTypeArgs` — a ground candidate beats an abstract one.
     let rec private isGroundType (t: SemType) : bool =
         match Unification.zonk t with
         | TyVar _
         | TyUnknown _
         | TyTypar _ -> false
         | t -> SemType.forallChildren isGroundType t
-
-    /// Whether a derived inline type argument is concrete enough to splice a saturated
-    /// builtin operator. A ground type qualifies; so does a *nominal-headed* type
-    /// (`Set<'T>`) even with abstract element typars — its head constructor pins the
-    /// `when ^T : ^T` static-opt clause to the type's own static operator member, which
-    /// codegen emits generic in the residual typars. A bare typar / TyVar (a truly
-    /// unpinned `let f a b = a + b`) does NOT qualify and falls to `expandBuiltinOps`.
-    let private isSpliceableOperatorArg (t: SemType) : bool =
-        // `Inline.isNominalType` is the one nominal-head predicate (class / union /
-        // record) — shared with the static-opt clause gate / `TraitCall` resolution
-        // so they never disagree on what counts as a nominal operand.
-        isGroundType t || Inline.isNominalType t
 
     /// Recover an inline binding's type arguments at a call site by matching its
     /// declared parameter (and return) types — carrying the quantified typars —
@@ -192,12 +178,12 @@ module InlineExpansion =
                         // recorded result type is still an abstract `TyVar` at this
                         // pre-freeze pass; the concrete sibling `c : string` (and the
                         // application's `string` return position) must be allowed to
-                        // win, or `^T` stays abstract, the operator fails the splice
-                        // gate (`isSpliceableOperatorArg`), and falls to its numeric
-                        // `add` base — emitting `add` on two string references (an
-                        // AccessViolation at runtime). Keeping the first ground match
-                        // is intentional: a genuinely generic `let f a b = a + b`
-                        // never sees a ground candidate, so `^T` stays abstract.
+                        // win, or `^T` stays abstract, no `when ^T : string` clause
+                        // selects, and the operator falls to its numeric `add` base —
+                        // emitting `add` on two string references (an AccessViolation
+                        // at runtime). Keeping the first ground match is intentional: a
+                        // genuinely generic `let f a b = a + b` never sees a ground
+                        // candidate, so `^T` stays abstract.
                         | ValueSome prev when not (isGroundType prev) && isGroundType act -> result.[i] <- ValueSome act
                         | ValueSome _ -> ()
                     | None -> ()
@@ -271,40 +257,6 @@ module InlineExpansion =
                     | ValueNone -> TyVar roots.[i]
                 )
                 result
-
-    /// Built-in operator compiled name → arity — the saturation gate codegen
-    /// applies (`EmitLower.BuiltinOps.isSaturated`). A saturated built-in
-    /// operator (`op_Equality`, …) whose inline body the provider serves is
-    /// expanded ONLY when its operands are ground; otherwise the head is left for
-    /// codegen's `BuiltinOps` `ceq`/`add`/… fallback. Mirror the codegen table
-    /// exactly; keep in sync.
-    let private builtinOpArity: Map<string, int> =
-        Map
-            [
-                "op_Equality", 2
-                "op_Inequality", 2
-                "op_LessThan", 2
-                "op_GreaterThan", 2
-                "op_LessThanOrEqual", 2
-                "op_GreaterThanOrEqual", 2
-                "op_Addition", 2
-                "op_Subtraction", 2
-                "op_Multiply", 2
-                "op_Division", 2
-                "op_Modulus", 2
-                "op_UnaryNegation", 1
-                "op_BitwiseAnd", 2
-                "op_BitwiseOr", 2
-                "op_ExclusiveOr", 2
-                "op_LeftShift", 2
-                "op_RightShift", 2
-                "op_LogicalNot", 1
-            ]
-
-    let private isSaturatedBuiltin (name: string) (spineLen: int) : bool =
-        match Map.tryFind name builtinOpArity with
-        | Some arity -> spineLen = arity
-        | None -> false
 
     /// Expand the module-level inlines in one decl-list (the elaborated,
     /// `TyVar`-carrying decls paired with their freeze envs). The cross-package
@@ -403,12 +355,6 @@ module InlineExpansion =
                     Inline.inlineExpand decl (deriveInlineTypeArgs declTy spineArgs)
                     |> Inline.freshen mint
                 | _ -> failwith "InlineExpansion: external inline body must be a TDecl.Let"
-
-            let externalArgsGround (decl: TDecl) (spineArgs: (TExpr * SemType * SyntaxToken) list) : bool =
-                match decl with
-                | TDecl.Let(_, _, _, declTy) ->
-                    deriveInlineTypeArgs declTy spineArgs |> Array.forall isSpliceableOperatorArg
-                | _ -> false
 
             // Inline-first lambda elimination. A lambda
             // argument bound to an inline function's parameter and FULLY APPLIED
@@ -589,12 +535,18 @@ module InlineExpansion =
                                 // lambda's arity — no surviving closure.
                                 | TExpr.Var(k, _, _) when lambdaEnv.ContainsKey k ->
                                     ValueSome(walk (betaReduce (Inline.freshen mint lambdaEnv.[k]) spineArgs))
-                                | TExpr.External(name, keyOpt, _, _) ->
+                                | TExpr.External(_, keyOpt, _, _) ->
                                     match lookupExternal keyOpt with
-                                    | ValueSome ib when
-                                        externalArgsGround ib.Decl spineArgs
-                                        || not (isSaturatedBuiltin name (List.length spineArgs))
-                                        ->
+                                    // An external WITH an inline body ALWAYS splices —
+                                    // no operand-groundness gate. An un-ground `^T`
+                                    // simply selects no per-primitive
+                                    // `StaticOptimization` clause and falls to the
+                                    // body's BASE, which is where the safe generic
+                                    // default lives (`EqualityComparer<^T>.Default.Equals`
+                                    // for `=`). Declining to splice instead routed the
+                                    // head to a name-keyed raw-IL fallback, turning a
+                                    // structural `=` into a reference `ceq`.
+                                    | ValueSome ib ->
                                         ValueSome(
                                             reduceApplication
                                                 walk
@@ -602,12 +554,10 @@ module InlineExpansion =
                                                 (expandExternalAt ib.Decl spineArgs)
                                                 spineArgs
                                         )
-                                    // An external head we don't expand (a saturated
-                                    // builtin op with un-ground operands, or a
-                                    // non-inline external call): keep the head,
-                                    // lower the args — exactly codegen's `head'`
-                                    // rule. Left for codegen's `BuiltinOps` /
-                                    // recipe path.
+                                    // An external with no inline body (a real
+                                    // cross-package call): keep the head, lower the
+                                    // args — exactly codegen's `head'` rule, left for
+                                    // its recipe path.
                                     | _ ->
                                         ValueSome(
                                             TastWalk.rebuildApp head [ for (a, t, tok) in spineArgs -> walk a, t, tok ]
