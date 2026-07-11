@@ -19,6 +19,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Conformance.fs" />
+    <Compile Include="OperatorClauses.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Expecto" />
@@ -27,5 +28,10 @@
   <ItemGroup>
     <!-- The manifest is TOML, read with this repo's own reader. -->
     <ProjectReference Include="..\..\src\XParsec.Toml\XParsec.Toml.fsproj" />
+    <!-- The clause-parity guard reads `TExpr.StaticOptimization` clauses off a spliced
+         `InlineBody` and projects them through the same primitive-name canonicaliser the
+         static-opt selector uses. No backend dependency: each suite passes in the bodies
+         its OWN symbol leaf resolved. -->
+    <ProjectReference Include="..\..\src\XParsec.FSharp.SemanticAnalysis\XParsec.FSharp.SemanticAnalysis.fsproj" />
   </ItemGroup>
 </Project>

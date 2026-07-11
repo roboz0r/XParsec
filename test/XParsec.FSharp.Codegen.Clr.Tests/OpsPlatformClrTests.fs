@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.OpsPlatformClrTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
+open XParsec.FSharp.Codegen.Common.Tests
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
@@ -11,37 +12,22 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // (`ClrSymbolProviders`, which the JS-native contract has no equivalent of), so they
 // live here rather than in `Codegen.Js.Tests.OpsPlatformJsTests` (which keeps the
 // JS-target-only assertions and stays off the CLR backend).
+//
+// The body harvest itself (`InlineBodies`) is shared with that suite: both read the
+// same contract, only through a different symbol leaf.
 
-/// All `ILIntrinsic` opCode (template) strings reachable in an inline body.
-let private ilOpCodes (body: InlineBody) : string list =
-    let acc = ResizeArray<string>()
-
-    let rec walkExpr (e: TExpr) =
-        match e with
-        | TExpr.ILIntrinsic(opCode, _, args, _, _) ->
-            acc.Add opCode
-
-            for a in args do
-                walkExpr a
-        | TExpr.StaticOptimization(clauses, dflt, _, _) ->
-            for c in clauses do
-                walkExpr c.Body
-
-            walkExpr dflt
-        | TExpr.Lambda(_, b, _, _) -> walkExpr b
-        | _ -> ()
-
-    match body.Decl with
-    | TDecl.Let(_, v, _, _) -> walkExpr v
-    | _ -> ()
-
-    List.ofSeq acc
+let private ilOpCodes = InlineBodies.ilOpCodes
 
 [<Tests>]
 let tests =
     testList
         "OpsPlatformClr"
         [
+            // The clause set of each arithmetic operator IS the CLR's arithmetic-support
+            // definition; the manifest states the same matrix. The bodies are the ones a
+            // CLR build splices — target `None`.
+            OperatorClauseParity.tests "clr" (ClrSymbolProviders.contractInlineBodiesFor None [ vesperCoreManifest ])
+
             test "target selection swaps in the JS bodies (Math.imul present for js, absent for clr)" {
                 let js =
                     ClrSymbolProviders.contractInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]

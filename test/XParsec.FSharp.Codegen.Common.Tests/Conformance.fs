@@ -60,6 +60,20 @@ type Obligation =
     /// Reject it at COMPILE time with an error containing this substring.
     | Diagnose of fragment: string
 
+/// What one program pins about the width→backend arithmetic-support matrix — the
+/// manifest's `width` / `operators` keys. A program that is about no single primitive
+/// (`arith-unsigned-div.fs` spans several; `arith-div-by-zero.fs` is about faulting)
+/// carries NO coverage and contributes nothing to the matrix; the option is what makes
+/// that honestly sayable rather than forcing a width on it.
+type WidthCoverage =
+    {
+        /// The primitive this program is about (`byte`, `string`).
+        Width: string
+        /// The arithmetic operators this WIDTH supports. `None` ⇒ unspecified, which
+        /// the parity guard reads as all of them; only `string` narrows it.
+        Operators: Set<string> option
+    }
+
 type ConformanceProgram =
     {
         /// Corpus-relative path, as written in the manifest (`ops/arith-byte.fs`).
@@ -74,6 +88,8 @@ type ConformanceProgram =
         /// Backend name -> what that backend owes. A backend absent from the map owes
         /// nothing for this program.
         Obligations: Map<string, Obligation>
+        /// The width this program contributes to the arithmetic-support matrix, if any.
+        Covers: WidthCoverage option
     }
 
 /// `test/Codegen.Conformance/`, resolved from this file's location — the corpus is
@@ -120,17 +136,8 @@ let private programOf (entry: TomlTable) : ConformanceProgram =
     if not (File.Exists sourcePath) then
         failwithf "conformance manifest: %s does not exist" sourcePath
 
-    // `faults` REPLACES the golden: a program that must die produces no trustworthy
-    // stdout, so requiring one alongside would be asserting on a value that is not
-    // there. Exactly one of the two must be present.
     let faults = Map.tryFind "faults" entry |> Option.bind asString
-
-    let golden =
-        match faults, File.Exists goldenPath with
-        | Some _, true -> failwithf "conformance program %s declares `faults` AND carries an `.expected` golden" path
-        | Some _, false -> None
-        | None, false -> failwithf "conformance program %s has no `.expected` golden beside it" path
-        | None, true -> Some(normalise (File.ReadAllText goldenPath))
+    let runners = strings entry "run"
 
     let ran =
         match faults with
@@ -140,9 +147,37 @@ let private programOf (entry: TomlTable) : ConformanceProgram =
     let obligations =
         Map.ofList
             [
-                for b in strings entry "run" -> b, ran
+                for b in runners -> b, ran
                 for KeyValue(b, fragment) in diagnoseMap entry -> b, Obligation.Diagnose fragment
             ]
+
+    // A golden is owed by exactly those programs some backend RUNS TO COMPLETION. A
+    // program every backend REJECTS (`decimal`) never produces stdout at all, and one
+    // that must FAULT produces none worth trusting — demanding a golden of either would
+    // be asserting on a value that is not there. Requiring it in the other direction too
+    // keeps a golden from lingering beside a program nothing judges it against.
+    let golden =
+        let owed = faults.IsNone && not runners.IsEmpty
+
+        match owed, File.Exists goldenPath with
+        | false, true ->
+            failwithf "conformance program %s carries an `.expected` golden that no backend runs it against" path
+        | false, false -> None
+        | true, false -> failwithf "conformance program %s has no `.expected` golden beside it" path
+        | true, true -> Some(normalise (File.ReadAllText goldenPath))
+
+    let covers =
+        Map.tryFind "width" entry
+        |> Option.bind asString
+        |> Option.map (fun width ->
+            {
+                Width = width
+                Operators =
+                    match Map.tryFind "operators" entry with
+                    | Some _ -> Some(Set.ofList (strings entry "operators"))
+                    | None -> None
+            }
+        )
 
     {
         Path = path
@@ -150,6 +185,7 @@ let private programOf (entry: TomlTable) : ConformanceProgram =
         Source = File.ReadAllText sourcePath
         Golden = golden
         Obligations = obligations
+        Covers = covers
     }
 
 /// The corpus, in manifest order. Parsed with this repo's own TOML reader.

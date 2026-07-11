@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Js.Tests.OpsPlatformJsTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
+open XParsec.FSharp.Codegen.Common.Tests
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
@@ -10,37 +11,24 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // — the leaf a real JS build uses, with no dependency on the CLR backend. The
 // CROSS-target contrasts (a JS template absent on CLR; the CLR BCL repr) need the BCL
 // metadata leaf and live in `Codegen.Clr.Tests.OpsPlatformClrTests`.
+//
+// The body harvest itself (`InlineBodies`) is shared with that suite: both read the
+// same contract, only through a different symbol leaf.
 
-/// All `ILIntrinsic` opCode (template) strings reachable in an inline body.
-let private ilOpCodes (body: InlineBody) : string list =
-    let acc = ResizeArray<string>()
-
-    let rec walkExpr (e: TExpr) =
-        match e with
-        | TExpr.ILIntrinsic(opCode, _, args, _, _) ->
-            acc.Add opCode
-
-            for a in args do
-                walkExpr a
-        | TExpr.StaticOptimization(clauses, dflt, _, _) ->
-            for c in clauses do
-                walkExpr c.Body
-
-            walkExpr dflt
-        | TExpr.Lambda(_, b, _, _) -> walkExpr b
-        | _ -> ()
-
-    match body.Decl with
-    | TDecl.Let(_, v, _, _) -> walkExpr v
-    | _ -> ()
-
-    List.ofSeq acc
+let private ilOpCodes = InlineBodies.ilOpCodes
 
 [<Tests>]
 let tests =
     testList
         "OpsPlatformJs"
         [
+            // The clause set of each arithmetic operator IS the JS target's
+            // arithmetic-support definition; the manifest states the same matrix. Built
+            // through the JS-native leaf, so this is what a real JS build splices.
+            OperatorClauseParity.tests
+                "js"
+                (JsNativeSymbols.jsNativeInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ])
+
             test "arithmetic operator bodies are collected as cross-package inlines (js target)" {
                 let js =
                     JsNativeSymbols.jsNativeInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]

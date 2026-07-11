@@ -25,57 +25,95 @@
 # `run` / `faults` are program-wide (every backend listed in `run` owes the same
 # outcome); `diagnose` is per backend, because rejection is exactly where two targets
 # legitimately differ. A backend named nowhere owes nothing for that program.
+#
+# THE WIDTH KEYS. `run` / `faults` / `diagnose` pin BEHAVIOUR — what a backend does with
+# a program. Two further keys pin STRUCTURE, and together they make this file the
+# width→backend arithmetic support matrix rather than leaving it implicit in the file
+# names:
+#
+#   width     — the primitive this program is about. A backend that must `run` a width
+#               MUST carry a `TExpr.StaticOptimization` clause for it in that backend's
+#               `ops-platform*.fs`; a backend that must `diagnose` it must carry NONE.
+#               That is the whole definition of "which types support arithmetic on this
+#               target" — a width with no clause falls to the SRTP trait call, fails to
+#               resolve, and is a compile error — and it is checked mechanically
+#               (`XParsec.FSharp.Codegen.Common.Tests.OperatorClauseParity`), so a clause
+#               ADDED for a width that must be rejected is caught without anyone having
+#               to think to write a program for it.
+#               A program about no single width simply OMITS the key and contributes
+#               nothing to the matrix: `arith-unsigned-div.fs` spans every unsigned
+#               width, `arith-negate.fs` spans every signed one, and
+#               `arith-div-by-zero.fs` is about faulting, not about a width.
+#   operators — which arithmetic operators that WIDTH supports; the default is all of
+#               them (`+ - * / % ~-`). Only `string` narrows it, and its narrowing is
+#               real: `+` is concatenation and the other five are meaningless on it.
 
 [[program]]
 path = "ops/arith-int.fs"
 run = ["clr", "js"]
+width = "int"
 
 [[program]]
 path = "ops/arith-int64.fs"
 run = ["clr", "js"]
+width = "int64"
 
 [[program]]
 path = "ops/arith-byte.fs"
 run = ["clr", "js"]
+width = "byte"
 
 [[program]]
 path = "ops/arith-sbyte.fs"
 run = ["clr", "js"]
+width = "sbyte"
 
 [[program]]
 path = "ops/arith-int16.fs"
 run = ["clr", "js"]
+width = "int16"
 
 [[program]]
 path = "ops/arith-uint16.fs"
 run = ["clr", "js"]
+width = "uint16"
 
 [[program]]
 path = "ops/arith-uint32.fs"
 run = ["clr", "js"]
+width = "uint32"
 
 [[program]]
 path = "ops/arith-uint64.fs"
 run = ["clr", "js"]
+width = "uint64"
 
 # The truncation probe: a uint64 LITERAL at or above 2^32. Both backends must carry the
 # magnitude the width promises — the literal's own model has to be 64-bit, not merely its
-# arithmetic.
+# arithmetic. A SECOND program for a width already in the matrix: the two rows must agree
+# about it (a width cannot be `run` by a backend in one row and `diagnose`d in another).
 [[program]]
 path = "ops/arith-uint64-wide.fs"
 run = ["clr", "js"]
+width = "uint64"
 
 [[program]]
 path = "ops/arith-float.fs"
 run = ["clr", "js"]
+width = "float"
 
 [[program]]
 path = "ops/arith-float32.fs"
 run = ["clr", "js"]
+width = "float32"
 
+# The one non-numeric operand the arithmetic contract admits, and the one width whose
+# operator set is a strict subset.
 [[program]]
 path = "ops/arith-string.fs"
 run = ["clr", "js"]
+width = "string"
+operators = ["+"]
 
 [[program]]
 path = "ops/arith-unsigned-div.fs"
@@ -103,8 +141,22 @@ faults = "attempted to divide by zero"
 path = "ops/arith-nativeint.fs"
 run = ["clr"]
 diagnose = { js = "no representation on the target platform" }
+width = "nativeint"
 
 [[program]]
 path = "ops/arith-unativeint.fs"
 run = ["clr"]
 diagnose = { js = "no representation on the target platform" }
+width = "unativeint"
+
+# `decimal` is rejected by BOTH backends — neither contract carries a clause for it, so `+`
+# falls to the trait call and fails to resolve. It runs nowhere, and so carries no golden.
+# Naming it is what gives the clause-set guard something to check: a width the manifest
+# never mentions is a width the guard cannot see, so a `decimal` clause added later would
+# emit arithmetic no golden judges. The two backends reject it for DIFFERENT reasons (the
+# CLR has the type but no clause; JS has no repr for it at all), which is what a per-backend
+# `diagnose` is for.
+[[program]]
+path = "ops/arith-decimal.fs"
+diagnose = { clr = "does not support the operator", js = "no representation on the target platform" }
+width = "decimal"
