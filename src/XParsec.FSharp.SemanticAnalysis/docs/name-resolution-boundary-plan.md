@@ -458,9 +458,29 @@ resolution; each of the following needs a different vehicle and is deferred:
    (single-ident + qualified `InvalidOperationException`/`ArgumentException` app-form);
    `ClassTypeApp` (local generic `Box<int>(5)`) — plus the upstream stamp presence
    asserted by `ExternalTypeKeyStampTests`.
-4. **External enum-case `E.C1` (`tryExternalEnumCase`).** Movable, but shared
-   between expression and pattern position; the clean fix is a pattern-walk
-   stamp analogous to `ExternalUnionCaseStamp` in `stampPatCases`.
+4. **External enum-case `E.C1` (`tryExternalEnumCase`) — LANDED (2026-07-10).**
+   The resolver-face `E`-qualify + `TryLookupType(string)` enum probe moved
+   upstream. Mechanism as shipped: a new
+   `PassContextResolution.ExternalEnumCaseStamp : SideTable<SymbolKey>` (the
+   enum-case sibling of `ExternalUnionCaseStamp`; only the enum's nominal key is
+   needed — an enum case is a named constant on a closed set, not a ctor arrow, so
+   a bare `SymbolKey` suffices, not a payload). NameResolution recognises the case
+   in BOTH positions via a shared `tryExternalEnumCaseKey` (opens-aware, arity-0)
+   and stamps the key: expression-position in `resolveQualifiedExternal`'s
+   two-segment block (alongside the union-case stamp; the pre-existing
+   `isExternalStaticMember` prefix probe already suppresses the unresolved-name
+   diagnostic — `E` resolves as an external type), pattern-position in
+   `stampPatCases`'s `Pat.Named` arm. Unification's `InferIdentExpr` and `InferPat`
+   enum arms READ the stamp by node key (`CstKeys.ofExpr` / `ofPat`) and type the
+   node `TyEnum key`; the resolver-face `tryExternalEnumCase` and its
+   `ExternalEnumCaseLi` active pattern are deleted from `InferResolve`. Freeze
+   needed no change: it recovers the enum key from the node's `TyEnum` type
+   (`Freeze/Resolve.enumKeyOfTy`), never the resolver face. Two-segment only,
+   matching the old active pattern (a namespace-qualified `Tests.Direction.Up`
+   3-ident head was never handled here and still isn't). Regression guards:
+   `ExternalEnumCaseStampTests.fs` (stamp presence at expression / pattern; absent
+   for an unknown case; opened-vs-unopened namespace), plus the existing JS
+   `TsManifestEnumTests` and CLR `ForInTests` external-enum end-to-end suites.
 5. **`resolvesAsExternalUnionOrRecord` (feeds `tryQualifiedExternalMemberMiss`).**
    Shapes only an error message — not identity resolution; stays.
 
@@ -475,13 +495,13 @@ the store face by design (key-semantics §3).
 `NameResolution.run` and the extractor. **The flip compiling is the
 compiler-checked "done" bit for Stages 1–3** — any missed holdout is a type
 error, not a review find. The Stage 3 *Remaining* residue must be resolved
-first: the type-annotation (§1) and enum-case-pattern (§4) calls still need the
-string resolver face, so they are precisely what the flip would surface. Items 2
-(value schemes / operator symbols, the `ExternalSymbolStamp` symbol-payload
-channel) and 3 (`tryClassRef`, now reading the `ResolvedType` stamp) have LANDED,
-so those value/operator/ctor-sugar resolver-face calls are already gone; the
-remaining `InferRecordAccess` synthesised intrinsics want the same stamp before
-the flip.
+first: the type-annotation (§1) call still needs the string resolver face, so it
+is precisely what the flip would surface. Items 2 (value schemes / operator
+symbols, the `ExternalSymbolStamp` symbol-payload channel), 3 (`tryClassRef`, now
+reading the `ResolvedType` stamp), and 4 (enum-case `E.C1`, now reading the
+`ExternalEnumCaseStamp`) have LANDED, so those value/operator/ctor-sugar/enum-case
+resolver-face calls are already gone; the remaining `InferRecordAccess`
+synthesised intrinsics want the same stamp before the flip.
 
 ### Stage 5 — codegen `BuiltinOps` by-name → by-key
 

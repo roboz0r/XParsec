@@ -172,6 +172,29 @@ module NameResolutionScope =
     let private resolvesAsBareExternalCase (ctx: PassContext) (name: string) : bool =
         (tryExternalCase ctx ValueNone name).IsSome
 
+    /// Resolve an external enum-case access `E.C1` (`headName` = `E`, `caseName` = `C1`)
+    /// to the enum's nominal `SymbolKey`: `E` qualified — opens-aware — through the active
+    /// `open`s to an external `ExternalTypeShape.Enum` that declares `caseName`, arity-0
+    /// (enums are never generic). The key matches `Translate.tryResolveExternalType`'s mint
+    /// for an `(x: E)` annotation, so the access/pattern unifies with the annotation.
+    /// `ValueNone` when no reachable external enum named `headName` declares `caseName`.
+    /// NameResolution — the resolve-once layer — recognises the case HERE and stamps the key
+    /// (`ExternalEnumCaseStamp`); Unification's `InferIdentExpr` / `InferPat` enum arms READ
+    /// the stamp rather than re-recognising the spelling through the resolver face.
+    let private tryExternalEnumCaseKey (ctx: PassContext) (headName: string) (caseName: string) : SymbolKey voption =
+        let asEnum (n: string) =
+            match ctx.Provider.TryLookupType n with
+            | ValueSome(ExternalTypeShape.Enum(cases, origin)) -> ValueSome(cases, origin)
+            | _ -> ValueNone
+
+        match OpenScope.tryQualify ctx.Resolution.OpenScope (fun n -> (asEnum n).IsSome) headName with
+        | ValueSome resolved ->
+            match asEnum resolved with
+            | ValueSome(cases, origin) when cases |> Array.exists (fun (c: ExternalEnumCaseShape) -> c.Name = caseName) ->
+                ValueSome(SymbolKeyOps.externalTypeKey origin resolved 0)
+            | _ -> ValueNone
+        | ValueNone -> ValueNone
+
     /// The dotted receiver name of an `Expr.TypeApp`, when it is an identifier /
     /// long-identifier the provider could know as a type. `ValueNone` for receiver
     /// shapes that are never an external type name (e.g. an applied expression).
@@ -373,6 +396,15 @@ module NameResolutionScope =
 
                 match tryExternalCase ctx qualifier caseName with
                 | ValueSome uc -> ctx.Resolution.ExternalUnionCaseStamp.Set(CstKeys.ofPat p, uc)
+                | ValueNone -> ()
+
+            // `| E.C1` — a two-segment external enum-case pattern (a named constant, binds
+            // nothing). Stamp the enum's nominal key for `InferPat`'s enum arm, mirroring the
+            // expression-position stamp; an enum name is never a union, so this and the
+            // union-case stamp above are mutually exclusive.
+            if li.Idents.Length = 2 then
+                match tryExternalEnumCaseKey ctx (ctx.NameOf li.Idents.[0]) (ctx.NameOf li.Idents.[1]) with
+                | ValueSome k -> ctx.Resolution.ExternalEnumCaseStamp.Set(CstKeys.ofPat p, k)
                 | ValueNone -> ()
 
             for sub in args do
@@ -613,6 +645,16 @@ module NameResolutionScope =
                                 tryExternalCase ctx (ValueSome(ctx.NameOf li.Idents.[0])) (ctx.NameOf li.Idents.[1])
                             with
                             | ValueSome uc -> ctx.Resolution.ExternalUnionCaseStamp.Set(CstKeys.ofExpr e, uc)
+                            | ValueNone -> ()
+
+                        // `E.C1` — a two-segment external enum-case access. Stamp the enum's
+                        // nominal key so Unification's `InferIdentExpr` enum arm types the node
+                        // `TyEnum key` by node-key read, not by re-recognising the spelling.
+                        // (The `isExternalStaticMember` prefix probe below already suppresses the
+                        // unresolved-name diagnostic — `E` resolves as an external type.)
+                        if li.Idents.Length = 2 then
+                            match tryExternalEnumCaseKey ctx (ctx.NameOf li.Idents.[0]) (ctx.NameOf li.Idents.[1]) with
+                            | ValueSome k -> ctx.Resolution.ExternalEnumCaseStamp.Set(CstKeys.ofExpr e, k)
                             | ValueNone -> ()
 
                         // A non-generic external static member folds into one LongIdent

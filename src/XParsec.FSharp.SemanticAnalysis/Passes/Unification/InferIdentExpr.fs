@@ -60,10 +60,11 @@ module internal UnificationInferIdentExpr =
         // `(x: E)` annotation (`Translate.tryResolveExternalType`), so the two unify.
         // Guarded ahead of the general two-segment cascade so an external enum head
         // never falls through to the class/union static path.
-        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ExternalEnumCaseLi ctx enumKey)) when
-            not (ctx.Bindings.Binding.ContainsKey key)
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) when
+            ctx.Resolution.ExternalEnumCaseStamp.ContainsKey key
+            && not (ctx.Bindings.Binding.ContainsKey key)
             ->
-            TyEnum enumKey
+            TyEnum (ctx.Resolution.ExternalEnumCaseStamp.TryGetValue key).Value
         // A project-local enum-case access `E.C1`: the head names a project-local
         // enum (a separate registry, so no class/union collision). Types as the enum
         // nominal `TyEnum Key`, NOT its underlying int/string; an unknown case is a

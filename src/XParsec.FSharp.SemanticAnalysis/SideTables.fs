@@ -1357,6 +1357,24 @@ type PassContextResolution =
         /// identity resolved ONCE upstream while reproducing the previous recognisers
         /// exactly with no downstream provider call (key-semantics §4 permits this).
         ExternalUnionCaseStamp: SideTable<ExternalUnionCase>
+        /// Keyed by an external enum-case access `E.C1`'s head `NodeKey` — an
+        /// *expression* head (`CstKeys.ofExpr`, `E.C1` used as a value) or a *pattern*
+        /// head (`CstKeys.ofPat`, `| E.C1` in a `match`): the enum's nominal `SymbolKey`
+        /// NameResolution resolved the head to. `E` is qualified opens-aware to an
+        /// external `ExternalTypeShape.Enum` declaring `C1` (arity-0 — enums are never
+        /// generic); the key matches `Translate.tryResolveExternalType`'s mint for an
+        /// `(x: E)` annotation, so the access/pattern and the annotation unify.
+        /// NameResolution — the resolve-once layer — recognises the case HERE; Unification's
+        /// `InferIdentExpr` / `InferPat` enum arms READ this stamp and type the node
+        /// `TyEnum key`, instead of re-recognising the spelling through the resolver-face
+        /// `TryLookupType(string)`. Freeze needs no stamp: it reads the enum key back off
+        /// the node's `TyEnum` type (`Freeze/Resolve.enumKeyOfTy`). Absent ⇒ the head is
+        /// not an external enum case (a project-local enum, handled by the sibling
+        /// `ctx.Types.Enum` arm, or an unrelated qualified name). The enum-case sibling of
+        /// `ExternalUnionCaseStamp` (union cases); only the nominal key is needed (an enum
+        /// case is a named constant on a closed set, not a ctor arrow), so a bare
+        /// `SymbolKey` is stamped rather than a payload.
+        ExternalEnumCaseStamp: SideTable<SymbolKey>
         /// Keyed by the `NodeKey` of an expression Freeze lowers to a desugared
         /// `TExpr.External(<intrinsicName>, …)` head that splices a cross-package
         /// `let inline` body: an arithmetic/comparison/custom operator
@@ -1485,6 +1503,7 @@ module PassContextResolution =
             ExternalValue = SideTable<_>()
             ExternalSymbolStamp = SideTable<_>()
             ExternalUnionCaseStamp = SideTable<_>()
+            ExternalEnumCaseStamp = SideTable<_>()
             IntrinsicKey = SideTable<_>()
             ResolvedOperatorValue = SideTable<_>()
             TypeTestTargets = SideTable<_>()

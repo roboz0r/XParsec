@@ -183,42 +183,6 @@ module internal UnificationInferResolve =
         | ValueSome(ExternalTypeShape.Class _) -> true
         | _ -> false
 
-    /// Resolve an external enum case access `E.C1` (`headName` = `E`, `caseName` =
-    /// `C1`): if `headName` resolves — through the active `open`s — to an
-    /// `ExternalTypeShape.Enum` that declares `caseName`, return the enum's frozen
-    /// `SymbolKey` (no args — enums are never generic). The enum analogue of
-    /// `tryExternalCtorType`'s reverse union-case lookup, but an enum case is a named
-    /// constant on a closed set, so the access types as the enum NOMINAL itself
-    /// (`TyEnum key`), not a ctor arrow. The key matches the one
-    /// `Translate.tryResolveExternalType` mints for an `(x: E)` annotation, so the
-    /// access and the annotation unify. `ValueNone` when no external enum named
-    /// `headName` declares `caseName`.
-    let tryExternalEnumCase (ctx: PassContext) (headName: string) (caseName: string) : SymbolKey voption =
-        let asEnum (n: string) =
-            match ctx.Provider.TryLookupType n with
-            | ValueSome(ExternalTypeShape.Enum(cases, origin)) -> ValueSome(cases, origin)
-            | _ -> ValueNone
-
-        match OpenScope.tryQualify ctx.Resolution.OpenScope (fun n -> (asEnum n).IsSome) headName with
-        | ValueSome resolved ->
-            match asEnum resolved with
-            | ValueSome(cases, origin) when cases |> Array.exists (fun (c: ExternalEnumCaseShape) -> c.Name = caseName) ->
-                ValueSome(SymbolKeyOps.externalTypeKey origin resolved 0)
-            | _ -> ValueNone
-        | ValueNone -> ValueNone
-
-    /// `tryExternalEnumCase` as a pattern over the `E.C1` `LongIdent` (shared by the
-    /// `Expr.LongIdentOrOp` and `Pat.Named` enum-case arms): binds the resolved enum
-    /// key once, replacing the guard-then-`.Value` re-lookup (each lookup runs a
-    /// provider type probe + an `open`-scope qualify, so evaluating it twice is real
-    /// work). Two-segment only — single/multi-segment heads can't be enum cases.
-    [<return: Struct>]
-    let (|ExternalEnumCaseLi|_|) (ctx: PassContext) (li: LongIdent<SyntaxToken>) : SymbolKey voption =
-        if li.Idents.Length = 2 then
-            tryExternalEnumCase ctx (ctx.NameOf li.Idents.[0]) (ctx.NameOf li.Idents.[1])
-        else
-            ValueNone
-
     /// Does `n` resolve — through the active `open`s, at any small arity — to an
     /// external *union* or *record* type? Unlike a class, a union/record exposes
     /// no static fields: the only valid `n.tail` forms are a module function (a
