@@ -118,6 +118,35 @@ module NameResolutionScope =
     let private resolvesAsExternalType (ctx: PassContext) (name: string) : bool =
         (tryResolveExternalTypeKey ctx name 0).IsSome
 
+    /// Resolve `name` (possibly dotted) — opens-aware — as an external UNION or
+    /// RECORD at any small arity (bare, then `` `1 ``..`` `4 ``), returning the
+    /// use-site `SymbolKey` minted from the matched shape's origin. The bounded
+    /// arity scan (not the exact-arity `tryResolveExternalTypeKey`) mirrors the
+    /// former inference-time `resolvesAsExternalUnionOrRecord` probe: a qualifier is
+    /// written without type args, so its arity is not recoverable here. Union/record
+    /// only — a class exposes static fields whose absence is unmodelled-static
+    /// silence, not a member miss (`ExternalUnionRecordQualifier` doc).
+    let private tryResolveExternalUnionOrRecordKey (ctx: PassContext) (name: string) : SymbolKey voption =
+        let lookup (candidate: string) : SymbolKey voption =
+            let rec go (arities: int list) =
+                match arities with
+                | [] -> ValueNone
+                | a :: rest ->
+                    let key =
+                        if a = 0 then
+                            candidate
+                        else
+                            SymbolKeyOps.arityName candidate a
+
+                    match ctx.Provider.TryLookupType key with
+                    | ValueSome(ExternalTypeShape.Union(origin = o))
+                    | ValueSome(ExternalTypeShape.Record(origin = o)) -> ValueSome(SymbolKeyOps.externalTypeKey o key a)
+                    | _ -> go rest
+
+            go [ 0; 1; 2; 3; 4 ]
+
+        OpenScope.tryResolve ctx.Resolution.OpenScope lookup name
+
     /// F# keeps NO global reverse index for union cases: a *bare* (unqualified) case
     /// resolves only when its declaring union's module/namespace is opened or
     /// auto-opened (F#'s `AddPartsOfTyconRefToNameEnv` adds cases to the per-scope
@@ -698,6 +727,27 @@ module NameResolutionScope =
                                     match tryResolveExternalClassKey ctx prefix 0 with
                                     | ValueSome k -> ctx.Resolution.ExternalStaticReceiver.Set(CstKeys.ofExpr e, k)
                                     | ValueNone -> ()
+
+                        // A ≥2-segment qualified reference whose qualifier (every segment
+                        // but the last) names an external UNION or RECORD. Such a
+                        // qualifier has no static fields, so an unresolved tail is a
+                        // genuine member miss — stamp the qualifier's key so Unification's
+                        // `tryQualifiedExternalMemberMiss` diagnoses it by node-key read
+                        // rather than re-resolving the qualifier through the resolver face.
+                        // Present-but-unread when the tail resolves (a valid case / value /
+                        // static never reaches the miss path). A class qualifier is NOT
+                        // stamped: its unmodelled-static silence stays a fresh TyVar.
+                        if
+                            li.Idents.Length >= 2
+                            && not (ctx.Resolution.ExternalUnionRecordQualifier.ContainsKey(CstKeys.ofExpr e))
+                        then
+                            let prefix =
+                                seq { for i in 0 .. li.Idents.Length - 2 -> ctx.NameOf li.Idents.[i] }
+                                |> String.concat "."
+
+                            match tryResolveExternalUnionOrRecordKey ctx prefix with
+                            | ValueSome k -> ctx.Resolution.ExternalUnionRecordQualifier.Set(CstKeys.ofExpr e, k)
+                            | ValueNone -> ()
 
                         if
                             isQualifiedCtor

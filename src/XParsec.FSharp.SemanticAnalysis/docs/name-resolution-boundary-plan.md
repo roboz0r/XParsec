@@ -481,8 +481,30 @@ resolution; each of the following needs a different vehicle and is deferred:
    `ExternalEnumCaseStampTests.fs` (stamp presence at expression / pattern; absent
    for an unknown case; opened-vs-unopened namespace), plus the existing JS
    `TsManifestEnumTests` and CLR `ForInTests` external-enum end-to-end suites.
-5. **`resolvesAsExternalUnionOrRecord` (feeds `tryQualifiedExternalMemberMiss`).**
-   Shapes only an error message — not identity resolution; stays.
+5. **`resolvesAsExternalUnionOrRecord` (feeds `tryQualifiedExternalMemberMiss`) —
+   LANDED (2026-07-10).** Though it only shapes an error message, it was a
+   resolver-face call (`OpenScope.tryQualify` + `TryLookupType(string)`) the Stage 4
+   flip would surface — so it moved upstream on the same stamp pattern as the
+   others. Mechanism as shipped: a new
+   `PassContextResolution.ExternalUnionRecordQualifier : SideTable<SymbolKey>`.
+   NameResolution's `resolveQualifiedExternal` classifies a ≥2-segment qualified
+   `Q.member` whose qualifier `Q` (every segment but the last) resolves — opens-aware,
+   any small arity `` `0 ``..`` `4 `` — to an external UNION or RECORD (a new
+   `tryResolveExternalUnionOrRecordKey`, the union/record sibling of
+   `tryResolveExternalClassKey`) and stamps `Q`'s resolved key under the node's
+   `CstKeys.ofExpr` key. Unification's `tryQualifiedExternalMemberMiss` READS the stamp
+   (presence) instead of calling the resolver face; the `(qualifier, member)` strings
+   for the message are recovered from the node. A CLASS qualifier is NOT stamped — its
+   unmodelled-static silence stays a fresh TyVar (the union/record-only filter is
+   load-bearing, exactly as the class-only filters in 3b/item-1). The stamp is
+   present-but-unread when the tail resolves (a valid case / value / static never
+   reaches the miss path). The dead `isExternalClass` probe (no call sites, itself a
+   resolver-face `TryLookupType(string)`) was excised alongside. No resolver-face
+   `TryLookupType(string)` remains in `InferResolve.fs`'s miss path. Regression guard:
+   `ExternalUnionRecordQualifierStampTests.fs` (stamp presence at union / record
+   qualifier; absent for class / unknown qualifier; opened-vs-unopened namespace;
+   plus end-to-end assertions that the stamp drives the member-miss diagnostic and a
+   class qualifier stays silent).
 
 **Member names are not holdouts.** Every `TryLookupMember(s)` second argument
 (`ctx.NameOf memberTok` at `InferExternalCall.fs:221/298`, `d.MemberName`,
@@ -498,10 +520,12 @@ error, not a review find. The Stage 3 *Remaining* residue must be resolved
 first: the type-annotation (§1) call still needs the string resolver face, so it
 is precisely what the flip would surface. Items 2 (value schemes / operator
 symbols, the `ExternalSymbolStamp` symbol-payload channel), 3 (`tryClassRef`, now
-reading the `ResolvedType` stamp), and 4 (enum-case `E.C1`, now reading the
-`ExternalEnumCaseStamp`) have LANDED, so those value/operator/ctor-sugar/enum-case
-resolver-face calls are already gone; the remaining `InferRecordAccess`
-synthesised intrinsics want the same stamp before the flip.
+reading the `ResolvedType` stamp), 4 (enum-case `E.C1`, now reading the
+`ExternalEnumCaseStamp`), and 5 (union/record member-miss, now reading the
+`ExternalUnionRecordQualifier` stamp) have LANDED, so those
+value/operator/ctor-sugar/enum-case/member-miss resolver-face calls are already
+gone; the remaining `InferRecordAccess` synthesised intrinsics and the
+type-annotation general case want the same stamp before the flip.
 
 ### Stage 5 — codegen `BuiltinOps` by-name → by-key
 

@@ -1466,6 +1466,23 @@ type PassContextResolution =
         /// post-dot member by key. Absent when the prefix is not an external class (a
         /// namespace, a local field chain, an unknown qualifier).
         ExternalStaticReceiver: SideTable<SymbolKey>
+        /// Keyed by a ≥2-segment qualified `Expr.LongIdent` node whose qualifier
+        /// (every segment but the last) resolves — opens-aware — to an external
+        /// UNION or RECORD: the qualifier's resolved nominal `SymbolKey`. Unlike a
+        /// class, a union/record exposes no static fields, so a `Q.member` whose
+        /// `member` resolves to neither a value nor a case nor a static member is a
+        /// genuine missing-member reference, not the unmodelled-static-field silence
+        /// a class qualifier warrants. NameResolution — the resolve-once layer —
+        /// classifies the qualifier HERE and stamps it; Unification's
+        /// `tryQualifiedExternalMemberMiss` READS the stamp (presence) to raise
+        /// "Type 'Q' has no value or member 'm'" for such an unresolved tail, instead
+        /// of re-running an opens-aware `OpenScope.tryQualify` + resolver-face
+        /// `TryLookupType(string)` at inference time. The member-miss error itself
+        /// stays in Unification, where `errorTy` also types the node. Absent ⇒ the
+        /// qualifier is a class (unmodelled-static silence), a namespace, or unknown;
+        /// present-but-unread when the tail DID resolve (a valid case / value / static
+        /// never reaches the miss path).
+        ExternalUnionRecordQualifier: SideTable<SymbolKey>
         /// Project-local *module* member registry. Maps a local module's
         /// short name (`SetTree`) → its directly-declared `let` value/function
         /// bindings (member name → the binding-site `NodeKey` `bindingsOfPat` mints
@@ -1511,6 +1528,7 @@ module PassContextResolution =
             ForInShape = SideTable<_>()
             ResolvedType = SideTable<_>()
             ExternalStaticReceiver = SideTable<_>()
+            ExternalUnionRecordQualifier = SideTable<_>()
             LocalModules = Dictionary<_, _>()
             TypeEnclosingModule = Dictionary<_, _>()
         }
