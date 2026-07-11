@@ -8,6 +8,7 @@
     <Compile Include="UtilTypes.fs" />
     <Compile Include="Token.fs" />
     <Compile Include="Lexing.fs" />
+    <Compile Include="NumericLiterals.fs" />
     <Compile Include="Expr.fs" />
     <Compile Include="Declarations.fs" />
     <Compile Include="Signatures.fs" />

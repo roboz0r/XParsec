@@ -36,7 +36,7 @@ module ArithmeticRuntime =
     /// check cannot be an inline ternary guard.
     ///
     /// ONE guard covers every integral width — the ≤32-bit widths are all JS `number` and
-    /// int64 is a `bigint`, and the body tests both zeros. `float` / `float32` deliberately
+    /// int64 / uint64 are `bigint`s, and the body tests both zeros. `float` / `float32` deliberately
     /// do NOT route through it: IEEE division by zero yielding `Infinity` is the correct
     /// answer for a float, not a fault.
     val checkedDivisor: divisor: 'T -> 'T

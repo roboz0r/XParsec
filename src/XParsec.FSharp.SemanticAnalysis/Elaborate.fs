@@ -1128,9 +1128,11 @@ module Elaborate =
             // `tryParseConst` reports it as `ValueNone` (total; it no longer throws),
             // surfaced here as the hard error.
             match FreezeLiterals.tryParseConst ctx c with
-            // `Int` doubles as the unsuffixed default; `UInt`/`Int64`/`Byte`
-            // preserve the authored integral width for step 2.
-            | ValueSome((TConstValue.Int _ | TConstValue.UInt _ | TConstValue.Int64 _ | TConstValue.Byte _) as iv) ->
+            // The eight integral widths a CLR enum may be based on. `Int` doubles as
+            // the unsuffixed default; the rest preserve the authored width for step 2.
+            // `nativeint`/`unativeint` are NOT among them (no enum is based on a
+            // pointer-width integer) and fall to the non-integral error below.
+            | ValueSome((TConstValue.SByte _ | TConstValue.Byte _ | TConstValue.Int16 _ | TConstValue.UInt16 _ | TConstValue.Int _ | TConstValue.UInt _ | TConstValue.Int64 _ | TConstValue.UInt64 _) as iv) ->
                 ValueSome(TEnumLiteral.Int iv)
             | ValueNone ->
                 ctx.Error(
@@ -1172,9 +1174,11 @@ module Elaborate =
         // non-int constant, handled by the inner resolution) likewise stays an error.
         | Expr.PrefixApp(op, operand) when op.Token = Token.OpSubtraction ->
             match resolveEnumCaseValue ctx idTok operand with
+            | ValueSome(TEnumLiteral.Int(TConstValue.SByte v)) -> ValueSome(TEnumLiteral.Int(TConstValue.SByte -v))
+            | ValueSome(TEnumLiteral.Int(TConstValue.Int16 v)) -> ValueSome(TEnumLiteral.Int(TConstValue.Int16 -v))
             | ValueSome(TEnumLiteral.Int(TConstValue.Int v)) -> ValueSome(TEnumLiteral.Int(TConstValue.Int -v))
             | ValueSome(TEnumLiteral.Int(TConstValue.Int64 v)) -> ValueSome(TEnumLiteral.Int(TConstValue.Int64 -v))
-            | ValueSome(TEnumLiteral.Int((TConstValue.UInt _ | TConstValue.Byte _))) ->
+            | ValueSome(TEnumLiteral.Int((TConstValue.Byte _ | TConstValue.UInt16 _ | TConstValue.UInt _ | TConstValue.UInt64 _))) ->
                 ctx.Error(
                     NodeKey.ofToken idTok NodeKind.DeclType,
                     "A negative enum case value has no unsigned representation; use a signed integer width"

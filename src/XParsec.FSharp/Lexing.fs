@@ -171,24 +171,6 @@ type FormatPlaceholder =
         TypeChar: char
     }
 
-/// A numeric literal's parsed value, restricted to the widths a downstream
-/// constant model represents (matching the numeric cases of the semantic
-/// layer's `TConstValue`). `Lexing.tryParseNumericLiteral` is the canonical
-/// producer: it reads the radix and width straight off the token's classified
-/// `NumericBase` / `NumericKind` flags, so no consumer re-derives the
-/// `0x`/`0o`/`0b` prefix or the `u`/`L`/`uy` suffix grammar. Widths with no
-/// representation here (sbyte/int16/uint16/uint64/nativeint/bigint) fold into
-/// `Int32`, the historical "treat as int" degradation.
-[<RequireQualifiedAccess>]
-type NumericLiteralValue =
-    | Int32 of int
-    | UInt32 of uint32
-    | Int64 of int64
-    | Byte of byte
-    | Float of double
-    | Float32 of single
-    | Decimal of decimal
-
 [<RequireQualifiedAccess; Struct>]
 type LexContext =
     | Normal
@@ -2636,95 +2618,6 @@ module Lexing =
     /// `ReadableString` view; the body itself is still parsed in place.
     let parseFormatSpecifier (specifier: string) : FormatPlaceholder voption =
         parseFormatSpecifierView (ReadableString specifier)
-
-    /// `.NET`-radix (2/8/10/16) for the lexer's classified base — the only set
-    /// `Convert.To{Int32,UInt32,Int64,Byte,UInt64}(string, int)` accepts, which
-    /// is why one `Convert.To…` call covers every base (decimal included).
-    let private baseRadix (numBase: NumericBase) : int =
-        match numBase with
-        | NumericBase.Hex -> 16
-        | NumericBase.Octal -> 8
-        | NumericBase.Binary -> 2
-        | _ -> 10
-
-    /// The bare digit span of an integer magnitude: drop the trailing width-
-    /// suffix letters (`u`/`l`/`y`/`s`/`n`, any case — none collide with the
-    /// hex digits `a`–`f`, so this is safe for a `0x…` magnitude), then the
-    /// fixed two-char radix prefix for a non-decimal base, then the digit-group
-    /// underscores. The base is known, so the prefix is never re-sniffed.
-    let private intDigits (numBase: NumericBase) (text: string) : string =
-        let mutable hi = text.Length
-
-        while hi > 0
-              && (
-                  match Char.ToLowerInvariant text.[hi - 1] with
-                  | 'u'
-                  | 'l'
-                  | 'y'
-                  | 's'
-                  | 'n' -> true
-                  | _ -> false
-              ) do
-            hi <- hi - 1
-
-        let lo = if numBase = NumericBase.Decimal then 0 else 2
-        text.Substring(lo, hi - lo).Replace("_", "")
-
-    /// Strip a single trailing suffix (case-insensitively) — the float (`f`) /
-    /// decimal (`m`) markers, which `intDigits`' radix path doesn't touch.
-    let private stripSuffix (suffix: string) (text: string) : string =
-        if text.EndsWith(suffix, StringComparison.OrdinalIgnoreCase) then
-            text.Substring(0, text.Length - suffix.Length)
-        else
-            text
-
-    /// Parse a numeric literal's value from its raw source `text`, keyed off the
-    /// width + base the lexer already recorded on `token`. `ValueNone` only when
-    /// `token` is not a numeric literal — every numeric width yields a value
-    /// (the unrepresentable ones fold into `Int32`; see `NumericLiteralValue`).
-    /// A non-decimal magnitude is read as its two's-complement bit pattern
-    /// (`0xFFFFFFFF` → `-1`), matching F#'s wrap semantics for radix literals.
-    let tryParseNumericLiteral (token: Token) (text: string) : NumericLiteralValue voption =
-        if not (TokenInfo.isNumeric token) then
-            ValueNone
-        else
-            let numBase = TokenInfo.numericBase token
-            let radix = baseRadix numBase
-            let inline digits () = intDigits numBase text
-
-            // A literal whose lexed text is well-formed for its classified width
-            // *projects* cleanly; one whose magnitude/sign the width cannot hold
-            // (e.g. a negative-signed unsigned literal `-1uy` formed by the
-            // negative-literal merge, or an out-of-range magnitude) is not a
-            // representable constant — the `voption` result reports that as
-            // `ValueNone` rather than letting the underlying `Convert`/`Parse`
-            // throw. The consumer (`FreezeLiterals.parseConst`) surfaces the
-            // `ValueNone` as a diagnostic.
-            let project () =
-                match TokenInfo.numericKind token with
-                | NumericKind.Int32 -> NumericLiteralValue.Int32(Convert.ToInt32(digits (), radix))
-                | NumericKind.UInt32 -> NumericLiteralValue.UInt32(Convert.ToUInt32(digits (), radix))
-                | NumericKind.Int64 -> NumericLiteralValue.Int64(Convert.ToInt64(digits (), radix))
-                | NumericKind.Byte -> NumericLiteralValue.Byte(Convert.ToByte(digits (), radix))
-                | NumericKind.IEEE64 -> NumericLiteralValue.Float(Double.Parse(text, CultureInfo.InvariantCulture))
-                | NumericKind.IEEE32 ->
-                    NumericLiteralValue.Float32(Single.Parse(stripSuffix "f" text, CultureInfo.InvariantCulture))
-                | NumericKind.Decimal ->
-                    NumericLiteralValue.Decimal(
-                        Decimal.Parse(stripSuffix "m" text, NumberStyles.Float, CultureInfo.InvariantCulture)
-                    )
-                // Widths `TConstValue` can't yet hold: fold the magnitude into
-                // `Int32` (truncating the low 32 bits), radix-aware so a hex/oct/bin
-                // magnitude no longer throws. `Convert.ToUInt64` spans every integer
-                // width up to `unativeint`; bigint stays as broken as before (its
-                // `Q`/`R`/`Z`/`I`/`G` suffix isn't a recognised integer suffix).
-                | _ -> NumericLiteralValue.Int32(int (Convert.ToUInt64(digits (), radix)))
-
-            try
-                ValueSome(project ())
-            with
-            | :? OverflowException
-            | :? FormatException -> ValueNone
 
     let (|ExpressionCtx|_|) (ctx: LexContext) =
         match ctx with

@@ -30,11 +30,13 @@ module internal FreezeLiterals =
         else
             failwithf "Freeze.parseCharLiteral: unexpected char literal text %s" text
 
-    /// Total projection of a constant literal onto `TConstValue`. `ValueNone` for
-    /// a numeric literal whose lexed text its classified width cannot represent —
-    /// notably a negative-signed *unsigned* literal (`-1uy`/`-1u`, formed by the
-    /// lexer's negative-literal merge) or an out-of-range magnitude. Bool / char /
-    /// well-formed numeric literals always resolve. The throwing `parseConst`
+    /// Total projection of a constant literal onto `TConstValue`. `ValueNone` when
+    /// the literal is not a primitive constant: a numeric literal whose lexed text
+    /// its classified width cannot represent (notably a negative-signed *unsigned*
+    /// literal `-1uy`/`-1u`, formed by the lexer's negative-literal merge, or an
+    /// out-of-range magnitude), or a CUSTOM numeric literal (`52I` — a call, not a
+    /// constant; `custom-numeric-literals-plan.md`). Bool / char / well-formed
+    /// primitive numeric literals always resolve. The throwing `parseConst`
     /// wrapper retains the old "broken invariant" contract for callers that have
     /// no diagnostic channel; consumers that can report a user error (enum case
     /// values) call this directly.
@@ -49,16 +51,24 @@ module internal FreezeLiterals =
             | _ ->
                 // Every remaining literal token is numeric (`Constant.Literal`
                 // admits only numeric / bool / char — `ConstantParsing.isLiteralToken`).
-                // The lexer owns the radix + suffix grammar via
-                // `Lexing.tryParseNumericLiteral` (keyed off the token's classified
-                // base/width), so Freeze just projects the value onto `TConstValue`.
-                // A non-representable literal yields `ValueNone` (the lexer parse is
-                // total — it no longer throws on a negative unsigned / overflow).
-                match Lexing.tryParseNumericLiteral t.Token text with
+                // The numeric-literal reader owns the radix + suffix grammar
+                // (`NumericLiterals.tryParseNumericLiteral`, keyed off the token's
+                // classified base/width), so Freeze just projects the value onto
+                // `TConstValue` — width for width, never widening or truncating.
+                // `ValueNone` (not a primitive constant: a custom numeric literal, or a
+                // magnitude/sign the authored width cannot hold) passes straight
+                // through as the diagnostic.
+                match NumericLiterals.tryParseNumericLiteral t.Token text with
+                | ValueSome(NumericLiteralValue.SByte n) -> ValueSome(TConstValue.SByte n)
+                | ValueSome(NumericLiteralValue.Byte n) -> ValueSome(TConstValue.Byte n)
+                | ValueSome(NumericLiteralValue.Int16 n) -> ValueSome(TConstValue.Int16 n)
+                | ValueSome(NumericLiteralValue.UInt16 n) -> ValueSome(TConstValue.UInt16 n)
                 | ValueSome(NumericLiteralValue.Int32 n) -> ValueSome(TConstValue.Int n)
                 | ValueSome(NumericLiteralValue.UInt32 n) -> ValueSome(TConstValue.UInt n)
                 | ValueSome(NumericLiteralValue.Int64 n) -> ValueSome(TConstValue.Int64 n)
-                | ValueSome(NumericLiteralValue.Byte n) -> ValueSome(TConstValue.Byte n)
+                | ValueSome(NumericLiteralValue.UInt64 n) -> ValueSome(TConstValue.UInt64 n)
+                | ValueSome(NumericLiteralValue.NativeInt n) -> ValueSome(TConstValue.NativeInt n)
+                | ValueSome(NumericLiteralValue.UNativeInt n) -> ValueSome(TConstValue.UNativeInt n)
                 | ValueSome(NumericLiteralValue.Float n) -> ValueSome(TConstValue.Float n)
                 | ValueSome(NumericLiteralValue.Float32 n) -> ValueSome(TConstValue.Float32 n)
                 | ValueSome(NumericLiteralValue.Decimal n) -> ValueSome(TConstValue.Decimal n)

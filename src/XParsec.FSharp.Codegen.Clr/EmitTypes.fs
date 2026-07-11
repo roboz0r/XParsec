@@ -471,27 +471,37 @@ module EmitTypes =
         let ofContext (ctx: EmitContext) (args: Dictionary<NodeKey, int>) : EmitEnv =
             create ctx ValueNone (Dictionary()) args
 
-    /// Push an integral constant that the front end folded onto `TConstValue.Int`
-    /// (an int32-shaped payload), widening it to the pointer width when that is the
-    /// constant's actual type.
+    /// Push an integral `TConstValue` (`Const` expression or `Const` pattern — the
+    /// single source both share, so the two loads cannot drift). The constant's CASE
+    /// carries its width, which is what decides the load:
     ///
-    /// Every other integral width the lexer folds into `Int` (`sbyte` / `int16` /
-    /// `uint16`) already HAS int32 as its CIL stack type, so a bare `ldc.i4` is the
-    /// whole load. `nativeint` / `unativeint` are the exception: `native int` is a
-    /// distinct stack type from `int32`, so a `10n` argument / local / match constant
-    /// must be converted, or the value lands in a `native int` slot as an `int32` and
-    /// the IL is unverifiable. `conv.i` sign-extends, `conv.u` zero-extends — the
-    /// signedness the width itself declares.
-    let pushIntConst (b: IlBuilder) (n: int) (ty: FrozenType) : unit =
-        b.Add(ILInstr.LdcI4 n)
-
-        match ty with
-        | FTConst(key, _) ->
-            match SymbolKeyOps.simpleName key with
-            | "nativeint" -> b.Add(ILInstr.Un ILOpCode.Conv_i)
-            | "unativeint" -> b.Add(ILInstr.Un ILOpCode.Conv_u)
-            | _ -> ()
-        | _ -> ()
+    /// `sbyte` / `byte` / `int16` / `uint16` / `int` / `uint32` all HAVE int32 as
+    /// their CIL stack type, so a bare `ldc.i4` of the value's bit pattern is the whole
+    /// load (signedness is a type-level distinction the verifier reads off the slot,
+    /// not the load). `int64` / `uint64` push `ldc.i8` — the 64-bit stack type is the
+    /// only one that can hold their magnitude. `nativeint` / `unativeint` are a
+    /// distinct stack type again (`native int`), so their `ldc` must be CONVERTED or
+    /// the value lands in a `native int` slot as an int32/int64 and the IL is
+    /// unverifiable; `conv.i` sign-extends, `conv.u` zero-extends — the signedness the
+    /// width itself declares. The residual arm is a "can't happen": both call sites
+    /// route only their integral arms here.
+    let pushIntConst (b: IlBuilder) (v: TConstValue) : unit =
+        match v with
+        | TConstValue.SByte n -> b.Add(ILInstr.LdcI4(int n))
+        | TConstValue.Byte n -> b.Add(ILInstr.LdcI4(int n))
+        | TConstValue.Int16 n -> b.Add(ILInstr.LdcI4(int n))
+        | TConstValue.UInt16 n -> b.Add(ILInstr.LdcI4(int n))
+        | TConstValue.Int n -> b.Add(ILInstr.LdcI4 n)
+        | TConstValue.UInt n -> b.Add(ILInstr.LdcI4(int n))
+        | TConstValue.Int64 n -> b.Add(ILInstr.LdcI8 n)
+        | TConstValue.UInt64 n -> b.Add(ILInstr.LdcI8(int64 n))
+        | TConstValue.NativeInt n ->
+            b.Add(ILInstr.LdcI8(int64 n))
+            b.Add(ILInstr.Un ILOpCode.Conv_i)
+        | TConstValue.UNativeInt n ->
+            b.Add(ILInstr.LdcI8(int64 (uint64 n)))
+            b.Add(ILInstr.Un ILOpCode.Conv_u)
+        | other -> failwithf "Emit: %A is not an integral constant" other
 
     /// Materialise the `unit` value (`()`) on the stack. `unit` is the zero-field
     /// BCL struct `System.ValueTuple` (its `prim-types-min.fs` binding), not

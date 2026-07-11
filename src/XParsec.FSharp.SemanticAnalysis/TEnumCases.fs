@@ -34,19 +34,22 @@ module TEnumCases =
         | false, false -> ValueNone
 
     /// The canonical primitive NAME an integral enum-case literal contributes to the
-    /// enum's underlying type — a member of `RuntimeNames.numericTypeNames`, the same
-    /// `TConstValue`→type-name projection as `FreezeExpr.constType`. The four integral
-    /// `TConstValue` cases are the only ones a `TEnumLiteral.Int` carries (the
+    /// enum's underlying type — a member of `RuntimeNames.numericTypeNames`. The eight
+    /// integral `TConstValue` cases are the only ones a `TEnumLiteral.Int` carries (the
     /// elaborator rejects every other constant), so the residual arm is a producer bug.
     let private integralWidthName (v: TConstValue) : string =
         match v with
+        | TConstValue.SByte _ -> "sbyte"
+        | TConstValue.Byte _ -> "byte"
+        | TConstValue.Int16 _ -> "int16"
+        | TConstValue.UInt16 _ -> "uint16"
         | TConstValue.Int _ -> "int"
         | TConstValue.UInt _ -> "uint32"
         | TConstValue.Int64 _ -> "int64"
-        | TConstValue.Byte _ -> "byte"
+        | TConstValue.UInt64 _ -> "uint64"
         | other -> failwithf "TEnumCases.integralWidthName: non-integral enum literal %A" other
 
-    /// `true` for an authored *explicit* integral width (`UInt`/`Int64`/`Byte`), vs
+    /// `true` for an authored *explicit* integral width (every case but `Int`), vs
     /// the unsuffixed `Int` default — which is width-flexible (adopts the single
     /// explicit width present, else stays `int`) and so never drives a width conflict.
     let private isExplicitWidth (v: TConstValue) : bool =

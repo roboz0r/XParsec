@@ -319,10 +319,14 @@ type internal Assembler
             for (caseName, v) in ed.Cases do
                 let boxed: obj =
                     match v with
-                    | TConstValue.Int n -> box n
+                    | TConstValue.SByte n -> box n
                     | TConstValue.Byte b -> box b
+                    | TConstValue.Int16 n -> box n
+                    | TConstValue.UInt16 n -> box n
+                    | TConstValue.Int n -> box n
                     | TConstValue.UInt u -> box u
                     | TConstValue.Int64 i -> box i
+                    | TConstValue.UInt64 u -> box u
                     | other -> failwithf "Emit: numeric enum case '%s' carries a non-integral literal %A" caseName other
 
                 enumFieldConstants.[FieldKey.EnumCaseField(ed.Decl.Key, caseName)] <- boxed

@@ -31,10 +31,16 @@ module internal FreezeApply =
         // (`TConstValue.Unit` is minted only by the TS provider), so the JS `undefined`
         // contract is always in scope and `ctx.Intrinsics.Undefined` resolves it.
         | TConstValue.Unit -> TExpr.ILIntrinsic("undefined", ValueNone, EqArray.empty, ctx.Intrinsics.Undefined, tok)
+        | TConstValue.SByte _ -> TExpr.Const(cv, ctx.Intrinsics.SByte, tok)
+        | TConstValue.Byte _ -> TExpr.Const(cv, ctx.Intrinsics.Byte, tok)
+        | TConstValue.Int16 _ -> TExpr.Const(cv, ctx.Intrinsics.Int16, tok)
+        | TConstValue.UInt16 _ -> TExpr.Const(cv, ctx.Intrinsics.UInt16, tok)
         | TConstValue.Int _ -> TExpr.Const(cv, ctx.Intrinsics.Int, tok)
         | TConstValue.UInt _ -> TExpr.Const(cv, ctx.Intrinsics.UInt32, tok)
         | TConstValue.Int64 _ -> TExpr.Const(cv, ctx.Intrinsics.Int64, tok)
-        | TConstValue.Byte _ -> TExpr.Const(cv, ctx.Intrinsics.Byte, tok)
+        | TConstValue.UInt64 _ -> TExpr.Const(cv, ctx.Intrinsics.UInt64, tok)
+        | TConstValue.NativeInt _ -> TExpr.Const(cv, ctx.Intrinsics.NativeInt, tok)
+        | TConstValue.UNativeInt _ -> TExpr.Const(cv, ctx.Intrinsics.UNativeInt, tok)
         | TConstValue.Float _ -> TExpr.Const(cv, ctx.Intrinsics.Float, tok)
         | TConstValue.Float32 _ -> TExpr.Const(cv, ctx.Intrinsics.Float32, tok)
         | TConstValue.Bool _ -> TExpr.Const(cv, ctx.Intrinsics.Bool, tok)

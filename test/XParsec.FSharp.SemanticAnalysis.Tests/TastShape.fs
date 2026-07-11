@@ -46,6 +46,34 @@ let private opSym =
 
 let private prefixSym = Map.ofList [ "op_UnaryNegation", "-" ]
 
+/// A constant's source form, carrying the AUTHORED WIDTH as its F# suffix (the
+/// `TConstValue` case is the width), so a width-preservation regression — a `10us`
+/// silently arriving as an `int` — is visible in every snapshot. One renderer for
+/// the `Const` expression, the `Const` pattern and an enum case's literal.
+let private constText (v: TConstValue) : string =
+    let inv (x: 'a :> System.IFormattable) =
+        x.ToString(null, System.Globalization.CultureInfo.InvariantCulture)
+
+    match v with
+    | TConstValue.SByte n -> string n + "y"
+    | TConstValue.Byte n -> string n + "uy"
+    | TConstValue.Int16 n -> string n + "s"
+    | TConstValue.UInt16 n -> string n + "us"
+    | TConstValue.Int n -> string n
+    | TConstValue.UInt n -> string n + "u"
+    | TConstValue.Int64 n -> string n + "L"
+    | TConstValue.UInt64 n -> string n + "UL"
+    | TConstValue.NativeInt n -> string n + "n"
+    | TConstValue.UNativeInt n -> string n + "un"
+    | TConstValue.Float n -> inv n
+    | TConstValue.Float32 n -> inv n + "f"
+    | TConstValue.Decimal d -> inv d + "M"
+    | TConstValue.Bool true -> "true"
+    | TConstValue.Bool false -> "false"
+    | TConstValue.Char c -> "'" + string c + "'"
+    | TConstValue.String s -> "\"" + s + "\""
+    | TConstValue.Unit -> "()"
+
 /// The declaring type's simple name for a member key — `StaticMethodCall` /
 /// `StaticPropertyGet` carry a `SymbolKey.MemberKey` (Phase 4), whose `decl` is
 /// the class. Falls back to the key's own simple name for any other shape.
@@ -119,34 +147,7 @@ type private Renderer() =
 
     member this.Expr(e: TExpr) : unit =
         match e with
-        | TExpr.Const(TConstValue.Int n, _, _) -> push (string n)
-        | TExpr.Const(TConstValue.UInt n, _, _) ->
-            push (string n)
-            push "u"
-        | TExpr.Const(TConstValue.Int64 n, _, _) ->
-            push (string n)
-            push "L"
-        | TExpr.Const(TConstValue.Byte n, _, _) ->
-            push (string n)
-            push "uy"
-        | TExpr.Const(TConstValue.Float n, _, _) -> push (n.ToString(System.Globalization.CultureInfo.InvariantCulture))
-        | TExpr.Const(TConstValue.Float32 n, _, _) ->
-            push (n.ToString(System.Globalization.CultureInfo.InvariantCulture))
-            push "f"
-        | TExpr.Const(TConstValue.Bool true, _, _) -> push "true"
-        | TExpr.Const(TConstValue.Bool false, _, _) -> push "false"
-        | TExpr.Const(TConstValue.Char c, _, _) ->
-            push "'"
-            push (string c)
-            push "'"
-        | TExpr.Const(TConstValue.Decimal d, _, _) ->
-            push (d.ToString(System.Globalization.CultureInfo.InvariantCulture))
-            push "M"
-        | TExpr.Const(TConstValue.Unit, _, _) -> push "()"
-        | TExpr.Const(TConstValue.String s, _, _) ->
-            push "\""
-            push s
-            push "\""
+        | TExpr.Const(cv, _, _) -> push (constText cv)
         | TExpr.Var(k, _, _) -> push (nameOf k)
         | TExpr.External(name, _, _, _) -> push name
 
@@ -583,34 +584,7 @@ type private Renderer() =
         match p with
         | TPat.NamedSimple(k, _, _) -> push (nameOf k)
         | TPat.Wildcard _ -> push "_"
-        | TPat.Const(TConstValue.Int n, _, _) -> push (string n)
-        | TPat.Const(TConstValue.UInt n, _, _) ->
-            push (string n)
-            push "u"
-        | TPat.Const(TConstValue.Int64 n, _, _) ->
-            push (string n)
-            push "L"
-        | TPat.Const(TConstValue.Byte n, _, _) ->
-            push (string n)
-            push "uy"
-        | TPat.Const(TConstValue.Float n, _, _) -> push (n.ToString(System.Globalization.CultureInfo.InvariantCulture))
-        | TPat.Const(TConstValue.Float32 n, _, _) ->
-            push (n.ToString(System.Globalization.CultureInfo.InvariantCulture))
-            push "f"
-        | TPat.Const(TConstValue.Bool true, _, _) -> push "true"
-        | TPat.Const(TConstValue.Bool false, _, _) -> push "false"
-        | TPat.Const(TConstValue.Char c, _, _) ->
-            push "'"
-            push (string c)
-            push "'"
-        | TPat.Const(TConstValue.Decimal d, _, _) ->
-            push (d.ToString(System.Globalization.CultureInfo.InvariantCulture))
-            push "M"
-        | TPat.Const(TConstValue.Unit, _, _) -> push "()"
-        | TPat.Const(TConstValue.String s, _, _) ->
-            push "\""
-            push s
-            push "\""
+        | TPat.Const(cv, _, _) -> push (constText cv)
         | TPat.Tuple(items, _, _) ->
             push "("
 
@@ -848,13 +822,7 @@ type private Renderer() =
 
                 let litStr (lit: TEnumLiteral) : string =
                     match lit with
-                    // Show the authored integral width via its suffix so a
-                    // width-preservation regression is visible in the snapshot.
-                    | TEnumLiteral.Int(TConstValue.Int n) -> string n
-                    | TEnumLiteral.Int(TConstValue.UInt n) -> string n + "u"
-                    | TEnumLiteral.Int(TConstValue.Int64 n) -> string n + "L"
-                    | TEnumLiteral.Int(TConstValue.Byte n) -> string n + "uy"
-                    | TEnumLiteral.Int other -> sprintf "%A" other
+                    | TEnumLiteral.Int v -> constText v
                     | TEnumLiteral.String s -> "\"" + s + "\""
 
                 for c in cases do

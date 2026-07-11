@@ -58,6 +58,13 @@ run = ["clr", "js"]
 path = "ops/arith-uint64.fs"
 run = ["clr", "js"]
 
+# The truncation probe: a uint64 LITERAL at or above 2^32. Both backends must carry the
+# magnitude the width promises — the literal's own model has to be 64-bit, not merely its
+# arithmetic.
+[[program]]
+path = "ops/arith-uint64-wide.fs"
+run = ["clr", "js"]
+
 [[program]]
 path = "ops/arith-float.fs"
 run = ["clr", "js"]

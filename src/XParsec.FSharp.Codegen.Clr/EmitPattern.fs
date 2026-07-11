@@ -196,17 +196,25 @@ module EmitPattern =
             // nothing.
             b.Add(ILInstr.Ldloc scrutSlot)
             b.Add(ILInstr.Brtrue nextLabel)
-        | TPatG.Const(value, ty, _) ->
+        | TPatG.Const(value, _, _) ->
             b.Add(ILInstr.Ldloc scrutSlot)
 
             match value with
-            // The scrutinee slot carries the pattern's type, so an `Int`-folded
-            // `nativeint` / `unativeint` constant must be widened to the pointer
-            // width before `bne.un` compares it (see `pushIntConst`).
-            | TConstValue.Int n -> pushIntConst b n ty
-            | TConstValue.UInt n -> b.Add(ILInstr.LdcI4(int n))
+            // The scrutinee slot carries the constant's own width, and so does the
+            // load (`pushIntConst`, shared with the `Const` expression) — including the
+            // pointer-width conversion a `nativeint` slot needs before `bne.un`
+            // compares it.
+            | TConstValue.SByte _
+            | TConstValue.Byte _
+            | TConstValue.Int16 _
+            | TConstValue.UInt16 _
+            | TConstValue.Int _
+            | TConstValue.UInt _
+            | TConstValue.Int64 _
+            | TConstValue.UInt64 _
+            | TConstValue.NativeInt _
+            | TConstValue.UNativeInt _ -> pushIntConst b value
             | TConstValue.Bool v -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
-            | TConstValue.Byte n -> b.Add(ILInstr.LdcI4(int n))
             | TConstValue.Char c -> b.Add(ILInstr.LdcI4(int c))
             | other -> failwithf "Emit: match on constant %A is out of scope" other
 

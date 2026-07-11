@@ -19,39 +19,42 @@ module EmitExpr =
 
     let rec buildExpr (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.Const(TConstValue.String s, _, _) -> b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
-        // Every integral width the lexer cannot represent folds onto `Int`
-        // (`NumericLiteralValue.Int32`), so the constant's TYPE — not its payload —
-        // decides the load: `pushIntConst` widens to the pointer width for a
-        // `nativeint` / `unativeint` literal and is a bare `ldc.i4` for the rest.
-        | TExprG.Const(TConstValue.Int n, ty, _) -> EmitTypes.pushIntConst b n ty
-        // `uint32` shares the 32-bit stack representation of `int32`; `ldc.i4`
-        // pushes its two's-complement bit pattern (the value's signedness is a
-        // type-level distinction the verifier reads off the slot, not the load).
-        | TExprG.Const(TConstValue.UInt n, _, _) -> b.Add(ILInstr.LdcI4(int n))
-        | TExprG.Const(TConstValue.Int64 n, _, _) -> b.Add(ILInstr.LdcI8 n)
-        | TExprG.Const(TConstValue.Bool v, _, _) -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
-        | TExprG.Const(TConstValue.Byte n, _, _) -> b.Add(ILInstr.LdcI4(int n))
-        | TExprG.Const(TConstValue.Float x, _, _) -> b.Add(ILInstr.LdcR8 x)
-        | TExprG.Const(TConstValue.Float32 x, _, _) -> b.Add(ILInstr.LdcR4 x)
-        | TExprG.Const(TConstValue.Char c, _, _) -> b.Add(ILInstr.LdcI4(int c))
-        | TExprG.Const(TConstValue.Decimal d, _, _) ->
-            // Materialise via `Decimal..ctor(lo, mid, hi, isNegative, scale)` from
-            // the value's bit representation — the same shape F#/Roslyn emit.
-            let bits = System.Decimal.GetBits d
-            let flags = bits.[3]
-            b.Add(ILInstr.LdcI4 bits.[0]) // lo
-            b.Add(ILInstr.LdcI4 bits.[1]) // mid
-            b.Add(ILInstr.LdcI4 bits.[2]) // hi
-            b.Add(ILInstr.LdcI4(if flags < 0 then 1 else 0)) // sign (high bit of flags)
-            b.Add(ILInstr.LdcI4((flags >>> 16) &&& 0xFF)) // scale
-            b.Add(ILInstr.Newobj(env.Provider.DecimalCtor, 5))
-        | TExprG.Const(TConstValue.Unit, _, _) ->
-            // `()` literal — reify the `unit` value (a zero-field `System.ValueTuple`
-            // struct, not FSharp.Core's null `Unit`). Pushed when a closure
-            // invocation needs a unit arg (`c ()`) or a unit value is otherwise
-            // reified.
-            EmitTypes.buildUnitValue env b
+        | TExprG.Const(cv, _, _) ->
+            match cv with
+            | TConstValue.String s -> b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
+            // The constant's CASE is its width, so the load follows from the payload
+            // alone (`EmitTypes.pushIntConst` — shared with the `Const` pattern).
+            | TConstValue.SByte _
+            | TConstValue.Byte _
+            | TConstValue.Int16 _
+            | TConstValue.UInt16 _
+            | TConstValue.Int _
+            | TConstValue.UInt _
+            | TConstValue.Int64 _
+            | TConstValue.UInt64 _
+            | TConstValue.NativeInt _
+            | TConstValue.UNativeInt _ -> EmitTypes.pushIntConst b cv
+            | TConstValue.Bool v -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
+            | TConstValue.Float x -> b.Add(ILInstr.LdcR8 x)
+            | TConstValue.Float32 x -> b.Add(ILInstr.LdcR4 x)
+            | TConstValue.Char c -> b.Add(ILInstr.LdcI4(int c))
+            | TConstValue.Decimal d ->
+                // Materialise via `Decimal..ctor(lo, mid, hi, isNegative, scale)` from
+                // the value's bit representation — the same shape F#/Roslyn emit.
+                let bits = System.Decimal.GetBits d
+                let flags = bits.[3]
+                b.Add(ILInstr.LdcI4 bits.[0]) // lo
+                b.Add(ILInstr.LdcI4 bits.[1]) // mid
+                b.Add(ILInstr.LdcI4 bits.[2]) // hi
+                b.Add(ILInstr.LdcI4(if flags < 0 then 1 else 0)) // sign (high bit of flags)
+                b.Add(ILInstr.LdcI4((flags >>> 16) &&& 0xFF)) // scale
+                b.Add(ILInstr.Newobj(env.Provider.DecimalCtor, 5))
+            | TConstValue.Unit ->
+                // `()` literal — reify the `unit` value (a zero-field `System.ValueTuple`
+                // struct, not FSharp.Core's null `Unit`). Pushed when a closure
+                // invocation needs a unit arg (`c ()`) or a unit value is otherwise
+                // reified.
+                EmitTypes.buildUnitValue env b
 
         | TExprG.Null _ -> b.Add ILInstr.Ldnull
 

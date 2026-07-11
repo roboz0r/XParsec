@@ -31,6 +31,8 @@ namespace Vesper
 //   - int64    : `BigInt.asIntN(64, …)` — int64 is a JS BigInt; BigInt arithmetic is
 //                arbitrary-precision, so it must be wrapped back to 64-bit. BigInt
 //                shifts also require a BigInt shift amount (`BigInt($1)`).
+//   - uint64   : `BigInt.asUintN(64, …)` — likewise a BigInt, wrapped back UNSIGNED, so
+//                `0UL - 1UL` is 18446744073709551615 rather than -1.
 //   - float32  : `Math.fround` — the single-precision width mask, the exact analogue of
 //                `| 0`. Without it every operation computes in DOUBLE precision, which
 //                is close but not this width's answer (`0.1f + 0.2f`).
@@ -93,7 +95,7 @@ module ArithmeticOperators =
         when ^T1: float and ^T2: float and ^T3: float = (# "$0 + $1" x y : float #)
         when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "Math.fround($0 + $1)" x y : float32 #)
         when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "($0 + $1) >>> 0" x y : uint32 #)
-        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "$0 + $1" x y : uint64 #)
+        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "BigInt.asUintN(64, $0 + $1)" x y : uint64 #)
         when ^T1: byte and ^T2: byte and ^T3: byte = (# "($0 + $1) & 0xFF" x y : byte #)
         when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "($0 + $1) << 24 >> 24" x y : sbyte #)
         when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "($0 + $1) << 16 >> 16" x y : int16 #)
@@ -110,7 +112,7 @@ module ArithmeticOperators =
         when ^T1: float and ^T2: float and ^T3: float = (# "$0 - $1" x y : float #)
         when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "Math.fround($0 - $1)" x y : float32 #)
         when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "($0 - $1) >>> 0" x y : uint32 #)
-        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "$0 - $1" x y : uint64 #)
+        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "BigInt.asUintN(64, $0 - $1)" x y : uint64 #)
         when ^T1: byte and ^T2: byte and ^T3: byte = (# "($0 - $1) & 0xFF" x y : byte #)
         when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "($0 - $1) << 24 >> 24" x y : sbyte #)
         when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "($0 - $1) << 16 >> 16" x y : int16 #)
@@ -133,7 +135,7 @@ module ArithmeticOperators =
         when ^T1: float and ^T2: float and ^T3: float = (# "$0 * $1" x y : float #)
         when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "Math.fround($0 * $1)" x y : float32 #)
         when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "Math.imul($0, $1) >>> 0" x y : uint32 #)
-        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "$0 * $1" x y : uint64 #)
+        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "BigInt.asUintN(64, $0 * $1)" x y : uint64 #)
         when ^T1: byte and ^T2: byte and ^T3: byte = (# "($0 * $1) & 0xFF" x y : byte #)
         when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "($0 * $1) << 24 >> 24" x y : sbyte #)
         when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "($0 * $1) << 16 >> 16" x y : int16 #)
@@ -162,7 +164,8 @@ module ArithmeticOperators =
         when ^T1: float and ^T2: float and ^T3: float = (# "$0 / $1" x y : float #)
         when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "Math.fround($0 / $1)" x y : float32 #)
         when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "($0 / $1) >>> 0" x (checkedDivisor y) : uint32 #)
-        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "$0 / $1" x y : uint64 #)
+        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 =
+            (# "BigInt.asUintN(64, $0 / $1)" x (checkedDivisor y) : uint64 #)
         when ^T1: byte and ^T2: byte and ^T3: byte = (# "($0 / $1) & 0xFF" x (checkedDivisor y) : byte #)
         when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "($0 / $1) << 24 >> 24" x (checkedDivisor y) : sbyte #)
         when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "($0 / $1) << 16 >> 16" x (checkedDivisor y) : int16 #)
@@ -184,7 +187,8 @@ module ArithmeticOperators =
         when ^T1: float and ^T2: float and ^T3: float = (# "$0 % $1" x y : float #)
         when ^T1: float32 and ^T2: float32 and ^T3: float32 = (# "Math.fround($0 % $1)" x y : float32 #)
         when ^T1: uint32 and ^T2: uint32 and ^T3: uint32 = (# "($0 % $1) >>> 0" x (checkedDivisor y) : uint32 #)
-        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 = (# "$0 % $1" x y : uint64 #)
+        when ^T1: uint64 and ^T2: uint64 and ^T3: uint64 =
+            (# "BigInt.asUintN(64, $0 % $1)" x (checkedDivisor y) : uint64 #)
         when ^T1: byte and ^T2: byte and ^T3: byte = (# "($0 % $1) & 0xFF" x (checkedDivisor y) : byte #)
         when ^T1: sbyte and ^T2: sbyte and ^T3: sbyte = (# "($0 % $1) << 24 >> 24" x (checkedDivisor y) : sbyte #)
         when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "($0 % $1) << 16 >> 16" x (checkedDivisor y) : int16 #)
@@ -201,7 +205,7 @@ module ArithmeticOperators =
         when ^T: float = (# "-$0" n : float #)
         when ^T: float32 = (# "Math.fround(-$0)" n : float32 #)
         when ^T: uint32 = (# "(-$0) >>> 0" n : uint32 #)
-        when ^T: uint64 = (# "-$0" n : uint64 #)
+        when ^T: uint64 = (# "BigInt.asUintN(64, -$0)" n : uint64 #)
         when ^T: byte = (# "(-$0) & 0xFF" n : byte #)
         when ^T: sbyte = (# "(-$0) << 24 >> 24" n : sbyte #)
         when ^T: int16 = (# "(-$0) << 16 >> 16" n : int16 #)

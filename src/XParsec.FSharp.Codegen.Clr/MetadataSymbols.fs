@@ -131,32 +131,33 @@ module private MetadataMapping =
             match t.FullName with
             | "System.Boolean" -> Some(TConstValue.Bool false)
             | "System.Char" -> Some(TConstValue.Char '\000')
-            | "System.SByte"
-            | "System.Int16"
-            | "System.UInt16"
-            | "System.Int32"
-            | "System.UInt32" -> Some(TConstValue.Int 0)
+            | "System.SByte" -> Some(TConstValue.SByte 0y)
             | "System.Byte" -> Some(TConstValue.Byte 0uy)
-            | "System.Int64"
-            | "System.UInt64" -> Some(TConstValue.Int64 0L)
+            | "System.Int16" -> Some(TConstValue.Int16 0s)
+            | "System.UInt16" -> Some(TConstValue.UInt16 0us)
+            | "System.Int32" -> Some(TConstValue.Int 0)
+            | "System.UInt32" -> Some(TConstValue.UInt 0u)
+            | "System.Int64" -> Some(TConstValue.Int64 0L)
+            | "System.UInt64" -> Some(TConstValue.UInt64 0UL)
             | "System.Single" -> Some(TConstValue.Float32 0.0f)
             | "System.Double" -> Some(TConstValue.Float 0.0)
             | _ -> None
 
-    /// Boxed `RawDefaultValue` → `TConstValue`. Unsigned forms fold onto their signed
-    /// counterpart (bit-identical; only used to fill omitted arguments).
+    /// Boxed `RawDefaultValue` → `TConstValue`, width for width: the `TConstValue` case
+    /// IS the constant's width, so the fill lands in the parameter's own slot rather
+    /// than a wider/narrower one.
     let private constOfBoxed (v: obj) : TConstValue option =
         match v with
         | :? bool as b -> Some(TConstValue.Bool b)
         | :? char as c -> Some(TConstValue.Char c)
-        | :? sbyte as n -> Some(TConstValue.Int(int n))
-        | :? int16 as n -> Some(TConstValue.Int(int n))
-        | :? uint16 as n -> Some(TConstValue.Int(int n))
-        | :? int as n -> Some(TConstValue.Int n)
-        | :? uint32 as n -> Some(TConstValue.Int(int n))
+        | :? sbyte as n -> Some(TConstValue.SByte n)
         | :? byte as n -> Some(TConstValue.Byte n)
+        | :? int16 as n -> Some(TConstValue.Int16 n)
+        | :? uint16 as n -> Some(TConstValue.UInt16 n)
+        | :? int as n -> Some(TConstValue.Int n)
+        | :? uint32 as n -> Some(TConstValue.UInt n)
         | :? int64 as n -> Some(TConstValue.Int64 n)
-        | :? uint64 as n -> Some(TConstValue.Int64(int64 n))
+        | :? uint64 as n -> Some(TConstValue.UInt64 n)
         | :? single as f -> Some(TConstValue.Float32 f)
         | :? double as f -> Some(TConstValue.Float f)
         | :? string as s -> Some(TConstValue.String s)
