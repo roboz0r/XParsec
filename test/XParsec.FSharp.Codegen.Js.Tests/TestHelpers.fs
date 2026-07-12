@@ -300,7 +300,7 @@ let private jsWalkCtx
         Unions = System.Collections.Generic.Dictionary()
         Classes = System.Collections.Generic.Dictionary()
         Enums = System.Collections.Generic.Dictionary()
-        Provider = ValueSome provider
+        Provider = provider
         ExternalUnions = System.Collections.Generic.Dictionary()
         Imports = JsImports.create runtime
         ExportTopLevel = exportTopLevel

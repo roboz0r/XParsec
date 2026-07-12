@@ -194,22 +194,18 @@ module ArithmeticOperators =
         when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "($0 % $1) << 16 >> 16" x (checkedDivisor y) : int16 #)
         when ^T1: uint16 and ^T2: uint16 and ^T3: uint16 = (# "($0 % $1) & 0xFFFF" x (checkedDivisor y) : uint16 #)
 
-    /// Overloaded unary negation — the JS unary `-` under each width's mask. The mask is
-    /// the whole point at the wrapping widths: `-(Int32.MinValue)` overflows to itself,
-    /// and negating an UNSIGNED value must land back in range (`-1u` is 4294967295u, not
-    /// -1).
+    /// Overloaded unary negation — the JS unary `-` under each width's mask.
+    ///
+    /// The mask is the whole point at the wrapping widths: `-(Int32.MinValue)` overflows
+    /// to itself, and `-(-128y)` wraps back to -128y rather than answering 128.
     let inline (~-) (n: ^T) : ^T =
         (^T: (static member (~-): ^T -> ^T) n)
         when ^T: int = (# "(-$0) | 0" n : int #)
         when ^T: int64 = (# "BigInt.asIntN(64, -$0)" n : int64 #)
         when ^T: float = (# "-$0" n : float #)
         when ^T: float32 = (# "Math.fround(-$0)" n : float32 #)
-        when ^T: uint32 = (# "(-$0) >>> 0" n : uint32 #)
-        when ^T: uint64 = (# "BigInt.asUintN(64, -$0)" n : uint64 #)
-        when ^T: byte = (# "(-$0) & 0xFF" n : byte #)
         when ^T: sbyte = (# "(-$0) << 24 >> 24" n : sbyte #)
         when ^T: int16 = (# "(-$0) << 16 >> 16" n : int16 #)
-        when ^T: uint16 = (# "(-$0) & 0xFFFF" n : uint16 #)
 
     /// Overloaded unary plus — the identity. No template: it just yields its
     /// operand (target-neutral, identical to the CLR body).

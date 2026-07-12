@@ -1,6 +1,7 @@
 ﻿namespace XParsec.FSharp.Codegen.Clr
 
 open System.Reflection.Metadata
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
 open EmitLower
@@ -404,26 +405,20 @@ module EmitResolve =
             | false, _ -> failwithf "Emit: class '%A' has no emitted static field '%s'" declKey name
         | false, _ -> failwithf "Emit: no emitted class carrying static fields for '%A'" declKey
 
-    /// Within Codegen.Clr, the single source of the integral case load: the `ldc`
-    /// pushing the literal's raw value, paired with the CLR primitive name it boxes
-    /// to. Shared by the numeric case load, the struct-enum literal push, and the
-    /// `| E.A` field compare, so those sites can't drift. The arm set and its name
-    /// strings deliberately mirror `TEnumCases.integralWidthName` (SemanticAnalysis) —
-    /// the assembly boundary keeps them separate, so a width added there must be added
-    /// here too. The elaborator rejects every non-integral underlying upstream
-    /// (`nativeint` included — no enum is based on a pointer-width integer), so the
-    /// residual arm is a "can't happen" invariant.
+    /// The integral enum-case load: the `ldc` pushing the literal's raw value, paired with
+    /// the primitive type it boxes to. Shared by the numeric case load, the struct-enum
+    /// literal push, and the `| E.A` field compare, so those sites can't drift.
+    ///
+    /// Neither half is spelled here, and neither is the guard. `TEnumCases.integralValue`
+    /// rejects anything a `System.Enum` cannot be based on — the pointer pair included — so
+    /// the width reaching `intConstLoad` never needs the pointer-width conversion
+    /// `pushIntConst` would add, and the bare load is exactly right. The width's NAME is
+    /// `IntWidth.name`, the same projection the elaborator picked the enum's underlying type
+    /// by: asking the question twice is how the two come to disagree about an enum a new
+    /// width appears in.
     let enumIntLoad (v: TConstValue) : ILInstr * FrozenType =
-        match v with
-        | TConstValue.SByte n -> ILInstr.LdcI4(int n), FTConst(RuntimeNames.primitiveKey "sbyte", EqArray.empty)
-        | TConstValue.Byte b -> ILInstr.LdcI4(int b), FTConst(RuntimeNames.byteKey, EqArray.empty)
-        | TConstValue.Int16 n -> ILInstr.LdcI4(int n), FTConst(RuntimeNames.primitiveKey "int16", EqArray.empty)
-        | TConstValue.UInt16 n -> ILInstr.LdcI4(int n), FTConst(RuntimeNames.primitiveKey "uint16", EqArray.empty)
-        | TConstValue.Int n -> ILInstr.LdcI4 n, FTConst(RuntimeNames.intKey, EqArray.empty)
-        | TConstValue.UInt u -> ILInstr.LdcI4(int u), FTConst(RuntimeNames.uint32Key, EqArray.empty)
-        | TConstValue.Int64 i -> ILInstr.LdcI8 i, FTConst(RuntimeNames.int64Key, EqArray.empty)
-        | TConstValue.UInt64 u -> ILInstr.LdcI8(int64 u), FTConst(RuntimeNames.primitiveKey "uint64", EqArray.empty)
-        | other -> failwithf "Emit: enum case carries a non-integral literal %A" other
+        let w, bits = TEnumCases.integralValue v
+        EmitTypes.intConstLoad w bits, FTConst(RuntimeNames.primitiveKey (IntWidth.name w), EqArray.empty)
 
     /// Push a string/mixed enum case literal as the wrapper `.ctor`'s single
     /// argument: a string case is `ldstr` (a `string` ref — assignable to a

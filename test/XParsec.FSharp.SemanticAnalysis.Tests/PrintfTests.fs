@@ -379,7 +379,7 @@ let tests =
                         Expect.equal ty tyUnit "fprintf result is unit"
 
                         match EqArray.toList segs with
-                        | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Int 42, _, _)) ] ->
+                        | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 42L), _, _)) ] ->
                             Expect.equal hole.Ty tyInt "the %d hole types as int"
                         | other -> failtestf "unexpected Format segments: %A" other
                     | other -> failtestf "expected a ToWriter Format body, got: %A" other
@@ -411,7 +411,7 @@ let tests =
                         Expect.equal ty tyUnit "bprintf result is unit"
 
                         match EqArray.toList segs with
-                        | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Int 42, _, _)) ] ->
+                        | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 42L), _, _)) ] ->
                             Expect.equal hole.Ty tyInt "the %d hole types as int"
                         | other -> failtestf "unexpected Format segments: %A" other
                     | other -> failtestf "expected a ToBuilder Format body, got: %A" other
@@ -551,7 +551,7 @@ let tests =
                     Expect.equal ty tyUnit "printfn result is unit"
 
                     match EqArray.toList segs with
-                    | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Int 42, _, _)) ] ->
+                    | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 42L), _, _)) ] ->
                         Expect.equal hole.Ty tyInt "the %d hole types as int"
 
                         // step (d): the hole carries its classified `Source`; `%d` (no
@@ -606,8 +606,8 @@ let tests =
                 match lastDeclValue tast with
                 | TExpr.Format(FormatSink.ToString, segs, _, _) ->
                     match EqArray.toList segs with
-                    | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Int 42, _, _)); FormatSeg.Lit "!" ] ->
-                        Expect.equal hole.Ty tyInt "the %d hole types as int"
+                    | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 42L), _, _))
+                        FormatSeg.Lit "!" ] -> Expect.equal hole.Ty tyInt "the %d hole types as int"
                     | other -> failtestf "unexpected Format segments: %A" other
                 | other -> failtestf "expected a native string-sink Format, got: %A" other
             }

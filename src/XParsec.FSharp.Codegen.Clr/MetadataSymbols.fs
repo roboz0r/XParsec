@@ -5,6 +5,7 @@ open System.Collections.Generic
 open System.Collections.Concurrent
 open System.IO
 open System.Reflection
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 
 // Resolves BCL types to `ExternalTypeShape` and their members to `FrozenType`
@@ -123,41 +124,56 @@ module private MetadataMapping =
         else
             0
 
+    /// The `IntWidth` a BCL integral primitive's name denotes. The one place the .NET side of
+    /// the width correspondence is written; the F# side is `IntWidth.name`. `nativeint` /
+    /// `unativeint` are absent deliberately — `IntPtr` is not a constant a parameter default
+    /// or a metadata `Constant` row can carry.
+    let private intWidthOfClrName (fullName: string) : IntWidth voption =
+        match fullName with
+        | "System.SByte" -> ValueSome IntWidth.SByte
+        | "System.Byte" -> ValueSome IntWidth.Byte
+        | "System.Int16" -> ValueSome IntWidth.Int16
+        | "System.UInt16" -> ValueSome IntWidth.UInt16
+        | "System.Int32" -> ValueSome IntWidth.Int32
+        | "System.UInt32" -> ValueSome IntWidth.UInt32
+        | "System.Int64" -> ValueSome IntWidth.Int64
+        | "System.UInt64" -> ValueSome IntWidth.UInt64
+        | _ -> ValueNone
+
     /// `default(T)` as a `TConstValue` for primitive value types; `None` otherwise.
     let private zeroOfValueType (t: Type) : TConstValue option =
         if not t.IsValueType then
             None
         else
-            match t.FullName with
-            | "System.Boolean" -> Some(TConstValue.Bool false)
-            | "System.Char" -> Some(TConstValue.Char '\000')
-            | "System.SByte" -> Some(TConstValue.SByte 0y)
-            | "System.Byte" -> Some(TConstValue.Byte 0uy)
-            | "System.Int16" -> Some(TConstValue.Int16 0s)
-            | "System.UInt16" -> Some(TConstValue.UInt16 0us)
-            | "System.Int32" -> Some(TConstValue.Int 0)
-            | "System.UInt32" -> Some(TConstValue.UInt 0u)
-            | "System.Int64" -> Some(TConstValue.Int64 0L)
-            | "System.UInt64" -> Some(TConstValue.UInt64 0UL)
-            | "System.Single" -> Some(TConstValue.Float32 0.0f)
-            | "System.Double" -> Some(TConstValue.Float 0.0)
-            | _ -> None
+            match intWidthOfClrName t.FullName with
+            | ValueSome w -> Some(TConstValue.Integral(w, 0L))
+            | ValueNone ->
+                match t.FullName with
+                | "System.Boolean" -> Some(TConstValue.Bool false)
+                | "System.Char" -> Some(TConstValue.Char '\000')
+                | "System.Single" -> Some(TConstValue.Float32 0.0f)
+                | "System.Double" -> Some(TConstValue.Float 0.0)
+                | _ -> None
 
-    /// Boxed `RawDefaultValue` → `TConstValue`, width for width: the `TConstValue` case
-    /// IS the constant's width, so the fill lands in the parameter's own slot rather
-    /// than a wider/narrower one.
+    /// Boxed `RawDefaultValue` → `TConstValue`, width for width: the fill lands in the
+    /// parameter's own slot rather than a wider/narrower one. The type test IS the width
+    /// witness here (the box's runtime type is all the metadata gives us), so each arm
+    /// names the `IntWidth` it found and encodes the value into `bits` — signed widths
+    /// sign-extend, unsigned ones zero-extend and reinterpret.
     let private constOfBoxed (v: obj) : TConstValue option =
+        let inline integral (w: IntWidth) (bits: int64) = Some(TConstValue.Integral(w, bits))
+
         match v with
         | :? bool as b -> Some(TConstValue.Bool b)
         | :? char as c -> Some(TConstValue.Char c)
-        | :? sbyte as n -> Some(TConstValue.SByte n)
-        | :? byte as n -> Some(TConstValue.Byte n)
-        | :? int16 as n -> Some(TConstValue.Int16 n)
-        | :? uint16 as n -> Some(TConstValue.UInt16 n)
-        | :? int as n -> Some(TConstValue.Int n)
-        | :? uint32 as n -> Some(TConstValue.UInt n)
-        | :? int64 as n -> Some(TConstValue.Int64 n)
-        | :? uint64 as n -> Some(TConstValue.UInt64 n)
+        | :? sbyte as n -> integral IntWidth.SByte (int64 n)
+        | :? byte as n -> integral IntWidth.Byte (int64 n)
+        | :? int16 as n -> integral IntWidth.Int16 (int64 n)
+        | :? uint16 as n -> integral IntWidth.UInt16 (int64 n)
+        | :? int as n -> integral IntWidth.Int32 (int64 n)
+        | :? uint32 as n -> integral IntWidth.UInt32 (int64 n)
+        | :? int64 as n -> integral IntWidth.Int64 n
+        | :? uint64 as n -> integral IntWidth.UInt64 (int64 n)
         | :? single as f -> Some(TConstValue.Float32 f)
         | :? double as f -> Some(TConstValue.Float f)
         | :? string as s -> Some(TConstValue.String s)

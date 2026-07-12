@@ -46,16 +46,13 @@ module JsFlatFns =
     /// `ValueNone` when there is no key (a test mock) or the symbol carries no `ValRepr`
     /// (a value, a hand-authored runtime primitive, a metadata-layer symbol) — the call
     /// then keeps the curried convention (correct for an all-`GSimple` signature).
-    let externalGroups
-        (provider: IExternalSymbolProvider voption)
-        (key: SymbolKey voption)
-        : Frozen.ArgGroup list voption =
-        match provider, key with
-        | ValueSome provider, ValueSome key ->
+    let externalGroups (provider: IExternalSymbolProvider) (key: SymbolKey voption) : Frozen.ArgGroup list voption =
+        match key with
+        | ValueSome key ->
             match provider.TryLookup(SymbolKeyOps.qualifiedName key) with
             | ValueSome sym -> sym.ValRepr |> ValueOption.map (fun vr -> vr.Groups)
             | ValueNone -> ValueNone
-        | _ -> ValueNone
+        | ValueNone -> ValueNone
 
     /// Flatten a saturated call's LEADING spine (one element per source group) to the
     /// flat compiled argument list, rendering each `CompiledFns.flattenPlan` step: a

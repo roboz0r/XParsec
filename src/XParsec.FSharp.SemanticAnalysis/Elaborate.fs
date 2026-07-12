@@ -1125,23 +1125,30 @@ module Elaborate =
             // admits the merge, then the `EnclosedBlock` arm peels it to a negative
             // `Const`. A negative *signed* literal projects cleanly (`Int -1`); a
             // negative *unsigned* literal (`(-1uy)`/`(-1u)`) has no representation —
-            // `tryParseConst` reports it as `ValueNone` (total; it no longer throws),
+            // `tryParseConst` reports it as an `Error` (total; it no longer throws),
             // surfaced here as the hard error.
             match FreezeLiterals.tryParseConst ctx c with
-            // The eight integral widths a CLR enum may be based on. `Int` doubles as
-            // the unsuffixed default; the rest preserve the authored width for step 2.
-            // `nativeint`/`unativeint` are NOT among them (no enum is based on a
-            // pointer-width integer) and fall to the non-integral error below.
-            | ValueSome((TConstValue.SByte _ | TConstValue.Byte _ | TConstValue.Int16 _ | TConstValue.UInt16 _ | TConstValue.Int _ | TConstValue.UInt _ | TConstValue.Int64 _ | TConstValue.UInt64 _) as iv) ->
-                ValueSome(TEnumLiteral.Int iv)
-            | ValueNone ->
+            // Any integral width a CLR enum may be based on — `int` doubles as the
+            // unsuffixed default, and the rest preserve the authored width for step 2.
+            // `isEnumBase` excludes exactly the pointer pair; they fall to the error below.
+            | Ok(TConstValue.Integral(w, _) as iv) when IntWidth.isEnumBase w -> ValueSome(TEnumLiteral.Int iv)
+            // The literal is no primitive constant at all, and the two reasons are
+            // different things to tell the user — `52I` is not an out-of-range magnitude.
+            | Error ConstRejection.OutOfRange ->
                 ctx.Error(
                     NodeKey.ofToken idTok NodeKind.DeclType,
-                    "An enum case value is not a representable integer constant (a negative value has no unsigned representation)"
+                    "An enum case value is not representable at its authored width (a negative value has no unsigned representation)"
                 )
 
                 ValueNone
-            | ValueSome other ->
+            | Error ConstRejection.CustomLiteral ->
+                ctx.Error(
+                    NodeKey.ofToken idTok NodeKind.DeclType,
+                    "An enum case value must be a primitive integer literal; a custom numeric literal ('52I') is a call to a NumericLiteral module, not a constant"
+                )
+
+                ValueNone
+            | Ok other ->
                 ctx.Error(
                     NodeKey.ofToken idTok NodeKind.DeclType,
                     sprintf
@@ -1174,11 +1181,11 @@ module Elaborate =
         // non-int constant, handled by the inner resolution) likewise stays an error.
         | Expr.PrefixApp(op, operand) when op.Token = Token.OpSubtraction ->
             match resolveEnumCaseValue ctx idTok operand with
-            | ValueSome(TEnumLiteral.Int(TConstValue.SByte v)) -> ValueSome(TEnumLiteral.Int(TConstValue.SByte -v))
-            | ValueSome(TEnumLiteral.Int(TConstValue.Int16 v)) -> ValueSome(TEnumLiteral.Int(TConstValue.Int16 -v))
-            | ValueSome(TEnumLiteral.Int(TConstValue.Int v)) -> ValueSome(TEnumLiteral.Int(TConstValue.Int -v))
-            | ValueSome(TEnumLiteral.Int(TConstValue.Int64 v)) -> ValueSome(TEnumLiteral.Int(TConstValue.Int64 -v))
-            | ValueSome(TEnumLiteral.Int((TConstValue.Byte _ | TConstValue.UInt16 _ | TConstValue.UInt _ | TConstValue.UInt64 _))) ->
+            // Negation is defined on the signed widths and no other. It wraps AT THE WIDTH
+            // (`IntWidth.negate`), so `-(-128y)` stays `-128y`.
+            | ValueSome(TEnumLiteral.Int(TConstValue.Integral(w, bits))) when IntWidth.isSigned w ->
+                ValueSome(TEnumLiteral.Int(TConstValue.Integral(w, IntWidth.negate w bits)))
+            | ValueSome(TEnumLiteral.Int(TConstValue.Integral _)) ->
                 ctx.Error(
                     NodeKey.ofToken idTok NodeKind.DeclType,
                     "A negative enum case value has no unsigned representation; use a signed integer width"

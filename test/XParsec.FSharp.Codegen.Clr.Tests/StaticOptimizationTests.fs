@@ -1,6 +1,7 @@
 module XParsec.FSharp.Codegen.Clr.Tests.StaticOptimizationTests
 
 open Expecto
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
@@ -43,7 +44,10 @@ let tests =
                 | EqList [ TDecl.Let(TPat.NamedSimple _,
                                      TExpr.Lambda(_,
                                                   TExpr.StaticOptimization(clauses,
-                                                                           TExpr.Const(TConstValue.Int -1, _, _),
+                                                                           TExpr.Const(TConstValue.Integral(IntWidth.Int32,
+                                                                                                            -1L),
+                                                                                       _,
+                                                                                       _),
                                                                            TyConst(key, _),
                                                                            _),
                                                   _,
@@ -55,7 +59,7 @@ let tests =
                     // First clause is `when ^T : int = 1` — one constraint, body `1`.
                     if clauses.Length > 0 && clauses.[0].Constraints.Length = 1 then
                         match clauses.[0].Body with
-                        | TExpr.Const(TConstValue.Int 1, _, _) -> ()
+                        | TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), _, _) -> ()
                         | other -> failtestf "unexpected first clause body: %A" other
                     else
                         failtestf "unexpected first clause: %A" clauses.[0]

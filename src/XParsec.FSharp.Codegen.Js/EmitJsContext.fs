@@ -73,7 +73,15 @@ module EmitJsContext =
             /// External union types (`Option`, `List`) not in the file's `tast.Decls`;
             /// their case shapes are read off the provider on first use and emitted as
             /// nominal JS classes (same base-class + subclass shape a local union gets).
-            Provider: IExternalSymbolProvider voption
+            ///
+            /// NOT optional. A compilation that resolves no external symbols still HAS a
+            /// provider — `ExternalSymbolProviders.nullProvider`, which answers `ValueNone`
+            /// to every lookup. Modelling absence a second time, as a `voption` around it,
+            /// bought nothing and cost correctness: it forced every reader to write an arm
+            /// for "no provider", and the only honest answer there is "I cannot know" —
+            /// which `plainRenderOf` (`%O` width fidelity) had to fake as "renders
+            /// natively", the wrong answer for exactly the widths it exists to catch.
+            Provider: IExternalSymbolProvider
             /// External unions resolved on demand, keyed by `SymbolKey`. A miss in
             /// `Unions` falls back here. Their case classes are imported from the
             /// union's home module at each `UnionCons` site, not re-emitted.
@@ -131,30 +139,27 @@ module EmitJsContext =
     /// Resolve an external union to a `JsUnionInfo` via the provider, caching in
     /// `ExternalUnions`. The case classes are NOT re-emitted locally — they are
     /// imported from the union's home module at each `UnionCons` site (`Home`
-    /// carries the home assembly). `ValueNone` when no provider or the type is not a
-    /// union — caller fails loudly.
+    /// carries the home assembly). `ValueNone` when the provider does not know the type,
+    /// or knows it as something other than a union — caller fails loudly.
     let resolveExternalUnion (ctx: WalkCtx) (key: SymbolKey) : JsUnionInfo voption =
         match ctx.ExternalUnions.TryGetValue key with
         | true, info -> ValueSome info
         | _ ->
-            match ctx.Provider with
-            | ValueNone -> ValueNone
-            | ValueSome provider ->
-                match provider.TryLookupType key with
-                | ValueSome(ExternalTypeShape.Union(_, cases, _, _)) ->
-                    let baseName = SymbolKeyOps.simpleName key
+            match ctx.Provider.TryLookupType key with
+            | ValueSome(ExternalTypeShape.Union(_, cases, _, _)) ->
+                let baseName = SymbolKeyOps.simpleName key
 
-                    let home =
-                        match key with
-                        | SymbolKey.TypeKey(Some asm, _, _) -> ValueSome asm
-                        | _ -> failwithf "EmitJs: external union '%s' has no home assembly (key %A)" baseName key
+                let home =
+                    match key with
+                    | SymbolKey.TypeKey(Some asm, _, _) -> ValueSome asm
+                    | _ -> failwithf "EmitJs: external union '%s' has no home assembly (key %A)" baseName key
 
-                    let info, _ =
-                        buildUnionInfo home baseName [ for c in cases -> c.Name, List.ofArray c.FieldNames ]
+                let info, _ =
+                    buildUnionInfo home baseName [ for c in cases -> c.Name, List.ofArray c.FieldNames ]
 
-                    ctx.ExternalUnions.[key] <- info
-                    ValueSome info
-                | _ -> ValueNone
+                ctx.ExternalUnions.[key] <- info
+                ValueSome info
+            | _ -> ValueNone
 
     /// Resolve a `UnionCons` / union-pattern receiver type + case name to the emitted
     /// `JsUnionCaseDecl`. Falls through to the external-union provider on a local miss.
@@ -303,13 +308,13 @@ module EmitJsContext =
     /// lookup exactly as `JsFlatFns.externalGroups` — codegen reads what the front
     /// end already resolved. A miss (no key / a symbol the provider doesn't model)
     /// is `Named`: every Vesper-emitted runtime export is named.
-    let importFormOf (provider: IExternalSymbolProvider voption) (key: SymbolKey voption) : ImportForm =
-        match provider, key with
-        | ValueSome provider, ValueSome key ->
+    let importFormOf (provider: IExternalSymbolProvider) (key: SymbolKey voption) : ImportForm =
+        match key with
+        | ValueSome key ->
             match provider.TryLookup(SymbolKeyOps.qualifiedName key) with
             | ValueSome sym -> sym.ImportForm
             | ValueNone -> ImportForm.Named
-        | _ -> ImportForm.Named
+        | ValueNone -> ImportForm.Named
 
     /// The runtime entry for a `%A` (`Structured`) hole: the shape-keyed structural
     /// formatter in `Vesper.Printf.mjs` (Printf owns `%A`; the JS analogue of the
@@ -356,18 +361,18 @@ module EmitJsContext =
     /// Classify a `%O` operand's static type. The `BigInt` arm reads the type's declared JS
     /// repr — the single source of truth (`prim-types-*.js.fs`), so a width that later binds
     /// to `bigint` inherits the suffix-stripping without touching this. `float32` cannot be
-    /// recovered that way and is keyed by CANON: its repr (`number`) is precisely what LOSES
-    /// the width, so the F# type name is the only carrier of the fact.
+    /// recovered that way, and is keyed by its intrinsic NAME instead: its repr (`number`) is
+    /// precisely what LOSES the width, so the F# type name is the only carrier of the fact.
+    /// The name needs no alias canonicalisation — an intrinsic abbreviation (`single`) is
+    /// expanded eagerly at name resolution, so only `float32` ever reaches here (see
+    /// `Inline.staticOptTypesMatch`).
     let plainRenderOf (ctx: WalkCtx) (ty: FrozenType) : PlainRender =
         match ty with
         | FTConst(key, _) when SymbolKeyOps.simpleName key = Float32Canon -> PlainRender.Single
         | FTConst(key, _) ->
-            match ctx.Provider with
-            | ValueSome provider ->
-                match provider.IntrinsicForwardRepr.TryGetValue key with
-                | true, repr when repr = BigIntRepr -> PlainRender.BigInt
-                | _ -> PlainRender.Native
-            | ValueNone -> PlainRender.Native
+            match ctx.Provider.IntrinsicForwardRepr.TryGetValue key with
+            | true, repr when repr = BigIntRepr -> PlainRender.BigInt
+            | _ -> PlainRender.Native
         | _ -> PlainRender.Native
 
     /// Compile a pattern against a pure scrutinee-access expression `access` into a

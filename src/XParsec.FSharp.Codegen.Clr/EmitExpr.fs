@@ -3,6 +3,7 @@ namespace XParsec.FSharp.Codegen.Clr
 open System.Collections.Generic
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
 open EmitLower
@@ -22,18 +23,9 @@ module EmitExpr =
         | TExprG.Const(cv, _, _) ->
             match cv with
             | TConstValue.String s -> b.Add(ILInstr.Ldstr(env.Ctx.UserString s))
-            // The constant's CASE is its width, so the load follows from the payload
-            // alone (`EmitTypes.pushIntConst` — shared with the `Const` pattern).
-            | TConstValue.SByte _
-            | TConstValue.Byte _
-            | TConstValue.Int16 _
-            | TConstValue.UInt16 _
-            | TConstValue.Int _
-            | TConstValue.UInt _
-            | TConstValue.Int64 _
-            | TConstValue.UInt64 _
-            | TConstValue.NativeInt _
-            | TConstValue.UNativeInt _ -> EmitTypes.pushIntConst b cv
+            // The load follows from the width alone (`EmitTypes.pushIntConst` — shared with
+            // the `Const` pattern and the enum-case load).
+            | TConstValue.Integral(w, bits) -> EmitTypes.pushIntConst b w bits
             | TConstValue.Bool v -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
             | TConstValue.Float x -> b.Add(ILInstr.LdcR8 x)
             | TConstValue.Float32 x -> b.Add(ILInstr.LdcR4 x)

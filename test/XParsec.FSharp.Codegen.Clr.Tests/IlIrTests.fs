@@ -3,6 +3,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.IlIrTests
 open Expecto
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Parser
 open XParsec.FSharp.Codegen.Clr
@@ -36,7 +37,7 @@ let private coreProvider: Lazy<IExternalSymbolProvider> =
 /// production `Emit.buildExpr` arm — a plain recursive append.
 let rec private buildExpr (b: IlBuilder) (e: TExpr) : unit =
     match e with
-    | TExpr.Const(TConstValue.Int n, _, _) -> b.Add(ILInstr.LdcI4 n)
+    | TExpr.Const(TConstValue.Integral(w, bits), _, _) -> b.Add(EmitTypes.intConstLoad w bits)
     | TExpr.Const(TConstValue.Bool v, _, _) -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
     | TExpr.IfThenElse(c, t, f, _, _) ->
         let elseL = b.Label()
@@ -94,8 +95,8 @@ let tests =
     let tyInt = TyConst(RuntimeNames.intKey, EqArray.empty)
     let tyBool = TyConst(RuntimeNames.boolKey, EqArray.empty)
 
-    let cInt n =
-        TExpr.Const(TConstValue.Int n, tyInt, dummyTok)
+    let cInt (n: int) =
+        TExpr.Const(TConstValue.Integral(IntWidth.Int32, int64 n), tyInt, dummyTok)
 
     let ceq a b =
         TExpr.ILIntrinsic("ceq", ValueNone, EqArray.ofList [ a; b ], tyBool, dummyTok)

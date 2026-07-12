@@ -1,6 +1,7 @@
 module XParsec.FSharp.Codegen.Clr.Tests.ExternalMemberTests
 
 open Expecto
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Passes
 open XParsec.FSharp.Codegen.Clr
@@ -50,7 +51,7 @@ let tests =
 
                 match value with
                 | TExpr.App(TExpr.ExternalMember(ValueSome inner, ghKey, "GetHashCode", MemberStorage.Method, ghTy, _),
-                            TExpr.Const(TConstValue.Int 5, _, _),
+                            TExpr.Const(TConstValue.Integral(IntWidth.Int32, 5L), _, _),
                             resultTy,
                             _) ->
                     // The instance access is a method value `int -> int`; applying
@@ -165,7 +166,7 @@ let tests =
                                                            MemberStorage.Method,
                                                            ghTy,
                                                            _),
-                                      TExpr.Const(TConstValue.Int 5, _, _),
+                                      TExpr.Const(TConstValue.Integral(IntWidth.Int32, 5L), _, _),
                                       resultTy,
                                       _)) ->
                     match Unification.zonk ghTy with

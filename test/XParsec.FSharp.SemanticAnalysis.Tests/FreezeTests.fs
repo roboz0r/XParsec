@@ -1,6 +1,7 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.FreezeTests
 
 open Expecto
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
@@ -24,7 +25,7 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Const(TConstValue.Int 1, ty, _), _, letTy) ->
+                | TDecl.Let(_, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), ty, _), _, letTy) ->
                     Expect.equal ty BuiltinTypes.tyInt "value type"
                     Expect.equal letTy BuiltinTypes.tyInt "binding type"
                 | other -> failtestf "unexpected: %A" other
@@ -117,11 +118,15 @@ let tests =
                 match tast.Decls.[0] with
                 | TDecl.Let(_,
                             TExpr.UnionCons("Cons",
-                                            EqList [ TExpr.Const(TConstValue.Int 1, _, _)
+                                            EqList [ TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), _, _)
                                                      TExpr.UnionCons("Cons",
-                                                                     EqList [ TExpr.Const(TConstValue.Int 2, _, _)
+                                                                     EqList [ TExpr.Const(TConstValue.Integral(IntWidth.Int32,
+                                                                                                               2L),
+                                                                                          _,
+                                                                                          _)
                                                                               TExpr.UnionCons("Cons",
-                                                                                              EqList [ TExpr.Const(TConstValue.Int 3,
+                                                                                              EqList [ TExpr.Const(TConstValue.Integral(IntWidth.Int32,
+                                                                                                                                        3L),
                                                                                                                    _,
                                                                                                                    _)
                                                                                                        TExpr.UnionCons("Nil",
@@ -209,7 +214,7 @@ let namespaceTests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls.[0] with
-                | TDecl.Let(_, TExpr.Const(TConstValue.Int 1, ty, _), _, letTy) ->
+                | TDecl.Let(_, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), ty, _), _, letTy) ->
                     Expect.equal ty BuiltinTypes.tyInt "value type int"
                     Expect.equal letTy BuiltinTypes.tyInt "binding type int"
                 | other -> failtestf "unexpected: %A" other
@@ -269,7 +274,7 @@ let nestedModuleTests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 match tast.Decls.[1] with
-                | TDecl.Let(_, TExpr.Const(TConstValue.Int 1, ty, _), _, letTy) ->
+                | TDecl.Let(_, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), ty, _), _, letTy) ->
                     Expect.equal ty BuiltinTypes.tyInt "value type int"
                     Expect.equal letTy BuiltinTypes.tyInt "binding type int"
                 | other -> failtestf "unexpected: %A" other

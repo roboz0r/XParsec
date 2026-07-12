@@ -414,25 +414,6 @@ module RuntimeNames =
                 "decimal"
             ]
 
-    /// Canonicalise the primitive type-name aliases a static-optimization clause might
-    /// use (`int32`/`int`, `double`/`float64`/`float`, `uint8`/`byte`), so a clause
-    /// written against one spelling matches an operand carrying the other.
-    ///
-    /// This IS the identity relation `when ^T : Type` selects by (`Inline.staticOptTypesMatch`
-    /// compares `TyConst`s through it), so it is shared rather than re-spelled: anything
-    /// that asks *which widths a clause set covers* must ask the same question the
-    /// selector answers, or the two drift and the answer is a fiction.
-    /// `ctx.Types.IntrinsicReprTypes` (name → IL repr) carries the same alias equivalence
-    /// at extract-time; this table mirrors that data for the post-extract walker. Keep the
-    /// two in sync when new primitives land.
-    let canonicalPrimitiveName (name: string) : string =
-        match name with
-        | "int32" -> "int"
-        | "double"
-        | "float64" -> "float"
-        | "uint8" -> "byte"
-        | other -> other
-
     /// The non-numeric built-in primitive type names — the scalar/reference primitives
     /// (`bool`/`char`/`string` and the reference roots `unit`/`obj`/`voidptr`/`exn`).
     /// The companion to `numericTypeNames`: the single source the name-classifying

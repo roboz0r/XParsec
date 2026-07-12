@@ -32,19 +32,16 @@ module JsExternalMembers =
 
     /// The home assembly of an external type, for selecting its runtime-js module.
     /// Falls back to the provider's type-shape `origin` when the key has no assembly.
-    let assemblyOf (provider: IExternalSymbolProvider voption) (key: SymbolKey) (what: string) : string =
+    let assemblyOf (provider: IExternalSymbolProvider) (key: SymbolKey) (what: string) : string =
         match SymbolKeyOps.keyAsm key with
         | Some a -> a
         | None ->
             let origin =
-                match provider with
-                | ValueSome provider ->
-                    match provider.TryLookupType key with
-                    | ValueSome(ExternalTypeShape.Union(_, _, _, o))
-                    | ValueSome(ExternalTypeShape.Record(_, _, o)) -> o.Assembly
-                    | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Assembly
-                    | _ -> None
-                | ValueNone -> None
+                match provider.TryLookupType key with
+                | ValueSome(ExternalTypeShape.Union(_, _, _, o))
+                | ValueSome(ExternalTypeShape.Record(_, _, o)) -> o.Assembly
+                | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Assembly
+                | _ -> None
 
             match origin with
             | Some a -> a
@@ -53,9 +50,9 @@ module JsExternalMembers =
     /// The declaring type's `ExternalClassFlags`, resolved through the provider
     /// (`TryLookupType` → `Class` shape → `Flags`) in ONE lookup — the
     /// `ExternalMember` dispatch reads `Erased` and `AttachMembers` off the same
-    /// result. `ValueNone` when there is no provider or the key names no `Class`
-    /// shape; every flag then reads as `false`, so the normal mangled
-    /// static-member path is untouched. The flags the dispatch consumes:
+    /// result. `ValueNone` when the key names no `Class` shape; every flag then reads
+    /// as `false`, so the normal mangled static-member path is untouched. The flags
+    /// the dispatch consumes:
     ///
     ///   * `Erased` — a SYNTHETIC erased grouping type (Tier 2 item 9b): the TS
     ///     provider groups a module's overloaded free functions as static members
@@ -69,49 +66,43 @@ module JsExternalMembers =
     ///     object methods (`receiver.member(args)` / property reads) rather than
     ///     the receiver-first free-fn imports Vesper's own runtimes emit; stamped
     ///     by the provider on a real manifest Interface/Class.
-    let classFlagsOf (provider: IExternalSymbolProvider voption) (declKey: SymbolKey) : ExternalClassFlags voption =
-        match provider with
-        | ValueNone -> ValueNone
-        | ValueSome provider ->
-            match provider.TryLookupType declKey with
-            | ValueSome(ExternalTypeShape.Class shape) -> ValueSome shape.Flags
-            | _ -> ValueNone
+    let classFlagsOf (provider: IExternalSymbolProvider) (declKey: SymbolKey) : ExternalClassFlags voption =
+        match provider.TryLookupType declKey with
+        | ValueSome(ExternalTypeShape.Class shape) -> ValueSome shape.Flags
+        | _ -> ValueNone
 
     /// Walk a type's `inherit` chain up to the `exn` intrinsic root and resolve its
     /// `(# "Error" #)` repr to the native runtime class name (`Error` on JS). Returns
     /// `ValueNone` when the type is not an `exn` subtype or the repr names no provider class.
-    let exnReprOf (provider: IExternalSymbolProvider voption) (ty: FrozenType) : string voption =
-        match provider with
-        | ValueNone -> ValueNone
-        | ValueSome provider ->
-            let shapeOf (ft: FrozenType) : ExternalTypeShape voption =
-                match ft with
-                | FTClass(key, _)
-                | FTUnion(key, _)
-                | FTRecord(key, _) -> provider.TryLookupType key
-                | FTConst(key, _) -> ExternalSymbols.tryRuntimeType provider (SymbolKeyOps.simpleName key)
+    let exnReprOf (provider: IExternalSymbolProvider) (ty: FrozenType) : string voption =
+        let shapeOf (ft: FrozenType) : ExternalTypeShape voption =
+            match ft with
+            | FTClass(key, _)
+            | FTUnion(key, _)
+            | FTRecord(key, _) -> provider.TryLookupType key
+            | FTConst(key, _) -> ExternalSymbols.tryRuntimeType provider (SymbolKeyOps.simpleName key)
+            | _ -> ValueNone
+
+        // Depth cap backstops a malformed cyclic `inherit`; each hop is a strict
+        // ancestor so the chain is finite in practice.
+        let rec climb (depth: int) (ft: FrozenType) : string voption =
+            if depth > 16 then
+                ValueNone
+            else
+                match shapeOf ft with
+                | ValueSome(ExternalTypeShape.Intrinsic { Id = { Platform = Some platform } }) ->
+                    // Read the PLATFORM repr, not `canon` — `canon` is the unifier's
+                    // identity key (`"System.Exception"`) and has no JS class analogue.
+                    match ExternalSymbols.tryRuntimeType provider platform with
+                    | ValueSome(ExternalTypeShape.Class _) -> ValueSome platform
+                    | _ -> ValueNone
+                | ValueSome(ExternalTypeShape.Class shape) ->
+                    match shape.FrozenBaseType with
+                    | ValueSome b -> climb (depth + 1) b
+                    | ValueNone -> ValueNone
                 | _ -> ValueNone
 
-            // Depth cap backstops a malformed cyclic `inherit`; each hop is a strict
-            // ancestor so the chain is finite in practice.
-            let rec climb (depth: int) (ft: FrozenType) : string voption =
-                if depth > 16 then
-                    ValueNone
-                else
-                    match shapeOf ft with
-                    | ValueSome(ExternalTypeShape.Intrinsic { Id = { Platform = Some platform } }) ->
-                        // Read the PLATFORM repr, not `canon` — `canon` is the unifier's
-                        // identity key (`"System.Exception"`) and has no JS class analogue.
-                        match ExternalSymbols.tryRuntimeType provider platform with
-                        | ValueSome(ExternalTypeShape.Class _) -> ValueSome platform
-                        | _ -> ValueNone
-                    | ValueSome(ExternalTypeShape.Class shape) ->
-                        match shape.FrozenBaseType with
-                        | ValueSome b -> climb (depth + 1) b
-                        | ValueNone -> ValueNone
-                    | _ -> ValueNone
-
-            climb 0 ty
+        climb 0 ty
 
     // ---- The attached-member arity contract -----------------------------------
 
@@ -182,7 +173,7 @@ module JsExternalMembers =
     /// over-application folds on as unary calls. `ValueNone` for every other head:
     /// the `App` arm falls through to the flat-call / curried dispatch.
     let tryAttachedCall
-        (provider: IExternalSymbolProvider voption)
+        (provider: IExternalSymbolProvider)
         (build: Frozen.TExpr -> JsExpr)
         (head: Frozen.TExpr)
         (spine: (Frozen.TExpr * FrozenType * SyntaxToken) list)
@@ -283,7 +274,7 @@ module JsExternalMembers =
     /// runtime module — `JsImports.entryFor` fails loudly when the package has none
     /// (a real npm package cannot export a mangled name).
     let mangledMemberAccess
-        (provider: IExternalSymbolProvider voption)
+        (provider: IExternalSymbolProvider)
         (imports: JsImports)
         (build: Frozen.TExpr -> JsExpr)
         (declKey: SymbolKey)

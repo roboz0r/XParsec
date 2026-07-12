@@ -1,6 +1,7 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.InlineTests
 
 open Expecto
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
@@ -151,12 +152,14 @@ let tests =
                 match tast.Decls with
                 | EqList [ TDecl.Let(TPat.NamedSimple _, TExpr.Lambda _, true, TyFun(TyConst(k1, _), TyConst(k2, _)))
                            TDecl.Expression(TExpr.Let(TPat.NamedSimple _,
-                                                      TExpr.Const(TConstValue.Int 41, _, _),
+                                                      TExpr.Const(TConstValue.Integral(IntWidth.Int32, 41L), _, _),
                                                       TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _, _),
                                                                           TExpr.Var _,
                                                                           _,
                                                                           _),
-                                                                TExpr.Const(TConstValue.Int 1, _, _),
+                                                                TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L),
+                                                                            _,
+                                                                            _),
                                                                 _,
                                                                 _),
                                                       _,
@@ -180,7 +183,7 @@ let tests =
                                                    TExpr.Var(_, TyConst(k2, _), _),
                                                    _,
                                                    _),
-                                         TExpr.Const(TConstValue.Int 1, _, _),
+                                         TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), _, _),
                                          _,
                                          _),
                                TyFun(TyConst(k3, _), TyConst(k4, _)),
@@ -205,7 +208,7 @@ let tests =
                 match e with
                 | TExpr.Lambda(TPat.NamedSimple(kb, _, _),
                                TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _, _), TExpr.Var(kv, _, _), _, _),
-                                         TExpr.Const(TConstValue.Int 1, _, _),
+                                         TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), _, _),
                                          _,
                                          _),
                                _,

@@ -2,6 +2,7 @@ module XParsec.FSharp.Codegen.Clr.Tests.FunctionTests
 
 open System.Reflection
 open Expecto
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
@@ -82,8 +83,11 @@ let tests =
                         ->
                         match EqArray.toList segs with
                         | [ FormatSeg.Hole(_,
-                                           TExpr.Let(TPat.NamedSimple _, TExpr.Const(TConstValue.Int 41, _, _), _, _, _)) ] ->
-                            ()
+                                           TExpr.Let(TPat.NamedSimple _,
+                                                     TExpr.Const(TConstValue.Integral(IntWidth.Int32, 41L), _, _),
+                                                     _,
+                                                     _,
+                                                     _)) ] -> ()
                         | other -> failtestf "unexpected segments: %A" other
                     | other -> failtestf "unexpected inline TAST: %A" other
                 }

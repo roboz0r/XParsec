@@ -59,17 +59,17 @@ module InlineBodies =
     ///
     /// Each `when ^T1 : byte and ^T2 : byte and ^T3 : byte` clause carries one
     /// `TyconEquals` constraint per typar, all naming the same primitive, so a clause
-    /// contributes one width however many typars its operator publishes. The projection
-    /// runs the required type through `RuntimeNames.canonicalPrimitiveName`, the same
-    /// relation `Inline.staticOptTypesMatch` selects a clause by — asking "which widths
-    /// does this clause set cover" by any other rule would answer a question the compiler
-    /// is not asking.
+    /// contributes one width however many typars its operator publishes. The width is the
+    /// required type's bare intrinsic name — the same thing `Inline.staticOptTypesMatch`
+    /// selects a clause by, and for the same reason it needs no canonicalisation: an
+    /// intrinsic abbreviation (`int32`, `single`) is expanded at name resolution, so a
+    /// clause's required type is already canonical by the time it is frozen into the body.
     let clauseWidths (body: InlineBody) : Set<string> =
         let acc = ResizeArray<string>()
 
         let widthOf (t: SemType) =
             match t with
-            | TyConst(key, _) -> Some(RuntimeNames.canonicalPrimitiveName (SymbolKeyOps.intrinsicName key))
+            | TyConst(key, _) -> Some(SymbolKeyOps.intrinsicName key)
             // A clause gated on a typar (`when ^T : ^T`, the user catch-all) or on a
             // structural type pins no width; the arithmetic contract writes neither.
             | _ -> None
@@ -95,7 +95,7 @@ module InlineBodies =
         Set.ofSeq acc
 
 /// The guard: the clause sets and the conformance manifest must state the same
-/// width→backend support matrix.
+/// (width × operator) → backend support matrix.
 module OperatorClauseParity =
 
     open XParsec.FSharp.Codegen.Common.Tests.Conformance
@@ -112,24 +112,32 @@ module OperatorClauseParity =
             "~-", "op_UnaryNegation"
         ]
 
-    /// The manifest's `operators` default: a width supports every arithmetic operator
-    /// unless it says otherwise (`string` does).
+    /// The manifest's `operators` default: a program's obligations are about every
+    /// arithmetic operator unless it narrows them.
     let private allOperators = operators |> List.map fst |> Set.ofList
 
-    /// What the manifest says about one width, merged over every program that names it.
-    type private WidthSupport =
+    /// What the manifest owes for ONE (width, operator) pair, merged over every program
+    /// that names it.
+    type private Support =
         {
-            /// Backends that must RUN a program at this width — so they must HAVE a clause.
+            /// Backends that must RUN that operator at that width — so they must HAVE
+            /// a clause for it.
             Run: Set<string>
-            /// Backends that must REJECT one — so they must have NO clause.
+            /// Backends that must REJECT it — so they must have NO clause.
             Diagnose: Set<string>
-            Operators: Set<string>
         }
 
-    /// The width→backend arithmetic-support matrix, read off the manifest. This is the
-    /// answer to "which types support arithmetic, where" — stated in one place, by the
-    /// same file that pins the behaviour, rather than inferred from two clause lists.
-    let private matrix: Map<string, WidthSupport> =
+    /// The (width × operator) → backend arithmetic-support matrix, read off the manifest.
+    /// This is the answer to "which types support which arithmetic, where" — stated in one
+    /// place, by the same file that pins the behaviour, rather than inferred from two
+    /// clause lists.
+    ///
+    /// The PAIR is the key, not the width: `byte` must run `+` on both backends and must
+    /// be rejected for `~-` on both, and a width-keyed matrix could hold only one of those
+    /// two facts. (It held the wrong one: `~-` defaulted to supported at every width that
+    /// supported `+`, so the guard demanded the very unsigned negation clauses that
+    /// answered 56 on JS and -200 on the CLR.)
+    let private matrix: Map<string * string, Support> =
         (Map.empty, programs)
         ||> List.fold (fun m p ->
             match p.Covers with
@@ -138,7 +146,7 @@ module OperatorClauseParity =
                 let ofObligation (run, diagnose) (backend, ob) =
                     match ob with
                     // A program that must FAULT still RUNS (integer `/` by zero throws):
-                    // its width needs a clause exactly as a completing one does.
+                    // its pair needs a clause exactly as a completing one does.
                     | Obligation.Run
                     | Obligation.Fault _ -> Set.add backend run, diagnose
                     | Obligation.Diagnose _ -> run, Set.add backend diagnose
@@ -146,28 +154,22 @@ module OperatorClauseParity =
                 let run, diagnose =
                     p.Obligations |> Map.toList |> List.fold ofObligation (Set.empty, Set.empty)
 
-                let here =
-                    {
-                        Run = run
-                        Diagnose = diagnose
-                        Operators = defaultArg covers.Operators allOperators
-                    }
+                (m, defaultArg covers.Operators allOperators)
+                ||> Set.fold (fun m op ->
+                    let key = covers.Width, op
 
-                let merged =
-                    match Map.tryFind covers.Width m with
-                    | None -> here
-                    | Some prev ->
-                        {
-                            Run = Set.union prev.Run here.Run
-                            Diagnose = Set.union prev.Diagnose here.Diagnose
-                            Operators = Set.union prev.Operators here.Operators
-                        }
+                    let merged =
+                        match Map.tryFind key m with
+                        | None -> { Run = run; Diagnose = diagnose }
+                        | Some prev ->
+                            {
+                                Run = Set.union prev.Run run
+                                Diagnose = Set.union prev.Diagnose diagnose
+                            }
 
-                Map.add covers.Width merged m
+                    Map.add key merged m
+                )
         )
-
-    let private widthsWhere (predicate: WidthSupport -> bool) : Set<string> =
-        matrix |> Map.filter (fun _ s -> predicate s) |> Map.keys |> Set.ofSeq
 
     /// One backend's clause sets against the matrix. `bodies` is that backend's operator
     /// contract as its own symbol leaf resolves it (compiled name → spliced body).
@@ -175,22 +177,22 @@ module OperatorClauseParity =
         testList
             (sprintf "Operator clause parity (%s)" backendName)
             [
-                test "the manifest never both runs and rejects the same width" {
+                test "the manifest never both runs and rejects the same (width, operator)" {
                     let contradictions =
                         matrix
                         |> Map.toList
-                        |> List.choose (fun (width, s) ->
+                        |> List.choose (fun (pair, s) ->
                             let both = Set.intersect s.Run s.Diagnose
 
                             if Set.isEmpty both then
                                 None
                             else
-                                Some(width, Set.toList both)
+                                Some(pair, Set.toList both)
                         )
 
                     Expect.isEmpty
                         contradictions
-                        "a width cannot be one a backend must run AND one it must reject; the matrix would say both"
+                        "an operator at a width cannot be one a backend must run AND one it must reject; the matrix would say both"
                 }
 
                 for symbol, compiled in operators do
@@ -202,8 +204,18 @@ module OperatorClauseParity =
 
                         let actual = InlineBodies.clauseWidths body
 
+                        // This operator's column of the matrix: what each width owes for it.
+                        let column =
+                            matrix
+                            |> Map.toList
+                            |> List.choose (fun ((width, op), s) -> if op = symbol then Some(width, s) else None)
+                            |> Map.ofList
+
                         let expected =
-                            widthsWhere (fun s -> Set.contains backendName s.Run && Set.contains symbol s.Operators)
+                            column
+                            |> Map.filter (fun _ s -> Set.contains backendName s.Run)
+                            |> Map.keys
+                            |> Set.ofSeq
 
                         let extra = Set.difference actual expected
                         let missing = Set.difference expected actual
@@ -213,24 +225,24 @@ module OperatorClauseParity =
                         let says (verdict: string) (widths: Set<string>) =
                             sprintf "the %s `%s` contract %s: %A" backendName symbol verdict (Set.toList widths)
 
-                        // A width the backend must RUN with no clause is a program that
-                        // is a COMPILE ERROR on that backend — the corpus would go red,
-                        // but only for the widths someone wrote a program for.
+                        // A width the backend must RUN this operator at, with no clause, is
+                        // a program that is a COMPILE ERROR on that backend — the corpus
+                        // would go red, but only for the pairs someone wrote a program for.
                         Expect.isEmpty
                             missing
                             (says
                                 "has NO clause for widths the manifest says it must run — they fall to the SRTP base and fail to resolve"
                                 missing)
 
-                        // THE FALSE-PRECISION REGRESSION, mechanically. A width the
-                        // manifest says this backend must REJECT, given a clause: it now
-                        // compiles and emits whatever that clause says, and no corpus
-                        // program is looking (`diagnose` rows assert on the compile error,
-                        // which just disappeared).
+                        // THE FALSE-PRECISION REGRESSION, mechanically. A pair the manifest
+                        // says this backend must REJECT, given a clause: it now compiles and
+                        // emits whatever that clause says, and no corpus program is looking
+                        // (`diagnose` rows assert on the compile error, which just
+                        // disappeared).
                         let mustReject =
                             extra
                             |> Set.filter (fun w ->
-                                match Map.tryFind w matrix with
+                                match Map.tryFind w column with
                                 | Some s -> Set.contains backendName s.Diagnose
                                 | None -> false
                             )
@@ -238,30 +250,31 @@ module OperatorClauseParity =
                         Expect.isEmpty
                             mustReject
                             (says
-                                "has a clause for widths the manifest says it must REJECT — the clause makes them compile, and emit"
+                                "has a clause for widths the manifest says it must REJECT at this operator — the clause makes them compile, and emit"
                                 mustReject)
 
                         // An UNPINNED clause: emitted code that no conformance program
                         // exercises and no golden judges. Failing rather than reporting is
                         // the same doctrine as the rest of this corpus — a clause whose
                         // answer nothing checks is exactly the state that let ~8 wrong JS
-                        // widths read as coverage — and the fix is cheap either way: add
-                        // the program, or delete the clause.
-                        let unpinned = extra |> Set.filter (fun w -> not (Map.containsKey w matrix))
+                        // widths read as coverage, and then let unsigned `~-` do it again
+                        // one axis over — and the fix is cheap either way: add the program,
+                        // or delete the clause.
+                        let unpinned = extra |> Set.filter (fun w -> not (Map.containsKey w column))
 
                         Expect.isEmpty
                             unpinned
                             (says
-                                "has a clause for widths the manifest never mentions — it emits code no conformance program judges"
+                                "has a clause for widths the manifest never pairs with this operator — it emits code no conformance program judges"
                                 unpinned)
 
-                        // What is left over: a width in the matrix, run by this backend,
-                        // but whose declared operator set excludes this operator — a
-                        // `string` `(-)` clause, say.
+                        // What is left over: a pair in the matrix that this backend is named
+                        // in neither half of — it owes the operator nothing at that width,
+                        // yet carries a clause.
                         let unsupported = extra - mustReject - unpinned
 
                         Expect.isEmpty
                             unsupported
-                            (says "has a clause for widths whose manifest `operators` exclude it" unsupported)
+                            (says "has a clause for widths the manifest gives it no obligation at" unsupported)
                     }
             ]

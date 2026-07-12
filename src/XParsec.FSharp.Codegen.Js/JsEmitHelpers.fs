@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.Codegen.Js
 
 open System.Globalization
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
@@ -96,27 +97,23 @@ module JsEmitHelpers =
     /// A scalar `Const` value → its JS expression. Shared by `buildExpr` and `Const` patterns.
     let constExpr (value: TConstValue) (loc: JsLoc voption) : JsExpr =
         match value with
-        // Every width up to 32 bits is a plain JS `number`: its range (≤ 2³²-1) fits a
-        // double exactly, so the value emits as a decimal literal verbatim (signedness
-        // is not a property of the JS number, only of the width mask its operators
-        // carry).
-        | TConstValue.SByte n -> JsExpr.Literal(JsLiteral.Number(string (int n)), loc)
-        | TConstValue.Byte b -> JsExpr.Literal(JsLiteral.Number(string (int b)), loc)
-        | TConstValue.Int16 n -> JsExpr.Literal(JsLiteral.Number(string (int n)), loc)
-        | TConstValue.UInt16 n -> JsExpr.Literal(JsLiteral.Number(string (int n)), loc)
-        | TConstValue.Int n -> JsExpr.Literal(JsLiteral.Number(string n), loc)
-        | TConstValue.UInt n -> JsExpr.Literal(JsLiteral.Number(string n), loc)
-        // The 64-bit widths ARE JS BigInts (`prim-types-int.js.fs`: `type int64 =
-        // (# "bigint" #)`), so their literal is a BigInt literal (`10n`). A plain
-        // number would silently lose the magnitudes past 2^53 that the width exists to
-        // carry — and would make `10UL / 3UL` true division.
-        | TConstValue.Int64 n -> JsExpr.Literal(JsLiteral.BigInt(string n), loc)
-        | TConstValue.UInt64 n -> JsExpr.Literal(JsLiteral.BigInt(string n), loc)
-        // `nativeint` / `unativeint` ship no JS repr at all; a program mentioning either
-        // is rejected by `SemanticAnalysis.PlatformTypes` long before emission.
-        | TConstValue.NativeInt _
-        | TConstValue.UNativeInt _ ->
-            failwithf "EmitJs: nativeint literals have no representation on the target platform"
+        // An integral literal's TEXT is `IntWidth.render` — its decimal at the width's own
+        // signedness — and its JS FORM follows from the width alone:
+        //
+        //   * `nativeint` / `unativeint` ship no JS repr at all. A program mentioning either
+        //     is rejected by `SemanticAnalysis.PlatformTypes` long before emission.
+        //   * the wide widths ARE JS BigInts (`prim-types-int.js.fs`: `type int64 =
+        //     (# "bigint" #)`), so they emit a BigInt literal (`10n`). A plain number would
+        //     silently lose the magnitudes past 2^53 that the width exists to carry — and
+        //     would make `10UL / 3UL` true division.
+        //   * everything narrower is a plain JS `number`: its range (≤ 2³²-1) fits a double
+        //     exactly, so the value emits verbatim (signedness is not a property of the JS
+        //     number, only of the width mask its operators carry).
+        | TConstValue.Integral(w, _) when IntWidth.isNative w ->
+            failwith "EmitJs: nativeint literals have no representation on the target platform"
+        | TConstValue.Integral(w, bits) when IntWidth.isWide w ->
+            JsExpr.Literal(JsLiteral.BigInt(IntWidth.render w bits), loc)
+        | TConstValue.Integral(w, bits) -> JsExpr.Literal(JsLiteral.Number(IntWidth.render w bits), loc)
         | TConstValue.Float d -> JsExpr.Literal(JsLiteral.Number(formatDouble d), loc)
         | TConstValue.Float32 f -> JsExpr.Literal(JsLiteral.Number(formatDouble (float f)), loc)
         | TConstValue.Bool b -> JsExpr.Literal(JsLiteral.Boolean b, loc)

@@ -447,11 +447,16 @@ module StructuralPrinter =
     // format hole's STATIC type knows the width, so the caller is the backend's `%O`
     // lowering (`EmitJsFormat.buildHole`, which reads `HoleSpec.Ty`), never a walker.
 
-    let fround (x: float32) : float32 = (# "Math.fround($0)" x : float32 #)
-    let toPrecision (x: float32) (digits: int) : string = (# "$0.toPrecision($1)" x digits : string #)
-    let parseF32 (s: string) : float32 = (# "Number($0)" s : float32 #)
-    let f32Eq (a: float32) (b: float32) : bool = (# "$0 === $1" a b : bool #)
-    let f32Str (x: float32) : string = (# "String($0)" x : string #)
+    // The FFI primitives the search is built from — internals of `float32ToString`, not
+    // runtime entries any backend imports, hence `private`. (The JS backend does not yet
+    // lower F# accessibility to the module's export list, so they still emit as
+    // `export const` in `Vesper.Printf.mjs`; `private` is what stops an F# consumer
+    // reaching them, and is what an accessibility-aware emitter would read.)
+    let private fround (x: float32) : float32 = (# "Math.fround($0)" x : float32 #)
+    let private toPrecision (x: float32) (digits: int) : string = (# "$0.toPrecision($1)" x digits : string #)
+    let private parseF32 (s: string) : float32 = (# "Number($0)" s : float32 #)
+    let private f32Eq (a: float32) (b: float32) : bool = (# "$0 === $1" a b : bool #)
+    let private f32Str (x: float32) : string = (# "String($0)" x : string #)
 
     /// .NET `Single.ToString()` for a float32 carried in a JS `number`: the shortest
     /// decimal that round-trips through `Math.fround`.

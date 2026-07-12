@@ -2,6 +2,7 @@ module XParsec.FSharp.SemanticAnalysis.Tests.TastShape
 
 open System.Collections.Generic
 open System.Text
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 
 // Test DSL for asserting TAST shape without manually nesting pattern matches
@@ -46,25 +47,17 @@ let private opSym =
 
 let private prefixSym = Map.ofList [ "op_UnaryNegation", "-" ]
 
-/// A constant's source form, carrying the AUTHORED WIDTH as its F# suffix (the
-/// `TConstValue` case is the width), so a width-preservation regression — a `10us`
-/// silently arriving as an `int` — is visible in every snapshot. One renderer for
-/// the `Const` expression, the `Const` pattern and an enum case's literal.
+/// A constant's source form, carrying the AUTHORED WIDTH as its F# suffix, so a
+/// width-preservation regression — a `10us` silently arriving as an `int` — is visible in
+/// every snapshot. Both halves of an integral constant come off its `IntWidth`
+/// (`render` + `suffix`), so a new width renders correctly here with no edit. One renderer
+/// for the `Const` expression, the `Const` pattern and an enum case's literal.
 let private constText (v: TConstValue) : string =
     let inv (x: 'a :> System.IFormattable) =
         x.ToString(null, System.Globalization.CultureInfo.InvariantCulture)
 
     match v with
-    | TConstValue.SByte n -> string n + "y"
-    | TConstValue.Byte n -> string n + "uy"
-    | TConstValue.Int16 n -> string n + "s"
-    | TConstValue.UInt16 n -> string n + "us"
-    | TConstValue.Int n -> string n
-    | TConstValue.UInt n -> string n + "u"
-    | TConstValue.Int64 n -> string n + "L"
-    | TConstValue.UInt64 n -> string n + "UL"
-    | TConstValue.NativeInt n -> string n + "n"
-    | TConstValue.UNativeInt n -> string n + "un"
+    | TConstValue.Integral(w, bits) -> IntWidth.render w bits + IntWidth.suffix w
     | TConstValue.Float n -> inv n
     | TConstValue.Float32 n -> inv n + "f"
     | TConstValue.Decimal d -> inv d + "M"

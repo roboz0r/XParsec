@@ -1,6 +1,7 @@
 module XParsec.FSharp.Codegen.Clr.Tests.ListTests
 
 open Expecto
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
@@ -36,13 +37,17 @@ let tests =
                     match EqArray.toList segs with
                     | [ FormatSeg.Hole(hole,
                                        TExpr.UnionCons("Cons",
-                                                       EqList [ TExpr.Const(TConstValue.Int 1, _, _)
+                                                       EqList [ TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L),
+                                                                            _,
+                                                                            _)
                                                                 TExpr.UnionCons("Cons",
-                                                                                EqList [ TExpr.Const(TConstValue.Int 2,
+                                                                                EqList [ TExpr.Const(TConstValue.Integral(IntWidth.Int32,
+                                                                                                                          2L),
                                                                                                      _,
                                                                                                      _)
                                                                                          TExpr.UnionCons("Cons",
-                                                                                                         EqList [ TExpr.Const(TConstValue.Int 3,
+                                                                                                         EqList [ TExpr.Const(TConstValue.Integral(IntWidth.Int32,
+                                                                                                                                                   3L),
                                                                                                                               _,
                                                                                                                               _)
                                                                                                                   TExpr.UnionCons("Nil",

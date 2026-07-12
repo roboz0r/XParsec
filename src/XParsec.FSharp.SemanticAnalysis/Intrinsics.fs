@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open XParsec.FSharp.Lexer
 
 // The primitive-intrinsic identity surface: how a pass resolves `int`/`string`/…
 // to their CONTRACT-sourced identities (never authored from a hardcoded name
@@ -85,6 +86,13 @@ type IntrinsicSet(tryResolve: string -> SemType option) =
     member _.UInt64 = get "uint64"
     member _.NativeInt = get "nativeint"
     member _.UNativeInt = get "unativeint"
+
+    /// The type of an integral WIDTH. Freeze types an integral constant through this, so a
+    /// constant's width and the type it freezes at cannot disagree: both are
+    /// `IntWidth.name`, which is also the name the elaborator gives an enum's underlying
+    /// type and the name the CLR backend loads its cases at.
+    member _.OfIntWidth(w: IntWidth) : SemType = get (IntWidth.name w)
+
     member _.Float = get "float"
     member _.Float32 = get "float32"
     member _.Bool = get "bool"

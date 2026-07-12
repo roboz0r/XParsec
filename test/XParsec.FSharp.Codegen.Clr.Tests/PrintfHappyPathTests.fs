@@ -1,6 +1,7 @@
 module XParsec.FSharp.Codegen.Clr.Tests.PrintfHappyPathTests
 
 open Expecto
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
@@ -218,7 +219,7 @@ let tests =
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match EqArray.toList segs with
                     | [ FormatSeg.Lit "a="
-                        FormatSeg.Hole(_, TExpr.Const(TConstValue.Int 7, _, _))
+                        FormatSeg.Hole(_, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 7L), _, _))
                         FormatSeg.Lit " b="
                         FormatSeg.Hole(_, TExpr.Const(TConstValue.String "x", _, _))
                         FormatSeg.Lit "!" ] -> ()
@@ -560,7 +561,7 @@ let tests =
                 match soleDecl "printfn \"%A\" 42" with
                 | TDecl.Expression(TExpr.Format(_, segs, _, _), _) ->
                     match EqArray.toList segs with
-                    | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Int 42, _, _)) ] ->
+                    | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 42L), _, _)) ] ->
                         Expect.equal (kindOf hole) PrintfSpec.HoleKind.Structured "%A is a Structured hole"
                         Expect.equal (formatOf hole) None "no .NET format string for %A"
                         Expect.equal (alignmentOf hole) None "plain %A → no budget (emit defaults to 80)"
@@ -1572,7 +1573,8 @@ let tests =
                     Expect.equal ty (TyConst(RuntimeNames.stringKey, EqArray.empty)) "interpolation yields a string"
 
                     match EqArray.toList segs with
-                    | [ FormatSeg.Lit "x="; FormatSeg.Hole(hole, TExpr.Const(TConstValue.Int 1, _, _)) ] ->
+                    | [ FormatSeg.Lit "x="
+                        FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 1L), _, _)) ] ->
                         Expect.equal (kindOf hole) PrintfSpec.HoleKind.Formatted "a plain hole is Formatted"
                         Expect.equal (formatOf hole) None "no format clause"
 
@@ -1658,9 +1660,9 @@ let tests =
                     match EqArray.toList segs with
                     | [ FormatSeg.DynHole d ] ->
                         match d.Width, d.Precision, d.Value with
-                        | ValueSome(TExpr.Const(TConstValue.Int 5, _, _)),
+                        | ValueSome(TExpr.Const(TConstValue.Integral(IntWidth.Int32, 5L), _, _)),
                           ValueNone,
-                          TExpr.Const(TConstValue.Int 42, _, _) ->
+                          TExpr.Const(TConstValue.Integral(IntWidth.Int32, 42L), _, _) ->
                             match d.Spec.Source with
                             | HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.Verbatim,
                                                                                       PrintfHoleForm.Alignment.Star false)) ->
@@ -1736,7 +1738,7 @@ let tests =
                     | [ FormatSeg.DynHole d ] ->
                         match d.Width, d.Precision, d.Spec.Source with
                         | ValueNone,
-                          ValueSome(TExpr.Const(TConstValue.Int 3, _, _)),
+                          ValueSome(TExpr.Const(TConstValue.Integral(IntWidth.Int32, 3L), _, _)),
                           HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.Fixed PrintfHoleForm.Prec.Star,
                                                                                   PrintfHoleForm.Alignment.None)) -> ()
                         | other -> failtestf "expected precision-only DynHole over Fixed(Star), got: %A" other
@@ -1750,8 +1752,8 @@ let tests =
                     match EqArray.toList segs with
                     | [ FormatSeg.DynHole d ] ->
                         match d.Width, d.Precision, d.Spec.Source with
-                        | ValueSome(TExpr.Const(TConstValue.Int 8, _, _)),
-                          ValueSome(TExpr.Const(TConstValue.Int 3, _, _)),
+                        | ValueSome(TExpr.Const(TConstValue.Integral(IntWidth.Int32, 8L), _, _)),
+                          ValueSome(TExpr.Const(TConstValue.Integral(IntWidth.Int32, 3L), _, _)),
                           HoleSpecSource.Classified(PrintfHoleForm.HoleForm.Field(PrintfHoleForm.FieldFormat.Fixed PrintfHoleForm.Prec.Star,
                                                                                   PrintfHoleForm.Alignment.Star false)) ->
                             ()

@@ -3,6 +3,7 @@
 open System.Collections.Generic
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open EmitTypes
 open EmitLower
@@ -204,16 +205,7 @@ module EmitPattern =
             // load (`pushIntConst`, shared with the `Const` expression) — including the
             // pointer-width conversion a `nativeint` slot needs before `bne.un`
             // compares it.
-            | TConstValue.SByte _
-            | TConstValue.Byte _
-            | TConstValue.Int16 _
-            | TConstValue.UInt16 _
-            | TConstValue.Int _
-            | TConstValue.UInt _
-            | TConstValue.Int64 _
-            | TConstValue.UInt64 _
-            | TConstValue.NativeInt _
-            | TConstValue.UNativeInt _ -> pushIntConst b value
+            | TConstValue.Integral(w, bits) -> pushIntConst b w bits
             | TConstValue.Bool v -> b.Add(ILInstr.LdcI4(if v then 1 else 0))
             | TConstValue.Char c -> b.Add(ILInstr.LdcI4(int c))
             | other -> failwithf "Emit: match on constant %A is out of scope" other

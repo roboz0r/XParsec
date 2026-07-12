@@ -1,6 +1,7 @@
 module XParsec.FSharp.Codegen.Clr.Tests.HashTests
 
 open Expecto
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common
@@ -46,7 +47,7 @@ let tests =
                 match EqArray.toList tast.Decls with
                 | [ TDecl.Let(TPat.NamedSimple _,
                               TExpr.Let(_,
-                                        TExpr.Const(TConstValue.Int 5, _, _),
+                                        TExpr.Const(TConstValue.Integral(IntWidth.Int32, 5L), _, _),
                                         TExpr.App(TExpr.ExternalMember(ValueSome(TExpr.ExternalMember(ValueNone,
                                                                                                       _,
                                                                                                       "Default",

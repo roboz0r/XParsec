@@ -60,17 +60,20 @@ type Obligation =
     /// Reject it at COMPILE time with an error containing this substring.
     | Diagnose of fragment: string
 
-/// What one program pins about the width→backend arithmetic-support matrix — the
-/// manifest's `width` / `operators` keys. A program that is about no single primitive
-/// (`arith-unsigned-div.fs` spans several; `arith-div-by-zero.fs` is about faulting)
-/// carries NO coverage and contributes nothing to the matrix; the option is what makes
-/// that honestly sayable rather than forcing a width on it.
+/// What one program pins about the (width × operator) → backend arithmetic-support
+/// matrix — the manifest's `width` / `operators` keys. A program that is about no single
+/// primitive (`arith-unsigned-div.fs` spans several; `arith-div-by-zero.fs` is about
+/// faulting) carries NO coverage and contributes nothing to the matrix; the option is
+/// what makes that honestly sayable rather than forcing a width on it.
 type WidthCoverage =
     {
         /// The primitive this program is about (`byte`, `string`).
         Width: string
-        /// The arithmetic operators this WIDTH supports. `None` ⇒ unspecified, which
-        /// the parity guard reads as all of them; only `string` narrows it.
+        /// The arithmetic operators this program's obligations are about — the pairs it
+        /// contributes are `Width` × these. `None` ⇒ unspecified, which the parity guard
+        /// reads as all of them. Narrowing it is how a width says it supports some
+        /// operators and not others: `string` has only `+`, and no unsigned width has
+        /// `~-`.
         Operators: Set<string> option
     }
 

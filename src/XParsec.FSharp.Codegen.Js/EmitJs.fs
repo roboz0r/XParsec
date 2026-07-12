@@ -783,11 +783,9 @@ module EmitJs =
     let buildProgram (ctx0: WalkCtx) (tast: Frozen.TastFile) : JsProgram =
         // The language-capability identities, resolved through the provider — drives the
         // `seq<'T>`-impl → `[Symbol.iterator]` routing in `partitionClassMembers`. A
-        // provider-less compile (`nullProvider`) names no capability.
-        let caps =
-            match ctx0.Provider with
-            | ValueSome provider -> ExternalSymbols.resolveCapabilities provider
-            | ValueNone -> RuntimeNames.CapabilityIds.none
+        // provider-less compile passes `nullProvider`, whose empty leaf resolves to the
+        // all-unnamed set (`CapabilityIds.none`), so absence needs no arm of its own.
+        let caps = ExternalSymbols.resolveCapabilities ctx0.Provider
 
         let collected = collectTypes caps ctx0.ExportTopLevel tast
 

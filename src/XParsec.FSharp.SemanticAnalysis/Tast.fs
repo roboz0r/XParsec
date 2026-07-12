@@ -1,5 +1,6 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.Parser
 
 // TAST does NOT preserve trivia, parens, or token layout — tooling consumers
@@ -18,22 +19,20 @@ open XParsec.FSharp.Parser
 // (the single SemType→FrozenType rebuild point) and reads it in codegen, without
 // re-touching every annotation.
 
-/// A compile-time constant. The integral cases mirror `NumericLiteralValue`
-/// case-for-case: the CASE is the constant's width (there is no separate
-/// `IntWidth` type), so no width can fold onto another and silently truncate on
-/// the way to a backend.
+/// A compile-time constant. An integral constant carries its WIDTH as an `IntWidth` witness
+/// (`XParsec.FSharp.Lexer`) beside its value, rather than being one DU case per width: the
+/// width is then a value a consumer can ASK about (`IntWidth.name`, `IntWidth.isSigned`,
+/// `IntWidth.render`) instead of a shape it must re-derive by enumerating ten cases.
+///
+/// That is what makes width a thing the compiler tracks. Every match on `TConstValue` is now
+/// exhaustive over EIGHT cases with no residual `| other -> failwith` arm, and a new integral
+/// width is one new `IntWidth` case — a compile error at each table that must learn about it,
+/// not a silent fall-through that fails at run time.
+///
+/// `bits` is `IntWidth`'s normal form; see that module for the encoding.
 [<RequireQualifiedAccess>]
 type TConstValue =
-    | SByte of sbyte
-    | Byte of byte
-    | Int16 of int16
-    | UInt16 of uint16
-    | Int of int
-    | UInt of uint32
-    | Int64 of int64
-    | UInt64 of uint64
-    | NativeInt of nativeint
-    | UNativeInt of unativeint
+    | Integral of width: IntWidth * bits: int64
     | Float of double
     | Float32 of single
     | Bool of bool
@@ -714,17 +713,14 @@ and TUnionCaseG<'ty> =
 /// unrepresentable on the node (illegal cases never construct a `TEnumLiteral`;
 /// they record `ValueNone` on `TEnumCaseG.Value`).
 and [<RequireQualifiedAccess>] TEnumLiteral =
-    /// An integer enum-case value. The payload is the authored integral literal
-    /// exactly as `parseConst` resolved it — its `TConstValue` *case* **is** the
-    /// authored width witness (the codebase has no separate `IntWidth` type;
-    /// integral width is modelled by the `NumericLiteralValue` / `TConstValue`
-    /// case). `Int` (= int32) doubles as the unsuffixed default — step 2/freeze
-    /// maps it to `I32`, the other cases to their CLR underlying type. Width is
-    /// therefore *preserved*, not defaulted, here. Invariant: always one of the
-    /// eight integral widths a CLR enum may be based on (`SByte`/`Byte`/`Int16`/
-    /// `UInt16`/`Int`/`UInt`/`Int64`/`UInt64`) — the elaborator rejects every
-    /// other `TConstValue`, `nativeint` / `unativeint` included (no enum may be
-    /// based on a pointer-width integer).
+    /// An integer enum-case value: the authored integral literal exactly as `parseConst`
+    /// resolved it, so its `IntWidth` is the authored width. `int` doubles as the
+    /// unsuffixed default — step 2/freeze maps it to `I32`, every other width to its own
+    /// CLR underlying type. Width is therefore *preserved*, not defaulted, here.
+    ///
+    /// Invariant: always a `TConstValue.Integral` whose width satisfies `IntWidth.isEnumBase`
+    /// — the elaborator rejects every other constant, `nativeint` / `unativeint` included
+    /// (no `System.Enum` may be based on a pointer-width integer).
     | Int of value: TConstValue
     /// A string enum-case value — the stitched literal text (escapes decoded).
     | String of value: string

@@ -2,6 +2,7 @@
 
 open System.Collections.Generic
 open System.Reflection.Metadata
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 
 module EmitTypes =
@@ -471,37 +472,43 @@ module EmitTypes =
         let ofContext (ctx: EmitContext) (args: Dictionary<NodeKey, int>) : EmitEnv =
             create ctx ValueNone (Dictionary()) args
 
-    /// Push an integral `TConstValue` (`Const` expression or `Const` pattern — the
-    /// single source both share, so the two loads cannot drift). The constant's CASE
-    /// carries its width, which is what decides the load:
+    /// The `ldc` for an integral constant — the single source of the integral load, so no
+    /// site can drift from another (the `Const` expression, the `Const` pattern, and
+    /// `EmitResolve`'s enum-case load all route here). The width decides the instruction and
+    /// nothing else does, so `IntWidth.isWide` is the whole test:
     ///
-    /// `sbyte` / `byte` / `int16` / `uint16` / `int` / `uint32` all HAVE int32 as
-    /// their CIL stack type, so a bare `ldc.i4` of the value's bit pattern is the whole
-    /// load (signedness is a type-level distinction the verifier reads off the slot,
-    /// not the load). `int64` / `uint64` push `ldc.i8` — the 64-bit stack type is the
-    /// only one that can hold their magnitude. `nativeint` / `unativeint` are a
-    /// distinct stack type again (`native int`), so their `ldc` must be CONVERTED or
-    /// the value lands in a `native int` slot as an int32/int64 and the IL is
-    /// unverifiable; `conv.i` sign-extends, `conv.u` zero-extends — the signedness the
-    /// width itself declares. The residual arm is a "can't happen": both call sites
-    /// route only their integral arms here.
-    let pushIntConst (b: IlBuilder) (v: TConstValue) : unit =
-        match v with
-        | TConstValue.SByte n -> b.Add(ILInstr.LdcI4(int n))
-        | TConstValue.Byte n -> b.Add(ILInstr.LdcI4(int n))
-        | TConstValue.Int16 n -> b.Add(ILInstr.LdcI4(int n))
-        | TConstValue.UInt16 n -> b.Add(ILInstr.LdcI4(int n))
-        | TConstValue.Int n -> b.Add(ILInstr.LdcI4 n)
-        | TConstValue.UInt n -> b.Add(ILInstr.LdcI4(int n))
-        | TConstValue.Int64 n -> b.Add(ILInstr.LdcI8 n)
-        | TConstValue.UInt64 n -> b.Add(ILInstr.LdcI8(int64 n))
-        | TConstValue.NativeInt n ->
-            b.Add(ILInstr.LdcI8(int64 n))
-            b.Add(ILInstr.Un ILOpCode.Conv_i)
-        | TConstValue.UNativeInt n ->
-            b.Add(ILInstr.LdcI8(int64 (uint64 n)))
-            b.Add(ILInstr.Un ILOpCode.Conv_u)
-        | other -> failwithf "Emit: %A is not an integral constant" other
+    /// `sbyte` / `byte` / `int16` / `uint16` / `int` / `uint32` all HAVE int32 as their CIL
+    /// stack type, so a bare `ldc.i4` of the value's low 32 bits is the whole load
+    /// (signedness is a type-level distinction the verifier reads off the slot, not the
+    /// load). The wide widths push `ldc.i8` — the 64-bit stack type is the only one that can
+    /// hold their magnitude. `nativeint` / `unativeint` are wide too, but their load is NOT
+    /// complete without the conversion `pushIntConst` adds.
+    let intConstLoad (w: IntWidth) (bits: int64) : ILInstr =
+        if IntWidth.isWide w then
+            ILInstr.LdcI8 bits
+        else
+            ILInstr.LdcI4(int32 bits)
+
+    /// Push an integral constant as a complete, correctly-typed stack value.
+    ///
+    /// That is `intConstLoad` plus, for the pointer-width pair alone, a conversion: `native
+    /// int` is a distinct CIL stack type, so without it the value lands in a `native int`
+    /// slot as an int64 and the IL is unverifiable. `conv.i` sign-extends, `conv.u`
+    /// zero-extends — the signedness the width itself declares. No enum may be based on a
+    /// pointer-width integer, which is why the enum-case load can take the bare
+    /// `intConstLoad` and this wrapper is the only thing that knows about the conversion.
+    let pushIntConst (b: IlBuilder) (w: IntWidth) (bits: int64) : unit =
+        b.Add(intConstLoad w bits)
+
+        if IntWidth.isNative w then
+            b.Add(
+                ILInstr.Un(
+                    if IntWidth.isSigned w then
+                        ILOpCode.Conv_i
+                    else
+                        ILOpCode.Conv_u
+                )
+            )
 
     /// Materialise the `unit` value (`()`) on the stack. `unit` is the zero-field
     /// BCL struct `System.ValueTuple` (its `prim-types-min.fs` binding), not

@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open XParsec.FSharp.Lexer
+
 /// The numeric / string / mixed classification of an enum, DERIVED from its
 /// resolved case literals — never stored on the `Enum` node. `TEnumCases.classify`
 /// is the single source of truth, recomputed wherever a consumer needs it.
@@ -33,28 +35,29 @@ module TEnumCases =
         | false, true -> ValueSome TEnumVariant.String
         | false, false -> ValueNone
 
-    /// The canonical primitive NAME an integral enum-case literal contributes to the
-    /// enum's underlying type — a member of `RuntimeNames.numericTypeNames`. The eight
-    /// integral `TConstValue` cases are the only ones a `TEnumLiteral.Int` carries (the
-    /// elaborator rejects every other constant), so the residual arm is a producer bug.
-    let private integralWidthName (v: TConstValue) : string =
+    /// The width and value of an integral enum-case literal. `TEnumLiteral.Int` carries
+    /// nothing else — the elaborator rejects every non-integral constant, and every
+    /// pointer-width one (no `System.Enum` is based on those) — so the residual arm is a
+    /// producer bug, and this is the single place that says so.
+    ///
+    /// Public because a backend needs the same answer to load the constant and type it
+    /// (`Codegen.Clr`'s `EmitResolve.enumIntLoad`). The type's name is `IntWidth.name`,
+    /// stated once, so the elaborator's choice of underlying type and the emitter's cannot
+    /// disagree.
+    let integralValue (v: TConstValue) : IntWidth * int64 =
         match v with
-        | TConstValue.SByte _ -> "sbyte"
-        | TConstValue.Byte _ -> "byte"
-        | TConstValue.Int16 _ -> "int16"
-        | TConstValue.UInt16 _ -> "uint16"
-        | TConstValue.Int _ -> "int"
-        | TConstValue.UInt _ -> "uint32"
-        | TConstValue.Int64 _ -> "int64"
-        | TConstValue.UInt64 _ -> "uint64"
-        | other -> failwithf "TEnumCases.integralWidthName: non-integral enum literal %A" other
+        | TConstValue.Integral(w, bits) when IntWidth.isEnumBase w -> w, bits
+        | other -> failwithf "TEnumCases.integralValue: non-integral enum literal %A" other
 
-    /// `true` for an authored *explicit* integral width (every case but `Int`), vs
-    /// the unsuffixed `Int` default — which is width-flexible (adopts the single
-    /// explicit width present, else stays `int`) and so never drives a width conflict.
+    /// Just the width — what the enum's underlying type is derived from.
+    let integralWidth (v: TConstValue) : IntWidth = fst (integralValue v)
+
+    /// `true` for an authored *explicit* integral width, vs the unsuffixed `int` default —
+    /// which is width-flexible (adopts the single explicit width present, else stays `int`)
+    /// and so never drives a width conflict.
     let private isExplicitWidth (v: TConstValue) : bool =
         match v with
-        | TConstValue.Int _ -> false
+        | TConstValue.Integral(IntWidth.Int32, _) -> false
         | _ -> true
 
     /// Derive the enum's underlying primitive type NAME (DERIVED, not stored, like
@@ -74,7 +77,7 @@ module TEnumCases =
                 match c.Value with
                 | ValueSome(TEnumLiteral.Int v) when isExplicitWidth v ->
                     if explicit.IsNone then
-                        explicit <- ValueSome(integralWidthName v)
+                        explicit <- ValueSome(IntWidth.name (integralWidth v))
                 | _ -> ()
 
             match explicit with
@@ -93,7 +96,7 @@ module TEnumCases =
         for c in cases do
             match c.Value with
             | ValueSome(TEnumLiteral.Int v) when isExplicitWidth v && result.IsNone ->
-                let w = integralWidthName v
+                let w = IntWidth.name (integralWidth v)
 
                 match seen with
                 | ValueNone -> seen <- ValueSome w

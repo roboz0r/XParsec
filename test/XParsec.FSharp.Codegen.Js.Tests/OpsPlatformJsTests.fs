@@ -12,10 +12,8 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // CROSS-target contrasts (a JS template absent on CLR; the CLR BCL repr) need the BCL
 // metadata leaf and live in `Codegen.Clr.Tests.OpsPlatformClrTests`.
 //
-// The body harvest itself (`InlineBodies`) is shared with that suite: both read the
-// same contract, only through a different symbol leaf.
-
-let private ilOpCodes = InlineBodies.ilOpCodes
+// The body harvest itself (`InlineBodies.ilOpCodes`) is shared with that suite: both read
+// the same contract, only through a different symbol leaf.
 
 [<Tests>]
 let tests =
@@ -49,7 +47,7 @@ let tests =
                 let js =
                     JsNativeSymbols.jsNativeInlineBodiesFor (Some Target.Js) [ vesperCoreManifest ]
 
-                let add = ilOpCodes js.["op_Addition"]
+                let add = InlineBodies.ilOpCodes js.["op_Addition"]
 
                 Expect.contains add "$0 + $1" "float base template"
                 Expect.contains add "($0 + $1) | 0" "int32 `| 0` truncation clause"
@@ -57,16 +55,16 @@ let tests =
 
                 // The Math.imul int32 multiply clause is the JS template (contrasted
                 // against the CLR `mul` mnemonic in `OpsPlatformClrTests`).
-                let mul = ilOpCodes js.["op_Multiply"]
+                let mul = InlineBodies.ilOpCodes js.["op_Multiply"]
                 Expect.contains mul "Math.imul($0, $1)" "js `*` int32 clause is the Math.imul template"
 
                 // Unary negation is a static-opt with base + int + int64 clauses.
-                let neg = ilOpCodes js.["op_UnaryNegation"]
+                let neg = InlineBodies.ilOpCodes js.["op_UnaryNegation"]
                 Expect.contains neg "-$0" "unary-neg float base"
                 Expect.contains neg "(-$0) | 0" "unary-neg int32 clause"
 
                 // The `%` in the modulus template is NOT a printf placeholder — must survive freeze verbatim.
-                let modOps = ilOpCodes js.["op_Modulus"]
+                let modOps = InlineBodies.ilOpCodes js.["op_Modulus"]
                 Expect.contains modOps "$0 % $1" "modulus `%` carried through verbatim"
                 Expect.contains modOps "($0 % $1) | 0" "modulus int32 clause keeps the bare `%`"
             }
@@ -77,14 +75,14 @@ let tests =
 
                 // The aggregate base is a CALL to `structuralEquals`, not an IL template;
                 // `ilOpCodes` sees the `===` clauses but no `equals(` opcode.
-                let eq = ilOpCodes js.["op_Equality"]
+                let eq = InlineBodies.ilOpCodes js.["op_Equality"]
                 Expect.contains eq "$0 === $1" "primitive `===` clause"
 
                 Expect.isFalse
                     (eq |> List.exists (fun s -> s.Contains "equals"))
                     "the structural base is an external call, not a bare-name IL template"
 
-                let neq = ilOpCodes js.["op_Inequality"]
+                let neq = InlineBodies.ilOpCodes js.["op_Inequality"]
                 Expect.contains neq "$0 !== $1" "primitive `!==` clause"
                 Expect.contains neq "!$0" "the base negates the `structuralEquals` call via a `!$0` template"
 

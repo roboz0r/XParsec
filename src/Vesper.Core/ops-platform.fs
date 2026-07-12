@@ -127,23 +127,21 @@ module ArithmeticOperators =
         when ^T1: int16 and ^T2: int16 and ^T3: int16 = (# "conv.i2" (# "rem" x y : int32 #) : int16 #)
         when ^T1: uint16 and ^T2: uint16 and ^T3: uint16 = (# "conv.u2" (# "rem.un" x y : int32 #) : uint16 #)
 
-    /// Overloaded unary negation. `neg` is the two's-complement negation for every
-    /// integral width (the unsigned ones included) and the sign flip for the floats,
-    /// so each clause carries the same opcode at its own width.
+    /// Overloaded unary negation.
+    /// `neg` is the two's-complement negation, and where the CIL stack type IS the width
+    /// (int32 / int64 / native int / the floats) that is the whole clause. The sub-32-bit
+    /// widths compute on the int32 stack and must truncate back, exactly as every other
+    /// operator's narrow clauses do — without the `conv`, `-(-128y)` answers 128 rather
+    /// than wrapping to -128y.
     let inline (~-) (n: ^T) : ^T =
         (^T: (static member (~-): ^T -> ^T) n)
         when ^T: int = (# "neg" n : int #)
         when ^T: int64 = (# "neg" n : int64 #)
         when ^T: float = (# "neg" n : float #)
         when ^T: float32 = (# "neg" n : float32 #)
-        when ^T: uint32 = (# "neg" n : uint32 #)
-        when ^T: uint64 = (# "neg" n : uint64 #)
         when ^T: nativeint = (# "neg" n : nativeint #)
-        when ^T: unativeint = (# "neg" n : unativeint #)
-        when ^T: byte = (# "neg" n : byte #)
-        when ^T: sbyte = (# "neg" n : sbyte #)
-        when ^T: int16 = (# "neg" n : int16 #)
-        when ^T: uint16 = (# "neg" n : uint16 #)
+        when ^T: sbyte = (# "conv.i1" (# "neg" n : int32 #) : sbyte #)
+        when ^T: int16 = (# "conv.i2" (# "neg" n : int32 #) : int16 #)
 
     /// Overloaded unary plus — identity.
     let inline (~+) (value: ^T) : ^T = value

@@ -78,10 +78,10 @@ let tests =
             }
 
             test "numeric enum preserves the authored integral width (suffix)" {
-                // `1uy` → `TConstValue.Byte`, `2L` → `TConstValue.Int64`: the
-                // authored width rides through on the literal's case, surfaced by
-                // the renderer's suffix. Width is preserved, never defaulted here
-                // (step 2/freeze maps unsuffixed `Int` → I32).
+                // `1uy` → `IntWidth.Byte`, `2L` → `IntWidth.Int64`: the authored width rides
+                // through on the constant's `IntWidth`, surfaced by the renderer's suffix.
+                // Width is preserved, never defaulted here (step 2/freeze maps an unsuffixed
+                // `int` → I32).
                 let tast = analyse "type Widths = | A = 1uy | B = 2uy"
 
                 Expect.equal

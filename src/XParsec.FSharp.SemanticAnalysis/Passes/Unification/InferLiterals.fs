@@ -29,72 +29,47 @@ module internal UnificationInferLiterals =
             | _ -> ValueNone
         | _ -> ValueNone
 
-    /// Pulled out of `inferConst` so the measured-literal arm can stamp this
-    /// onto a TyVar's `Link` while the measure rides on `Units`.
+    /// The type a literal token carries. Pulled out of `inferConst` so the measured-literal
+    /// arm can stamp this onto a TyVar's `Link` while the measure rides on `Units`.
+    ///
+    /// A numeric token is read through its classified `NumericKind` rather than by
+    /// enumerating the token cases: the radix axis (`10y` / `0x0Ay` / `0o12y` / `0b1010y`)
+    /// is not part of a literal's TYPE, and `numericKind` has already collapsed it. An
+    /// integral kind then names an `IntWidth`, whose type is `ctx.Intrinsics.OfIntWidth` —
+    /// the same width→type projection freeze uses for the constant itself, so a literal's
+    /// inferred type and its frozen `TConstValue`'s type are the same fact, asked once.
     let literalCarrier (ctx: PassContext) (t: SyntaxToken) : SemType =
         match t.Token with
         | Token.KWTrue
         | Token.KWFalse -> ctx.Intrinsics.Bool
         | Token.CharLiteral -> ctx.Intrinsics.Char
-        | Token.NumSByte
-        | Token.NumSByteHex
-        | Token.NumSByteOctal
-        | Token.NumSByteBinary -> ctx.Intrinsics.SByte
-        | Token.NumByte
-        | Token.NumByteHex
-        | Token.NumByteOctal
-        | Token.NumByteBinary -> ctx.Intrinsics.Byte
-        | Token.NumInt16
-        | Token.NumInt16Hex
-        | Token.NumInt16Octal
-        | Token.NumInt16Binary -> ctx.Intrinsics.Int16
-        | Token.NumUInt16
-        | Token.NumUInt16Hex
-        | Token.NumUInt16Octal
-        | Token.NumUInt16Binary -> ctx.Intrinsics.UInt16
-        | Token.NumInt32
-        | Token.NumInt32Hex
-        | Token.NumInt32Octal
-        | Token.NumInt32Binary -> ctx.Intrinsics.Int
-        | Token.NumUInt32
-        | Token.NumUInt32Hex
-        | Token.NumUInt32Octal
-        | Token.NumUInt32Binary -> ctx.Intrinsics.UInt32
-        | Token.NumInt64
-        | Token.NumInt64Hex
-        | Token.NumInt64Octal
-        | Token.NumInt64Binary -> ctx.Intrinsics.Int64
-        | Token.NumUInt64
-        | Token.NumUInt64Hex
-        | Token.NumUInt64Octal
-        | Token.NumUInt64Binary -> ctx.Intrinsics.UInt64
-        | Token.NumNativeInt
-        | Token.NumNativeIntHex
-        | Token.NumNativeIntOctal
-        | Token.NumNativeIntBinary -> ctx.Intrinsics.NativeInt
-        | Token.NumUNativeInt
-        | Token.NumUNativeIntHex
-        | Token.NumUNativeIntOctal
-        | Token.NumUNativeIntBinary -> ctx.Intrinsics.UNativeInt
-        | Token.NumIEEE32
-        | Token.NumIEEE32Hex
-        | Token.NumIEEE32Octal
-        | Token.NumIEEE32Binary -> ctx.Intrinsics.Float32
-        | Token.NumIEEE64
-        | Token.NumIEEE64Hex
-        | Token.NumIEEE64Octal
-        | Token.NumIEEE64Binary -> ctx.Intrinsics.Float
-        | Token.NumDecimal
-        | Token.NumDecimalHex
-        | Token.NumDecimalOctal
-        | Token.NumDecimalBinary -> ctx.Intrinsics.Decimal
-        | Token.NumBigIntegerQ
-        | Token.NumBigIntegerR
-        | Token.NumBigIntegerZ
-        | Token.NumBigIntegerI
-        | Token.NumBigIntegerN
-        | Token.NumBigIntegerG -> ctx.Intrinsics.BigInt
-        | _ -> TyUnknown(sprintf "non-literal token %A in literal position" t.Token)
+        | tok ->
+
+            let unknown () =
+                TyUnknown(sprintf "non-literal token %A in literal position" tok)
+
+            match NumericLiterals.numericKindOf tok with
+            | ValueNone -> unknown ()
+            | ValueSome kind ->
+
+                match IntWidth.ofNumericKind kind with
+                | ValueSome w -> ctx.Intrinsics.OfIntWidth w
+                | ValueNone ->
+
+                    match kind with
+                    | NumericKind.IEEE32 -> ctx.Intrinsics.Float32
+                    | NumericKind.IEEE64 -> ctx.Intrinsics.Float
+                    | NumericKind.Decimal -> ctx.Intrinsics.Decimal
+                    | NumericKind.BigIntegerQ
+                    | NumericKind.BigIntegerR
+                    | NumericKind.BigIntegerZ
+                    | NumericKind.BigIntegerI
+                    | NumericKind.BigIntegerN
+                    | NumericKind.BigIntegerG -> ctx.Intrinsics.BigInt
+                    // `ReservedNumericLiteral`, or a `NumericKind` outside the declared set (a 5-bit
+                    // field, so F# cannot prove this exhaustive): a suffix F# gives no meaning to names
+                    // no type.
+                    | _ -> unknown ()
 
     let inferConst (ctx: PassContext) (c: Constant<SyntaxToken>) : SemType =
         match c with

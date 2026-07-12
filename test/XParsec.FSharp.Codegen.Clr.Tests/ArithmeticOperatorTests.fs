@@ -118,13 +118,23 @@ let tests =
                     Expect.equal (binaryOpcodes ty "/") [ conv; div ] (sprintf "%s /" ty)
                     Expect.equal (binaryOpcodes ty "%") [ conv; rem ] (sprintf "%s %%" ty)
 
-                // `~-` carries the same enumeration; `neg` is the two's-complement
-                // negation at every integral width and the sign flip for the floats.
-                for ty in signedWide @ unsignedWide @ [ "byte"; "sbyte"; "int16"; "uint16" ] do
-                    Expect.equal
-                        (opcodesOf (String.concat "" [ "let f (a: "; ty; ") = -a" ]))
-                        [ "neg" ]
-                        (sprintf "%s ~-" ty)
+                // `~-` does NOT carry the same enumeration — it is the SIGNED widths only.
+                // Negating an unsigned value has no answer the width can hold, and F#
+                // defines none (FSharp.Core's `UnaryNegationDynamic` lists the signed
+                // widths alone), so the unsigned clauses do not exist and `-a` on one is a
+                // compile error. The narrow signed widths truncate like every other
+                // narrow clause: without the `conv`, `neg` on the int32 stack answers 128
+                // for `-(-128y)` instead of wrapping back to -128y.
+                for ty in [ "int"; "int64"; "float"; "float32"; "nativeint" ] do
+                    Expect.equal (opcodesOf (sprintf "let f (a: %s) = -a" ty)) [ "neg" ] (sprintf "%s ~-" ty)
+
+                for ty, conv in [ "sbyte", "conv.i1"; "int16", "conv.i2" ] do
+                    Expect.equal (opcodesOf (sprintf "let f (a: %s) = -a" ty)) [ conv; "neg" ] (sprintf "%s ~-" ty)
+
+                for ty in unsignedWide @ [ "byte"; "uint16" ] do
+                    failsWith
+                        (sprintf "The type '%s' does not support the operator '~-'" ty)
+                        (sprintf "let f (a: %s) = -a" ty)
             }
 
             test "arithmetic + unary-neg bindings freeze from Vesper.Core and are collected as cross-package inlines" {

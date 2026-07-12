@@ -115,7 +115,7 @@ module Codegen =
                 Classes = System.Collections.Generic.Dictionary()
                 // Populated by `buildProgram` from `collectTypes`.
                 Enums = System.Collections.Generic.Dictionary()
-                Provider = ValueSome provider
+                Provider = provider
                 ExternalUnions = System.Collections.Generic.Dictionary()
                 Imports = JsImports.create runtimeAssets
                 ExportTopLevel =

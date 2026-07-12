@@ -4,6 +4,7 @@ open System.Collections.Generic
 open System.Reflection
 open System.Reflection.Metadata
 open System.Reflection.Metadata.Ecma335
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open AssemblerScaffold
@@ -317,19 +318,11 @@ type internal Assembler
     do
         for ed in enumDecls do
             for (caseName, v) in ed.Cases do
-                let boxed: obj =
-                    match v with
-                    | TConstValue.SByte n -> box n
-                    | TConstValue.Byte b -> box b
-                    | TConstValue.Int16 n -> box n
-                    | TConstValue.UInt16 n -> box n
-                    | TConstValue.Int n -> box n
-                    | TConstValue.UInt u -> box u
-                    | TConstValue.Int64 i -> box i
-                    | TConstValue.UInt64 u -> box u
-                    | other -> failwithf "Emit: numeric enum case '%s' carries a non-integral literal %A" caseName other
-
-                enumFieldConstants.[FieldKey.EnumCaseField(ed.Decl.Key, caseName)] <- boxed
+                // SRM reads the `ConstantTypeCode` off the box's RUNTIME type, so the value
+                // must be boxed at the width's own .NET primitive — `IntWidth.boxed`, the
+                // single place that says which that is.
+                let w, bits = TEnumCases.integralValue v
+                enumFieldConstants.[FieldKey.EnumCaseField(ed.Decl.Key, caseName)] <- IntWidth.boxed w bits
 
     do
         for fs in layout.Fields do

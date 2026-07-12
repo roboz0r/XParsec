@@ -26,27 +26,36 @@
 # outcome); `diagnose` is per backend, because rejection is exactly where two targets
 # legitimately differ. A backend named nowhere owes nothing for that program.
 #
-# THE WIDTH KEYS. `run` / `faults` / `diagnose` pin BEHAVIOUR — what a backend does with
-# a program. Two further keys pin STRUCTURE, and together they make this file the
-# width→backend arithmetic support matrix rather than leaving it implicit in the file
-# names:
+# THE SUPPORT KEYS. `run` / `faults` / `diagnose` pin BEHAVIOUR — what a backend does
+# with a program. Two further keys pin STRUCTURE, and together they make this file the
+# (width × operator) → backend arithmetic support matrix rather than leaving it implicit
+# in the file names:
 #
-#   width     — the primitive this program is about. A backend that must `run` a width
-#               MUST carry a `TExpr.StaticOptimization` clause for it in that backend's
-#               `ops-platform*.fs`; a backend that must `diagnose` it must carry NONE.
-#               That is the whole definition of "which types support arithmetic on this
-#               target" — a width with no clause falls to the SRTP trait call, fails to
-#               resolve, and is a compile error — and it is checked mechanically
-#               (`XParsec.FSharp.Codegen.Common.Tests.OperatorClauseParity`), so a clause
-#               ADDED for a width that must be rejected is caught without anyone having
-#               to think to write a program for it.
-#               A program about no single width simply OMITS the key and contributes
-#               nothing to the matrix: `arith-unsigned-div.fs` spans every unsigned
-#               width, `arith-negate.fs` spans every signed one, and
-#               `arith-div-by-zero.fs` is about faulting, not about a width.
-#   operators — which arithmetic operators that WIDTH supports; the default is all of
-#               them (`+ - * / % ~-`). Only `string` narrows it, and its narrowing is
-#               real: `+` is concatenation and the other five are meaningless on it.
+#   width     — the primitive this program is about.
+#   operators — which arithmetic operators the program's obligations are about. The
+#               default is all of them (`+ - * / % ~-`).
+#
+# The two together are the key. Support is a property of the PAIR, never of the width
+# alone: `byte` supports `+` on both backends and `~-` on NEITHER (negating an unsigned
+# value has no answer the width can hold, and F# defines none — FSharp.Core's
+# `UnaryNegationDynamic` lists the signed widths only). A matrix keyed by width alone
+# could not say that, and would silently demand a `~-` clause of every width it demanded
+# a `+` clause of — which is exactly how the unsigned `~-` clauses came to exist,
+# answering 56 on JS and -200 on the CLR with no program looking at either.
+#
+# For each (width, operator) a program names: a backend that must `run` it MUST carry a
+# `TExpr.StaticOptimization` clause for that width on that operator in its
+# `ops-platform*.fs`; a backend that must `diagnose` it must carry NONE. That is the whole
+# definition of "which types support which arithmetic on this target" — a width with no
+# clause falls to the SRTP trait call, fails to resolve, and is a compile error — and it
+# is checked mechanically (`XParsec.FSharp.Codegen.Common.Tests.OperatorClauseParity`), so
+# a clause ADDED for a pair that must be rejected is caught without anyone having to think
+# to write a program for it. A pair the manifest never names is a clause nothing judges,
+# and fails the same guard.
+#
+# A program about no single width simply OMITS `width` and contributes nothing to the
+# matrix: `arith-unsigned-div.fs` spans every unsigned width, `arith-negate.fs` every
+# signed one, and `arith-div-by-zero.fs` is about faulting, not about a width.
 
 [[program]]
 path = "ops/arith-int.fs"
@@ -58,10 +67,14 @@ path = "ops/arith-int64.fs"
 run = ["clr", "js"]
 width = "int64"
 
+# The UNSIGNED widths carry the five BINARY operators and no `~-` — see
+# `ops/arith-negate-unsigned.fs`, which pins the rejection. Their `operators` narrowing is
+# what stops the guard demanding a negation clause nothing could judge.
 [[program]]
 path = "ops/arith-byte.fs"
 run = ["clr", "js"]
 width = "byte"
+operators = ["+", "-", "*", "/", "%"]
 
 [[program]]
 path = "ops/arith-sbyte.fs"
@@ -77,25 +90,29 @@ width = "int16"
 path = "ops/arith-uint16.fs"
 run = ["clr", "js"]
 width = "uint16"
+operators = ["+", "-", "*", "/", "%"]
 
 [[program]]
 path = "ops/arith-uint32.fs"
 run = ["clr", "js"]
 width = "uint32"
+operators = ["+", "-", "*", "/", "%"]
 
 [[program]]
 path = "ops/arith-uint64.fs"
 run = ["clr", "js"]
 width = "uint64"
+operators = ["+", "-", "*", "/", "%"]
 
 # The truncation probe: a uint64 LITERAL at or above 2^32. Both backends must carry the
 # magnitude the width promises — the literal's own model has to be 64-bit, not merely its
-# arithmetic. A SECOND program for a width already in the matrix: the two rows must agree
-# about it (a width cannot be `run` by a backend in one row and `diagnose`d in another).
+# arithmetic. A SECOND program for pairs already in the matrix: the two rows must agree
+# about them (a pair cannot be `run` by a backend in one row and `diagnose`d in another).
 [[program]]
 path = "ops/arith-uint64-wide.fs"
 run = ["clr", "js"]
 width = "uint64"
+operators = ["+", "-", "*", "/", "%"]
 
 [[program]]
 path = "ops/arith-float.fs"
@@ -107,8 +124,8 @@ path = "ops/arith-float32.fs"
 run = ["clr", "js"]
 width = "float32"
 
-# The one non-numeric operand the arithmetic contract admits, and the one width whose
-# operator set is a strict subset.
+# The one non-numeric operand the arithmetic contract admits: `+` is concatenation and
+# the other five are meaningless on it.
 [[program]]
 path = "ops/arith-string.fs"
 run = ["clr", "js"]
@@ -119,9 +136,23 @@ operators = ["+"]
 path = "ops/arith-unsigned-div.fs"
 run = ["clr", "js"]
 
+# Negation of every SIGNED width, each at its minimum so the wrap is observed and not
+# merely the sign flip. It spans several widths, so it pins no single (width, operator)
+# pair and carries no `width` — the per-width rows above already put `~-` in the matrix
+# for the signed widths, by taking the `operators` default.
 [[program]]
 path = "ops/arith-negate.fs"
 run = ["clr", "js"]
+
+# …and the other half of that statement: `~-` on an UNSIGNED width is rejected, on both
+# backends, for the same reason (no clause ⇒ the SRTP base cannot resolve). One `(width,
+# operator)` pair, whose obligation is the opposite of the one `ops/arith-byte.fs` states
+# for the same width — which the pair-keyed matrix can say and a width-keyed one could not.
+[[program]]
+path = "ops/arith-negate-unsigned.fs"
+diagnose = { clr = "does not support the operator", js = "does not support the operator" }
+width = "byte"
+operators = ["~-"]
 
 # Integer division by zero raises rather than returning a value. The one width whose
 # clause throws today is int32 (CIL `div`); the message is the BCL's, and a target
@@ -148,6 +179,7 @@ path = "ops/arith-unativeint.fs"
 run = ["clr"]
 diagnose = { js = "no representation on the target platform" }
 width = "unativeint"
+operators = ["+", "-", "*", "/", "%"]
 
 # `decimal` is rejected by BOTH backends — neither contract carries a clause for it, so `+`
 # falls to the trait call and fails to resolve. It runs nowhere, and so carries no golden.

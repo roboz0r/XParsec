@@ -13,10 +13,8 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // live here rather than in `Codegen.Js.Tests.OpsPlatformJsTests` (which keeps the
 // JS-target-only assertions and stays off the CLR backend).
 //
-// The body harvest itself (`InlineBodies`) is shared with that suite: both read the
-// same contract, only through a different symbol leaf.
-
-let private ilOpCodes = InlineBodies.ilOpCodes
+// The body harvest itself (`InlineBodies.ilOpCodes`) is shared with that suite: both read
+// the same contract, only through a different symbol leaf.
 
 [<Tests>]
 let tests =
@@ -34,8 +32,8 @@ let tests =
 
                 let clr = ClrSymbolProviders.contractInlineBodiesFor None [ vesperCoreManifest ]
 
-                let jsMul = ilOpCodes js.["op_Multiply"]
-                let clrMul = ilOpCodes clr.["op_Multiply"]
+                let jsMul = InlineBodies.ilOpCodes js.["op_Multiply"]
+                let clrMul = InlineBodies.ilOpCodes clr.["op_Multiply"]
 
                 Expect.contains jsMul "Math.imul($0, $1)" "js `*` int32 clause is the Math.imul template"
                 Expect.contains clrMul "mul" "clr `*` base is the CIL `mul` mnemonic"

@@ -10,6 +10,24 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 // on the recursive `translateExpr`; shared by the pattern projection
 // (`FreezePatterns`) and the expression projection (`FreezeExpr`).
 
+/// Why a constant literal names no `TConstValue` — the reasons a USER can actually cause,
+/// and so exactly the ones a consumer with a diagnostic channel must distinguish (`52I` is
+/// not an out-of-range magnitude).
+///
+/// This is the lexer's `NumericLiteralRejection` MINUS `NotNumeric`, which `tryParseConst`
+/// discharges by throwing: `Constant.Literal` admits only numeric / bool / char, so a
+/// non-numeric token there is a producer bug, not an answer. Narrowing the type is what
+/// keeps that fact out of every caller's match — an arm for an impossible case is an arm
+/// nobody can reason about, and the one that used to exist silently dropped the diagnostic.
+[<RequireQualifiedAccess>]
+type internal ConstRejection =
+    /// A custom numeric literal (`52I`): a call into a `NumericLiteral<suffix>` module, so
+    /// there is no constant to project, by construction.
+    | CustomLiteral
+    /// The magnitude or sign does not fit the authored width — `300uy`, or the negative
+    /// unsigned `-1uy` the lexer's negative-literal merge forms.
+    | OutOfRange
+
 module internal FreezeLiterals =
 
     /// Backslash-escape and string-part folding moved to the shared
@@ -30,49 +48,43 @@ module internal FreezeLiterals =
         else
             failwithf "Freeze.parseCharLiteral: unexpected char literal text %s" text
 
-    /// Total projection of a constant literal onto `TConstValue`. `ValueNone` when
-    /// the literal is not a primitive constant: a numeric literal whose lexed text
-    /// its classified width cannot represent (notably a negative-signed *unsigned*
-    /// literal `-1uy`/`-1u`, formed by the lexer's negative-literal merge, or an
-    /// out-of-range magnitude), or a CUSTOM numeric literal (`52I` — a call, not a
-    /// constant; `custom-numeric-literals-plan.md`). Bool / char / well-formed
-    /// primitive numeric literals always resolve. The throwing `parseConst`
-    /// wrapper retains the old "broken invariant" contract for callers that have
-    /// no diagnostic channel; consumers that can report a user error (enum case
-    /// values) call this directly.
-    let tryParseConst (ctx: PassContext) (c: Constant<SyntaxToken>) : TConstValue voption =
-        let parseLiteral (t: SyntaxToken) : TConstValue voption =
+    /// Total projection of a constant literal onto `TConstValue`. `Error` carries WHY there
+    /// is no constant (`ConstRejection`) — never a truncation, and never merely "no", so a
+    /// consumer with a diagnostic channel says the right thing.
+    ///
+    /// Bool / char / well-formed primitive numeric literals always resolve. The throwing
+    /// `parseConst` wrapper retains the "broken invariant" contract for callers that have
+    /// no diagnostic channel; consumers that can report a user error (enum case values)
+    /// call this directly.
+    let tryParseConst (ctx: PassContext) (c: Constant<SyntaxToken>) : Result<TConstValue, ConstRejection> =
+        let parseLiteral (t: SyntaxToken) : Result<TConstValue, ConstRejection> =
             let text = ctx.NameOf t
 
             match t.Token with
-            | Token.KWTrue -> ValueSome(TConstValue.Bool true)
-            | Token.KWFalse -> ValueSome(TConstValue.Bool false)
-            | Token.CharLiteral -> ValueSome(TConstValue.Char(parseCharLiteral text))
+            | Token.KWTrue -> Ok(TConstValue.Bool true)
+            | Token.KWFalse -> Ok(TConstValue.Bool false)
+            | Token.CharLiteral -> Ok(TConstValue.Char(parseCharLiteral text))
             | _ ->
-                // Every remaining literal token is numeric (`Constant.Literal`
-                // admits only numeric / bool / char — `ConstantParsing.isLiteralToken`).
+                // Every remaining literal token is numeric (`Constant.Literal` admits only
+                // numeric / bool / char — `ConstantParsing.isLiteralToken`), so `NotNumeric`
+                // here is a producer bug, not a user error: it throws, as `parseCharLiteral`'s
+                // malformed-text arm does, and DOES NOT reach the result type. That is what
+                // narrowing to `ConstRejection` states.
+                //
                 // The numeric-literal reader owns the radix + suffix grammar
-                // (`NumericLiterals.tryParseNumericLiteral`, keyed off the token's
-                // classified base/width), so Freeze just projects the value onto
-                // `TConstValue` — width for width, never widening or truncating.
-                // `ValueNone` (not a primitive constant: a custom numeric literal, or a
-                // magnitude/sign the authored width cannot hold) passes straight
-                // through as the diagnostic.
-                match NumericLiterals.tryParseNumericLiteral t.Token text with
-                | ValueSome(NumericLiteralValue.SByte n) -> ValueSome(TConstValue.SByte n)
-                | ValueSome(NumericLiteralValue.Byte n) -> ValueSome(TConstValue.Byte n)
-                | ValueSome(NumericLiteralValue.Int16 n) -> ValueSome(TConstValue.Int16 n)
-                | ValueSome(NumericLiteralValue.UInt16 n) -> ValueSome(TConstValue.UInt16 n)
-                | ValueSome(NumericLiteralValue.Int32 n) -> ValueSome(TConstValue.Int n)
-                | ValueSome(NumericLiteralValue.UInt32 n) -> ValueSome(TConstValue.UInt n)
-                | ValueSome(NumericLiteralValue.Int64 n) -> ValueSome(TConstValue.Int64 n)
-                | ValueSome(NumericLiteralValue.UInt64 n) -> ValueSome(TConstValue.UInt64 n)
-                | ValueSome(NumericLiteralValue.NativeInt n) -> ValueSome(TConstValue.NativeInt n)
-                | ValueSome(NumericLiteralValue.UNativeInt n) -> ValueSome(TConstValue.UNativeInt n)
-                | ValueSome(NumericLiteralValue.Float n) -> ValueSome(TConstValue.Float n)
-                | ValueSome(NumericLiteralValue.Float32 n) -> ValueSome(TConstValue.Float32 n)
-                | ValueSome(NumericLiteralValue.Decimal n) -> ValueSome(TConstValue.Decimal n)
-                | ValueNone -> ValueNone
+                // (`NumericLiterals.parseNumericLiteral`, keyed off the token's classified
+                // base/width) and hands back the width as an `IntWidth` witness, so the value
+                // carries across untouched. There is no width mapping here to get wrong,
+                // because both models key off the same `IntWidth`.
+                match NumericLiterals.parseNumericLiteral t.Token text with
+                | Ok(NumericLiteralValue.Integral(w, bits)) -> Ok(TConstValue.Integral(w, bits))
+                | Ok(NumericLiteralValue.Float n) -> Ok(TConstValue.Float n)
+                | Ok(NumericLiteralValue.Float32 n) -> Ok(TConstValue.Float32 n)
+                | Ok(NumericLiteralValue.Decimal n) -> Ok(TConstValue.Decimal n)
+                | Error NumericLiteralRejection.CustomLiteral -> Error ConstRejection.CustomLiteral
+                | Error NumericLiteralRejection.OutOfRange -> Error ConstRejection.OutOfRange
+                | Error NumericLiteralRejection.NotNumeric ->
+                    failwithf "Freeze.tryParseConst: %A is not a literal token" t.Token
 
         match c with
         | Constant.Literal t -> parseLiteral t
@@ -80,14 +92,14 @@ module internal FreezeLiterals =
 
     let parseConst (ctx: PassContext) (c: Constant<SyntaxToken>) : TConstValue =
         match tryParseConst ctx c with
-        | ValueSome v -> v
-        | ValueNone ->
+        | Ok v -> v
+        | Error reason ->
             let t =
                 match c with
                 | Constant.Literal t
                 | Constant.MeasuredLiteral(value = t) -> t
 
-            failwithf "Freeze.parseConst: non-representable literal %A in constant position" t.Token
+            failwithf "Freeze.parseConst: non-representable literal %A (%A) in constant position" t.Token reason
 
     /// Concatenate the literal text of every string part via `ctx.NameOf`,
     /// rendering an interpolation hole (`StringPart.Expr`) through `onHole`.

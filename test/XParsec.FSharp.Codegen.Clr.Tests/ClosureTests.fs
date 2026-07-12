@@ -1,6 +1,7 @@
 module XParsec.FSharp.Codegen.Clr.Tests.ClosureTests
 
 open Expecto
+open XParsec.FSharp.Lexer
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
@@ -197,10 +198,12 @@ let tests =
                         match EqArray.toList segs with
                         | [ FormatSeg.Hole(_,
                                            TExpr.App(TExpr.App(TExpr.Var(kUse, _, _),
-                                                               TExpr.Const(TConstValue.Int 40, _, _),
+                                                               TExpr.Const(TConstValue.Integral(IntWidth.Int32, 40L),
+                                                                           _,
+                                                                           _),
                                                                _,
                                                                _),
-                                                     TExpr.Const(TConstValue.Int 2, _, _),
+                                                     TExpr.Const(TConstValue.Integral(IntWidth.Int32, 2L), _, _),
                                                      _,
                                                      _)) ] ->
                             Expect.equal kUse kAdd "the call site references the (+) binding"
