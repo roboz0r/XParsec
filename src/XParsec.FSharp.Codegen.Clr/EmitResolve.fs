@@ -126,6 +126,10 @@ module EmitResolve =
             failwithf "EmitResolve.headOf: unreachable carried type-level node reached the CLR backend: %A" t
         | FTTypar _ -> "!typar"
         | FTUnknown n -> n
+        // A body-local typar has no nominal head and — unlike `FTTypar` — no declared
+        // slot on the enclosing method that an overload could be generic in. Its
+        // identity is the `(binder, index)` pair, so it heads-matches only itself.
+        | FTLocalTypar(binder, i) -> "!local:" + string binder + ":" + string i
 
     /// Does a candidate's declared (open) parameter accept a call argument of type
     /// `arg`? A method-/declaring-typar parameter (`FTTypar`) is a generic hole and

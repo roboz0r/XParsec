@@ -93,14 +93,14 @@ let jsProvider: Lazy<IExternalSymbolProvider> =
 /// superset that replaced the value-only `MockBuiltins` fixture.
 let frozenOf (input: string) : Frozen.TastFile =
     let lexed, file = parseFile input
-    let tast = Pipeline.analyseSem jsProvider.Value input lexed file
+    let ctx, tast = Pipeline.analyseSemWithContext jsProvider.Value input lexed file
 
     let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
     if not (List.isEmpty errors) then
         failwithf "analysis errors: %A" (errors |> List.map (fun d -> d.Message))
 
-    Freeze.run tast
+    Freeze.run ctx tast
 
 /// Compile `input` to JS source text (in-memory).
 let emit (input: string) : string =
@@ -110,14 +110,16 @@ let emit (input: string) : string =
 /// Front-end a program through the JS-target provider. Fails on any error diagnostic.
 let frozenOfJs (input: string) : Frozen.TastFile =
     let lexed, file = parseFile input
-    let tast = Pipeline.analyseSemForSelfHost jsProvider.Value input lexed file
+
+    let ctx, tast =
+        Pipeline.analyseSemForSelfHostWithContext jsProvider.Value input lexed file
 
     let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
     if not (List.isEmpty errors) then
         failwithf "analysis errors: %A" (errors |> List.map (fun d -> d.Message))
 
-    Freeze.run tast
+    Freeze.run ctx tast
 
 /// Compile a JS-target `input` to JS source text (strips `//# sourceMappingURL`).
 let emitJs (input: string) : string =
@@ -159,14 +161,14 @@ let coreDepsJsProvider: Lazy<IExternalSymbolProvider> =
 /// dependencies — the impl's own in-file types are the resolution authority.
 let frozenImplJs (provider: IExternalSymbolProvider) (input: string) : Frozen.TastFile =
     let lexed, file = parseFile input
-    let tast = Pipeline.analyseSemForSelfHost provider input lexed file
+    let ctx, tast = Pipeline.analyseSemForSelfHostWithContext provider input lexed file
 
     let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
     if not (List.isEmpty errors) then
         failwithf "impl analysis errors: %A" (errors |> List.map (fun d -> d.Message))
 
-    Freeze.run tast
+    Freeze.run ctx tast
 
 /// Compile a package impl in library mode to runtime-module source text (strips
 /// sourceMappingURL). `sourceFile` is the Vesper source basename (`list.js.fs`),

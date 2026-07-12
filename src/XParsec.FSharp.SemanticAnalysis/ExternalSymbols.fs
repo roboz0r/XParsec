@@ -1228,12 +1228,13 @@ module ExternalSymbols =
 
         let methodVar = methodFreshener cache level
         let decl i = declaringArgs.[i]
+        let noLocal = localTyparInTemplate "ExternalSymbols.instantiateSignatureWith"
         let s = m.Signature
 
         if m.IsValueMember then
-            instantiateWith decl methodVar s.Return
+            instantiateWith decl methodVar noLocal s.Return
         else
-            TyFun(instantiateWith decl methodVar s.Parameters, instantiateWith decl methodVar s.Return)
+            TyFun(instantiateWith decl methodVar noLocal s.Parameters, instantiateWith decl methodVar noLocal s.Return)
 
     /// Realise a member's `Signature` at `level`: `FTTypar(Declaring,i) →
     /// declaringArgs.[i]`, `FTTypar(Method,j) → fresh TyVar at level` (one per
@@ -1260,12 +1261,16 @@ module ExternalSymbols =
     let openSignature (m: ExternalMember) (declaringArgs: SemType[]) : SemType =
         let decl i = declaringArgs.[i]
         let methodOpen j = TyTypar(TyparAxis.Method, j)
+        let noLocal = localTyparInTemplate "ExternalSymbols.openSignature"
         let s = m.Signature
 
         if m.IsValueMember then
-            instantiateWith decl methodOpen s.Return
+            instantiateWith decl methodOpen noLocal s.Return
         else
-            TyFun(instantiateWith decl methodOpen s.Parameters, instantiateWith decl methodOpen s.Return)
+            TyFun(
+                instantiateWith decl methodOpen noLocal s.Parameters,
+                instantiateWith decl methodOpen noLocal s.Return
+            )
 
     /// Realise a member's method-typar BOUNDS at a use site — one `SemType voption` per
     /// method-typar index. `FTTypar(Declaring,i)` inside a bound → `declaringArgs.[i]`;
@@ -1277,9 +1282,10 @@ module ExternalSymbols =
     let instantiateSignatureBounds (m: ExternalMember) (declaringArgs: SemType[]) : SemType voption[] =
         let decl i = declaringArgs.[i]
         let methodOpen j = TyTypar(TyparAxis.Method, j)
+        let noLocal = localTyparInTemplate "ExternalSymbols.instantiateSignatureBounds"
 
         m.Signature.MethodTyparBounds
-        |> Array.map (ValueOption.map (fun ft -> instantiateWith decl methodOpen ft))
+        |> Array.map (ValueOption.map (fun ft -> instantiateWith decl methodOpen noLocal ft))
 
     /// Realise a record field's type at a use site (`FTTypar(Declaring,i) →
     /// declaringArgs.[i]`). The data-form replacement for `field.BuildType args`.
@@ -1380,6 +1386,12 @@ module ExternalSymbols =
              | TyparAxis.Declaring -> "!"
              | _ -> "!!")
             + string i
+        // A body-local typar never occurs in a member SIGNATURE (it is bound by a
+        // scheme inside the body, not by the decl whose type this is). It gets a
+        // spelling anyway, because this renderer is total over `FrozenType` by
+        // contract and identity-only — and it must never collide with a declared
+        // axis's spelling, hence the `(binder, index)` pair.
+        | FTLocalTypar(binder, i) -> "!?" + string binder + ":" + string i
         | FTUnknown n -> n
 
     /// The per-parameter `argSig` of a frozen method signature, flattening the

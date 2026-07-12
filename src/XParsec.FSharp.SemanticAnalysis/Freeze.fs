@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open System.Collections.Generic
+
 open XParsec.FSharp.SemanticAnalysis.Passes
 
 // The genuine freeze: the single
@@ -17,58 +19,133 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 
 [<RequireQualifiedAccess>]
 module Freeze =
+
+    /// Attribute each typar root to the BINDER whose generalized scheme quantified
+    /// it, and to its index within that scheme.
+    ///
+    /// The residue reaching freeze is not *free* — it is BOUND, by a binder that is
+    /// not the enclosing method (see `FrozenType.FTLocalTypar`). A body-local
+    /// `let g = fun x -> x` is its own declaration with its own generalized scheme,
+    /// and `Elaborate.mkMethodQuantEnv` — which derives the `TyVar -> TyTypar` remap
+    /// by walking the ENCLOSING decl's type — never sees `g`'s own root, because
+    /// every use of `g` instantiates away from it. So the root survives as a `TyVar`
+    /// on `g`'s own nodes.
+    ///
+    /// `ctx.Bindings.Scheme` is the AUTHORITATIVE record of which roots a binder
+    /// quantified — it is what `Unification.generalise` wrote and what
+    /// `ResolvedTypes` (running immediately before the freeze) checks against. Read
+    /// it rather than re-deriving the set from the binder's type: the two agree on a
+    /// generalized binding, but a NON-generalized one (the value restriction —
+    /// `Infer` *removes* the scheme, `Infer.fs:501`) still has residual roots in its
+    /// type, and re-derivation would attribute those to a scheme that does not exist.
+    /// Reading the table instead makes freeze's notion of "bound" identical to
+    /// `ResolvedTypes`' by construction: a root absent here is exactly a root
+    /// `ResolvedTypes` already raised an error-severity diagnostic for.
+    ///
+    /// One root belongs to at most one scheme (an inner binding cannot quantify a
+    /// root that is free in its environment), so the map needs no precedence rule and
+    /// does not depend on enumeration order.
+    let private schemeBinders (ctx: PassContext) : Dictionary<TypeVar, struct (NodeKey * int)> =
+        let map = Dictionary<TypeVar, struct (NodeKey * int)>(HashIdentity.Reference)
+
+        for KeyValue(binder, scheme) in ctx.Bindings.Scheme.AsDictionary() do
+            scheme.Quantified
+            |> Seq.iteri (fun i tv -> map.[UnionFind.find tv] <- struct (binder, i))
+
+        map
+
     /// `TastFileG<SemType> → TastFileG<FrozenType>`. The cut point where `SemType`
     /// stops being the currency and `FrozenType` takes over for codegen.
     ///
     /// Inline TEMPLATES (`TDecl.Let(isInline = true)`) are dropped first: they
     /// retain `TyVar` (the 2B exemption — a `let inline` survives elaboration
     /// unexpanded, its uses already spliced in) and are NOT emittable (codegen's
-    /// `EmitLower.lower` drops them too). They are unrepresentable in `FrozenType`
-    /// and reach the backend nowhere; the cross-package publish path reads them off
-    /// the *pre-freeze* `SemType` tree (`Pipeline.analyseSem*` →
-    /// `SymbolProviders.collectInlineBodies`), never `analyse`'s frozen output. So
-    /// dropping them here is the freeze's first act, leaving `toFrozen` total over
-    /// what remains (the residual cross-package `TyVar`
-    /// source is 3B-5/PF6).
+    /// `EmitLower.lower` drops them too). They reach the backend nowhere; the
+    /// cross-package publish path reads them off the *pre-freeze* `SemType` tree
+    /// (`Pipeline.analyseSem*` → `SymbolProviders.collectInlineBodies`), never
+    /// `analyse`'s frozen output. So dropping them here is the freeze's first act.
     ///
     /// Each `.ty` is deep-`zonk`ed before conversion (= the encoder's old per-slot
     /// `frozen = toFrozen ∘ zonk`, hoisted to one tree-wide pass): `elaborate` does
     /// not deep-zonk every embedded `.ty`, so a field can hold a `TyVar root` linked
     /// to a concrete type. `zonk` resolves the link; the ground shape is then frozen.
     ///
-    /// A residual free (unlinked) `TyVar` is **tolerated** and mapped to `FTUnknown`.
-    /// The source is a typar quantified by a *local* `let`'s own scheme: it is
-    /// instantiated afresh at every use site, so it never occurs in the ENCLOSING
-    /// decl's type — and `Elaborate.mkMethodQuantEnv`, which derives the
+    /// A residual (unlinked) `TyVar` is **tolerated**, and maps to the
+    /// identity-bearing `FTLocalTypar`. It is a typar bound by a *local* `let`'s own
+    /// scheme: it is instantiated afresh at every use site, so it never occurs in the
+    /// ENCLOSING decl's type — and `Elaborate.mkMethodQuantEnv`, which derives the
     /// `TyVar -> TyTypar(Method, i)` remap by walking exactly that type, therefore
     /// never maps it. The local binding's own nodes keep the unmapped root.
     ///
     ///     let f () = let g = fun x -> x in (g, g)
+    ///     // F#:  val f: unit -> ('a -> 'a) * ('b -> 'b)
     ///
-    /// `g` is generalised locally over `'x`; the two `(g, g)` occurrences instantiate
-    /// it at fresh roots, so `f`'s type names those and not `'x`. `g`'s lambda node
-    /// still carries `'x`, which reaches here free. (Contrast `let mkConst x = fun () -> x`:
-    /// `x`'s typar is free in the environment, so the local `let` cannot quantify it —
-    /// it IS in the enclosing type, and it maps.)
+    /// There are THREE roots here, and the printed signature is the evidence. `'a` and
+    /// `'b` are the two USE-SITE instantiations, one per occurrence of `g`: they ARE in
+    /// `f`'s type, so they map to the method axis like any other typar, and they are
+    /// the ones F# prints. `'x` — `g`'s OWN locally-quantified root, what its lambda
+    /// node is typed at — is what every use instantiates AWAY from, so it occurs in
+    /// neither `'a` nor `'b`, hence nowhere in `f`'s type, hence never in the remap.
+    /// That root is the residue, and it is what reaches this policy. (Two distinct
+    /// typars in the signature is precisely the fingerprint of a local scheme having
+    /// been generalised: a monomorphic `g` gives `('a -> 'a) * ('a -> 'a)` and leaves
+    /// no residue. Contrast `let mkConst x = fun () -> x`: `x`'s typar is free in the
+    /// environment, so the local `let` cannot quantify it — it IS in the enclosing
+    /// type, and it maps.)
     ///
-    /// The typar is phantom in the emitted code (no value of it is ever constructed —
-    /// a closure over it is `Vesper.Fun`-boxed), so `FTUnknown` is sound here and
-    /// round-trips harmlessly through `ofFrozen`. `toFrozen` itself stays strict (its
-    /// `TyVar` hard-error is unchanged), and genuine unresolved-`TyVar` inference bugs
-    /// are still caught upstream by `ResolvedTypes` (a graceful per-decl diagnostic),
-    /// which runs before the freeze.
+    /// The residue is IDENTITY-PRESERVING, not a phantom collapsed to a name: each
+    /// root is attributed to the local scheme that BINDS it (`localBinders`), so it
+    /// freezes to `FTLocalTypar(binder, index)`. Structural equality is by that pair,
+    /// so two body-local typars stay two typars across the round-trip — the
+    /// predecessor `FTUnknown "?free-typar"` gave every root the SAME name and
+    /// `FTUnknown` equality is by name, so they conflated into one leaf. That was
+    /// harmless only for a decl headed straight to codegen (the typar is phantom there
+    /// — no value of it is ever constructed, a closure over it is `Vesper.Fun`-boxed);
+    /// it is NOT harmless for an inline TEMPLATE, which is re-substituted, SRTP-re-
+    /// resolved and static-opt-evaluated at every splice site.
     ///
-    /// Making this strict means teaching local generalisation to project its own
-    /// quantified roots onto the enclosing method's typar axis — a real change to the
-    /// typar ABI, not a cleanup.
-    let private freezeTy (t: SemType) : FrozenType =
-        // `toFrozenWith` is the one structural fold; only the `TyVar` POLICY differs
-        // here: the residue (see the doc comment) maps to a fixed placeholder name for
-        // determinism, since no emitted type ever depends on it.
-        Unification.zonk t
-        |> FrozenTypeBridge.toFrozenWith (fun _ -> FTUnknown "?free-typar")
+    /// The leaf carries no `UnionFind` cell either way, so freezing still closes the
+    /// backward-flow hole. `toFrozen` itself stays strict (its `TyVar` hard-error is
+    /// unchanged), and a genuine unresolved-metavar inference bug — a root NO local
+    /// scheme binds — is caught upstream by `ResolvedTypes` (a graceful per-decl
+    /// diagnostic) and degrades HERE to `FTUnknown` rather than fabricating a binder:
+    /// `FTLocalTypar` is for a typar a local scheme legitimately quantified, never a
+    /// catch-all for "a `TyVar` I couldn't explain".
+    ///
+    /// Emptying `FTLocalTypar` of population — so that it could become a hard error
+    /// everywhere — is NOT a matter of projecting these roots onto the enclosing
+    /// method's typar axis. Real F# pointedly does not do that: it would change `f`'s
+    /// ABI (callers would have to pass a type argument for a typar `f`'s signature
+    /// never mentions). F# instead gives the local scheme its OWN axis — it compiles
+    /// the example above to `f<'a,'b>` plus a *generic closure class* `g@2T<'c>`
+    /// carrying `g`'s own root. So the real (out-of-scope) fix is GENERIC CLOSURES:
+    /// lift a locally-generalized binding to its own typar axis. Not needed for the
+    /// identity fix above.
+    ///
+    /// The binder attribution is a property of the SCHEME TABLE, not of tree
+    /// position, so it is built once per file and the freeze stays the pure per-type
+    /// map it has always been.
+    let private freezeTy (binders: Dictionary<TypeVar, struct (NodeKey * int)>) (t: SemType) : FrozenType =
+        let onVar (v: SemType) : FrozenType =
+            match v with
+            | TyVar tv ->
+                // Key on the union-find ROOT: two `TyVar` nodes in the same class are
+                // the same typar and must land on the same leaf.
+                match binders.TryGetValue(UnionFind.find tv) with
+                | true, struct (binder, index) -> FTLocalTypar(binder, index)
+                // No scheme quantified it ⇒ a genuine metavar leak, already an
+                // error-severity `ResolvedTypes` diagnostic on this decl. Degrade
+                // rather than crash (the decl is not going to be emitted) — and do
+                // NOT invent a binder for it.
+                | _ -> FTUnknown "?unresolved-typar"
+            | _ -> failwithf "Freeze.freezeTy: `toFrozenWith` invoked the TyVar policy on a non-TyVar: %A" v
 
-    let run (tast: TastFile) : Frozen.TastFile =
+        // `toFrozenWith` is the one structural fold; only the `TyVar` POLICY differs
+        // here. Each `.ty` is deep-`zonk`ed first, so only a genuinely UNLINKED root
+        // reaches `onVar`.
+        Unification.zonk t |> FrozenTypeBridge.toFrozenWith onVar
+
+    let run (ctx: PassContext) (tast: TastFile) : Frozen.TastFile =
         let emittable =
             tast.Decls
             |> EqArray.toList
@@ -79,4 +156,4 @@ module Freeze =
             )
             |> EqArray.ofList
 
-        TastConvert.file freezeTy { tast with Decls = emittable }
+        TastConvert.file (freezeTy (schemeBinders ctx)) { tast with Decls = emittable }

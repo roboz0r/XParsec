@@ -453,6 +453,59 @@ type FrozenType =
     /// that axis's typar list — the order `freeze` quantifies in, which is the
     /// single index-minting point.
     | FTTypar of axis: TyparAxis * index: int
+    /// Typar #`index` of the generalized scheme bound at `binder` — a body-local
+    /// `let`'s OWN scheme. The root is NOT free: it is BOUND, just by a binder that
+    /// is not the enclosing method. `let g = fun x -> x` inside a decl is its own
+    /// declaration with its own generalized scheme; `Elaborate.mkMethodQuantEnv`
+    /// fails to map `g`'s root not because the root is unbound but because it is
+    /// looking at the WRONG binder's axis (it derives its remap by walking the
+    /// ENCLOSING decl's type, in which `g`'s own root does not occur — every use of
+    /// `g` instantiates away from it). So the leaf names the scheme that binds it.
+    /// `index` is scoped to `binder` (position within that local scheme, minted by
+    /// `freeze` in first-occurrence pre-order — the same single-minting-point
+    /// discipline `FTTypar` indices follow), so two distinct local schemes cannot
+    /// collide even before their binders are compared. NEVER equate two local
+    /// typars by anything other than the `(binder, index)` PAIR.
+    ///
+    /// Carrying `binder` preserves an association a future GENERIC-CLOSURE lowering
+    /// needs, rather than erasing it and forcing it to be reconstructed. Real F#
+    /// compiles `let f () = let g = fun x -> x in (g, g)` to `f<'a,'b>` (its two
+    /// USE-SITE instantiations, implicitly generalized onto `f`'s own method typar
+    /// list) plus a separate GENERIC closure class `g@2T<'c>` for `g`'s own root —
+    /// it does NOT append `'c` to `f`'s typars, which would change `f`'s ABI and
+    /// force callers to pass a third type argument. `binder` is the handle on that
+    /// separate home.
+    ///
+    /// It is a DISTINCT case rather than a third `TyparAxis` because
+    /// `Declaring`/`Method` indices are positions in a *declared* typar list on the
+    /// enclosing decl, and every consumer realises them from an argument vector.
+    /// A local typar has no position in that list and must NEVER be instantiated
+    /// from one. A separate case makes F#'s incomplete-match check force every
+    /// `FrozenType` walk to decide what it means; a third axis would ride the
+    /// existing `FTTypar` arms silently — which is exactly how the predecessor
+    /// `FTUnknown "?free-typar"` hack conflated every local typar into one
+    /// name-equal leaf.
+    ///
+    /// **`binder` is BODY-RELATIVE and must never be resolved against anything.**
+    /// A `NodeKey` is `(offset, kind)` with NO file id (`NodeKey.fs`), so keys from
+    /// different files collide freely — deliberately: cross-file references resolve
+    /// by NAME against prior views, never by `NodeKey`. This leaf is safe under that
+    /// rule, and stays safe only if the following hold:
+    ///
+    /// - It is the SAME CLASS of key a frozen body already carries: every
+    ///   `TPatG.NamedSimple(k, …)` inside an inline body is a file-local `NodeKey`
+    ///   that already crosses the package boundary, and `Inline.freshen` rewrites
+    ///   them at the splice (what the `SynthPreFreezeInline` kind exists for).
+    /// - It is interpreted only against the TEMPLATE that carries it, exactly as
+    ///   `FTTypar`'s index is. Two leaves from different units comparing structurally
+    ///   equal is no more a bug than `FTTypar(Declaring, 0)` from two units doing so.
+    /// - It is CONSUMED AT THAW: the leaf becomes a fresh consumer-owned `TyVar` and
+    ///   the key does not survive into the spliced tree.
+    ///
+    /// Therefore: NEVER use `binder` for cross-file (or any) resolution, and NEVER
+    /// merge it into a `NodeKey`-keyed side table. It identifies a scheme WITHIN one
+    /// frozen body and nothing else.
+    | FTLocalTypar of binder: NodeKey * index: int
     /// Mirror of `SemType.TyUnknown`: a nominal head that resolved to no type
     /// shape. Carried so `freeze` is total; whether it may legitimately reach
     /// the backend is an open question (likely a hard error).
@@ -929,6 +982,7 @@ module FrozenType =
         | FTEnum _
         | FTLiteral _
         | FTTypar _
+        | FTLocalTypar _
         | FTUnknown _ -> t
 
     /// Variance-tracking rebuild — the reusable skeleton for any walk whose per-arm
@@ -968,6 +1022,7 @@ module FrozenType =
             | FTEnum _
             | FTLiteral _
             | FTTypar _
+            | FTLocalTypar _
             | FTUnknown _ -> t
 
     let iterChildren (f: FrozenType -> unit) (t: FrozenType) : unit =
@@ -993,6 +1048,7 @@ module FrozenType =
         | FTEnum _
         | FTLiteral _
         | FTTypar _
+        | FTLocalTypar _
         | FTUnknown _ -> ()
 
     /// `p` holds for EVERY direct child (vacuously true at a leaf). Short-circuits.
@@ -1011,6 +1067,7 @@ module FrozenType =
         | FTEnum _
         | FTLiteral _
         | FTTypar _
+        | FTLocalTypar _
         | FTUnknown _ -> true
 
     /// `p` holds for SOME direct child (vacuously false at a leaf). Short-circuits.
@@ -1040,6 +1097,11 @@ module FrozenType =
         | FTIndexedAccess _, FTIndexedAccess _ -> true
         | FTConditional _, FTConditional _ -> true
         | FTUnknown n1, FTUnknown n2 -> n1 = n2
+        // NOT a wildcard (unlike `FTTypar`): a local typar is an identity-bearing
+        // leaf that no argument vector instantiates, so it only heads-matches the
+        // same `(binder, index)` PAIR — the leaf-identity rule `FTUnknown`/`FTLiteral`
+        // follow. Never equate two local typars by index alone.
+        | FTLocalTypar(b1, i1), FTLocalTypar(b2, i2) -> b1 = b2 && i1 = i2
         | _ -> false
 
     /// PAIRWISE descent: when `a` and `b` share the same head (same case, same
@@ -1267,16 +1329,26 @@ module FrozenTypeBridge =
     let toFrozen (ty: SemType) : FrozenType =
         toFrozenWith (fun v -> failwithf "FrozenType.toFrozen: cannot freeze SemType: %A" v) ty
 
-    /// Realise a `FrozenType` template, resolving its open typars via the two
+    /// Realise a `FrozenType` template, resolving its open typars via the three
     /// supplied callbacks: `declaring i` yields the declaring type's i-th arg;
-    /// `methodVar j` yields the method axis's j-th instantiation. Every other
-    /// case maps structurally. Callers that span more than one template of the
-    /// *same* signature (a split parameter/return `ExternalSignature`) must share
-    /// one `methodVar` memo so a repeated method index resolves to the same var
-    /// across the whole signature. `ofFrozen` is the identity case (both
-    /// placeholders map straight back to their `TyTypar` markers).
-    let rec instantiateWith (declaring: int -> SemType) (methodVar: int -> SemType) (template: FrozenType) : SemType =
-        let go = instantiateWith declaring methodVar
+    /// `methodVar j` yields the method axis's j-th instantiation; `localTypar binder
+    /// k` yields the realisation of typar #`k` of the local scheme bound at `binder`
+    /// (`FTLocalTypar`, which — unlike the two declared axes — is NOT a position in
+    /// any argument vector, so its policy can only MINT, never index; and which must
+    /// be keyed on the `(binder, index)` PAIR, never the index alone). Every other
+    /// case maps structurally. Callers that span more than one template of the *same*
+    /// signature (a split parameter/return `ExternalSignature`) must share one
+    /// `methodVar` memo so a repeated method index resolves to the same var across
+    /// the whole signature; the same holds for `localTypar` across a thawed decl.
+    /// `ofFrozen` is the identity case (both declared placeholders map straight
+    /// back to their `TyTypar` markers).
+    let rec instantiateWith
+        (declaring: int -> SemType)
+        (methodVar: int -> SemType)
+        (localTypar: NodeKey -> int -> SemType)
+        (template: FrozenType)
+        : SemType =
+        let go = instantiateWith declaring methodVar localTypar
 
         match template with
         | FTConst(key, args) -> TyConst(key, EqArray.map go args)
@@ -1307,14 +1379,39 @@ module FrozenTypeBridge =
                 }
         | FTTypar(TyparAxis.Declaring, i) -> declaring i
         | FTTypar(TyparAxis.Method, j) -> methodVar j
+        | FTLocalTypar(binder, k) -> localTypar binder k
         | FTUnknown name -> TyUnknown name
 
     /// `FrozenType -> SemType`. Total — every `FrozenType` case has a `SemType`
     /// counterpart (`FTTypar` lands on the post-freeze-only `TyTypar`). The
-    /// identity realisation of `instantiateWith`: each placeholder maps straight
-    /// back to its self-describing `TyTypar` marker.
+    /// identity realisation of `instantiateWith`: each DECLARED placeholder maps
+    /// straight back to its self-describing `TyTypar` marker.
+    ///
+    /// `FTLocalTypar` is the one arm with no marker to map to — `SemType` has no
+    /// local-typar case — so it MINTS a fresh unlinked `TyVar`, memoised per
+    /// `(binder, index)` PAIR so repeated occurrences of one local typar share a
+    /// cell across the realised template. So `ofFrozen` is not cell-free in that
+    /// arm; the contract it actually owes is intact, because the cells it mints are
+    /// the CALLER's, never a producer's (nothing on the other side of a frozen
+    /// boundary can hold a reference to one).
     let ofFrozen (ft: FrozenType) : SemType =
-        instantiateWith (fun i -> TyTypar(TyparAxis.Declaring, i)) (fun j -> TyTypar(TyparAxis.Method, j)) ft
+        let localCache =
+            System.Collections.Generic.Dictionary<struct (NodeKey * int), SemType>()
+
+        instantiateWith
+            (fun i -> TyTypar(TyparAxis.Declaring, i))
+            (fun j -> TyTypar(TyparAxis.Method, j))
+            (fun binder k ->
+                let key = struct (binder, k)
+
+                match localCache.TryGetValue key with
+                | true, v -> v
+                | _ ->
+                    let v = TyVar(TypeVar())
+                    localCache.[key] <- v
+                    v
+            )
+            ft
 
     // A `FrozenType` template is an external descriptor's body with its open
     // typars baked as `FTTypar(Declaring,i)` / `FTTypar(Method,j)` placeholders.
@@ -1347,6 +1444,17 @@ module FrozenTypeBridge =
             cache.[j] <- v
             v
 
+    /// The `localTypar` policy for a SIGNATURE / type-shape template. Such a template
+    /// describes a DECLARED type, and an `FTLocalTypar` only ever arises inside a
+    /// decl's BODY (a body-local `let`'s own generalized scheme) — never in the decl's
+    /// own type, which is exactly why `mkMethodQuantEnv` cannot map it to a declared
+    /// axis. So one reaching a template realiser is a producer bug: fail loud rather
+    /// than fabricate a var, mirroring the method-axis arm of `instantiateDeclaring`.
+    /// Only a realiser of a whole frozen BODY (the inline-splice thaw) supplies a
+    /// minting policy.
+    let localTyparInTemplate (site: string) (binder: NodeKey) (k: int) : SemType =
+        failwithf "%s: unexpected body-local typar %d of scheme %O in a signature template" site k binder
+
     /// Realise a *declaring-only* template (a type-shape descriptor — a record
     /// field, union-case field, interface arg, base type, or abbreviation body):
     /// `FTTypar(Declaring,i) → declaringArgs.[i]`. These descriptors carry no
@@ -1370,6 +1478,7 @@ module FrozenTypeBridge =
                     "FrozenTypeBridge.instantiateDeclaring: unexpected method typar %d in a type-shape template"
                     j
             )
+            (localTyparInTemplate "FrozenTypeBridge.instantiateDeclaring")
             template
 
     /// The largest declaring-typar index a template references, or `-1` if it
@@ -1412,12 +1521,16 @@ module FrozenTypeBridge =
         // `MkUnion`, keeping the every-rebuild-canonicalises invariant.
         | t -> FrozenType.mapChildren (reaxisMethodTypars declaringArity) t
 
-    /// `true` when the type is fully ground: no open typar on either axis and no
-    /// `FTUnknown` (a leaked inference metavar the front end never resolved). The
-    /// `FrozenType` sibling of `Passes.InlineExpansion`'s `SemType` `isGroundType`.
+    /// `true` when the type is fully ground: no open typar on either axis, no
+    /// body-local free typar, and no `FTUnknown` (a leaked inference metavar the
+    /// front end never resolved). The `FrozenType` sibling of
+    /// `Passes.InlineExpansion`'s `SemType` `isGroundType`.
     let rec ftIsGround (t: FrozenType) : bool =
         match t with
         | FTTypar _
+        // A body-local scheme's own root is open in exactly the sense that
+        // matters here: nothing at a use site has instantiated it.
+        | FTLocalTypar _
         | FTUnknown _ -> false
         // Every other node is ground iff every child is (vacuously ground leaves
         // included) — an open typar in any child keeps the whole node non-ground.
@@ -1494,20 +1607,30 @@ type TypeScheme(quantified: TypeVar list, body: SemType, constraints: (TypeVar *
 
 /// One resolved `when ^T : …` constraint of an F# library-only static
 /// optimization clause. Lives here (not in `Tast.fs`) because the side table
-/// that carries it is declared before `Tast.fs` in the compile order, and the
-/// constraint references only `SemType` — the clause *body* (a `TExpr`) is
-/// rebuilt by Elaborate, not stored. The typar is a `TyVar` over the inline
-/// binding's quantified root, so `Inline.inlineExpand`'s typar substitution
-/// turns it into the call site's concrete type before the clause is tested.
+/// that carries it is declared before `Tast.fs` in the compile order.
+///
+/// GENERIC over the type domain, exactly like the clause (`TStaticOptClauseG`)
+/// that carries it, so it rides `TastConvert`'s freeze/thaw conversions rather
+/// than being copied verbatim across them. On the producer side (`'ty = SemType`,
+/// the `PassContext.StaticOpt` side table and the pre-freeze tree) the typar is a
+/// `TyVar` over the inline binding's quantified root, so `Inline.inlineExpand`'s
+/// typar substitution turns it into the call site's concrete type before the
+/// clause is tested. In the frozen domain (`'ty = FrozenType`) it is the same
+/// constraint with that root quantified — the whole point being that a frozen
+/// clause carries NO `UnionFind` cell, so it can cross an assembly boundary.
 [<RequireQualifiedAccess>]
-type TStaticOptConstraint =
+type TStaticOptConstraintG<'ty> =
     /// `when ^T : SomeType` — holds when the type substituted for `typar` equals
     /// `required`. The catch-all `when ^T : ^T` is this case with `required`
     /// equal to `typar`, so after substitution both sides are the same concrete
     /// type and it matches unconditionally.
-    | TyconEquals of typar: SemType * required: SemType
+    | TyconEquals of typar: 'ty * required: 'ty
     /// `when ^T : struct` — holds when the substituted `typar` is a value type.
-    | IsStruct of typar: SemType
+    | IsStruct of typar: 'ty
+
+/// The producer-domain (inference-side) static-optimization constraint — what the
+/// `PassContext.StaticOpt` side table and the pre-freeze TAST carry.
+type TStaticOptConstraint = TStaticOptConstraintG<SemType>
 
 /// BindingSite is the NodeKey of the LetBinding / lambda parameter /
 /// TypeMember that introduced the name — NOT the use site.

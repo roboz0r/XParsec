@@ -105,7 +105,7 @@ module Pipeline =
         (file: ImplementationFile<SyntaxToken>)
         : PassContext * Frozen.TastFile =
         let ctx, tast = analyseSemWithContextFor assemblyName provider input lexed file
-        ctx, Freeze.run tast
+        ctx, Freeze.run ctx tast
 
     /// `analyseSemWithContextFor` with no home assembly — the front-end-only entry
     /// (side-table inspection tests, contract scrapes). Local nominal keys mint
@@ -181,6 +181,18 @@ module Pipeline =
         let _, tast = analyseSemWithContextForCore true "" provider input lexed file
         tast
 
+    /// `analyseSemForSelfHost`, keeping the `PassContext`. A caller that inspects the
+    /// `SemType` tree's diagnostics before freezing it needs both halves:
+    /// `Freeze.run` reads the binder of each residual typar root out of
+    /// `ctx.Bindings.Scheme`.
+    let analyseSemForSelfHostWithContext
+        (provider: IExternalSymbolProvider)
+        (input: string)
+        (lexed: Lexed)
+        (file: ImplementationFile<SyntaxToken>)
+        : PassContext * TastFile =
+        analyseSemWithContextForCore true "" provider input lexed file
+
     /// The self-host production entry: like `analyseFor` but a bare-program list
     /// literal/pattern defaults to the Vesper cons-list, not FSharp.Core's `list`,
     /// so a BCL-only package (no FSharp.Core reference) emits `Vesper.List`-only.
@@ -193,7 +205,7 @@ module Pipeline =
         (lexed: Lexed)
         (file: ImplementationFile<SyntaxToken>)
         : Frozen.TastFile =
-        let _, tast =
+        let ctx, tast =
             analyseSemWithContextForCore true assemblyName provider input lexed file
 
-        Freeze.run tast
+        Freeze.run ctx tast

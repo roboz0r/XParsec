@@ -276,8 +276,8 @@ let tests =
             // test uses.
 
             let discover (src: string) : Emit.Closure list =
-                let tast = analyse src
-                let lowered0 = Emit.lower (Freeze.run tast).Decls
+                let ctx, tast = analyseWithCtx src
+                let lowered0 = Emit.lower (Freeze.run ctx tast).Decls
                 let moduleValues = Emit.collectModuleValues tast.ModuleMembers lowered0
                 let moduleValueKeys = HashSet<NodeKey>(moduleValues |> List.map (fun mv -> mv.Key))
 

@@ -208,14 +208,21 @@ module EmitClosures =
                 )
             )
 
-    /// True when `t` is free of leaked inference metavars (`FTUnknown`) — the
-    /// front end never grounded such a type, so it cannot be encoded into a
-    /// signature. A generic module value with an `FTUnknown` keeps its current
-    /// (skipped) treatment rather than crashing the encoder, exactly as
-    /// `collectModuleValues` already excludes them from the ground-field path.
+    /// True when `t` is free of leaked inference metavars (`FTUnknown`) and of
+    /// body-local typars (`FTLocalTypar` — a typar bound by a local `let`'s own
+    /// scheme, which this backend has no axis for until generic closures exist).
+    /// Neither is a type the front end grounded, so neither can be encoded into a
+    /// signature. A generic module value carrying one keeps its current (skipped)
+    /// treatment rather than crashing the encoder, exactly as `collectModuleValues`
+    /// already excludes them from the ground-field path. `FTLocalTypar` rides here
+    /// rather than at a hard error because it is REACHABLE on a legal program
+    /// (`let f () = let g = fun x -> x in (g, g)` compiles today, boxing the phantom
+    /// typar) — the gate is "this site needs a representation", not "this leaf
+    /// reached the backend".
     let rec private ftNoUnknown (t: FrozenType) : bool =
         match t with
-        | FTUnknown _ -> false
+        | FTUnknown _
+        | FTLocalTypar _ -> false
         | t -> FrozenType.forallChildren ftNoUnknown t
 
     /// The source name of a *top-level* (holderless) binding for its Program-holder

@@ -507,11 +507,13 @@ and DynFormatHoleG<'ty, 'tok> =
     }
 
 /// One clause of a `TExpr.StaticOptimization`. `Constraints` is the `and`-joined
-/// list (all must hold; declared in `SemanticInfo.fs` so the side table can carry
-/// it); `Body` is the clause's optimized expression.
+/// list (all must hold; the constraint type is declared in `SemanticInfo.fs` so the
+/// side table can carry it, but is `'ty`-generic like everything else here, so a
+/// clause freezes/thaws WHOLE — no `SemType` rides inside a frozen clause); `Body`
+/// is the clause's optimized expression.
 and TStaticOptClauseG<'ty, 'tok> =
     {
-        Constraints: EqArray<TStaticOptConstraint>
+        Constraints: EqArray<TStaticOptConstraintG<'ty>>
         Body: TExprG<'ty, 'tok>
     }
 
@@ -1037,6 +1039,7 @@ module Frozen =
     type FormatSink = FormatSinkG<FrozenType, SyntaxToken>
     type FormatSeg = FormatSegG<FrozenType, SyntaxToken>
     type DynFormatHole = DynFormatHoleG<FrozenType, SyntaxToken>
+    type TStaticOptConstraint = TStaticOptConstraintG<FrozenType>
     type TStaticOptClause = TStaticOptClauseG<FrozenType, SyntaxToken>
     type TDecl = TDeclG<FrozenType, SyntaxToken>
     type TTypeDecl = TTypeDeclG<FrozenType, SyntaxToken>

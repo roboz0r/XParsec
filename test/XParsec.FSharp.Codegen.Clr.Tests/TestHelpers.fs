@@ -223,6 +223,13 @@ let analyse (input: string) : TastFile =
     let lexed, file = parseFile input
     Pipeline.analyseSem (ClrSymbolProviders.buildContract defaultManifests) input lexed file
 
+/// `analyse`, keeping the `PassContext`. `Freeze.run` needs it: the binder a residual
+/// typar root belongs to is recorded in `ctx.Bindings.Scheme`, not recoverable from the
+/// TAST alone.
+let analyseWithCtx (input: string) : PassContext * TastFile =
+    let lexed, file = parseFile input
+    Pipeline.analyseSemWithContext (ClrSymbolProviders.buildContract defaultManifests) input lexed file
+
 /// The load context the package-build harness (`buildPackage`) loads its own DLLs
 /// into. Its `Load` override resolves sibling `Vesper.*` packages it has built from
 /// an internal registry, so a package loaded here binds against *this harness's*
@@ -431,8 +438,10 @@ let private compileContract
     let lexed, file = parseFile input
     // Callers assert on the returned `SemType` tast, but the real
     // `analyse` output is frozen — return the SemType tree, compile the frozen one.
-    let tast = Pipeline.analyseSemFor project.AssemblyName provider input lexed file
-    let artifact = Codegen.compile provider (withCore project) (Freeze.run tast)
+    let ctx, tast =
+        Pipeline.analyseSemWithContextFor project.AssemblyName provider input lexed file
+
+    let artifact = Codegen.compile provider (withCore project) (Freeze.run ctx tast)
     tast, artifact
 
 /// The default compile path — resolved through the contract stack

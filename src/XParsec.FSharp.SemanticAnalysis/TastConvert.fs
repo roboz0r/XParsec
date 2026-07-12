@@ -13,12 +13,19 @@ namespace XParsec.FSharp.SemanticAnalysis
 //
 // Non-`'ty` payload is copied verbatim: NodeKey / SymbolKey / CallVia / TConstValue
 // / TMemberKind / PrintfSpec.HoleKind / the verdict fields / the
-// side maps, AND two fields that are deliberately not `'ty`-typed —
+// side maps, AND one field that is deliberately not `'ty`-typed —
 // `TTypeMemberG.MethodTypeParams : GeneralizedTypars` (its `TypeVar` roots
 // only feed the GenericParam row names + arity post-freeze; the body's open typars
-// already rode `TyTypar`) and `TStaticOptClauseG.Constraints :
-// EqArray<TStaticOptConstraint>` (no `StaticOptimization` survives the inline pass,
-// so these never reach the frozen tree in practice).
+// already rode `TyTypar`).
+//
+// `TStaticOptClauseG.Constraints` is NOT in that list: it is
+// `EqArray<TStaticOptConstraintG<'ty>>` and is mapped like any other `'ty` payload.
+// It used to be a raw-`SemType` hole here, on the premise that no
+// `StaticOptimization` survives the inline pass and so none could reach the frozen
+// tree. That premise dies with the frozen inline-body channel (an inline template
+// IS frozen, `StaticOptimization` nodes and all), and a verbatim copy would have
+// smuggled a live `UnionFind` cell across the freeze — the exact hazard freeze
+// exists to close.
 
 [<RequireQualifiedAccess>]
 module TastConvert =
@@ -150,9 +157,14 @@ module TastConvert =
                 }
         | FormatSegG.CallbackHole(spec, residue) -> FormatSegG.CallbackHole(hole f spec, expr f residue)
 
+    and constraintOf (f: 'a -> 'b) (c: TStaticOptConstraintG<'a>) : TStaticOptConstraintG<'b> =
+        match c with
+        | TStaticOptConstraintG.TyconEquals(tp, req) -> TStaticOptConstraintG.TyconEquals(f tp, f req)
+        | TStaticOptConstraintG.IsStruct tp -> TStaticOptConstraintG.IsStruct(f tp)
+
     and clause (f: 'a -> 'b) (c: TStaticOptClauseG<'a, 'tok>) : TStaticOptClauseG<'b, 'tok> =
         {
-            Constraints = c.Constraints
+            Constraints = EqArray.map (constraintOf f) c.Constraints
             Body = expr f c.Body
         }
 

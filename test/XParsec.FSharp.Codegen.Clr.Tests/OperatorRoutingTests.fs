@@ -93,14 +93,14 @@ let tests =
             }
 
             test "`let f a b = a = b` lowers the un-ground `=` to the comparer base (no External op_Equality survives)" {
-                let tast = analyse "let f a b = a = b"
+                let ctx, tast = analyseWithCtx "let f a b = a = b"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
                 // `a`/`b` are never pinned, so no per-primitive `when ^T : …` clause
                 // selects and the body's base — `EqualityComparer<^T>.Default.Equals(a, b)`
                 // — is what survives. A `ceq` ILIntrinsic here would be the reference
                 // comparison the ground guard used to fall back to.
-                match Emit.lower (Freeze.run tast).Decls with
+                match Emit.lower (Freeze.run ctx tast).Decls with
                 | [ TDeclG.Let(TPatG.NamedSimple _, TExprG.Lambda(_, TExprG.Lambda(_, body, _, _), _, _), false, _) ] ->
                     let rendered = sprintf "%A" body
 
@@ -315,10 +315,12 @@ let tests =
                 // survives. Asserted on the FROZEN decls, so the `add` is provably the
                 // contract body's own clause — a surviving `External(op_Addition)` here
                 // would mean the eta ran too late for the splice to reach it.
-                let tast = analyse "let xs = [1; 2; 3]\nprintfn \"%d\" (List.fold (+) 0 xs)"
+                let ctx, tast =
+                    analyseWithCtx "let xs = [1; 2; 3]\nprintfn \"%d\" (List.fold (+) 0 xs)"
+
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
-                let exprs = frozenExprs (Freeze.run tast).Decls
+                let exprs = frozenExprs (Freeze.run ctx tast).Decls
 
                 Expect.isFalse
                     (exprs

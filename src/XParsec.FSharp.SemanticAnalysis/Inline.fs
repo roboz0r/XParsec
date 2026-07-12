@@ -381,6 +381,7 @@ module Inline =
             FrozenTypeBridge.instantiateWith
                 (fun i -> TyTypar(TyparAxis.Method, i))
                 (fun j -> TyTypar(TyparAxis.Method, j))
+                (FrozenTypeBridge.localTyparInTemplate "Inline.openMethodSignature")
                 sym.Scheme
 
         // The scheme's `Coercion` bounds, re-expressed over the method-typar axis in the
@@ -402,6 +403,7 @@ module Inline =
                             FrozenTypeBridge.instantiateWith
                                 (fun k -> TyTypar(TyparAxis.Method, k))
                                 (fun k -> TyTypar(TyparAxis.Method, k))
+                                (FrozenTypeBridge.localTyparInTemplate "Inline.openMethodSignature")
                                 target
 
                         FrozenConstraint.Coercion(i, toFrozen openTarget)
