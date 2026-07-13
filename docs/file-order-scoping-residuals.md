@@ -19,6 +19,12 @@ would resolve*.
 | `34c93e37` | A type's structure (fields, case fields, abbrev RHS, `val`, signatures) translates where it is registered. Deleted the whole-file fill pre-passes, the placeholder-`TyVar`+`Link` dance, and the `checkTypesInScope` guard. Struct-field cycles now detectable. |
 | `c7cb1b70` | A module `let`'s type annotations are classified where the `let` is written. |
 | `5f7daadd` | Desugar a class preamble's initialisers and base-ctor arguments (fixed a hard crash). A type body's two-tier ordering needed no change — it already holds by construction. |
+| `4a4a59d9` | `SourcePos` + `TypeIdentity.VisibleFrom`; every by-NAME registry face takes a use-site position, every `…ByKey` face takes none. Behaviour-neutral. |
+| `e6c1b71e` | Delete the dead `SynthInlineExpansion` node kind. |
+| `4ba881a6` | The kind-agnostic name table (`tryTypeClaim` / `isTypeNameInScope`) answers only with claims visible at the use site. Behaviour-neutral. |
+| `41a08f56` | The kind indexes answer only with types visible at the use site; `FieldIndex` / `CtorIndex` put behind position-taking faces. `Foo(1)`, `Foo.Bar`, `{ a = 1 }` above their type are now diagnosed. |
+| `c468c3c7` | A union case navigates to its union by KEY, not by re-resolving its name. `UnionArity` gone. |
+| `b2623f17` | Type bodies stop seeing module `let`s declared below them; `module rec` starts working for values (it never had). |
 
 Registration is now **two** scans: the `noteNominalTypeNames` pre-scan (which must stay —
 the `…Module` suffix rule needs the unit's whole nominal name set before the first key is
@@ -41,7 +47,11 @@ cannot disagree. Any new scoping work should extend this, not add a parallel che
 
 ---
 
-## Residual 1 — everything below a declaration can still see it (THE BIG ONE)
+## Residual 1 — everything below a declaration can still see it — **LANDED (Steps 1–5)**
+
+Only **Step 6** (a performance change, not a correctness one) is outstanding. The rest of
+this section is kept as the design record: the probe table is the semantics, and the
+rejected alternatives are worth not re-deriving.
 
 Registration is now file-ordered, but *resolution* is not. Every by-NAME lookup face on
 the registry answers against the registry as it stands **when the query runs**, and by the
@@ -260,7 +270,9 @@ but it still carries the typing dependency, so Step 6 must leave it alone.
 
 ---
 
-## Residual 2 — instance `let` bindings in a class body are not modelled at all
+## Residual 2 — instance `let` / `do` in a class body are not modelled at all
+
+**Large enough to be its own body of work.** This section is written to be picked up cold.
 
 `MemberRegistration.extractStaticLets` (`MemberRegistration.fs:446-481`) admits only
 `static let`. An **instance** `let`, and any `[static] do`, is silently skipped with no
@@ -274,22 +286,77 @@ type C() =
     member _.A = a
 ```
 
-A missing **feature**, not an ordering bug: it needs a backing field, ctor-init lowering,
-and codegen in both backends. Pinned as a test asserting the wrong current behaviour, with
-a comment naming what F# does (the `LocalModuleTests` convention).
+It is a missing **feature**, not an ordering bug.
 
 Note the rejection *direction* for `let a = b` (a later `b`) happens to agree with F#, but
 **for the wrong reason** — the error lands on `a` at its use site rather than on `b`,
 because the preamble RHS is never walked. Do not read that agreement as the rule working.
 
-Adjacent, and already fixed in `5f7daadd`: `Desugar` walked only `ObjectModelBody.elements`,
-never `.classPreamble` or `.inherits`. Any **operator** in a `static let` initialiser, a
-`do` body, or a primary `inherit Base(a + 1)` argument therefore reached Elaborate with no
-`DesugaredForm` entry and threw `failwithf "InfixApp … missing DesugaredForm entry"` — a
-hard crash, not a diagnostic. It survived because every existing `static let` test used a
-*literal* initialiser. Worth remembering when adding instance lets: the same three
-positions must be walked by every pass, and a test with a literal-only initialiser will not
-catch it.
+### What F# actually does (probed, `dotnet fsi`)
+
+```fsharp
+type C(n: int) =
+    let m = n + 1                                  // sees a ctor param
+    let mutable count = 0
+    let bump x = count <- count + x; count + m     // a let-bound FUNCTION, mutating a let-mutable
+    do printfn "ctor ran, m=%d" m                  // `do` runs in the ctor, sees `m`
+    member _.Bump v = bump v
+    member _.M = m
+
+type G<'T>(x: 'T) =                                // instance lets in a GENERIC class
+    let items = ResizeArray<'T>()
+    do items.Add x
+    member _.Items = items
+```
+
+Runs, printing `ctor ran, m=11` / `16 11` / `[42]`. Every one of those is a case to support.
+
+### What genuinely reuses existing code
+
+**The scoping half.** A class preamble's `let`s and `do`s are ONE ordered sequence, each
+seeing the ones above it plus the ctor params — structurally the same rule as
+`NameResolution.walkModuleElem`'s scope accumulator, and the same position-based visibility
+Residual 1 built. Reuse it; do not invent a second ordering mechanism.
+
+**`Desugar` already walks the right positions.** `5f7daadd` fixed it to walk
+`.classPreamble` and `.inherits`, not just `ObjectModelBody.elements`. Before that, any
+**operator** in a `static let` initialiser, a `do` body, or a primary `inherit Base(a + 1)`
+argument reached Elaborate with no `DesugaredForm` entry and threw
+`failwithf "InfixApp … missing DesugaredForm entry"` — a hard crash. It survived only
+because every existing `static let` test used a *literal* initialiser. **A test with a
+literal-only initialiser will not catch this class of bug.** Every pass must walk all three
+positions.
+
+### What does NOT reuse — and why the template is `static let`, not module `let`
+
+Module `let` gives you the scope accumulator and nothing else. The *lowering* template is
+`static let`, which already has the whole pipeline: `ClassTypeInfo.StaticLets` →
+`Tast.TStaticLetG` → `TastConvert` → `Elaborate` → codegen emitting "one private static
+field each and a synthesised `.cctor` running the initialisers in declaration order"
+(`Tast.fs:672-674`). Instance `let` is that shape with the field non-static and the
+initialisers running in the **primary ctor**, after the base-ctor call.
+
+But it is not static-let-minus-the-`static`. Three divergences, all probed:
+
+1. **A let-bound function needs `this`.** `bump` above mutates an instance field and reads
+   another `let`. That is a private method (or a closure over the instance) — not a field
+   holding a value. `static let` has no such case, so there is no template to copy.
+2. **`let mutable` becomes a mutable instance field**, which interacts with
+   `RefCellPromotion` when a closure captures it.
+3. **Instance lets must work in GENERIC classes, and `StaticLets` deliberately does not.**
+   `ClassTypeInfo.StaticLets` (`TypeInfos.fs:613-615`) is populated only for monomorphic
+   classes — "generic classes reject `static let`, the per-instantiation cache lowering is
+   deferred". An instance `let` has no per-instantiation problem (each instance owns its
+   field), so it must work generically from the start. **You cannot inherit
+   `extractStaticLets`' arity gate; it has to be bypassed, not reused.**
+
+### Separately: F# does NOT forbid `static let` in a generic class
+
+Probed — `type G<'T>() = static let cache = ResizeArray<'T>()` compiles, and each
+instantiation gets its own static. So the restriction above is **ours**, a deferral, not
+F#'s rule. `TypeInfos.fs` says so; this doc previously did not, and a reader could easily
+have carried the restriction into instance lets, where it does not belong. Lifting it is a
+separate piece of work (per-instantiation statics), not a prerequisite for this one.
 
 ## Residual 3 — `[<Struct>]` records and unions emit as reference types
 
