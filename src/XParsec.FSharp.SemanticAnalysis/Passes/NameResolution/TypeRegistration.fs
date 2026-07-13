@@ -388,13 +388,14 @@ module NameResolutionTypeRegistration =
 
                     ValueSome claimed
 
-    /// The `CstWalk.iterType` visitor for a type definition's DECLARED STRUCTURE: classify
+    /// The `CstWalk.iterType` visitor for every type head written at a DECLARING position —
+    /// a type definition's declared structure, and a module `let`'s annotations. Classify
     /// each written head (`classifyTypeHead` — a claim in scope wins, else the external
     /// universe), and diagnose a single-segment head that names NEITHER. F# reports the
     /// ordinary unknown-type error there (FS0039 "The type 'B' is not defined") — a forward
     /// reference across groups is not a special error class, it is simply a name nothing
-    /// answers for, because `TypeClaims` holds only what is declared above this group plus
-    /// the group itself.
+    /// answers for, because `TypeClaims` holds only what is declared above the element the
+    /// scan has reached (plus, inside a type group, the group itself).
     ///
     /// The diagnostic and the resolution are the SAME classification: `translateType` reads
     /// the stamp this walk wrote (external) or the registry (local), so it cannot bind a
@@ -404,38 +405,46 @@ module NameResolutionTypeRegistration =
     /// single-segment, so a dotted miss is an unmodelled external shape, not a scoping
     /// error, and `translateType`'s opaque residue is the designed outcome (the DEBUG
     /// `assertNoDottedStampGap` is the witness that guards it).
-    let private declaredStructureIter (ctx: PassContext) : CstWalk.TypeIter =
+    let private classifyingTypeIter (ctx: PassContext) : CstWalk.TypeIter =
+        // `float<kg>` is a measured carrier, not a generic type applied to a type argument:
+        // `translateType` reinterprets the WHOLE node — carrier and unit alike — as a
+        // measured type and resolves neither through the type registry. Neither the carrier
+        // head (which has no arity-1 shape to find) nor the unit is a type head, so
+        // classification stops exactly where translation stops.
+        let isMeasuredCarrier (t: Type<SyntaxToken>) =
+            match t with
+            | Type.GenericType(longIdent = li; typeArgs = args) ->
+                li.Idents.Length = 1
+                && args.Length = 1
+                && isNumericCarrier (ctx.NameOf li.Idents.[0])
+            | _ -> false
+
         { CstWalk.identityTypeIter with
             VisitType =
                 fun _ t ->
-                    match CstKeys.ofTypeHead t with
-                    | ValueSome head ->
-                        match classifyTypeHead ctx head with
-                        | UnknownType when head.LongIdent.Idents.Length = 1 ->
-                            ctx.Diagnostics.Add
-                                {
-                                    Key = head.Key
-                                    Message =
-                                        sprintf "The type '%s' is not defined" (ctx.NameOf head.LongIdent.Idents.[0])
-                                    Code = ""
-                                    Severity = Severity.Error
-                                }
-                        | UnknownType
-                        | LocalType
-                        | ExternalType -> ()
-                    | ValueNone -> ()
+                    if isMeasuredCarrier t then
+                        false
+                    else
+                        match CstKeys.ofTypeHead t with
+                        | ValueSome head ->
+                            match classifyTypeHead ctx head with
+                            | UnknownType when head.LongIdent.Idents.Length = 1 ->
+                                ctx.Diagnostics.Add
+                                    {
+                                        Key = head.Key
+                                        Message =
+                                            sprintf
+                                                "The type '%s' is not defined"
+                                                (ctx.NameOf head.LongIdent.Idents.[0])
+                                        Code = ""
+                                        Severity = Severity.Error
+                                    }
+                            | UnknownType
+                            | LocalType
+                            | ExternalType -> ()
+                        | ValueNone -> ()
 
-                    // A measure carrier's argument (`float<kg>`) is a UNIT, not a type:
-                    // `translateType` reinterprets it as a measure atom and never resolves
-                    // it as a type head, so stop where translation stops.
-                    match t with
-                    | Type.GenericType(longIdent = li; typeArgs = args) ->
-                        not (
-                            li.Idents.Length = 1
-                            && args.Length = 1
-                            && isNumericCarrier (ctx.NameOf li.Idents.[0])
-                        )
-                    | _ -> true
+                        true
         }
 
     /// Classify + stamp every type head written in ONE type definition's declared surface,
@@ -448,13 +457,86 @@ module NameResolutionTypeRegistration =
     /// deferred to group close and raises its own unknown-type diagnostic there
     /// (`resolveInheritParent`). Diagnosing it here too would double-report one mistake.
     let classifyDeclaredTypes (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
-        let it = declaredStructureIter ctx
+        let it = classifyingTypeIter ctx
 
         CstWalk.iterTypeDefnTypes
             it
             (NameResolutionScope.stampPatCasesWith ctx it)
             (CstWalk.iterType (stampTypeIter ctx))
             td
+
+    /// The expression walker that carries `classifyingTypeIter` over a module-level term's
+    /// body. It resolves NO value and introduces NO scope — `walker.Visit` reaches only the
+    /// types syntactically embedded in each node, and the scope hooks exist solely to reach
+    /// the annotations on the patterns they bind (`fun (x: A) …`, a nested `let`'s head and
+    /// argument pats, a `for`-in binder, a match arm's type test). Value/ident resolution
+    /// and body typing remain with the declaration-order body walk.
+    let private classifyingExprWalker (ctx: PassContext) (it: CstWalk.TypeIter) : CstWalk.ExprWalker<unit> =
+        let onType = CstWalk.iterType it
+        let onPat = NameResolutionScope.stampPatCasesWith ctx it
+
+        let onPats (ps: ImmutableArray<Pat<SyntaxToken>>) =
+            for p in ps do
+                onPat p
+
+        { CstWalk.identityExprWalker with
+            Visit = fun _ e -> CstWalk.iterExprEmbeddedTypes onType (CstWalk.iterTypeMemberSig it) e
+            EnterFun =
+                fun env pats ->
+                    onPats pats
+                    env
+            EnterBindingRhs =
+                fun env _ _ b ->
+                    onPats b.argumentPats
+                    env
+            EnterLetBody =
+                fun env bindings ->
+                    for b in bindings do
+                        onPat b.headPat
+
+                    env
+            EnterForIn =
+                fun env p ->
+                    onPat p
+                    env
+            EnterMatchArm =
+                fun env p ->
+                    onPat p
+                    env
+        }
+
+    /// Classify + stamp every type head a module-level TERM writes — a `let`'s parameter and
+    /// return-type annotations, and every annotation reachable in its body (`let x : A = …`,
+    /// a type test, a coercion) — under the scope in force where the term is written.
+    ///
+    /// Types and module `let`s are ONE ordered sequence in F#, so this runs at the term's
+    /// position in the top-down scan: the registry then holds exactly the types declared
+    /// ABOVE it, an annotation naming a type declared below names nothing and is diagnosed,
+    /// and a head written above a same-named local declaration classifies external and stays
+    /// bound to the external type (`classifyTypeHead`'s stamp outranks the registry on read).
+    let classifyTermTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
+        let it = classifyingTypeIter ctx
+        let walker = classifyingExprWalker ctx it
+
+        let binding (b: Binding<SyntaxToken>) =
+            NameResolutionScope.stampPatCasesWith ctx it b.headPat
+
+            for p in b.argumentPats do
+                NameResolutionScope.stampPatCasesWith ctx it p
+
+            match b.returnType with
+            | ValueSome(ReturnType(typ = t)) -> CstWalk.iterType it t
+            | ValueNone -> ()
+
+            CstWalk.iterExpr walker () b.expr
+
+        match m with
+        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
+            for b in bindings do
+                binding b
+        | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Do(expr = e))
+        | ModuleElem.Expression e -> CstWalk.iterExpr walker () e
+        | _ -> ()
 
     /// Run `f` under the typar scope of a type declaration — its prototype TyVars, keyed by
     /// the source names its header declares — so a `'a` written anywhere in the

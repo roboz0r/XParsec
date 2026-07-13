@@ -74,6 +74,24 @@ let private classMemberParamType (source: string) (typeName: string) (memberName
     | [ ty ] -> ty
     | other -> failtestf "expected exactly one parameter on '%s.%s', got %A" typeName memberName other
 
+/// The RESOLVED type of the unit's ONE module-level `let`, off the elaborated TAST — the
+/// module-`let` counterpart of the two accessors above, so a scoping test can pin what a
+/// `let`'s annotation BOUND to rather than merely that it was accepted.
+let private soleModuleLetType (source: string) : SemType =
+    let tast = analyse source
+
+    let found =
+        [
+            for d in tast.Decls do
+                match d with
+                | TDecl.Let(ty = ty) -> yield ty
+                | _ -> ()
+        ]
+
+    match found with
+    | [ ty ] -> ty
+    | other -> failtestf "expected exactly one module-level let, got %A" other
+
 // F# type scoping is strictly file-ordered: a type sees the types declared ABOVE it and
 // nothing below, and `type X = … and Y = …` — one `ModuleElem.Type` group — is the one
 // unit of mutual recursion. Registration walks the file top-down one group at a time, so
@@ -193,5 +211,43 @@ let tests =
                         classMemberParamType (src + "\ntype exn = { message: int }") "Holder" "M"
 
                     Expect.equal shadowed external "Holder.M's parameter binds the external `exn`"
+                }
+
+            // Types and module `let`s are ONE ordered sequence, not two passes: a `let` sees
+            // the types declared above it and nothing below. Every annotation a `let` writes —
+            // in its signature or anywhere in its body — is that same rule, so all of these
+            // are the ordinary unknown-type error.
+            for position, source in
+                [
+                    "parameter annotation", "let f (a: A) = a\ntype A = { x: int }"
+                    "return-type annotation", "let f a : A = a\ntype A = { x: int }"
+                    "body let annotation", "let g () =\n    let x: A = { x = 1 }\n    x\ntype A = { x: int }"
+                    "body coercion", "let g (o: obj) = o :?> A\ntype A = { x: int }"
+                ] ->
+                test $"a module let's {position} naming a type declared below is rejected" {
+                    expectError "The type 'A' is not defined" source
+                }
+
+            // …and the sequence really is interleaved: each element referring only UPWARD is
+            // legal, however many times the file alternates between the two kinds.
+            yield
+                test "types and module lets interleave in one top-down sequence" {
+                    expectClean "type A = { x: int }\nlet f (a: A) = a.x\ntype B = { y: A }\nlet g (b: B) = f b.y"
+                }
+
+            // The shadowing rule, through a module `let` — the third face of the same
+            // mechanism (record field, member signature, module let). The head was classified
+            // where it was written, with nothing yet claiming `exn`, so it stamped external
+            // and stays bound there once the local `exn` registers. Pinned against the SAME
+            // program without the local declaration, so the assertion is "identical
+            // resolution", not a hardcoded key.
+            yield
+                test "a shadowing local declaration below a module let does not capture it" {
+                    let src = "let f (e: exn) = e"
+                    let external = soleModuleLetType src
+
+                    let shadowed = soleModuleLetType (src + "\ntype exn = { message: int }")
+
+                    Expect.equal shadowed external "f's parameter binds the external `exn`, not the local one below"
                 }
         ]

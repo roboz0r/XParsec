@@ -460,12 +460,19 @@ module NameResolution =
         // abbreviation RHS) against exactly that. The element's `Containment` (namespace +
         // enclosing modules) rides into each minted key; its `Scope` is the `open` set the
         // group's written heads resolve against.
+        //
+        // Types and module-level TERMS (`let` / `do` / a bare expression) are ONE ordered
+        // sequence, not two passes — `let f (a: A) = …` above `type A` is FS0039 in F# — so
+        // a term's type ANNOTATIONS are classified here, at the term's position in the same
+        // scan, against exactly the types claimed above it. Only the annotations: the term's
+        // value resolution and its body typing stay with the declaration-order body walk
+        // below, which is ordered against `fillClassMembers` for the module↔class dependency.
         for w in elems do
+            ctx.Resolution.OpenScope <- w.Scope
+
             match w.Elem with
-            | ModuleElem.Type defs ->
-                ctx.Resolution.OpenScope <- w.Scope
-                registerGroup ctx w.Containment defs
-            | _ -> ()
+            | ModuleElem.Type defs -> registerGroup ctx w.Containment defs
+            | m -> classifyTermTypes ctx m
 
         // walkModuleElem skips ModuleElem.Type, so class/union member bodies are
         // walked here with each type's own scope (`this` + ctor params), giving
