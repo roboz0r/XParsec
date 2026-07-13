@@ -250,6 +250,23 @@ Note while here: `NominalTypeNames` is a `HashSet<string>` of **bare short names
 namespace forces `module List` in an unrelated namespace to compile as `ListModule`.
 Tracked separately in `docs/thermo-review-938dd9da34.md`; not a blocker here.
 
+## The deferral was a compile-order artefact, not a design
+
+`fillRecordFieldTypes` documented itself as *"done as a pre-pass so a record's field type
+can reference another record declared elsewhere in the same file"*. That has it backwards.
+The real cause was that `Passes/Unification/Translate.fs` compiled **after**
+`Passes/NameResolution/TypeRegistration.fs`, so registration *could not call*
+`translateType` — field types had to be placeholder `TyVar`s linked by a later whole-file
+pass, and whole-file forward visibility was the **consequence**, written up afterwards as
+the rationale.
+
+Exactly one thing pinned that order: `Translate.fs` referenced
+`NameResolutionTypeHeadStamp` at two sites. Hoisting `TypeHeadStamp` with the engine block
+(`EngineCore` / `Subsume` / `Engine` / `Translate`) above the rest of name resolution
+reorders cleanly — **zero source changes, all suites green** (`f7acdd0e`).
+
+Registration can now call `translateType`. Everything below follows from that.
+
 ## Order of work
 
 1. **DONE (`7c4d7433`).** Fold the kind registrars onto the identity claim. Each registrar
@@ -259,23 +276,64 @@ Tracked separately in `docs/thermo-review-938dd9da34.md`; not a blocker here.
    augmentation block) and stopped a rejected duplicate's members leaking onto the
    surviving claimant. `TypeIdentity.DeclKey` survives — it is genuine identity data, not
    a round-trip artefact.
-2. **Collapse type registration to a single top-down scan** over `ModuleElem.Type` groups,
-   with the three-phase group algorithm above. This is the step that flips
-   *type-to-type* forward references from accepted to rejected.
-3. **Interleave module `let` bindings into that same scan.** Types and module-lets are one
-   ordered sequence (see *The rule being implemented*), so a `let`'s type annotations must
-   resolve against only the types claimed **above** it. Until this lands, the file-order
-   rule is half-enforced: `let f (a: A) = a.x` above `type A` is still wrongly accepted.
-   This is the step that touches body-walking, so see the landmine below.
-4. **Order the type body: lets top-down, members as a recursive group.** Verify whether
-   the current implementation already gets this right; if it does, this step is a test
-   plus a comment, not a change.
-5. **Delete the ordering scaffolding**: `registerInheritedSlots`, the whole-graph cycle
-   sweep, and any remaining CST re-scan.
+2. **DONE (`b67148ff`).** Collapse type registration to a single top-down scan over
+   `ModuleElem.Type` groups, with the three-phase group algorithm above. Type-to-type
+   forward references are rejected. Ordering alone did not achieve that (see above), so
+   this step added an explicit guard — `checkTypesInScope` + `UnitTypeNames` — which step 4
+   removes.
+3. **DONE (`f7acdd0e`).** Compile the engine and `Translate` ahead of name resolution.
+   Behaviour-neutral; unlocks step 4.
+4. **Translate type STRUCTURE at registration.** Field types, union-case field types,
+   abbreviation RHSs, `val` fields, ctor-parameter and member **signature** annotations
+   translate in the group's detail phase, seeing only what is claimed above them plus
+   their own group. Deletes `fillRecordFieldTypes`, `fillUnionFieldTypes`,
+   `fillAbbreviationBodies`, the placeholder-`TyVar`+`Link` dance for those positions,
+   **and** `checkTypesInScope` / `UnitTypeNames` — a below-declared type is simply not in
+   the registry yet, so resolution misses it and falls through to the external probe on its
+   own. Diagnostics and resolution become one mechanism instead of two that can disagree.
 
-Tests that rely on forward visibility go red at steps 2 and 3. They pin the wrong
-semantics; fix them by declaring in dependency order, or by joining with `and` where
-mutual recursion is genuinely intended. Do **not** weaken the rule to keep a test green.
+   **Member BODIES stay in Unification.** `fillClassMembers` and the body walk run in
+   declaration order to satisfy a module↔class dependency (a class member calling an
+   earlier module function needs its real generalised scheme; a later module function over
+   the class needs the member's typed body). That ordering is load-bearing — do not touch
+   it. Structure is annotations; bodies are not.
+5. **Interleave module `let` bindings into the top-down scan.** Types and module-lets are
+   one ordered sequence, so a `let`'s annotations must resolve against only the types
+   claimed **above** it. Until this lands the file-order rule is half-enforced:
+   `let f (a: A) = a.x` above `type A` is still wrongly accepted.
+6. **Order the type body: lets top-down, members as a recursive group.** Verify whether the
+   current implementation already gets this right; if so this is a test plus a comment.
+7. **Delete the remaining scaffolding**: `registerInheritedSlots`, the whole-graph cycle
+   sweep, any surviving CST re-scan.
+
+Tests that rely on forward visibility go red at steps 2, 4 and 5. They pin the wrong
+semantics; fix them by declaring in dependency order, or by joining with `and` where mutual
+recursion is genuinely intended. Do **not** weaken the rule to keep a test green.
+
+## Pin the semantics against F#, don't infer them
+
+Every scoping rule this plan asserts must be **probed against the reference compiler and
+pinned by a test**, not reasoned about. Write a throwaway `.fsx` under repo-root `./tmp/`,
+run `dotnet fsi --nologo x.fsx`, match the accept/reject and the error class, then encode
+it as a test. (`dotnet fsi` is fine; `Build`/`Test` must go through `./claude_tools.cmd`.)
+
+This has already caught one real bug in this plan: a cycle check over *all* field edges
+would have rejected `type A = { x: B } and B = { y: A }`, which F# **accepts** —
+reference-type indirection breaks the cycle, and only *struct-field* and *inheritance*
+edges cycle (FS0954). Reasoning missed it; the probe caught it.
+
+Still to probe and pin (non-exhaustive):
+
+- A struct-field cycle within a group (FS0954's second half) — **currently undetected**;
+  at group close the field types were unresolved `TyVar`s. After step 4 they are real
+  types, so the edge becomes readable and the check becomes possible.
+- Shadowing: an `open`ed external type re-declared locally *below* a use of it (the
+  `open System` + `type Uri` case). Step 4 should make the use resolve to the external
+  type. Pin both the acceptance and the **resolved identity**, not just the acceptance —
+  today the guard accepts it but resolution still binds the local type.
+- Whether a type annotation in a module `let` sees a type declared below it (step 5).
+- Class-body ordering: `let` before `let` (rejected), member ↔ member (accepted), member →
+  earlier let (accepted) — step 6.
 
 ## Landmine
 
