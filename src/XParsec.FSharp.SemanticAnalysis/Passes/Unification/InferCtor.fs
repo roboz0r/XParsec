@@ -365,7 +365,9 @@ module internal UnificationInferCtor =
         match headName with
         | ValueNone -> ValueNone
         | ValueSome name ->
-            match TypeRegistry.tryClass ctx.Types SourcePos.unbounded name with
+            // The head names a class only if one is in scope AT THE CALL: a class declared
+            // below it is not constructible there.
+            match TypeRegistry.tryClass ctx.Types (SourcePos.ofNodeKey key) name with
             | ValueNone -> ValueNone
             | ValueSome info ->
                 let argTy = infer ctx argExpr

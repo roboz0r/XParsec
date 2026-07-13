@@ -70,9 +70,11 @@ module internal UnificationInferIdentExpr =
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length = 2
             && not (ctx.Bindings.Binding.ContainsKey key)
-            && ctx.Types.Enum.ContainsKey(ctx.NameOf li.Idents.[0])
+            && (TypeRegistry.tryEnum ctx.Types (SourcePos.ofNodeKey key) (ctx.NameOf li.Idents.[0])).IsSome
             ->
-            let einfo = ctx.Types.Enum.[ctx.NameOf li.Idents.[0]]
+            let einfo =
+                (TypeRegistry.tryEnum ctx.Types (SourcePos.ofNodeKey key) (ctx.NameOf li.Idents.[0])).Value
+
             let caseName = ctx.NameOf li.Idents.[1]
 
             if einfo.HasCase caseName then
@@ -97,22 +99,26 @@ module internal UnificationInferIdentExpr =
             // Class static member takes priority over union static member which
             // takes priority over a union ctor — preserves the original cascade
             // order so a static member shadows the not-a-case diagnostic.
+            // The qualifier resolves AS SEEN FROM this node: a class / union declared below
+            // it does not answer for the name, so `Foo.Bar` above `type Foo` falls through
+            // to the external cascade and lands unresolved — the same miss NameResolution
+            // already diagnosed on the qualifier.
             let classHit =
-                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded headName with
+                match TypeRegistry.tryClass ctx.Types (SourcePos.ofNodeKey key) headName with
                 | ValueSome info -> tryStaticMember info.TypeParams info.Members
                 | ValueNone -> ValueNone
 
             match classHit with
             | ValueSome ty -> ty
             | ValueNone ->
-                match TypeRegistry.tryUnionBare ctx.Types SourcePos.unbounded headName with
+                match TypeRegistry.tryUnionBare ctx.Types (SourcePos.ofNodeKey key) headName with
                 | ValueSome info ->
                     match tryStaticMember info.TypeParams info.Members with
                     | ValueSome ty -> ty
                     | ValueNone ->
                         // Qualified ctor reference `Result2.Ok` — via the union
                         // registry, bypassing the CtorIndex ambiguity check.
-                        match resolveQualifiedCtor ctx headName tailName with
+                        match resolveQualifiedCtor ctx (SourcePos.ofNodeKey key) headName tailName with
                         | ValueSome info -> ctorType ctx info
                         | ValueNone -> errorTy ctx key (sprintf "Union '%s' has no case '%s'" headName tailName)
                 | ValueNone ->
@@ -152,7 +158,7 @@ module internal UnificationInferIdentExpr =
 
                     match singleSegName with
                     | ValueSome n ->
-                        let info, count = resolveCtorName ctx n
+                        let info, count = resolveCtorName ctx (SourcePos.ofNodeKey key) n
 
                         match info with
                         | ValueSome i -> ctorType ctx i
@@ -177,7 +183,7 @@ module internal UnificationInferIdentExpr =
                                 // `Expr.App (Expr.Ident "Point", ...)`. Return the
                                 // ctor as a function value so `inferApp` types the
                                 // call through the normal function arm.
-                                classCtorAsFunction ctx n
+                                classCtorAsFunction ctx (SourcePos.ofNodeKey key) n
                     | ValueNone ->
                         // A multi-segment qualified name that resolved to nothing.
                         // If its qualifier names a known external union/record, the
@@ -241,10 +247,12 @@ module internal UnificationInferIdentExpr =
                         ValueSome(substituteWith subst m.Type)
                     | None -> ValueNone
 
-                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded className with
+                let useSite = SourcePos.ofNodeKey (CstKeys.ofExpr recv)
+
+                match TypeRegistry.tryClass ctx.Types useSite className with
                 | ValueSome info -> resolve info.TypeParams info.Members
                 | ValueNone ->
-                    match TypeRegistry.tryUnionBare ctx.Types SourcePos.unbounded className with
+                    match TypeRegistry.tryUnionBare ctx.Types useSite className with
                     | ValueSome info -> resolve info.TypeParams info.Members
                     | ValueNone -> ValueNone
         | _ -> ValueNone

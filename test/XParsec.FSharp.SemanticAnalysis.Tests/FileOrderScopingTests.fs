@@ -19,6 +19,13 @@ let private expectClean (source: string) =
     let es = errors (analyse source)
     Expect.isEmpty es (sprintf "expected no errors; diagnostics were %A" es)
 
+/// A use ABOVE the declaration it names must not resolve. Only the VERDICT is pinned, not
+/// the wording: F# blames these with FS0039 ("not defined"), we word them our own way — but
+/// an accepted program here is a name resolving to a declaration that is not in scope.
+let private expectRejected (source: string) =
+    let es = errors (analyse source)
+    Expect.isNonEmpty es "expected a diagnostic: the name is used above its declaration"
+
 /// The inferred type of the unit's ONE module-level `let`, off the elaborated TAST.
 let private soleModuleLetType (tast: TastFile) : SemType =
     let found =
@@ -125,5 +132,25 @@ let tests =
             test "an and-joined sibling is constructible from a member body" {
                 expectClean
                     "type A() =\n    member _.M() = B(5).N\nand B(n: int) =\n    member _.N = n\n    static member Zero = B(0)"
+            }
+
+            // The NEGATIVES: the same three surfaces, written ABOVE the declaration. The
+            // diagnostic is not a separate check — the kind index misses at the use site, so
+            // the ctor / static / record-label simply does not resolve, and the "unresolved"
+            // report IS that miss. F# blames the ctor and the QUALIFIER (not the member) with
+            // FS0039, and the record LABEL with FS0039.
+            test "a ctor call above the class's declaration does not resolve" {
+                expectRejected "let mk () = Foo(1)\ntype Foo(n: int) =\n    member this.N = n"
+            }
+
+            test "a static-member access above the class's declaration does not resolve" {
+                expectRejected "let s () = Foo.Bar\ntype Foo() =\n    static member Bar = 1"
+            }
+
+            // The record-label surface: `FieldIndex` is a reverse index off a *record*, so a
+            // literal above the record's declaration has no candidate to intersect and matches
+            // no record at all.
+            test "a record literal above the record's declaration does not resolve" {
+                expectRejected "let f () = { a = 1 }\ntype R = { a: int }"
             }
         ]

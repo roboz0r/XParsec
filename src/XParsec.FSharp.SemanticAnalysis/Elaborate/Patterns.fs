@@ -47,7 +47,10 @@ module internal ElaboratePatterns =
         | Pat.NamedSimple t when
             ctx.Resolution.ExternalUnionCaseStamp.ContainsKey key
             || (let n = ctx.NameOf t
-                n.Length > 0 && System.Char.IsUpper n.[0] && ctx.Types.CtorIndex.ContainsKey n)
+
+                n.Length > 0
+                && System.Char.IsUpper n.[0]
+                && TypeRegistry.isCaseName ctx.Types (SourcePos.ofNodeKey key) n)
             ->
             // Nullary ctor in pattern position — a local union or an external
             // referenced-package one (`None`, recognised upstream and read by key).
@@ -164,9 +167,14 @@ module internal ElaboratePatterns =
 
                     last.Length > 0
                     && System.Char.IsUpper last.[0]
-                    && (li.Idents.Length = 1 && ctx.Types.CtorIndex.ContainsKey last
+                    && (li.Idents.Length = 1
+                        && TypeRegistry.isCaseName ctx.Types (SourcePos.ofNodeKey key) last
                         || li.Idents.Length = 2
-                           && TypeRegistry.localQualifiedCase ctx.Types (ctx.NameOf li.Idents.[0]) last)))
+                           && TypeRegistry.localQualifiedCase
+                               ctx.Types
+                               (SourcePos.ofNodeKey key)
+                               (ctx.NameOf li.Idents.[0])
+                               last)))
             ->
             let caseName = ctx.NameOf li.Idents.[li.Idents.Length - 1]
 

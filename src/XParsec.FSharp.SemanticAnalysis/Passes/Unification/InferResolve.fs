@@ -50,9 +50,12 @@ module internal UnificationInferResolve =
     /// Function value whose argument shape matches the primary constructor
     /// and whose result is the constructed `TyClass`. Routes bare
     /// `Point(3, 4)` calls (no `new`) through the function-application
-    /// machinery. `ValueNone` if `name` isn't in `ctx.Types.Class`.
-    let tryClassCtorAsFunction (ctx: PassContext) (name: string) : SemType voption =
-        match TypeRegistry.tryClass ctx.Types SourcePos.unbounded name with
+    /// machinery. `ValueNone` if `name` isn't a class in scope AT `useSite` — a class
+    /// declared below the call names nothing there, so the call resolves to nothing and
+    /// NameResolution's "unresolved identifier" (which fires off the same miss) is the
+    /// whole verdict.
+    let tryClassCtorAsFunction (ctx: PassContext) (useSite: SourcePos) (name: string) : SemType voption =
+        match TypeRegistry.tryClass ctx.Types useSite name with
         | ValueSome info ->
             let args, subst = freshNamedInstance ctx info.TypeParams
             let receiverTy = TyClass(info.Key, args)
@@ -66,8 +69,8 @@ module internal UnificationInferResolve =
             ValueSome(TyFun(arg, receiverTy))
         | ValueNone -> ValueNone
 
-    let classCtorAsFunction (ctx: PassContext) (name: string) : SemType =
-        match tryClassCtorAsFunction ctx name with
+    let classCtorAsFunction (ctx: PassContext) (useSite: SourcePos) (name: string) : SemType =
+        match tryClassCtorAsFunction ctx useSite name with
         | ValueSome t -> t
         | ValueNone -> TyVar(freshTyVar ctx)
 
@@ -117,50 +120,64 @@ module internal UnificationInferResolve =
             | 1 -> ValueSome(TyFun(fields.[0], unionTy))
             | _ -> ValueSome(TyFun(TyTuple(EqArray.ofArray fields), unionTy))
 
-    /// ValueNone with `count = 0` means "no such ctor"; `count >= 2` means
-    /// ambiguous — the caller emits the appropriate diagnostic.
-    let resolveCtorName (ctx: PassContext) (name: string) : UnionCaseInfo voption * int =
-        match ctx.Types.CtorIndex.TryGetValue name with
-        | false, _ -> ValueNone, 0
-        | true, infos when infos.Length = 1 -> ValueSome infos.[0], 1
-        | true, infos -> ValueNone, infos.Length
+    /// The union case `name` refers to at `useSite`. ValueNone with `count = 0` means "no
+    /// such ctor *here*" — either no union declares it, or the one that does is declared
+    /// below the use; `count >= 2` means ambiguous. The caller emits the appropriate
+    /// diagnostic.
+    let resolveCtorName (ctx: PassContext) (useSite: SourcePos) (name: string) : UnionCaseInfo voption * int =
+        match TypeRegistry.casesNamed ctx.Types useSite name with
+        | [||] -> ValueNone, 0
+        | [| only |] -> ValueSome only, 1
+        | infos -> ValueNone, infos.Length
 
-    let resolveQualifiedCtor (ctx: PassContext) (typeName: string) (caseName: string) : UnionCaseInfo voption =
+    let resolveQualifiedCtor
+        (ctx: PassContext)
+        (useSite: SourcePos)
+        (typeName: string)
+        (caseName: string)
+        : UnionCaseInfo voption =
         // Case names are globally unique (even across arity-overloaded unions like
         // `Choice\`2`…`Choice\`7`), so resolve through the reverse case index and let
         // the written qualifier select which union short name the case belongs to.
         // Avoids a bare `Union.[typeName]` lookup, which can't see an arity-overloaded
         // union (it does not resolve by bare name).
-        match ctx.Types.CtorIndex.TryGetValue caseName with
-        | false, _ -> ValueNone
-        | true, infos -> infos |> EqArray.tryFind (fun c -> c.UnionName = typeName)
+        match
+            TypeRegistry.casesNamed ctx.Types useSite caseName
+            |> Array.tryFind (fun c -> c.UnionName = typeName)
+        with
+        | Some c -> ValueSome c
+        | None -> ValueNone
 
     /// Field set match is order-insensitive. candidateCount disambiguates the
-    /// "no match" vs "ambiguous" diagnostic paths.
-    let findUniqueRecordByFieldSet (ctx: PassContext) (names: string list) : RecordTypeInfo voption * int =
+    /// "no match" vs "ambiguous" diagnostic paths. The candidates are the records in scope
+    /// at `useSite`: a field name whose only declaring record sits BELOW the literal names
+    /// no record label there, so the literal matches nothing (F#'s verdict).
+    let findUniqueRecordByFieldSet
+        (ctx: PassContext)
+        (useSite: SourcePos)
+        (names: string list)
+        : RecordTypeInfo voption * int =
         match names with
         | [] -> ValueNone, 0
         | first :: _ ->
-            match ctx.Types.FieldIndex.TryGetValue first with
-            | false, _ -> ValueNone, 0
-            | true, candidates ->
-                let nameSet = Set.ofList names
-                let mutable firstHit = Unchecked.defaultof<RecordTypeInfo>
-                let mutable count = 0
+            let candidates = TypeRegistry.recordsWithField ctx.Types useSite first
+            let nameSet = Set.ofList names
+            let mutable firstHit = Unchecked.defaultof<RecordTypeInfo>
+            let mutable count = 0
 
-                for info in candidates do
-                    let declared = info.Fields |> Array.map (fun f -> f.Name) |> Set.ofArray
+            for info in candidates do
+                let declared = info.Fields |> Array.map (fun f -> f.Name) |> Set.ofArray
 
-                    if declared = nameSet then
-                        if count = 0 then
-                            firstHit <- info
+                if declared = nameSet then
+                    if count = 0 then
+                        firstHit <- info
 
-                        count <- count + 1
+                    count <- count + 1
 
-                if count = 1 then
-                    ValueSome firstHit, 1
-                else
-                    ValueNone, count
+            if count = 1 then
+                ValueSome firstHit, 1
+            else
+                ValueNone, count
 
     /// `Circle(r)` parses as `Circle (EnclosedBlock r)`; `Rectangle(w, h)`
     /// as `Circle (EnclosedBlock (Tuple [w; h]))`. v1 supports the

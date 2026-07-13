@@ -64,13 +64,13 @@ module internal UnificationInferRecordAccess =
         let candidate =
             match qualifier with
             | Some typeName ->
-                match TypeRegistry.tryRecord ctx.Types SourcePos.unbounded typeName with
+                match TypeRegistry.tryRecord ctx.Types (SourcePos.ofNodeKey key) typeName with
                 | ValueSome info -> ValueSome info
                 | ValueNone ->
                     ctx.Error(key, sprintf "Unknown record type qualifier: %s" typeName)
                     ValueNone
             | None ->
-                let cand, count = findUniqueRecordByFieldSet ctx names
+                let cand, count = findUniqueRecordByFieldSet ctx (SourcePos.ofNodeKey key) names
 
                 match cand with
                 | ValueSome _ -> cand

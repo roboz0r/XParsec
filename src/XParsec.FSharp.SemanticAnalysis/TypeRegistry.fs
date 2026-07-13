@@ -127,8 +127,12 @@ type PassContextTypes =
         /// Reverse index: ctor name → bucket of case-info entries (each tagged with
         /// the declaring union type). Consumers iterate the bucket; order does not
         /// matter, so registration appends with `EqArray.ofResizeArray`.
+        /// READ ONLY through `TypeRegistry.casesNamed` / `isCaseName` / `localQualifiedCase`,
+        /// which take the use site: a case is visible exactly where its declaring union is.
         CtorIndex: Dictionary<string, EqArray<UnionCaseInfo>>
         /// Reverse index: field name → bucket of record types that declare it.
+        /// READ ONLY through `TypeRegistry.recordsWithField`, which takes the use site: a
+        /// field is visible exactly where its declaring record is.
         FieldIndex: Dictionary<string, EqArray<RecordTypeInfo>>
         /// Reverse index: member name → bucket of declaring (class, member) entries.
         /// Used only for ambiguity diagnostics when a receiver's type is free and
@@ -331,43 +335,79 @@ module TypeRegistry =
             keys.Add key
             index.[name] <- keys
 
-    /// The key a name claims at EXACTLY this arity, if any. The `TypeKey`'s `Name` is
-    /// the arity-qualified name (`SymbolKeyOps.arityName` is the one rule both the mint
-    /// and this read use), so the arity test is a name test on the candidates.
+    /// Is this claim visible from `useSite`? THE file-order rule, in one comparison — see
+    /// `TypeIdentity.VisibleFrom`. A claim declared below the use answers for nothing, so a
+    /// use above a declaration sees exactly what F# sees there: the external universe, or
+    /// nothing at all.
+    let private visibleAt (useSite: SourcePos) (claim: TypeIdentity) : bool = claim.VisibleFrom <= useSite.Offset
+
+    /// Is the type `key` (claimed under the short name `name`) visible from `useSite`?
+    /// The kind indexes below map a name to KEYS, but the file-order fact lives on the
+    /// CLAIM — so a kind index is scoped by asking the name table about the very key it is
+    /// about to answer with. One claim holds `(name, arity)`, and a key's arity is in its
+    /// `Name`, so at most one claim can match.
+    let private keyVisibleAt (types: PassContextTypes) (useSite: SourcePos) (name: string) (key: TypeKey) : bool =
+        match types.TypeClaims.TryGetValue name with
+        | true, claims -> claims.Exists(fun c -> c.Key = key && visibleAt useSite c)
+        | false, _ -> false
+
+    /// The key a name claims at EXACTLY this arity AS SEEN FROM `useSite`, if any. The
+    /// `TypeKey`'s `Name` is the arity-qualified name (`SymbolKeyOps.arityName` is the one
+    /// rule both the mint and this read use), so the arity test is a name test on the
+    /// candidates.
     ///
     /// With `tryKeyOfBareName` it is the funnel EVERY kind index (record / union / class /
     /// abbrev) resolves a name through, which is why the use site enters here rather than
     /// at each kind's face: one place decides what a name can see.
     let private tryKeyOfArity
+        (types: PassContextTypes)
         (index: Dictionary<string, ResizeArray<TypeKey>>)
-        (_useSite: SourcePos)
+        (useSite: SourcePos)
         (name: string)
         (arity: int)
         : TypeKey voption =
         match index.TryGetValue name with
         | true, keys ->
             let arityName = SymbolKeyOps.arityName name arity
-            let i = keys.FindIndex(fun k -> k.Name = arityName)
+
+            let i =
+                keys.FindIndex(fun k -> k.Name = arityName && keyVisibleAt types useSite name k)
+
             if i < 0 then ValueNone else ValueSome keys.[i]
         | false, _ -> ValueNone
 
-    /// What a BARE (arity-less) short name resolves to. A NON-GENERIC type owns its
-    /// short name outright — its key's `Name` *is* the bare name — so it wins whenever
-    /// one exists; failing that a lone candidate resolves; and an arity-overloaded name
-    /// (`Point\`2` / `Point\`3`) is genuinely ambiguous unqualified, so it resolves to
-    /// NOTHING and the caller must come with an arity or a key.
+    /// What a BARE (arity-less) short name resolves to AS SEEN FROM `useSite`. A
+    /// NON-GENERIC type owns its short name outright — its key's `Name` *is* the bare name
+    /// — so it wins whenever one exists; failing that a lone candidate resolves; and an
+    /// arity-overloaded name (`Point\`2` / `Point\`3`) is genuinely ambiguous unqualified,
+    /// so it resolves to NOTHING and the caller must come with an arity or a key.
+    ///
+    /// The candidates are the VISIBLE ones: a type declared below the use is not merely
+    /// out-competed, it is not a candidate at all — so it cannot resolve, and cannot make
+    /// a visible sibling ambiguous either.
     let private tryKeyOfBareName
+        (types: PassContextTypes)
         (index: Dictionary<string, ResizeArray<TypeKey>>)
-        (_useSite: SourcePos)
+        (useSite: SourcePos)
         (name: string)
         : TypeKey voption =
         match index.TryGetValue name with
         | true, keys ->
-            let i = keys.FindIndex(fun k -> k.Name = name)
+            let mutable exact = ValueNone
+            let mutable lone = ValueNone
+            let mutable visible = 0
 
-            if i >= 0 then ValueSome keys.[i]
-            elif keys.Count = 1 then ValueSome keys.[0]
-            else ValueNone
+            for k in keys do
+                if keyVisibleAt types useSite name k then
+                    visible <- visible + 1
+                    lone <- ValueSome k
+
+                    if k.Name = name then
+                        exact <- ValueSome k
+
+            match exact with
+            | ValueSome _ -> exact
+            | ValueNone -> if visible = 1 then lone else ValueNone
         | false, _ -> ValueNone
 
     let private tryOfKey (table: Dictionary<TypeKey, 'T>) (key: TypeKey voption) : 'T voption =
@@ -421,12 +461,6 @@ module TypeRegistry =
     /// nothing; this retains it so the rejection is inspectable. See `RejectedTypeDefn`.
     let rejectDuplicateType (types: PassContextTypes) (rejected: RejectedTypeDefn) : unit =
         types.RejectedDuplicates.Add rejected
-
-    /// Is this claim visible from `useSite`? THE file-order rule, in one comparison — see
-    /// `TypeIdentity.VisibleFrom`. A claim declared below the use answers for nothing, so a
-    /// use above a declaration sees exactly what F# sees there: the external universe, or
-    /// nothing at all.
-    let private visibleAt (useSite: SourcePos) (claim: TypeIdentity) : bool = claim.VisibleFrom <= useSite.Offset
 
     /// The identity holding `(name, arity)` AS SEEN FROM `useSite`, if any. The single route
     /// from a use-site name+arity to the type that owns it — so a resolver ASKS which kind
@@ -489,7 +523,7 @@ module TypeRegistry =
     /// name does not resolve unqualified. Callers holding a key use `tryRecordByKey`;
     /// those with a use-site arity use `tryRecordArity`.
     let tryRecord (types: PassContextTypes) (useSite: SourcePos) (name: string) : RecordTypeInfo voption =
-        tryOfKey types.Record (tryKeyOfBareName types.RecordNames useSite name)
+        tryOfKey types.Record (tryKeyOfBareName types types.RecordNames useSite name)
 
     /// Resolve a record by `(name, arity)` — exact arity, so a wrong arity misses.
     let tryRecordArity
@@ -498,7 +532,7 @@ module TypeRegistry =
         (name: string)
         (arity: int)
         : RecordTypeInfo voption =
-        tryOfKey types.Record (tryKeyOfArity types.RecordNames useSite name arity)
+        tryOfKey types.Record (tryKeyOfArity types types.RecordNames useSite name arity)
 
     /// Resolve a record by its project-local `SymbolKey` — the reader-side companion
     /// to `tryUnionByKey`/`tryClassByKey`. See `tryByTypeKey`.
@@ -513,7 +547,7 @@ module TypeRegistry =
     /// recognition-only call sites (`Scope.fs`, `NameResolution.fs`, qualified-static
     /// heads) read the registry this way; a caller holding a key uses `tryClassByKey`.
     let tryClass (types: PassContextTypes) (useSite: SourcePos) (name: string) : ClassTypeInfo voption =
-        tryOfKey types.Class (tryKeyOfBareName types.ClassNames useSite name)
+        tryOfKey types.Class (tryKeyOfBareName types types.ClassNames useSite name)
 
     /// Resolve a class by `(name, arity)` — exact arity, so a wrong arity misses.
     let tryClassArity
@@ -522,7 +556,7 @@ module TypeRegistry =
         (name: string)
         (arity: int)
         : ClassTypeInfo voption =
-        tryOfKey types.Class (tryKeyOfArity types.ClassNames useSite name arity)
+        tryOfKey types.Class (tryKeyOfArity types types.ClassNames useSite name arity)
 
     /// Resolve a class by its project-local `SymbolKey` — the class analogue of
     /// `tryUnionByKey`. See `tryByTypeKey`.
@@ -555,12 +589,20 @@ module TypeRegistry =
     /// claim is always `(name, 0)` and the name addresses at most one.
     let registerEnum (types: PassContextTypes) (name: string) (info: EnumTypeInfo) : unit = types.Enum.[name] <- info
 
-    /// Resolve an enum by bare short name; `ValueNone` if none. Used by
-    /// `translateType` (`(x: E)` → `TyEnum`) and the `E.C1` qualified-access path.
-    let tryEnum (types: PassContextTypes) (_useSite: SourcePos) (name: string) : EnumTypeInfo voption =
-        match types.Enum.TryGetValue name with
-        | true, info -> ValueSome info
-        | false, _ -> ValueNone
+    /// Resolve an enum by bare short name AS SEEN FROM `useSite`; `ValueNone` if none. Used
+    /// by `translateType` (`(x: E)` → `TyEnum`) and the `E.C1` qualified-access path.
+    ///
+    /// The `Enum` table is bare-name-keyed and so never passes through the key-index funnel
+    /// that scopes the other kinds. It needs no separate rule, though: an enum's claim sits
+    /// in the name table like any other kind's, and an enum is never generic — so `(name, 0)`
+    /// visible at the use IS the whole test.
+    let tryEnum (types: PassContextTypes) (useSite: SourcePos) (name: string) : EnumTypeInfo voption =
+        match tryTypeClaim types useSite name 0 with
+        | ValueNone -> ValueNone
+        | ValueSome _ ->
+            match types.Enum.TryGetValue name with
+            | true, info -> ValueSome info
+            | false, _ -> ValueNone
 
     /// Register an abbreviation under its own `TypeKey`. See `registerRecord`.
     let registerAbbrev (types: PassContextTypes) (info: AbbreviationInfo) : unit =
@@ -571,7 +613,7 @@ module TypeRegistry =
     /// a name asks `tryTypeClaim` first, and reaches here only for the lenient tail (a
     /// GENERIC alias named without its arguments back-fills fresh TyVars).
     let tryAbbrev (types: PassContextTypes) (useSite: SourcePos) (name: string) : AbbreviationInfo voption =
-        tryOfKey types.Abbreviation (tryKeyOfBareName types.AbbreviationNames useSite name)
+        tryOfKey types.Abbreviation (tryKeyOfBareName types types.AbbreviationNames useSite name)
 
     /// Resolve an abbreviation by `(name, arity)` — exact arity, so a wrong arity misses.
     let tryAbbrevArity
@@ -580,7 +622,7 @@ module TypeRegistry =
         (name: string)
         (arity: int)
         : AbbreviationInfo voption =
-        tryOfKey types.Abbreviation (tryKeyOfArity types.AbbreviationNames useSite name arity)
+        tryOfKey types.Abbreviation (tryKeyOfArity types types.AbbreviationNames useSite name arity)
 
     /// Resolve an abbreviation by its project-local `SymbolKey`. See `tryRecordByKey`.
     let tryAbbrevByKey (types: PassContextTypes) (key: SymbolKey) : AbbreviationInfo voption =
@@ -593,13 +635,13 @@ module TypeRegistry =
     /// Resolve a union by `(name, arity)` — exact arity, so a wrong arity misses (the
     /// caller diagnoses).
     let tryUnion (types: PassContextTypes) (useSite: SourcePos) (name: string) (arity: int) : UnionTypeInfo voption =
-        tryOfKey types.Union (tryKeyOfArity types.UnionNames useSite name arity)
+        tryOfKey types.Union (tryKeyOfArity types types.UnionNames useSite name arity)
 
     /// Resolve a union by BARE short name (see `tryKeyOfBareName`) — the union sibling
     /// of `tryRecord` / `tryClass`, for the recognition-only call sites (a qualified
     /// ctor / static head, the module-vs-type name test).
     let tryUnionBare (types: PassContextTypes) (useSite: SourcePos) (name: string) : UnionTypeInfo voption =
-        tryOfKey types.Union (tryKeyOfBareName types.UnionNames useSite name)
+        tryOfKey types.Union (tryKeyOfBareName types types.UnionNames useSite name)
 
     /// Resolve a union by its project-local `SymbolKey` — the `TypeKey` minted onto
     /// `UnionTypeInfo.Key` and stamped into `Resolution.ResolvedType`. A non-`TypeKey`
@@ -641,14 +683,78 @@ module TypeRegistry =
         | ValueSome u -> u
         | ValueNone -> failwithf "Internal error: union case '%s' has no registered union '%s'" info.Name info.UnionName
 
-    /// Is `qualifier.caseName` a *local* union-case reference — the case is
-    /// registered and one of its declaring unions has the short name `qualifier`?
-    /// Case names are globally unique (even across `Choice\`2`…`Choice\`7`), so this
-    /// is the arity-safe replacement for `Union.ContainsKey qualifier` + "has case"
-    /// when recognising a qualified union-case (`Choice.Choice1Of3`).
-    let localQualifiedCase (types: PassContextTypes) (qualifier: string) (caseName: string) : bool =
+    // --- The reverse name indexes: fields and union cases -----------------------------
+    // A field name / case name is not a TYPE name, so it holds no claim of its own and
+    // cannot go through the key funnel. It is scoped by its OWNER's claim instead — the
+    // record that declares the field, the union that declares the case — which is exactly
+    // as file-ordered as the owner is. The three faces below are the ONLY reads of
+    // `FieldIndex` / `CtorIndex`: a raw dictionary read has no signature to demand a
+    // position, so leaving one in place would leave a by-name read that is unscoped by
+    // construction, which is the hole the by-name/by-key split exists to close.
+
+    /// Is the union declaring `case` visible from `useSite`? A case's `(UnionName,
+    /// UnionArity)` is the pair it was stamped with at registration, so this is the same
+    /// claim lookup every other by-name face makes.
+    let private caseVisibleAt (types: PassContextTypes) (useSite: SourcePos) (case: UnionCaseInfo) : bool =
+        (tryTypeClaim types useSite case.UnionName case.UnionArity).IsSome
+
+    /// The records declaring a field called `name` that are VISIBLE from `useSite` — the
+    /// candidate set a record literal / record pattern intersects over. A record declared
+    /// below the use is not a candidate, so `{ a = 1 }` above `type R = { a: int }` matches
+    /// no record at all: F#'s verdict (the record label is not defined) falls out of
+    /// resolution failing, not out of a separate check.
+    let recordsWithField (types: PassContextTypes) (useSite: SourcePos) (name: string) : RecordTypeInfo[] =
+        match types.FieldIndex.TryGetValue name with
+        | true, infos ->
+            let hits = ResizeArray infos.Length
+
+            for info in infos do
+                if keyVisibleAt types useSite info.Name info.TypeKey then
+                    hits.Add info
+
+            hits.ToArray()
+        | false, _ -> Array.empty
+
+    /// The union cases named `name` VISIBLE from `useSite`. More than one means the bare
+    /// name is ambiguous and needs a qualifier; none means it names no case here, so an
+    /// uppercase ident is an ordinary binder in pattern position and unresolved in
+    /// expression position.
+    let casesNamed (types: PassContextTypes) (useSite: SourcePos) (name: string) : UnionCaseInfo[] =
+        match types.CtorIndex.TryGetValue name with
+        | true, infos ->
+            let hits = ResizeArray infos.Length
+
+            for case in infos do
+                if caseVisibleAt types useSite case then
+                    hits.Add case
+
+            hits.ToArray()
+        | false, _ -> Array.empty
+
+    /// Does `name` name any union case visible from `useSite`? The recognition test behind
+    /// the ctor-vs-binder decision in pattern position and the ctor-reference suppression in
+    /// expression position.
+    let isCaseName (types: PassContextTypes) (useSite: SourcePos) (name: string) : bool =
+        match types.CtorIndex.TryGetValue name with
+        | true, infos -> infos |> EqArray.exists (caseVisibleAt types useSite)
+        | false, _ -> false
+
+    /// Is `qualifier.caseName` a *local* union-case reference visible from `useSite` — the
+    /// case is registered, one of its declaring unions has the short name `qualifier`, and
+    /// that union is in scope here? Case names are globally unique (even across
+    /// `Choice\`2`…`Choice\`7`), so this is the arity-safe replacement for
+    /// `Union.ContainsKey qualifier` + "has case" when recognising a qualified union-case
+    /// (`Choice.Choice1Of3`).
+    let localQualifiedCase
+        (types: PassContextTypes)
+        (useSite: SourcePos)
+        (qualifier: string)
+        (caseName: string)
+        : bool =
         match types.CtorIndex.TryGetValue caseName with
-        | true, infos -> infos |> EqArray.exists (fun c -> c.UnionName = qualifier)
+        | true, infos ->
+            infos
+            |> EqArray.exists (fun c -> c.UnionName = qualifier && caseVisibleAt types useSite c)
         | false, _ -> false
 
     /// Record the decl-site origin of a freshly-minted project-local `SymbolKey` and

@@ -177,9 +177,14 @@ module NameResolutionScope =
                 // suppressed here the same way (it is ambient, like the `option`
                 // abbreviation, rather than open-gated in v1). Suppress the
                 // unresolved diagnostic for all four.
+                // Both local reads answer AS SEEN FROM this use (`useKey`): a class or a
+                // union declared BELOW it is not in scope, so it neither suppresses the
+                // diagnostic nor binds. One verdict, not two — the suppression fires
+                // *because* the lookup hit, so when the lookup misses here, it misses in
+                // Unification too and the diagnostic is the resolution failure itself.
                 if
-                    ctx.Types.CtorIndex.ContainsKey name
-                    || (TypeRegistry.tryClass ctx.Types SourcePos.unbounded name).IsSome
+                    TypeRegistry.isCaseName ctx.Types (SourcePos.ofNodeKey useKey) name
+                    || (TypeRegistry.tryClass ctx.Types (SourcePos.ofNodeKey useKey) name).IsSome
                     // A generic external-type receiver (`EqualityComparer<int>`) was
                     // resolved at exact arity by the enclosing TypeApp visit, which
                     // stamped this use site's `ResolvedType`; a non-generic one
@@ -214,10 +219,10 @@ module NameResolutionScope =
     /// nothing) and its sub-patterns as binders, not the whole thing as a binder
     /// Empty strings (virtual tokens) never
     /// match.
-    let private isCtorName (ctx: PassContext) (name: string) : bool =
+    let private isCtorName (ctx: PassContext) (useSite: SourcePos) (name: string) : bool =
         name.Length > 0
         && System.Char.IsUpper name.[0]
-        && (ctx.Types.CtorIndex.ContainsKey name
+        && (TypeRegistry.isCaseName ctx.Types useSite name
             // A bare RQA external case is not a ctor head in pattern position either
             // — only its qualified form is.
             || resolvesAsBareExternalCase ctx name)
@@ -229,9 +234,9 @@ module NameResolutionScope =
     /// misses, since a bare probe of an RQA case's short name is (correctly)
     /// rejected. Mirrors the recognition InferPat / Elaborate/Patterns apply, so a
     /// qualified external case's sub-patterns bind identically.
-    let private isPatNamedCtorHead (ctx: PassContext) (li: LongIdent<SyntaxToken>) : bool =
+    let private isPatNamedCtorHead (ctx: PassContext) (useSite: SourcePos) (li: LongIdent<SyntaxToken>) : bool =
         li.Idents.Length >= 1
-        && (isCtorName ctx (ctx.NameOf li.Idents.[li.Idents.Length - 1])
+        && (isCtorName ctx useSite (ctx.NameOf li.Idents.[li.Idents.Length - 1])
             || (li.Idents.Length = 2
                 && (tryExternalCase ctx (ValueSome(ctx.NameOf li.Idents.[0])) (ctx.NameOf li.Idents.[1])).IsSome))
 
@@ -239,7 +244,7 @@ module NameResolutionScope =
     /// bind nothing (Wildcard, Const, nullary ctors).
     let rec bindingsOfPat (ctx: PassContext) (p: Pat<SyntaxToken>) : (string * NodeKey) list =
         match p with
-        | Pat.NamedSimple t when isCtorName ctx (ctx.NameOf t) ->
+        | Pat.NamedSimple t when isCtorName ctx (SourcePos.ofNodeKey (CstKeys.ofPat p)) (ctx.NameOf t) ->
             // Uppercase-leading ident matching a known nullary ctor — a ctor
             // pattern, binds nothing.
             []
@@ -258,7 +263,9 @@ module NameResolutionScope =
             bindingsOfPat ctx inner
         | Pat.Record(fieldPats = fieldPats) ->
             [ for FieldPat(pat = sub) in fieldPats -> bindingsOfPat ctx sub ] |> List.concat
-        | Pat.Named(longIdent = li; argumentPats = args) when isPatNamedCtorHead ctx li ->
+        | Pat.Named(longIdent = li; argumentPats = args) when
+            isPatNamedCtorHead ctx (SourcePos.ofNodeKey (CstKeys.ofPat p)) li
+            ->
             // Ctor pattern (`Circle r`, `Result1.Ok x`, `Color.Red x`): head binds
             // nothing, sub-patterns introduce binders.
             [
@@ -513,6 +520,10 @@ module NameResolutionScope =
                 // ctor/static, an external union case/static, or genuinely unresolved.
                 let resolveQualifiedExternal () =
                     let qualName = li.Idents |> Seq.map ctx.NameOf |> String.concat "."
+                    // Every local read below answers AS SEEN FROM this expression: a type
+                    // declared under it cannot answer for the qualifier, so the suppression
+                    // and the binding Unification makes fail together.
+                    let useSite = SourcePos.ofNodeKey (CstKeys.ofExpr e)
 
                     if not (tryStampExternalValue ctx (CstKeys.ofExpr e) qualName) then
                         // `Result2.Ok` — two-segment qualified ctor; resolves through
@@ -521,6 +532,7 @@ module NameResolutionScope =
                             li.Idents.Length = 2
                             && TypeRegistry.localQualifiedCase
                                 ctx.Types
+                                useSite
                                 (ctx.NameOf li.Idents.[0])
                                 (ctx.NameOf li.Idents.[1])
 
@@ -534,11 +546,11 @@ module NameResolutionScope =
                                 let staticIn (members: TypeMemberInfo[]) =
                                     members |> Array.exists (fun m -> m.IsStatic && m.Name = memberName)
 
-                                (match TypeRegistry.tryClass ctx.Types SourcePos.unbounded typeName with
+                                (match TypeRegistry.tryClass ctx.Types useSite typeName with
                                  | ValueSome info -> staticIn info.Members
                                  | ValueNone -> false)
                                 || (
-                                    match TypeRegistry.tryUnionBare ctx.Types SourcePos.unbounded typeName with
+                                    match TypeRegistry.tryUnionBare ctx.Types useSite typeName with
                                     | ValueSome info -> staticIn info.Members
                                     | ValueNone -> false
                                 ))
@@ -551,7 +563,7 @@ module NameResolutionScope =
                         // `isQualifiedCtor` / `isQualifiedStatic` suppressions.
                         let isEnumCase =
                             li.Idents.Length = 2
-                            && (TypeRegistry.tryEnum ctx.Types SourcePos.unbounded (ctx.NameOf li.Idents.[0])).IsSome
+                            && (TypeRegistry.tryEnum ctx.Types useSite (ctx.NameOf li.Idents.[0])).IsSome
 
                         // `Result.Ok` / `Option.Some` — a qualified *external* union case.
                         // The declaring union may be generic (`Result\`2`), but it is
