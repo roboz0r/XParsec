@@ -153,13 +153,12 @@ never resolves `X` through `ctx.Binding`.
 
 ### Unification
 
-**Field-type fill-in** (`Passes/Unification.fs`). After the registry is
-populated, `walkElems` runs `fillRecordFieldTypes` (alongside the union /
-class fill passes) before any expression is typed: it sets each record's
-typar scope, translates every field's CST type, `Link`s the placeholder
-field TyVar to it, and attaches `TyparConstraints` to the matching
-prototype TyVar. A field type may reference another type declared
-elsewhere in the file, since the whole registry is populated first.
+Field types are **not** filled here: `registerRecordTypeDefn` translates every
+field's type at registration, under the record's typar scope (attaching
+`TyparConstraints` to the matching prototype TyVar), against the types in scope
+where the record is declared — everything above it, plus its own
+`type … and …` group. What Unification adds is what the record does not
+declare: the types its member BODIES infer.
 
 **Member / interface-impl fill-in.** `fillRecordMembers` (mirroring
 `fillUnionMembers`) types the augmentation-member and interface-impl bodies:

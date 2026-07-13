@@ -38,13 +38,13 @@ let private isCtorArgShapeError (tast: TastFile) =
     diagnostics tast
     |> List.exists (fun m -> m.Contains "Constructor argument patterns must be simple identifiers")
 
-// Primary and secondary ctors share ONE annotation-linking walker
-// (`Unification.fillCtorParamTypes`), which matches params positionally: a cursor runs
-// over the param pattern and every parameter-shaped arm must advance it, or a later
-// annotation lands on an earlier param. That walker only handles a bare identifier with
-// an optional annotation — which is sound ONLY because ctor args are restricted to
-// exactly that shape. These tests pin both halves of that contract: the shapes the
-// walker handles, and the restriction that keeps richer shapes away from it.
+// Primary and secondary ctors share ONE parameter walker
+// (`MemberRegistration.ctorParamsOfPat`), which collects and resolves each parameter in
+// order: every parameter-shaped arm must add exactly one entry, or a later annotation lands
+// on an earlier param. That walker only handles a bare identifier with an optional
+// annotation — which is sound ONLY because ctor args are restricted to exactly that shape.
+// These tests pin both halves of that contract: the shapes the walker handles, and the
+// restriction that keeps richer shapes away from it.
 [<Tests>]
 let tests =
     testList

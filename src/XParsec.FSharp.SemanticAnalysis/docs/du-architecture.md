@@ -150,16 +150,13 @@ binds nothing; recurse into sub-patterns) and uppercase nullary-ctor
 
 ### Unification
 
-**Field-type fill-in** (`Passes/Unification.fs`). After the registry is
-fully populated, `walkElems` (`:809`) runs the fill passes in order:
-`fillRecordFieldTypes` → `fillUnionFieldTypes` (`:98`) → `fillClassMembers`
-→ `fillUnionMembers` (`:760`) → expression walk. `fillUnionFieldTypes`
-walks each `TypeDefn.Union`, sets the union's typar scope, translates
-every field's CST type index-aligned with the registered cases, and
-`Link`s each placeholder field `TyVar` to the translated type — so a
-case may reference another type declared elsewhere in the file.
-`fillUnionMembers` fills augmentation member signatures via the shared
-`fillTypeMembers` driver with `MkSelfType = fun args -> TyUnion(Key, args)`.
+Case field types are **not** filled here: `registerUnionTypeDefn` translates
+each case's field types at registration, under the union's typar scope, against
+the types in scope where the union is declared (everything above it, plus its
+own `type … and …` group). What Unification adds is what the union does not
+declare — the types its member BODIES infer. `fillNominalMembers` fills
+augmentation member signatures via the shared `fillTypeMembers` driver with
+`MkSelfType = fun args -> TyUnion(Key, args)`.
 
 **Constructor references** (`Passes/Unification/Infer.fs`,
 `InferResolve.fs`):

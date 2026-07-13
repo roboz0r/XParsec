@@ -1,15 +1,23 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
+open System.Collections.Generic
 open System.Collections.Immutable
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
+open UnificationEngineCore
+open UnificationTranslate
 open NameResolutionTypeHeadStamp
 open NameResolutionScope
 open NameResolutionTypeRegistration
 
-// Registry stamping for class type definitions (ctor params, members, static
-// lets) and union augmentation members. Member/param types start as placeholder
-// TyVars; Unification's fill* pre-passes Link them once member bodies are inferred.
+// Registry stamping for class type definitions (ctor params, `val` fields, members,
+// static lets) and union augmentation members, plus the group registration algorithm
+// every kind's detail runs under.
+//
+// A class's declared STRUCTURE — ctor-parameter annotations, `val` field types, the
+// `inherit` parent — resolves here, against the types in scope where it is written. A
+// member's TYPE is not structure: it is inferred from its body, so its placeholder TyVar is
+// linked by Unification's `fillClassMembers`.
 
 module NameResolutionMemberRegistration =
 
@@ -18,26 +26,34 @@ module NameResolutionMemberRegistration =
     /// accepts only simple patterns (`NamedSimple`, `Typed (NamedSimple, t)`,
     /// `Tuple` of those, possibly enclosed, and `()` for no params); anything
     /// else diagnoses and contributes nothing.
+    ///
+    /// A parameter's type is a TyVar in BOTH shapes, because it is the parameter's
+    /// binding-site inference cell (`fillClassMembers` seeds `ctx.Bindings.TypeVar` from
+    /// it, so a member body's reference to the parameter types through it). An ANNOTATED
+    /// parameter's cell is linked to the declared type right here — under the class's typar
+    /// scope, against the types claimed at this point — so the annotation resolves in the
+    /// declaration's own scope; an unannotated one stays free for the use site to pin.
+    /// Called under `underClassTyparScope`.
     let private ctorParamsOfPat (ctx: PassContext) (declKey: NodeKey) (p: Pat<SyntaxToken>) : ClassCtorParamInfo[] =
         let results = ResizeArray<ClassCtorParamInfo>()
+
+        // Synthetic kind keeps the param's binding-site key distinct from a regular
+        // Pat.NamedSimple at the same offset.
+        let addParam (id: SyntaxToken) (annotation: Type<SyntaxToken> voption) =
+            let tv = TypeVar()
+            tv.Level <- 0
+
+            match annotation with
+            | ValueSome t -> tv.Link <- ValueSome(translateType ctx t)
+            | ValueNone -> ()
+
+            results.Add(ClassCtorParamInfo(ctx.NameOf id, TyVar tv, NodeKey.ofToken id NodeKind.PatIdent))
 
         let rec walk (p: Pat<SyntaxToken>) =
             match p with
             | Pat.EmptyBlock _ -> () // `new()` / `C()` — no parameters
-            | Pat.NamedSimple id ->
-                let name = ctx.NameOf id
-                // Synthetic kind keeps the param's binding-site key distinct
-                // from a regular Pat.NamedSimple at the same offset.
-                let pKey = NodeKey.ofToken id NodeKind.PatIdent
-                let tv = TypeVar()
-                tv.Level <- 0
-                results.Add(ClassCtorParamInfo(name, TyVar tv, pKey))
-            | Pat.Typed(pat = Pat.NamedSimple id) ->
-                let name = ctx.NameOf id
-                let pKey = NodeKey.ofToken id NodeKind.PatIdent
-                let tv = TypeVar()
-                tv.Level <- 0
-                results.Add(ClassCtorParamInfo(name, TyVar tv, pKey))
+            | Pat.NamedSimple id -> addParam id ValueNone
+            | Pat.Typed(pat = Pat.NamedSimple id; typ = t) -> addParam id (ValueSome t)
             | Pat.EnclosedBlock(pat = inner) -> walk inner
             | Pat.Tuple(patterns = pats) ->
                 for sub in pats do
@@ -72,10 +88,9 @@ module NameResolutionMemberRegistration =
         | ValueSome(PrimaryConstrArgs(pat = ValueNone)) -> [||]
         | ValueSome(PrimaryConstrArgs(pat = ValueSome p)) -> ctorParamsOfPat ctx declKey p
 
-    /// `ClassSecondaryCtorInfo` placeholders for a class body's `new(...)`
-    /// overloads. Each overload's params start as placeholder TyVars
-    /// (filled by Unification); the synthetic `DeclKey` keys it from the `new`
-    /// token so distinct overloads don't collide.
+    /// `ClassSecondaryCtorInfo` for a class body's `new(...)` overloads. Each overload's
+    /// params resolve exactly like the primary ctor's (`ctorParamsOfPat`); the synthetic
+    /// `DeclKey` keys it from the `new` token so distinct overloads don't collide.
     let private extractSecondaryCtors
         (ctx: PassContext)
         (declKey: NodeKey)
@@ -88,7 +103,7 @@ module NameResolutionMemberRegistration =
             | TypeDefnElement.Member(MemberDefn.AdditionalConstructor(newToken = nt; pat = pat; body = body)) ->
                 let ctorKey = NodeKey.ofToken nt NodeKind.PatIdent
                 let parms = ctorParamsOfPat ctx ctorKey pat
-                acc.Add(ClassSecondaryCtorInfo(ctorKey, parms, pat, body))
+                acc.Add(ClassSecondaryCtorInfo(ctorKey, parms, body))
             | _ -> ()
 
         acc.ToArray()
@@ -402,10 +417,11 @@ module NameResolutionMemberRegistration =
 
         acc.ToArray()
 
-    /// Collect `val [mutable] x: T` explicit instance fields declared in a class / struct body. Each becomes
-    /// a `ClassFieldInfo` with a placeholder TyVar (linked by Unification from the
-    /// annotation `TypeCst`) and the source `mutable` flag. `static val` is not a
-    /// thing F# accepts here, so a `staticToken` is ignored.
+    /// Collect `val [mutable] x: T` explicit instance fields declared in a class / struct
+    /// body. A `val` field is always annotated, so its type resolves outright — under the
+    /// class's typar scope, against the types in scope where it is written. `IsMutable`
+    /// reflects the `mutable` keyword. `static val` is not a thing F# accepts here, so a
+    /// `staticToken` is ignored. Called under `underClassTyparScope`.
     let private extractInstanceFields
         (ctx: PassContext)
         (elements: TypeDefnElement<SyntaxToken> seq)
@@ -415,11 +431,14 @@ module NameResolutionMemberRegistration =
         for el in elements do
             match el with
             | TypeDefnElement.Member(MemberDefn.Value(mutableToken = mut; ident = id; typ = t)) ->
-                let name = ctx.NameOf id
-                let declKey = NodeKey.ofToken id NodeKind.DeclLetBinding
-                let tv = TypeVar()
-                tv.Level <- 0
-                acc.Add(ClassFieldInfo(name, TyVar tv, mut.IsSome, t, declKey))
+                acc.Add(
+                    ClassFieldInfo(
+                        ctx.NameOf id,
+                        translateType ctx t,
+                        mut.IsSome,
+                        NodeKey.ofToken id NodeKind.DeclLetBinding
+                    )
+                )
             | _ -> ()
 
         acc.ToArray()
@@ -463,8 +482,10 @@ module NameResolutionMemberRegistration =
 
     /// Stamp `ClassTypeInfo` for every `TypeDefn.Class` (or `TypeDefn.Anon` — the
     /// parser emits Anon for the bare `type C(...) = member ...` form without an
-    /// explicit `class`/`end`). Member types are placeholder TyVars; Unification's
-    /// fillClassMembers links them once each member body is inferred.
+    /// explicit `class`/`end`). The class's declared STRUCTURE (ctor-parameter annotations,
+    /// `val` field types) resolves here, under the class's own typar scope. Member types
+    /// are placeholder TyVars; Unification's `fillClassMembers` links them once each member
+    /// body is inferred.
     let private registerClassTypeDefn (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         match TypeDefnPatterns.tryClassLikeDecl td with
         | ValueNone -> ()
@@ -474,7 +495,21 @@ module NameResolutionMemberRegistration =
             let declKey = id.DeclKey
             let classTyparNames = typarNamesOfTypeName ctx tn
             let typeParams = mkTypeParams classTyparNames
-            let ctorParams = extractCtorParams ctx declKey pc
+
+            // Every annotated position in the class's declared surface, resolved under the
+            // class typar scope in ONE entry so a `'a` in a ctor param, a `val` field or a
+            // secondary ctor's parameter all bind the same prototype TyVar.
+            let structure =
+                underTyparScope
+                    ctx
+                    typeParams
+                    (fun () ->
+                        {|
+                            CtorParams = extractCtorParams ctx declKey pc
+                            SecondaryCtors = extractSecondaryCtors ctx declKey body.elements
+                            InstanceFields = extractInstanceFields ctx body.elements
+                        |}
+                    )
 
             let memberInfos =
                 ResizeArray<TypeMemberInfo>(extractMembers ctx declKey classTyparNames body.elements)
@@ -492,10 +527,20 @@ module NameResolutionMemberRegistration =
             let staticLets = extractStaticLets ctx declKey body.classPreamble
 
             let info =
-                ClassTypeInfo(name, typeParams, ctorParams, members, declKey, thisName, thisKey, baseKey, id.Key)
+                ClassTypeInfo(
+                    name,
+                    typeParams,
+                    structure.CtorParams,
+                    members,
+                    declKey,
+                    thisName,
+                    thisKey,
+                    baseKey,
+                    id.Key
+                )
 
             info.StaticLets <- staticLets
-            info.SecondaryCtors <- extractSecondaryCtors ctx declKey body.elements
+            info.SecondaryCtors <- structure.SecondaryCtors
             // No `PrimaryConstrArgs` (`pc = ValueNone`) ⇒ the `val`-field form
             // (`type T = val …; new(…) = …`): the secondaries are the only ctors,
             // so codegen must not synthesise a colliding primary `.ctor`.
@@ -526,7 +571,7 @@ module NameResolutionMemberRegistration =
             info.IsInterface <- TypeDefnPatterns.isInterfaceShape td
             // `[<IsByRefLike>]` ⇒ a byref-like (`ref struct`) value type.
             info.IsByRefLike <- classAttrs.IsByRefLike
-            info.InstanceFields <- extractInstanceFields ctx body.elements
+            info.InstanceFields <- structure.InstanceFields
 
             // Validate equality / comparison attributes against the class
             // kind (FS0382 / FS0377) and stamp kind-aware verdicts. A value
@@ -909,6 +954,100 @@ module NameResolutionMemberRegistration =
             | false, _ -> ()
         | _ -> ()
 
+    /// The nominal a `SemType` names DIRECTLY, if any. A type argument is NOT direct: a
+    /// `B option` field stores a reference to a `B`, so it is an indirection, and only the
+    /// head of a field's type is an immediate containment edge.
+    let private directNominal (t: SemType) : SymbolKey voption =
+        match zonk t with
+        | TyRecord(key, _)
+        | TyUnion(key, _)
+        | TyClass(key, _) -> ValueSome key
+        | TyEnum key -> ValueSome key
+        | _ -> ValueNone
+
+    /// The types a registered declaration STORES INLINE — the fields a value type lays out
+    /// in its own memory. A struct record's fields, a struct union's case fields, a struct
+    /// class's `val` fields and its ctor-param backing fields. Only ever asked of a value
+    /// type (`isValueTypeDefn`), because a reference type stores a POINTER to each field and
+    /// so contains none of them immediately.
+    let private inlineFieldTypes (ctx: PassContext) (id: TypeIdentity) : SemType seq =
+        let key = SymbolKey.Type id.Key
+
+        match id.Kind with
+        | TypeDeclKind.Record ->
+            match TypeRegistry.tryRecordByKey ctx.Types key with
+            | ValueSome info -> seq { for f in info.Fields -> f.Type }
+            | ValueNone -> Seq.empty
+        | TypeDeclKind.Union ->
+            match TypeRegistry.tryUnionByKey ctx.Types key with
+            | ValueSome info ->
+                seq {
+                    for c in info.Cases do
+                        yield! c.Fields
+                }
+            | ValueNone -> Seq.empty
+        | TypeDeclKind.Class ->
+            match TypeRegistry.tryClassByKey ctx.Types key with
+            | ValueSome info ->
+                seq {
+                    for f in info.InstanceFields -> f.Type
+                    for p in info.CtorParams -> p.Type
+                }
+            | ValueNone -> Seq.empty
+        | TypeDeclKind.Enum
+        | TypeDeclKind.Abbreviation
+        | TypeDeclKind.IntrinsicRepr -> Seq.empty
+
+    /// FS0954's other half: a cycle through STRUCT FIELDS. A value type stores its fields
+    /// inline, so a struct that (transitively) contains itself has no finite layout — F#
+    /// rejects `[<Struct>] type A = { x: B } and [<Struct>] B = { y: A }` with the same code
+    /// it gives an inheritance cycle.
+    ///
+    /// The edge set is STRUCT-field edges only. A cycle through a REFERENCE-typed field is
+    /// legal (`type A = { x: B } and B = { y: A }` compiles — the indirection breaks it), so
+    /// a check over all field edges would reject a legal program; and a type argument is an
+    /// indirection too (`directNominal`). Group-local, like every other cycle: a type names
+    /// only what is declared above it or joined to it by `and`, so the back-edge a cycle
+    /// needs can only run between members of one group.
+    let private checkGroupStructFieldCycles (ctx: PassContext) (structs: ClaimedTypeDefn seq) : unit =
+        let members = Dictionary<SymbolKey, TypeIdentity>()
+
+        for claimed in structs do
+            members.[SymbolKey.Type claimed.Identity.Key] <- claimed.Identity
+
+        for KeyValue(startKey, startId) in members do
+            let visited = HashSet<SymbolKey>()
+            visited.Add startKey |> ignore
+            let mutable cyclic = false
+
+            let rec walk (id: TypeIdentity) =
+                for fieldTy in inlineFieldTypes ctx id do
+                    match directNominal fieldTy with
+                    | ValueSome fieldKey when not cyclic ->
+                        if fieldKey = startKey then
+                            cyclic <- true
+                        elif visited.Add fieldKey then
+                            match members.TryGetValue fieldKey with
+                            | true, next -> walk next
+                            // A struct field of a type OUTSIDE the group cannot lead back
+                            // into it — nothing outside can name into a group.
+                            | false, _ -> ()
+                    | _ -> ()
+
+            walk startId
+
+            if cyclic then
+                ctx.Diagnostics.Add
+                    {
+                        Key = startId.DeclKey
+                        Message =
+                            sprintf
+                                "Type '%s' involves an immediate cyclic reference through a struct field or inheritance relation"
+                                startId.Name
+                        Code = "FS0954"
+                        Severity = Severity.Error
+                    }
+
     /// Register one accepted declaration's kind-specific DETAIL — fields, cases, enum case
     /// names, class members / ctor params, abbreviation RHS — plus any `with member …`
     /// augmentation on it. Dispatches on the `TypeDeclKind` its claim recorded and is
@@ -919,8 +1058,10 @@ module NameResolutionMemberRegistration =
         | TypeDeclKind.Record -> registerRecordTypeDefn ctx id td
         | TypeDeclKind.Union -> registerUnionTypeDefn ctx id td
         | TypeDeclKind.Enum -> registerEnumTypeDefn ctx id td
+        // The abbreviation ENTRY is filed ahead of every other kind's detail (see
+        // `registerGroup`), so this arm has nothing left to do for it.
         | TypeDeclKind.Abbreviation
-        | TypeDeclKind.IntrinsicRepr -> registerAbbreviationDefn ctx id td
+        | TypeDeclKind.IntrinsicRepr -> ()
         | TypeDeclKind.Class -> registerClassTypeDefn ctx id td
 
         registerNominalMember ctx id td
@@ -928,19 +1069,28 @@ module NameResolutionMemberRegistration =
     /// Register one `type … and …` group — the unit of mutual recursion, and the unit of
     /// registration. `ModuleElem.Type` IS that group, so the driver above is a single
     /// top-down scan and F#'s file-order type scoping falls out of it: at the moment a
-    /// group registers, `TypeClaims` holds every type above it and nothing below.
+    /// group registers, `TypeClaims` holds every type above it and nothing below, so a head
+    /// naming a type declared below simply misses the registry — no guard has to say so.
     ///
-    /// Three phases, because references into the group split into two tiers:
+    /// The phases, in the order the dependencies force:
     ///
     /// 1. CLAIM every member's `(name, arity)` + `TypeKey`, in source order. A reference
     ///    that needs only the referent's key and arity — a nominal head in a field type, a
     ///    member signature, a type argument — is satisfied outright by this, which is the
     ///    whole of `and`-joined mutual recursion for records, unions and member sigs.
-    /// 2. REGISTER DETAIL, in source order, and check every written head against the scope
-    ///    the claim phase just fixed.
-    /// 3. CLOSE: fill the `inherit` slots — the one reference that reads the referent's
-    ///    registered detail rather than its identity — and then check for a cycle through
-    ///    them. Both are group-local because nothing outside the group can name into it.
+    /// 2. CLASSIFY every head written in the group's declared structure against the scope
+    ///    the claim phase just fixed: a claimed name is local, anything else is external or
+    ///    unknown. This is the resolution `translateType` then executes, so the structure
+    ///    resolves in the declaration's own scope — including an external type a local one
+    ///    declared BELOW would otherwise shadow.
+    /// 3. FILE THE ABBREVIATION ENTRIES, in source order, before any other kind's detail: an
+    ///    alias is expanded on demand by whatever names it, so `type R = { x: A } and A = int`
+    ///    needs `A`'s entry (not its body) present when `R`'s field translates.
+    /// 4. REGISTER DETAIL for every other kind, in source order.
+    /// 5. CLOSE: force the group's alias bodies (an alias RHS reads its referent's registered
+    ///    detail, so it cannot be answered where it is written); fill the `inherit` slots
+    ///    (same reason); then check the two cycles those two relations admit. All four are
+    ///    group-local because nothing outside the group can name into it.
     let registerGroup
         (ctx: PassContext)
         (c: DeclContainment<SyntaxToken>)
@@ -953,14 +1103,36 @@ module NameResolutionMemberRegistration =
             | ValueSome claimed -> claims.Add claimed
             | ValueNone -> ()
 
+        // Over ALL defs, not only the claimed ones: a declaration that claims no type (an
+        // `interface … end`, a delegate) still writes type heads that must resolve.
+        for td in defs do
+            classifyDeclaredTypes ctx td
+
         for claimed in claims do
-            checkTypesInScope ctx claimed.Defn
+            match claimed.Identity.Kind with
+            | TypeDeclKind.Abbreviation
+            | TypeDeclKind.IntrinsicRepr -> registerAbbreviationDefn ctx claimed.Identity claimed.Defn
+            | TypeDeclKind.Record
+            | TypeDeclKind.Union
+            | TypeDeclKind.Enum
+            | TypeDeclKind.Class -> ()
+
+        for claimed in claims do
             registerDetail ctx claimed.Identity claimed.Defn
 
         // An `interface … end` declares no type to register — its eq/comp attributes are
         // still illegal, so the kind-legality check runs over the group's CST.
         for td in defs do
             validateInterfaceTypeDefn ctx td
+
+        // Group close. Force every alias body — on demand expansion has already forced the
+        // ones something named, and `forceFill` is idempotent, so this reaches exactly the
+        // aliases nothing referenced (including a cyclic pair, which diagnoses here).
+        for claimed in claims do
+            if claimed.Identity.Kind = TypeDeclKind.Abbreviation then
+                match TypeRegistry.tryAbbrevByKey ctx.Types (SymbolKey.Type claimed.Identity.Key) with
+                | ValueSome info -> forceFill ctx info
+                | ValueNone -> ()
 
         let classes = ResizeArray<ClassTypeInfo>()
 
@@ -973,3 +1145,4 @@ module NameResolutionMemberRegistration =
                 | ValueNone -> ()
 
         checkGroupInheritanceCycles ctx classes
+        checkGroupStructFieldCycles ctx (claims |> Seq.filter (fun cl -> isValueTypeDefn ctx cl.Defn))

@@ -83,7 +83,13 @@ module internal UnificationTranslate =
     /// Built-in numeric type names that can carry a measure annotation
     /// (`float<m>`, `int<kg>`). User-defined `[<Measure>]`-aware types land
     /// when records / DUs do.
-    let private isNumericCarrier (name: string) : bool =
+    ///
+    /// Public because a `carrier<arg>` head's ARGUMENT is a unit of measure, not a type:
+    /// translation reinterprets it as a measure atom and never resolves it as a type head,
+    /// so the classifying walk that diagnoses a head naming nothing must stop at the
+    /// carrier for exactly the same shapes — one predicate, so the two cannot drift and
+    /// `float<kg>` cannot be diagnosed as an undefined type `kg`.
+    let isNumericCarrier (name: string) : bool =
         match name with
         | "int"
         | "int64"
@@ -225,14 +231,20 @@ module internal UnificationTranslate =
             ctx.MarkInferenceHole tv
             TyVar tv
         | Type.NamedType li when li.Idents.Length = 1 ->
-            // Bare single-segment name. The local-registry cascade + opaque fallback
-            // is shared with the measure carrier below through `resolveBareTypeName`;
-            // a written annotation reads the STAMPED external head (store face). The
-            // head key comes from `CstKeys.ofTypeHead` — the SAME derivation
-            // NameResolution stamped with — so the two faces agree by construction.
+            // Bare single-segment name. A STAMP on this head is NameResolution's committed
+            // verdict that it is external (`classifyTypeHead` stamps only a head no local
+            // claim held where it was written), so it OUTRANKS the registry: a head above a
+            // same-named local declaration keeps resolving to the external type once that
+            // declaration registers, which is F#'s file-order shadowing rule. Unstamped ⇒
+            // local (or nothing), and the registry cascade + opaque fallback answers — the
+            // same cascade the measure carrier below shares through `resolveBareTypeName`.
+            // The head key comes from `CstKeys.ofTypeHead`, the SAME derivation
+            // NameResolution stamped with, so the two faces agree by construction.
             let headKey = CstKeys.typeHeadKey t
 
-            resolveBareTypeName ctx li.Idents.[0] (fun _name -> tryResolveExternalTypeStamped ctx headKey EqArray.empty)
+            match tryResolveExternalTypeStamped ctx headKey EqArray.empty with
+            | ValueSome ty -> ty
+            | ValueNone -> resolveBareTypeName ctx li.Idents.[0] (fun _name -> ValueNone)
         | Type.NamedType li ->
             // Multi-segment named type (`System.Text.StringBuilder`). Project-local
             // types are single-segment, so a dotted name is either external or
@@ -388,47 +400,48 @@ module internal UnificationTranslate =
     /// claim. `ValueNone` only when nothing claims `(name, arity)`; the caller then falls
     /// to its lenient by-name tail (a generic type named without its args, an
     /// arity-mismatched application, an external name).
+    ///
+    /// A NOMINAL is built from the claim's own `TypeKey` and NOTHING ELSE — no read of the
+    /// kind table. That is what "identity alone answers a nominal reference" means, and it
+    /// is why a type may name itself and its `and`-joined siblings inside its own declared
+    /// structure (`type List<'T> = Cons of 'T * List<'T>`, `type A = { x: B } and B = { y: A }`):
+    /// the claim exists before ANY detail registers, so the reference resolves while the
+    /// referent's detail is still being built. Only the ABBREVIATION arm reads detail (it
+    /// expands a body), which is exactly why an alias RHS is deferred to group close.
     and private resolveClaimedType
         (ctx: PassContext)
         (diagKey: NodeKey)
         (claim: TypeIdentity)
         (args: EqArray<SemType>)
         : SemType voption =
+        let key = SymbolKey.Type claim.Key
+
         match claim.Kind with
         // Primitive binding (`type int = (# "System.Int32" #)`): a nominal intrinsic, NOT
         // a transparent abbreviation. Resolves to `TyConst`; the representation string is
         // consumed later by the codegen `encodeType` rekey. No hardcoded
         // `"int" -> BuiltinTypes.tyInt` arms — primitives resolve uniformly through here,
-        // the external provider, or the opaque fallback, all yielding a `TyConst`.
+        // the external provider, or the opaque fallback, all yielding a `TyConst`. Its
+        // canon key is contract-sourced and minted at claim time, so this too is identity.
         | TypeDeclKind.IntrinsicRepr -> ValueSome(TyConst(TypeRegistry.intrinsicKeyOf ctx.Types claim.Name, args))
         | TypeDeclKind.Abbreviation ->
-            match TypeRegistry.tryAbbrevArity ctx.Types claim.Name claim.Arity with
+            match TypeRegistry.tryAbbrevByKey ctx.Types key with
             | ValueSome info ->
                 // Eager expansion: force the body, then substitute the use-site args.
                 forceFill ctx info
                 ValueSome(expandAbbreviation ctx diagKey info args)
             | ValueNone -> ValueNone
-        | TypeDeclKind.Record ->
-            TypeRegistry.tryRecordArity ctx.Types claim.Name claim.Arity
-            |> ValueOption.map (fun info -> TyRecord(info.Key, args))
+        | TypeDeclKind.Record -> ValueSome(TyRecord(key, args))
         | TypeDeclKind.Union ->
-            TypeRegistry.tryUnion ctx.Types claim.Name claim.Arity
-            |> ValueOption.map (fun info ->
-                // Record the resolved union identity at this use site.
-                ctx.Resolution.ResolvedType.Set(diagKey, info.Key)
-                TyUnion(info.Key, args)
-            )
+            // Record the resolved union identity at this use site.
+            ctx.Resolution.ResolvedType.Set(diagKey, key)
+            ValueSome(TyUnion(key, args))
         | TypeDeclKind.Enum ->
             // An enum is niladic (no type args), so the reference is just `TyEnum Key`;
             // stamp the use site like the union arm.
-            TypeRegistry.tryEnum ctx.Types claim.Name
-            |> ValueOption.map (fun info ->
-                ctx.Resolution.ResolvedType.Set(diagKey, info.Key)
-                TyEnum info.Key
-            )
-        | TypeDeclKind.Class ->
-            TypeRegistry.tryClassArity ctx.Types claim.Name claim.Arity
-            |> ValueOption.map (fun info -> TyClass(info.Key, args))
+            ctx.Resolution.ResolvedType.Set(diagKey, key)
+            ValueSome(TyEnum key)
+        | TypeDeclKind.Class -> ValueSome(TyClass(key, args))
 
     /// Resolve a bare (single-segment, arity-0) type NAME to its `SemType`: the type
     /// CLAIMING `(name, 0)` if one exists (`resolveClaimedType`), else the lenient
@@ -505,11 +518,24 @@ module internal UnificationTranslate =
                                     TyConst(RuntimeNames.undefinedKey, EqArray.empty)
                                 | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
 
-    /// Resolve a single-segment generic type reference. The type CLAIMING
-    /// `(name, argCount)` answers exactly (`resolveClaimedType`, no diagnostic — the right
-    /// `Foo\`N`); failing that, the lenient tail resolves the same name at a *different*
-    /// arity and diagnoses the mismatch while still producing a best-effort shape.
+    /// Resolve a single-segment generic type reference. A STAMP on the head outranks the
+    /// registry (see the `Type.NamedType` arm: a stamp is NameResolution's committed
+    /// "external" verdict, made where no local claim held the name). Unstamped, the type
+    /// CLAIMING `(name, argCount)` answers exactly (`resolveClaimedType`, no diagnostic —
+    /// the right `Foo\`N`); failing that, the lenient tail resolves the same name at a
+    /// *different* arity and diagnoses the mismatch while still producing a best-effort
+    /// shape.
     and private resolveNamedGeneric
+        (ctx: PassContext)
+        (diagKey: NodeKey)
+        (name: string)
+        (translatedArgs: EqArray<SemType>)
+        : SemType =
+        match tryResolveExternalTypeStamped ctx diagKey translatedArgs with
+        | ValueSome ty -> ty
+        | ValueNone -> resolveLocalNamedGeneric ctx diagKey name translatedArgs
+
+    and private resolveLocalNamedGeneric
         (ctx: PassContext)
         (diagKey: NodeKey)
         (name: string)
@@ -589,16 +615,10 @@ module internal UnificationTranslate =
 
                     match local with
                     | ValueSome ty -> ty
-                    | ValueNone ->
-                        // `diagKey` is the head's `NodeKey` (`TypeGeneric` off the name
-                        // token) — the same key NameResolution stamped `ResolvedTypeHead`
-                        // with, so the store-face read finds it.
-                        match tryResolveExternalTypeStamped ctx diagKey translatedArgs with
-                        | ValueSome ty -> ty
-                        | ValueNone ->
-                            // Unknown name with type args — opaque TyConst, args
-                            // ignored (matches the bare-name arm).
-                            TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
+                    // The stamped external read already missed (`resolveNamedGeneric`), so
+                    // the name is unknown here — opaque TyConst, args ignored (matches the
+                    // bare-name arm).
+                    | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
 
     /// Build the annotation `SemType` from a resolved external shape + its matched
     /// compiled name. Shared by both resolution faces (the stamped store-face read

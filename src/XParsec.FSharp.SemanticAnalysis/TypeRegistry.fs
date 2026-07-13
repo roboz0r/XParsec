@@ -87,13 +87,15 @@ type PassContextTypes =
         /// Keyed by the type's own project-local `TypeKey` — the WHOLE containment
         /// chain, not a name: a table entry and the `SymbolKey` a consumer carries are
         /// the same value, so `tryRecordByKey` is a genuine key-addressed read.
-        /// Field types are filled in by Unification after the registry is populated.
+        /// Field types are RESOLVED at registration, against the types in scope where the
+        /// record is declared.
         Record: Dictionary<TypeKey, RecordTypeInfo>
-        /// Keyed by `TypeKey` (see `Record`).
-        /// Case field types are filled in by Unification after the registry is populated.
+        /// Keyed by `TypeKey` (see `Record`). Case field types are resolved at registration.
         Union: Dictionary<TypeKey, UnionTypeInfo>
-        /// Keyed by `TypeKey` (see `Record`). Member types start as placeholder TyVars
-        /// and get linked by Unification's `fillClassMembers` pre-pass.
+        /// Keyed by `TypeKey` (see `Record`). The class's declared structure (ctor-param
+        /// annotations, `val` field types) is resolved at registration; MEMBER types start
+        /// as placeholder TyVars and get linked by Unification's `fillClassMembers` — a
+        /// member's type is inferred from its body, so it is not structure.
         Class: Dictionary<TypeKey, ClassTypeInfo>
         /// Project-local enum type declarations, keyed by bare short name (enums
         /// are non-generic, so no arity overload). Populated by
@@ -103,8 +105,10 @@ type PassContextTypes =
         /// Keyed by `TypeKey` (see `Record`) — an abbreviation is arity-overloadable
         /// like every other kind (`type T = int` coexists with `type T<'a> = …`), so a
         /// bare `T` at a use site cannot reach the generic alias.
-        /// Bodies are filled in by Unification's `fillAbbreviationBodies` pre-pass.
-        /// Abbreviations expand eagerly at every `translateType` lookup, so
+        /// A body is forced by the first thing that names the alias (`forceFill`, from
+        /// `translateType`), and at the latest when its declaring group closes — an alias
+        /// RHS reads its referent's registered detail, so it cannot resolve where it is
+        /// written. Abbreviations expand eagerly at every `translateType` lookup, so
         /// downstream passes see the underlying type as if written longhand.
         Abbreviation: Dictionary<TypeKey, AbbreviationInfo>
         /// Reverse index: ctor name → bucket of case-info entries (each tagged with
@@ -183,8 +187,9 @@ type PassContextTypes =
         /// types IN SCOPE at the group being registered: every type declared above it, plus
         /// its own `type … and …` group (all of whose names are claimed before any of its
         /// detail registers). That is F#'s file-order type scoping, and it is why a
-        /// registration-time miss against this table is a genuine "not defined" — see
-        /// `UnitTypeNames`.
+        /// registration-time miss against this table is a genuine "not defined": nothing
+        /// below can answer for the name, so the head is either external or nothing at all
+        /// (`NameResolutionTypeHeadStamp.classifyTypeHead`).
         TypeClaims: Dictionary<string, ResizeArray<TypeIdentity>>
         /// Every ACCEPTED type declaration of this unit, in SOURCE order, with the identity
         /// its claim established. Co-populated with `TypeClaims` (one write, `claimType`),
@@ -209,17 +214,6 @@ type PassContextTypes =
         /// So the set is filled by one sweep of the whole unit BEFORE the first key is
         /// minted, from the same `tryDeclaredTypeName` the claims come from.
         NominalTypeNames: HashSet<string>
-        /// EVERY type short name this unit declares, of every kind — the whole-file set,
-        /// fixed by the same pre-scan that fills `NominalTypeNames` and never added to
-        /// afterwards.
-        ///
-        /// `TypeClaims` is the VISIBLE set (it grows in file order as the top-down scan
-        /// reaches each group); this is the DECLARED set. A written name in this set but
-        /// not yet in `TypeClaims` is therefore declared BELOW the reference — out of scope
-        /// under F#'s file-order rule, and the one thing distinguishable at registration
-        /// time from a name this unit simply does not declare (which resolves externally,
-        /// or not at all, exactly as before).
-        UnitTypeNames: HashSet<string>
         /// Uniqueness witness for project-local `SymbolKey`s.
         /// Maps each minted type `TypeKey` → the decl-site
         /// `NodeKey` that first minted it. Stamped through `TypeRegistry.recordKeyOrigin`
@@ -253,7 +247,6 @@ module PassContextTypes =
             ClaimedTypeDefns = ResizeArray<_>()
             RejectedDuplicates = ResizeArray<_>()
             NominalTypeNames = HashSet<_>()
-            UnitTypeNames = HashSet<_>()
             SymbolKeyOrigins = Dictionary<_, _>()
         }
 
@@ -415,19 +408,12 @@ module TypeRegistry =
         (tryTypeClaim types name arity).IsSome
 
     /// Does any claim IN SCOPE hold `name` at SOME arity — i.e. is this name a
-    /// project-local type visible from where the registration scan currently is? For
-    /// diagnostics that must tell "not a class" from "unknown type".
+    /// project-local type visible from where the registration scan currently is? THE
+    /// local/external precedence test: a written head whose name this answers `true` for
+    /// names a project-local type and nothing else, and one it answers `false` for is
+    /// external or nothing at all. During registration the answer is scoped by file order;
+    /// once the scan is done it is the whole unit.
     let isTypeNameInScope (types: PassContextTypes) (name: string) : bool = types.TypeClaims.ContainsKey name
-
-    /// Does this unit declare `name` ANYWHERE, at any arity, of any kind
-    /// (`UnitTypeNames`)? Fixed by the pre-scan, so it answers for a type the top-down
-    /// registration scan has not reached yet — which, paired with `isTypeNameInScope`, is
-    /// how a forward reference is told apart from an external name.
-    let isTypeNameDeclaredInUnit (types: PassContextTypes) (name: string) : bool = types.UnitTypeNames.Contains name
-
-    /// Note a type short name into the whole-unit declared set (`UnitTypeNames`). Called
-    /// by the pre-scan, alongside `noteNominalTypeName`.
-    let noteUnitTypeName (types: PassContextTypes) (name: string) : unit = types.UnitTypeNames.Add name |> ignore
 
     /// Note a record / union / class short name (`NominalTypeNames`). Called by the
     /// pre-scan that runs ahead of the identity pass; see the field's doc.
@@ -530,6 +516,10 @@ module TypeRegistry =
     /// Resolve an abbreviation by `(name, arity)` — exact arity, so a wrong arity misses.
     let tryAbbrevArity (types: PassContextTypes) (name: string) (arity: int) : AbbreviationInfo voption =
         tryOfKey types.Abbreviation (tryKeyOfArity types.AbbreviationNames name arity)
+
+    /// Resolve an abbreviation by its project-local `SymbolKey`. See `tryRecordByKey`.
+    let tryAbbrevByKey (types: PassContextTypes) (key: SymbolKey) : AbbreviationInfo voption =
+        tryByTypeKey types.Abbreviation key
 
     /// Register a union under its own `TypeKey`. See `registerRecord`.
     let registerUnion (types: PassContextTypes) (info: UnionTypeInfo) : unit =

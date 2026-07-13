@@ -319,7 +319,13 @@ module NameResolutionScope =
     /// args, match arms, for-in, let head/args, member args), so this is the single
     /// point that covers every pattern-embedded annotation for the resolve-once
     /// boundary.
-    let stampPatCases (ctx: PassContext) (p: Pat<SyntaxToken>) : unit =
+    ///
+    /// `typeIter` is the visitor those annotations are walked with. It is a parameter
+    /// because a pattern in a type definition's DECLARED SURFACE (a ctor parameter, a
+    /// member's argument annotation) is walked with the classifying visitor that also
+    /// DIAGNOSES a head naming nothing, whereas a pattern in a body is walked with the
+    /// plain stamping one — same enumeration of positions, one extra verdict.
+    let stampPatCasesWith (ctx: PassContext) (typeIter: CstWalk.TypeIter) (p: Pat<SyntaxToken>) : unit =
         let visit (pat: Pat<SyntaxToken>) : unit =
             match pat with
             | Pat.NamedSimple t ->
@@ -350,7 +356,7 @@ module NameResolutionScope =
                     | ValueNone -> ()
             | Pat.Typed(typ = t)
             | Pat.TypeTestAs(typ = t)
-            | Pat.TypeTest(typ = t) -> stampTypeHeads ctx t
+            | Pat.TypeTest(typ = t) -> CstWalk.iterType typeIter t
             | _ -> ()
 
         CstWalk.iterPat
@@ -361,6 +367,11 @@ module NameResolutionScope =
                         true
             }
             p
+
+    /// `stampPatCasesWith` under the plain stamping visitor — the body / value-position
+    /// face, where an unresolved head is not an error.
+    let stampPatCases (ctx: PassContext) (p: Pat<SyntaxToken>) : unit =
+        stampPatCasesWith ctx (stampTypeIter ctx) p
 
     /// Lambda args / for-in / match-arm patterns can't carry `mutable`, so every
     /// binder they introduce is immutable.

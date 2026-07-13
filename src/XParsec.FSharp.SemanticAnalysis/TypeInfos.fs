@@ -229,7 +229,7 @@ type RecordTypeInfo
     member val Fields = fields
     member val DeclKey = declKey
     /// `when 'a : ...` clause attached to the type's typar list, if any.
-    /// `Unification.fillRecordFieldTypes` walks this and attaches each
+    /// `NameResolution.registerRecordTypeDefn` walks this and attaches each
     /// constraint to the matching prototype TyVar in `TypeParams`.
     member val TyparConstraints = typarConstraints
     /// Equality posture for this record.
@@ -309,7 +309,7 @@ type UnionTypeInfo
     member val Cases = cases
     member val DeclKey = declKey
     /// `when 'a : ...` clause attached to the type's typar list, if any.
-    /// `Unification.fillUnionFieldTypes` walks this and attaches each
+    /// `NameResolution.registerUnionTypeDefn` walks this and attaches each
     /// constraint to the matching prototype TyVar in `TypeParams`.
     member val TyparConstraints = typarConstraints
     /// Augmentation members (`with member …` / `static member …`). Member types
@@ -499,30 +499,29 @@ type AbbreviationInfo
     member val Body: SemType voption = ValueNone with get, set
     member val Status: AbbreviationStatus = AbbreviationStatus.NotFilled with get, set
 
-/// The declared `Type` is `ValueNone` for un-annotated arguments (a fresh TyVar
-/// is used as the parameter's binding-site TyVar instead) and `ValueSome t` for
-/// `(x: int)`-shaped annotations.
+/// A primary- or secondary-constructor parameter. `Type` is always a `TyVar`, because it is
+/// the parameter's binding-site inference cell: a member body's reference to the parameter
+/// types through it, and an UNANNOTATED parameter is pinned by the construction site. An
+/// ANNOTATED parameter's cell is linked to its declared type at registration
+/// (`ctorParamsOfPat`), under the class's typar scope and against the types in scope there.
 [<Sealed>]
 type ClassCtorParamInfo(name: string, ty: SemType, declKey: NodeKey) =
     member val Name = name
     member val Type = ty
     member val DeclKey = declKey
 
-/// An explicit instance field declared with `val [mutable] x: T`.
-/// `Type` starts as a placeholder
-/// TyVar stamped at registration and is linked by Unification's `fillClassMembers`
-/// from `TypeCst` (the field is always annotated). `IsMutable` reflects the
-/// `mutable` keyword — `Elaborate` projects it onto `TTypeKind.Class.fields` so a
-/// `this.x <- …` mutation in a member body type-checks and codegen emits a
-/// writable `FieldDefinition`. `DeclKey` anchors the field's identity (and a
-/// `this.x` `FieldGet`/`FieldSet` resolves against the class member walk, not
-/// a binder, so it is currently informational).
+/// An explicit instance field declared with `val [mutable] x: T`. A `val` field is always
+/// annotated, so `Type` is the RESOLVED declared type, translated at registration under the
+/// class's typar scope. `IsMutable` reflects the `mutable` keyword — `Elaborate` projects it
+/// onto `TTypeKind.Class.fields` so a `this.x <- …` mutation in a member body type-checks
+/// and codegen emits a writable `FieldDefinition`. `DeclKey` anchors the field's identity
+/// (and a `this.x` `FieldGet`/`FieldSet` resolves against the class member walk, not a
+/// binder, so it is currently informational).
 [<Sealed>]
-type ClassFieldInfo(name: string, ty: SemType, isMutable: bool, typeCst: Type<SyntaxToken>, declKey: NodeKey) =
+type ClassFieldInfo(name: string, ty: SemType, isMutable: bool, declKey: NodeKey) =
     member val Name = name
     member val Type = ty
     member val IsMutable = isMutable
-    member val TypeCst = typeCst
     member val DeclKey = declKey
 
 /// A class-level `static let x = <init>`.
@@ -540,23 +539,15 @@ type ClassStaticLetInfo(name: string, ty: SemType, declKey: NodeKey, init: Expr<
     member val Init = init
 
 /// A secondary constructor (`new(args) = SelfType(primaryArgs)`).
-/// `Params` are the secondary ctor's own
-/// parameters (their types start as placeholder TyVars, linked by Unification's
-/// `fillClassMembers` from the annotations / chain-call unification, exactly like
-/// `ClassCtorParamInfo`). `DeclKey` is a synthetic key minted from the `new`
+/// `Params` are the secondary ctor's own parameters, resolved exactly like the primary
+/// ctor's (`ClassCtorParamInfo`). `DeclKey` is a synthetic key minted from the `new`
 /// token so each overload is distinct. `Body` is the CST `AdditionalConstrExpr`
 /// re-read by Unification (to infer + unify the chain args against the primary
 /// ctor) and Elaborate (to translate the let-preamble + primary-ctor args).
 [<Sealed>]
-type ClassSecondaryCtorInfo
-    (declKey: NodeKey, parms: ClassCtorParamInfo[], paramPat: Pat<SyntaxToken>, body: AdditionalConstrExpr<SyntaxToken>)
-    =
+type ClassSecondaryCtorInfo(declKey: NodeKey, parms: ClassCtorParamInfo[], body: AdditionalConstrExpr<SyntaxToken>) =
     member val DeclKey = declKey
     member val Params = parms
-    /// The `new(...)` parameter pattern, re-read by Unification to link each
-    /// param's placeholder TyVar to its declared-type annotation (mirrors the
-    /// primary ctor's `fillClassCtorParamTypes`).
-    member val ParamPat = paramPat
     member val Body = body
 
 [<Sealed>]
@@ -663,11 +654,10 @@ type ClassTypeInfo
     /// `TTypeKind.Class.isByRefLike` so codegen stamps
     /// `System.Runtime.CompilerServices.IsByRefLikeAttribute`.
     member val IsByRefLike: bool = false with get, set
-    /// Explicit `val [mutable] x: T` instance fields in declaration order.
-    /// Stamped by `registerClassTypeDefn`; field
-    /// types are linked by Unification's `fillClassMembers`; `Elaborate` projects
-    /// each onto a `TRecordField` in `TTypeKind.Class.fields`. Empty unless the
-    /// class declares any `val` fields.
+    /// Explicit `val [mutable] x: T` instance fields in declaration order, their declared
+    /// types resolved, by `registerClassTypeDefn`; `Elaborate` projects each onto a
+    /// `TRecordField` in `TTypeKind.Class.fields`. Empty unless the class declares any
+    /// `val` fields.
     member val InstanceFields: ClassFieldInfo[] = [||] with get, set
     /// Equality posture for this class. The field default is the reference-class
     /// posture (`Reference`); `NameResolution.registerClassTypeDefn` (a later

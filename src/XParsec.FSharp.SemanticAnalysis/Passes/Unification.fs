@@ -55,189 +55,6 @@ module Unification =
 
         d
 
-    /// Link each placeholder field TyVar (stamped by NameResolution) to its
-    /// real translated CST type. Done as a pre-pass so a record's field type
-    /// can reference another record declared elsewhere in the same file —
-    /// every record name is already in `ctx.Types.Record` by now.
-    let private fillRecordFieldTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
-        match m with
-        | ModuleElem.Type defs ->
-            for td in defs do
-                match td with
-                | TypeDefn.Record(typeName = (TypeName(ident = nameLi) as tn); fields = fields) when
-                    nameLi.Idents.Length = 1
-                    ->
-                    let name = ctx.NameOf nameLi.Idents.[0]
-                    // Resolve THIS decl's own record by (name, arity): an arity-overloaded
-                    // record (`Point`2`/`Point`3`) does not resolve by bare name, so a bare
-                    // read would miss both and leave their field TyVars unlinked.
-                    let arity = NameResolutionTypeRegistration.arityOfTypeName ctx tn
-
-                    match TypeRegistry.tryRecordArity ctx.Types name arity with
-                    | ValueSome info ->
-                        let savedScope = ctx.Resolution.TyparScope
-                        let savedStrict = ctx.Resolution.TyparScopeStrict
-                        ctx.Resolution.TyparScope <- scopeOfTypeParams info.TypeParams
-                        ctx.Resolution.TyparScopeStrict <- true
-
-                        try
-                            match info.TyparConstraints with
-                            | ValueSome cs -> translateConstraints ctx cs
-                            | ValueNone -> ()
-
-                            let n = min info.Fields.Length fields.Length
-
-                            for i = 0 to n - 1 do
-                                let (RecordField(ident = id; typ = t)) = fields.[i]
-                                let translated = translateType ctx t
-
-                                match info.Fields.[i].Type with
-                                | TyVar tv ->
-                                    let root = UnionFind.find tv
-                                    root.Link <- ValueSome translated
-                                | _ -> ()
-
-                                ignore id
-                        finally
-                            ctx.Resolution.TyparScope <- savedScope
-                            ctx.Resolution.TyparScopeStrict <- savedStrict
-                    | ValueNone -> ()
-                | _ -> ()
-        | _ -> ()
-
-    /// Same shape as `fillRecordFieldTypes` for union case fields — runs
-    /// after every record/union is in the registry so a case's field type can
-    /// name another DU declared elsewhere in the same file.
-    let private fillUnionFieldTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
-        match m with
-        | ModuleElem.Type defs ->
-            for td in defs do
-                match td with
-                | TypeDefn.Union(typeName = (TypeName(ident = nameLi) as tn); cases = cases) when
-                    nameLi.Idents.Length = 1
-                    ->
-                    let name = ctx.NameOf nameLi.Idents.[0]
-                    // Resolve by (name, arity) so an arity-overloaded union
-                    // (`Choice\`2`…`Choice\`7`) fills the *right* case fields.
-                    let arity = NameResolutionTypeRegistration.arityOfTypeName ctx tn
-
-                    match TypeRegistry.tryUnion ctx.Types name arity with
-                    | ValueSome info ->
-                        let savedScope = ctx.Resolution.TyparScope
-                        let savedStrict = ctx.Resolution.TyparScopeStrict
-                        ctx.Resolution.TyparScope <- scopeOfTypeParams info.TypeParams
-                        ctx.Resolution.TyparScopeStrict <- true
-
-                        try
-                            match info.TyparConstraints with
-                            | ValueSome cs -> translateConstraints ctx cs
-                            | ValueNone -> ()
-
-                            // A case is registered iff its head names a case —
-                            // mirror `NameResolution.unionCaseName`'s accept
-                            // set so this CST walk stays index-aligned with the
-                            // registry's `Cases` array (named cases only).
-                            let headNames (head: IdentOrOp<SyntaxToken>) =
-                                match head with
-                                | IdentOrOp.Ident _
-                                | IdentOrOp.ParenOp(opName = OpName.NilOp _)
-                                | IdentOrOp.ParenOp(opName = OpName.SymbolicOp _) -> true
-                                | _ -> false
-
-                            let caseHeadFields data =
-                                match data with
-                                | UnionTypeCaseData.Nullary(name = h) -> struct (headNames h, [])
-                                | UnionTypeCaseData.GadtNullary(name = h) -> struct (headNames h, [])
-                                | UnionTypeCaseData.Nary(name = h; fields = fs) ->
-                                    let tys =
-                                        [
-                                            for f in fs ->
-                                                match f with
-                                                | UnionTypeField.Unnamed(typ = t) -> t
-                                                | UnionTypeField.Named(typ = t) -> t
-                                        ]
-
-                                    struct (headNames h, tys)
-                                | UnionTypeCaseData.GadtNary(
-                                    name = h; sign = UncurriedSig(args = ArgsSpec(args = specs))) ->
-                                    let tys = [ for ArgSpec(typ = t) in specs -> t ]
-                                    struct (headNames h, tys)
-
-                            let mutable infoIdx = 0
-
-                            for UnionTypeCase(data = data) in cases do
-                                let struct (isRegistered, fieldTypes) = caseHeadFields data
-
-                                if isRegistered && infoIdx < info.Cases.Length then
-                                    let caseInfo = info.Cases.[infoIdx]
-                                    infoIdx <- infoIdx + 1
-
-                                    let fieldTypes = List.toArray fieldTypes
-                                    let n = min caseInfo.Fields.Length fieldTypes.Length
-
-                                    for i = 0 to n - 1 do
-                                        let translated = translateType ctx fieldTypes.[i]
-
-                                        match caseInfo.Fields.[i] with
-                                        | TyVar tv ->
-                                            let root = UnionFind.find tv
-                                            root.Link <- ValueSome translated
-                                        | _ -> ()
-                        finally
-                            ctx.Resolution.TyparScope <- savedScope
-                            ctx.Resolution.TyparScopeStrict <- savedStrict
-                    | ValueNone -> ()
-                | _ -> ()
-        | _ -> ()
-
-    /// Link each ctor-param placeholder TyVar to its declared type.
-    /// Un-annotated arguments leave the placeholder free so a use site can
-    /// pin it via argument-type unification in `inferNew` / `inferApp`.
-    /// Link a ctor's parameter annotations into its registered params' TyVars, shared
-    /// by the primary and secondary ctor paths.
-    ///
-    /// `parms` is matched POSITIONALLY: `walk` carries a cursor into it, so every arm
-    /// that stands for a parameter must advance the cursor. An arm that neither links
-    /// nor advances would slide each later annotation onto the preceding parameter.
-    /// Ctor args are restricted to a simple identifier with an optional annotation
-    /// (`Validation` rejects anything else and drops the offending param), so
-    /// `Typed(NamedSimple, _)` is the only annotated shape that can reach here — do not
-    /// add arms for richer patterns without lifting that restriction first.
-    let private fillCtorParamTypes (ctx: PassContext) (parms: ClassCtorParamInfo[]) (p: Pat<SyntaxToken>) : unit =
-        let idx = ref 0
-
-        let rec walk (p: Pat<SyntaxToken>) =
-            match p with
-            | Pat.EmptyBlock _ -> ()
-            | Pat.NamedSimple _ -> incr idx
-            | Pat.Typed(pat = Pat.NamedSimple _; typ = t) ->
-                let i = !idx
-                incr idx
-
-                if i < parms.Length then
-                    let translated = translateType ctx t
-
-                    match parms.[i].Type with
-                    | TyVar tv -> (UnionFind.find tv).Link <- ValueSome translated
-                    | _ -> ()
-            | Pat.EnclosedBlock(pat = inner) -> walk inner
-            | Pat.Tuple(patterns = pats) ->
-                for sub in pats do
-                    walk sub
-            | _ -> ()
-
-        walk p
-
-    let private fillClassCtorParamTypes
-        (ctx: PassContext)
-        (info: ClassTypeInfo)
-        (pcOpt: PrimaryConstrArgs<SyntaxToken> voption)
-        : unit =
-        match pcOpt with
-        | ValueSome(PrimaryConstrArgs(pat = ValueSome p)) -> fillCtorParamTypes ctx info.CtorParams p
-        | ValueSome(PrimaryConstrArgs(pat = ValueNone))
-        | ValueNone -> ()
-
     /// Fold a curried member signature into a `TyFun` chain (a multi-arg
     /// group `a * b` is a tuple parameter), under the caller's typar scope.
     /// Used to fill abstract member signatures, which have no body to infer.
@@ -623,11 +440,6 @@ module Unification =
             ctx.Resolution.TyparScopeStrict <- savedStrict
             ctx.Resolution.EnclosingTypars <- savedEnclosing
 
-    /// Link each secondary-ctor param placeholder TyVar to its declared-type
-    /// annotation. Index walk mirrors `MemberRegistration.ctorParamsOfPat`'s
-    /// param-collection order; un-annotated params are left free so the chain-call
-    /// unification pins them. Parallel to `fillClassCtorParamTypes` but driven by a
-    /// raw `Pat` (the `new(...)` pattern) rather than `PrimaryConstrArgs`.
     /// Type a secondary ctor body (`new(args) = …; SelfType(primaryArgs)`).
     /// `expected` is the primary ctor's tupled parameter type (the chain-call
     /// target). The `let`-preamble binders are inferred in order; the final chain
@@ -685,8 +497,8 @@ module Unification =
                         | Some fieldTy -> unify ctx (CstKeys.ofExpr e) initTy fieldTy
                         | None -> ()
 
-    /// Type every secondary ctor of a class under its typar scope: link
-    /// param annotations, seed param binding-site TyVars, then infer each body.
+    /// Type every secondary ctor of a class under its typar scope: seed the param
+    /// binding-site TyVars, then infer each body.
     let private fillSecondaryCtors (ctx: PassContext) (info: ClassTypeInfo) : unit =
         if info.SecondaryCtors.Length > 0 then
             let savedScope = ctx.Resolution.TyparScope
@@ -719,8 +531,9 @@ module Unification =
                     )
 
                 for sc in info.SecondaryCtors do
-                    fillCtorParamTypes ctx sc.Params sc.ParamPat
-
+                    // The param TyVars already carry their declared types (linked at
+                    // registration); seed the binding sites so the body's references to
+                    // them type through the same cells.
                     for p in sc.Params do
                         match p.Type with
                         | TyVar tv -> ctx.Bindings.TypeVar.Set(p.DeclKey, tv)
@@ -1071,7 +884,7 @@ module Unification =
                     // does not resolve by bare name).
                     let arity = NameResolutionTypeRegistration.arityOfTypeName ctx d.TypeName
 
-                    ValueSome(ctx.NameOf nameLi.Idents.[0], arity, d.PrimaryConstr, d.Body)
+                    ValueSome(ctx.NameOf nameLi.Idents.[0], arity, d.Body)
                 else
                     ValueNone
             | ValueNone -> ValueNone
@@ -1080,7 +893,7 @@ module Unification =
         | ModuleElem.Type defs ->
             for td in defs do
                 match common td with
-                | ValueSome(name, arity, pc, body) ->
+                | ValueSome(name, arity, body) ->
                     match TypeRegistry.tryClassArity ctx.Types name arity with
                     | ValueSome info ->
                         let prelinkExtras () =
@@ -1089,32 +902,17 @@ module Unification =
                             // by `fillTypeMembers` before this runs) — so a member-body
                             // `this.field` access on an interface-constrained class typar
                             // resolves through the interface (`CallVia.Interface`).
-                            // Mirrors `fillRecordFieldTypes`/`fillUnionFieldTypes`.
                             match info.TyparConstraints with
                             | ValueSome cs -> translateConstraints ctx cs
                             | ValueNone -> ()
 
-                            // Fill ctor-param placeholders under the class's
-                            // typar scope, then seed `ctx.Bindings.TypeVar` so
-                            // `inferIdent` lookups against the param binding
-                            // sites return these.
-                            fillClassCtorParamTypes ctx info pc
-
+                            // A ctor param's TyVar already carries its declared type
+                            // (linked at registration); seed `ctx.Bindings.TypeVar` so an
+                            // `inferIdent` lookup against the param's binding site returns
+                            // that same cell.
                             for p in info.CtorParams do
                                 match p.Type with
                                 | TyVar tv -> ctx.Bindings.TypeVar.Set(p.DeclKey, tv)
-                                | _ -> ()
-
-                            // Explicit `val [mutable] x: T` instance fields are
-                            // always annotated; translate each under the class's
-                            // typar scope (already entered) and link the placeholder
-                            // TyVar so `this.x` reads / `this.x <- …` writes type
-                            // against the declared field type in member bodies.
-                            for fld in info.InstanceFields do
-                                match fld.Type with
-                                | TyVar tv ->
-                                    let translated = translateType ctx fld.TypeCst
-                                    (UnionFind.find tv).Link <- ValueSome translated
                                 | _ -> ()
 
                             // Inheritance: type the base-ctor call and
@@ -1222,31 +1020,6 @@ module Unification =
                 | _ -> ()
         | _ -> ()
 
-    /// `forceFill` recurses through `translateType`, so dependencies fill
-    /// DFS-style regardless of declaration order. Runs before record / union
-    /// field fill so a field or case-arg referencing an abbreviation by name
-    /// sees the expanded type.
-    let private fillAbbreviationBodies (ctx: PassContext) (elems: ModuleElems<SyntaxToken>) : unit =
-        for m in elems do
-            match m with
-            | ModuleElem.Type defs ->
-                for td in defs do
-                    match td with
-                    | TypeDefn.Abbrev(typeName = tn) ->
-                        let (TypeName(ident = nameLi)) = tn
-
-                        if nameLi.Idents.Length = 1 then
-                            // Arity-keyed: an alias is arity-overloadable, so a bare-name
-                            // lookup would skip an overloaded `Foo` / ``Foo`1`` pair.
-                            let name = ctx.NameOf nameLi.Idents.[0]
-                            let arity = NameResolutionTypeRegistration.arityOfTypeName ctx tn
-
-                            match TypeRegistry.tryAbbrevArity ctx.Types name arity with
-                            | ValueSome info -> forceFill ctx info
-                            | ValueNone -> ()
-                    | _ -> ()
-            | _ -> ()
-
     /// Stamp every project-local class's `InterfaceImpls.Resolved` up
     /// front — before module-function bodies or class members type — so a `:>` /
     /// argument-coercion / `for x in (c: C)` site sees the class's declared
@@ -1284,20 +1057,15 @@ module Unification =
         | _ -> ()
 
     let private walkElems (ctx: PassContext) (pairs: (ModuleElem<SyntaxToken> * OpenScope) list) =
-        let elems = ImmutableArray.CreateRange(pairs |> List.map fst)
-        fillAbbreviationBodies ctx elems
-
+        // Every type's declared STRUCTURE — field / case / `val` / ctor-param types and the
+        // abbreviation bodies — is already resolved: NameResolution's top-down registration
+        // scan translated it in the scope each declaration was written in. What is left here
+        // is what a type does NOT declare: the types its member BODIES infer.
+        //
         // Set `ctx.Resolution.OpenScope` per element so the provider-probe sites
         // (`inferIdent`, `tryExternalTypeReceiver`) resolve short external names
         // against the `open`s in scope at that element.
-        for (m, openScope) in pairs do
-            ctx.Resolution.OpenScope <- openScope
-            fillRecordFieldTypes ctx m
-
-        for (m, openScope) in pairs do
-            ctx.Resolution.OpenScope <- openScope
-            fillUnionFieldTypes ctx m
-
+        //
         // Resolve every class's interface impls before any body types (so a
         // module function's `for x in (c: C)` and any `:>`/coercion sees them).
         for (m, openScope) in pairs do

@@ -166,32 +166,69 @@ module NameResolutionTypeHeadStamp =
             )
             headName
 
-    /// The `CstWalk.iterType` visitor that stamps every written external *type head*
-    /// reachable from a `Type` into `ResolvedTypeHead`. Each head is decomposed ONCE
-    /// through `CstKeys.ofTypeHead` (key + long-ident + syntactic arity), resolved —
-    /// opens-aware, at that arity — through `tryResolveExternalTypeKey`, and its
-    /// `SymbolKey` recorded under the head's `NodeKey`. `Translate.tryResolveExternalType`
-    /// then reads the stamp and fetches the shape through the key-addressed store face
-    /// instead of re-resolving the spelling. `iterType`'s recursion reaches every nested
-    /// head (generic args, function/tuple members, `when`-constraint types), so a single
-    /// call over a top-level annotation stamps the whole tree — mirroring `translateType`'s
-    /// own recursion, so the two faces agree node-for-node.
+    /// What a written type head NAMES. The three outcomes are exhaustive and mutually
+    /// exclusive, which is what makes this the ONE local/external precedence rule.
+    [<Struct>]
+    type TypeHeadVerdict =
+        /// A single-segment name a project-local claim already holds. Deliberately left
+        /// UNSTAMPED: `translateType` reads it off the registry.
+        | LocalType
+        /// Resolved — opens-aware, at the head's syntactic arity — through the external
+        /// universe, and stamped into `ResolvedTypeHead`.
+        | ExternalType
+        /// Names nothing: no claim in scope, no reachable external type.
+        | UnknownType
+
+    /// Classify ONE written type head and, when it is external, stamp its `SymbolKey` into
+    /// `ResolvedTypeHead` so `Translate` fetches the shape through the key-addressed store
+    /// face instead of re-resolving the spelling. Each head is decomposed ONCE through
+    /// `CstKeys.ofTypeHead` (key + long-ident + syntactic arity) — the SAME derivation the
+    /// read side keys on, so write and read agree by construction.
     ///
-    /// A project-local / bare-typar / unreachable head misses the resolver and stays
-    /// unstamped; `translateType` then takes its local-registry / opaque / `TyVar`
-    /// paths. An abbrev head stamps its OWN key (the resolver's `keyOf` returns it);
-    /// `translateType` dealiases on read.
+    /// THE precedence rule, and the reason it is a classification rather than two
+    /// independent probes: a local claim WINS, so a head whose name is claimed is never
+    /// stamped, and a head that IS stamped is therefore external for good — the read side
+    /// prefers the stamp over the registry. `TypeClaims` is the scope in force where the
+    /// head is written (it grows as the top-down registration scan reaches each
+    /// `type … and …` group), so a head written ABOVE a same-named local declaration sees
+    /// no claim, stamps external, and keeps resolving to the external type even once the
+    /// local one is registered. That is F#'s file-order shadowing rule (`open System` + a
+    /// `type Uri` declared below a use of `Uri` binds `System.Uri`), and it is why the
+    /// stamping walk is part of registration rather than a sweep after it.
+    let classifyTypeHead (ctx: PassContext) (head: CstKeys.TypeHead) : TypeHeadVerdict =
+        let idents = head.LongIdent.Idents
+
+        // A project-local type is always single-segment, so only a single-segment head can
+        // be claimed; a dotted name is external or nothing.
+        if
+            idents.Length = 1
+            && TypeRegistry.isTypeNameInScope ctx.Types (ctx.NameOf idents.[0])
+        then
+            LocalType
+        else
+            let name = idents |> Seq.map ctx.NameOf |> String.concat "."
+
+            match tryResolveExternalTypeKey ctx name head.Arity with
+            | ValueSome sym ->
+                ctx.Resolution.ResolvedTypeHead.Set(head.Key, sym)
+                ExternalType
+            | ValueNone -> UnknownType
+
+    /// The `CstWalk.iterType` visitor that classifies + stamps every written type head
+    /// reachable from a `Type`. `iterType`'s recursion reaches every nested head (generic
+    /// args, function/tuple members, `when`-constraint types), so a single call over a
+    /// top-level annotation covers the whole tree — mirroring `translateType`'s own
+    /// recursion, so the two faces agree node-for-node.
+    ///
+    /// A local / bare-typar / unknown head stays unstamped; `translateType` then takes its
+    /// local-registry / opaque / `TyVar` paths. An abbrev head stamps its OWN key (the
+    /// resolver's `keyOf` returns it); `translateType` dealiases on read.
     let stampTypeIter (ctx: PassContext) : CstWalk.TypeIter =
         { CstWalk.identityTypeIter with
             VisitType =
                 fun _ t ->
                     match CstKeys.ofTypeHead t with
-                    | ValueSome head ->
-                        let name = head.LongIdent.Idents |> Seq.map ctx.NameOf |> String.concat "."
-
-                        match tryResolveExternalTypeKey ctx name head.Arity with
-                        | ValueSome sym -> ctx.Resolution.ResolvedTypeHead.Set(head.Key, sym)
-                        | ValueNone -> ()
+                    | ValueSome head -> classifyTypeHead ctx head |> ignore
                     | ValueNone -> ()
 
                     true

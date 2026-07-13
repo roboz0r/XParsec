@@ -408,32 +408,6 @@ module NameResolution =
                 | _ -> ()
         | _ -> ()
 
-    /// Stamp every external type head written in a `type` definition's *structure* —
-    /// record/union field types, member value/signature types, the `inherit` clause,
-    /// interface specs/impls, an abbreviation's RHS, and delegate signatures — into
-    /// `ResolvedTypeHead`. These are exactly the positions Unification's
-    /// `fillClassMembers` / `fillNominalMembers` / record-and-union field fill later
-    /// hand to `translateType`; stamping them here — under the element's own open
-    /// scope — lets that translation read the resolved store-face key instead of
-    /// re-resolving the spelling. Member *bodies* (their expressions and
-    /// argument-pattern annotations) are stamped by the expression / pattern walks;
-    /// this covers only the declared-signature surface.
-    let private stampTypeDefnTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
-        let it = stampTypeIter ctx
-
-        match m with
-        | ModuleElem.Type defs ->
-            for td in defs do
-                // The `inherit` clause is an ordinary head to the stamper (`CstWalk.iterType
-                // it`); a ctor-parameter pattern goes through `stampPatCases`, which stamps
-                // its annotation heads *and* the external union-case heads a pattern can
-                // carry. An interface-impl block's member signatures are reached through the
-                // shared enumeration — their return heads (`bool`/`IEnumerator<'T>`) are
-                // reachable from neither the body walk nor the interface-type head, and the
-                // read side has no by-name fallback.
-                CstWalk.iterTypeDefnTypes it (stampPatCases ctx) (CstWalk.iterType it) td
-        | _ -> ()
-
     let private walkModuleElem
         (ctx: PassContext)
         (walker: CstWalk.ExprWalker<Scope list>)
@@ -470,11 +444,10 @@ module NameResolution =
         (walker: CstWalk.ExprWalker<Scope list>)
         (elems: WalkedElem<SyntaxToken> list)
         =
-        // The whole-unit type-name pre-scan. It is the only scan that must see a type
-        // before the registration scan reaches it: `moduleHolderName` (the `…Module`
-        // suffix rule) reads `NominalTypeNames` at the very first key mint, and
-        // `checkTypesInScope` reads `UnitTypeNames` to tell a reference to a type declared
-        // BELOW from a reference to an external one.
+        // The whole-unit type-name pre-scan, and the ONE scan that must see a type before
+        // the registration scan reaches it: `moduleHolderName` (the `…Module` suffix rule)
+        // reads `NominalTypeNames` at the very first key mint, and a `module Foo` may
+        // textually precede the `type Foo` it collides with.
         for w in elems do
             noteNominalTypeNames ctx w.Elem
 
@@ -482,7 +455,9 @@ module NameResolution =
         // is declared above it plus its own `type … and …` group — and `ModuleElem.Type`
         // IS that group, so registering one group at a time in source order makes the rule
         // structural rather than checked: when a group registers, the name table holds
-        // every type above it and nothing below. The element's `Containment` (namespace +
+        // every type above it and nothing below, and each group RESOLVES its declared
+        // structure (field / case / `val` / ctor-param / member-signature annotations, the
+        // abbreviation RHS) against exactly that. The element's `Containment` (namespace +
         // enclosing modules) rides into each minted key; its `Scope` is the `open` set the
         // group's written heads resolve against.
         for w in elems do
@@ -491,15 +466,6 @@ module NameResolution =
                 ctx.Resolution.OpenScope <- w.Scope
                 registerGroup ctx w.Containment defs
             | _ -> ()
-
-        // Stamp the written external type heads in each type definition's structure
-        // (fields, member sigs, inherit, interface, abbrev RHS, delegate) under the
-        // element's own open scope, so `translateType` reads the resolved store-face
-        // key for these signature positions. Independent of the expression / pattern
-        // walks below, which stamp the member-body and value positions.
-        for w in elems do
-            ctx.Resolution.OpenScope <- w.Scope
-            stampTypeDefnTypes ctx w.Elem
 
         // walkModuleElem skips ModuleElem.Type, so class/union member bodies are
         // walked here with each type's own scope (`this` + ctor params), giving

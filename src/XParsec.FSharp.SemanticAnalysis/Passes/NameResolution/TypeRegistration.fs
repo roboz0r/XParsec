@@ -1,15 +1,21 @@
 namespace XParsec.FSharp.SemanticAnalysis.Passes
 
+open System.Collections.Generic
 open System.Collections.Immutable
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open NameResolutionTypeHeadStamp
+open UnificationTranslate
 
 // The type-identity claim, plus registry stamping for record / union / enum /
 // abbreviation type definitions.
-// Field/case types start as placeholder TyVars; Unification's fill pre-passes Link them
-// once every type is registered — so a field type is not RESOLVED here, only the type
-// naming it is checked against the scope (`checkTypesInScope`).
+//
+// A type definition's declared STRUCTURE — field and case types, the abbreviation RHS,
+// `val` fields, ctor-parameter and member-signature annotations — resolves HERE, against
+// the types claimed above it plus its own `type … and …` group. Nothing below it is
+// claimed yet, so a head naming a type declared below simply misses the registry and falls
+// through to the external universe, exactly as F# resolves it. Member BODIES (and the
+// member types they infer) stay in Unification.
 
 module NameResolutionTypeRegistration =
 
@@ -82,9 +88,10 @@ module NameResolutionTypeRegistration =
     let arityOfTypeName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : int =
         typarNamesOfTypeName ctx tn |> List.length
 
-    /// The `when 'a : ...` clause on a `TypeName`, if any. Captured onto the
-    /// registry entry so Unification's fill pass attaches each constraint to the
-    /// prototype TyVars without re-walking the CST.
+    /// The `when 'a : ...` clause on a `TypeName`, if any. Attached to the prototype TyVars
+    /// by the declaration's own registrar (under its typar scope), and retained on the
+    /// registry entry for the consumers that re-enter that scope later — a class's member
+    /// bodies (`fillClassMembers`), an alias's `forceFill` — without re-walking the CST.
     let typarConstraintsOfTypeName (tn: TypeName<SyntaxToken>) : TyparConstraints<SyntaxToken> voption =
         let (TypeName(typarDefns = td)) = tn
 
@@ -236,17 +243,30 @@ module NameResolutionTypeRegistration =
         else
             ValueNone
 
-    /// Pre-scan: note the names this element declares — every one into `UnitTypeNames`,
-    /// and the RECORD / UNION / CLASS subset additionally into `NominalTypeNames`. Sweeps
-    /// the WHOLE unit before the registration scan, because both readers need the answer
-    /// for a type the scan has not reached yet:
-    ///   * `moduleHolderName`'s `…Module` suffix rule must give the same answer at
-    ///     key-mint time and at emit time, and a `module Foo` may textually precede the
-    ///     `type Foo` it collides with;
-    ///   * `checkTypesInScope` tells a forward reference (declared in this unit, below)
-    ///     from an external name by exactly this set.
-    /// Both are derived from `tryDeclaredTypeName`, so neither can drift from the claims
-    /// they shadow.
+    /// Is this declaration a VALUE type — `[<Struct>]`, or the `type X = struct … end`
+    /// shape? Kind-agnostic (a record, a union and a class can each be a struct), because
+    /// the rule that reads it is: a struct STORES its fields inline, so a struct field is
+    /// an IMMEDIATE containment edge and a cycle through one is unrepresentable (FS0954),
+    /// whereas a reference-typed field is an indirection and cycles freely.
+    let isValueTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : bool =
+        match tryDeclaredTypeName td with
+        | ValueSome(struct (tn, _)) ->
+            (Attributes.decodeClassAttributes ctx (Attributes.attributesOfTypeName tn)).IsValueType
+            || TypeDefnPatterns.isStructShape td
+        | ValueNone -> false
+
+    /// Pre-scan: note the RECORD / UNION / CLASS short names this element declares into
+    /// `NominalTypeNames`. Sweeps the WHOLE unit before the registration scan, because its
+    /// one reader needs the answer for a type the scan has not reached yet:
+    /// `moduleHolderName`'s `…Module` suffix rule must give the same answer at key-mint
+    /// time and at emit time, and a `module Foo` may textually precede the `type Foo` it
+    /// collides with. Derived from `tryDeclaredTypeName`, so it cannot drift from the
+    /// claims it shadows.
+    ///
+    /// It is the ONE scan that must precede registration. Nothing else may read the whole
+    /// unit's type names ahead of the scan: doing so is how a type declared BELOW a
+    /// reference becomes visible to it, which is exactly the scoping rule the top-down
+    /// scan exists to enforce.
     let noteNominalTypeNames (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
         match m with
         | ModuleElem.Type defs ->
@@ -255,8 +275,6 @@ module NameResolutionTypeRegistration =
                 | ValueSome(struct (tn, kind)) ->
                     match tryDeclaredSimpleName ctx tn with
                     | ValueSome name ->
-                        TypeRegistry.noteUnitTypeName ctx.Types name
-
                         match kind with
                         | TypeDeclKind.Record
                         | TypeDeclKind.Union
@@ -370,67 +388,95 @@ module NameResolutionTypeRegistration =
 
                     ValueSome claimed
 
-    /// F# type scoping is file-ordered: a type sees the types declared ABOVE it, plus the
-    /// members of its own `type … and …` group — never a type declared below. `TypeClaims`
-    /// holds exactly that set while the registration scan is inside the group, so a head
-    /// naming a type this unit DECLARES (`UnitTypeNames`) but has not yet CLAIMED names a
-    /// type declared below the reference, which is not in scope. F# reports the ordinary
-    /// unknown-type error there (FS0039), and so does this.
+    /// The `CstWalk.iterType` visitor for a type definition's DECLARED STRUCTURE: classify
+    /// each written head (`classifyTypeHead` — a claim in scope wins, else the external
+    /// universe), and diagnose a single-segment head that names NEITHER. F# reports the
+    /// ordinary unknown-type error there (FS0039 "The type 'B' is not defined") — a forward
+    /// reference across groups is not a special error class, it is simply a name nothing
+    /// answers for, because `TypeClaims` holds only what is declared above this group plus
+    /// the group itself.
     ///
-    /// A name this unit does not declare is not this check's business: it resolves through
-    /// the ambient `open`s to an external type, or stays an opaque `TyConst`. The external
-    /// probe is what keeps a same-named external type (`open System` + a `type Uri` below)
-    /// resolving as F# resolves it — above the local declaration, the external one is the
-    /// only `Uri` there is.
-    let checkTypesInScope (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
-        let checkHead (t: Type<SyntaxToken>) : unit =
-            match CstKeys.ofTypeHead t with
-            | ValueSome head when head.LongIdent.Idents.Length = 1 ->
-                let name = ctx.NameOf head.LongIdent.Idents.[0]
+    /// The diagnostic and the resolution are the SAME classification: `translateType` reads
+    /// the stamp this walk wrote (external) or the registry (local), so it cannot bind a
+    /// head this walk called unknown, nor bind differently from what this walk accepted.
+    ///
+    /// A DOTTED head is left to the store-face read: a project-local type is always
+    /// single-segment, so a dotted miss is an unmodelled external shape, not a scoping
+    /// error, and `translateType`'s opaque residue is the designed outcome (the DEBUG
+    /// `assertNoDottedStampGap` is the witness that guards it).
+    let private declaredStructureIter (ctx: PassContext) : CstWalk.TypeIter =
+        { CstWalk.identityTypeIter with
+            VisitType =
+                fun _ t ->
+                    match CstKeys.ofTypeHead t with
+                    | ValueSome head ->
+                        match classifyTypeHead ctx head with
+                        | UnknownType when head.LongIdent.Idents.Length = 1 ->
+                            ctx.Diagnostics.Add
+                                {
+                                    Key = head.Key
+                                    Message =
+                                        sprintf "The type '%s' is not defined" (ctx.NameOf head.LongIdent.Idents.[0])
+                                    Code = ""
+                                    Severity = Severity.Error
+                                }
+                        | UnknownType
+                        | LocalType
+                        | ExternalType -> ()
+                    | ValueNone -> ()
 
-                if
-                    TypeRegistry.isTypeNameDeclaredInUnit ctx.Types name
-                    && not (TypeRegistry.isTypeNameInScope ctx.Types name)
-                    && (tryResolveExternalTypeKey ctx name head.Arity).IsNone
-                then
-                    ctx.Diagnostics.Add
-                        {
-                            Key = head.Key
-                            Message = sprintf "The type '%s' is not defined" name
-                            Code = ""
-                            Severity = Severity.Error
-                        }
-            | _ -> ()
+                    // A measure carrier's argument (`float<kg>`) is a UNIT, not a type:
+                    // `translateType` reinterprets it as a measure atom and never resolves
+                    // it as a type head, so stop where translation stops.
+                    match t with
+                    | Type.GenericType(longIdent = li; typeArgs = args) ->
+                        not (
+                            li.Idents.Length = 1
+                            && args.Length = 1
+                            && isNumericCarrier (ctx.NameOf li.Idents.[0])
+                        )
+                    | _ -> true
+        }
 
-        let it: CstWalk.TypeIter =
-            { CstWalk.identityTypeIter with
-                VisitType =
-                    fun _ t ->
-                        checkHead t
-                        true
-            }
+    /// Classify + stamp every type head written in ONE type definition's declared surface,
+    /// under the scope in force at its group. Runs after the group's claim phase (so a
+    /// sibling joined by `and` is in scope) and before its detail registers (so
+    /// `translateType` reads a settled classification).
+    ///
+    /// The `inherit` clause is stamped but NOT diagnosed here: it is the one position
+    /// resolved against the referent's registered DETAIL rather than its identity, so it is
+    /// deferred to group close and raises its own unknown-type diagnostic there
+    /// (`resolveInheritParent`). Diagnosing it here too would double-report one mistake.
+    let classifyDeclaredTypes (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
+        let it = declaredStructureIter ctx
 
-        // A ctor-parameter pattern carries type heads only in its annotations.
-        let onPat (p: Pat<SyntaxToken>) =
-            CstWalk.iterPat
-                {
-                    VisitPat =
-                        fun _ pat ->
-                            match pat with
-                            | Pat.Typed(typ = t)
-                            | Pat.TypeTestAs(typ = t)
-                            | Pat.TypeTest(typ = t) -> CstWalk.iterType it t
-                            | _ -> ()
+        CstWalk.iterTypeDefnTypes
+            it
+            (NameResolutionScope.stampPatCasesWith ctx it)
+            (CstWalk.iterType (stampTypeIter ctx))
+            td
 
-                            true
-                }
-                p
+    /// Run `f` under the typar scope of a type declaration — its prototype TyVars, keyed by
+    /// the source names its header declares — so a `'a` written anywhere in the
+    /// declaration's structure resolves to the SAME TyVar the registry holds, and an
+    /// undeclared one is diagnosed rather than silently minted (`TyparScopeStrict`).
+    let underTyparScope (ctx: PassContext) (typeParams: EqArray<string * TypeVar>) (f: unit -> 'a) : 'a =
+        let savedScope = ctx.Resolution.TyparScope
+        let savedStrict = ctx.Resolution.TyparScopeStrict
+        let scope = Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
 
-        // The `inherit` clause is NOT checked here: it is the one position resolved against
-        // the referent's registered DETAIL rather than its identity, so it is deferred to
-        // group close and raises its own unknown-type diagnostic there
-        // (`resolveInheritParent`). Checking it here too would double-diagnose one mistake.
-        CstWalk.iterTypeDefnTypes it onPat ignore td
+        for (n, tv) in typeParams do
+            if not (scope.ContainsKey n) then
+                scope.[n] <- tv
+
+        ctx.Resolution.TyparScope <- scope
+        ctx.Resolution.TyparScopeStrict <- true
+
+        try
+            f ()
+        finally
+            ctx.Resolution.TyparScope <- savedScope
+            ctx.Resolution.TyparScopeStrict <- savedStrict
 
     let registerRecordTypeDefn (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
@@ -438,21 +484,35 @@ module NameResolutionTypeRegistration =
             let name = id.Name
             let declKey = id.DeclKey
             let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
+            let typarConstraints = typarConstraintsOfTypeName tn
 
-            let fieldInfos =
-                [|
+            let fieldInfos = ResizeArray<RecordFieldInfo>(fields.Length)
+
+            underTyparScope
+                ctx
+                typeParams
+                (fun () ->
+                    match typarConstraints with
+                    | ValueSome cs -> translateConstraints ctx cs
+                    | ValueNone -> ()
+
                     for f in fields do
-                        let (RecordField(mutableToken = mt; ident = fid)) = f
-                        let fName = ctx.NameOf fid
-                        // Placeholder TyVar (not TyConst) so Unification can
-                        // Link the real type later via existing machinery.
-                        let tv = TypeVar()
-                        tv.Level <- 0
-                        yield RecordFieldInfo(fName, TyVar tv, mt.IsSome, NodeKey.ofToken fid NodeKind.DeclType)
-                |]
+                        let (RecordField(mutableToken = mt; ident = fid; typ = ft)) = f
+
+                        fieldInfos.Add(
+                            RecordFieldInfo(
+                                ctx.NameOf fid,
+                                translateType ctx ft,
+                                mt.IsSome,
+                                NodeKey.ofToken fid NodeKind.DeclType
+                            )
+                        )
+                )
+
+            let fieldInfos = fieldInfos.ToArray()
 
             let info =
-                RecordTypeInfo(name, typeParams, fieldInfos, declKey, typarConstraintsOfTypeName tn, id.Key)
+                RecordTypeInfo(name, typeParams, fieldInfos, declKey, typarConstraints, id.Key)
 
             // Validate the equality / comparison attributes against the
             // record kind (FS0382 / FS0377) and read the resolved verdicts.
@@ -516,50 +576,61 @@ module NameResolutionTypeRegistration =
         | ValueSome n -> n
         | ValueNone -> ""
 
-    /// Pull a ctor case's name + arity + per-field names from `UnionTypeCaseData`.
-    /// Handles plain forms, operator-named cases, and the explicit-return
-    /// (GADT-syntax) forms FSharp.Core's list uses (return type treated as the
-    /// declaring union; true GADTs remain out of scope).
-    let private inspectCaseData
-        (ctx: PassContext)
-        (data: UnionTypeCaseData<SyntaxToken>)
-        : (string * int * string voption[]) voption =
-        let naryNames (fields: ImmutableArray<UnionTypeField<SyntaxToken>>) : string voption[] =
-            [|
-                for f in fields ->
-                    match f with
-                    | UnionTypeField.Named(ident = id) -> ValueSome(ctx.NameOf id)
-                    | UnionTypeField.Unnamed _ -> ValueNone
-            |]
+    /// One union case's registrable shape: its ctor name plus, positionally, each field's
+    /// source name (`ValueNone` when unnamed) and written type. THE single decomposition of
+    /// `UnionTypeCaseData` — names and types come out of one walk, so the registered
+    /// `UnionCaseInfo.Fields` and `FieldNames` cannot fall out of index alignment. Handles
+    /// plain forms, operator-named cases, and the explicit-return (GADT-syntax) forms
+    /// FSharp.Core's list uses (return type treated as the declaring union; true GADTs
+    /// remain out of scope).
+    [<NoEquality; NoComparison>]
+    type private UnionCaseShape =
+        {
+            Name: string
+            FieldNames: string voption[]
+            FieldTypes: Type<SyntaxToken>[]
+        }
 
-        let gadtNames (specs: ImmutableArray<ArgSpec<SyntaxToken>>) : string voption[] =
-            [|
-                for ArgSpec(name = nm) in specs ->
-                    match nm with
-                    | ValueSome(ArgNameSpec(ident = id)) -> ValueSome(ctx.NameOf id)
-                    | ValueNone -> ValueNone
-            |]
+    let private inspectCaseData (ctx: PassContext) (data: UnionTypeCaseData<SyntaxToken>) : UnionCaseShape voption =
+        let named (name: string) (fieldNames: string voption[]) (fieldTypes: Type<SyntaxToken>[]) =
+            if name.Length = 0 then
+                ValueNone
+            else
+                ValueSome
+                    {
+                        Name = name
+                        FieldNames = fieldNames
+                        FieldTypes = fieldTypes
+                    }
 
         match data with
         | UnionTypeCaseData.Nullary(name = head)
-        | UnionTypeCaseData.GadtNullary(name = head) ->
-            let n = unionCaseName ctx head
-
-            if n.Length = 0 then ValueNone else ValueSome(n, 0, [||])
+        | UnionTypeCaseData.GadtNullary(name = head) -> named (unionCaseName ctx head) [||] [||]
         | UnionTypeCaseData.Nary(name = head; fields = fields) ->
-            let n = unionCaseName ctx head
-
-            if n.Length = 0 then
-                ValueNone
-            else
-                ValueSome(n, fields.Length, naryNames fields)
+            named
+                (unionCaseName ctx head)
+                [|
+                    for f in fields ->
+                        match f with
+                        | UnionTypeField.Named(ident = id) -> ValueSome(ctx.NameOf id)
+                        | UnionTypeField.Unnamed _ -> ValueNone
+                |]
+                [|
+                    for f in fields ->
+                        match f with
+                        | UnionTypeField.Named(typ = t)
+                        | UnionTypeField.Unnamed(typ = t) -> t
+                |]
         | UnionTypeCaseData.GadtNary(name = head; sign = UncurriedSig(args = ArgsSpec(args = specs))) ->
-            let n = unionCaseName ctx head
-
-            if n.Length = 0 then
-                ValueNone
-            else
-                ValueSome(n, specs.Length, gadtNames specs)
+            named
+                (unionCaseName ctx head)
+                [|
+                    for ArgSpec(name = nm) in specs ->
+                        match nm with
+                        | ValueSome(ArgNameSpec(ident = id)) -> ValueSome(ctx.NameOf id)
+                        | ValueNone -> ValueNone
+                |]
+                [| for ArgSpec(typ = t) in specs -> t |]
 
     let registerUnionTypeDefn (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
@@ -567,31 +638,37 @@ module NameResolutionTypeRegistration =
             let name = id.Name
             let declKey = id.DeclKey
             let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
+            let typarConstraints = typarConstraintsOfTypeName tn
             // Generic arity overloads the short name (`Choice\`2`…`Choice\`7`), so the
             // claim — and with it the registry key and every `UnionCaseInfo`'s owner
             // arity — is arity-qualified.
             let typeArity = id.Arity
 
-            let caseInfos =
-                [|
+            let caseInfos = ResizeArray<UnionCaseInfo>(cases.Length)
+
+            underTyparScope
+                ctx
+                typeParams
+                (fun () ->
+                    match typarConstraints with
+                    | ValueSome cs -> translateConstraints ctx cs
+                    | ValueNone -> ()
+
                     for UnionTypeCase(data = data) in cases do
                         match inspectCaseData ctx data with
-                        | ValueSome(caseName, arity, fieldNames) ->
-                            let fieldTys =
-                                Array.init
-                                    arity
-                                    (fun _ ->
-                                        let tv = TypeVar()
-                                        tv.Level <- 0
-                                        TyVar tv
-                                    )
+                        | ValueSome shape ->
+                            let fieldTys = shape.FieldTypes |> Array.map (translateType ctx)
 
-                            yield UnionCaseInfo(caseName, name, typeArity, fieldTys, fieldNames, declKey)
+                            caseInfos.Add(
+                                UnionCaseInfo(shape.Name, name, typeArity, fieldTys, shape.FieldNames, declKey)
+                            )
                         | ValueNone -> ()
-                |]
+                )
+
+            let caseInfos = caseInfos.ToArray()
 
             let info =
-                UnionTypeInfo(name, typeParams, caseInfos, declKey, typarConstraintsOfTypeName tn, id.Key)
+                UnionTypeInfo(name, typeParams, caseInfos, declKey, typarConstraints, id.Key)
 
             // Validate the equality / comparison attributes against the
             // union kind (FS0382 / FS0377) and read the resolved verdicts.
@@ -709,10 +786,18 @@ module NameResolutionTypeRegistration =
     /// An abbrev whose RHS is `Type.ILIntrinsic` is a *primitive binding*, not a
     /// transparent alias: recorded in IntrinsicReprTypes (name → IL string) and
     /// kept out of AbbreviationTypes, so translateType resolves the name to
-    /// `TyConst name` rather than expanding the RHS. A transparent alias's body is left
-    /// unfilled and forced later by Unification's `fillAbbreviationBodies`, which is also
-    /// where an alias cycle (`type A = B and B = A` — only writable within one group, since
-    /// nothing else can name a type below it) is diagnosed.
+    /// `TyConst name` rather than expanding the RHS.
+    ///
+    /// This registers the abbreviation ENTRY only — its RHS is not translated here. An RHS
+    /// is the one FIELD-position reference that reads its referent's registered DETAIL
+    /// (`forceFill` expands the body, so a sibling alias must already hold one), so it is
+    /// forced at GROUP CLOSE, by which point every member of the group has registered. The
+    /// entry itself must exist before ANY of the group's detail runs, because a record /
+    /// union / class field naming the alias forces it on demand through
+    /// `resolveClaimedType` — which is what makes `type R = { x: A } and A = int` (legal
+    /// F#) work. `forceFill` is where an alias cycle (`type A = B and B = A` — only
+    /// writable within one group, since nothing else can name a type below it) is
+    /// diagnosed.
     let registerAbbreviationDefn (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Abbrev(typeName = tn; typ = rhs; extensions = ext) ->
