@@ -389,6 +389,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                         Key = SymbolKeyOps.memberKey declKey f.Name EqArray.empty MemberKind.Property
                         OptionalDefaults = []
                         IsOptional = false
+                        InlineBody = ValueNone
                     }
             | None -> None
 
@@ -416,6 +417,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                 Key = SymbolKeyOps.memberKey declKey m.Name argSig MemberKind.Method
                 OptionalDefaults = MetadataMapping.optionalDefaults (m.GetParameters())
                 IsOptional = false
+                InlineBody = ValueNone
             }
         )
 
@@ -439,6 +441,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                 Key = SymbolKeyOps.memberKey declKey p.Name EqArray.empty MemberKind.Property
                 OptionalDefaults = []
                 IsOptional = false
+                InlineBody = ValueNone
             }
         )
 
@@ -491,6 +494,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                         Key = SymbolKeyOps.memberKey declKey "get_Item" argSig MemberKind.Method
                         OptionalDefaults = []
                         IsOptional = false
+                        InlineBody = ValueNone
                     }
                 )
             )
@@ -819,7 +823,9 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
         // .NET metadata has no TS index-signature concept — an indexer is a `get_Item`
         // member, served through `TryLookupMember`.
         member _.TryLookupIndexSignature _ = []
-        member _.TryLookupInlineBody _ = ValueNone
+        // The metadata layer models no free-function symbols at all (`TryLookup` is a
+        // constant miss), so its key-addressed twin is one too.
+        member _.TryLookupByKey _ = ValueNone
         member _.IntrinsicReverseCanon = Map.empty
         member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
 

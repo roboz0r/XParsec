@@ -461,7 +461,7 @@ let private contractProvider (entries: (string * ExternalSymbol) list) : IExtern
           member _.TryLookupMember(_, _) = ValueNone
           member _.TryLookupMembers(_, _) = [||]
           member _.TryLookupIndexSignature _ = []
-          member _.TryLookupInlineBody _ = ValueNone
+          member _.TryLookupByKey _ = ValueNone
           member _.IntrinsicReverseCanon = Map.empty
           member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
     }
@@ -577,6 +577,7 @@ let private mkMember (name: string) (methodArity: int) (parameters: FrozenType) 
         Key = SymbolKeyOps.memberKey (SymbolKeyOps.qualifiedTypeKeyOfT None "C" 0) name EqArray.empty MemberKind.Method
         OptionalDefaults = []
         IsOptional = false
+        InlineBody = ValueNone
     }
 
 /// A contract provider publishing exactly `overloads` as the member set of every
@@ -602,7 +603,7 @@ let private memberContractProvider (overloads: ExternalMember list) : IExternalS
               overloads |> List.filter (fun m -> m.Name = name) |> List.toArray
 
           member _.TryLookupIndexSignature _ = []
-          member _.TryLookupInlineBody _ = ValueNone
+          member _.TryLookupByKey _ = ValueNone
           member _.IntrinsicReverseCanon = Map.empty
           member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
     }

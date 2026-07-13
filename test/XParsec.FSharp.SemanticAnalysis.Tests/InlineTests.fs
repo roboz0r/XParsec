@@ -25,6 +25,29 @@ let private declType (tast: TastFile) : SemType =
     | EqList [ TDecl.Let(_, _, _, ty) ] -> ty
     | _ -> failwithf "expected single TDecl.Let, got %A" tast.Decls
 
+/// The template as a CONSUMER receives it: published by `Freeze` into the unit's inline
+/// vocabulary (typars named on the self-describing `FTTypar` axis) and THAWED back into
+/// fresh `TyVar` cells.
+///
+/// This — not `tast.Decls` — is the shape `Inline.inlineExpand` runs on for any GENERIC
+/// template. The post-`freezeTypars` SemType decl in `tast.Decls` deliberately carries
+/// `TyTypar`, not roots: an inline binding is never emitted, so its typars are quantified
+/// unconditionally, which is what lets freeze name them at all. (A SAME-unit splice sees
+/// the roots because `Passes.InlineExpansion` runs BEFORE that cut.)
+///
+/// The `namespace` + nested `module` wrapper is not incidental: only a binding with a
+/// declaring MODULE has a holder chain, hence an exportable identity, hence a vocabulary
+/// entry. A top-level binding lives in the anonymous Program holder and is published
+/// nowhere — it is spliceable only within its own unit.
+let private thawedTemplate (letInline: string) : TDecl =
+    let input = "namespace Ns\n\nmodule M =\n    " + letInline + "\n"
+    let lexed, file = parseFile input
+    let frozen = Pipeline.analyse realProvider.Value input lexed file
+
+    match frozen.InlineBodies |> EqArray.toList with
+    | [ v ] -> Inline.thawBody v.Body.Decl
+    | other -> failwithf "expected exactly one published inline body for %s, got %d" letInline (List.length other)
+
 [<Tests>]
 let tests =
     testList
@@ -63,10 +86,13 @@ let tests =
                 | other -> failtestf "unexpected %A" other
             }
 
-            test "polymorphic inline binding exposes one quantified typar" {
-                match firstDecl "let inline id x = x" with
+            test "a thawed polymorphic template exposes one quantified typar" {
+                match thawedTemplate "let inline id x = x" with
                 | TDecl.Let(_, _, _, declTy) ->
-                    Expect.equal (Inline.quantifiedTypars declTy).Length 1 "id has a single typar"
+                    Expect.equal
+                        (Inline.quantifiedTypars declTy).Length
+                        1
+                        "id's single typar round-trips freeze → publish → thaw as one fresh root"
                 | other -> failtestf "unexpected %A" other
             }
 
@@ -90,8 +116,8 @@ let tests =
                 Expect.isEmpty unresolved "a monomorphic `+` on int resolves"
             }
 
-            test "expanding a polymorphic binding substitutes the typar through the body" {
-                let decl = firstDecl "let inline id x = x"
+            test "expanding a thawed polymorphic template substitutes the typar through the body" {
+                let decl = thawedTemplate "let inline id x = x"
                 let expanded, _ = Inline.inlineExpand decl [| BuiltinTypes.tyInt |]
 
                 // `id`'s body is `fun x -> x`; instantiating 'a := int makes
@@ -106,7 +132,7 @@ let tests =
             }
 
             test "inlineExpand does not mutate the original decl" {
-                let decl = firstDecl "let inline id x = x"
+                let decl = thawedTemplate "let inline id x = x"
                 // Expand once at int…
                 Inline.inlineExpand decl [| BuiltinTypes.tyInt |] |> ignore
 

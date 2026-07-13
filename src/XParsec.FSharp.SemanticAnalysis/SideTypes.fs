@@ -34,16 +34,39 @@ type Diagnostic =
 /// module compiles to a static class) rather than the anonymous "Program" holder
 /// the backend uses for top-level functions. Recorded for every binding inside a
 /// `module Foo = …`; the backend keys this off the binding's `NodeKey` to give the
-/// emitted static method its source `Name` on the `Holder` type in `Namespace`
-/// (e.g. `Vesper.Collections.ListModule::fold`). The `Module` suffix follows the
-/// F# rule that a module sharing a name with a type in its namespace compiles to
-/// `<Name>Module`.
+/// emitted static method its source `Name` on the holder type (e.g.
+/// `Vesper.Collections.ListModule::fold`). The `Module` suffix follows the F# rule
+/// that a module sharing a name with a type in its namespace compiles to
+/// `<Name>Module`, and is applied by the producer, so `Holder.Name` IS the compiled
+/// holder-type name.
+///
+/// `Holder` is a `ModuleKey` — the containment chain, not a `(namespace, module)`
+/// pair of strings. That is what makes `Key` a DIRECT construction rather than a
+/// re-parse: the binding's identity is the chain plus the name, with nothing thrown
+/// away at the boundary and nothing guessed back. `Freeze` mints an inline value's
+/// published `SymbolKey` through it (an inline binding never reaches codegen, so
+/// nothing else would ever mint its identity), and it agrees BY CONSTRUCTION with
+/// the key a `.fsi` contract extractor mints for the same binding — both build the
+/// same holder chain from the same three facts.
 type ModuleMemberInfo =
     {
-        Namespace: string option
-        Holder: string
+        Holder: ModuleKey
         Name: string
     }
+
+    /// The binding's interned identity — the key a use-site `TExpr.External` carries.
+    member this.Key: SymbolKey =
+        SymbolKeyOps.valueKey (ModuleHolder.InModule this.Holder) this.Name
+
+    /// The compiled holder-TYPE name (the module's own simple name, `ModuleSuffix`
+    /// already applied). What the backend names the emitted static class.
+    member this.HolderName: string = this.Holder.Name
+
+    /// The declaring namespace, dotted; `None` for the global namespace.
+    member this.Namespace: string option =
+        match SymbolKeyOps.holderFullName this.Holder.Holder with
+        | "" -> None
+        | ns -> Some ns
 
 /// The per-source-lambda value-struct closure verdict, keyed
 /// (in the side table / `TastFile`) by the lambda argument's `NodeKey`. One record

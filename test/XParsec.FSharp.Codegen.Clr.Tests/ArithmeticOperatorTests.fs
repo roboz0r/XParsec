@@ -156,18 +156,19 @@ let tests =
                 // Every arithmetic body is a static-opt whose BASE is the SRTP trait
                 // call: that inversion is what makes an unsupported operand diagnose
                 // instead of riding a raw-IL base. Binary ops abstract twice, `~-` once.
-                let staticOptBase (decl: TDecl) : TExpr voption =
+                let staticOptBase (decl: Frozen.TDecl) : Frozen.TExpr voption =
                     match decl with
-                    | TDecl.Let(_,
-                                TExpr.Lambda(_, TExpr.Lambda(_, TExpr.StaticOptimization(_, b, _, _), _, _), _, _),
-                                true,
-                                _)
-                    | TDecl.Let(_, TExpr.Lambda(_, TExpr.StaticOptimization(_, b, _, _), _, _), true, _) -> ValueSome b
+                    | TDeclG.Let(_,
+                                 TExprG.Lambda(_, TExprG.Lambda(_, TExprG.StaticOptimization(_, b, _, _), _, _), _, _),
+                                 true,
+                                 _)
+                    | TDeclG.Let(_, TExprG.Lambda(_, TExprG.StaticOptimization(_, b, _, _), _, _), true, _) ->
+                        ValueSome b
                     | _ -> ValueNone
 
                 for name in arithmeticOps do
                     match staticOptBase inlines.[name].Decl with
-                    | ValueSome(TExpr.TraitCall(_, traitName, _, _, _)) ->
+                    | ValueSome(TExprG.TraitCall(_, traitName, _, _, _)) ->
                         Expect.equal traitName name (sprintf "%s's static-opt base dispatches to its own trait" name)
                     | other -> failtestf "%s's static-opt base should be a TraitCall, got %A" name other
             }

@@ -33,23 +33,23 @@ module InlineBodies =
     let ilOpCodes (body: InlineBody) : string list =
         let acc = ResizeArray<string>()
 
-        let rec walkExpr (e: TExpr) =
+        let rec walkExpr (e: Frozen.TExpr) =
             match e with
-            | TExpr.ILIntrinsic(opCode, _, args, _, _) ->
+            | TExprG.ILIntrinsic(opCode, _, args, _, _) ->
                 acc.Add opCode
 
                 for a in args do
                     walkExpr a
-            | TExpr.StaticOptimization(clauses, dflt, _, _) ->
+            | TExprG.StaticOptimization(clauses, dflt, _, _) ->
                 for c in clauses do
                     walkExpr c.Body
 
                 walkExpr dflt
-            | TExpr.Lambda(_, b, _, _) -> walkExpr b
+            | TExprG.Lambda(_, b, _, _) -> walkExpr b
             | _ -> ()
 
         match body.Decl with
-        | TDecl.Let(_, v, _, _) -> walkExpr v
+        | TDeclG.Let(_, v, _, _) -> walkExpr v
         | _ -> ()
 
         List.ofSeq acc
@@ -67,29 +67,29 @@ module InlineBodies =
     let clauseWidths (body: InlineBody) : Set<string> =
         let acc = ResizeArray<string>()
 
-        let widthOf (t: SemType) =
+        let widthOf (t: FrozenType) =
             match t with
-            | TyConst(key, _) -> Some(SymbolKeyOps.intrinsicName key)
+            | FTConst(key, _) -> Some(SymbolKeyOps.intrinsicName key)
             // A clause gated on a typar (`when ^T : ^T`, the user catch-all) or on a
             // structural type pins no width; the arithmetic contract writes neither.
             | _ -> None
 
-        let rec walkExpr (e: TExpr) =
+        let rec walkExpr (e: Frozen.TExpr) =
             match e with
-            | TExpr.StaticOptimization(clauses, _, _, _) ->
+            | TExprG.StaticOptimization(clauses, _, _, _) ->
                 for c in clauses do
                     for k in c.Constraints do
                         match k with
-                        | TStaticOptConstraint.TyconEquals(_, required) ->
+                        | TStaticOptConstraintG.TyconEquals(_, required) ->
                             match widthOf required with
                             | Some w -> acc.Add w
                             | None -> ()
-                        | TStaticOptConstraint.IsStruct _ -> ()
-            | TExpr.Lambda(_, b, _, _) -> walkExpr b
+                        | TStaticOptConstraintG.IsStruct _ -> ()
+            | TExprG.Lambda(_, b, _, _) -> walkExpr b
             | _ -> ()
 
         match body.Decl with
-        | TDecl.Let(_, v, _, _) -> walkExpr v
+        | TDeclG.Let(_, v, _, _) -> walkExpr v
         | _ -> ()
 
         Set.ofSeq acc

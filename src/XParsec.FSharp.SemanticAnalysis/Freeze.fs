@@ -57,14 +57,6 @@ module Freeze =
     /// `TastFileG<SemType> → TastFileG<FrozenType>`. The cut point where `SemType`
     /// stops being the currency and `FrozenType` takes over for codegen.
     ///
-    /// Inline TEMPLATES (`TDecl.Let(isInline = true)`) are dropped first: they
-    /// retain `TyVar` (the 2B exemption — a `let inline` survives elaboration
-    /// unexpanded, its uses already spliced in) and are NOT emittable (codegen's
-    /// `EmitLower.lower` drops them too). They reach the backend nowhere; the
-    /// cross-package publish path reads them off the *pre-freeze* `SemType` tree
-    /// (`Pipeline.analyseSem*` → `SymbolProviders.collectInlineBodies`), never
-    /// `analyse`'s frozen output. So dropping them here is the freeze's first act.
-    ///
     /// Each `.ty` is deep-`zonk`ed before conversion (= the encoder's old per-slot
     /// `frozen = toFrozen ∘ zonk`, hoisted to one tree-wide pass): `elaborate` does
     /// not deep-zonk every embedded `.ty`, so a field can hold a `TyVar root` linked
@@ -145,15 +137,107 @@ module Freeze =
         // reaches `onVar`.
         Unification.zonk t |> FrozenTypeBridge.toFrozenWith onVar
 
-    let run (ctx: PassContext) (tast: TastFile) : Frozen.TastFile =
-        let emittable =
-            tast.Decls
-            |> EqArray.toList
-            |> List.filter (fun d ->
-                match d with
-                | TDecl.Let(isInline = true) -> false
-                | _ -> true
-            )
-            |> EqArray.ofList
+    /// Is this decl a splice TEMPLATE — a member of the unit's inline vocabulary?
+    ///
+    /// Two shapes, one meaning ("a use of this is spliced, never called"): an explicit
+    /// `let inline`, and a `let` value whose body is a single zero-operand intrinsic
+    /// (`let undefined = (# "undefined" #)`), which is a compile-time ALIAS for its
+    /// intrinsic — it has no `inline` keyword but every reference splices the body
+    /// (`Inline.nullaryIntrinsicValueBody`), so no `const undefined = undefined`
+    /// definition or import is emitted.
+    ///
+    /// EMITTABILITY is a separate question and is NOT this predicate: only the
+    /// `let inline` shape is un-emittable (no backend can lower a template). The
+    /// nullary alias stays in `Decls`, so a vocabulary member is not automatically
+    /// dropped from them — that is `emittable` below.
+    let private isInlineVocabulary (d: TDecl) : bool =
+        match d with
+        | TDecl.Let(TPat.NamedSimple _, _, true, _) -> true
+        | TDecl.Let(TPat.NamedSimple _, _, false, _) -> (Inline.nullaryIntrinsicValueBody d).IsSome
+        | _ -> false
 
-        TastConvert.file (freezeTy (schemeBinders ctx)) { tast with Decls = emittable }
+    /// An inline TEMPLATE is not emittable: no backend has a lowering for one, and both
+    /// drop it independently (`TastLower.lower`, and `Passes.InlineExpansion` leaves it
+    /// unwalked). Dropping it here is what makes that structural rather than repeated.
+    let private emittable (d: TDecl) : bool =
+        match d with
+        | TDecl.Let(isInline = true) -> false
+        | _ -> true
+
+    /// Rewrite a template's references to its SIBLING templates from `Var` to
+    /// `External`, carrying the sibling's published `SymbolKey`.
+    ///
+    /// A `Var` names a binder that exists only in THIS unit's tree; a consumer splicing
+    /// the body has no such binder in scope. `External` + key is the cross-unit form,
+    /// and it must be baked into the PUBLISHED body — the consumer resolves it through
+    /// the by-key inline channel, hitting the same identity `Freeze` minted for the
+    /// sibling. (The simple `name` it also carries does NOT resolve at the consumer: the
+    /// provider index is qualified-name keyed and the holder is not auto-opened. That is
+    /// exactly why the key channel exists.)
+    let private rewriteSiblingRefs (siblings: Dictionary<NodeKey, ModuleMemberInfo>) (d: TDecl) : TDecl =
+        let mapper: TastWalk.Mapper =
+            { TastWalk.identityMapper with
+                OverrideExpr =
+                    fun _ e ->
+                        match e with
+                        | TExpr.Var(k, ty, tok) ->
+                            match siblings.TryGetValue k with
+                            | true, info -> ValueSome(TExpr.External(info.Name, ValueSome info.Key, ty, tok))
+                            | _ -> ValueNone
+                        | _ -> ValueNone
+            }
+
+        match d with
+        | TDecl.Let(pat, value, isInline, ty) -> TDecl.Let(pat, TastWalk.mapExpr mapper value, isInline, ty)
+        | other -> other
+
+    let run (ctx: PassContext) (tast: TastFile) : Frozen.TastFile =
+        // The vocabulary's members, by binder key — both the set the sibling rewrite
+        // rewires against and the source of each published identity. A template with no
+        // `ModuleMemberInfo` (a top-level `let inline` outside any module) has no home
+        // module and so no exportable identity: it is spliced within its own unit and
+        // published nowhere.
+        let vocabulary = Dictionary<NodeKey, ModuleMemberInfo>()
+
+        for d in tast.Decls do
+            match d with
+            | TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) when isInlineVocabulary d ->
+                match Map.tryFind k tast.ModuleMembers with
+                | Some info -> vocabulary.[k] <- info
+                | None -> ()
+            | _ -> ()
+
+        let inlineBodies =
+            [
+                for d in tast.Decls do
+                    match d with
+                    | TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) ->
+                        match vocabulary.TryGetValue k with
+                        | true, info ->
+                            yield
+                                {
+                                    // Minted, not recovered. Every OTHER symbol's identity is
+                                    // a side effect of emitting it; an inline value is never
+                                    // emitted, so its identity must be minted deliberately —
+                                    // here, from the holder chain its declaration already knows.
+                                    TInlineValue.Key = info.Key
+                                    Body =
+                                        {
+                                            Decl = rewriteSiblingRefs vocabulary d
+                                            ParamAttrs =
+                                                match ctx.InlineParamAttrs.TryGetValue k with
+                                                | true, a -> a
+                                                | _ -> [||]
+                                        }
+                                }
+                        | _ -> ()
+                    | _ -> ()
+            ]
+
+        let frozen =
+            { tast with
+                Decls = tast.Decls |> EqArray.toList |> List.filter emittable |> EqArray.ofList
+                InlineBodies = EqArray.ofList inlineBodies
+            }
+
+        TastConvert.file (freezeTy (schemeBinders ctx)) frozen

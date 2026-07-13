@@ -26,12 +26,12 @@ let tests =
         [
             // KEY-AGREEMENT PROBE: over the REAL loaded JS-native contract stack, the
             // array's `get_Item` member (a) resolves under the bare key `` ``[]`` `` from the
-            // `array-index.js.fsi` contract half, AND (b) its harvested inline body is
-            // served under the SAME finalized member key (`TryLookupInlineBody(mem.Key)`).
-            // Store key == lookup key: both are the finalized `SymbolKey` that
-            // `TryLookupMember("``[]``", "get_Item")` returns. A disagreement here is exactly
-            // the silent-`GetArray`-fallback bug this stage must not introduce.
-            test "the array `get_Item` member resolves and serves its inline body under the bare array key" {
+            // `array-index.js.fsi` contract half, AND (b) its harvested inline body rides
+            // THAT VERY ENTRY (`mem.InlineBody`). Store key == lookup key: both are the
+            // finalized `SymbolKey` that `TryLookupMember("``[]``", "get_Item")` returns. A
+            // disagreement here is exactly the silent-`GetArray`-fallback bug this stage
+            // must not introduce.
+            test "the array `get_Item` member resolves and carries its inline body under the bare array key" {
                 let provider = jsProvider.Value
 
                 let mem =
@@ -42,11 +42,9 @@ let tests =
                             "TryLookupMember(%s, get_Item) MISSED — the `array-index.js.fsi` contract half is absent"
                             arrayMemberKey
 
-                match provider.TryLookupInlineBody mem.Key with
-                | ValueSome _ -> ()
-                | ValueNone ->
-                    failtest
-                        "TryLookupInlineBody(get_Item key) MISSED — the harvest store key DISAGREES with the lookup key"
+                Expect.isTrue
+                    mem.InlineBody.IsSome
+                    "the `get_Item` entry carries NO inline body — the harvest store key DISAGREES with the lookup key"
             }
 
             // RESOLVER-PATH PROOF: front-end an `arr.[i]` read and assert Unification

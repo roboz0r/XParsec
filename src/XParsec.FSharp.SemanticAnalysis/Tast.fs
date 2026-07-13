@@ -930,9 +930,35 @@ and TAbstractMethodG<'ty> =
         IsProperty: bool
     }
 
+/// A splice TEMPLATE: an inline binding's retained declaration plus the compiler
+/// attributes on its parameters, positionally aligned to its curried parameters
+/// (`[<CallAtMostOnce>]` &c.; empty for a body whose parameters carry none). The
+/// inliner reads both — the attrs gate call-by-name-at-single-use splicing.
+type TInlineBodyG<'ty, 'tok> =
+    {
+        Decl: TDeclG<'ty, 'tok>
+        ParamAttrs: ParamAttrs[]
+    }
+
+/// One entry of a unit's INLINE VOCABULARY (`TastFileG.InlineBodies`): a body,
+/// under the identity its home unit interns it by.
+///
+/// The `Key` is MINTED (from `ModuleMemberInfo`, at freeze), not recovered: an inline
+/// binding is the one kind of symbol that is exported but NEVER emitted, so nothing
+/// downstream would ever mint its identity as a side effect of emitting it. A consumer
+/// splices by this key — the same key its use-site `TExpr.External` carries.
+type TInlineValueG<'ty, 'tok> =
+    {
+        Key: SymbolKey
+        Body: TInlineBodyG<'ty, 'tok>
+    }
+
 type TastFileG<'ty, 'tok> =
     {
-        /// Source order.
+        /// Source order. In the FROZEN domain these are the EMITTABLE decls only:
+        /// `Freeze` partitions the inline templates out into `InlineBodies` (an
+        /// inline binding is vocabulary, not code). Pre-freeze they are still here —
+        /// `Passes.InlineExpansion` splices a same-unit inline call off them.
         Decls: EqArray<TDeclG<'ty, 'tok>>
         /// Non-empty Errors mean the TAST is best-effort and not safe to emit from.
         // Qualified: this file `open`s `XParsec.FSharp.Parser`, which also declares a
@@ -982,6 +1008,19 @@ type TastFileG<'ty, 'tok> =
         /// (`EmitCall`); the emitted arity is re-derived independently by
         /// `staticFnTypars`' body sweep.
         GenericFnSchemes: Map<NodeKey, FrozenConstraint list>
+        /// The unit's INLINE VOCABULARY: every `let inline` binding (and every
+        /// nullary-intrinsic value alias — `let undefined = (# "undefined" #)`, which
+        /// the backends also splice rather than call), keyed by the identity its home
+        /// unit interns it under.
+        ///
+        /// Published by `Freeze`, which is also what drops these decls from `Decls`.
+        /// Both halves of that are deliberate and independent: an inline decl is NOT
+        /// emittable (no backend has a lowering for a template), but it IS part of the
+        /// unit's exported vocabulary — a consumer splices it. Dropping it from `Decls`
+        /// without publishing it here would erase it from the unit's surface entirely.
+        ///
+        /// EMPTY pre-freeze: the SemType tree still carries the templates in `Decls`.
+        InlineBodies: EqArray<TInlineValueG<'ty, 'tok>>
     }
 
 // Central monomorphic SemType aliases. Every consumer today speaks `SemType`;
@@ -1009,6 +1048,8 @@ type TCtorFieldInit = TCtorFieldInitG<SemType, SyntaxToken>
 type TSecondaryCtor = TSecondaryCtorG<SemType, SyntaxToken>
 type TBaseCtorCall = TBaseCtorCallG<SemType, SyntaxToken>
 type TAbstractMethod = TAbstractMethodG<SemType>
+type TInlineBody = TInlineBodyG<SemType, SyntaxToken>
+type TInlineValue = TInlineValueG<SemType, SyntaxToken>
 type TastFile = TastFileG<SemType, SyntaxToken>
 
 [<RequireQualifiedAccess>]
@@ -1056,6 +1097,8 @@ module Frozen =
     type TSecondaryCtor = TSecondaryCtorG<FrozenType, SyntaxToken>
     type TBaseCtorCall = TBaseCtorCallG<FrozenType, SyntaxToken>
     type TAbstractMethod = TAbstractMethodG<FrozenType>
+    type TInlineBody = TInlineBodyG<FrozenType, SyntaxToken>
+    type TInlineValue = TInlineValueG<FrozenType, SyntaxToken>
     type TastFile = TastFileG<FrozenType, SyntaxToken>
     type ForInEnumerator = ForInEnumeratorG<FrozenType>
     type StaticParam = StaticParamG<FrozenType, SyntaxToken>

@@ -76,6 +76,7 @@ let tests =
                 let synth =
                     {
                         Decls = EqArray.ofList synthDecls
+                        InlineBodies = EqArray.empty
                         Diagnostics = []
                         IntrinsicReprTypes = Map.empty
                         ModuleMembers = Map.empty
@@ -133,6 +134,7 @@ let tests =
                                         ty
                                     )
                                 ]
+                        InlineBodies = EqArray.empty
                         Diagnostics = []
                         IntrinsicReprTypes = Map.empty
                         ModuleMembers = Map.empty

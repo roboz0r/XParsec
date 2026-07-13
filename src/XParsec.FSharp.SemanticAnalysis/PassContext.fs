@@ -214,10 +214,12 @@ type PassContextResolution =
         /// `InferIdentExpr`'s value / `(+)`-value arms and `InferApp`'s operator sites,
         /// which call `ExternalSymbols.instantiateSymbol` on it. The whole symbol is
         /// stamped, not just its `SymbolKey` (`ExternalValue` / `IntrinsicKey` carry
-        /// that for Elaborate): instantiation needs the polymorphic `Scheme` / `TyparArity`
-        /// / `Constraints`, and the store face has no scheme-by-key lookup — a value key
-        /// does not round-trip to its fully-qualified spelling, so no key-addressed form
-        /// could serve. The value/operator companion to `ExternalUnionCaseStamp` (cases).
+        /// that for Elaborate): instantiation needs the polymorphic `Scheme` /
+        /// `TyparArity` / `Constraints`, and this table is written where the SPELLING is
+        /// resolved — the one place that owns `string × OpenScope → symbol`. Caching the
+        /// resolved symbol there is what keeps every later pass off the resolver face; it
+        /// is not a claim that no key-addressed form exists (`TryLookupByKey` is one).
+        /// The value/operator companion to `ExternalUnionCaseStamp` (cases).
         /// Absent ⇒ the spelling is not an external symbol; the consumer falls to its
         /// ctor / static / operator-value / error path.
         ExternalSymbolStamp: SideTable<ExternalSymbol>

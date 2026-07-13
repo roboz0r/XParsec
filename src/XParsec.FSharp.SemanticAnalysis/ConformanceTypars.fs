@@ -94,7 +94,7 @@ module ConformanceTypars =
     /// value in a named module).
     let private lookupNames (info: ModuleMemberInfo option) (name: string) : string list =
         match info with
-        | Some mi -> [ mi.Holder + "." + mi.Name; mi.Name ] |> List.distinct
+        | Some mi -> [ mi.HolderName + "." + mi.Name; mi.Name ] |> List.distinct
         | None -> [ name ]
 
     /// Check every NON-inline generic module binding of a frozen `.fs` file against the
@@ -106,8 +106,9 @@ module ConformanceTypars =
         [
             for decl in tast.Decls do
                 match decl with
-                // `Elaborate` drops inline templates, so a surviving `Let` is never inline;
-                // matching `false` documents the scope and is robust to that changing.
+                // `Freeze` partitions inline templates out of `Decls` (they are vocabulary,
+                // not code), so a surviving `Let` is never inline; matching `false`
+                // documents the scope and is robust to that changing.
                 | Frozen.TDecl.Let(Frozen.TPat.NamedSimple(key, _, _), _, false, ty) ->
                     let info = Map.tryFind key tast.ModuleMembers
 

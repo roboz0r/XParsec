@@ -69,6 +69,14 @@ let tests =
             test "the catch-all `when ^T : ^T` is a self-referential TyconEquals constraint" {
                 // Both sides of `^T : ^T` are the same typar, so after substitution
                 // they are one concrete type — the clause matches unconditionally.
+                //
+                // Both sides are `TyTypar(Method, 0)`, not a `TyVar` root: an inline
+                // binding's typars are quantified unconditionally (it is a TEMPLATE, never
+                // an emitted method), so the `freezeTypars` cut names them on the
+                // self-describing axis — which is what lets `Freeze` publish the body with
+                // `FTTypar` leaves. Self-reference is now equality of that leaf rather than
+                // union-find root identity; `Inline.substType` sees the ROOTS again, because
+                // the same-unit splice runs BEFORE the cut and a cross-unit one thaws first.
                 let src =
                     String.concat "\n" [ "let inline kindOf (x: ^T) : int ="; "    -1"; "    when ^T : ^T = 0" ]
 
@@ -81,10 +89,9 @@ let tests =
                                      true,
                                      _) ] ->
                     match clause.Constraints with
-                    | EqList [ TStaticOptConstraint.TyconEquals(TyVar a, TyVar b) ] ->
-                        Expect.isTrue
-                            (System.Object.ReferenceEquals(UnionFind.find a, UnionFind.find b))
-                            "both sides reference the same typar root"
+                    | EqList [ TStaticOptConstraint.TyconEquals(TyTypar(axisA, iA), TyTypar(axisB, iB)) ] ->
+                        Expect.equal (axisA, iA) (axisB, iB) "both sides name the same typar"
+                        Expect.equal axisA TyparAxis.Method "an inline binding's own typars ride the method axis"
                     | other -> failtestf "expected one self-referential TyconEquals, got %A" other
                 | _ -> failtestf "expected a single-clause static-opt, got %A" tast.Decls
             }

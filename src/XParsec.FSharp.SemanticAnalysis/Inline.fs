@@ -10,19 +10,19 @@ open XParsec.FSharp.Parser
 // this module (rather than the pass) because `openMethodSignature` below shares it
 // and `Codegen` no longer references the inline machinery at all.
 //
-// The cross-package inline-body channel the pass uses now rides
-// `IExternalSymbolProvider` directly (`TryLookupInlineBody`, by resolved
-// `SymbolKey`), since `ExternalSymbols` compiles after `Tast` and can name `TDecl`
-// — the sibling `IInlineBodyProvider` + the `box`/`:?` cast it required are gone.
+// The cross-unit inline-body channel rides the resolved entry itself
+// (`ExternalSymbol.InlineBody` / `ExternalMember.InlineBody`, reached by key), and
+// what it carries is FROZEN — `Frozen.TDecl`, cell-free. `thawBody` below is the one
+// place that turns it back into a `SemType` tree, minting the consumer's OWN cells.
 //
-// The retained body of an `inline` binding carries its typars as free
-// `TyVar` roots: the binding's generalised scheme quantified them, and the
-// ResolvedTypes validator guarantees no *other* free TyVar survives into the
-// frozen TAST. `inlineExpand` substitutes those typars to the caller's
-// concrete types; `freshen` does the NodeKey renaming so independent call
-// sites don't alias each other's bound names (and thus codegen local slots).
-// The caller still owns argument (beta) reduction of the resulting lambda
-// against the actual arguments — it needs the call-site args the caller holds.
+// So by the time `inlineExpand` runs, an inline binding's typars are free `TyVar`
+// roots either way: a SAME-unit template still holds the roots its generalised scheme
+// quantified (the pre-freeze pass sees it directly), and a CROSS-unit one holds the
+// roots `thawBody` just minted. `inlineExpand` substitutes those roots to the caller's
+// concrete types; `freshen` does the NodeKey renaming so independent call sites don't
+// alias each other's bound names (and thus codegen local slots). The caller still owns
+// argument (beta) reduction of the resulting lambda against the actual arguments — it
+// needs the call-site args the caller holds.
 
 module Inline =
 
@@ -43,6 +43,52 @@ module Inline =
             MemberName: string
         }
 
+    /// A typar leaf of a FROZEN template, across all three axes — the key of the
+    /// thaw's freshener cache. One cache, one key type: a `Declaring 0` and a
+    /// `Method 0` are different typars and must not collide, and an `FTLocalTypar`
+    /// is identified by the `(binder, index)` PAIR, never the index alone.
+    [<RequireQualifiedAccess>]
+    type private TyparLeaf =
+        | Declaring of declIndex: int
+        | Method of methodIndex: int
+        | Local of binder: NodeKey * localIndex: int
+
+    /// THE immutable→mutable transition: realise a frozen inline body in the CONSUMER's
+    /// `SemType` domain, minting one fresh `TyVar` cell per distinct typar leaf.
+    ///
+    /// This is the seam the whole frozen inline-body channel rests on. The provider hands
+    /// out `FrozenType` — cell-free, so nothing a consumer does can reach back into a
+    /// producer's inference state. The cells the splice then unifies against are minted
+    /// HERE, by the consumer, out of leaves that name nothing but positions in the
+    /// template. So `substType` / `freshen` / SRTP resolution run unchanged: they key on
+    /// `TyVar` roots, and after this the roots exist and are this unit's.
+    ///
+    /// ONE cache for the WHOLE decl, shared across all three axes — not one per node. Two
+    /// occurrences of one typar must land on ONE cell, or the body's internal type links
+    /// (a parameter's type and the use of that parameter) come apart.
+    ///
+    /// It consults no ambient unit state: a leaf is interpreted against the body carrying
+    /// it and nothing else. That is what makes an `FTLocalTypar`'s body-relative `NodeKey`
+    /// binder safe across units, whose `NodeKey`s collide freely (there is no file id in
+    /// one, by design).
+    let thawBody (decl: Frozen.TDecl) : TDecl =
+        let cache = Dictionary<TyparLeaf, SemType>()
+
+        let mint (leaf: TyparLeaf) : SemType =
+            match cache.TryGetValue leaf with
+            | true, v -> v
+            | _ ->
+                let v = TyVar(TypeVar())
+                cache.[leaf] <- v
+                v
+
+        TastConvert.decl
+            (FrozenTypeBridge.instantiateWith
+                (fun i -> mint (TyparLeaf.Declaring i))
+                (fun j -> mint (TyparLeaf.Method j))
+                (fun binder k -> mint (TyparLeaf.Local(binder, k))))
+            decl
+
     /// A module-level `let` value whose body is EXACTLY one intrinsic expression with
     /// NO operands (`let undefined : undefined = (# "undefined" : undefined #)`).
     /// Returns the intrinsic body to splice, else `ValueNone`.
@@ -54,8 +100,9 @@ module Inline =
     /// and every reference splices the intrinsic body (`(# "undefined" #)` → bare
     /// `undefined`). The shape is deliberately narrow (one intrinsic, zero operands) so
     /// the alias can never lose or duplicate an operand. `InlineExpansion` splices it at
-    /// each `External` reference; `SymbolProviders.collectInlineBodies` registers it as a
-    /// cross-package `InlineBody` so a consumer's provider serves the body.
+    /// each `External` reference; `Freeze` publishes it in the unit's inline vocabulary
+    /// (it is a splice template, `inline` keyword or not) so a consumer's provider serves
+    /// the body. It IS still emittable — unlike a `let inline` — so it stays in `Decls`.
     let nullaryIntrinsicValueBody (decl: TDecl) : TExpr voption =
         match decl with
         | TDecl.Let(_, (TExpr.ILIntrinsic(_, _, args, _, _) as body), _, _) when args.Length = 0 -> ValueSome body
@@ -70,21 +117,20 @@ module Inline =
     /// (Link set to its carrier) is *not* a typar; like `generalise` we skip
     /// it by following the Link rather than collecting the root.
     ///
-    /// TODO(frozen-type Phase 2): once `freeze` emits `TyTypar` for an inline
-    /// binding's quantified typars, this collector must yield them by `index`
-    /// instead of by `TyVar` root (the shared `SemTypeWalk` skeleton treats
-    /// `TyTypar` as a no-op today). No-op until then.
+    /// Keying by `TyVar` root is correct for a THAWED body too, and stays correct:
+    /// `thawBody` re-mints a fresh `TyVar` cell per frozen typar leaf BEFORE the
+    /// splice, so by the time this runs the template's typars are roots again — this
+    /// unit's roots. It never sees a `TyTypar`.
     let quantifiedTypars (declTy: SemType) : TypeVar[] =
         let acc = ResizeArray<TypeVar>()
         let seen = HashSet<TypeVar>(HashIdentity.Reference)
         SemTypeWalk.collectLinkedRoots acc seen declTy
         acc.ToArray()
 
-    /// Substitute typar roots present in `subst`. The frozen TAST is zonked,
-    /// so a free typar is `TyVar root` with no Link; chase to the union-find
-    /// root and swap. Roots absent from `subst` stay abstract.
-    /// (TODO(frozen-type): substitute by `(axis,index)` once inline bindings carry
-    /// `TyTypar` — it passes through `mapChildren`'s leaf arm until then.)
+    /// Substitute typar roots present in `subst`. A template's free typar is a
+    /// `TyVar` root with no Link (the producer's, pre-freeze; a freshly minted one
+    /// of this unit's, post-`thawBody`); chase to the union-find root and swap.
+    /// Roots absent from `subst` stay abstract.
     let rec private substType (subst: Dictionary<TypeVar, SemType>) (t: SemType) : SemType =
         match t with
         | TyVar tv ->

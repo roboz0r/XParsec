@@ -113,6 +113,7 @@ let mkMember: ExternalMember =
         Key = SymbolKeyOps.valueKey (SymbolKeyOps.inNamespace None "") ""
         OptionalDefaults = []
         IsOptional = false
+        InlineBody = ValueNone
     }
 
 /// A throwaway source token for hand-built TAST construction in tests. The

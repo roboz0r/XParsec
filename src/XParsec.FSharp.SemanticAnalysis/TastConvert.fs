@@ -289,12 +289,25 @@ module TastConvert =
         | TDeclG.Expression(e, ty) -> TDeclG.Expression(expr f e, f ty)
         | TDeclG.Type td -> TDeclG.Type(typeDecl f td)
 
-    /// The whole-file rebuild: `Decls` mapped through `f`, the non-`'ty` snapshot
-    /// fields (`Diagnostics` / `IntrinsicReprTypes` / `ModuleMembers` /
-    /// `ClosureReprs`) carried over.
+    let inlineBody (f: 'a -> 'b) (ib: TInlineBodyG<'a, 'tok>) : TInlineBodyG<'b, 'tok> =
+        {
+            Decl = decl f ib.Decl
+            ParamAttrs = ib.ParamAttrs
+        }
+
+    let inlineValue (f: 'a -> 'b) (iv: TInlineValueG<'a, 'tok>) : TInlineValueG<'b, 'tok> =
+        {
+            Key = iv.Key
+            Body = inlineBody f iv.Body
+        }
+
+    /// The whole-file rebuild: `Decls` and `InlineBodies` mapped through `f`, the
+    /// non-`'ty` snapshot fields (`Diagnostics` / `IntrinsicReprTypes` /
+    /// `ModuleMembers` / `ClosureReprs`) carried over.
     let file (f: 'a -> 'b) (tf: TastFileG<'a, 'tok>) : TastFileG<'b, 'tok> =
         {
             Decls = EqArray.map (decl f) tf.Decls
+            InlineBodies = EqArray.map (inlineValue f) tf.InlineBodies
             Diagnostics = tf.Diagnostics
             IntrinsicReprTypes = tf.IntrinsicReprTypes
             ModuleMembers = tf.ModuleMembers

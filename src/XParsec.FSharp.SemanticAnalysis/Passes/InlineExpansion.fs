@@ -9,18 +9,22 @@ open XParsec.FSharp.SemanticAnalysis
 // `TyVar`-carrying `TExpr` tree, where `zonk` / union-find are native. It
 // relocates module-level `let inline` expansion out of codegen
 // (`EmitLower.lowerWith`'s inline branches): a saturated use of a local
-// `let inline` — or of a cross-package `val inline` whose body the provider
-// serves (`IExternalSymbolProvider.TryLookupInlineBody`) — is expanded + beta-reduced + static-opt
-// resolved here, so the frozen module decls reaching codegen carry no inline
-// call heads and no `StaticOptimization` nodes.
+// `let inline` — or of a cross-unit `val inline` whose body the provider serves on the
+// resolved entry (`ExternalSymbol.InlineBody` / `ExternalMember.InlineBody`) — is
+// expanded + beta-reduced + static-opt resolved here, so the frozen module decls
+// reaching codegen carry no inline call heads and no `StaticOptimization` nodes.
+//
+// A cross-unit body arrives FROZEN and is THAWED here (`Inline.thawBody`), minting this
+// unit's own inference cells. That thaw is the single immutable→mutable transition on
+// the provider seam: nothing below it can `UnionFind.union` into a producer's cells,
+// because it never holds one.
 //
 // Scope: module-level decls (`TDecl.Let` non-inline values and
 // `TDecl.Expression`) AND every expression a `TDecl.Type` carries (member
 // bodies, `static let` inits, secondary-ctor `let`s + chain args, base-ctor
 // args). It deliberately does NOT touch inline TEMPLATES
-// (`TDecl.Let(isInline = true)`) — codegen drops them and
-// `SymbolProviders.collectInlineBodies` extracts them raw, so the cross-package
-// template-extraction path stays byte-identical.
+// (`TDecl.Let(isInline = true)`) — codegen drops them, and `Freeze` publishes them as
+// vocabulary, so the template-publish path sees them exactly as elaborated.
 //
 // It also owns the compiler's ONE eta-reification (`etaReify`): an `External` of
 // function type used as a VALUE becomes a closure here, whether or not it has an
@@ -315,12 +319,12 @@ module InlineExpansion =
         | ValueNone -> sprintf "The type '%s' does not support the member '%s'" (receiverName u.Receiver) u.MemberName
 
     /// Expand the module-level inlines in one decl-list (the elaborated,
-    /// `TyVar`-carrying decls paired with their freeze envs). The cross-package
-    /// inline-body channel is `provider` itself (`TryLookupInlineBody`, keyed by the
-    /// resolved `SymbolKey`, a member of `IExternalSymbolProvider`); a front-end-only provider serves
-    /// none and every lookup returns `ValueNone`, so the walk is an identity
-    /// rebuild — which `Elaborate.freezeTypars` does to every decl immediately after
-    /// regardless, so there is no node-identity to preserve by skipping it.
+    /// `TyVar`-carrying decls paired with their freeze envs). The cross-unit inline-body
+    /// channel is `provider` itself — the body rides the resolved entry, reached by the
+    /// key the use-site node carries; a front-end-only provider serves none and every
+    /// lookup returns `ValueNone`, so the walk is an identity rebuild — which
+    /// `Elaborate.freezeTypars` does to every decl immediately after regardless, so there
+    /// is no node-identity to preserve by skipping it.
     let run
         (ctx: PassContext)
         (decls: (TDecl * (TypeVar * SemType) list) list)
@@ -365,22 +369,44 @@ module InlineExpansion =
                 counter <- counter + 1
                 k
 
-            let lookupExternal (keyOpt: SymbolKey voption) : InlineBody voption =
-                // Splice a cross-package `let inline` body by its resolved
-                // `SymbolKey` — the sole channel. Every splice-eligible `External`
-                // head is key-stamped upstream: value refs by NameResolution
-                // (`ExternalValue`), operator / synthesised-intrinsic heads by
-                // `Elaborate` (`Resolution.IntrinsicKey`), and intra-body sibling refs by
-                // `collectInlineBodies`' rewrite. Operators are NOT an exception —
-                // a primitive `1 + 2` head is keyed and DOES splice `ops-platform.fs`'s
-                // `(+)`. A `key = ValueNone` head carries no inline body by
-                // construction (`Array.ofList` / ctor-as-value, handled by codegen
-                // recipes / eta-expansion), so ValueNone here is a genuine "no body",
-                // never a missed keyless splice. A provider with no inline bodies
-                // returns `ValueNone`.
+            // A cross-unit body, THAWED into this unit's `SemType` domain — fresh cells
+            // by construction, so nothing below can unify into the producer's inference
+            // state. Thawed per lookup, so two call sites of one template never share a
+            // cell either.
+            let thaw (ib: InlineBody) : TDecl * ParamAttrs[] = Inline.thawBody ib.Decl, ib.ParamAttrs
+
+            let lookupExternal (keyOpt: SymbolKey voption) : (TDecl * ParamAttrs[]) voption =
+                // Splice a cross-unit `let inline` body by its resolved `SymbolKey` — the
+                // sole channel, reached through the resolved symbol that CARRIES that key
+                // (`TryLookupByKey`), so the body and the identity cannot disagree. Every
+                // splice-eligible `External` head is key-stamped upstream: value refs by
+                // NameResolution (`ExternalValue`), operator / synthesised-intrinsic heads
+                // by `Elaborate` (`Resolution.IntrinsicKey`), and intra-body sibling refs
+                // by `Freeze`'s publish rewrite. Operators are NOT an exception — a
+                // primitive `1 + 2` head is keyed and DOES splice `ops-platform.fs`'s
+                // `(+)`. A `key = ValueNone` head carries no inline body by construction
+                // (`Array.ofList` / ctor-as-value, handled by codegen recipes /
+                // eta-expansion), so ValueNone here is a genuine "no body", never a missed
+                // keyless splice. A provider with no inline bodies returns `ValueNone`.
                 match keyOpt with
-                | ValueSome key -> provider.TryLookupInlineBody key
+                | ValueSome key ->
+                    provider.TryLookupByKey key
+                    |> ValueOption.bind (fun s -> s.InlineBody)
+                    |> ValueOption.map thaw
                 | ValueNone -> ValueNone
+
+            // The MEMBER twin. It must select by EXACT key: `TryLookupMember` collapses an
+            // overload set to a single best-by-arity pick, so a name lookup could serve the
+            // body of a DIFFERENT overload than the one this node's `MemberKey` names.
+            let lookupExternalMember (key: SymbolKey) : (TDecl * ParamAttrs[]) voption =
+                match key with
+                | SymbolKey.Member m ->
+                    provider.TryLookupMembers(SymbolKey.Type m.Decl, m.Name)
+                    |> Array.tryPick (fun em -> if em.Key = key then Some em.InlineBody else None)
+                    |> function
+                        | Some body -> body |> ValueOption.map thaw
+                        | None -> ValueNone
+                | _ -> ValueNone
 
             // Eta-reify an `External` function used as a VALUE — `(+)` in
             // `List.fold (+) 0 xs`, `List.fold` itself in `let g = List.fold` — into
@@ -405,7 +431,7 @@ module InlineExpansion =
             // the SAME `External` in call-HEAD position, where the `App` arm claims it
             // before this value-position arm can see it.
             let etaReify
-                (body: InlineBody voption)
+                (body: (TDecl * ParamAttrs[]) voption)
                 (name: string)
                 (keyOpt: SymbolKey voption)
                 (refTy: SemType)
@@ -413,9 +439,9 @@ module InlineExpansion =
                 : TExpr voption =
                 let arity =
                     match body with
-                    | ValueSome ib ->
+                    | ValueSome(decl, _) ->
                         let bodyArity =
-                            match ib.Decl with
+                            match decl with
                             | TDecl.Let(_, value, _, _) -> lambdaArity value
                             | _ -> 0
 
@@ -680,12 +706,12 @@ module InlineExpansion =
                                     // for `=`). Declining to splice instead routed the
                                     // head to a name-keyed raw-IL fallback, turning a
                                     // structural `=` into a reference `ceq`.
-                                    | ValueSome ib ->
+                                    | ValueSome(decl, paramAttrs) ->
                                         ValueSome(
                                             reduceApplication
                                                 walk
-                                                ib.ParamAttrs
-                                                (expandAt headTok ib.Decl spineArgs)
+                                                paramAttrs
+                                                (expandAt headTok decl spineArgs)
                                                 spineArgs
                                         )
                                     // An external with no inline body (a real
@@ -712,8 +738,8 @@ module InlineExpansion =
                                 //     body: keep the call, walking the receiver (inside the
                                 //     head) and the args, exactly the `_` catch-all rule.
                                 | TExpr.ExternalMember(receiver, key, _, _, _, memberTok) ->
-                                    match provider.TryLookupInlineBody key with
-                                    | ValueSome ib ->
+                                    match lookupExternalMember key with
+                                    | ValueSome(decl, paramAttrs) ->
                                         let fullSpine =
                                             match receiver with
                                             | ValueSome r -> (r, TastWalk.exprTy r, memberTok) :: spineArgs
@@ -722,8 +748,8 @@ module InlineExpansion =
                                         ValueSome(
                                             reduceApplication
                                                 walk
-                                                ib.ParamAttrs
-                                                (expandAt memberTok ib.Decl fullSpine)
+                                                paramAttrs
+                                                (expandAt memberTok decl fullSpine)
                                                 fullSpine
                                         )
                                     | ValueNone ->
@@ -779,8 +805,8 @@ module InlineExpansion =
                                 let body = lookupExternal keyOpt
 
                                 match body with
-                                | ValueSome ib ->
-                                    match Inline.nullaryIntrinsicValueBody ib.Decl with
+                                | ValueSome(decl, _) ->
+                                    match Inline.nullaryIntrinsicValueBody decl with
                                     | ValueSome(TExpr.ILIntrinsic(op, operand, args, _, intrinsicTok)) ->
                                         let groundedOperand =
                                             match operand with

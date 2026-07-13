@@ -74,10 +74,10 @@ module Codegen =
     /// decides (via the layout) whether `Main` + the "Program" holder exist
     /// and whether the PE serialises with an entry point.
     ///
-    /// Cross-package `val inline` bodies (milestone M) are no longer threaded here:
-    /// they are spliced pre-freeze by `Passes.InlineExpansion`, reaching the front
-    /// end through the `IInlineBodyProvider` channel of
-    /// the same `symbols` provider, so codegen takes no separate inline-body map.
+    /// Cross-package `val inline` bodies are not threaded here: they are spliced
+    /// pre-freeze by `Passes.InlineExpansion`, reaching the front end on the resolved
+    /// entries of the same `symbols` provider, so codegen takes no inline-body map — and
+    /// no inline template ever reaches it (`Freeze` keeps them out of `Decls`).
     let compile (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tast: Frozen.TastFile) : ClrArtifact =
         assemble [] symbols project tast
 

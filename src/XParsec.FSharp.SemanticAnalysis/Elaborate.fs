@@ -1729,10 +1729,17 @@ module Elaborate =
                                 | ValueSome cn -> cn
                                 | ValueNone -> nm
 
+                            // The holder is built from the three facts this site
+                            // already knows — home assembly, namespace, module — so the
+                            // binding's `SymbolKey` is a direct construction downstream
+                            // (`ModuleMemberInfo.Key`), never a dotted-string re-parse.
                             ctx.Bindings.ModuleMembers.[CstKeys.ofBinding b] <-
                                 {
-                                    Namespace = ns
-                                    Holder = h
+                                    Holder =
+                                        SymbolKeyOps.moduleInNamespace
+                                            (SymbolKeyOps.asmOf ctx.AssemblyName)
+                                            (defaultArg ns "")
+                                            h
                                     Name = compiledNm
                                 }
                         | ValueNone -> ()
@@ -1771,10 +1778,7 @@ module Elaborate =
                     // var — `let n = null` (`TyVar`) or `let x: 'T = …` — stays a
                     // value-restriction metavar: generalising it would emit `ldnull :
                     // !!0` over an unconstrained typar (no `class` constraint ⇒
-                    // unverifiable), so it keeps its `TyVar` representation. Inline
-                    // bindings are exempt — their bodies are expanded + substituted to
-                    // concrete types at each call site, never emitted as a generic
-                    // method, so `quantEnv` is empty.
+                    // unverifiable), so it keeps its `TyVar` representation.
                     // The binding's explicit `<'b,'a>` typars, in source order with
                     // their inference-seeded roots (recorded by `inferBinding` while
                     // the transient `TyparScope` was live). `canonical` orders these
@@ -1785,8 +1789,24 @@ module Elaborate =
                         | ValueNone -> []
 
                     let quantEnv =
+                        // An INLINE binding quantifies unconditionally — every shape
+                        // gate below is about EMISSION, and an inline binding is never
+                        // emitted. It is a TEMPLATE: `Freeze` publishes it as vocabulary
+                        // and a consumer thaws + substitutes it per call site, so its
+                        // free typars are its template parameters and must be named on a
+                        // self-describing axis (`TyTypar(Method, i)` ⇒ `FTTypar`), not
+                        // left as roots only this compilation's `UnionFind` can explain.
+                        //
+                        // The value-restriction arm is exactly where that bites:
+                        // `let inline defaultof<'T> : 'T = (# "ilzero" … #)` has a declTy
+                        // that zonks to a bare `TyVar`, so it would fall into `| TyVar _
+                        // -> []` and reach freeze with an unmapped root — which is not a
+                        // metavar leak (its scheme DID quantify it) but has no binder
+                        // freeze can honestly name, so it would degrade to `FTUnknown`.
+                        // Its verifiability rationale does not apply either: no `ldnull :
+                        // !!0` is ever emitted for a template.
                         if b.inlineToken.IsSome then
-                            []
+                            mkMethodQuantEnv declaredTypars declTy
                         else
                             match Unification.zonk declTy with
                             | TyFun _ -> mkMethodQuantEnv declaredTypars declTy
@@ -1886,10 +1906,10 @@ module Elaborate =
         // `zonk` / union-find are native); `freezeTypars` makes the
         // `TyVar → TyTypar` cut on each.
         //
-        // Cross-package inline bodies ride `ctx.Provider` directly: its
-        // `TryLookupInlineBody` member (keyed by the resolved `SymbolKey`) is part of
-        // `IExternalSymbolProvider`, served by the contract-stack wrapper
-        // `SymbolProviders.buildContract` builds. No cast.
+        // Cross-unit inline bodies ride `ctx.Provider` directly: a published body sits ON
+        // the resolved entry (`ExternalSymbol.InlineBody` / `ExternalMember.InlineBody`),
+        // reached by the same `SymbolKey` the use-site node carries. Frozen, so
+        // `InlineExpansion` thaws it into this unit's own cells before splicing.
         let elaborateDecls () =
             elaborate ctx file
             |> InlineExpansion.run ctx
@@ -1917,6 +1937,11 @@ module Elaborate =
 
         {
             Decls = EqArray.ofList decls
+            // The inline vocabulary is `Freeze`'s to publish: it is the pass that
+            // partitions the templates out of `Decls`, and it is where they become
+            // `FrozenType`. Pre-freeze they are still IN `Decls`, where the same-unit
+            // splice (`Passes.InlineExpansion`) reads them.
+            InlineBodies = EqArray.empty
             Diagnostics = List.ofSeq ctx.Diagnostics
             // Snapshot so the backend can key the emitted IL type off the
             // representation string without the PassContext.

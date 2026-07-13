@@ -75,7 +75,9 @@ module ClrSymbolProviders =
         SymbolProviders.buildContractWith "bcl" bclMetaTail target manifestPaths |> fst
 
     /// Raw cross-package inline bodies by source name — introspection seam for tests.
-    /// Production code uses the provider's inline-body channel.
+    /// Production code reads a body off the resolved entry that owns its key
+    /// (`ExternalSymbol.InlineBody` / `ExternalMember.InlineBody`); a simple name is not a
+    /// resolution channel.
     let contractInlineBodies (manifestPaths: string list) : Map<string, InlineBody> =
         SymbolProviders.buildContractWith "bcl" bclMetaTail None manifestPaths |> snd
 

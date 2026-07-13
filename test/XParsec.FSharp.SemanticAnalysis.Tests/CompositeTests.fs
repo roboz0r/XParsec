@@ -68,6 +68,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
                                   MemberKind.Method
                           OptionalDefaults = []
                           IsOptional = false
+                          InlineBody = ValueNone
                       }
               else
                   ValueNone
@@ -78,7 +79,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
               | ValueNone -> [||]
 
           member _.TryLookupIndexSignature _ = []
-          member _.TryLookupInlineBody _ = ValueNone
+          member _.TryLookupByKey _ = ValueNone
           member _.IntrinsicReverseCanon = Map.empty
           member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
     }

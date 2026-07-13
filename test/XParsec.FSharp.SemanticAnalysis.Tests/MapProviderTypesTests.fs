@@ -46,6 +46,7 @@ let private markerMember: ExternalMember =
                 MemberKind.Method
         OptionalDefaults = []
         IsOptional = false
+        InlineBody = ValueNone
     }
 
 let private markerCase: ExternalCaseShape =
@@ -135,7 +136,7 @@ let private fake: IExternalSymbolProvider =
               | ValueNone -> [||]
 
           member _.TryLookupIndexSignature _ = []
-          member _.TryLookupInlineBody _ = ValueNone
+          member _.TryLookupByKey _ = ValueNone
           member _.IntrinsicReverseCanon = Map.empty
           member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
     }

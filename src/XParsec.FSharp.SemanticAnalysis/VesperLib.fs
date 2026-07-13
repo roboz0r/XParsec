@@ -1142,6 +1142,7 @@ module VesperLib =
                                     // defaults yet.
                                     OptionalDefaults = []
                                     IsOptional = false
+                                    InlineBody = ValueNone
                                 }
 
                             memberCsts.Add

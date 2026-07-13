@@ -33,35 +33,6 @@ module SymbolProviders =
     let buildWith (metaTail: MetaTailFactory) (manifestPaths: string list) : IExternalSymbolProvider =
         ReferencedProject.composeContract metaTail None manifestPaths
 
-    /// A harvested member-sourced inline body: the declaring type's (simple)
-    /// compiled name, the member name, and the `this`-first inline `Body`. Kept a
-    /// SEPARATE channel from the source-name value bodies because a member resolves
-    /// to its `SymbolKey` through the provider (`TryLookupMember`) at store time —
-    /// so the stored key AGREES with the use-site `TExpr.ExternalMember.Key` (the
-    /// finalized member key) rather than a hand-rolled `MemberKey`.
-    type MemberInlineBody =
-        {
-            TypeName: string
-            MemberName: string
-            Body: InlineBody
-        }
-
-    /// A harvested `let inline` VALUE body: its simple compiled name, the resolved
-    /// `SymbolKey` its home package interns it under (`ValueNone` if the qualified
-    /// name did not resolve), and the `Body`. `Key` is the value-channel twin of the
-    /// member channel's `TryLookupMember` result: source spelling is resolved to the
-    /// identity ONCE, at collection, so the by-KEY store agrees with the use-site
-    /// `TExpr.External.Key` — a module-qualified read (`Unchecked.defaultof`) hits the
-    /// identity-robust key channel — and a `SymbolKey`, not a spelling, flows onward.
-    /// The simple `Name` still keys the by-name channel (a bare `undefined`, and
-    /// intra-body `External` refs, carry it).
-    type ValueInlineBody =
-        {
-            Name: string
-            Key: SymbolKey voption
-            Body: InlineBody
-        }
-
     /// Mint the `this`-first inline `TDecl.Let` for a concrete `(# … #)`-bodied
     /// member — the member-sourced twin of the `let inline` value case. A concrete
     /// accessor `member _.M p0 p1 = (# … #)` IS the inline function
@@ -69,12 +40,15 @@ module SymbolProviders =
     /// as the OUTERMOST curried lambda param, then the value params in order; a STATIC
     /// member (`ThisKey = ValueNone`) prepends no `this`. The curried lambda and its
     /// `declTy` (the outer lambda's own arrow type, carrying the declaring + method
-    /// typars in curried-param order) match the exact shape `inlineExpand` /
-    /// `expandExternalAt` consume. Only an inline-IL (`TExpr.ILIntrinsic`) body is a
-    /// splice template; any other member body is a real callable and yields `None`.
-    let harvestMemberBody (typeName: string) (m: TTypeMember) : MemberInlineBody option =
+    /// typars in curried-param order) match the exact shape `inlineExpand` consumes.
+    /// Only an inline-IL (`Frozen.TExpr.ILIntrinsic`) body is a splice template; any
+    /// other member body is a real callable and yields `None`.
+    ///
+    /// Harvested off the FROZEN member, so the published body is `FrozenType` like every
+    /// other thing crossing the provider seam.
+    let harvestMemberBody (m: Frozen.TTypeMember) : InlineBody option =
         match m.Body with
-        | TExpr.ILIntrinsic(_, _, _, _, bodyTok) ->
+        | TExprG.ILIntrinsic(_, _, _, _, bodyTok) ->
             let curried =
                 [
                     match m.ThisKey with
@@ -93,15 +67,17 @@ module SymbolProviders =
             // source lambda.
             for i = curried.Length - 1 downto 0 do
                 let (pk, pty) = curried.[i]
-                let lamTy = TyFun(pty, resultTy)
-                body <- TExpr.Lambda(TPat.NamedSimple(pk, pty, bodyTok), body, lamTy, bodyTok)
+                let lamTy = FTFun(pty, resultTy)
+                body <- TExprG.Lambda(TPatG.NamedSimple(pk, pty, bodyTok), body, lamTy, bodyTok)
                 resultTy <- lamTy
 
             let declTy = resultTy
             // The `TDecl.Let` binder is unread by `inlineExpand` (it matches
             // `TDecl.Let(_, value, _, declTy)`); a synthetic key keeps the node total.
             let patKey = NodeKey.ofSynthetic bodyTok.StartIndex NodeKind.SynthLambdaBody
-            let decl = TDecl.Let(TPat.NamedSimple(patKey, declTy, bodyTok), body, true, declTy)
+
+            let decl =
+                TDeclG.Let(TPatG.NamedSimple(patKey, declTy, bodyTok), body, true, declTy)
 
             // ParamAttrs aligned to curried position: a leading (default) entry for
             // `this` holds value-param attribute indices at their curried offset. A
@@ -109,167 +85,69 @@ module SymbolProviders =
             // entry is `ParamAttrs.Default`.
             let paramAttrs = Array.create curried.Length ParamAttrs.Default
 
-            Some
-                {
-                    TypeName = typeName
-                    MemberName = m.Name
-                    Body = { Decl = decl; ParamAttrs = paramAttrs }
-                }
+            Some { Decl = decl; ParamAttrs = paramAttrs }
         | _ -> None
 
-    /// The fully-qualified compiled name of a module value (`Vesper.Unchecked.defaultof`):
-    /// `Namespace.Holder.Name` with empty segments dropped, matching the contract
-    /// extractor's `dv.Compiled` (`VesperLib.compiledNameForVal`) — i.e. the name the
-    /// provider indexes the value under. The query for the one source-spelling → key
-    /// resolution; a wrong reconstruction simply misses (`ValueNone`), never mis-keys.
-    let private qualifiedValueName (info: ModuleMemberInfo) : string =
-        [
-            (match info.Namespace with
-             | Some ns -> ns
-             | None -> "")
-            info.Holder
-            info.Name
-        ]
-        |> List.filter (fun s -> s <> "")
-        |> String.concat "."
+    /// A unit's published inline vocabulary, read off its FROZEN tree.
+    ///
+    /// The value half is a straight read: `Freeze` already minted each template's
+    /// `SymbolKey` from its declaring module chain and published it — that identity is
+    /// OWNED, not reconstructed, which is what a multi-file unit (no `.fsi` to recover a
+    /// name against) needs.
+    ///
+    /// The member half is harvested here, and its key is RESOLVED — `TryLookupMember`
+    /// against the same provider stack the consumer uses — because a member's identity
+    /// includes an `argSig` this unit does not own the spelling of. Resolving it ONCE, at
+    /// collection, is what makes the stored key agree with the use-site
+    /// `TExpr.ExternalMember.Key`; hand-rolling a `MemberKey` here would risk a silent
+    /// disagreement. A member whose type the provider does not publish is dropped.
+    let private collectInlineBodies
+        (ctx: PassContext)
+        (tast: Frozen.TastFile)
+        : Frozen.TInlineValue list * Frozen.TInlineValue list =
+        let values = tast.InlineBodies |> EqArray.toList
 
-    /// Cross-package inline bodies. The first channel is `let inline` VALUE bodies
-    /// keyed by source name; the second is member-sourced bodies (concrete
-    /// `(# … #)`-bodied members on a `Class`), served by member key. Collected once
-    /// here, frozen against the same provider stack the consumer uses.
-    let private collectInlineBodies (ctx: PassContext) (tast: TastFile) : ValueInlineBody list * MemberInlineBody list =
-        let acc = ResizeArray<ValueInlineBody>()
-        let memberAcc = ResizeArray<MemberInlineBody>()
+        let members =
+            [
+                for d in tast.Decls do
+                    match d with
+                    // A concrete `(# … #)`-bodied member on ANY member-bearing host
+                    // (class / union / record — `TTypeKindG.members`) is a splice
+                    // template. A member with a non-inline-IL body is a real callable and
+                    // is skipped by `harvestMemberBody`, so a union/record augmentation
+                    // with an ordinary member is unaffected.
+                    | TDeclG.Type tdecl ->
+                        // Address the type by its QUALIFIED compiled name: the provider
+                        // index matches on `SymbolKeyOps.qualifiedName`, not the simple
+                        // `tdecl.Name`, so a namespaced intrinsic (`Vesper.string`,
+                        // `Widgets.widget`) would otherwise miss and fall back to a
+                        // (non-existent) real method call.
+                        let typeKey =
+                            SymbolKeyOps.lookupKeyOfCompiledName (SymbolKeyOps.qualifiedName tdecl.Key)
 
-        // Pre-pass: build NodeKey → source-name and NodeKey → resolved-`SymbolKey`
-        // maps. Inline bodies that reference a sibling inline carry `TExpr.Var` bound
-        // to a key not in scope at a consumer use site; rewrite those to
-        // `TExpr.External(name, key)` so the inliner splices them by KEY — the same
-        // identity `ValueInlineBody.Key` interns the sibling under (resolved via the
-        // identical `TryLookup(qualifiedValueName info)`), so the rewritten head hits
-        // the by-KEY store rather than the (now-removed) by-name fallback.
-        let inlineNames = System.Collections.Generic.Dictionary<NodeKey, string>()
-        let inlineKeys = System.Collections.Generic.Dictionary<NodeKey, SymbolKey>()
+                        for m in TTypeKindG.members tdecl.Kind do
+                            match harvestMemberBody m with
+                            | Some body ->
+                                match ctx.Provider.TryLookupMember(typeKey, m.Name) with
+                                | ValueSome mem -> yield { Key = mem.Key; Body = body }
+                                | ValueNone -> ()
+                            | None -> ()
+                    | _ -> ()
+            ]
 
-        for d in tast.Decls do
-            match d with
-            | TDecl.Let(TPat.NamedSimple(k, _, _), _, true, _) ->
-                match Map.tryFind k tast.ModuleMembers with
-                | Some info ->
-                    inlineNames.[k] <- info.Name
-
-                    match ctx.Resolver.TryLookup(qualifiedValueName info) with
-                    | ValueSome s -> inlineKeys.[k] <- s.Key
-                    | ValueNone -> ()
-                | None -> ()
-            | _ -> ()
-
-        let rewriteInlineVars (e: TExpr) : TExpr =
-            let mapper: TastWalk.Mapper =
-                { TastWalk.identityMapper with
-                    OverrideExpr =
-                        fun _ e ->
-                            match e with
-                            | TExpr.Var(k, ty, tok) ->
-                                match inlineNames.TryGetValue k with
-                                | true, name ->
-                                    let keyOpt =
-                                        match inlineKeys.TryGetValue k with
-                                        | true, sk -> ValueSome sk
-                                        | _ -> ValueNone
-
-                                    ValueSome(TExpr.External(name, keyOpt, ty, tok))
-                                | _ -> ValueNone
-                            | _ -> ValueNone
-                }
-
-            TastWalk.mapExpr mapper e
-
-        let rewriteDecl (d: TDecl) : TDecl =
-            match d with
-            | TDecl.Let(pat, value, isInline, ty) -> TDecl.Let(pat, rewriteInlineVars value, isInline, ty)
-            | other -> other
-
-        for d in tast.Decls do
-            match d with
-            | TDecl.Let(TPat.NamedSimple(k, _, _), _, true, _) ->
-                match Map.tryFind k tast.ModuleMembers with
-                | Some info ->
-                    // Carry param attrs so the consumer's inliner honours them without re-decoding.
-                    let paramAttrs =
-                        match ctx.InlineParamAttrs.TryGetValue k with
-                        | true, a -> a
-                        | _ -> [||]
-
-                    acc.Add(
-                        {
-                            Name = info.Name
-                            Key =
-                                ctx.Resolver.TryLookup(qualifiedValueName info)
-                                |> ValueOption.map (fun s -> s.Key)
-                            Body =
-                                {
-                                    Decl = rewriteDecl d
-                                    ParamAttrs = paramAttrs
-                                }
-                        }
-                    )
-                | None -> ()
-            // A non-inline `let` value bound to a single zero-operand intrinsic
-            // (`let undefined = (# "undefined" #)`) is served as an inline body too: it
-            // has no CLR-style `let inline`, but the JS backend treats it as a
-            // compile-time alias for its intrinsic (`Inline.nullaryIntrinsicValueBody`) —
-            // the consumer's `InlineExpansion` splices the intrinsic at each reference so
-            // no `const undefined = undefined` definition or import is emitted. No param
-            // attrs (a nullary value has no parameters).
-            | TDecl.Let(TPat.NamedSimple(k, _, _), _, false, _) when (Inline.nullaryIntrinsicValueBody d).IsSome ->
-                match Map.tryFind k tast.ModuleMembers with
-                | Some info ->
-                    acc.Add(
-                        {
-                            Name = info.Name
-                            Key =
-                                ctx.Resolver.TryLookup(qualifiedValueName info)
-                                |> ValueOption.map (fun s -> s.Key)
-                            Body = { Decl = d; ParamAttrs = [||] }
-                        }
-                    )
-                | None -> ()
-            // Member-sourced inline bodies: a concrete `(# … #)`-bodied member on ANY
-            // member-bearing host (class / union / record — `TTypeKindG.members`) mints
-            // a `this`-first inline body (the member-sourced twin of the `let inline`
-            // value case). A member with a non-inline-IL body is a real callable and is
-            // skipped by `harvestMemberBody`, so a union/record augmentation with an
-            // ordinary member is unaffected — only its `(# … #)` members are harvested
-            // (not silently dropped as a Class-only match once did).
-            | TDecl.Type tdecl ->
-                // Key the harvested body by the QUALIFIED compiled name — the store
-                // (`buildContractCached`) resolves the finalized member key via
-                // `TryLookupMember(typeName, …)`, which matches by the qualified name
-                // (`SymbolKeyOps.qualifiedName`), not the simple `tdecl.Name`. A
-                // namespaced intrinsic (`Vesper.string`, `Widgets.widget`) would
-                // otherwise miss and fall back to a (non-existent) real method call.
-                let typeName = SymbolKeyOps.qualifiedName tdecl.Key
-
-                for m in TTypeKindG.members tdecl.Kind do
-                    match harvestMemberBody typeName m with
-                    | Some mb -> memberAcc.Add mb
-                    | None -> ()
-            | _ -> ()
-
-        List.ofSeq acc, List.ofSeq memberAcc
+        values, members
 
     /// Load cross-package inline bodies from manifests' `impl` files. Type-checked
     /// and frozen once against `provider`. Emitted in manifest/decl order so a later
-    /// body wins a by-name clash downstream (`Map.ofList` / `byKey.[k] <-`).
+    /// body wins a clash downstream (`Map.ofList` / `byKey.[k] <-`).
     /// `target` selects per-target `inline-bodies-<t>` overrides.
     let inlineBodies
         (target: string option)
         (provider: IExternalSymbolProvider)
         (manifestPaths: string list)
-        : ValueInlineBody list * MemberInlineBody list =
-        let acc = ResizeArray<ValueInlineBody>()
-        let memberAcc = ResizeArray<MemberInlineBody>()
+        : Frozen.TInlineValue list * Frozen.TInlineValue list =
+        let acc = ResizeArray<Frozen.TInlineValue>()
+        let memberAcc = ResizeArray<Frozen.TInlineValue>()
 
         for manifestPath in manifestPaths do
             match ReferencedProject.loadManifest manifestPath with
@@ -299,8 +177,14 @@ module SymbolProviders =
                         match implFile with
                         | None -> ()
                         | Some f ->
+                            // The FROZEN unit is the publish surface: its `InlineBodies`
+                            // carry the minted keys, and every type in a body is
+                            // `FrozenType` — no live `UnionFind` cell can cross to a
+                            // consumer. `manifest.Name` is the home assembly the keys are
+                            // rooted at, the same one `ReferencedProject.wrap` stamps onto
+                            // the package's symbols, so the two agree by construction.
                             let ctx, tast =
-                                Pipeline.analyseSemWithContextFor manifest.Name provider parsed.Input parsed.Lexed f
+                                Pipeline.analyseWithContextFor manifest.Name provider parsed.Input parsed.Lexed f
 
                             let values, members = collectInlineBodies ctx tast
 
@@ -319,31 +203,6 @@ module SymbolProviders =
          >(
             System.StringComparer.Ordinal
         )
-
-    /// Serve cross-package inline bodies over `inner`. `byKey` (resolved `SymbolKey`)
-    /// is the sole inline channel: every splice-eligible `External` head is key-stamped
-    /// upstream, so a keyless head carries no body by construction.
-    ///
-    /// An inline-only leaf composed OVER `inner`, not a hand-written decorator: every
-    /// other channel misses on the leaf and falls through, so this states the ONE
-    /// channel it overrides instead of restating the other eleven — and a channel added
-    /// to the contract does not have to be re-forwarded here.
-    let private withInlineBodies
-        (inner: IExternalSymbolProvider)
-        (byKey: System.Collections.Generic.Dictionary<SymbolKey, InlineBody>)
-        : IExternalSymbolProvider =
-        ExternalSymbolProviders.composite
-            [
-                ExternalSymbolProviders.ofNamedLeaf
-                    { ExternalSymbolProviders.NamedLeaf.empty with
-                        TryLookupInlineBody =
-                            fun key ->
-                                match byKey.TryGetValue key with
-                                | true, v -> ValueSome v
-                                | _ -> ValueNone
-                    }
-                inner
-            ]
 
     /// Build and cache the provider stack + inline bodies for a manifest set.
     /// The raw `Map` is exposed via `contractInlineBodies` for tests.
@@ -372,46 +231,37 @@ module SymbolProviders =
 
                          let values, memberInlines = inlineBodies target provider ordered
 
-                         // A simple-name → body map — NOT a provider channel (the
-                         // provider serves inline bodies only by `SymbolKey`); it is the
+                         // A simple-name → body map — NOT a provider channel (the provider
+                         // folds a body onto the entry that owns its key); it is the
                          // introspection seam `contractInlineBodies` returns so tests can
                          // assert a manifest set collected the bodies it should. A later
                          // body wins a clash (list is in manifest/decl order).
-                         let byName = (Map.empty, values) ||> List.fold (fun m v -> Map.add v.Name v.Body m)
+                         let byName =
+                             (Map.empty, values)
+                             ||> List.fold (fun m v -> Map.add (SymbolKeyOps.intrinsicName v.Key) v.Body m)
 
                          let byKey =
                              System.Collections.Generic.Dictionary<SymbolKey, InlineBody>(HashIdentity.Structural)
 
-                         // Value bodies are keyed by the `SymbolKey` resolved ONCE at
-                         // collection — the same key a use-site `TExpr.External` carries,
-                         // so a module-qualified read (`Unchecked.defaultof`) hits this
-                         // identity-robust channel. A resolved identity flows here, not a
-                         // spelling: the store builder does no source-name lookup of its
-                         // own. (The simple name does not resolve — the index is
-                         // qualified-name keyed and the holder is not auto-opened — which
-                         // is why a sibling intra-body ref is key-stamped by
-                         // `collectInlineBodies`' rewrite rather than left to resolve by name.)
+                         // Both channels arrive already keyed by a resolved identity — a
+                         // VALUE by the key its home unit minted at freeze, a MEMBER by the
+                         // key the provider resolved at collection. Nothing here re-derives
+                         // an identity from a spelling.
                          for v in values do
-                             match v.Key with
-                             | ValueSome k -> byKey.[k] <- v.Body
-                             | ValueNone -> ()
+                             byKey.[v.Key] <- v.Body
 
-                         // Member-sourced bodies are keyed by the FINALIZED member key
-                         // the provider resolves (`TryLookupMember`): a method's argSig
-                         // is rewritten from its frozen params, so this key AGREES with
-                         // the use-site `TExpr.ExternalMember.Key`. Never hand-roll a
-                         // `MemberKey` here — that would risk key disagreement.
                          for mb in memberInlines do
-                             match
-                                 provider.TryLookupMember(
-                                     SymbolKeyOps.lookupKeyOfCompiledName mb.TypeName,
-                                     mb.MemberName
-                                 )
-                             with
-                             | ValueSome mem -> byKey.[mem.Key] <- mb.Body
-                             | ValueNone -> ()
+                             byKey.[mb.Key] <- mb.Body
 
-                         withInlineBodies provider byKey, byName)
+                         let served =
+                             provider
+                             |> ExternalSymbolProviders.withInlineBodies (fun key ->
+                                 match byKey.TryGetValue key with
+                                 | true, v -> ValueSome v
+                                 | _ -> ValueNone
+                             )
+
+                         served, byName)
             )
             .Value
 

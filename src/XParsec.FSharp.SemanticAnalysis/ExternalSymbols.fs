@@ -78,6 +78,17 @@ type ImportForm =
     | CommonJs
     | Namespace
 
+/// A published inline body as the provider serves it: the producing unit's own
+/// `Frozen.TInlineBody`, handed across the boundary VERBATIM.
+///
+/// `FrozenType`, not `SemType` — a `SemType.TyVar` is a mutable `UnionFind` cell, and
+/// an oracle that hands one out lets a consumer's inference reach back and mutate a
+/// producer's. The consumer THAWS the body at the splice (`Inline.thawBody`), minting
+/// its own cells by construction; that thaw is the one immutable→mutable transition,
+/// and it sits on the consumer's side of the seam. Do NOT re-widen this to `SemType`
+/// to make a splice site convenient — thaw is the seam.
+type InlineBody = Frozen.TInlineBody
+
 type ExternalSymbol =
     {
         Name: string
@@ -123,6 +134,17 @@ type ExternalSymbol =
         /// `monoFrozen`/`scheme` builders default it, so non-TS layers
         /// (VesperLib, MetadataSymbols, JsNativeSymbols) never touch it.
         ImportForm: ImportForm
+        /// The symbol's splice TEMPLATE, when it has one — a `val inline` whose home
+        /// unit published its body. `ValueNone` for every ordinary (compiled) symbol,
+        /// and for every provider that carries no inline bodies.
+        ///
+        /// Folded ONTO the resolved entry rather than served by a sibling by-key
+        /// channel: the entry already carries the identity the body is keyed by
+        /// (`Key`), so a separate lookup could only re-ask a question this entry has
+        /// already answered — and answer it under a key that might disagree. NOT
+        /// `Lazy`: the provider builds its symbols FROM the frozen unit, so the body is
+        /// already in memory and deferring it would defer work already done.
+        InlineBody: InlineBody voption
     }
 
 /// Per-field shape inside an `ExternalTypeShape.Record`. The field type is the
@@ -364,6 +386,16 @@ type ExternalMember =
         /// admission at a foreign-call arg position treats it as not-required. Every
         /// non-interface producer (metadata, .fsi contract, JS-native, ctors) sets `false`.
         IsOptional: bool
+        /// The member's splice TEMPLATE, when it has one — a concrete `(# … #)`-bodied
+        /// member, harvested `this`-first (`SymbolProviders.harvestMemberBody`) so it
+        /// splices through the same path a `let inline` value does. `ValueNone` for a
+        /// real callable. See `ExternalSymbol.InlineBody` for why it is folded here.
+        ///
+        /// A splice site must select the member by EXACT `Key`, never by a name lookup:
+        /// `TryLookupMember` collapses an overload set to a single best-by-arity pick, so
+        /// a name re-lookup can hand back a DIFFERENT overload's body than the one the
+        /// use-site node's `MemberKey` names.
+        InlineBody: InlineBody voption
     }
 
     /// A value member (field or property) — no parameters, the value in `Return` —
@@ -396,6 +428,7 @@ type ExternalMember =
             Key = SymbolKeyOps.memberKey declKey ".ctor" argSig MemberKind.Method
             OptionalDefaults = optionalDefaults
             IsOptional = false
+            InlineBody = ValueNone
         }
 
 /// HOW an external type's instance-member CALLS lower on the JS backend — a single
@@ -766,19 +799,6 @@ type ExternalTypeShape =
         | Abbrev(arity = a)
         | Opaque(arity = a) -> a
 
-/// A cross-package `val inline` body plus the compiler attributes on its
-/// parameters, positionally aligned to the inline's curried parameters. `Decl`
-/// is the retained `let inline` declaration the pre-freeze `Passes.InlineExpansion`
-/// splices at each use site; `ParamAttrs` is the cross-package twin of
-/// `PassContext.InlineParamAttrs` (`[<CallAtMostOnce>]` &c.) — empty for a body
-/// whose parameters carry no recognised attribute. Both are read by the inliner;
-/// the attrs gate call-by-name-at-single-use splicing.
-type InlineBody =
-    {
-        Decl: TDecl
-        ParamAttrs: ParamAttrs[]
-    }
-
 /// The **resolver face** of the external-symbol contract: *spelling → identity*
 /// (`string → identity`). Opens-aware — this is where a source spelling is turned
 /// into a resolved symbol/type/case. String-keyed is CORRECT here: it is the one
@@ -823,7 +843,7 @@ type IExternalSymbolResolver =
 /// The **store face** of the external-symbol contract: *identity → payload*
 /// (`SymbolKey → payload`). What Unification, Elaborate, InlineExpansion, and codegen
 /// speak once identity is already resolved — no consumer re-derives identity from a
-/// spelling here. Type/index/member/inline lookups are addressed by the resolved
+/// spelling here. Type / index / member / symbol lookups are addressed by the resolved
 /// `SymbolKey` a front-end consumer already holds; a member *name* stays a string
 /// (a post-dot member spelling is not opens-sensitive — only the declaring type's
 /// identity is). Implementations may satisfy the key-addressed methods by
@@ -874,16 +894,18 @@ type IExternalSymbolStore =
     /// signatures (metadata, .fsi contract, JS-native, test fakes) return `[]`.
     abstract TryLookupIndexSignature: key: SymbolKey -> (FrozenType * FrozenType) list
 
-    /// A cross-package `val inline` body — a referenced package's `let inline`
-    /// whose `.fs` source the pre-freeze `Passes.InlineExpansion` pass *splices*
-    /// at each use site rather than calling as a compiled member.
-    /// Looked up by the inline value's resolved
-    /// `SymbolKey` — the same key `TryLookup` returns and `Elaborate` stamps onto a
-    /// use-site `TExpr.External`. The primary, identity-robust channel
-    /// (disambiguates a referenced package's `hash` from a user shadow).
-    /// Providers that carry no inline bodies (the front-end-only paths) return
-    /// `ValueNone`.
-    abstract TryLookupInlineBody: key: SymbolKey -> InlineBody voption
+    /// Look up a value/free-function symbol by the resolved `SymbolKey` a consumer
+    /// already holds — the key-addressed twin of `IExternalSymbolResolver.TryLookup`,
+    /// and the channel a splice site reaches an `InlineBody` through
+    /// (`TryLookupByKey key |> ValueOption.bind (fun s -> s.InlineBody)`).
+    ///
+    /// It must be BY KEY, not by name. A splice site holds an identity, not a
+    /// resolvable spelling: an inline body's intra-body reference to a SIBLING template
+    /// carries the sibling's simple name, which provably does not resolve (the index is
+    /// qualified-name keyed and the holder is not auto-opened) — and re-resolving any
+    /// spelling at splice time would reintroduce the user-shadow hazard the key channel
+    /// exists to kill.
+    abstract TryLookupByKey: key: SymbolKey -> ExternalSymbol voption
 
     /// The reverse intrinsic axis `{ platform-repr -> [canon] }`, so the unifier can
     /// reconcile an incoming BCL/native *runtime* name (the `platform` face, e.g.
@@ -933,7 +955,7 @@ type IExternalSymbolStore =
 /// oracle — the absence of those members IS the constraint, do not add them.
 ///
 /// **Thread-safety (both faces, every channel):** every lookup — value, type, case,
-/// member, index-signature, inline-body, and the intrinsic axes — must be safe to
+/// member, index-signature, by-key symbol, and the intrinsic axes — must be safe to
 /// call concurrently from multiple threads. Implementations that cache lazily must
 /// guard their internal mutation. Per-file pipelines run independent `PassContext`s
 /// in parallel and may hit the same provider from any of them — see
@@ -1521,6 +1543,7 @@ module ExternalSymbols =
             Key = SymbolKey.Binding key
             ValRepr = ValueNone
             ImportForm = ImportForm.Named
+            InlineBody = ValueNone
         }
 
     /// A value/free-function symbol from a `FrozenType` scheme over `arity` declaring
@@ -1544,4 +1567,5 @@ module ExternalSymbols =
             Key = SymbolKey.Binding key
             ValRepr = ValueNone
             ImportForm = ImportForm.Named
+            InlineBody = ValueNone
         }

@@ -32,9 +32,6 @@ module ExternalSymbolProviders =
             TryLookupMember: string * string -> ExternalMember voption
             TryLookupMembers: string * string -> ExternalMember[]
             TryLookupIndexSignature: string -> (FrozenType * FrozenType) list
-            /// Key-addressed even on the leaf: an inline body has no by-name channel
-            /// (a value key does not round-trip to its spelling).
-            TryLookupInlineBody: SymbolKey -> InlineBody voption
             IntrinsicReverseCanon: Map<string, SymbolKey list>
             IntrinsicForwardRepr: IReadOnlyDictionary<SymbolKey, string>
         }
@@ -51,7 +48,6 @@ module ExternalSymbolProviders =
                 TryLookupMember = fun _ -> ValueNone
                 TryLookupMembers = fun _ -> [||]
                 TryLookupIndexSignature = fun _ -> []
-                TryLookupInlineBody = fun _ -> ValueNone
                 IntrinsicReverseCanon = Map.empty
                 IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
             }
@@ -78,7 +74,13 @@ module ExternalSymbolProviders =
               member _.TryLookupIndexSignature key =
                   leaf.TryLookupIndexSignature(SymbolKeyOps.qualifiedName key)
 
-              member _.TryLookupInlineBody key = leaf.TryLookupInlineBody key
+              // A `BindingKey` is a real containment chain, so it RENDERS back to the
+              // qualified compiled name the leaf's index is keyed by — losslessly, and
+              // without re-cutting a dotted string. That is what makes the key-addressed
+              // symbol face constructible on a by-name leaf at all.
+              member _.TryLookupByKey key =
+                  leaf.TryLookup(SymbolKeyOps.qualifiedName key)
+
               member _.IntrinsicReverseCanon = leaf.IntrinsicReverseCanon
               member _.IntrinsicForwardRepr = leaf.IntrinsicForwardRepr
         }
@@ -286,12 +288,10 @@ module ExternalSymbolProviders =
 
                   result
 
-              // Inline bodies are origin-independent `TDecl`s (no key/origin
-              // re-stamp), so these are plain first-hit-wins fall-throughs like the
-              // lookups above — a source that serves cross-package inline bodies
-              // (the codegen contract stack) surfaces them through the composite.
-              member _.TryLookupInlineBody key =
-                  firstHit (fun s -> s.TryLookupInlineBody key)
+              // The key-addressed symbol face shadows and re-homes exactly like its
+              // by-name twin — same `firstHit`, same `stampSymbol`.
+              member _.TryLookupByKey key =
+                  firstHit (fun s -> s.TryLookupByKey key) |> ValueOption.map stampSymbol
 
               member _.IntrinsicReverseCanon = reverseCanon
               member _.IntrinsicForwardRepr = forwardRepr
@@ -444,7 +444,53 @@ module ExternalSymbolProviders =
               member _.TryLookupIndexSignature(key: SymbolKey) =
                   inner.TryLookupIndexSignature key |> List.map (fun (k, v) -> contra k, co v)
 
-              member _.TryLookupInlineBody key = inner.TryLookupInlineBody key
+              member _.TryLookupByKey key =
+                  inner.TryLookupByKey key
+                  |> ValueOption.map (fun s -> { s with Scheme = co s.Scheme })
+
+              member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
+              member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
+        }
+
+    /// Fold each symbol's / member's published INLINE BODY onto the entry that carries
+    /// its identity. `bodies` is the producing side's `SymbolKey → InlineBody` index; a
+    /// key it does not know keeps `ValueNone`.
+    ///
+    /// A decorator, not a composed leaf: the body does not REPLACE a lookup, it ENRICHES
+    /// one — the symbol/member itself comes from `inner`, and its `Key` is what the body
+    /// is fetched by, so the two cannot disagree. The member channels are stamped as well
+    /// as the value one: a concrete `(# … #)`-bodied member is a splice template too, and
+    /// the member splice site selects by exact key off `TryLookupMembers`.
+    let withInlineBodies
+        (bodies: SymbolKey -> InlineBody voption)
+        (inner: IExternalSymbolProvider)
+        : IExternalSymbolProvider =
+        let stampSymbol (s: ExternalSymbol) : ExternalSymbol = { s with InlineBody = bodies s.Key }
+        let stampMember (m: ExternalMember) : ExternalMember = { m with InlineBody = bodies m.Key }
+
+        { new IExternalSymbolProvider
+
+          interface IExternalSymbolResolver with
+              member _.TryLookup name =
+                  inner.TryLookup name |> ValueOption.map stampSymbol
+
+              member _.TryLookupType(name: string) = inner.TryLookupType name
+              member _.TryLookupUnionCase caseName = inner.TryLookupUnionCase caseName
+              member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
+          interface IExternalSymbolStore with
+              member _.TryLookupType(key: SymbolKey) = inner.TryLookupType key
+
+              member _.TryLookupMember(key, memberName) =
+                  inner.TryLookupMember(key, memberName) |> ValueOption.map stampMember
+
+              member _.TryLookupMembers(key, memberName) =
+                  inner.TryLookupMembers(key, memberName) |> Array.map stampMember
+
+              member _.TryLookupIndexSignature(key: SymbolKey) = inner.TryLookupIndexSignature key
+
+              member _.TryLookupByKey key =
+                  inner.TryLookupByKey key |> ValueOption.map stampSymbol
+
               member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
               member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
         }
@@ -472,7 +518,7 @@ module ExternalSymbolProviders =
 
         let indexSigs = ConcurrentDictionary<SymbolKey, (FrozenType * FrozenType) list>()
         let unionCases = ConcurrentDictionary<string, ExternalUnionCase voption>()
-        let inlineByKey = ConcurrentDictionary<SymbolKey, InlineBody voption>()
+        let symbolsByKey = ConcurrentDictionary<SymbolKey, ExternalSymbol voption>()
 
         { new IExternalSymbolProvider
 
@@ -500,8 +546,8 @@ module ExternalSymbolProviders =
               member _.TryLookupIndexSignature(key: SymbolKey) =
                   indexSigs.GetOrAdd(key, (fun k -> inner.TryLookupIndexSignature k))
 
-              member _.TryLookupInlineBody key =
-                  inlineByKey.GetOrAdd(key, (fun k -> inner.TryLookupInlineBody k))
+              member _.TryLookupByKey key =
+                  symbolsByKey.GetOrAdd(key, (fun k -> inner.TryLookupByKey k))
 
               member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
               member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr

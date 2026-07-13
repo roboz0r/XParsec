@@ -13,9 +13,9 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 //
 // `let inline hash (obj: 'T) = EqualityComparer<'T>.Default.GetHashCode obj` is
 // loaded as a cross-package inline body (`ClrSymbolProviders.inlineBodies`) and
-// spliced at each `hash` use site by the pre-freeze `Passes.InlineExpansion` pass
-// reached through the provider's `IInlineBodyProvider`
-// channel. So `hash 5` freezes to the two `ExternalMember` nodes
+// spliced at each `hash` use site by the pre-freeze `Passes.InlineExpansion` pass,
+// which reaches the body off the resolved symbol that carries `hash`'s key. So
+// `hash 5` freezes to the two `ExternalMember` nodes
 // (`EqualityComparer<int>.Default` static property +
 // `GetHashCode` instance method) that P4 emits — the same `EqualityComparer<T>`
 // family the DU triple hashes its fields through, so `hash` and `=` agree by
@@ -31,8 +31,8 @@ let tests =
             test
                 "`hash 5` freezes to the EqualityComparer<int>.Default.GetHashCode ExternalMember nodes (no surviving External)" {
                 // The contract path resolves `hash` to its `ops-platform.fs` inline
-                // body, which the pre-freeze `Passes.InlineExpansion` pass splices in
-                // (via the provider's `IInlineBodyProvider` channel): `hash 5` becomes
+                // body, which the pre-freeze `Passes.InlineExpansion` pass splices in:
+                // `hash 5` becomes
                 // `let _ = 5 in EqualityComparer<int>.Default.GetHashCode _` —
                 // `'T` pinned to `int`, the `External("hash")` head gone — already in
                 // the frozen `tast.Decls`, before codegen runs.

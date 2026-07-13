@@ -425,9 +425,8 @@ let withCore (project: ProjectInfo) : ProjectInfo =
 /// (cached per manifest set by `ClrSymbolProviders.buildContract`) and run *both*
 /// phases against it: a use-site
 /// `External(name)` whose body lives in a referenced `.fs` (today: `hash` from
-/// `ops-platform.fs`) is spliced in pre-freeze by `Passes.InlineExpansion` (via the
-/// provider's `IInlineBodyProvider` channel) rather than served by a
-/// codegen stopgap. `[]` manifests ⇒ the BCL metadata leaf alone, for callers
+/// `ops-platform.fs`) is spliced in pre-freeze by `Passes.InlineExpansion` (off the
+/// resolved symbol's own `InlineBody`) rather than served by a codegen stopgap. `[]` manifests ⇒ the BCL metadata leaf alone, for callers
 /// that must stay off the Vesper contracts.
 let private compileContract
     (manifestPaths: string list)

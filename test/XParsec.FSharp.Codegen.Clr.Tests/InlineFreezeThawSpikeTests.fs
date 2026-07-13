@@ -2,41 +2,32 @@ module XParsec.FSharp.Codegen.Clr.Tests.InlineFreezeThawSpikeTests
 
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// The landing checks for the freeze-inline prerequisites
-// (docs/inline-body-freeze-thaw-plan.md).
+// The frozen inline-body channel, end to end.
 //
-// 1. A frozen `StaticOptimization` carries NO `SemType`. The clause CONSTRAINTS used
-//    to be the hole: `TStaticOptClauseG.Constraints` was a monomorphic
-//    `EqArray<TStaticOptConstraint>` — raw `SemType`, whose typar is a LIVE `TyVar`
-//    over the inline binding's quantified root — and `TastConvert.clause` copied it
+// 1. `Freeze` PUBLISHES an inline binding (it drops it from the emittable `Decls`, and
+//    that is a different question from whether it is part of the unit's vocabulary), under
+//    a `SymbolKey` it MINTS from the binding's declaring module chain. An inline value is
+//    the one kind of symbol that is exported but never emitted, so nothing else would ever
+//    mint its identity.
+//
+// 2. A published body carries NO `SemType`. The clause CONSTRAINTS used to be the hole:
+//    `TStaticOptClauseG.Constraints` was a monomorphic `EqArray<TStaticOptConstraint>` —
+//    raw `SemType`, whose typar is a LIVE `TyVar` — and `TastConvert.clause` copied it
 //    verbatim, so a frozen inline decl still shared the pre-freeze `UnionFind` cell.
-//    `TStaticOptConstraintG<'ty>` closes that: a frozen clause is `SemType`-free BY
-//    TYPE, and this test pins that the constraints are actually MAPPED, not dropped.
+//    `TStaticOptConstraintG<'ty>` closes that BY TYPE; what is left to check dynamically
+//    is that the constraints are MAPPED, not dropped.
 //
-// 2. The body-local typar residue keeps its IDENTITY across freeze. Freeze's `TyVar`
-//    policy no longer collapses every un-quantified root to one name-equal
-//    `FTUnknown "?free-typar"`; each root is attributed to the local scheme that
-//    BINDS it and freezes to `FTLocalTypar(binder, index)`; a decl-scoped thaw mints
-//    one fresh cell per `(binder, index)` pair.
+// 3. The body-local typar residue keeps its IDENTITY across freeze: each un-quantified
+//    root is attributed to the local scheme that BINDS it and freezes to
+//    `FTLocalTypar(binder, index)`; `Inline.thawBody` mints one fresh cell per
+//    `(binder, index)` pair.
 //
-// 3. That identity is BODY-RELATIVE and survives `NodeKey` collision across units —
-//    the multi-file case (docs/multi-file-compilation-units-plan.md), where a
-//    `NodeKey` has no file id and keys from two units collide freely.
-
-/// Every `TypeVar` root reachable from a *SemType* clause's constraints, zonked.
-/// (There is no frozen counterpart by construction — that is the point of check 1.)
-let private constraintRoots (clauses: TStaticOptClause list) : TypeVar list =
-    [
-        for c in clauses do
-            for k in EqArray.toList c.Constraints do
-                match k with
-                | TStaticOptConstraint.TyconEquals(TyVar a, _) -> yield UnionFind.find a
-                | TStaticOptConstraint.TyconEquals(_, TyVar b) -> yield UnionFind.find b
-                | TStaticOptConstraint.IsStruct(TyVar a) -> yield UnionFind.find a
-                | _ -> ()
-    ]
+// 4. That identity is BODY-RELATIVE and survives `NodeKey` collision across units — the
+//    multi-file case, where a `NodeKey` has no file id and keys from two units collide
+//    freely. Both the freeze/thaw half and a REAL cross-unit splice are pinned below.
 
 /// Every type mentioned by a frozen clause's constraints, in order.
 let private frozenConstraintTypes (clauses: Frozen.TStaticOptClause list) : FrozenType list =
@@ -63,6 +54,17 @@ let rec private hasFTTypar (t: FrozenType) : bool =
     match t with
     | FTTypar _ -> true
     | t -> FrozenType.existsChild hasFTTypar t
+
+/// Every typar leaf of a frozen type — quantified (`FTTypar`) or body-local
+/// (`FTLocalTypar`) — in first-occurrence pre-order. The leaf value IS its identity.
+let rec private typarLeavesIn (t: FrozenType) : FrozenType list =
+    match t with
+    | FTTypar _
+    | FTLocalTypar _ -> [ t ]
+    | t ->
+        let acc = ResizeArray<FrozenType>()
+        FrozenType.iterChildren (fun c -> acc.AddRange(typarLeavesIn c)) t
+        List.ofSeq acc
 
 /// Every `TypeVar` root in a `SemType`, in first-occurrence pre-order.
 let rec private semRootsOf (t: SemType) : TypeVar list =
@@ -100,36 +102,23 @@ let private distinctCells (tvs: TypeVar list) : TypeVar list =
 
     List.ofSeq acc
 
-/// A single DECL-SCOPED thaw — the shape the inline-splice consumer will use: ONE
-/// freshener cache across the whole decl, keyed on the `(binder, index)` PAIR, so
-/// every occurrence of one local typar maps to one fresh consumer-owned cell and two
-/// distinct local typars never share one. Deliberately consults NO ambient state:
-/// the leaf is interpreted against the body that carries it and nothing else.
-let private thawDeclScoped (d: Frozen.TDecl) : TDecl =
-    let cache = System.Collections.Generic.Dictionary<struct (NodeKey * int), SemType>()
+/// How many DISTINCT typar leaves a frozen decl names, across all three axes. The
+/// thaw's contract in one number: it must mint exactly this many cells — one per
+/// leaf, shared across every occurrence of that leaf. Deriving the count from the
+/// frozen tree rather than hard-coding it is what keeps the assertion EXACT: a broken
+/// cache mints MORE cells than there are leaves, which a `>=` bound would not catch.
+let private distinctLeafCount (d: Frozen.TDecl) : int =
+    collectTys d |> List.collect typarLeavesIn |> List.distinct |> List.length
 
-    TastConvert.decl
-        (FrozenTypeBridge.instantiateWith
-            (fun i -> TyTypar(TyparAxis.Declaring, i))
-            (fun j -> TyTypar(TyparAxis.Method, j))
-            (fun binder k ->
-                let key = struct (binder, k)
-
-                match cache.TryGetValue key with
-                | true, v -> v
-                | _ ->
-                    let v = TyVar(TypeVar())
-                    cache.[key] <- v
-                    v
-            ))
-        d
-
-/// The frozen `let` decl of a single-binding program, plus its own declared type.
-let private frozenLetDecl (src: string) : Frozen.TDecl =
+/// The frozen unit of a source.
+let private freeze (src: string) : Frozen.TastFile =
     let ctx, tast = analyseWithCtx src
     Expect.isEmpty tast.Diagnostics "no diagnostics"
+    Freeze.run ctx tast
 
-    (Freeze.run ctx tast).Decls
+/// The frozen `let` decl of a single-binding program.
+let private frozenLetDecl (src: string) : Frozen.TDecl =
+    (freeze src).Decls
     |> EqArray.toList
     |> List.tryPick (fun d ->
         match d with
@@ -138,15 +127,19 @@ let private frozenLetDecl (src: string) : Frozen.TDecl =
     )
     |> Option.defaultWith (fun () -> failtestf "no top-level `let` in the frozen tree of:\n%s" src)
 
+/// The unit's sole published inline body.
+let private soleInlineBody (src: string) : Frozen.TInlineValue =
+    match (freeze src).InlineBodies |> EqArray.toList with
+    | [ v ] -> v
+    | other -> failtestf "expected exactly one published inline body, got %d, in:\n%s" (List.length other) src
+
 /// Two locally-generalized `let`s. ONE would give a single local root and so could
 /// not witness conflation — the old `FTUnknown "?free-typar"` gave every root the
 /// same NAME, and `FTUnknown` equality is by name, so they collapsed into one
 /// indistinguishable leaf.
 ///
-/// `inline` is deliberately absent: `Freeze.run` still DROPS inline decls
-/// (freeze-inline is the next stage), so an inline binding would never reach the
-/// policy under test. The residue does not depend on `inline` — it is the local
-/// generalisation that creates it (see `Freeze.declFreezer`).
+/// `inline` is deliberately absent: the residue does not depend on it — it is the local
+/// generalisation that creates it.
 let private twoLocalSchemes =
     String.concat
         "\n"
@@ -157,97 +150,181 @@ let private twoLocalSchemes =
             "    (g, g, h, h)"
         ]
 
+/// A module-held `let inline` — the only shape with a declaring holder chain, hence an
+/// exportable identity, hence a vocabulary entry. (A top-level inline lives in the
+/// anonymous Program holder and is spliceable only within its own unit.)
+let private kindOfUnit (ns: string) (moduleName: string) =
+    String.concat
+        "\n"
+        [
+            "namespace " + ns
+            ""
+            "module " + moduleName + " ="
+            "    let inline kindOf (x: ^T) : int ="
+            "        -1"
+            "        when ^T : int   = 1"
+            "        when ^T : float = 2"
+            "        when ^T : ^T    = 0"
+        ]
+
+/// Re-express a published body's decl type as a symbol `Scheme`. A `let inline`'s own
+/// typars ride the METHOD axis (they are the binding's, not an enclosing type's); an
+/// `ExternalSymbol.Scheme` bakes a free function's typars on the DECLARING axis, which is
+/// what `instantiateSymbol` freshens. Positional, so index order is preserved.
+let private asSymbolScheme (ft: FrozenType) : FrozenType =
+    FrozenTypeBridge.instantiateWith
+        (fun i -> TyTypar(TyparAxis.Declaring, i))
+        (fun j -> TyTypar(TyparAxis.Declaring, j))
+        (FrozenTypeBridge.localTyparInTemplate "InlineFreezeThawSpikeTests.asSymbolScheme")
+        ft
+    |> toFrozen
+
+/// The number of distinct typar slots a template names — the symbol's `TyparArity`.
+let rec private typarArity (ft: FrozenType) : int =
+    match ft with
+    | FTTypar(_, i) -> i + 1
+    | t ->
+        let mutable n = 0
+        FrozenType.iterChildren (fun c -> n <- max n (typarArity c)) t
+        n
+
+/// Unit A's inline vocabulary, published as a provider over the default contract stack —
+/// a multi-file provider in miniature: one `ExternalSymbol` per published body, with the
+/// body FOLDED ONTO it (that is the whole interface; there is no sibling body channel).
+///
+/// The consumer resolves the symbol, carries its `Key`, and reaches the body through THAT
+/// key. Nothing `SemType` crosses: A published `FrozenType`, and B thaws.
+let private publishing (unitASource: string) : IExternalSymbolProvider =
+    let ctx, tastA = analyseWithCtx unitASource
+    Expect.isEmpty tastA.Diagnostics "unit A has no diagnostics"
+    let unitA = Freeze.run ctx tastA
+
+    let published = unitA.InlineBodies |> EqArray.toList
+
+    let bodies = published |> List.map (fun v -> v.Key, v.Body) |> dict
+
+    let symbols =
+        published
+        |> List.map (fun v ->
+            let declTy =
+                match v.Body.Decl with
+                | TDeclG.Let(_, _, _, ty) -> ty
+                | other -> failtestf "a published body is not a `let`: %A" other
+
+            let binding =
+                match v.Key with
+                | SymbolKey.Binding b -> b
+                | other -> failtestf "a published inline value is not a binding key: %A" other
+
+            let scheme = asSymbolScheme declTy
+
+            SymbolKeyOps.qualifiedName v.Key,
+            ExternalSymbols.scheme binding.Decl binding.Name scheme (typarArity scheme) []
+        )
+        |> dict
+
+    ExternalSymbolProviders.composite
+        [
+            ExternalSymbolProviders.ofNamedLeaf
+                { ExternalSymbolProviders.NamedLeaf.empty with
+                    TryLookup =
+                        fun name ->
+                            match symbols.TryGetValue name with
+                            | true, s -> ValueSome s
+                            | _ -> ValueNone
+                }
+            ClrSymbolProviders.buildContract defaultManifests
+        ]
+    |> ExternalSymbolProviders.withInlineBodies (fun k ->
+        match bodies.TryGetValue k with
+        | true, b -> ValueSome b
+        | _ -> ValueNone
+    )
+
+/// The constant a splice left behind at `let r = …`. `kindOf`'s clause bodies are bare
+/// `int` literals, so WHICH clause was selected is read straight off the spliced value.
+///
+/// The value is `let x = <arg> in <clause body>` — the inline's parameter beta-reduced to
+/// an ordinary `Let`, exactly as an in-unit splice lowers it. A call that did NOT splice
+/// leaves an `App` head instead, which reaches no `Const`, so this cannot pass by accident.
+let private splicedConst (provider: IExternalSymbolProvider) (src: string) : int64 =
+    let lexed, file = parseFile src
+    let tast = Pipeline.analyse provider src lexed file
+
+    Expect.isEmpty
+        (tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))
+        (sprintf "no errors for:\n%s" src)
+
+    let rec result (e: Frozen.TExpr) : int64 =
+        match e with
+        | TExprG.Let(_, _, body, _, _) -> result body
+        | TExprG.Const(TConstValue.Integral(_, v), _, _) -> v
+        | other -> failtestf "expected `r` to reduce to a spliced constant, got %A" other
+
+    match tast.Decls |> EqArray.toList |> List.rev with
+    | TDeclG.Let(_, value, _, _) :: _ -> result value
+    | other -> failtestf "expected a trailing `let r = …`, got %A" other
+
 [<Tests>]
 let tests =
     testList
-        "InlineFreezeThawSpike"
+        "InlineFreezeThaw"
         [
-            test "freeze-inline: a frozen StaticOptimization clause carries no SemType cell — constraints freeze too" {
-                // The known-good SRTP inline shape (identical to StaticOptimizationTests):
-                // a `when ^T : …` cascade that elaborates to a `TExpr.StaticOptimization`.
-                let src =
-                    String.concat
-                        "\n"
-                        [
-                            "let inline kindOf (x: ^T) : int ="
-                            "    -1"
-                            "    when ^T : int   = 1"
-                            "    when ^T : float = 2"
-                            "    when ^T : ^T    = 0"
-                        ]
+            test "freeze PUBLISHES an inline binding under a minted key, and keeps it out of the emittable Decls" {
+                let frozen = freeze (kindOfUnit "Lib" "Kinds")
 
-                let tast = analyse src
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                Expect.isEmpty
+                    (frozen.Decls
+                     |> EqArray.toList
+                     |> List.filter (fun d ->
+                         match d with
+                         | TDeclG.Let(isInline = true) -> true
+                         | _ -> false
+                     ))
+                    "an inline template is not emittable — it stays out of Decls (no backend can lower one)"
 
-                // Pre-freeze SemType inline decl (retained — `Freeze.run` drops inline
-                // decls today, so the freeze conversion is driven directly below).
-                let inlineDecl =
-                    tast.Decls
-                    |> EqArray.toList
-                    |> List.tryPick (fun d ->
-                        match d with
-                        | TDeclG.Let(_, _, true, _) -> Some d
-                        | _ -> None
-                    )
-                    |> Option.defaultWith (fun () -> failtest "no inline decl in tast.Decls")
+                let published = soleInlineBody (kindOfUnit "Lib" "Kinds")
 
-                let semClauses =
-                    match inlineDecl with
-                    | TDeclG.Let(_, TExprG.Lambda(_, TExprG.StaticOptimization(cls, _, _, _), _, _), _, _) ->
-                        EqArray.toList cls
-                    | _ -> failtestf "expected a static-opt inline binding, got %A" inlineDecl
+                // The key is MINTED from the declaring holder chain — not recovered by
+                // re-resolving a dotted spelling, which multi-file has nothing to recover
+                // against. It is the identity a use-site `TExpr.External` carries.
+                Expect.equal
+                    published.Key
+                    (SymbolKeyOps.moduleValueKey None "Lib" "Kinds" "kindOf")
+                    "the published identity is the binding's own containment chain"
+            }
 
-                // (1) PREMISE (re-anchoring StaticOptimizationTests): pre-freeze, the clause
-                //     constraints hold a LIVE TyVar root — the cell freeze must not leak.
-                let semRoots = constraintRoots semClauses
-                Expect.isNonEmpty semRoots "pre-freeze: a clause constraint carries a live TyVar root"
+            test "a published StaticOptimization clause carries no SemType cell — its constraints freeze too" {
+                let published = soleInlineBody (kindOfUnit "Lib" "Kinds")
 
-                // (2) Freeze the whole decl through the functor. `onVar` stands in for the
-                //     real quantEnv (`Elaborate.mkMethodQuantEnv`): this pins
-                //     REPRESENTABILITY, not the typar index order, so a single placeholder
-                //     leaf for the lone `^T` is faithful enough.
-                let onVar (_: SemType) : FrozenType = FTTypar(TyparAxis.Method, 0)
-
-                let frozenDecl: Frozen.TDecl =
-                    TastConvert.decl (FrozenTypeBridge.toFrozenWith onVar) inlineDecl
-
-                let frozenClauses, frozenResultTy =
-                    match frozenDecl with
+                let clauses, resultTy =
+                    match published.Body.Decl with
                     | TDeclG.Let(_, TExprG.Lambda(_, TExprG.StaticOptimization(cls, _, resultTy, _), _, _), _, _) ->
                         EqArray.toList cls, resultTy
-                    | _ -> failtestf "freeze lost the static-opt shape: %A" frozenDecl
+                    | other -> failtestf "freeze lost the static-opt shape: %A" other
 
-                Expect.equal frozenClauses.Length semClauses.Length "all when-clauses survive freeze"
+                Expect.equal clauses.Length 3 "all three when-clauses survive freeze"
 
-                match frozenResultTy with
+                match resultTy with
                 | FTConst _ -> () // `: int`
                 | other -> failtestf "expected a frozen result type, got %A" other
 
-                // (3) THE LANDING CHECK. The frozen clause's constraints are
-                //     `TStaticOptConstraintG<FrozenType>`: they cannot hold a `SemType`, so
-                //     the shared-cell hazard is gone BY TYPE. What is left to check
-                //     dynamically is that they were MAPPED and not dropped — every
-                //     constraint type is present and went through `onVar`, i.e. the live
-                //     `^T` root became the frozen leaf.
-                let frozenTys = frozenConstraintTypes frozenClauses
+                // The clause's constraints are `TStaticOptConstraintG<FrozenType>`: they
+                // CANNOT hold a `SemType`, so the shared-cell hazard is gone by type. What
+                // is checkable dynamically is that they were MAPPED and not dropped — and
+                // that the binding's own `^T` reached its self-describing leaf.
+                let frozenTys = frozenConstraintTypes clauses
 
-                Expect.equal
-                    frozenTys.Length
-                    (semClauses
-                     |> List.sumBy (fun c ->
-                         c.Constraints
-                         |> EqArray.toList
-                         |> List.sumBy (fun k ->
-                             match k with
-                             | TStaticOptConstraint.TyconEquals _ -> 2
-                             | TStaticOptConstraint.IsStruct _ -> 1
-                         )
-                     ))
-                    "every clause constraint survives the freeze conversion"
+                // `int` / `float` / `^T : ^T` ⇒ two types per clause.
+                Expect.equal frozenTys.Length 6 "every clause constraint survives the freeze conversion"
 
                 Expect.isTrue
                     (frozenTys |> List.exists (fun t -> t = FTTypar(TyparAxis.Method, 0)))
-                    "the constraint's typar was routed through the freeze policy — it is a frozen leaf, not a copied SemType cell"
+                    "the constraint's typar is a frozen leaf, not a copied SemType cell"
+
+                Expect.isEmpty
+                    (frozenTys |> List.collect localLeavesIn)
+                    "the binding's own typar is QUANTIFIED (FTTypar), never mistaken for a body-local residue"
             }
 
             test "freeze: two body-local schemes freeze to leaves with DISTINCT binders, and thaw to two distinct cells" {
@@ -287,15 +364,16 @@ let tests =
                     (localLeavesIn declTy)
                     "f's own type carries no local-typar residue — that is exactly why mkMethodQuantEnv cannot map it"
 
-                // One decl-scoped thaw: one fresh cell per (binder, index), shared across
-                // every occurrence of that leaf.
+                // One decl-scoped thaw: one fresh cell per distinct leaf, shared across every
+                // occurrence of it. `thawBody` mints on all three axes, so the expected count
+                // is every leaf the frozen decl names — not just the local ones.
                 let cells =
-                    thawDeclScoped fDecl |> collectTys |> List.collect semRootsOf |> distinctCells
+                    Inline.thawBody fDecl |> collectTys |> List.collect semRootsOf |> distinctCells
 
                 Expect.equal
                     cells.Length
-                    2
-                    "a decl-scoped thaw mints exactly one fresh cell per distinct (binder, index) — two, shared across every occurrence"
+                    (distinctLeafCount fDecl)
+                    "a decl-scoped thaw mints EXACTLY one fresh cell per distinct leaf — sharing it across every occurrence"
             }
 
             test "freeze: local-typar leaves are DETERMINISTIC — the same source freezes to the same (binder, index)s" {
@@ -318,18 +396,9 @@ let tests =
             test "freeze/thaw: colliding binder NodeKeys across two units do not conflate — the leaf is BODY-relative" {
                 // The multi-file hazard, made concrete. A `NodeKey` is (offset, kind) with NO
                 // file id, so two units' keys collide freely — deliberately (cross-file
-                // references resolve by NAME, never by NodeKey). These two units are DIFFERENT
-                // programs whose text is length-aligned character for character, so their
-                // local-`let` binders land on the SAME NodeKey.
-                //
-                // SCOPE: this exercises the freeze→thaw half, which is what exists today.
-                // It does NOT drive a real cross-unit SPLICE: `Freeze.run` still drops inline
-                // decls, `InlineBody.Decl` is still `SemType`, and the splice machinery
-                // (`Inline`/`InlineExpansion`) reads pre-freeze bodies — those are the
-                // producer/consumer stages this plan schedules next. What is checkable now is
-                // the property the splice will rest on: a thaw interprets a leaf against the
-                // BODY that carries it and consults no ambient unit state, so equal binder
-                // keys in two bodies stay two independent typars.
+                // references resolve by NAME / by KEY, never by NodeKey). These two units are
+                // DIFFERENT programs whose text is length-aligned character for character, so
+                // their local-`let` binders land on the SAME NodeKey.
                 let producer =
                     String.concat "\n" [ "let a () ="; "    let p = fun x -> x"; "    (p, p)" ]
 
@@ -370,24 +439,91 @@ let tests =
                 // cache per thawed decl). Despite the identical binder key, the two thaws mint
                 // independent cells — nothing is keyed by NodeKey in any shared table.
                 let pCells =
-                    thawDeclScoped pDecl |> collectTys |> List.collect semRootsOf |> distinctCells
+                    Inline.thawBody pDecl |> collectTys |> List.collect semRootsOf |> distinctCells
 
                 let cCells =
-                    thawDeclScoped cDecl |> collectTys |> List.collect semRootsOf |> distinctCells
+                    Inline.thawBody cDecl |> collectTys |> List.collect semRootsOf |> distinctCells
 
-                Expect.equal pCells.Length 1 "the producer body thaws to one fresh cell"
-                Expect.equal cCells.Length 1 "the consumer body thaws to one fresh cell"
+                let disjointFrom (xs: TypeVar list) (ys: TypeVar list) =
+                    ys
+                    |> List.filter (fun y -> xs |> List.exists (fun x -> System.Object.ReferenceEquals(x, y)))
 
-                Expect.isFalse
-                    (System.Object.ReferenceEquals(pCells.Head, cCells.Head))
-                    "the colliding binder key does NOT conflate the two units' local typars — each thaw mints its own cell"
+                Expect.equal
+                    pCells.Length
+                    (distinctLeafCount pDecl)
+                    "the producer body thaws to exactly one fresh cell per distinct leaf"
+
+                Expect.equal
+                    cCells.Length
+                    (distinctLeafCount cDecl)
+                    "the consumer body thaws to exactly one fresh cell per distinct leaf"
 
                 Expect.isEmpty
-                    (distinctCells (pCells @ consumerOwnCells)
-                     |> List.filter (fun c ->
-                         consumerOwnCells |> List.exists (fun o -> System.Object.ReferenceEquals(o, c))
-                         && pCells |> List.exists (fun p -> System.Object.ReferenceEquals(p, c))
-                     ))
+                    (disjointFrom pCells cCells)
+                    "the colliding binder key does NOT conflate the two units' local typars — each thaw mints its own cells"
+
+                Expect.isEmpty
+                    (disjointFrom consumerOwnCells pCells)
                     "the producer's thawed cells are fresh — none is a cell of the consumer's own inference state, colliding key notwithstanding"
+            }
+
+            // ─── Cross-unit SPLICE: freeze in A, splice in B ────────────────────────────
+            //
+            // The property the whole channel exists for. Unit A is compiled, frozen, and
+            // published as a provider over the SAME contract stack; unit B then resolves A's
+            // inline value BY KEY and splices its thawed body. Nothing B does can reach a cell
+            // of A's — A handed out `FrozenType` only.
+
+
+            test "cross-unit SPLICE: B resolves A's published inline BY KEY and splices the thawed body" {
+                // Unit A is a real compilation, sharing B's `NodeKey` space (no file id).
+                let provider = publishing (kindOfUnit "Lib" "Kinds")
+
+                // Only a real splice can answer these: the clause conditions are resolved
+                // against the CALL-SITE operand type, in B, over cells B minted at thaw.
+                Expect.equal
+                    (splicedConst provider "open Lib\nlet r : int = Kinds.kindOf 5\n")
+                    1L
+                    "int operand selects the int clause"
+
+                Expect.equal
+                    (splicedConst provider "open Lib\nlet r : int = Kinds.kindOf 5.0\n")
+                    2L
+                    "float operand selects the float clause"
+
+                Expect.equal
+                    (splicedConst provider "open Lib\nlet r : int = Kinds.kindOf true\n")
+                    0L
+                    "an operand no clause names falls to the `^T : ^T` catch-all"
+            }
+
+
+            test "cross-unit splice ≡ in-unit splice, over COLLIDING NodeKeys" {
+                // A and B are compiled in the same `NodeKey` space, so A's body binders and
+                // B's own collide freely. If the thaw consulted any ambient unit state — or
+                // if its freshener cache were keyed by anything B also keys by — the
+                // collision would surface here as a wrong clause or a type error.
+                let provider = publishing (kindOfUnit "AAA" "Kind1")
+
+                // The SAME program with the inline declared IN-unit: the reference answer
+                // the cross-unit splice must reproduce.
+                let inUnitAnswer =
+                    splicedConst
+                        (ClrSymbolProviders.buildContract defaultManifests)
+                        (String.concat
+                            "\n"
+                            [
+                                "let inline kindOf (x: ^T) : int ="
+                                "    -1"
+                                "    when ^T : int   = 1"
+                                "    when ^T : float = 2"
+                                "    when ^T : ^T    = 0"
+                                "let r : int = kindOf 5.0"
+                            ])
+
+                Expect.equal
+                    (splicedConst provider "open AAA\nlet r : int = Kind1.kindOf 5.0\n")
+                    inUnitAnswer
+                    "freeze-in-A / splice-in-B ≡ in-unit splice"
             }
         ]

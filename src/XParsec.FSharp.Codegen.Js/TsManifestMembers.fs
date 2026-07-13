@@ -76,6 +76,7 @@ module internal TsManifestMembers =
                 Key = SymbolKeyOps.memberKey declKey mem.Name (EqArray.ofList argSig) kind
                 OptionalDefaults = List.replicate (trailingOptionalCount sg.Params) TConstValue.Unit
                 IsOptional = mem.Optional
+                InlineBody = ValueNone
             }
         )
 
@@ -106,6 +107,7 @@ module internal TsManifestMembers =
                     Key = SymbolKeyOps.memberKey declKey mem.Name EqArray.empty MemberKind.Property
                     OptionalDefaults = []
                     IsOptional = mem.Optional
+                    InlineBody = ValueNone
                 }
             ]
         | Schema.MemberKind.Method ->
