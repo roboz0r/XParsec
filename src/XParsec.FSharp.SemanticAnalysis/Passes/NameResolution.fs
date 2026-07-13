@@ -53,14 +53,15 @@ module NameResolution =
             /// Unification's `fillBaseCtorCall` sees its idents bound. `ValueNone`
             /// for unions and classes without an `inherit` clause.
             InheritsExpr: Expr<SyntaxToken> voption
-            /// G16: the enclosing module's `let` value/function bindings (member
-            /// name → binding-site `NodeKey`), present when this type is declared
-            /// inside a `module Foo = …`. Entered as the lowest-priority layer of
+            /// G16: the enclosing module's `let` value/function bindings that are VISIBLE
+            /// from this type's declaration, present when the type is declared inside a
+            /// `module Foo = …`. Entered as the lowest-priority layer of
             /// every member-body scope so a nested type's method can reference a
             /// module sibling unqualified (`collapseLHS`, `notStarted` in
-            /// `SetIterator`). `ValueNone` for a top-level type. The same map
-            /// `LocalModules` registers for G15's *qualified* resolution.
-            EnclosingModuleMembers: System.Collections.Generic.Dictionary<string, NodeKey> voption
+            /// `SetIterator`). Empty for a top-level type, and for a module whose `let`s all
+            /// sit below the type. Built from the same `LocalModules` registry G15's
+            /// *qualified* resolution reads, and scoped by the same offsets.
+            EnclosingModuleScope: Scope
             Elements: TypeDefnElements<SyntaxToken>
         }
 
@@ -159,18 +160,10 @@ module NameResolution =
         // G16: the enclosing module's value bindings are visible — unqualified — to
         // every member body of a type nested in that module (F# spec §8.7). They
         // enter as the *lowest-priority* tail layer so `this` / ctor params /
-        // static lets shadow on a name clash. `Map.empty` (no enclosing module)
+        // static lets shadow on a name clash. Already scoped to the type's position by
+        // `enclosingModuleScope`; empty (no enclosing module, or nothing of it visible here)
         // leaves resolution unchanged.
-        let moduleMemberScope: Scope =
-            match w.EnclosingModuleMembers with
-            | ValueSome members ->
-                let mutable m = Map.empty
-
-                for kv in members do
-                    m <- Map.add kv.Key (kv.Value, false) m
-
-                m
-            | ValueNone -> Map.empty
+        let moduleMemberScope: Scope = w.EnclosingModuleScope
 
         let instanceScope = [ mergeStaticLets scopeMap; moduleMemberScope ]
         let staticScope: Scope list = [ staticLetScope; moduleMemberScope ]
@@ -295,19 +288,34 @@ module NameResolution =
                     walkMemberDefn md
             | _ -> ()
 
-    /// G16: the member bindings of the module a local type is declared inside, if
-    /// any — looked up via the `TypeEnclosingModule` → `LocalModules` registries the
-    /// pre-pass populated. `ValueNone` for a top-level type.
-    let private enclosingModuleMembers
-        (ctx: PassContext)
-        (typeName: string)
-        : System.Collections.Generic.Dictionary<string, NodeKey> voption =
+    /// G16: the member bindings of the module a local type is declared inside that are
+    /// VISIBLE from the type — looked up via the `TypeEnclosingModule` → `LocalModules`
+    /// registries the pre-pass populated. Empty for a top-level type.
+    ///
+    /// The use site is the type's own declaration key, and that is exact rather than an
+    /// approximation: a type declaration is one contiguous element, so a module `let` sits
+    /// either wholly above it (visible to the type and to every one of its member bodies) or
+    /// wholly below every member body (visible to none of them). Any offset inside the
+    /// declaration renders the same verdict, so there is nothing finer to ask.
+    ///
+    /// This is why a member body cannot call a module function declared under its type
+    /// (F# FS0039) while one declared above it resolves — and why `module rec` restores both:
+    /// the binding's `VisibleFrom` moves to the `rec` keyword, above every type in the scope.
+    let private enclosingModuleScope (ctx: PassContext) (typeName: string) (declKey: NodeKey) : Scope =
         match ctx.Resolution.TypeEnclosingModule.TryGetValue typeName with
         | true, moduleName ->
             match ctx.Resolution.LocalModules.TryGetValue moduleName with
-            | true, members -> ValueSome members
-            | false, _ -> ValueNone
-        | false, _ -> ValueNone
+            | true, members ->
+                let useSite = SourcePos.ofNodeKey declKey
+                let mutable m = Map.empty
+
+                for kv in members do
+                    if kv.Value.VisibleFrom <= useSite.Offset then
+                        m <- Map.add kv.Key (kv.Value.BindingSite, false) m
+
+                m
+            | false, _ -> Map.empty
+        | false, _ -> Map.empty
 
     let private walkClassBodies
         (ctx: PassContext)
@@ -363,7 +371,7 @@ module NameResolution =
                                 match info.BaseType, body.inherits with
                                 | ValueSome _, ValueSome(ClassInheritsDecl(expr = e)) -> e
                                 | _ -> ValueNone
-                            EnclosingModuleMembers = enclosingModuleMembers ctx info.Name
+                            EnclosingModuleScope = enclosingModuleScope ctx info.Name info.DeclKey
                             Elements = body.elements
                         }
                 | ValueNone -> ()
@@ -395,7 +403,7 @@ module NameResolution =
                     StaticLets = [||]
                     SecondaryCtors = [||]
                     InheritsExpr = ValueNone
-                    EnclosingModuleMembers = enclosingModuleMembers ctx name
+                    EnclosingModuleScope = enclosingModuleScope ctx name host.DeclKey
                     Elements = elems
                 }
 
@@ -497,11 +505,47 @@ module NameResolution =
             ctx.Resolution.OpenScope <- w.Scope
             walkNominalBodies ctx walker w.Elem
 
+        // Module-level VALUES, in declaration order: `walkModuleElem` adds a `let`'s binders
+        // to the running scope only AFTER its RHS is walked, so a use above a `let` does not
+        // see it. That IS F#'s rule, and the only exception is `rec`.
+        //
+        // A `rec` scope makes its bindings visible from its own keyword, so every `let` it
+        // contains is in scope for every element of it. The flattened element list is a DFS,
+        // so one `rec` scope is a contiguous RUN of elements sharing a `RecScopeOffset` — and
+        // seeding that run's binders before walking any of it is the whole of the grant.
+        // Outside a run the accumulator below is untouched, which is why a non-`rec` module
+        // gets no forward visibility at all.
+        let elems = List.toArray elems
         let mutable scope = [ Map.empty ]
+        let mutable i = 0
 
-        for w in elems do
-            ctx.Resolution.OpenScope <- w.Scope
-            scope <- walkModuleElem ctx walker scope w.Elem
+        while i < elems.Length do
+            let recScope = elems.[i].RecScopeOffset
+            let mutable j = i
+
+            while j < elems.Length && elems.[j].RecScopeOffset = recScope do
+                j <- j + 1
+
+            if recScope.IsSome then
+                let mutable seeded = List.head scope
+
+                for k in i .. j - 1 do
+                    ctx.Resolution.OpenScope <- elems.[k].Scope
+
+                    match elems.[k].Elem with
+                    | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
+                        seeded <-
+                            (seeded, bindingsToScope ctx bindings)
+                            ||> Map.fold (fun acc k v -> Map.add k v acc)
+                    | _ -> ()
+
+                scope <- seeded :: List.tail scope
+
+            for k in i .. j - 1 do
+                ctx.Resolution.OpenScope <- elems.[k].Scope
+                scope <- walkModuleElem ctx walker scope elems.[k].Elem
+
+            i <- j
 
     /// The simple (last-segment) name of any named `TypeDefn` shape; `ValueNone`
     /// for the nameless `Missing` / `SkipsTokens` placeholders.
@@ -547,26 +591,48 @@ module NameResolution =
     /// structure is captured for name resolution. Mirrors
     /// `Elaborate.translateModuleElem`'s holder walk (which records the same
     /// boundaries for *emission*).
+    ///
+    /// Each member records the offset it is VISIBLE FROM: its own, or — inside a
+    /// `module rec` / `namespace rec` — the enclosing `rec` keyword's, which is the whole of
+    /// what `rec` grants. The tree is walked in full before anything resolves, so this table
+    /// knows the whole file; the offset is what keeps a reader from seeing below itself.
     let private registerLocalModules (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
-        let registerLet (moduleName: string) (bindings: ImmutableArray<Binding<SyntaxToken>>) =
+        let registerLet (moduleName: string) (recScope: int voption) (bindings: ImmutableArray<Binding<SyntaxToken>>) =
             let members =
                 match ctx.Resolution.LocalModules.TryGetValue moduleName with
                 | true, d -> d
                 | false, _ ->
-                    let d = System.Collections.Generic.Dictionary<string, NodeKey>()
+                    let d = System.Collections.Generic.Dictionary<string, LocalModuleMember>()
                     ctx.Resolution.LocalModules.[moduleName] <- d
                     d
 
             for b in bindings do
                 for (name, key) in bindingsOfPat ctx b.headPat do
-                    members.[name] <- key
+                    members.[name] <-
+                        {
+                            BindingSite = key
+                            VisibleFrom =
+                                match recScope with
+                                | ValueSome off -> off
+                                | ValueNone -> key.Offset
+                        }
 
-        let rec walk (moduleName: string voption) (elems: ModuleElems<SyntaxToken>) =
+        // The innermost enclosing `rec` scope's keyword offset — its own when this scope is
+        // itself `rec`, else whatever it inherited (a non-rec submodule of a `rec` namespace
+        // is still inside that rec scope). Mirrors `CstWalk.walkModuleTreeWith`'s
+        // `innerRecScope`, which computes the same fact for the flattened walk.
+        let innerRecScope (keyword: SyntaxToken) (isRec: SyntaxToken voption) (inherited: int voption) : int voption =
+            if isRec.IsSome then
+                ValueSome keyword.StartIndex
+            else
+                inherited
+
+        let rec walk (moduleName: string voption) (recScope: int voption) (elems: ModuleElems<SyntaxToken>) =
             for e in elems do
                 match e with
                 | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
                     match moduleName with
-                    | ValueSome m -> registerLet m bindings
+                    | ValueSome m -> registerLet m recScope bindings
                     | ValueNone -> ()
                 | ModuleElem.Type defs ->
                     match moduleName with
@@ -576,9 +642,11 @@ module NameResolution =
                             | ValueSome n -> ctx.Resolution.TypeEnclosingModule.[n] <- m
                             | ValueNone -> ()
                     | ValueNone -> ()
-                | ModuleElem.Module(ModuleDefn.ModuleDefn(ident = ident; body = ModuleDefnBody(elements = inner))) ->
+                | ModuleElem.Module(ModuleDefn.ModuleDefn(
+                    moduleToken = kw; isRec = isRec; ident = ident; body = ModuleDefnBody(elements = inner))) ->
                     match inner with
-                    | ValueSome innerElems -> walk (ValueSome(ctx.NameOf ident)) innerElems
+                    | ValueSome innerElems ->
+                        walk (ValueSome(ctx.NameOf ident)) (innerRecScope kw isRec recScope) innerElems
                     | ValueNone -> ()
                 | _ -> ()
 
@@ -588,13 +656,15 @@ module NameResolution =
         let top = ValueSome topLevelModuleSentinel
 
         match file with
-        | ImplementationFile.AnonymousModule elems -> walk top elems
-        | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) -> walk top elems
+        | ImplementationFile.AnonymousModule elems -> walk top ValueNone elems
+        | ImplementationFile.NamedModule(NamedModule.NamedModule(moduleToken = kw; isRec = isRec; elements = elems)) ->
+            walk top (innerRecScope kw isRec ValueNone) elems
         | ImplementationFile.Namespaces groups ->
             for g in groups do
                 match g with
-                | NamespaceDeclGroup.Named(elements = elems)
-                | NamespaceDeclGroup.Global(elements = elems) -> walk top elems
+                | NamespaceDeclGroup.Named(namespaceToken = kw; isRec = isRec; elements = elems) ->
+                    walk top (innerRecScope kw isRec ValueNone) elems
+                | NamespaceDeclGroup.Global(elements = elems) -> walk top ValueNone elems
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         // G15/G16: capture local-module structure before the flattened walk erases it.

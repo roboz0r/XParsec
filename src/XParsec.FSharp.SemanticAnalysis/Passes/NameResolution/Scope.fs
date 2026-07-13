@@ -491,6 +491,12 @@ module NameResolutionScope =
                 // (`translateIdent` → `TExpr.Var`) treat it as an ordinary local
                 // reference. The module name is the second-to-last segment (handles
                 // the 2-segment `SetTree.add`).
+                //
+                // Answered AS SEEN FROM this expression: `LocalModules` is a whole-file
+                // registry, so a member whose binding sits below the use answers for
+                // nothing here (F# FS0039) — unless the binding is inside a `rec` scope
+                // that also contains the use, in which case its `VisibleFrom` is that
+                // scope's keyword and it resolves.
                 let tryLocalModuleMember () : bool =
                     if li.Idents.Length >= 2 then
                         let moduleName = ctx.NameOf li.Idents.[li.Idents.Length - 2]
@@ -499,18 +505,18 @@ module NameResolutionScope =
                         match ctx.Resolution.LocalModules.TryGetValue moduleName with
                         | true, members ->
                             match members.TryGetValue memberName with
-                            | true, bindingKey ->
+                            | true, m when m.VisibleFrom <= (SourcePos.ofNodeKey (CstKeys.ofExpr e)).Offset ->
                                 ctx.Bindings.Binding.Set(
                                     CstKeys.ofExpr e,
                                     {
-                                        BindingSite = bindingKey
+                                        BindingSite = m.BindingSite
                                         IsInline = false
                                         IsMutable = false
                                     }
                                 )
 
                                 true
-                            | false, _ -> false
+                            | _ -> false
                         | false, _ -> false
                     else
                         false

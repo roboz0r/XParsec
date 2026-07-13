@@ -72,11 +72,10 @@ grammar working. `U.Alpha` is not in scope, so `Alpha` names nothing, so it is a
 pattern, which is what an unrecognised ident in pattern position always is. That is the
 behaviour to pin. Asserting an *error* there would be pinning a rule F# does not have.
 
-P6 is the load-bearing one. **We currently compile every module as if it were
-`module rec`.** `LocalModules` (short-name-keyed, whole-file) and
-`prebindModuleFunctionSchemes` (a whole-file pre-loop in `Unification.walkElems`) are not
-stray hacks — they are an *unconditional* implementation of a feature F# makes opt-in. The
-parser already records the flag (`DeclarationParsing.fs:168`,
+P6 is the load-bearing one. Type BODIES were compiled as if every module were `module rec`:
+`LocalModules` is short-name-keyed and whole-file, so a member body saw every module `let` in
+the file. Module `let`s themselves were already file-ordered — and `module rec` did not work
+for values at all. The parser already records the flag (`DeclarationParsing.fs:168`,
 `ProgramStructureParsing.fs:28`; `CstWalk.fs:1187,1213` already destructures `isRec`).
 
 `module rec` / `namespace rec` are wanted eventually, and `VisibleFrom` is shaped so they
@@ -182,13 +181,39 @@ declared below — a second checker beside the resolution it guards, which is pr
 "the diagnostic falls out of resolution failing" exists to avoid. Scope the index; the miss,
 and therefore the diagnostic, follow.
 
-**Step 4 — `unionOfCase`.** A separate index from the `*Names` dictionaries, so it needs
-its own flip; it rides on Step 3b's `CtorIndex` face. Pins: P4 — assert that the unrecognised
-uppercase ident becomes a **variable pattern**, not an error.
+**Step 4 — `unionOfCase`. LANDED.** Scoping it would have been the wrong fix: it is handed a
+`UnionCaseInfo` and asked for that case's declaring union — **identity navigation**, like the
+`…ByKey` faces — but it navigated by re-resolving the NAME `(UnionName, UnionArity)` through
+`tryUnion`. A by-name lookup doing a by-key job. `UnionCaseInfo` now carries its union's
+`TypeKey` (stamped from the union's own claim at its sole registration site), `unionOfCase` is
+a key-addressed read taking **no `SourcePos`**, and `UnionArity` is gone. The name lookup
+disappeared rather than being scoped. Pinned: P4 — the variable-pattern binding, plus the
+positive control (union above ⇒ the same arms are case patterns and the argument IS the union).
 
-**Step 5 — values, and the `module rec` gate.** Give `LocalModules` entries a
-`VisibleFrom`; gate `prebindModuleFunctionSchemes`' forward grant on the enclosing module's
-`isRec`. Pins: P1, P2, P3, P6.
+**Step 5 — values, and the `module rec` gate. LANDED.** Two things this doc got wrong:
+
+- **P1 was already correct.** `NameResolution.walkModuleElem` adds a module `let`'s binders to
+  the running scope only after its RHS is walked, so a module `let` never saw a later sibling.
+  "We compile every module as if it were `module rec`" was true only of TYPE bodies.
+- **`prebindModuleFunctionSchemes` is not a visibility grant** — it seeds `ctx.Bindings.Scheme`,
+  keyed by binding site. A name still resolves only through `ctx.Bindings.Binding`. It is now
+  gated on `RecScopeOffset` anyway, since outside a `rec` scope no forward reference can
+  resolve to read it.
+
+So the real defect was `LocalModules` alone, and the real gap was the opposite of the doc's
+framing: `module rec` did not work for values **at all**. Both fixed:
+
+- `LocalModules` entries carry a `VisibleFrom` (`PassContext.LocalModuleMember`), populated at
+  the pre-pass from the binding's offset or the innermost enclosing `rec` keyword. Both readers
+  honour it: the type-body merge (against the type's own `DeclKey` — exact, not an
+  approximation, because a type declaration is one contiguous element) and the qualified
+  `Module.member` path.
+- `NameResolution.walkElems`' value loop now seeds a `rec` scope's bindings before walking any
+  of it. The flattened element list is a DFS, so a `rec` scope is a contiguous RUN of elements
+  sharing a `RecScopeOffset`; seeding that run is the whole grant.
+
+Pinned: P1, P2, P3, P6 (both halves). The corpus needed no change — as it could not, being
+valid F#.
 
 **Step 6 — performance, not correctness.** With visibility carried by the query,
 `NameResolution.walkElems`' four kind-batched loops (registration → all class bodies → all

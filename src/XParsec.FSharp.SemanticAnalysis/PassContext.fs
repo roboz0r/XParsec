@@ -122,6 +122,22 @@ module PassContextBindings =
 /// element, a binding, or a signature. `LocalModules` / `TypeEnclosingModule` are a
 /// third kind again — short-name-keyed registries built by a NameResolution pre-pass
 /// over the un-flattened module tree.
+/// One `let`-bound value / function of a local module, as a use site outside its own
+/// element sees it. `VisibleFrom` is the value analogue of `TypeIdentity.VisibleFrom`, and
+/// the same rule: F# declaration scoping is file-ordered, so a binding answers for its name
+/// only at offsets at or after it. It is
+///   * the binding's own source offset; or
+///   * the offset of the innermost enclosing `rec` scope's `module` / `namespace` keyword,
+///     when there is one — `rec` moves the offset earlier and nothing else. That is the ONE
+///     place a module's rec-ness enters value visibility, so the lookup never branches on it.
+[<Struct>]
+type LocalModuleMember =
+    {
+        /// The `NodeKey` a use resolves TO — the head-pattern key `bindingsOfPat` minted.
+        BindingSite: NodeKey
+        VisibleFrom: int
+    }
+
 type PassContextResolution =
     {
         /// The `open` / auto-open namespace prefixes active at the module element
@@ -367,8 +383,9 @@ type PassContextResolution =
         ExternalUnionRecordQualifier: SideTable<SymbolKey>
         /// Project-local *module* member registry: a local module's short name
         /// (`SetTree`) → its directly-declared `let` value/function bindings (member
-        /// name → the binding-site `NodeKey` `bindingsOfPat` mints for the head
-        /// pattern). Populated by `NameResolution.registerLocalModules`, a pre-pass
+        /// name → the member, carrying the binding-site `NodeKey` `bindingsOfPat` mints for
+        /// the head pattern and the offset it is visible from). Populated by
+        /// `NameResolution.registerLocalModules`, a pre-pass
         /// over the *un-flattened* module tree — the flattened element walk
         /// (`CstWalk.walkModuleTreeWith`) erases module boundaries, so a sibling
         /// module's function would otherwise be unresolvable. Read by the
@@ -378,7 +395,12 @@ type PassContextResolution =
         /// module's bindings enter the type-body scope, unqualified). The `SetTree`
         /// *module* and a same-named `SetTree<'T>` *type* coexist: this table is keyed
         /// independently of `Types.Class`.
-        LocalModules: Dictionary<string, Dictionary<string, NodeKey>>
+        ///
+        /// The table is whole-file — the pre-pass runs before anything is walked — so BOTH
+        /// readers must honour `LocalModuleMember.VisibleFrom` against their use site.
+        /// Without that this registry is a whole-file forward grant for values, i.e. an
+        /// unconditional `module rec`.
+        LocalModules: Dictionary<string, Dictionary<string, LocalModuleMember>>
         /// Maps a local *type*'s short name (`SetIterator`) → the short name
         /// of the module it is declared inside (`SetTree`). Populated alongside
         /// `LocalModules`; consulted by the nested-type body walk to merge the

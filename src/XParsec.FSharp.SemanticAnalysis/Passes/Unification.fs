@@ -1069,7 +1069,7 @@ module Unification =
                     | ValueNone -> ()
         | _ -> ()
 
-    let private walkElems (ctx: PassContext) (pairs: (ModuleElem<SyntaxToken> * OpenScope) list) =
+    let private walkElems (ctx: PassContext) (elems: WalkedElem<SyntaxToken> list) =
         // Every type's declared STRUCTURE — field / case / `val` / ctor-param types and the
         // abbreviation bodies — is already resolved: NameResolution's top-down registration
         // scan translated it in the scope each declaration was written in. What is left here
@@ -1081,9 +1081,9 @@ module Unification =
         //
         // Resolve every class's interface impls before any body types (so a
         // module function's `for x in (c: C)` and any `:>`/coercion sees them).
-        for (m, openScope) in pairs do
-            ctx.Resolution.OpenScope <- openScope
-            resolveInterfaceImplsForElem ctx m
+        for w in elems do
+            ctx.Resolution.OpenScope <- w.Scope
+            resolveInterfaceImplsForElem ctx w.Elem
 
         // Seed annotation-derived schemes for module-level functions
         // *before* class member bodies are typed, so a class member's forward
@@ -1091,11 +1091,19 @@ module Unification =
         // fresh signature and the argument-coercion site can upcast a subtype
         // argument (`Comparer<'T>` → `IComparer<'T>`) instead of monomorphically
         // pinning the function's param. See `prebindModuleFunctionSchemes`.
-        for (m, openScope) in pairs do
-            ctx.Resolution.OpenScope <- openScope
+        //
+        // Only inside a `rec` scope — the only place a forward reference to a module
+        // function can resolve at all. Elsewhere the declaration-order loop below has
+        // already typed a callee that a caller can legally see, so the annotation-only
+        // stand-in would never be read; seeding it anyway would keep the forward-reference
+        // machinery alive for programs F# rejects.
+        for w in elems do
+            ctx.Resolution.OpenScope <- w.Scope
 
-            match m with
-            | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
+            match w.Elem with
+            | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) when
+                w.RecScopeOffset.IsSome
+                ->
                 prebindModuleFunctionSchemes ctx bindings
             | _ -> ()
 
@@ -1117,11 +1125,11 @@ module Unification =
         // grounded, leaking a metavar into the member signature at contract
         // extraction. `prebind` is still seeded above so genuine forward references
         // (mutual recursion, a `rec` module) keep a usable scheme.
-        for (m, openScope) in pairs do
-            ctx.Resolution.OpenScope <- openScope
-            fillClassMembers ctx m
-            fillNominalMembers ctx m
-            walkModuleElem ctx m
+        for w in elems do
+            ctx.Resolution.OpenScope <- w.Scope
+            fillClassMembers ctx w.Elem
+            fillNominalMembers ctx w.Elem
+            walkModuleElem ctx w.Elem
 
     /// Resolve the bare-program list literals left flexible by `listLiteralTy`,
     /// after the whole file is walked so every consumer has had its say:
@@ -1262,6 +1270,8 @@ module Unification =
         // Recompute the same per-element `OpenScope` NameResolution did, from the
         // same stable ambient seed (`AmbientOpenScope`, not the per-element
         // `OpenScope` the walk mutates).
-        walkElems ctx (CstWalk.walkModuleTree ctx.NameOf ctx.Resolution.AmbientOpenScope file)
+        // `walkModuleTreeWith` (not `walkModuleTree`) for the `RecScopeOffset` each element
+        // carries: the forward-scheme seed is gated on it.
+        walkElems ctx (CstWalk.walkModuleTreeWith ctx.NameOf ctx.Resolution.AmbientOpenScope (fun _ _ -> ()) file)
         resolveListLiterals ctx
         validateCustomEqCompImpls ctx

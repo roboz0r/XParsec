@@ -72,6 +72,12 @@ let private soleModuleLetResult (tast: TastFile) : SemType =
     | SemType.TyFun(_, ret) -> ret
     | other -> failtestf "expected the sole module let to be a function, got %A" other
 
+/// The ARGUMENT type of the unit's sole module `let` — for `let f x = …`, what `x` bound to.
+let private soleModuleLetArg (tast: TastFile) : SemType =
+    match soleModuleLetType tast with
+    | SemType.TyFun(arg, _) -> arg
+    | other -> failtestf "expected the sole module let to be a function, got %A" other
+
 // F# declaration scoping is file-ordered: a use sees what is written above it and nothing
 // below, with the `type … and …` group (and a type's own members) as the one recursive
 // exception. A by-name registry read therefore answers against the claims visible AT THE USE
@@ -152,5 +158,71 @@ let tests =
             // no record at all.
             test "a record literal above the record's declaration does not resolve" {
                 expectRejected "let f () = { a = 1 }\ntype R = { a: int }"
+            }
+
+            // The union-case surface, and the ONE place where "does not resolve" is not an
+            // error. `Alpha` above `type U` names no case there, and an ident that names
+            // nothing in PATTERN position is a variable pattern — so F# accepts this (with
+            // FS0049 uppercase-ident and FS0026 rule-never-matched warnings) and binds `Alpha`
+            // as a fresh binder matching anything. `f` is therefore `'a -> int`, not
+            // `U -> int`: probed, `f "a string"` and `f 42` both typecheck and both return 1.
+            // Asserting an ERROR here would pin a rule F# does not have.
+            test "a union case above its union's declaration is a variable pattern" {
+                let tast =
+                    analyse
+                        "let f x =\n    match x with\n    | Alpha -> 1\n    | Beta -> 2\ntype U =\n    | Alpha\n    | Beta"
+
+                Expect.isEmpty (errors tast) "no diagnostics: an unrecognised ident in pattern position is a binder"
+
+                match soleModuleLetArg tast with
+                | SemType.TyVar _
+                | SemType.TyTypar _ -> ()
+                | other -> failtestf "expected `Alpha` to bind `x` as a free variable pattern, got %A" other
+            }
+
+            // The positive control for the above: with the union declared ABOVE, the very same
+            // arms are union-case patterns, so the argument is the union. Acceptance alone
+            // cannot tell these two programs apart — the argument type is what does.
+            test "a union case below its union's declaration is a case pattern" {
+                let tast =
+                    analyse
+                        "type U =\n    | Alpha\n    | Beta\nlet f x =\n    match x with\n    | Alpha -> 1\n    | Beta -> 2"
+
+                Expect.isEmpty (errors tast) "no diagnostics"
+
+                Expect.equal
+                    (nominalKey (soleModuleLetArg tast))
+                    (typeDeclKey tast "U")
+                    "the arms are cases of U, so f takes a U"
+            }
+
+            // VALUES. The same file-order rule, on the other half of the language. A module
+            // `let` is visible from where it is WRITTEN, so a use above it names nothing —
+            // whether the use is another module `let` or a class member body. F# grants
+            // whole-scope forward visibility only under `module rec` / `namespace rec`, which
+            // is opt-in: `VisibleFrom` is then the `rec` keyword's offset instead of the
+            // binding's, and the lookup itself does not change.
+            test "a module let calling a let below it does not resolve" {
+                expectRejected "let f () = g ()\nlet g () = 1"
+            }
+
+            test "a class member calling a module let below the type does not resolve" {
+                expectRejected "type C() =\n    member _.M() = helper ()\nlet helper () = 1"
+            }
+
+            // The control that proves the grant was GATED, not deleted: a member body reaching
+            // an EARLIER module let is ordinary F# and must keep working.
+            test "a class member calling a module let above the type resolves" {
+                expectClean "let helper () = 1\ntype C() =\n    member _.M() = helper ()"
+            }
+
+            // `module rec` — the feature the two forward grants were an unconditional
+            // implementation of. Both programs above are accepted verbatim inside one.
+            test "module rec restores forward visibility for a module let" {
+                expectClean "module rec M\n\nlet f () = g ()\nlet g () = 1"
+            }
+
+            test "module rec restores forward visibility for a class member" {
+                expectClean "module rec M\n\ntype C() =\n    member _.M() = helper ()\n\nlet helper () = 1"
             }
         ]
