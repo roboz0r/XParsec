@@ -417,3 +417,5 @@ tmp/
 # LLM Tools
 .claude/settings.local.json
 .serena/
+.deslop-cache/
+.mcp.json
