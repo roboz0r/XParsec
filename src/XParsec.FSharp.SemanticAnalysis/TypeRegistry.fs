@@ -10,6 +10,45 @@ open XParsec.FSharp.Parser
 // register/lookup API over them. Populated by NameResolution.registerXxx,
 // filled in by Unification, read everywhere downstream.
 
+/// Which registry a claimed `(name, arity)` was declared into. The name table
+/// (`PassContextTypes.TypeClaims`) is kind-agnostic — one claim, one owner, ANY kind —
+/// so this is how a claim points back at the table holding its detail. It is also what
+/// lets a use-site resolve a name by ASKING the claim rather than probing the kind
+/// tables in a fixed precedence order (see `Translate.resolveBareTypeName`).
+[<RequireQualifiedAccess>]
+type TypeDeclKind =
+    | Record
+    | Union
+    | Class
+    | Enum
+    | Abbreviation
+    /// A `type int = (# "System.Int32" #)` intrinsic binding. Its declared NAME is a
+    /// name-table citizen exactly like any other type's; its target-representation
+    /// string is not (that is a `IntrinsicReprTypes` side-table concern).
+    | IntrinsicRepr
+
+/// The nominal identity of one type declaration — everything about it that is NOT
+/// kind-specific. Established for every type in ONE file-order pass
+/// (`NameResolutionTypeRegistration.registerTypeIdentities`) before any per-kind
+/// registrar runs, so the local `SymbolKey` has exactly one mint site and duplicate
+/// detection is one predicate over one table.
+type TypeIdentity =
+    {
+        /// The short name as written (no arity suffix — `Key.Name` carries that).
+        Name: string
+        /// Generic arity. `(Name, Arity)` is the CLAIM: at most one type of any kind
+        /// may hold it, so `Foo` and `` Foo`1 `` are distinct claims (as in F#) and may
+        /// be held by different kinds.
+        Arity: int
+        Kind: TypeDeclKind
+        /// The declaration site. A per-kind registrar recovers its own identity by
+        /// matching on this (`TypeRegistry.tryOwnIdentity`); a decl whose claim is held
+        /// by a *different* `DeclKey` is a rejected duplicate and registers nothing.
+        DeclKey: NodeKey
+        /// The project-local `SymbolKey`, minted once by `stampLocalTypeKey`.
+        Key: TypeKey
+    }
+
 type PassContextTypes =
     {
         /// Keyed by the type's own project-local `TypeKey` — the WHOLE containment
@@ -28,10 +67,13 @@ type PassContextTypes =
         /// `NameResolution.registerEnumTypeDefn`; read by `translateType` (so
         /// `(x: E)` resolves to `TyEnum Key`) and the `E.C1` qualified-access path.
         Enum: Dictionary<string, EnumTypeInfo>
+        /// Keyed by `TypeKey` (see `Record`) — an abbreviation is arity-overloadable
+        /// like every other kind (`type T = int` coexists with `type T<'a> = …`), so a
+        /// bare `T` at a use site cannot reach the generic alias.
         /// Bodies are filled in by Unification's `fillAbbreviationBodies` pre-pass.
         /// Abbreviations expand eagerly at every `translateType` lookup, so
         /// downstream passes see the underlying type as if written longhand.
-        Abbreviation: Dictionary<string, AbbreviationInfo>
+        Abbreviation: Dictionary<TypeKey, AbbreviationInfo>
         /// Reverse index: ctor name → bucket of case-info entries (each tagged with
         /// the declaring union type). Consumers iterate the bucket; order does not
         /// matter, so registration appends with `EqArray.ofResizeArray`.
@@ -48,6 +90,10 @@ type PassContextTypes =
         /// `TyConst name`, not the RHS — the binding records *how the target
         /// represents* the type, not an alias to expand. Input to the
         /// `encodeType` rekey.
+        /// The declared NAME is a `TypeClaims` citizen like any other type's (so a record
+        /// `int` collides with `type int = (# … #)`); the repr STRING is not — two types
+        /// resolving to the same target repr is an identity/origin question, not a
+        /// name-table one.
         IntrinsicReprTypes: Dictionary<string, string>
         /// The name → qualified `SymbolKey` index for this unit's own intrinsics,
         /// populated at registration from the declaring `namespace` (`Vesper`). The
@@ -69,7 +115,8 @@ type PassContextTypes =
         HeritableExternBases: HashSet<string>
         /// Host side-tables for inline intrinsic-abbrevs carrying `with member …`
         /// augmentations (`type widget = (# "object" #) with member …`), keyed by bare
-        /// short name (abbrevs aren't arity-overloaded). Populated by
+        /// short name — an intrinsic binding is resolved by bare name at every use site
+        /// (`IntrinsicReprTypes` / `IntrinsicKeys` are keyed the same way). Populated by
         /// `NameResolution.registerAbbreviationDefn` ONLY when the abbrev's RHS is
         /// `Type.ILIntrinsic` and it carries extensions; a transparent-alias abbrev with
         /// members is rejected there and never lands here. The type itself stays in
@@ -89,6 +136,16 @@ type PassContextTypes =
         /// Reverse index: class / interface short name → candidate `TypeKey`s. See
         /// `RecordNames`.
         ClassNames: Dictionary<string, ResizeArray<TypeKey>>
+        /// Reverse index: abbreviation short name → candidate `TypeKey`s. See `RecordNames`.
+        AbbreviationNames: Dictionary<string, ResizeArray<TypeKey>>
+        /// THE name table: short name → every `(name, arity)` claim held under it,
+        /// regardless of KIND. A type declaration claims a name at an arity, and a claim
+        /// may be held by at most one type of any kind — so duplicate detection is one
+        /// predicate (`isTypeClaimed`) over this one table, and a kind added later cannot
+        /// be wired into some guards and forgotten in others. Populated in source order by
+        /// `NameResolutionTypeRegistration.registerTypeIdentities`, which is also the sole
+        /// mint site of a project-local type `SymbolKey`.
+        TypeClaims: Dictionary<string, ResizeArray<TypeIdentity>>
         /// Uniqueness witness for project-local `SymbolKey`s.
         /// Maps each minted `TypeKey(None, ns, name\`arity)` → the decl-site
         /// `NodeKey` that first minted it. Stamped through `TypeRegistry.recordKeyOrigin`
@@ -117,6 +174,8 @@ module PassContextTypes =
             RecordNames = Dictionary<_, _>()
             UnionNames = Dictionary<_, _>()
             ClassNames = Dictionary<_, _>()
+            AbbreviationNames = Dictionary<_, _>()
+            TypeClaims = Dictionary<_, _>()
             SymbolKeyOrigins = Dictionary<_, _>()
         }
 
@@ -130,7 +189,13 @@ module PassContextTypes =
 ///   * by `(name, arity)` (`tryRecordArity` / `tryUnion` / `tryClassArity`) — exact;
 ///   * by BARE name (`tryRecord` / `tryUnionBare` / `tryClass`) — resolves only when the
 ///     name is unambiguous (see `tryKeyOfBareName`).
-/// Only enums and abbreviations stay bare-name-keyed (neither is arity-overloadable).
+/// Abbreviations are keyed the same way. Only enums stay bare-name-keyed — an enum is
+/// non-generic, so its claim is always `(name, 0)` and a name addresses at most one.
+///
+/// Above all three sits the kind-agnostic NAME TABLE (`TypeClaims`): the `(name, arity)`
+/// claim each declaration holds. It is the sole duplicate-definition test
+/// (`isTypeClaimed`) and the sole route from a use-site name+arity to the type that owns
+/// it (`tryTypeClaim`), so cross-kind precedence is a lookup, not a hand-ordered cascade.
 module TypeRegistry =
 
     /// The contract-sourced identity key for a locally-declared intrinsic (`int`,
@@ -223,22 +288,65 @@ module TypeRegistry =
             | false, _ -> ValueNone
         | _ -> ValueNone
 
-    // --- Records / unions / classes -----------------------------------------------
-    // All three are arity-overloadable in F# (`Point\`2`/`Point\`3`,
-    // `Choice\`2`/`Choice\`3`, `Fun\`2`/`Fun\`3`) and all three are keyed by their own
-    // `TypeKey`, which carries the arity in its `Name`. Only abbreviations and enums
-    // stay bare-name-keyed (neither is arity-overloaded).
+    // --- The name table -------------------------------------------------------------
+    // THE rule: a declaration claims a NAME at an ARITY, and a claim may be held by at
+    // most one type of ANY kind. Records, unions, classes and abbreviations are
+    // arity-overloadable (`Point\`2`/`Point\`3`, `type T = int` alongside
+    // `type T<'a> = …`), so each claims exactly `(name, arity)`; an enum is non-generic,
+    // so it claims `(name, 0)` and collides with a record `Foo` but NOT with a record
+    // ``Foo`1``; an intrinsic binding (`type int = (# "System.Int32" #)`) claims the name
+    // it DECLARES, at its declared arity — its target-representation string is not a
+    // name-table concern.
+
+    /// Claim `(id.Name, id.Arity)` for this declaration. Called once per accepted type by
+    /// the file-order identity pass, which has already rejected a contested claim.
+    let claimTypeName (types: PassContextTypes) (id: TypeIdentity) : unit =
+        match types.TypeClaims.TryGetValue id.Name with
+        | true, claims -> claims.Add id
+        | false, _ ->
+            let claims = ResizeArray 1
+            claims.Add id
+            types.TypeClaims.[id.Name] <- claims
+
+    /// The identity holding `(name, arity)`, if any. The single route from a use-site
+    /// name+arity to the type that owns it — so a resolver ASKS which kind owns the name
+    /// instead of probing the kind tables in a hand-ordered precedence cascade.
+    let tryTypeClaim (types: PassContextTypes) (name: string) (arity: int) : TypeIdentity voption =
+        match types.TypeClaims.TryGetValue name with
+        | true, claims ->
+            let i = claims.FindIndex(fun c -> c.Arity = arity)
+            if i < 0 then ValueNone else ValueSome claims.[i]
+        | false, _ -> ValueNone
+
+    /// THE duplicate-type-definition test: is `(name, arity)` already claimed, by any
+    /// kind? One table, one predicate — a kind added later cannot be wired into some
+    /// guards and forgotten in others.
+    let isTypeClaimed (types: PassContextTypes) (name: string) (arity: int) : bool =
+        (tryTypeClaim types name arity).IsSome
+
+    /// Does any declaration claim `name` at SOME arity — i.e. is this name a
+    /// project-local type at all? For diagnostics that must tell "not a class" from
+    /// "unknown type".
+    let isTypeNameDeclared (types: PassContextTypes) (name: string) : bool = types.TypeClaims.ContainsKey name
+
+    /// The identity THIS declaration claimed, or `ValueNone` when the claim is held by a
+    /// different declaration — i.e. this one is a duplicate, already diagnosed by the
+    /// identity pass. Every per-kind registrar opens with this: it is both the
+    /// duplicate gate and the source of the type's `SymbolKey`, so the two cannot drift.
+    let tryOwnIdentity (types: PassContextTypes) (name: string) (arity: int) (declKey: NodeKey) : TypeIdentity voption =
+        match tryTypeClaim types name arity with
+        | ValueSome id when id.DeclKey = declKey -> ValueSome id
+        | _ -> ValueNone
+
+    // --- Records / unions / classes / abbreviations -----------------------------------
+    // All four are arity-overloadable and keyed by their own `TypeKey`, which carries the
+    // arity in its `Name`. Only enums stay bare-name-keyed (an enum is never generic).
 
     /// Register a record under its own `TypeKey`, indexing that key under the record's
     /// short name. The key comes off the `info` — there is no second spelling of the
     /// identity to drift from it.
     let registerRecord (types: PassContextTypes) (info: RecordTypeInfo) : unit =
         registerKeyed types.Record types.RecordNames info.Name info.TypeKey info
-
-    /// True iff a record claims exactly `(name, arity)` — the record half of the
-    /// duplicate-definition test (`containsAnyType`).
-    let containsRecord (types: PassContextTypes) (name: string) (arity: int) : bool =
-        (tryKeyOfArity types.RecordNames name arity).IsSome
 
     /// Resolve a record by BARE short name (see `tryKeyOfBareName`): the non-generic
     /// record of that name, else the lone candidate, else nothing — an arity-overloaded
@@ -260,11 +368,6 @@ module TypeRegistry =
     let registerClass (types: PassContextTypes) (info: ClassTypeInfo) : unit =
         registerKeyed types.Class types.ClassNames info.Name info.TypeKey info
 
-    /// True iff a class claims exactly `(name, arity)` — the class half of the
-    /// duplicate-definition test (`containsAnyType`).
-    let containsClass (types: PassContextTypes) (name: string) (arity: int) : bool =
-        (tryKeyOfArity types.ClassNames name arity).IsSome
-
     /// Resolve a class by BARE short name (see `tryKeyOfBareName`). The
     /// recognition-only call sites (`Scope.fs`, `NameResolution.fs`, qualified-static
     /// heads) read the registry this way; a caller holding a key uses `tryClassByKey`.
@@ -280,7 +383,7 @@ module TypeRegistry =
     let tryClassByKey (types: PassContextTypes) (key: SymbolKey) : ClassTypeInfo voption = tryByTypeKey types.Class key
 
     /// True iff a class is registered under this `SymbolKey` — the key-based membership
-    /// gate (the `tryClassByKey`-shaped mirror of `containsClass`). A caller holding a
+    /// gate (the `tryClassByKey`-shaped mirror of `tryClassArity`). A caller holding a
     /// `TyClass` key uses this so a local class is never misclassified as external.
     let containsClassKey (types: PassContextTypes) (key: SymbolKey) : bool = (tryByTypeKey types.Class key).IsSome
 
@@ -302,13 +405,9 @@ module TypeRegistry =
                 | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
                 | ValueNone -> ValueNone
 
-    /// Register an enum under its bare short name (enums are non-generic, so no
-    /// arity overload — mirrors records, not unions).
+    /// Register an enum under its bare short name — an enum is never generic, so its
+    /// claim is always `(name, 0)` and the name addresses at most one.
     let registerEnum (types: PassContextTypes) (name: string) (info: EnumTypeInfo) : unit = types.Enum.[name] <- info
-
-    /// True iff an enum with this name is registered — the enum half of the
-    /// duplicate-definition test.
-    let containsEnum (types: PassContextTypes) (name: string) : bool = types.Enum.ContainsKey name
 
     /// Resolve an enum by bare short name; `ValueNone` if none. Used by
     /// `translateType` (`(x: E)` → `TyEnum`) and the `E.C1` qualified-access path.
@@ -317,74 +416,24 @@ module TypeRegistry =
         | true, info -> ValueSome info
         | false, _ -> ValueNone
 
-    let registerAbbrev (types: PassContextTypes) (name: string) (info: AbbreviationInfo) : unit =
-        types.Abbreviation.[name] <- info
+    /// Register an abbreviation under its own `TypeKey`. See `registerRecord`.
+    let registerAbbrev (types: PassContextTypes) (info: AbbreviationInfo) : unit =
+        registerKeyed types.Abbreviation types.AbbreviationNames info.Name info.TypeKey info
 
-    let containsAbbrev (types: PassContextTypes) (name: string) : bool = types.Abbreviation.ContainsKey name
-
+    /// Resolve an abbreviation by BARE short name (see `tryKeyOfBareName`). Cross-kind
+    /// precedence is NOT this function's business: a caller that must know which kind owns
+    /// a name asks `tryTypeClaim` first, and reaches here only for the lenient tail (a
+    /// GENERIC alias named without its arguments back-fills fresh TyVars).
     let tryAbbrev (types: PassContextTypes) (name: string) : AbbreviationInfo voption =
-        match types.Abbreviation.TryGetValue name with
-        | true, info -> ValueSome info
-        | false, _ -> ValueNone
+        tryOfKey types.Abbreviation (tryKeyOfBareName types.AbbreviationNames name)
+
+    /// Resolve an abbreviation by `(name, arity)` — exact arity, so a wrong arity misses.
+    let tryAbbrevArity (types: PassContextTypes) (name: string) (arity: int) : AbbreviationInfo voption =
+        tryOfKey types.Abbreviation (tryKeyOfArity types.AbbreviationNames name arity)
 
     /// Register a union under its own `TypeKey`. See `registerRecord`.
     let registerUnion (types: PassContextTypes) (info: UnionTypeInfo) : unit =
         registerKeyed types.Union types.UnionNames info.Name info.TypeKey info
-
-    /// True iff a union claims exactly `(name, arity)` — the union half of the
-    /// duplicate-definition test.
-    let containsUnion (types: PassContextTypes) (name: string) (arity: int) : bool =
-        (tryKeyOfArity types.UnionNames name arity).IsSome
-
-    /// Is a record / union / class of this short name registered at ANY arity? A
-    /// short-name index entry exists iff some type of that kind claims the name, so the
-    /// presence of the key IS the answer.
-    let private containsAnyArity (types: PassContextTypes) (name: string) : bool =
-        types.RecordNames.ContainsKey name
-        || types.UnionNames.ContainsKey name
-        || types.ClassNames.ContainsKey name
-
-    /// THE duplicate-type-definition test. Every registration site (record, union,
-    /// enum, abbreviation, class) asks this one question with its own declared
-    /// `arity`, so a new kind cannot be wired into one guard and forgotten in the
-    /// others — and so a duplicate is always rejected BEFORE `stampLocalTypeKey`,
-    /// keeping that function's SymbolKey-collision diagnostic unreachable from user
-    /// source (it is an internal-error backstop, not a user diagnostic).
-    ///
-    /// The rule: a declaration claims a *name at an arity*, and a claim may be held
-    /// by at most one type of any kind.
-    ///   * Records, unions and classes are arity-overloadable (`Foo` and ``Foo`1``
-    ///     are distinct types), so each claims exactly `(name, arity)`.
-    ///   * An enum is non-generic, so it claims `(name, 0)`: it collides with a
-    ///     record `Foo` but NOT with a record ``Foo`1``.
-    ///   * An abbreviation — and an inline-IL intrinsic repr — is keyed by BARE name in
-    ///     its table and resolved by bare name at every use site, so its claim is
-    ///     arity-BLIND. `containsAbbrev` below therefore ignores the arity, and the
-    ///     abbreviation's OWN guard must be `containsAnyTypeBare`, not this — the claim
-    ///     has to be blind in BOTH directions or it is not a claim at all.
-    let containsAnyType (types: PassContextTypes) (name: string) (arity: int) : bool =
-        containsRecord types name arity
-        || containsUnion types name arity
-        || containsClass types name arity
-        || (arity = 0 && containsEnum types name)
-        || containsAbbrev types name
-        || types.IntrinsicReprTypes.ContainsKey name
-
-    /// The duplicate test for a declaration whose claim is BARE — an abbreviation or an
-    /// inline-IL intrinsic repr. Its table has no arity in its key and every use site
-    /// resolves it by bare name, so it claims the name at EVERY arity and collides with
-    /// a same-named type of any kind at any arity.
-    ///
-    /// This is not pedantry about a symmetry: `containsAnyType` alone would let a
-    /// generic `type Foo<'a> = …` alias register alongside a non-generic record `Foo`
-    /// (their arities differ, so no arity-precise check fires) — and a bare `Foo` at a
-    /// use site then resolves through `Abbreviation`, which `resolveBareTypeName` checks
-    /// BEFORE `Record`, yielding the generic alias applied to no arguments.
-    let containsAnyTypeBare (types: PassContextTypes) (name: string) : bool =
-        containsAnyArity types name
-        || containsEnum types name
-        || containsAbbrev types name
-        || types.IntrinsicReprTypes.ContainsKey name
 
     /// Resolve a union by `(name, arity)` — exact arity, so a wrong arity misses (the
     /// caller diagnoses).

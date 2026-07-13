@@ -4,7 +4,8 @@ open System.Collections.Immutable
 open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 
-// Registry stamping for record / union / abbreviation type definitions.
+// The file-order type-identity pass, plus registry stamping for record / union /
+// enum / abbreviation type definitions.
 // Field/case types start as placeholder TyVars; Unification's fill pre-passes
 // Link them once every type is registered, so a type can reference another
 // declared elsewhere in the same file regardless of declaration order.
@@ -103,16 +104,29 @@ module NameResolutionTypeRegistration =
             }
         )
 
-    /// Mint a project-local `SymbolKey` for a type declaration and assert it is
-    /// unique across the compilation. `declNs` is
-    /// the declaring namespace threaded from the module walk, so the key —
-    /// `TypeKey(None, declNs, name\`arity)` — equals the identity the type emits as
-    /// (its `TDecl.Namespace` + arity-suffixed metadata name). A collision means two
-    /// distinct declarations minted the same key, i.e. the walk dropped a
-    /// distinguishing namespace; it is reported as an internal error (a user
-    /// duplicate is rejected before the stamp and never reaches here). Callers
-    /// pass the result into the registered info's constructor as its `Key`.
-    let stampLocalTypeKey (ctx: PassContext) (declKey: NodeKey) (declNs: string) (name: string) (arity: int) : TypeKey =
+    /// Mint a project-local `SymbolKey` for a type declaration and assert it is unique
+    /// across the compilation. `declNs` is the declaring namespace threaded from the
+    /// module walk, so the key — `TypeKey(None, declNs, name\`arity)` — equals the
+    /// identity the type emits as (its `TDecl.Namespace` + arity-suffixed metadata name).
+    /// THE sole mint site: called once per accepted claim from `registerTypeIdentities`,
+    /// which hands the key to the per-kind registrar via `TypeRegistry.tryOwnIdentity`.
+    ///
+    /// The collision branch is an INTERNAL-ERROR BACKSTOP, unreachable from source today
+    /// and deliberately kept. Unreachable because the name-table claim `(name, arity)` is
+    /// namespace-BLIND while the key is namespace-QUALIFIED: the claim is strictly the
+    /// coarser test, so it rejects every duplicate a key collision could witness, and two
+    /// surviving claims differ in `name\`arity` and therefore in their keys. Kept because
+    /// the claim is about to become holder-aware (a type's `TypeHolder` / declaring
+    /// module), at which point two distinct claims CAN collapse onto one key if the mint
+    /// drops the distinguishing holder — precisely the bug `SymbolKeyOrigins` exists to
+    /// witness, and precisely why it is not a user diagnostic.
+    let private stampLocalTypeKey
+        (ctx: PassContext)
+        (declKey: NodeKey)
+        (declNs: string)
+        (name: string)
+        (arity: int)
+        : TypeKey =
         // The home assembly is this compilation's target (`ctx.AssemblyName`);
         // `None` on the front-end-only paths that pass no assembly name. Invariant
         // per type, so this local key equals the key a consumer mints for the same
@@ -138,7 +152,99 @@ module NameResolutionTypeRegistration =
 
         key
 
-    let private registerRecordTypeDefn (ctx: PassContext) (declNs: string) (td: TypeDefn<SyntaxToken>) : unit =
+    /// The name a type declaration CLAIMS, and the kind it claims it for. The one
+    /// enumeration of "what kinds of `TypeDefn` declare a type": exactly the shapes a
+    /// per-kind registrar goes on to file (`TypeDefn.Interface`, `Delegate`,
+    /// `TypeExtension`, `AbstractType` register nothing, so they claim nothing).
+    let private tryDeclaredTypeName
+        (td: TypeDefn<SyntaxToken>)
+        : struct (TypeName<SyntaxToken> * TypeDeclKind) voption =
+        match td with
+        | TypeDefn.Record(typeName = tn) -> ValueSome(struct (tn, TypeDeclKind.Record))
+        | TypeDefn.Union(typeName = tn) -> ValueSome(struct (tn, TypeDeclKind.Union))
+        | TypeDefn.Enum(typeName = tn) -> ValueSome(struct (tn, TypeDeclKind.Enum))
+        | TypeDefn.Abbrev(typeName = tn; typ = rhs) ->
+            // An `(# … #)` RHS is a primitive BINDING, not a transparent alias: it lands in
+            // `IntrinsicReprTypes`, not `Abbreviation`. The claim it holds on its declared
+            // name is identical either way.
+            let kind =
+                match rhs with
+                | Type.ILIntrinsic _ -> TypeDeclKind.IntrinsicRepr
+                | _ -> TypeDeclKind.Abbreviation
+
+            ValueSome(struct (tn, kind))
+        | _ ->
+            match TypeDefnPatterns.tryClassLikeDecl td with
+            | ValueSome d -> ValueSome(struct (d.TypeName, TypeDeclKind.Class))
+            | ValueNone -> ValueNone
+
+    /// Establish the nominal identity — name, arity, decl `NodeKey`, minted `SymbolKey` —
+    /// of every type in this element, in SOURCE order, regardless of kind. Runs to
+    /// completion over the whole compilation before any per-kind registrar, so:
+    ///   * duplicate detection is ONE predicate over ONE name table (`TypeRegistry`'s
+    ///     `TypeClaims`) — a kind added later cannot be wired into some guards and
+    ///     forgotten in others, which is exactly how `enum` slipped past the abbreviation
+    ///     and class registrars;
+    ///   * the local `SymbolKey` has exactly ONE mint site (`stampLocalTypeKey`);
+    ///   * the per-kind registrars stop owning duplicate detection — each opens with
+    ///     `TypeRegistry.tryOwnIdentity`, which is both the gate and the key source.
+    /// Order-insensitive by construction: identity carries no field/case/member types (those
+    /// start as placeholder TyVars that Unification's fill pre-passes Link later), so a type
+    /// may reference another declared anywhere in the file.
+    let registerTypeIdentities (ctx: PassContext) (declNs: string) (m: ModuleElem<SyntaxToken>) : unit =
+        match m with
+        | ModuleElem.Type defs ->
+            for td in defs do
+                match tryDeclaredTypeName td with
+                | ValueNone -> ()
+                | ValueSome(tn, kind) ->
+                    let (TypeName(ident = nameLi)) = tn
+
+                    if nameLi.Idents.Length = 1 then
+                        let nameTok = nameLi.Idents.[0]
+                        let name = ctx.NameOf nameTok
+                        let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
+
+                        // An enum is non-generic: it claims its name at arity 0 whatever
+                        // typars were (illegally) written on it, matching the arity-0 key
+                        // its registrar mints.
+                        let arity =
+                            match kind with
+                            | TypeDeclKind.Enum -> 0
+                            | _ -> arityOfTypeName ctx tn
+
+                        if TypeRegistry.isTypeClaimed ctx.Types name arity then
+                            ctx.Diagnostics.Add
+                                {
+                                    Key = declKey
+                                    Message = sprintf "Duplicate type definition: %s" name
+                                    Code = ""
+                                    Severity = Severity.Error
+                                }
+                        else
+                            TypeRegistry.claimTypeName
+                                ctx.Types
+                                {
+                                    Name = name
+                                    Arity = arity
+                                    Kind = kind
+                                    DeclKey = declKey
+                                    Key = stampLocalTypeKey ctx declKey declNs name arity
+                                }
+
+                            // Contract-source an intrinsic binding's identity: mint its
+                            // qualified key from the declaring namespace (VERBATIM name, no
+                            // arity suffix — the name field IS the identity string, arity
+                            // rides in the `TyConst` args), so `Translate` resolves `int` to
+                            // `Vesper.int` from the contract rather than re-deriving the
+                            // namespace by name. Identity, so it is minted here; the
+                            // target-representation string is detail and stays in the
+                            // abbreviation registrar.
+                            if kind = TypeDeclKind.IntrinsicRepr then
+                                ctx.Types.IntrinsicKeys.[name] <- SymbolKeyOps.typeKey None declNs name
+        | _ -> ()
+
+    let private registerRecordTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Record(typeName = tn; fields = fields) ->
             let (TypeName(ident = nameLi)) = tn
@@ -149,18 +255,12 @@ module NameResolutionTypeRegistration =
 
                 let nameTok = nameLi.Idents.[0]
                 let name = ctx.NameOf nameTok
+                let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
                 let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
-                let arity = typeParams.Length
 
-                if TypeRegistry.containsAnyType ctx.Types name arity then
-                    ctx.Diagnostics.Add
-                        {
-                            Key = NodeKey.ofToken nameTok NodeKind.DeclType
-                            Message = sprintf "Duplicate type definition: %s" name
-                            Code = ""
-                            Severity = Severity.Error
-                        }
-                else
+                match TypeRegistry.tryOwnIdentity ctx.Types name typeParams.Length declKey with
+                | ValueNone -> ()
+                | ValueSome { Key = key } ->
                     let fieldInfos =
                         [|
                             for f in fields do
@@ -172,9 +272,6 @@ module NameResolutionTypeRegistration =
                                 tv.Level <- 0
                                 yield RecordFieldInfo(fName, TyVar tv, mt.IsSome, NodeKey.ofToken id NodeKind.DeclType)
                         |]
-
-                    let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
-                    let key = stampLocalTypeKey ctx declKey declNs name typeParams.Length
 
                     let info =
                         RecordTypeInfo(name, typeParams, fieldInfos, declKey, typarConstraintsOfTypeName tn, key)
@@ -230,11 +327,11 @@ module NameResolutionTypeRegistration =
                         | false, _ -> ctx.Types.FieldIndex.[fi.Name] <- EqArray.singleton info
         | _ -> ()
 
-    let registerRecordTypes (ctx: PassContext) (declNs: string) (m: ModuleElem<SyntaxToken>) : unit =
+    let registerRecordTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
-                registerRecordTypeDefn ctx declNs td
+                registerRecordTypeDefn ctx td
         | _ -> ()
 
     /// Map a union-case head to its case name. Delegates to the shared
@@ -293,7 +390,7 @@ module NameResolutionTypeRegistration =
             else
                 ValueSome(n, specs.Length, gadtNames specs)
 
-    let private registerUnionTypeDefn (ctx: PassContext) (declNs: string) (td: TypeDefn<SyntaxToken>) : unit =
+    let private registerUnionTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Union(typeName = tn; cases = cases) ->
             let (TypeName(ident = nameLi)) = tn
@@ -307,18 +404,12 @@ module NameResolutionTypeRegistration =
                 let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
                 let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
                 // Generic arity overloads the short name (`Choice\`2`…`Choice\`7`),
-                // so the duplicate test and the registry key are arity-qualified.
+                // so the claim and the registry key are arity-qualified.
                 let typeArity = typeParams.Length
 
-                if TypeRegistry.containsAnyType ctx.Types name typeArity then
-                    ctx.Diagnostics.Add
-                        {
-                            Key = declKey
-                            Message = sprintf "Duplicate type definition: %s" name
-                            Code = ""
-                            Severity = Severity.Error
-                        }
-                else
+                match TypeRegistry.tryOwnIdentity ctx.Types name typeArity declKey with
+                | ValueNone -> ()
+                | ValueSome { Key = key } ->
                     let caseInfos =
                         [|
                             for UnionTypeCase(data = data) in cases do
@@ -336,8 +427,6 @@ module NameResolutionTypeRegistration =
                                     yield UnionCaseInfo(caseName, name, typeArity, fieldTys, fieldNames, declKey)
                                 | ValueNone -> ()
                         |]
-
-                    let key = stampLocalTypeKey ctx declKey declNs name typeArity
 
                     let info =
                         UnionTypeInfo(name, typeParams, caseInfos, declKey, typarConstraintsOfTypeName tn, key)
@@ -388,11 +477,11 @@ module NameResolutionTypeRegistration =
                         | false, _ -> ctx.Types.CtorIndex.[c.Name] <- EqArray.singleton c
         | _ -> ()
 
-    let registerUnionTypes (ctx: PassContext) (declNs: string) (m: ModuleElem<SyntaxToken>) : unit =
+    let registerUnionTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
-                registerUnionTypeDefn ctx declNs td
+                registerUnionTypeDefn ctx td
         | _ -> ()
 
     /// Register an enum's nominal identity + case-name set so a `(x: E)` annotation
@@ -402,7 +491,7 @@ module NameResolutionTypeRegistration =
     /// later by `Elaborate.tryEnumType` (the only stage with the literal readers in
     /// compile order) and ride the surfaced `TTypeKind.Enum` node. The minted `Key`
     /// is stamped at the decl site into `ResolvedType`, mirroring `registerUnionTypeDefn`.
-    let private registerEnumTypeDefn (ctx: PassContext) (declNs: string) (td: TypeDefn<SyntaxToken>) : unit =
+    let private registerEnumTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Enum(typeName = tn; cases = cases) ->
             let (TypeName(ident = nameLi)) = tn
@@ -414,16 +503,10 @@ module NameResolutionTypeRegistration =
                 let name = ctx.NameOf nameTok
                 let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
 
-                // Enums are non-generic, so they claim their name at arity 0.
-                if TypeRegistry.containsAnyType ctx.Types name 0 then
-                    ctx.Diagnostics.Add
-                        {
-                            Key = declKey
-                            Message = sprintf "Duplicate type definition: %s" name
-                            Code = ""
-                            Severity = Severity.Error
-                        }
-                else
+                // Enums are non-generic, so the claim — and the minted key — are at arity 0.
+                match TypeRegistry.tryOwnIdentity ctx.Types name 0 declKey with
+                | ValueNone -> ()
+                | ValueSome { Key = key } ->
                     let caseNames = [| for EnumTypeCase(ident = id) in cases -> ctx.NameOf id |]
 
                     // The case VALUES, but ONLY when EVERY case is a string literal —
@@ -449,8 +532,6 @@ module NameResolutionTypeRegistration =
                         else
                             ValueNone
 
-                    // Enums are non-generic, so the arity is always 0.
-                    let key = stampLocalTypeKey ctx declKey declNs name 0
                     let info = EnumTypeInfo(name, caseNames, caseStringValues, declKey, key)
                     TypeRegistry.registerEnum ctx.Types name info
 
@@ -459,11 +540,11 @@ module NameResolutionTypeRegistration =
                     ctx.Resolution.ResolvedType.Set(declKey, info.Key)
         | _ -> ()
 
-    let registerEnumTypes (ctx: PassContext) (declNs: string) (m: ModuleElem<SyntaxToken>) : unit =
+    let registerEnumTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
-                registerEnumTypeDefn ctx declNs td
+                registerEnumTypeDefn ctx td
         | _ -> ()
 
     /// Stitch the inline-IL string of a `Type.ILIntrinsic` RHS
@@ -490,7 +571,7 @@ module NameResolutionTypeRegistration =
     /// `TyConst name` rather than expanding the RHS. Other bodies are left
     /// unfilled; Unification's fillAbbreviationBodies forces each later, so an
     /// RHS can reference any other same-file type.
-    let private registerAbbreviationDefn (ctx: PassContext) (declNs: string) (td: TypeDefn<SyntaxToken>) : unit =
+    let private registerAbbreviationDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Abbrev(typeName = tn; typ = rhs; extensions = ext) ->
             let (TypeName(ident = nameLi)) = tn
@@ -502,18 +583,11 @@ module NameResolutionTypeRegistration =
                 let nameTok = nameLi.Idents.[0]
                 let name = ctx.NameOf nameTok
                 let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
+                let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
 
-                // An abbreviation is bare-keyed and bare-resolved, so it claims its name
-                // at EVERY arity — its own arity does not narrow the claim.
-                if TypeRegistry.containsAnyTypeBare ctx.Types name then
-                    ctx.Diagnostics.Add
-                        {
-                            Key = declKey
-                            Message = sprintf "Duplicate type definition: %s" name
-                            Code = ""
-                            Severity = Severity.Error
-                        }
-                else
+                match TypeRegistry.tryOwnIdentity ctx.Types name typeParams.Length declKey with
+                | ValueNone -> ()
+                | ValueSome { Key = key } ->
                     // An inline intrinsic-abbrev may carry a `with member …`
                     // augmentation (`type X = (# … #) with member …`) — but ONLY an
                     // ILIntrinsic RHS may. A transparent-alias abbrev with members
@@ -527,12 +601,11 @@ module NameResolutionTypeRegistration =
                         match ext with
                         | ValueNone -> ()
                         | ValueSome _ ->
-                            let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
-                            let key = stampLocalTypeKey ctx declKey declNs name typeParams.Length
                             // The self-type key is the contract-sourced intrinsic identity
-                            // (`IntrinsicKeys.[name]`, stamped just above), routed through the
-                            // single `intrinsicKeyOf` resolver so `MkSelfType` cannot diverge
-                            // from the abbrev's use-site key on a non-`Vesper` namespace.
+                            // (`IntrinsicKeys.[name]`, stamped by the identity pass), routed
+                            // through the single `intrinsicKeyOf` resolver so `MkSelfType`
+                            // cannot diverge from the abbrev's use-site key on a non-`Vesper`
+                            // namespace.
                             let selfKey = TypeRegistry.intrinsicKeyOf ctx.Types name
 
                             ctx.Types.IntrinsicAbbrevHost.[name] <-
@@ -541,12 +614,6 @@ module NameResolutionTypeRegistration =
                     match rhs with
                     | Type.ILIntrinsic(kindTag = tag; instrParts = parts) ->
                         ctx.Types.IntrinsicReprTypes.[name] <- ilIntrinsicString ctx parts
-                        // Contract-source the intrinsic's identity: mint its qualified key
-                        // from the declaring namespace (VERBATIM name, no arity suffix — the
-                        // name field is the identity string, arity rides in the `TyConst`
-                        // args), so `Translate` resolves `int` to `Vesper.int` from the
-                        // contract rather than re-deriving the namespace by name.
-                        ctx.Types.IntrinsicKeys.[name] <- SymbolKeyOps.typeKey None declNs name
                         registerMemberHostIfAny ()
 
                         match tag with
@@ -592,18 +659,15 @@ module NameResolutionTypeRegistration =
                                 }
                         | ValueNone -> ()
 
-                        let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
-                        let key = stampLocalTypeKey ctx declKey declNs name typeParams.Length
-
                         let info =
                             AbbreviationInfo(name, typeParams, rhs, declKey, typarConstraintsOfTypeName tn, key)
 
-                        TypeRegistry.registerAbbrev ctx.Types name info
+                        TypeRegistry.registerAbbrev ctx.Types info
         | _ -> ()
 
-    let registerAbbreviationTypes (ctx: PassContext) (declNs: string) (m: ModuleElem<SyntaxToken>) : unit =
+    let registerAbbreviationTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
-                registerAbbreviationDefn ctx declNs td
+                registerAbbreviationDefn ctx td
         | _ -> ()

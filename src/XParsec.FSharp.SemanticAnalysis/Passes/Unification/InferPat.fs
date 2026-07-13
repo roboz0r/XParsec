@@ -19,11 +19,11 @@ module internal UnificationInferPat =
     /// union RHS; a bare program leaves the container flexible (a fresh TyVar
     /// registered in `ctx.ListLiterals`) for consumer-driven resolution.
     let private consListTy (ctx: PassContext) (key: NodeKey) (elemTy: SemType) : SemType =
-        match ctx.Types.Abbreviation.TryGetValue "list" with
-        | true, info ->
+        match TypeRegistry.tryAbbrevArity ctx.Types "list" 1 with
+        | ValueSome info ->
             forceFill ctx info
             expandAbbreviation ctx key info (EqArray.singleton elemTy)
-        | false, _ ->
+        | ValueNone ->
             let tv = freshTyVar ctx
             ctx.ListLiterals.Add(UnionFind.find tv, elemTy)
             TyVar tv

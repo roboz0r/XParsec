@@ -603,27 +603,36 @@ module NameResolution =
         (walker: CstWalk.ExprWalker<Scope list>)
         (pairs: (ModuleElem<SyntaxToken> * OpenScope * string) list)
         =
-        // Pre-pass: register every type so subsequent expression walks (and
-        // Unification) resolve against the registry. Records and unions must both
-        // finish before bindingsOfPat runs on any pattern, since the
-        // ctor-vs-binder disambiguation reads ctx.Types.CtorIndex. Registration
-        // resolves no external short names, so it ignores the per-element scope.
-        // The third slot is the declaring namespace, threaded into each type's
-        // minted `SymbolKey`.
+        // Identity pre-pass: claim every type's `(name, arity)` and mint its `SymbolKey`,
+        // in SOURCE order and regardless of kind. The third slot is the declaring
+        // namespace, which rides into the minted key. This is the only pass that may
+        // diagnose a duplicate type definition, and the only one that mints a local type
+        // key — so the kind-detail passes below carry neither obligation and cannot drift
+        // apart on either.
         for (m, _, declNs) in pairs do
-            registerRecordTypes ctx declNs m
+            registerTypeIdentities ctx declNs m
 
-        for (m, _, declNs) in pairs do
-            registerUnionTypes ctx declNs m
+        // Kind-detail passes: fields, cases, enum case names, class members / ctor params.
+        // Each recovers its own identity by `TypeRegistry.tryOwnIdentity`, so a rejected
+        // duplicate registers nothing. Identity is already established for EVERY type, so
+        // these are order-insensitive with one exception that is load-bearing: unions must
+        // finish before classes, because a class's `static let` runs `bindingsOfPat`, whose
+        // ctor-vs-binder disambiguation reads `ctx.Types.CtorIndex`. Registration resolves
+        // no external short names, so it ignores the per-element scope.
+        for (m, _, _) in pairs do
+            registerRecordTypes ctx m
 
-        for (m, _, declNs) in pairs do
-            registerEnumTypes ctx declNs m
+        for (m, _, _) in pairs do
+            registerUnionTypes ctx m
 
-        for (m, _, declNs) in pairs do
-            registerAbbreviationTypes ctx declNs m
+        for (m, _, _) in pairs do
+            registerEnumTypes ctx m
 
-        for (m, _, declNs) in pairs do
-            registerClassTypes ctx declNs m
+        for (m, _, _) in pairs do
+            registerAbbreviationTypes ctx m
+
+        for (m, _, _) in pairs do
+            registerClassTypes ctx m
 
         // Inheritance (B-4): stamp each class's BaseType / BaseCtorArgs after
         // every class is registered (so a parent declared later resolves), then

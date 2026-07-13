@@ -1232,12 +1232,18 @@ module Unification =
             | ModuleElem.Type defs ->
                 for td in defs do
                     match td with
-                    | TypeDefn.Abbrev(typeName = TypeName(ident = nameLi)) when nameLi.Idents.Length = 1 ->
-                        let name = ctx.NameOf nameLi.Idents.[0]
+                    | TypeDefn.Abbrev(typeName = tn) ->
+                        let (TypeName(ident = nameLi)) = tn
 
-                        match ctx.Types.Abbreviation.TryGetValue name with
-                        | true, info -> forceFill ctx info
-                        | false, _ -> ()
+                        if nameLi.Idents.Length = 1 then
+                            // Arity-keyed: an alias is arity-overloadable, so a bare-name
+                            // lookup would skip an overloaded `Foo` / ``Foo`1`` pair.
+                            let name = ctx.NameOf nameLi.Idents.[0]
+                            let arity = NameResolutionTypeRegistration.arityOfTypeName ctx tn
+
+                            match TypeRegistry.tryAbbrevArity ctx.Types name arity with
+                            | ValueSome info -> forceFill ctx info
+                            | ValueNone -> ()
                     | _ -> ()
             | _ -> ()
 

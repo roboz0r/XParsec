@@ -465,7 +465,7 @@ module NameResolutionMemberRegistration =
     /// parser emits Anon for the bare `type C(...) = member ...` form without an
     /// explicit `class`/`end`). Member types are placeholder TyVars; Unification's
     /// fillClassMembers links them once each member body is inferred.
-    let private registerClassTypeDefn (ctx: PassContext) (declNs: string) (td: TypeDefn<SyntaxToken>) : unit =
+    let private registerClassTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
         match TypeDefnPatterns.tryClassLikeDecl td with
         | ValueNone -> ()
         | ValueSome d ->
@@ -480,19 +480,13 @@ module NameResolutionMemberRegistration =
                 let name = ctx.NameOf nameTok
                 let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
                 // Generic arity overloads the short name (`Fun\`2` vs `Fun\`3`), so the
-                // duplicate test is `(name, arity)`-keyed — a class `Foo\`2` may
-                // legitimately coexist with a union / record `Foo\`1`.
+                // claim is `(name, arity)`-keyed — a class `Foo\`2` may legitimately
+                // coexist with a union / record `Foo\`1`.
                 let classArity = arityOfTypeName ctx tn
 
-                if TypeRegistry.containsAnyType ctx.Types name classArity then
-                    ctx.Diagnostics.Add
-                        {
-                            Key = declKey
-                            Message = sprintf "Duplicate type definition: %s" name
-                            Code = ""
-                            Severity = Severity.Error
-                        }
-                else
+                match TypeRegistry.tryOwnIdentity ctx.Types name classArity declKey with
+                | ValueNone -> ()
+                | ValueSome { Key = key } ->
                     let classTyparNames = typarNamesOfTypeName ctx tn
                     let typeParams = mkTypeParams classTyparNames
                     let ctorParams = extractCtorParams ctx declKey pc
@@ -511,8 +505,6 @@ module NameResolutionMemberRegistration =
                     let members = memberInfos.ToArray()
 
                     let staticLets = extractStaticLets ctx declKey body.classPreamble
-
-                    let key = stampLocalTypeKey ctx declKey declNs name typeParams.Length
 
                     let info =
                         ClassTypeInfo(name, typeParams, ctorParams, members, declKey, thisName, thisKey, baseKey, key)
@@ -616,11 +608,11 @@ module NameResolutionMemberRegistration =
                 |> ignore
         | _ -> ()
 
-    let registerClassTypes (ctx: PassContext) (declNs: string) (m: ModuleElem<SyntaxToken>) : unit =
+    let registerClassTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
-                registerClassTypeDefn ctx declNs td
+                registerClassTypeDefn ctx td
                 validateInterfaceTypeDefn ctx td
         | _ -> ()
 
@@ -798,12 +790,10 @@ module NameResolutionMemberRegistration =
                     match ExternalSymbols.tryPickRuntimeType ctx.Resolver intrinsicClassCanon name with
                     | ValueSome canon -> ValueSome(TyConst(canon, EqArray.ofList targs))
                     | ValueNone ->
-                        if
-                            (TypeRegistry.tryRecord ctx.Types name).IsSome
-                            || (TypeRegistry.tryUnionBare ctx.Types name).IsSome
-                            || ctx.Types.Abbreviation.ContainsKey name
-                            || ctx.Types.IntrinsicReprTypes.ContainsKey name
-                        then
+                        // The class arms above have already missed, so a name the NAME TABLE
+                        // knows at any arity is a project-local type of some other kind. One
+                        // table ⇒ no kind can be forgotten from this disjunction.
+                        if TypeRegistry.isTypeNameDeclared ctx.Types name then
                             diagnose
                                 diagKey
                                 (sprintf "Cannot inherit from type '%s' — only classes are inheritable" name)

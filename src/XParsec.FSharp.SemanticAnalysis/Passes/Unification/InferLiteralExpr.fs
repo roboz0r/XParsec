@@ -49,11 +49,11 @@ module internal UnificationInferLiteralExpr =
     ///      while a literal nothing else pins (`printfn "%A" [1;2;3]`) defaults
     ///      back to FSharp.Core's `list` in `resolveListLiterals`.
     and listLiteralTy (ctx: PassContext) (key: NodeKey) (elemTy: SemType) : SemType =
-        match ctx.Types.Abbreviation.TryGetValue "list" with
-        | true, info ->
+        match TypeRegistry.tryAbbrevArity ctx.Types "list" 1 with
+        | ValueSome info ->
             forceFill ctx info
             expandAbbreviation ctx key info (EqArray.singleton elemTy)
-        | false, _ ->
+        | ValueNone ->
             let tv = freshTyVar ctx
             ctx.ListLiterals.Add(UnionFind.find tv, elemTy)
             TyVar tv

@@ -8,67 +8,100 @@ let private analyse (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyseSem realProvider.Value input lexed file
 
-let private isDuplicate (tast: TastFile) =
-    tast.Diagnostics
-    |> Seq.exists (fun d -> d.Message.StartsWith "Duplicate type definition")
+let private has (tast: TastFile) (s: string) =
+    tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains s)
 
-// Type kinds are registered in a fixed order (record → union → enum → abbrev → class),
-// and each registrar rejects a name already taken by a kind registered BEFORE it. That
-// makes the obligation asymmetric: the LATER kind owns the collision. These pin every
-// ordered pair, so a kind added later cannot quietly skip a check — the same drift that
-// left `enum` out of the abbrev and class registrars.
+/// A duplicate is a plain user diagnostic, never the `stampLocalTypeKey` collision
+/// backstop — that branch is unreachable from source because the name-table claim is
+/// namespace-blind and so strictly coarser than the key it guards.
+let private expectDuplicate (source: string) =
+    let tast = analyse source
+    Expect.isTrue (has tast "Duplicate type definition") "duplicate-type diagnostic emitted"
+    Expect.isFalse (has tast "Internal error") "no internal SymbolKey-collision error"
+
+let private expectNoDuplicate (source: string) =
+    let tast = analyse source
+    Expect.isFalse (has tast "Duplicate type definition") "no duplicate-type diagnostic"
+    Expect.isFalse (has tast "Internal error") "no internal SymbolKey-collision error"
+
+// One declaration claims one NAME at one ARITY, and a claim may be held by at most one
+// type of ANY kind (`TypeRegistry.TypeClaims`). Every pair below is the same predicate
+// over the same table, so a kind added later cannot be wired into some guards and
+// forgotten in others — the drift that once let an `enum` name be silently re-declared as
+// an abbreviation or a class.
 [<Tests>]
 let tests =
     testList
         "DuplicateTypeName"
         [
-            test "record vs record" {
-                let src = "type T = { a: int }\ntype T = { b: int }"
-                Expect.isTrue (isDuplicate (analyse src)) "duplicate record name"
-            }
+            // Every ordered kind-pair. Source order is what matters now (the identity pass
+            // walks the file in order); the KINDS involved are irrelevant to the verdict.
+            for first, second, source in
+                [
+                    "record", "record", "type T = { a: int }\ntype T = { b: int }"
+                    "record", "union", "type T = { a: int }\ntype T = A | B"
+                    "record", "enum", "type T = { a: int }\ntype T = | A = 1"
+                    "record", "abbrev", "type T = { a: int }\ntype T = int"
+                    "record", "class", "type T = { a: int }\ntype T() =\n    member this.X = 1"
+                    "union", "record", "type T = A | B\ntype T = { a: int }"
+                    "union", "enum", "type T = A | B\ntype T = | A = 1"
+                    "union", "abbrev", "type T = A | B\ntype T = int"
+                    "union", "class", "type T = A | B\ntype T() =\n    member this.X = 1"
+                    "enum", "record", "type T = | A = 1\ntype T = { a: int }"
+                    "enum", "union", "type T = | A = 1\ntype T = B | C"
+                    "enum", "abbrev", "type T = | A = 1\ntype T = int"
+                    "enum", "class", "type T = | A = 1\ntype T() =\n    member this.X = 1"
+                    "abbrev", "record", "type T = int\ntype T = { a: int }"
+                    "abbrev", "enum", "type T = int\ntype T = | A = 1"
+                    "abbrev", "abbrev", "type T = int\ntype T = bool"
+                    "abbrev", "class", "type T = int\ntype T() =\n    member this.X = 1"
+                    "class", "record", "type T() =\n    member this.X = 1\ntype T = { a: int }"
+                    "class", "enum", "type T() =\n    member this.X = 1\ntype T = | A = 1"
+                    "class", "class", "type T() =\n    member this.X = 1\ntype T() =\n    member this.Y = 2"
+                ] -> test $"{second} after {first} collides" { expectDuplicate source }
 
-            test "union after record" {
-                let src = "type T = { a: int }\ntype T = A | B"
-                Expect.isTrue (isDuplicate (analyse src)) "union collides with record"
-            }
+            // An intrinsic binding declares a NAME in the type namespace, so that name is a
+            // name-table citizen like any other type's — it collides with every kind, at its
+            // declared arity. (Its target-representation string is NOT a name-table concern:
+            // two types sharing a repr is an identity/origin question, handled elsewhere.)
+            for kind, source in
+                [
+                    "record", "type widget = (# \"System.Int32\" #)\ntype widget = { a: int }"
+                    "union", "type widget = (# \"System.Int32\" #)\ntype widget = A | B"
+                    "enum", "type widget = (# \"System.Int32\" #)\ntype widget = | A = 1"
+                    "class", "type widget = (# \"System.Int32\" #)\ntype widget() =\n    member this.X = 1"
+                    "abbrev", "type widget = (# \"System.Int32\" #)\ntype widget = int"
+                    "intrinsic", "type widget = (# \"System.Int32\" #)\ntype widget = (# \"System.Int64\" #)"
+                ] -> test $"{kind} after intrinsic-repr alias collides" { expectDuplicate source }
 
-            test "enum after record" {
-                let src = "type T = { a: int }\ntype T = | A = 1"
-                Expect.isTrue (isDuplicate (analyse src)) "enum collides with record"
-            }
+            // Arity overloading is ACROSS THE BOARD, as in F#: `Foo` and `Foo`1` are distinct
+            // claims and may be held by different kinds. Abbreviations and intrinsic bindings
+            // are ordinary arity-keyed citizens, not bare-name special cases.
+            for kinds, source in
+                [
+                    "non-generic enum, generic record", "type E = | A = 1\ntype E<'a> = { X: 'a }"
+                    "non-generic record, generic abbrev", "type Foo = { X: int }\ntype Foo<'a> = 'a"
+                    "generic abbrev, non-generic record", "type Foo<'a> = 'a\ntype Foo = { X: int }"
+                    "non-generic enum, generic abbrev", "type Foo = | A = 1\ntype Foo<'a> = 'a"
+                    "non-generic class, generic union", "type C() = class end\ntype C<'a> = | A of 'a"
+                    "non-generic record, generic intrinsic",
+                    "type widget<'a> = (# \"System.Int32\" #)\ntype widget = { X: int }"
+                    "generic abbrev, generic abbrev of another arity", "type Foo<'a> = 'a\ntype Foo<'a, 'b> = 'a * 'b"
+                ] -> test $"{kinds} of the same name coexist" { expectNoDuplicate source }
 
-            test "enum after union" {
-                let src = "type T = A | B\ntype T = | A = 1"
-                Expect.isTrue (isDuplicate (analyse src)) "enum collides with union"
-            }
+            yield
+                test "a bare name resolves to the type CLAIMING it at arity 0, not a generic alias" {
+                    // The reason arity-keying the abbreviation table is the right fix. With a
+                    // bare-keyed alias table, `Foo` at a use site resolved through
+                    // `Abbreviation` — which the resolution cascade consulted BEFORE `Record` —
+                    // and found the GENERIC alias applied to no arguments. Now the `(Foo, 0)`
+                    // claim decides, and it belongs to the record. The alias here is a function
+                    // type, so were it picked, `v.X` could not type.
+                    let tast =
+                        analyse "type Foo = { X: int }\ntype Foo<'a> = 'a -> 'a\nlet f (v: Foo) = v.X"
 
-            test "abbrev after record" {
-                let src = "type T = { a: int }\ntype T = int"
-                Expect.isTrue (isDuplicate (analyse src)) "abbrev collides with record"
-            }
-
-            test "abbrev after enum" {
-                let src = "type T = | A = 1\ntype T = int"
-                Expect.isTrue (isDuplicate (analyse src)) "abbrev collides with enum"
-            }
-
-            test "class after record" {
-                let src = "type T = { a: int }\ntype T() =\n    member this.X = 1"
-                Expect.isTrue (isDuplicate (analyse src)) "class collides with record"
-            }
-
-            test "class after union" {
-                let src = "type T = A | B\ntype T() =\n    member this.X = 1"
-                Expect.isTrue (isDuplicate (analyse src)) "class collides with union"
-            }
-
-            test "class after enum" {
-                let src = "type T = | A = 1\ntype T() =\n    member this.X = 1"
-                Expect.isTrue (isDuplicate (analyse src)) "class collides with enum"
-            }
-
-            test "class after abbrev" {
-                let src = "type T = int\ntype T() =\n    member this.X = 1"
-                Expect.isTrue (isDuplicate (analyse src)) "class collides with abbrev"
-            }
+                    Expect.isEmpty
+                        (tast.Diagnostics |> Seq.filter (fun d -> d.Severity = Severity.Error))
+                        "bare `Foo` is the record, so `v.X` types"
+                }
         ]

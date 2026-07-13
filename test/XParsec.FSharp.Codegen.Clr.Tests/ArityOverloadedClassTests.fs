@@ -114,12 +114,10 @@ let tests =
                 Expect.equal (m2.Invoke(inst2, [||]) :?> int) 2 "Box`2.Two() dispatches to the arity-2 member"
             }
 
-            // Cross-kind name overlap — a class `Foo<'A, 'B>` alongside a
-            // union `Foo<'A>` of different arity. Today the union duplicate guard
-            // checks `containsUnion name arity || containsRecord name` (no class
-            // cross-check), and the class guard checks the union bare alias.
-            // After arity-keying, a benign cross-arity coexistence must NOT be
-            // rejected and neither mis-resolves the other.
+            // Cross-kind name overlap — a class `Foo<'A, 'B>` alongside a union `Foo<'A>`
+            // of different arity. The claim is on `(name, arity)`, so the two hold
+            // DIFFERENT claims: a benign cross-arity coexistence must not be rejected, and
+            // neither mis-resolves the other.
             test "a class and a union of the same name, different arity, coexist without mis-resolution" {
                 typeChecks (
                     String.concat

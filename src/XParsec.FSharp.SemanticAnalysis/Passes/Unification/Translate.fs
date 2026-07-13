@@ -381,67 +381,108 @@ module internal UnificationTranslate =
             // TyVar so unification can pin it via context.
             TyVar(freshTyVar ctx)
 
-    /// Resolve a bare (single-segment, arity-0) type NAME to its `SemType` through the
-    /// local-registry cascade — intrinsic binding → transparent abbreviation → record →
-    /// union → enum → class — falling to `resolveExternal` when it misses every local
-    /// registry, then to the `undefined` / opaque residue. `resolveExternal` is the
-    /// pluggable external tail: a WRITTEN annotation (`Type.NamedType` arm) passes the
-    /// STAMPED store-face read (`tryResolveExternalTypeStamped`), whereas a SYNTHESIZED
-    /// carrier (the `float<m>` measure arm) — which NameResolution never walked and so
-    /// never stamped — passes the by-name resolver. Sharing the cascade keeps the two
-    /// faces resolving a bare name identically apart from that one external seam, and
-    /// lets the measure arm resolve its carrier WITHOUT fabricating a phantom
-    /// `Type.NamedType` node that a store-face read would miss.
+    /// The `SemType` of the project-local type that CLAIMS `(name, arity)`, applied to
+    /// `args`. The name table decides the kind — one claim, one owner, any kind — so
+    /// cross-kind precedence is a LOOKUP, never a hand-ordered cascade: an alias
+    /// `type Foo<'a> = …` cannot answer for a record `Foo`, because it does not hold that
+    /// claim. `ValueNone` only when nothing claims `(name, arity)`; the caller then falls
+    /// to its lenient by-name tail (a generic type named without its args, an
+    /// arity-mismatched application, an external name).
+    and private resolveClaimedType
+        (ctx: PassContext)
+        (diagKey: NodeKey)
+        (claim: TypeIdentity)
+        (args: EqArray<SemType>)
+        : SemType voption =
+        match claim.Kind with
+        // Primitive binding (`type int = (# "System.Int32" #)`): a nominal intrinsic, NOT
+        // a transparent abbreviation. Resolves to `TyConst`; the representation string is
+        // consumed later by the codegen `encodeType` rekey. No hardcoded
+        // `"int" -> BuiltinTypes.tyInt` arms — primitives resolve uniformly through here,
+        // the external provider, or the opaque fallback, all yielding a `TyConst`.
+        | TypeDeclKind.IntrinsicRepr -> ValueSome(TyConst(TypeRegistry.intrinsicKeyOf ctx.Types claim.Name, args))
+        | TypeDeclKind.Abbreviation ->
+            match TypeRegistry.tryAbbrevArity ctx.Types claim.Name claim.Arity with
+            | ValueSome info ->
+                // Eager expansion: force the body, then substitute the use-site args.
+                forceFill ctx info
+                ValueSome(expandAbbreviation ctx diagKey info args)
+            | ValueNone -> ValueNone
+        | TypeDeclKind.Record ->
+            TypeRegistry.tryRecordArity ctx.Types claim.Name claim.Arity
+            |> ValueOption.map (fun info -> TyRecord(info.Key, args))
+        | TypeDeclKind.Union ->
+            TypeRegistry.tryUnion ctx.Types claim.Name claim.Arity
+            |> ValueOption.map (fun info ->
+                // Record the resolved union identity at this use site.
+                ctx.Resolution.ResolvedType.Set(diagKey, info.Key)
+                TyUnion(info.Key, args)
+            )
+        | TypeDeclKind.Enum ->
+            // An enum is niladic (no type args), so the reference is just `TyEnum Key`;
+            // stamp the use site like the union arm.
+            TypeRegistry.tryEnum ctx.Types claim.Name
+            |> ValueOption.map (fun info ->
+                ctx.Resolution.ResolvedType.Set(diagKey, info.Key)
+                TyEnum info.Key
+            )
+        | TypeDeclKind.Class ->
+            TypeRegistry.tryClassArity ctx.Types claim.Name claim.Arity
+            |> ValueOption.map (fun info -> TyClass(info.Key, args))
+
+    /// Resolve a bare (single-segment, arity-0) type NAME to its `SemType`: the type
+    /// CLAIMING `(name, 0)` if one exists (`resolveClaimedType`), else the lenient
+    /// by-name tail — a GENERIC local type named without its arguments back-fills fresh
+    /// TyVars (`r : Box` pins them from `r`'s usage) — else `resolveExternal`, then the
+    /// `undefined` / opaque residue. `resolveExternal` is the pluggable external tail: a
+    /// WRITTEN annotation (`Type.NamedType` arm) passes the STAMPED store-face read
+    /// (`tryResolveExternalTypeStamped`), whereas a SYNTHESIZED carrier (the `float<m>`
+    /// measure arm) — which NameResolution never walked and so never stamped — passes the
+    /// by-name resolver. Sharing the cascade keeps the two faces resolving a bare name
+    /// identically apart from that one external seam, and lets the measure arm resolve its
+    /// carrier WITHOUT fabricating a phantom `Type.NamedType` node that a store-face read
+    /// would miss.
     and private resolveBareTypeName
         (ctx: PassContext)
         (nameTok: SyntaxToken)
         (resolveExternal: string -> SemType voption)
         : SemType =
         let name = ctx.NameOf nameTok
+        let diagKey = NodeKey.ofToken nameTok NodeKind.TypeNamed
 
-        if ctx.Types.IntrinsicReprTypes.ContainsKey name then
-            // Primitive binding (`type int = (# "System.Int32" #)`): a nominal
-            // intrinsic, NOT a transparent abbreviation. Resolve to `TyConst name`; the
-            // representation string is consumed later by the codegen `encodeType` rekey.
-            // No hardcoded `"int" -> BuiltinTypes.tyInt` arms: primitives resolve
-            // uniformly through this local check, the external provider
-            // (`ExternalTypeShape.Intrinsic` → `TyConst name`), or the opaque fallback
-            // below — all of which yield `TyConst name`.
-            TyConst(TypeRegistry.intrinsicKeyOf ctx.Types name, EqArray.empty)
-        else
-            match ctx.Types.Abbreviation.TryGetValue name with
-            | true, info ->
-                // Eager expansion: force the body, then substitute fresh TyVars for
-                // every declared typar.
-                forceFill ctx info
-                let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
-                let diagKey = NodeKey.ofToken nameTok NodeKind.TypeNamed
-                expandAbbreviation ctx diagKey info args
-            | false, _ ->
-                match TypeRegistry.tryRecord ctx.Types name with
+        let claimed =
+            match TypeRegistry.tryTypeClaim ctx.Types name 0 with
+            | ValueSome claim -> resolveClaimedType ctx diagKey claim EqArray.empty
+            | ValueNone -> ValueNone
+
+        match claimed with
+        | ValueSome ty -> ty
+        // Lenient tail: nothing claims the name at arity 0, so a GENERIC local type of
+        // that name (declared at some other arity) answers, its args back-filled with
+        // fresh TyVars at the current level — unpinned at the declaration site, fixed by
+        // surrounding unification. An enum never reaches here: it is always the arity-0
+        // claimant of its name.
+        | ValueNone ->
+            if ctx.Types.IntrinsicReprTypes.ContainsKey name then
+                TyConst(TypeRegistry.intrinsicKeyOf ctx.Types name, EqArray.empty)
+            else
+                match TypeRegistry.tryAbbrev ctx.Types name with
                 | ValueSome info ->
-                    // Back-fill generic args with fresh TyVars at the current level —
-                    // unpinned at the declaration site, fixed by surrounding unification
-                    // (e.g. `r : Box` unifies the args with whatever `r`'s usage pins).
+                    forceFill ctx info
                     let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
-                    TyRecord(info.Key, args)
+                    expandAbbreviation ctx diagKey info args
                 | ValueNone ->
-                    match TypeRegistry.tryUnionBare ctx.Types name with
+                    match TypeRegistry.tryRecord ctx.Types name with
                     | ValueSome info ->
                         let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
-                        // Record the resolved union identity at this use site
-                        // (populate-only for now).
-                        ctx.Resolution.ResolvedType.Set(NodeKey.ofToken nameTok NodeKind.TypeNamed, info.Key)
-                        TyUnion(info.Key, args)
+                        TyRecord(info.Key, args)
                     | ValueNone ->
-                        match ctx.Types.Enum.TryGetValue name with
-                        // A `(x: E)` annotation referencing a project-local enum. An enum
-                        // is niladic (no type args), so the reference is just `TyEnum
-                        // Key`; stamp the use site like the union arm.
-                        | true, info ->
-                            ctx.Resolution.ResolvedType.Set(NodeKey.ofToken nameTok NodeKind.TypeNamed, info.Key)
-                            TyEnum info.Key
-                        | false, _ ->
+                        match TypeRegistry.tryUnionBare ctx.Types name with
+                        | ValueSome info ->
+                            let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
+                            ctx.Resolution.ResolvedType.Set(diagKey, info.Key)
+                            TyUnion(info.Key, args)
+                        | ValueNone ->
                             match TypeRegistry.tryClass ctx.Types name with
                             | ValueSome info ->
                                 let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
@@ -464,11 +505,10 @@ module internal UnificationTranslate =
                                     TyConst(RuntimeNames.undefinedKey, EqArray.empty)
                                 | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
 
-    /// Resolve a single-segment generic type reference against the type
-    /// registries, in the same precedence the bare-name arm uses: intrinsic
-    /// binding → transparent abbreviation → record → union → class → opaque
-    /// `TyConst`. An arity mismatch diagnoses but still produces a
-    /// best-effort shape.
+    /// Resolve a single-segment generic type reference. The type CLAIMING
+    /// `(name, argCount)` answers exactly (`resolveClaimedType`, no diagnostic — the right
+    /// `Foo\`N`); failing that, the lenient tail resolves the same name at a *different*
+    /// arity and diagnoses the mismatch while still producing a best-effort shape.
     and private resolveNamedGeneric
         (ctx: PassContext)
         (diagKey: NodeKey)
@@ -477,94 +517,88 @@ module internal UnificationTranslate =
         : SemType =
         let argCount = translatedArgs.Length
 
-        let diagnoseArity (expected: int) : unit =
-            ctx.Diagnostics.Add
-                {
-                    Key = diagKey
-                    Message = sprintf "Type '%s' expects %d type argument(s) but got %d" name expected argCount
-                    Code = ""
-                    Severity = Severity.Error
-                }
-
         let checkArity (expected: int) : unit =
             if expected <> argCount then
-                diagnoseArity expected
+                ctx.Diagnostics.Add
+                    {
+                        Key = diagKey
+                        Message = sprintf "Type '%s' expects %d type argument(s) but got %d" name expected argCount
+                        Code = ""
+                        Severity = Severity.Error
+                    }
 
-        // A project-local generic type (record, union or class) resolves the same way:
-        // an exact arity match first (no diagnostic — the right `Foo\`N`), else the
-        // bare-name resolution of a single, *different* arity (keeping the legacy
-        // "expects N got M" diagnostic). `mkTy` builds the shape and performs any
-        // kind-specific use-site stamping. Returns `ValueNone` if neither resolves.
+        // The arity-mismatched tail for a project-local nominal: the bare-name resolution
+        // of a single, *different* arity, keeping the "expects N got M" diagnostic. `mkTy`
+        // builds the shape and performs any kind-specific use-site stamping.
         let resolveLocalGeneric
-            (byArity: unit -> 'I voption)
             (byBareName: string -> 'I voption)
             (typeParamsLen: 'I -> int)
             (mkTy: 'I -> SemType)
             : SemType voption =
-            match byArity () with
-            | ValueSome info -> ValueSome(mkTy info)
-            | ValueNone ->
-                match byBareName name with
+            match byBareName name with
+            | ValueSome info ->
+                checkArity (typeParamsLen info)
+                ValueSome(mkTy info)
+            | ValueNone -> ValueNone
+
+        let claimed =
+            match TypeRegistry.tryTypeClaim ctx.Types name argCount with
+            | ValueSome claim -> resolveClaimedType ctx diagKey claim translatedArgs
+            | ValueNone -> ValueNone
+
+        match claimed with
+        | ValueSome ty -> ty
+        | ValueNone ->
+
+            if ctx.Types.IntrinsicReprTypes.ContainsKey name then
+                // A primitive binding referenced at an arity it was not declared at. A
+                // *generic* intrinsic (the array `[]`, repr `!0[]`) forwards its type args so
+                // the element type stays structural; an argless primitive referenced with
+                // stray args degenerates to the same `TyConst(name, [])` an argless reference
+                // produces.
+                TyConst(TypeRegistry.intrinsicKeyOf ctx.Types name, translatedArgs)
+            else
+                match TypeRegistry.tryAbbrev ctx.Types name with
                 | ValueSome info ->
-                    checkArity (typeParamsLen info)
-                    ValueSome(mkTy info)
-                | ValueNone -> ValueNone
-
-        if ctx.Types.IntrinsicReprTypes.ContainsKey name then
-            // Generic primitive binding: nominal, not transparent. A *generic*
-            // intrinsic (the array `[]`, repr `!0[]`) forwards its type args so the
-            // element type stays structural;
-            // an argless primitive referenced with stray args degenerates to the
-            // same `TyConst(name, [])` an argless reference produces.
-            TyConst(TypeRegistry.intrinsicKeyOf ctx.Types name, translatedArgs)
-        else
-            match ctx.Types.Abbreviation.TryGetValue name with
-            | true, info ->
-                forceFill ctx info
-                checkArity (info.TypeParams.Length)
-                expandAbbreviation ctx diagKey info translatedArgs
-            | false, _ ->
-                // Record, union, then class, as sibling links: each is "exact arity,
-                // else bare name" (`resolveLocalGeneric`), so an arity-overloaded name
-                // (`Point`2`/`Point`3`, which does not resolve by bare name) resolves to
-                // the right arity. A union additionally stamps the resolved use site;
-                // record and class do not.
-                let local =
-                    resolveLocalGeneric
-                        (fun () -> TypeRegistry.tryRecordArity ctx.Types name argCount)
-                        (TypeRegistry.tryRecord ctx.Types)
-                        (fun i -> i.TypeParams.Length)
-                        (fun info -> TyRecord(info.Key, translatedArgs))
-                    |> ValueOption.orElseWith (fun () ->
-                        resolveLocalGeneric
-                            (fun () -> TypeRegistry.tryUnion ctx.Types name argCount)
-                            (TypeRegistry.tryUnionBare ctx.Types)
-                            (fun i -> i.TypeParams.Length)
-                            (fun info ->
-                                ctx.Resolution.ResolvedType.Set(diagKey, info.Key)
-                                TyUnion(info.Key, translatedArgs)
-                            )
-                    )
-                    |> ValueOption.orElseWith (fun () ->
-                        resolveLocalGeneric
-                            (fun () -> TypeRegistry.tryClassArity ctx.Types name argCount)
-                            (TypeRegistry.tryClass ctx.Types)
-                            (fun i -> i.TypeParams.Length)
-                            (fun info -> TyClass(info.Key, translatedArgs))
-                    )
-
-                match local with
-                | ValueSome ty -> ty
+                    forceFill ctx info
+                    checkArity (info.TypeParams.Length)
+                    expandAbbreviation ctx diagKey info translatedArgs
                 | ValueNone ->
-                    // `diagKey` is the head's `NodeKey` (`TypeGeneric` off the name
-                    // token) — the same key NameResolution stamped `ResolvedTypeHead`
-                    // with, so the store-face read finds it.
-                    match tryResolveExternalTypeStamped ctx diagKey translatedArgs with
+                    // Record, union, then class: a union additionally stamps the resolved use
+                    // site; record and class do not.
+                    let local =
+                        resolveLocalGeneric
+                            (TypeRegistry.tryRecord ctx.Types)
+                            (fun i -> i.TypeParams.Length)
+                            (fun info -> TyRecord(info.Key, translatedArgs))
+                        |> ValueOption.orElseWith (fun () ->
+                            resolveLocalGeneric
+                                (TypeRegistry.tryUnionBare ctx.Types)
+                                (fun i -> i.TypeParams.Length)
+                                (fun info ->
+                                    ctx.Resolution.ResolvedType.Set(diagKey, info.Key)
+                                    TyUnion(info.Key, translatedArgs)
+                                )
+                        )
+                        |> ValueOption.orElseWith (fun () ->
+                            resolveLocalGeneric
+                                (TypeRegistry.tryClass ctx.Types)
+                                (fun i -> i.TypeParams.Length)
+                                (fun info -> TyClass(info.Key, translatedArgs))
+                        )
+
+                    match local with
                     | ValueSome ty -> ty
                     | ValueNone ->
-                        // Unknown name with type args — opaque TyConst, args
-                        // ignored (matches the bare-name arm).
-                        TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
+                        // `diagKey` is the head's `NodeKey` (`TypeGeneric` off the name
+                        // token) — the same key NameResolution stamped `ResolvedTypeHead`
+                        // with, so the store-face read finds it.
+                        match tryResolveExternalTypeStamped ctx diagKey translatedArgs with
+                        | ValueSome ty -> ty
+                        | ValueNone ->
+                            // Unknown name with type args — opaque TyConst, args
+                            // ignored (matches the bare-name arm).
+                            TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
 
     /// Build the annotation `SemType` from a resolved external shape + its matched
     /// compiled name. Shared by both resolution faces (the stamped store-face read
