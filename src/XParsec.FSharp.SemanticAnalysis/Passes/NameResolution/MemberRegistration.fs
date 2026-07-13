@@ -491,6 +491,9 @@ module NameResolutionMemberRegistration =
                     || TypeRegistry.containsUnion ctx.Types name classArity
                     || TypeRegistry.containsAbbrev ctx.Types name
                     || TypeRegistry.containsClass ctx.Types name classArity
+                    // Classes register LAST, so every earlier kind is the class's to
+                    // detect — including enums, which are bare-keyed.
+                    || TypeRegistry.containsEnum ctx.Types name
                 then
                     ctx.Diagnostics.Add
                         {

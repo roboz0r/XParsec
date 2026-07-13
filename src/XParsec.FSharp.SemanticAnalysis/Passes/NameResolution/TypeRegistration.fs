@@ -533,6 +533,9 @@ module NameResolutionTypeRegistration =
                     TypeRegistry.containsRecord ctx.Types name arity
                     || ctx.Types.Union.ContainsKey name
                     || TypeRegistry.containsAbbrev ctx.Types name
+                    // Enums register BEFORE abbreviations, so this collision is the
+                    // abbreviation's to detect — the enum registrar cannot see us.
+                    || TypeRegistry.containsEnum ctx.Types name
                     || ctx.Types.IntrinsicReprTypes.ContainsKey name
                 then
                     ctx.Diagnostics.Add
