@@ -342,13 +342,13 @@ module EmitJsContext =
     /// front-end special-cased — so the backend synthesises its key, the codegen-owned
     /// analogue of the CLR backend's `AppendStructured<T>` member ref.
     let structuralFormatKey: SymbolKey voption =
-        ValueSome(SymbolKeyOps.valueKey (Some "Vesper.Printf") "Vesper.StructuralPrinter" "structuralFormat")
+        ValueSome(SymbolKeyOps.moduleValueKey (Some "Vesper.Printf") "Vesper" "StructuralPrinter" "structuralFormat")
 
     /// The runtime entry a `%O` on a `float32` renders through — `float32ToString` in the
     /// same `Vesper.Printf.mjs`, synthesised exactly like `structuralFormatKey` (no
     /// front-end symbol resolves to it; the specifier is front-end special-cased).
     let float32ToStringKey: SymbolKey voption =
-        ValueSome(SymbolKeyOps.valueKey (Some "Vesper.Printf") "Vesper.StructuralPrinter" "float32ToString")
+        ValueSome(SymbolKeyOps.moduleValueKey (Some "Vesper.Printf") "Vesper" "StructuralPrinter" "float32ToString")
 
     /// The JS repr `int64` / `uint64` bind to (`prim-types-int.js.fs`).
     [<Literal>]

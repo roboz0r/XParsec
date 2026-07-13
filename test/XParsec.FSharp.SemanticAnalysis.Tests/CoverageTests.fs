@@ -924,7 +924,10 @@ let tests =
                           member _.TryLookup name =
                               if name = "Math.pi" then
                                   ValueSome(
-                                      ExternalSymbols.monoFrozen name (FrozenTypeBridge.toFrozen BuiltinTypes.tyFloat)
+                                      ExternalSymbols.monoFrozen
+                                          (SymbolKeyOps.inNamespace None "")
+                                          name
+                                          (FrozenTypeBridge.toFrozen BuiltinTypes.tyFloat)
                                   )
                               else
                                   realProvider.Value.TryLookup name

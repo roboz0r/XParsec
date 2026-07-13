@@ -429,6 +429,18 @@ type internal ClrEnv
         | ValueSome(ExternalTypeShape.Class info) -> ValueSome info
         | _ -> ValueNone
 
+    /// The `TypeRef` for an external module's compiled holder type (an F# module compiles
+    /// to a static class). The mirror of `externalClassRef`'s `typeRefOf`: a walk of the
+    /// key's OWN holder chain, where a nested module chains through its parent's `TypeRef`
+    /// with the bare name + empty namespace, exactly as a nested class does. The home
+    /// assembly and the namespace are read off the chain's root — a module key carries its
+    /// containment, so nothing here has to recover where the namespace ends and the module
+    /// chain begins.
+    let rec externalModuleRef (m: ModuleKey) : EntityHandle =
+        match m.Holder with
+        | ModuleHolder.InModule parent -> toEntity (ctx.TypeRef(externalModuleRef parent, "", m.Name))
+        | ModuleHolder.InNamespace ns -> toEntity (ctx.TypeRef(externalAsmRef ns.Origin.AsmOption, ns.Dotted, m.Name))
+
     let rec externalClassRef (key: SymbolKey) : EntityHandle voption =
         match lookupTypeByKey key with
         | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
@@ -629,6 +641,7 @@ type internal ClrEnv
     member _.DecurryTy t = decurryTy t
 
     member _.ExternalAsmRef asm = externalAsmRef asm
+    member _.ExternalModuleRef(m: ModuleKey) = externalModuleRef m
     member _.ExternalClassRef key = externalClassRef key
     member _.LookupTypeByKey key = lookupTypeByKey key
     member _.ExternalIsValueType key = externalIsValueType key

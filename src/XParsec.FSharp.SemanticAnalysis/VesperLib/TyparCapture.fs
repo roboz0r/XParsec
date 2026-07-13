@@ -122,13 +122,16 @@ module VesperLibTyparCapture =
     /// its constraint targets the same — so it can only be translated once the
     /// registry is complete. `Ctx.Typars` is seeded with the val's explicit `<'T>`
     /// typars at extraction; the finalize frozen walk interns the remaining body
-    /// typars and captures the `when` clauses. `Compiled` / `Source` are the
-    /// pre-computed compiled name and its optional `ModuleSuffix` source-name alias
-    /// (registered first-wins, so `DeferredVals` order must be preserved).
+    /// typars and captures the `when` clauses. `Key` is the val's identity — its
+    /// declaring holder chain (namespace + enclosing modules, as the `.fsi` declares
+    /// them) plus its compiled simple name; the compiled NAME is a rendering of it
+    /// (`SymbolKeyOps.qualifiedName`), never the other way round. `Source` is the
+    /// optional `ModuleSuffix` source-name alias (registered first-wins, so
+    /// `DeferredVals` order must be preserved).
     type DeferredVal =
         {
             Ctx: DeferredCtx
-            Compiled: string
+            Key: BindingKey
             Source: string voption
             File: VesperLibManifest.LibFile
             Signature: CurriedSig<SyntaxToken>

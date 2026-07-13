@@ -11,7 +11,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let ctx = env.Ctx
     let symbols = env.Symbols
     let markFSharpCoreDep c = env.MarkFSharpCoreDep c
-    let externalAsmRef asm = env.ExternalAsmRef asm
 
     let recoverOpenTypars declArity methodArity openT instT =
         enc.RecoverOpenTypars(declArity, methodArity, openT, instT)
@@ -285,47 +284,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             Pushes = 1
         }
 
-    /// The member-ref parent `TypeRef` for an external module's compiled holder type.
-    /// `declModule` is the binding's declaring `ModuleKey` (`Vesper.OptionModule`), `metaNs`
-    /// the PACKAGE namespace its origin records (`Vesper`). A NESTED module holder
-    /// (`Vesper.Outer.Inner`) chains through the enclosing `TypeRef` with the bare nested
-    /// name + empty namespace, exactly as `ClrEnv.externalClassRef` does for a nested class.
-    ///
-    /// Where the namespace ends and the module chain begins is the ORIGIN's fact, not the
-    /// key's — a `BindingKey` minted from a flat compiled name can only take the last
-    /// segment as its module. So the split is a segment-list PREFIX test of the package
-    /// namespace against the module's own namespace path (what the old
-    /// `StartsWith(ns + ".")` + `Split('.')` always meant), not a string cut.
-    let externalModuleRef (asm: string option) (metaNs: NamespaceKey) (declModule: ModuleKey) : EntityHandle =
-        let asmRef = externalAsmRef asm
-        let modNs = declModule.Namespace.Path
-        let pkgNs = metaNs.Path
-
-        // The module segments hidden inside the key's namespace path: everything past the
-        // package namespace. A non-prefix origin drops none (the old StripNamespace no-op).
-        let isPrefix =
-            pkgNs.Length <= modNs.Length
-            && Seq.forall2 (=) (Seq.truncate pkgNs.Length modNs.Underlying) pkgNs.Underlying
-
-        let dropped = if isPrefix then pkgNs.Length else 0
-
-        let outerModules = [| for i in dropped .. modNs.Length - 1 -> modNs.[i] |]
-
-        let nsSlot = metaNs.Dotted
-
-        let mutable scope =
-            match outerModules with
-            | [||] -> toEntity (ctx.TypeRef(asmRef, nsSlot, declModule.Name))
-            | _ -> toEntity (ctx.TypeRef(asmRef, nsSlot, outerModules.[0]))
-
-        for i in 1 .. outerModules.Length - 1 do
-            scope <- toEntity (ctx.TypeRef(scope, "", outerModules.[i]))
-
-        if outerModules.Length > 0 then
-            scope <- toEntity (ctx.TypeRef(scope, "", declModule.Name))
-
-        scope
-
     /// The EXTERNAL head of the seq-interface witness
     /// (`FrozenTypeBridge.pickInterfaceWitness` is the shared tail;
     /// `EmitResolve.tryInterfaceWitness` is the project-local head). Given a
@@ -457,9 +415,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
                 s
 
-            let parent =
-                externalModuleRef openSig.Origin.Assembly openSig.Origin.Namespace declModule
-
+            let parent = env.ExternalModuleRef declModule
             let memberRef = toEntity (ctx.MemberRef(parent, name, msig))
 
             let callHandle =

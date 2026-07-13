@@ -40,23 +40,30 @@ module TsManifestProvider =
         | [] -> failwithf "symbol '%s' has no call signature" name
         | _ -> failwithf "symbol '%s' has %d overloads; overload sets not yet supported" name (List.length sigs)
 
-    /// The `Origin`/`Key`/`ImportForm` module-spec stamp shared by free-function and
-    /// variable symbols: both resolve their `import … from '<moduleSpec>'` through
-    /// `JsImports.addRef`, which needs a `ValueKey(Some moduleSpec, …)` — without it
-    /// the symbol carries `asm = None` and emit fails on a `ValueKey(None, …)`.
+    /// The module-spec stamp shared by free-function and variable symbols: both resolve
+    /// their `import … from '<moduleSpec>'` through `JsImports.addRef`, which needs the
+    /// symbol's home (`Origin.InAssembly moduleSpec`) on its key — without it the symbol
+    /// carries no home and emit fails.
+    ///
+    /// One namespace fact serves both slots: the symbol's `SymbolOrigin` and its key's
+    /// declaring holder are the SAME `NamespaceKey`, so they cannot disagree about where
+    /// the export lives. A TS `export namespace` is a NAMESPACE (that is what `mint` makes
+    /// of it for a type), so a top-level export of one is a binding held directly by that
+    /// namespace — never a module.
+    let private declaringHolder (ctx: TranslateCtx) (nsPath: string) : SymbolOrigin * ModuleHolder =
+        let origin = originFor ctx nsPath
+        origin, ModuleHolder.InNamespace origin.Namespace
+
     /// `import` is the manifest's per-export shape, mapped faithfully through the ONE
     /// `importFormOfShape` (a TS `export default` → `Default` → DEFAULT import; an
     /// `export =` → `CommonJs`; a namespace module → `Namespace`; else `Named`).
     let private stampValueSymbol
-        (ctx: TranslateCtx)
-        (nsPath: string)
-        (name: string)
+        (origin: SymbolOrigin)
         (import: Schema.ImportShape)
         (sym: ExternalSymbol)
         : ExternalSymbol =
         { sym with
-            Origin = originFor ctx nsPath
-            Key = SymbolKeyOps.valueKey (Some ctx.ModuleSpec) nsPath name
+            Origin = origin
             ImportForm = importFormOfShape import
         }
 
@@ -85,22 +92,22 @@ module TsManifestProvider =
 
             let frozenTy =
                 List.foldBack (fun a acc -> FTFun(a, acc)) paramTypes (toFrozen ctx sg.Returns)
-            // Registered/keyed under the dotted qualified name; the symbol's own `Name`
-            // carries it too so lowering emits the qualified binding. The `Origin`/`Key`
-            // module-spec stamp (`stampValueSymbol`) is the analog of `toTypeShape`'s
-            // `originFor`/`TypeKey`.
+            // Registered/keyed under the dotted qualified name, which the builder RENDERS
+            // from the key's holder chain — so the registration name and the identity
+            // cannot drift. The module-spec stamp (`stampValueSymbol`) is the analog of
+            // `toTypeShape`'s `originFor`/`TypeKey`.
             //
             // A GENERIC free function (`identity<T>`) carries its own typars as
             // `FTTypar(Declaring,i)` (via `toFrozen`); `sg.TypeParams` is their count, so
             // `scheme` freshens them per use site — genuinely polymorphic, not the frozen
             // markers the former `mono` froze in place.
-            let qn = qualify nsPath name
+            let origin, decl = declaringHolder ctx nsPath
 
             let sym =
-                ExternalSymbols.scheme qn frozenTy sg.TypeParams []
-                |> stampValueSymbol ctx nsPath name import
+                ExternalSymbols.scheme decl name frozenTy sg.TypeParams []
+                |> stampValueSymbol origin import
 
-            Some(qn, sym)
+            Some(sym.Name, sym)
         | _ -> None
 
     /// A `Variable` export → a singleton VALUE symbol, resolved by name via
@@ -115,13 +122,14 @@ module TsManifestProvider =
         : (string * ExternalSymbol) option =
         match ex with
         | Schema.Export.Variable(name, ty, _isConst, import) ->
-            let qn = qualify nsPath name
-            // `monoFrozen` alone would leave the `None` origin `stampValueSymbol` fixes.
-            let sym =
-                ExternalSymbols.monoFrozen qn (toFrozen ctx ty)
-                |> stampValueSymbol ctx nsPath name import
+            // `monoFrozen` alone would leave the `Empty` origin `stampValueSymbol` fixes.
+            let origin, decl = declaringHolder ctx nsPath
 
-            Some(qn, sym)
+            let sym =
+                ExternalSymbols.monoFrozen decl name (toFrozen ctx ty)
+                |> stampValueSymbol origin import
+
+            Some(sym.Name, sym)
         | _ -> None
 
     /// Build the manifest's resolved state (every map/guard, EAGERLY — the same

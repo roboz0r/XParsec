@@ -119,7 +119,7 @@ let tests =
                         Name = "genericMethod"
                         Signature = signature
                         MethodArity = 2
-                        Key = SymbolKeyOps.valueKeyOf None "genericMethod"
+                        Key = SymbolKeyOps.valueKey (SymbolKeyOps.inNamespace None "") "genericMethod"
                     }
 
                 let level = 7
@@ -177,7 +177,7 @@ let tests =
                                     MemberStorage.Method
                             Signature = signature
                             MethodArity = methodArity
-                            Key = SymbolKeyOps.valueKeyOf None name
+                            Key = SymbolKeyOps.valueKey (SymbolKeyOps.inNamespace None "") name
                         }
 
                     let args = argsForArity declArity

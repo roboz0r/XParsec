@@ -91,9 +91,11 @@ This is the last of the string-flattening, and it is what Phase 1's key-minting 
 would be minting *against*.
 
 **The move.** `bindingKeyOf` / `moduleKeyOf` take a **`ModuleHolder`**, not a flat
-dotted string. Every producer already knows the segments — a TS `export namespace`, a
-manifest's `(Namespace, Holder)`, `ModuleMemberInfo`'s three parts — and today throws
-them away at the boundary. Then:
+dotted string. Most producers already know the segments — a TS `export namespace`, a
+manifest's `(Namespace, Holder)` — and today throw them away at the boundary. NOTE
+`ModuleMemberInfo` is NOT one of them: it is `{ Namespace: string option; Holder: string;
+Name: string }`, as flat as `bindingKeyOf`'s input, so it must be reshaped too — an
+unstated dependency of this phase. Then:
 
 - `externalModuleRef` becomes the mirror of `ClrEnv.typeRefOf`: a 5-line recursive walk
   over `ModuleHolder`, no `metaNs` parameter, no prefix test, no `dropped` fallback
@@ -103,9 +105,32 @@ them away at the boundary. Then:
   key kinds, so its `| _ -> k` arm goes too.
 - `TsManifestProvider`'s two conventions collapse to one, and the origin/key
   disagreement is unrepresentable.
-- The `TypeHolder.InModule` producer (already recorded as a follow-up at its site) lands
-  with it: `ClrEnv.typeRefOf` currently `failwithf`s on that holder, which is the site
-  that must be wired.
+
+**The `TypeHolder.InModule` producer is NOT part of this phase** — it was scoped in here,
+and it does not belong. It is on the TYPE axis, which nothing in Phase 1 touches, and it
+is not a key-hygiene refactor but a **change to the emitted binary**. Ground truth, from
+the metadata of a PE this repo built:
+
+- A module-held type does not merely get its module *folded into the namespace* — the
+  module is **dropped entirely**. `namespace N` + `module M` + `type T` emits a top-level
+  TypeDef `Namespace = N`, `Name = T`. (`CstWalk.walkModuleTreeWith`: *"A module is a
+  holder, not a namespace segment, so `declNs` passes through unchanged"*.) The module's
+  own holder class is emitted as a **sibling** of the types declared inside it. The
+  NestedClass table has zero rows; the backend has no code that writes one.
+- So the doc-comment on `TypeHolder.InModule` in `SemanticInfo.fs` is wrong twice over: it
+  claims the module is folded into the namespace path (it is discarded), and it claims
+  `ModuleHolder.InModule` "already has producers" (it does not — that is this phase's
+  item 1).
+- `SymbolKeyOps.typeMetaName` has **no `InModule` arm** — the case falls into a `| _ ->`
+  wildcard and renders the bare name, so an `InModule` key renders `N.T` today, silently.
+  Minting `InModule` while leaving the renderer alone would therefore be a pure refactor;
+  rendering it as `+` is what changes the emitted bytes, and needs NestedClass emission
+  plus the `…Module`-suffix rule moved out of `Elaborate` into the key.
+- **The flattening is a latent correctness bug, not just untidiness:** `namespace N` with
+  `module A = type T` and `module B = type T` are two distinct types with one identity.
+
+`+` (real CLR nesting) is the correct end state, and it lands as **its own commit**,
+against a test that pins the collision above.
 
 **Verify:** `SymbolKeyTests` now pins the blanket-origin mis-cut, the nested-type
 render/parse round-trip, the `moduleFullName`/`moduleKeyOf` round-trip, and the
@@ -194,13 +219,32 @@ never are, so theirs must be minted deliberately.
 ### Interface
 
 - `InlineBody.Decl : Frozen.TDecl` (was `TDecl`).
-- Fold the body onto the resolved entry rather than a separate keyed lookup: the head
-  that resolves a symbol *is* the identity-correct entry, so an optional **lazy**
-  `Frozen.TDecl` field on `ExternalSymbol` / `ExternalMember` retires **both** carriers
-  — `TryLookupInlineBody` (`ExternalSymbols.fs:886`) and `MemberInlineBody`
-  (`SymbolProviders.fs:42`, whose only reason to be separate, key-agreement at store
-  time, is satisfied for free by the entry carrying its own minted key). Lazy so a
-  consumer that never splices an inline pays nothing.
+- Fold the body onto the resolved entry: an `InlineBody voption` field on
+  `ExternalSymbol` / `ExternalMember` retires **both** carriers — `TryLookupInlineBody`
+  and `MemberInlineBody` (whose only reason to be separate, key-agreement at store time,
+  is satisfied for free by the entry carrying its own minted key). NOT lazy: the provider
+  builds its symbols *from* the frozen unit, so the `Frozen.TDecl` is already in memory
+  and a `Lazy` would defer work already done.
+- **The fold needs a key-addressed symbol face — `TryLookupByKey : SymbolKey ->
+  ExternalSymbol voption` — which replaces `TryLookupInlineBody` rather than merely
+  deleting it.** An earlier draft had the splice sites re-reach the body by *name*
+  (`TryLookup name → .InlineBody`). They cannot:
+  - Only two sites consume an `InlineBody` (`InlineExpansion.fs`, the value/operator head
+    and the member head). The value head has a `SymbolKey`, not a resolvable name:
+    `collectInlineBodies` rewrites a harvested body's intra-body sibling refs to
+    `TExpr.External` carrying the **simple** name, precisely because the simple name does
+    NOT resolve (the index is qualified-name keyed, the holder is not auto-opened). That
+    rewrite is why the by-key channel exists at all.
+  - Re-resolving a spelling at splice time also reintroduces the user-shadow hazard the
+    key channel was introduced to kill.
+  - The standing objection to a key-addressed symbol face — *"a value key does not
+    round-trip to its fully-qualified spelling"* — **is Phase 0's defect, and Phase 0
+    repeals it.** Once a `BindingKey` is a real containment chain it renders back to its
+    spelling losslessly, so the face is constructible: the store indexes its
+    `ExternalSymbol`s by `Key`.
+  - Bonus: the member head must re-select by key, not re-look-up by name. `TryLookupMember`
+    collapses overloads to a single best-by-arity pick, so a name re-lookup can return a
+    *different overload* than the one whose key is on the node. An exact key match cannot.
 
 ## Carrier constraint (cross-link, not restated)
 
@@ -230,11 +274,17 @@ inter-assembly it rides the target-neutral sidecar/source channel exactly as now
 ## Phasing
 
 - **Phase 0 (blocks Phase 1):** finish the containment chain on the module/binding axis —
-  `bindingKeyOf` / `moduleKeyOf` take a `ModuleHolder`; `externalModuleRef` walks it;
-  `reroot` replaces `restampKey`; the `TypeHolder.InModule` producer lands. See above.
+  `bindingKeyOf` / `moduleKeyOf` (and `ModuleMemberInfo`) take a `ModuleHolder`;
+  `externalModuleRef` walks it; `reroot` replaces `restampKey`. See above.
 - **Phase 1 (this plan):** freeze-inline, minted inline `SymbolKey`s, the decl-scoped
-  thaw glue, `InlineBody.Decl : Frozen.TDecl`, the interface fold, the two `Inline.fs`
-  TODOs deleted. No change to splice semantics — same lowering, fresh cells.
+  thaw glue, `InlineBody.Decl : Frozen.TDecl`, the interface fold onto `TryLookupByKey`,
+  the two `Inline.fs` TODOs deleted. No change to splice semantics — same lowering, fresh
+  cells.
+- **Nested types (independent of 0–2; enabled by Phase 0's chain):** make a module-held
+  type a real CLR nested type — mint `TypeHolder.InModule`, give `typeMetaName` its `+`
+  arm, move the `…Module`-suffix rule into the key, and add NestedClass emission to the
+  CLR backend. Fixes the same-name-in-two-modules collision. See Phase 0 above for why it
+  is not Phase 0.
 - **Phase 2 (separate, enabled):** retire the `ExternalSymbol.Instantiate` closures onto
   `instantiateWith`, making `IExternalSymbolProvider` `SemType`-free in full.
 - **Phase 3 (independent of 0–2; do whenever):** narrow the key-typed fields and
@@ -291,11 +341,12 @@ inter-assembly it rides the target-neutral sidecar/source channel exactly as now
 
 ## To verify during implementation
 
-- Enumerate every reader of `TryLookupInlineBody` / `MemberInlineBody`
-  (`ExternalSymbolProviders.fs:81,:324,:478,:534`; `Elaborate.fs:1883`;
-  `MetadataSymbols.fs:812`) and confirm each obtains the identity-correct entry, so the
-  folded lazy field serves it (operator/desugared heads reach it via
-  `TryLookup name → .InlineBody`).
+- ~~Enumerate every reader of `TryLookupInlineBody` / `MemberInlineBody`.~~ **Done.** Only
+  TWO sites in the tree consume an `InlineBody`, both in `InlineExpansion.fs`: the
+  value/operator head (via `lookupExternal`, keyed by `TExpr.External`'s `SymbolKey
+  voption`) and the member head (keyed by `TExpr.ExternalMember`'s `SymbolKey`).
+  Everything else is provider plumbing, a `ValueNone` stub, or a test. Both are served by
+  `TryLookupByKey` + the folded field; neither can be served by name. See §Interface.
 - Confirm the nullary intrinsic body special-case (`Inline.nullaryIntrinsicValueBody`;
   spliced at `InlineExpansion.fs:783`) survives freeze — an operand-less `(# … #)` body
   with no typars is the identity case and must thaw to itself.

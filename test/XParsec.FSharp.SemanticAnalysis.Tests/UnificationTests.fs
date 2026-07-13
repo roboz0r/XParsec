@@ -108,7 +108,12 @@ let tests =
                       interface IExternalSymbolResolver with
                           member _.TryLookup name =
                               if name = "broken" then
-                                  ValueSome(ExternalSymbols.monoFrozen "broken" (FTUnknown "Missing.Thing"))
+                                  ValueSome(
+                                      ExternalSymbols.monoFrozen
+                                          (SymbolKeyOps.inNamespace None "")
+                                          "broken"
+                                          (FTUnknown "Missing.Thing")
+                                  )
                               else
                                   ValueNone
 

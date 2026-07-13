@@ -179,19 +179,26 @@ module SymbolKeyOps =
             if d = "" then m.Name else d + "." + m.Name
         | ModuleHolder.InModule parent -> moduleFullName parent + "." + m.Name
 
-    /// A module from its full dotted name (`Vesper.Collections` ⇒ module `Collections`
-    /// in namespace `Vesper`): the LAST segment is the module, the rest the namespace.
-    /// This is the convention every producer of the old flat `ValueKey.ns` already
-    /// obeyed — `SymbolProviders.qualifiedValueName` built exactly `Namespace.Holder`,
-    /// and `ClrProvider` handed that string to `EmitExternalCall` as the module-as-type
-    /// full name. `moduleFullName` inverts it exactly.
-    let moduleKeyOf (asm: string option) (fullName: string) : ModuleKey =
-        let ns, name = splitLastDot fullName
+    /// A `ModuleKey` from its HOLDER + simple name. Modules nest, so the containment is
+    /// the holder chain and never a dotted string: `moduleFullName` renders the chain,
+    /// and nothing re-cuts that rendering back. Every producer knows which of its
+    /// segments are the namespace and which are the enclosing modules at the point it
+    /// builds the key — a dotted-name mint could only guess (last segment = module),
+    /// which flattened every nested module into the namespace path.
+    let moduleKeyOf (holder: ModuleHolder) (name: string) : ModuleKey = { Holder = holder; Name = name }
 
-        {
-            Holder = ModuleHolder.InNamespace(namespaceKey asm ns)
-            Name = name
-        }
+    /// The holder for something declared DIRECTLY in a namespace, from the boundary
+    /// spelling `(asm, dotted ns)`. In binding position it is the UNQUALIFIED binding
+    /// (no declaring module) — a real holder, not a sentinel: it still carries the home
+    /// assembly, which `ModuleKey voption` could not.
+    let inNamespace (asm: string option) (dottedNs: string) : ModuleHolder =
+        ModuleHolder.InNamespace(namespaceKey asm dottedNs)
+
+    /// A module declared directly in a namespace (`namespace Vesper` + `module
+    /// Collections`), from the boundary spelling `(asm, dotted ns, module name)`. The
+    /// namespace and the module are named SEPARATELY — there is no dotted string to cut.
+    let moduleInNamespace (asm: string option) (dottedNs: string) (name: string) : ModuleKey =
+        moduleKeyOf (inNamespace asm dottedNs) name
 
     // --- Smart constructors mirroring the old tuple shapes ---------------------------
 
@@ -207,24 +214,20 @@ module SymbolKeyOps =
         | ModuleHolder.InNamespace ns -> ns.Dotted
         | ModuleHolder.InModule m -> moduleFullName m
 
-    /// A `BindingKey` from `(asm, declaring-module full name, simple name)`. An EMPTY
-    /// module name mints the UNQUALIFIED binding (`Decl = InNamespace <global of asm>`) —
-    /// the flat-package / global extern. That is a real holder, not a sentinel: it still
-    /// carries the home assembly, which `Decl = ValueNone` could not.
-    let bindingKeyOf (asm: string option) (declModule: string) (name: string) : BindingKey =
-        {
-            Decl =
-                if declModule = "" then
-                    ModuleHolder.InNamespace(namespaceKey asm "")
-                else
-                    ModuleHolder.InModule(moduleKeyOf asm declModule)
-            Name = name
-        }
+    /// A `BindingKey` from its declaring HOLDER + simple name. `InNamespace` in holder
+    /// position is the UNQUALIFIED binding (a flat package's export, a global extern);
+    /// `InModule` the ordinary module-qualified one, nesting included.
+    let bindingKeyOf (decl: ModuleHolder) (name: string) : BindingKey = { Decl = decl; Name = name }
 
-    /// `SymbolKey.Binding` from the boundary triple — the mechanical successor to the
-    /// old `SymbolKey.ValueKey(asm, ns, name)`.
-    let valueKey (asm: string option) (declModule: string) (name: string) : SymbolKey =
-        SymbolKey.Binding(bindingKeyOf asm declModule name)
+    /// `SymbolKey.Binding` over a declaring `ModuleHolder`.
+    let valueKey (decl: ModuleHolder) (name: string) : SymbolKey =
+        SymbolKey.Binding(bindingKeyOf decl name)
+
+    /// `SymbolKey.Binding` for a value in a module that sits directly in a namespace —
+    /// the well-known-symbol spelling `(asm, dotted ns, module, name)`, where the caller
+    /// names the namespace and the module separately.
+    let moduleValueKey (asm: string option) (dottedNs: string) (declModule: string) (name: string) : SymbolKey =
+        valueKey (ModuleHolder.InModule(moduleInNamespace asm dottedNs declModule)) name
 
     /// A `MemberKey` over a declaring `TypeKey`. The declaring slot is a `TypeKey` by
     /// construction, so the `failwithf "declaring key is not a TypeKey"` checks
@@ -245,7 +248,7 @@ module SymbolKeyOps =
     // --- Generic `SymbolKey` projection ----------------------------------------------
     //
     // These operate on any `SymbolKey` (decompose / mint); they have nothing to do
-    // with the well-known runtime singletons, so they live here next to `valueKeyOf`.
+    // with the well-known runtime singletons, so they live here next to the mints.
     // `RuntimeNames` (which compiles after this file) keeps only the singleton
     // constants + recognisers and routes its `bareName` / `qualifiedName` needs here.
 
@@ -298,6 +301,52 @@ module SymbolKeyOps =
             | h -> h + "." + b.Name
         | SymbolKey.Member m -> m.Name
 
+    // --- Re-rooting a key's home assembly --------------------------------------------
+
+    let rec private rerootModuleHolder (o: Origin) (h: ModuleHolder) : ModuleHolder =
+        match h with
+        | ModuleHolder.InNamespace ns -> ModuleHolder.InNamespace { ns with Origin = o }
+        | ModuleHolder.InModule m -> ModuleHolder.InModule(rerootModule o m)
+
+    and private rerootModule (o: Origin) (m: ModuleKey) : ModuleKey =
+        { m with
+            Holder = rerootModuleHolder o m.Holder
+        }
+
+    let rec private rerootTypeHolder (o: Origin) (h: TypeHolder) : TypeHolder =
+        match h with
+        | TypeHolder.InNamespace ns -> TypeHolder.InNamespace { ns with Origin = o }
+        | TypeHolder.InModule m -> TypeHolder.InModule(rerootModule o m)
+        | TypeHolder.InType outer -> TypeHolder.InType(rerootType o outer)
+
+    and private rerootType (o: Origin) (t: TypeKey) : TypeKey =
+        { t with
+            Holder = rerootTypeHolder o t.Holder
+        }
+
+    /// Rewrite the `Origin` at the ROOT of a key's containment chain, leaving the chain
+    /// itself intact. The home assembly sits ONLY on the `NamespaceKey` every holder
+    /// chain bottoms out in, so re-homing a key is this one structural walk — total over
+    /// all three kinds, and lossless where re-deriving the chain from a rendered name
+    /// (the old `ExternalSymbolProviders.restampKey`) flattened it.
+    ///
+    /// A `MemberKind`'s interface `TypeKey` is deliberately NOT rerooted: an explicitly
+    /// implemented interface may live in a different assembly than the type implementing
+    /// it, so it is not part of THIS key's containment chain.
+    ///
+    /// The producer is a provider stack that mints its symbols before it knows the
+    /// wrapping package's assembly (`ExternalSymbolProviders.stack`): the inner leaf
+    /// builds the containment, the wrapper supplies the home.
+    let reroot (o: Origin) (k: SymbolKey) : SymbolKey =
+        match k with
+        | SymbolKey.Type t -> SymbolKey.Type(rerootType o t)
+        | SymbolKey.Binding b ->
+            SymbolKey.Binding
+                { b with
+                    Decl = rerootModuleHolder o b.Decl
+                }
+        | SymbolKey.Member m -> SymbolKey.Member { m with Decl = rerootType o m.Decl }
+
     // A nominal `SemType`'s `SymbolKey` participates in unification equality, so the
     // SAME type minted via different paths (use-site resolution, VesperLib contract
     // extraction, the `*Key` runtime constants, local registration) must compare
@@ -343,19 +392,6 @@ module SymbolKeyOps =
 
     let externalTypeKey (origin: SymbolOrigin) (compiled: string) (arity: int) : SymbolKey =
         SymbolKey.Type(externalTypeKeyOf origin compiled arity)
-
-    /// Mint a `SymbolKey.Binding` from an assembly + fully-qualified compiled name: the
-    /// last `.` segment is the simple name, the prefix the DECLARING MODULE's full name
-    /// (`Vesper.Unchecked.defaultof` ⇒ module `Vesper.Unchecked`, binding `defaultof`).
-    /// For a bare `printfn` (no `.`) the binding is unqualified — `Decl` is the
-    /// `ModuleHolder.InNamespace` of the assembly's global namespace, which still carries
-    /// the home assembly.
-    /// Used by `mono`/`poly`/`polyWith` to default the symbol's `Key`; `stack`'s
-    /// `stampSymbol` re-mints the key with the wrapping package's assembly once it
-    /// stamps the origin.
-    let valueKeyOf (asm: string option) (compiled: string) : SymbolKey =
-        let declModule, name = splitLastDot compiled
-        valueKey asm declModule name
 
     /// The contract-sourced canon key for an intrinsic the VesperLib extractor
     /// publishes: `asm = None` (an intrinsic's home is target-dependent, so its identity

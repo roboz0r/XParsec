@@ -1009,7 +1009,7 @@ type ICodegenSymbols =
 module ExternalSymbols =
 
     // The generic `SymbolKey` ↔ compiled-name string algebra (`bareName`,
-    // `arityName`, `valueKeyOf`, `simpleName`, `qualifiedName`, `externalTypeKey`,
+    // `arityName`, `bindingKeyOf`, `simpleName`, `qualifiedName`, `externalTypeKey`,
     // …) lives in `module SymbolKeyOps` (compiles before this file, so
     // `RuntimeNames` can route through it without depending on the provider
     // surface). This module keeps only the resolution surface that genuinely
@@ -1497,16 +1497,28 @@ module ExternalSymbols =
 
             inst scheme fresh
 
+    /// The registration `Name` of a value symbol whose identity is `key`: the
+    /// module-qualified compiled name (`Vesper.Collections.ListModule.fold`), bare for an
+    /// unqualified binding. Deriving it from the key — rather than taking a dotted string
+    /// and cutting the key back out of it — is what keeps a producer's `(namespace,
+    /// module chain, name)` intact: the name is a RENDERING of the identity, not its source.
+    let private valueSymbolName (key: BindingKey) : string =
+        SymbolKeyOps.qualifiedName (SymbolKey.Binding key)
+
     /// A monomorphic value/free-function symbol from a closed `FrozenType` scheme
-    /// (no typars).
-    let monoFrozen (name: string) (scheme: FrozenType) : ExternalSymbol =
+    /// (no typars). `decl` is the declaring holder — a module chain, or the namespace
+    /// itself for an unqualified binding (`SymbolKeyOps.inNamespace None ""` for a
+    /// flat-package extern such as `printfn`).
+    let monoFrozen (decl: ModuleHolder) (name: string) (scheme: FrozenType) : ExternalSymbol =
+        let key = SymbolKeyOps.bindingKeyOf decl name
+
         {
-            Name = name
+            Name = valueSymbolName key
             Scheme = scheme
             TyparArity = 0
             Constraints = []
             Origin = SymbolOrigin.Empty
-            Key = SymbolKeyOps.valueKeyOf None name
+            Key = SymbolKey.Binding key
             ValRepr = ValueNone
             ImportForm = ImportForm.Named
         }
@@ -1515,18 +1527,21 @@ module ExternalSymbols =
     /// typars, plus optional constraints. A polymorphic symbol is a template with
     /// typars, freshened per use site by `instantiateSymbol` — not a closure.
     let scheme
+        (decl: ModuleHolder)
         (name: string)
         (frozen: FrozenType)
         (arity: int)
         (constraints: ExternalConstraint list)
         : ExternalSymbol =
+        let key = SymbolKeyOps.bindingKeyOf decl name
+
         {
-            Name = name
+            Name = valueSymbolName key
             Scheme = frozen
             TyparArity = arity
             Constraints = constraints
             Origin = SymbolOrigin.Empty
-            Key = SymbolKeyOps.valueKeyOf None name
+            Key = SymbolKey.Binding key
             ValRepr = ValueNone
             ImportForm = ImportForm.Named
         }

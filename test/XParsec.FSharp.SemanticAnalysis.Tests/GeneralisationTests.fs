@@ -105,6 +105,7 @@ let tests =
                 // fresh var per use site (replaces the former freshAt closure).
                 let myIdSymbol: ExternalSymbol =
                     ExternalSymbols.scheme
+                        (SymbolKeyOps.inNamespace None "")
                         "myId"
                         (FTFun(FTTypar(TyparAxis.Declaring, 0), FTTypar(TyparAxis.Declaring, 0)))
                         1

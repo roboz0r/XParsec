@@ -115,8 +115,12 @@ module EmitJsCapabilities =
     /// wraps a source's native `Symbol.iterator` in the split `MoveNext`/`Current` cursor.
     /// Synthesised by the backend (like `EmitJsContext.structuralFormatKey`) — the protocol is
     /// a codegen concern, so no front-end symbol resolves to it.
+    /// `Vesper.Collections` is a NAMESPACE (`capabilities.fsi`) and the adapter a bare
+    /// export of `Vesper.Core.mjs`, so the binding is held by the namespace itself.
     let private enumeratorOfKey: SymbolKey voption =
-        ValueSome(SymbolKeyOps.valueKey (Some "Vesper.Core") "Vesper.Collections" "enumeratorOf")
+        ValueSome(
+            SymbolKeyOps.valueKey (SymbolKeyOps.inNamespace (Some "Vesper.Core") "Vesper.Collections") "enumeratorOf"
+        )
 
     // ---- The CONSUMER table --------------------------------------------------
 

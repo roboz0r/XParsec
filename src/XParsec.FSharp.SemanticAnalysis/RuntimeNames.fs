@@ -23,7 +23,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 /// singleton key constants + the recognisers built over them. The generic
 /// `SymbolKey` ↔ string projection / minting helpers (`bareName`, `simpleName`,
 /// `qualifiedName`, `keyAsm`, `externalTypeKey`, …) are NOT runtime-name-specific,
-/// so they live with `valueKeyOf` in `module ExternalSymbols`.
+/// so they live in `module SymbolKeyOps`.
 [<RequireQualifiedAccess>]
 module RuntimeNames =
 

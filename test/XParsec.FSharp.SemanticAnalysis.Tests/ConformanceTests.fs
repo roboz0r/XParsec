@@ -507,7 +507,12 @@ let typarConformanceTests =
                 // `.fs` declares `<'b,'a>`, so `'b` = Method 0, `'a` = Method 1 ⇒ the
                 // inferred scheme is `'a -> 'b -> 'b` = `M1 -> M0 -> M0`, the REVERSE
                 // positional skeleton of the `.fsi`'s `'a -> 'b -> 'b` = `D0 -> D1 -> D1`.
-                let contract = contractProvider [ "f", ExternalSymbols.scheme "f" fScheme 2 [] ]
+                let contract =
+                    contractProvider
+                        [
+                            "f", ExternalSymbols.scheme (SymbolKeyOps.inNamespace None "") "f" fScheme 2 []
+                        ]
+
                 let tast = frozenOf "let f<'b,'a> (x: 'a) (y: 'b) : 'b = y"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
@@ -519,7 +524,12 @@ let typarConformanceTests =
             test "appearance-order impl conforms to `.fsi` appearance order → no mismatch" {
                 // No explicit `<…>`: the canonical order IS appearance order, matching the
                 // `.fsi`. The very same binding+contract that fails above now conforms.
-                let contract = contractProvider [ "f", ExternalSymbols.scheme "f" fScheme 2 [] ]
+                let contract =
+                    contractProvider
+                        [
+                            "f", ExternalSymbols.scheme (SymbolKeyOps.inNamespace None "") "f" fScheme 2 []
+                        ]
+
                 let tast = frozenOf "let f (x: 'a) (y: 'b) : 'b = y"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 

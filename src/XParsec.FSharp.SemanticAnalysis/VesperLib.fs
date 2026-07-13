@@ -248,7 +248,7 @@ module VesperLib =
         | Error e ->
             // Skip so unresolved names don't masquerade as opaque TyConsts.
             // Per-val skips go to `Skipped`, not `Diagnostics`.
-            ctx.Skipped.Add(dv.File, sprintf "%s: %s" dv.Compiled e)
+            ctx.Skipped.Add(dv.File, sprintf "%s: %s" (SymbolKeyOps.qualifiedName (SymbolKey.Binding dv.Key)) e)
         | Ok template ->
             let resolved =
                 resolveConstraints ctx dc.Lexed dc.Input dc.Opens dc.Typars (constraints.Snapshot())
@@ -302,25 +302,21 @@ module VesperLib =
                 // `Instantiate` closure `makeInstantiate` did (identical constraint-group
                 // order), so behaviour is unchanged; only `ValRepr` is overlaid (the
                 // builder defaults it to `ValueNone`).
-                { ExternalSymbols.scheme dv.Compiled template typarCount resolved with
+                { ExternalSymbols.scheme dv.Key.Decl dv.Key.Name template typarCount resolved with
                     ValRepr = valReprOpt
                 }
 
-            ctx.Symbols.[dv.Compiled] <- sym
+            ctx.Symbols.[sym.Name] <- sym
 
             // Source-name alias for a `ModuleSuffix` module's members
             // (`List.fold` alongside the compiled `ListModule.fold`); only when
             // it differs and nothing already claims it (first registration wins).
             // The alias keeps the SAME compiled-name key — both forms denote one
-            // symbol identity; `stack`'s stampSymbol re-mints with the wrapping
+            // symbol identity; `stack`'s stampSymbol re-homes it with the wrapping
             // package's assembly, so this default never leaks past `wrap`.
             match dv.Source with
-            | ValueSome source when source <> dv.Compiled && not (ctx.Symbols.ContainsKey source) ->
-                ctx.Symbols.[source] <-
-                    { sym with
-                        Name = source
-                        Key = SymbolKeyOps.valueKeyOf None dv.Compiled
-                    }
+            | ValueSome source when source <> sym.Name && not (ctx.Symbols.ContainsKey source) ->
+                ctx.Symbols.[source] <- { sym with Name = source }
             | _ -> ()
 
     // A member's `argSig` is rendered by the SHARED spelling grammar
@@ -606,16 +602,18 @@ module VesperLib =
         | ValueSome(Access.Internal _)
         | ValueSome(Access.Private _) -> false
 
-    /// Build the compiled name for a val. Respects `[<CompiledName(_)>]`
-    /// (overrides the source ident) and the `ModuleSuffix` flag (already
-    /// baked into `path`'s last segment by the walker).
-    let private compiledNameForVal
+    /// Build the identity of a val: its declaring holder (`decl` — the namespace and
+    /// enclosing module chain the walker descended, `ModuleSuffix` already baked into the
+    /// module names) plus its compiled simple name, which respects `[<CompiledName(_)>]`
+    /// (it overrides the source ident). The dotted compiled name is a RENDERING of this
+    /// key, not its source — nothing re-cuts it to recover the holder.
+    let private bindingKeyForVal
         (lexed: Lexed)
         (input: string)
-        (path: string list)
+        (decl: ModuleHolder)
         (attrs: Attributes<SyntaxToken> voption)
         (ident: IdentOrOp<SyntaxToken>)
-        : string voption =
+        : BindingKey voption =
         let identName =
             match tryCompiledName lexed input attrs with
             | ValueSome n -> ValueSome n
@@ -623,16 +621,10 @@ module VesperLib =
 
         match identName with
         | ValueNone -> ValueNone
-        | ValueSome n ->
-            let qualifier = String.concat "." (List.rev path)
-
-            if qualifier.Length = 0 then
-                ValueSome n
-            else
-                ValueSome(qualifier + "." + n)
+        | ValueSome n -> ValueSome(SymbolKeyOps.bindingKeyOf decl n)
 
     /// Build the *source*-qualified name for a val — the name the front end
-    /// actually writes (`Set.empty`). Unlike `compiledNameForVal` it IGNORES
+    /// actually writes (`Set.empty`). Unlike `bindingKeyForVal` it IGNORES
     /// `[<CompiledName(_)>]` (which renames the member at the IL boundary, e.g.
     /// `empty` ⇒ `Empty`): a consumer writes `Set.empty`, never `Set.Empty`, so
     /// the source-alias key must carry the written ident, only the module path
@@ -660,9 +652,9 @@ module VesperLib =
         (lexed: Lexed)
         (input: string)
         (opens: string list)
-        (path: string list)
-        // The *source* module path (no `ModuleSuffix` rewrite). Differs from
-        // `path` only inside a `[<CompilationRepresentation(ModuleSuffix)>]`
+        (decl: ModuleHolder)
+        // The *source* module path (no `ModuleSuffix` rewrite). Differs from the
+        // compiled holder `decl` only inside a `[<CompilationRepresentation(ModuleSuffix)>]`
         // module (`List` ⇒ compiled `ListModule`). The provider is probed with the
         // *source*-qualified name the front end writes (`List.fold`, not
         // `ListModule.fold`), so the val is additionally registered under that
@@ -676,9 +668,9 @@ module VesperLib =
         if not (isAccessible access) then
             ()
         else
-            match compiledNameForVal lexed input path attrs ident with
+            match bindingKeyForVal lexed input decl attrs ident with
             | ValueNone -> ()
-            | ValueSome compiled ->
+            | ValueSome key ->
                 // Stash only: the signature is translated, its constraints resolved,
                 // and the `ExternalSymbol` built in `finalizeDeferred`, once the
                 // registry is complete (the signature / a constraint target may
@@ -698,7 +690,7 @@ module VesperLib =
                                 Opens = opens
                                 Typars = collector
                             }
-                        Compiled = compiled
+                        Key = key
                         Source = sourceNameForVal lexed input sourcePath ident
                         File = file
                         Signature = signature
@@ -762,7 +754,7 @@ module VesperLib =
         (ctx: ExtractCtx)
         (lexed: Lexed)
         (input: string)
-        (path: string list)
+        (decl: ModuleHolder)
         (typeName: TypeName<SyntaxToken>)
         : struct (string * int) voption =
         let (TypeName(_, _, prefix, ident, defns, _)) = typeName
@@ -777,7 +769,7 @@ module VesperLib =
             else
                 let arity = typeNameTypars defns prefix
 
-                let qualifier = String.concat "." (List.rev path)
+                let qualifier = SymbolKeyOps.holderFullName decl
 
                 let baseName =
                     if qualifier.Length = 0 then
@@ -1296,24 +1288,24 @@ module VesperLib =
         (lexed: Lexed)
         (input: string)
         (opens: string list)
-        (path: string list)
+        (decl: ModuleHolder)
         (ts: TypeSignature<SyntaxToken>)
         : unit =
         match ts with
         | TypeSignature.Abbrev(typeName, _, rhs) ->
-            match registerTypeDecl ctx lexed input path typeName with
+            match registerTypeDecl ctx lexed input decl typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
                 extractAbbrevBody ctx file lexed input opens compiled arity typeName rhs
 
         | TypeSignature.Record(typeName = typeName; fields = fields) ->
-            match registerTypeDecl ctx lexed input path typeName with
+            match registerTypeDecl ctx lexed input decl typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
                 extractRecordBody ctx file lexed input opens compiled arity typeName fields
 
         | TypeSignature.Union(typeName = typeName; cases = cases; extensions = extensions) ->
-            match registerTypeDecl ctx lexed input path typeName with
+            match registerTypeDecl ctx lexed input decl typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
                 // A union's trailing `with interface <ty> with …` impls ride the
@@ -1341,7 +1333,7 @@ module VesperLib =
                 | ValueNone -> ()
 
         | TypeSignature.Interface(typeName = typeName) ->
-            match registerTypeDecl ctx lexed input path typeName with
+            match registerTypeDecl ctx lexed input decl typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
                 // A class/interface shape carries no body (its members are
@@ -1367,7 +1359,7 @@ module VesperLib =
             // publishes a capability surface: it registers exactly as a bodied
             // class/interface (`extractBodiedClassLike`), so a consumer's
             // structural probe sees the members and `FrozenInterfaces`.
-            match registerTypeDecl ctx lexed input path typeName with
+            match registerTypeDecl ctx lexed input decl typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
                 let short = shortNameOfTypeName lexed input typeName
@@ -1464,7 +1456,7 @@ module VesperLib =
             // layer reads the same flag off `Type.IsValueType`; here it rides the
             // syntactic `struct … end` form (a `[<Struct>]`-attributed `Class`/`Anon`
             // would need attribute decode — its canonical surface is this form).
-            match registerTypeDecl ctx lexed input path typeName with
+            match registerTypeDecl ctx lexed input decl typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
                 let shape =
@@ -1488,7 +1480,7 @@ module VesperLib =
             // this the class's members were silently dropped (only `Union` bodies
             // extracted members), so `s + t` on an imported `Set` left its result
             // typar unresolved.
-            match registerTypeDecl ctx lexed input path typeName with
+            match registerTypeDecl ctx lexed input decl typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
                 // `type X = abstract member …` parses as an implicit-body `Anon`/`Class`
@@ -1501,7 +1493,7 @@ module VesperLib =
         | TypeSignature.AbstractType typeName ->
             // An opaque abstract type (`type T`) with no body shape. Resolve as a
             // non-interface `Class` so codegen can mint a ref off the origin.
-            match registerTypeDecl ctx lexed input path typeName with
+            match registerTypeDecl ctx lexed input decl typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) ->
                 ctx.TypeShapes.[compiled] <-
@@ -1515,7 +1507,7 @@ module VesperLib =
             // carries a shape — no name-without-shape gap, `TryLookupType` total.
             // A contract that actually *names* one is refused at bake time by
             // `mkNominal`'s `Opaque` arm (none does today).
-            match registerTypeDecl ctx lexed input path typeName with
+            match registerTypeDecl ctx lexed input decl typeName with
             | ValueNone -> ()
             | ValueSome(struct (compiled, arity)) -> ctx.TypeShapes.[compiled] <- ExternalTypeShape.Opaque arity
 
@@ -1547,23 +1539,27 @@ module VesperLib =
         (lexed: Lexed)
         (input: string)
         (opens: string list)
-        (path: string list)
-        // The source-name twin of `path` (see `extractValSig`). Equal to `path`
-        // except inside a `ModuleSuffix` module, where `path` carries the compiled
-        // `…Module` segment and this carries the source segment.
+        // The COMPILED containment the walker has descended: the namespace at the root,
+        // one `InModule` per enclosing module, `ModuleSuffix` already baked into the
+        // module names. A nested module nests the holder — it is not appended to the
+        // namespace path.
+        (decl: ModuleHolder)
+        // The source-name twin of `decl` (see `extractValSig`). Equal to it except
+        // inside a `ModuleSuffix` module, where `decl` carries the compiled `…Module`
+        // segment and this carries the source segment.
         (sourcePath: string list)
         (elem: ModuleSignatureElement<SyntaxToken>)
         : unit =
         match elem with
-        | ModuleSignatureElement.Val valSig -> extractValSig ctx file lexed input opens path sourcePath valSig
+        | ModuleSignatureElement.Val valSig -> extractValSig ctx file lexed input opens decl sourcePath valSig
 
         | ModuleSignatureElement.Type(_, typeSigs) ->
             let (TypeSignatures(first, rest)) = typeSigs
-            extractTypeSig ctx file lexed input opens path first
+            extractTypeSig ctx file lexed input opens decl first
 
             for i in 0 .. rest.Length - 1 do
                 let (_, ts) = rest.[i]
-                extractTypeSig ctx file lexed input opens path ts
+                extractTypeSig ctx file lexed input opens decl ts
 
         | ModuleSignatureElement.Module moduleSig ->
             let (ModuleSignature(attrs, _, access, _, identTok, _, body)) = moduleSig
@@ -1577,12 +1573,12 @@ module VesperLib =
                     else
                         name
 
-                let childPath = suffixed :: path
+                let childDecl = ModuleHolder.InModule(SymbolKeyOps.moduleKeyOf decl suffixed)
                 let childSourcePath = name :: sourcePath
                 let (ModuleSignatureBody(_, elems, _)) = body
                 // The module's own qualified path is itself an implicit open
                 // prefix, ahead of the inherited opens but behind the body's.
-                let modulePath = String.concat "." (List.rev childPath)
+                let modulePath = SymbolKeyOps.holderFullName childDecl
 
                 // An `[<AutoOpen>]` module contributes its qualified path to the
                 // contract's ambient prefix set.
@@ -1592,7 +1588,7 @@ module VesperLib =
                 let childOpens = collectOpens lexed input elems @ (modulePath :: opens)
 
                 for i in 0 .. elems.Length - 1 do
-                    extractModuleSigElement ctx file lexed input childOpens childPath childSourcePath elems.[i]
+                    extractModuleSigElement ctx file lexed input childOpens childDecl childSourcePath elems.[i]
 
         | _ -> ()
 
@@ -1604,16 +1600,13 @@ module VesperLib =
         (fileOpens: string list)
         (group: NamespaceDeclGroupSignature<SyntaxToken>)
         : unit =
-        let nsPath, elems =
+        let nsSegments, elems =
             match group with
             | NamespaceDeclGroupSignature.Named(_, _, li, els) ->
-                let parts =
-                    [ for i in 0 .. li.Idents.Length - 1 -> nameOfTok lexed input li.Idents.[i] ]
-
-                List.rev parts, els
+                [ for i in 0 .. li.Idents.Length - 1 -> nameOfTok lexed input li.Idents.[i] ], els
             | NamespaceDeclGroupSignature.Global(_, _, els) -> [], els
 
-        let nsName = String.concat "." (List.rev nsPath)
+        let nsName = String.concat "." nsSegments
         let ownOpens = collectOpens lexed input elems
         // The namespace's qualified path is implicitly in scope; top-level
         // opens outside any namespace group are inherited.
@@ -1623,9 +1616,13 @@ module VesperLib =
             else
                 ownOpens @ (nsName :: fileOpens)
 
+        // The home assembly is unknown at extraction — the package that WRAPS this
+        // provider stamps it (`ExternalSymbolProviders.stack`, via `SymbolKeyOps.reroot`).
+        let decl = SymbolKeyOps.inNamespace None nsName
+
         for i in 0 .. elems.Length - 1 do
             // A namespace path carries no `ModuleSuffix` rewrite, so source == compiled.
-            extractModuleSigElement ctx file lexed input opens nsPath nsPath elems.[i]
+            extractModuleSigElement ctx file lexed input opens decl (List.rev nsSegments) elems.[i]
 
     let private extractNamedModuleSig
         (ctx: ExtractCtx)
@@ -1640,26 +1637,33 @@ module VesperLib =
         if isAccessible access then
             let suffix = hasModuleSuffix lexed input attrs
 
-            let sourcePathRev =
+            let segments =
                 [ for i in 0 .. li.Idents.Length - 1 -> nameOfTok lexed input li.Idents.[i] ]
-                |> List.rev
 
-            // ModuleSuffix applies to the innermost segment only.
-            let pathRev =
-                match sourcePathRev, suffix with
-                | head :: rest, true -> (head + "Module") :: rest
-                | _ -> sourcePathRev
+            // `module A.B.C` declares module `C` in namespace `A.B` — the leading segments
+            // are the namespace, only the LAST is a module. That is the F# rule, stated by
+            // the declaration itself, so the holder is built here rather than recovered
+            // from a dotted rendering downstream. `ModuleSuffix` applies to the module
+            // segment only.
+            let decl =
+                match List.rev segments with
+                | [] -> SymbolKeyOps.inNamespace None ""
+                | last :: revNs ->
+                    let name = if suffix then last + "Module" else last
 
-            let qualifiedSelf = String.concat "." (List.rev pathRev)
+                    ModuleHolder.InModule(SymbolKeyOps.moduleInNamespace None (String.concat "." (List.rev revNs)) name)
+
+            let qualifiedSelf = SymbolKeyOps.holderFullName decl
 
             if isAutoOpen lexed input attrs then
                 ctx.AutoOpenPrefixes.Add qualifiedSelf
 
             let ownOpens = collectOpens lexed input elems
             let opens = ownOpens @ (qualifiedSelf :: fileOpens)
+            let sourcePathRev = List.rev segments
 
             for i in 0 .. elems.Length - 1 do
-                extractModuleSigElement ctx file lexed input opens pathRev sourcePathRev elems.[i]
+                extractModuleSigElement ctx file lexed input opens decl sourcePathRev elems.[i]
 
     let extractSymbols (ctx: ExtractCtx) (parsed: ParsedFile) : unit =
         // The dependency providers' ambient prefixes (`Vesper`, …) seed the file's
@@ -1683,7 +1687,15 @@ module VesperLib =
                 let opens = collectOpens parsed.Lexed parsed.Input elems @ fileOpens
 
                 for i in 0 .. elems.Length - 1 do
-                    extractModuleSigElement ctx parsed.File parsed.Lexed parsed.Input opens [] [] elems.[i]
+                    extractModuleSigElement
+                        ctx
+                        parsed.File
+                        parsed.Lexed
+                        parsed.Input
+                        opens
+                        (SymbolKeyOps.inNamespace None "")
+                        []
+                        elems.[i]
         | _ -> ctx.Diagnostics.Add(parsed.File, "Skipped: not a signature file")
 
     /// Stitch the inline-IL string of a `Type.ILIntrinsic` RHS

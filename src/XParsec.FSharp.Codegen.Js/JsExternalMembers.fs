@@ -251,12 +251,15 @@ module JsExternalMembers =
         (form: ImportForm)
         (loc: JsLoc voption)
         : JsExpr =
-        // The free-function `External` path carries a `ValueKey(Some home, ns, name)`;
-        // mirror it from the grouping type's key so `addRef` imports the same bare
-        // export (`name`) from the same home module the bare free function would.
+        // A free function is a binding held DIRECTLY by the namespace its export sits in
+        // (`TsManifestProvider`); the grouping type is a synthetic type in that same
+        // namespace. So the sibling binding is built from the grouping type's own
+        // `NamespaceKey` — home assembly included, since the origin lives at the chain's
+        // root — and `addRef` imports the same bare export from the same home module the
+        // bare free function would.
         let valueKey =
             match declKey with
-            | SymbolKey.Type t -> SymbolKeyOps.valueKey (SymbolKeyOps.typeAsm t) (SymbolKeyOps.typeNs t) memberName
+            | SymbolKey.Type t -> SymbolKeyOps.valueKey (ModuleHolder.InNamespace t.Namespace) memberName
             | _ ->
                 failwithf
                     "EmitJs (Step 9b): erased grouping member '%s' has a non-type declaring key %A"

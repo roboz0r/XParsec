@@ -24,7 +24,12 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// the real prelude auto-opens `Vesper.Core`'s operator module).
 let private provider: IExternalSymbolProvider =
     let mono name =
-        ValueSome(ExternalSymbols.monoFrozen name (FTConst(RuntimeNames.intKey, EqArray.empty)))
+        ValueSome(
+            ExternalSymbols.monoFrozen
+                (SymbolKeyOps.inNamespace None "")
+                name
+                (FTConst(RuntimeNames.intKey, EqArray.empty))
+        )
 
     ExternalSymbolProviders.ofNamedLeaf
         { ExternalSymbolProviders.NamedLeaf.empty with

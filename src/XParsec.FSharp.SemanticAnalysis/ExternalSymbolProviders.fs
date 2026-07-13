@@ -162,26 +162,17 @@ module ExternalSymbolProviders =
             match stampOrigin with
             | ValueNone -> id
             | ValueSome o ->
-                // Re-stamp the asm slot on the existing key: the inner provider
-                // mints `Key = valueKeyOf None compiledName` (no asm yet); the
-                // wrapper knows the asm from the package manifest. Preserve the
-                // inner's `(ns, name)` decomposition — a source/compiled alias
-                // pair (e.g. `List.fold` + `ListModule.fold`) carries the SAME
-                // key (both registered with the compiled-name decomposition by
-                // VesperLib), so this asm-only re-stamp keeps the aliases
+                // Re-home the existing key: the inner provider builds the containment
+                // chain but has no assembly for it yet (`Origin.Local`); the wrapper
+                // knows the asm from the package manifest, and `reroot` rewrites the
+                // `Origin` at the chain's root, leaving the chain itself untouched. A
+                // source/compiled alias pair (e.g. `List.fold` + `ListModule.fold`)
+                // carries the SAME key, so this home-only rewrite keeps the aliases
                 // pointing at one identity.
-                let restampKey (k: SymbolKey) : SymbolKey =
-                    match k with
-                    | SymbolKey.Binding b ->
-                        SymbolKey.Binding(
-                            SymbolKeyOps.bindingKeyOf o.Assembly (SymbolKeyOps.holderFullName b.Decl) b.Name
-                        )
-                    | _ -> k
-
                 fun (s: ExternalSymbol) ->
                     { s with
                         Origin = o
-                        Key = restampKey s.Key
+                        Key = SymbolKeyOps.reroot o.Namespace.Origin s.Key
                     }
 
         let stampMember =

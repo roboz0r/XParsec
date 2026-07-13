@@ -110,7 +110,7 @@ let mkMember: ExternalMember =
                 (FTConst(RuntimeNames.unitKey, EqArray.empty))
         MethodArity = 0
         Origin = SymbolOrigin.Empty
-        Key = SymbolKeyOps.valueKeyOf None ""
+        Key = SymbolKeyOps.valueKey (SymbolKeyOps.inNamespace None "") ""
         OptionalDefaults = []
         IsOptional = false
     }

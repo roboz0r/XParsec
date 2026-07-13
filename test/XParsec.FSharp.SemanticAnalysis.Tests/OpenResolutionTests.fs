@@ -17,14 +17,19 @@ let private provider: IExternalSymbolProvider =
 
       interface IExternalSymbolResolver with
           member _.TryLookup n =
-              if n = "A.B.thing" then
-                  ValueSome(ExternalSymbols.monoFrozen "thing" (FTConst(RuntimeNames.intKey, EqArray.empty)))
+              let mono name =
+                  ValueSome(
+                      ExternalSymbols.monoFrozen
+                          (SymbolKeyOps.inNamespace None "")
+                          name
+                          (FTConst(RuntimeNames.intKey, EqArray.empty))
+                  )
+
+              if n = "A.B.thing" then mono "thing"
               // The qualified operator `A.B.(+)` resolves to its compiled name
               // `A.B.op_Addition`.
-              elif n = "A.B.op_Addition" then
-                  ValueSome(ExternalSymbols.monoFrozen "op_Addition" (FTConst(RuntimeNames.intKey, EqArray.empty)))
-              else
-                  ValueNone
+              elif n = "A.B.op_Addition" then mono "op_Addition"
+              else ValueNone
 
           member _.TryLookupType(n: string) =
               if n = "Some.Where.Foo`1" then

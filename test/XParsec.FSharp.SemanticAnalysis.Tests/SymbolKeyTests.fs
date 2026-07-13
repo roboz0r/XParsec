@@ -139,25 +139,54 @@ let tests =
                     "the arity is already spelled by the outer; it is not re-appended to the inner"
             }
 
-            // `moduleKeyOf` is a last-dot split; its only correctness argument is that
-            // `moduleFullName` inverts it exactly.
-            test "module full name round-trips through moduleKeyOf" {
+            // `moduleFullName` is the ONE rendering of a module's containment. Nothing parses
+            // it back, so its correctness argument is that it renders each holder shape whole.
+            test "module full name renders the holder chain" {
                 Expect.equal
-                    (SymbolKeyOps.moduleFullName (SymbolKeyOps.moduleKeyOf (Some "A") "Vesper.Unchecked"))
+                    (SymbolKeyOps.moduleFullName (SymbolKeyOps.moduleInNamespace (Some "A") "Vesper" "Unchecked"))
                     "Vesper.Unchecked"
-                    "namespace-qualified module round-trips"
+                    "namespace-qualified module"
 
                 Expect.equal
-                    (SymbolKeyOps.moduleFullName (SymbolKeyOps.moduleKeyOf (Some "A") "Util"))
+                    (SymbolKeyOps.moduleFullName (SymbolKeyOps.moduleInNamespace (Some "A") "" "Util"))
                     "Util"
-                    "a module in the global namespace round-trips"
+                    "a module in the global namespace"
+            }
+
+            // A NESTED module: the holder chain no producer could mint while `moduleKeyOf`
+            // took a dotted name (its last segment became the module and the rest the
+            // namespace, so `Inner` and `Outer` both flattened into the namespace path).
+            // `Outer` must be a MODULE here, not a namespace segment.
+            test "nested module: the chain nests, and the namespace stops where it stops" {
+                let outer = SymbolKeyOps.moduleInNamespace (Some "A") "Vesper" "Outer"
+
+                let inner = SymbolKeyOps.moduleKeyOf (ModuleHolder.InModule outer) "Inner"
+
+                Expect.equal (SymbolKeyOps.moduleFullName inner) "Vesper.Outer.Inner" "the whole chain renders"
+
+                Expect.equal
+                    (List.ofSeq inner.Namespace.Path.Underlying)
+                    [ "Vesper" ]
+                    "the namespace is `Vesper` alone — `Outer` is a module, not a namespace segment"
+
+                Expect.equal
+                    inner.Origin
+                    (Origin.InAssembly(AssemblyName "A"))
+                    "the home assembly is reachable through the nested chain"
+
+                let b = SymbolKeyOps.bindingKeyOf (ModuleHolder.InModule inner) "f"
+
+                Expect.equal
+                    (SymbolKeyOps.qualifiedName (SymbolKey.Binding b))
+                    "Vesper.Outer.Inner.f"
+                    "a binding in a nested module qualifies through the whole chain"
             }
 
             // The UNQUALIFIED binding — a flat package's export / a global extern. Its holder
             // is the global namespace, NOT an absent one: it still carries the home assembly,
             // which is what a `ModuleKey voption` could not have done.
             test "unqualified binding: holder is the global namespace, home assembly survives" {
-                let b = SymbolKeyOps.bindingKeyOf (Some "pkg") "" "f"
+                let b = SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace (Some "pkg") "") "f"
 
                 match b.Decl with
                 | ModuleHolder.InNamespace ns ->
@@ -175,5 +204,31 @@ let tests =
                     (SymbolKeyOps.qualifiedName (SymbolKey.Binding b))
                     "f"
                     "qualifiedName drops the empty holder rather than emitting a leading dot"
+            }
+
+            // `reroot` is how a provider stack re-homes the keys its inner leaf minted before
+            // the package's assembly was known. It rewrites the `Origin` at the ROOT of the
+            // chain and nothing else — in particular it does not re-derive the chain from a
+            // rendered name, which is what used to flatten a nested module away.
+            test "reroot rewrites the home assembly and preserves the containment chain" {
+                let inner =
+                    SymbolKeyOps.moduleKeyOf
+                        (ModuleHolder.InModule(SymbolKeyOps.moduleInNamespace None "Vesper" "Outer"))
+                        "Inner"
+
+                let k =
+                    SymbolKey.Binding(SymbolKeyOps.bindingKeyOf (ModuleHolder.InModule inner) "f")
+
+                let homed = SymbolKeyOps.reroot (Origin.InAssembly(AssemblyName "Vesper.Core")) k
+
+                Expect.equal
+                    homed.Origin
+                    (Origin.InAssembly(AssemblyName "Vesper.Core"))
+                    "the root carries the new home"
+
+                Expect.equal
+                    (SymbolKeyOps.qualifiedName homed)
+                    (SymbolKeyOps.qualifiedName k)
+                    "the containment chain is untouched"
             }
         ]

@@ -102,7 +102,7 @@ let private fake: IExternalSymbolProvider =
       interface IExternalSymbolResolver with
           member _.TryLookup name =
               if name = "sym" then
-                  ValueSome(ExternalSymbols.monoFrozen "sym" marker)
+                  ValueSome(ExternalSymbols.monoFrozen (SymbolKeyOps.inNamespace None "") "sym" marker)
               else
                   ValueNone
 

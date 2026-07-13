@@ -21,7 +21,10 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
           member _.TryLookup n =
               if n = name then
                   ValueSome
-                      { ExternalSymbols.monoFrozen name (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty)) with
+                      { ExternalSymbols.monoFrozen
+                            (SymbolKeyOps.inNamespace None "")
+                            name
+                            (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty)) with
                           Origin = origin
                       }
               else
