@@ -1224,20 +1224,23 @@ module Elaborate =
     /// `LocalSymbolKey.ofType`).
     let private tryEnumType
         (ctx: PassContext)
-        (ns: string option)
+        (c: DeclContainment<SyntaxToken>)
         (name: string)
         (cases: EnumTypeCases<SyntaxToken>)
         : (TDecl * (TypeVar * SemType) list) option =
+        let ns = DeclContainment.namespaceOpt c
         // Recover the SAME nominal key `NameResolution.registerEnumTypeDefn` minted
         // and stamped, so the surfaced decl, the `(x: E)` annotation, and the
         // `E.C1` access all share one identity. The registry lookup is total in
         // practice (every enum registers); the direct mint is a defensive fallback
-        // (e.g. a duplicate enum the registrar rejected) using the identical formula.
+        // (e.g. a duplicate enum the registrar rejected) using the identical formula —
+        // the same containment-derived holder, so a module-held enum cannot fall back to
+        // a DIFFERENT key than the one registration minted.
         let key =
             match TypeRegistry.tryEnum ctx.Types name with
             | ValueSome info -> info.Key
             | ValueNone ->
-                SymbolKey.Type(LocalSymbolKey.ofType (SymbolKeyOps.asmOf ctx.AssemblyName) (defaultArg ns "") name 0)
+                SymbolKey.Type(LocalSymbolKey.ofType (NameResolutionTypeRegistration.localTypeHolder ctx c) name 0)
 
         let tcases =
             EqArray.ofSeq (
@@ -1630,9 +1633,11 @@ module Elaborate =
     /// carrying a `with member …` augmentation surfaces its members (harvest-only).
     let private tryTypeDecl
         (ctx: PassContext)
-        (ns: string option)
+        (c: DeclContainment<SyntaxToken>)
         (td: TypeDefn<SyntaxToken>)
         : (TDecl * (TypeVar * SemType) list) option =
+        let ns = DeclContainment.namespaceOpt c
+
         let classify tn (body: ObjectModelBody<SyntaxToken>) =
             let name = typeNameSimple ctx tn
 
@@ -1641,16 +1646,13 @@ module Elaborate =
             match tryInterfaceMethods ctx name arity body with
             | Some(typars, methods, env) ->
                 // Interfaces aren't in the codegen emitted-type tables (their own
-                // `interfaceDecls` path), but `TTypeDecl.Key` is total — mint the
-                // same `(asm, ns, name\`arity)` identity registration would, so a
-                // reference to the interface compares equal to this decl's key.
+                // `interfaceDecls` path), but `TTypeDecl.Key` is total — mint the identity
+                // registration would, from the SAME containment-derived holder
+                // (`localTypeHolder`), so a reference to the interface compares equal to
+                // this decl's key wherever the interface is declared.
                 let key =
                     SymbolKey.Type(
-                        LocalSymbolKey.ofType
-                            (SymbolKeyOps.asmOf ctx.AssemblyName)
-                            (defaultArg ns "")
-                            name
-                            typars.Length
+                        LocalSymbolKey.ofType (NameResolutionTypeRegistration.localTypeHolder ctx c) name typars.Length
                     )
 
                 Some(
@@ -1685,7 +1687,7 @@ module Elaborate =
             tryUnionType ctx ns (typeNameSimple ctx tn) (typeNameDeclKey ctx tn) ext
         | TypeDefn.Record(typeName = tn; extensions = ext) ->
             tryRecordType ctx ns (typeNameSimple ctx tn) (typeNameDeclKey ctx tn) ext
-        | TypeDefn.Enum(typeName = tn; cases = cases) -> tryEnumType ctx ns (typeNameSimple ctx tn) cases
+        | TypeDefn.Enum(typeName = tn; cases = cases) -> tryEnumType ctx c (typeNameSimple ctx tn) cases
         // A plain abbrev has no host in `IntrinsicAbbrevHost` and surfaces `None`; an
         // inline intrinsic-abbrev with `with member …` surfaces its members (harvest-only).
         | TypeDefn.Abbrev(typeName = tn; extensions = ext) -> tryIntrinsicAbbrevType ctx ns (typeNameSimple ctx tn) ext
@@ -1694,18 +1696,25 @@ module Elaborate =
     let private longIdentText (ctx: PassContext) (li: LongIdent<SyntaxToken>) : string =
         li.Idents |> Seq.map ctx.NameOf |> String.concat "."
 
-    /// `holder` is the enclosing named module's compiled holder-type name:
-    /// `Some` for elements inside a `module Foo = …`, `None` at the
-    /// namespace/file top level. A `let` binding under a holder records its
-    /// `NodeKey` → `ModuleMemberInfo` so the backend emits it as a named public
-    /// static method on that holder (e.g. `ListModule::fold`) rather than on the
-    /// anonymous "Program" holder.
+    /// `c` is the element's declaring containment — the `namespace` group plus the
+    /// `module`s it is nested in. Its innermost module is the compiled holder type a `let`
+    /// binding lands on: such a binding records its `NodeKey` → `ModuleMemberInfo` so the
+    /// backend emits it as a named public static method on that holder (e.g.
+    /// `ListModule::fold`) rather than on the anonymous "Program" holder. The holder NAME
+    /// comes from `NameResolutionTypeRegistration.moduleHolderName`, the same rule the
+    /// type-key mint applies — the compiled holder name has one definition, not two.
     let rec private translateModuleElem
         (ctx: PassContext)
-        (ns: string option)
-        (holder: string option)
+        (c: DeclContainment<SyntaxToken>)
         (m: ModuleElem<SyntaxToken>)
         : (TDecl * (TypeVar * SemType) list) list =
+        let ns = DeclContainment.namespaceOpt c
+
+        let holder =
+            match DeclContainment.innermost c with
+            | ValueSome md -> Some(NameResolutionTypeRegistration.moduleHolderName ctx md)
+            | ValueNone -> None
+
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
             [
@@ -1834,40 +1843,17 @@ module Elaborate =
         | ModuleElem.Expression e ->
             let eT = translateExpr ctx e
             [ TDecl.Expression(eT, typeOfKey ctx (CstKeys.ofExpr e)), [] ]
-        | ModuleElem.Type defs -> defs |> Seq.choose (tryTypeDecl ctx ns) |> List.ofSeq
-        // A nested `module Foo = …` surfaces its body flat at the enclosing
-        // namespace (v1 has no module-scoped *types*), mirroring the analysis
-        // passes' `CstWalk.implFileElems` flattening — but its *functions* carry
-        // the holder name `Foo`, suffixed `FooModule` when a type of the same name
-        // shares the namespace (the F# rule that mandates
-        // `[<CompilationRepresentation(ModuleSuffix)>]`), so they emit onto a real
-        // holder type. Deeper nesting takes the innermost module's name.
-        | ModuleElem.Module(ModuleDefn.ModuleDefn(
-            attributes = attrs; ident = ident; body = ModuleDefnBody(elements = inner))) ->
+        | ModuleElem.Type defs -> defs |> Seq.choose (tryTypeDecl ctx c) |> List.ofSeq
+        // A nested `module Foo = …` surfaces its body flat at the enclosing namespace —
+        // the CLR backend still emits a module-held type as a TOP-LEVEL TypeDef (nesting
+        // is not wired), even though the type's KEY now names the module. Its *functions*
+        // carry the holder name (`Foo` / `FooModule`), so they emit onto a real holder
+        // type; deeper nesting takes the innermost module's name.
+        | ModuleElem.Module((ModuleDefn.ModuleDefn(body = ModuleDefnBody(elements = inner))) as md) ->
             match inner with
             | ValueSome innerElems ->
-                let moduleName = ctx.NameOf ident
-
-                let holderName =
-                    // The `…Module` suffix the compiled holder takes when it would
-                    // otherwise clash with a same-named type — either a *project*
-                    // type in this namespace, or one the author pinned with
-                    // `[<CompilationRepresentation(ModuleSuffix)>]` (e.g.
-                    // `Vesper.Array`'s `Array` module over the intrinsic `'T[]`,
-                    // which has no project type to collide with but must still
-                    // compile to `ArrayModule` to match its contract + FSharp.Core).
-                    if
-                        (TypeRegistry.tryUnionBare ctx.Types moduleName).IsSome
-                        || (TypeRegistry.tryRecord ctx.Types moduleName).IsSome
-                        || (TypeRegistry.tryClass ctx.Types moduleName).IsSome
-                        || VesperLibTypeTranslate.hasModuleSuffix ctx.Lexed ctx.Input attrs
-                    then
-                        moduleName + "Module"
-                    else
-                        moduleName
-
                 innerElems
-                |> Seq.collect (translateModuleElem ctx ns (Some holderName))
+                |> Seq.collect (translateModuleElem ctx (DeclContainment.enter md c))
                 |> List.ofSeq
             | ValueNone -> []
         | _ -> []
@@ -1882,21 +1868,25 @@ module Elaborate =
     /// today nothing runs between them and the output is byte-identical to the old
     /// fused pass.)
     let elaborate (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : (TDecl * (TypeVar * SemType) list) list =
+        // The containment mirrors `CstWalk.walkModuleTreeWith`'s exactly — same namespace
+        // at the root, same module chain — so the key a type's decl surfaces with is the
+        // key NameResolution minted for it.
+        let top = DeclContainment.ofNamespace ""
+
         match file with
-        | ImplementationFile.AnonymousModule elems ->
-            elems |> Seq.collect (translateModuleElem ctx None None) |> List.ofSeq
+        | ImplementationFile.AnonymousModule elems -> elems |> Seq.collect (translateModuleElem ctx top) |> List.ofSeq
         | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) ->
-            elems |> Seq.collect (translateModuleElem ctx None None) |> List.ofSeq
+            elems |> Seq.collect (translateModuleElem ctx top) |> List.ofSeq
         | ImplementationFile.Namespaces groups ->
             [
                 for g in groups do
-                    let nsName, elems =
+                    let containment, elems =
                         match g with
                         | NamespaceDeclGroup.Named(longIdent = li; elements = elems) ->
-                            Some(longIdentText ctx li), elems
-                        | NamespaceDeclGroup.Global(elements = elems) -> None, elems
+                            DeclContainment.ofNamespace (longIdentText ctx li), elems
+                        | NamespaceDeclGroup.Global(elements = elems) -> top, elems
 
-                    yield! elems |> Seq.collect (translateModuleElem ctx nsName None)
+                    yield! elems |> Seq.collect (translateModuleElem ctx containment)
             ]
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : TastFile =

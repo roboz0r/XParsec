@@ -213,6 +213,60 @@ module TypeDefnPatterns =
         | TypeDefn.Interface(body = b) -> ValueSome b
         | _ -> ValueNone
 
+/// The declaring containment of an element: the `namespace` group it sits in (dotted;
+/// `""` for an anonymous / global / named-module file) and the `module` declarations it
+/// is nested in, OUTERMOST FIRST. The two are named SEPARATELY and never flattened into
+/// one dotted string — a module is a HOLDER, not a namespace segment, and folding it into
+/// the namespace path is exactly the lie the segmented `NamespaceKey` exists to retire.
+///
+/// SYNTAX, not identity. This file compiles before `SemanticInfo`, so it cannot name
+/// `ModuleHolder` — and it could not fill one anyway: a holder chain needs the home
+/// assembly (`PassContext.AssemblyName`) at its root and a module's COMPILED holder name
+/// at each link, neither of which is a syntactic fact.
+/// `NameResolutionTypeRegistration.localTypeHolder` is the one place that turns this into
+/// a `TypeHolder`.
+type DeclContainment<'T> =
+    {
+        Namespace: string
+        /// Outermost first. The whole `ModuleDefn` rides along (not just its name)
+        /// because the compiled holder name is a function of its ATTRIBUTES too
+        /// (`[<CompilationRepresentation(ModuleSuffix)>]`).
+        Modules: ModuleDefn<'T> list
+    }
+
+module DeclContainment =
+
+    /// The containment at the top of a `namespace` group / file module — no enclosing
+    /// modules yet.
+    let ofNamespace (ns: string) : DeclContainment<'T> = { Namespace = ns; Modules = [] }
+
+    /// Descend into a `module Foo = …`: the module is APPENDED to the holder chain (it is
+    /// not a namespace segment, so `Namespace` is untouched).
+    let enter (md: ModuleDefn<'T>) (c: DeclContainment<'T>) : DeclContainment<'T> =
+        { c with Modules = c.Modules @ [ md ] }
+
+    /// The innermost enclosing module, `ValueNone` at the namespace/file top level — the
+    /// module a `let` compiles onto.
+    let innermost (c: DeclContainment<'T>) : ModuleDefn<'T> voption =
+        match List.tryLast c.Modules with
+        | Some md -> ValueSome md
+        | None -> ValueNone
+
+    /// The declaring namespace in the `TTypeDecl.Namespace` shape: `None` for the global
+    /// namespace / file module.
+    let namespaceOpt (c: DeclContainment<'T>) : string option =
+        if c.Namespace = "" then None else Some c.Namespace
+
+/// One flattened leaf element of a module tree, paired with the two ambient facts a pass
+/// needs at that position: the `open` scope active there, and the declaring containment
+/// a local `SymbolKey` is minted from.
+type WalkedElem<'T> =
+    {
+        Elem: ModuleElem<'T>
+        Scope: OpenScope
+        Containment: DeclContainment<'T>
+    }
+
 module CstWalk =
 
     type ExprWalker<'env> =
@@ -879,14 +933,13 @@ module CstWalk =
         (ambient: OpenScope)
         (onScope: ModuleElems<SyntaxToken> -> bool -> unit)
         (file: ImplementationFile<SyntaxToken>)
-        : (ModuleElem<SyntaxToken> * OpenScope * string) list =
-        // The third tuple slot is the *declaring namespace* of each surfaced element
-        // — the enclosing `namespace` group's
-        // longident, "" for an anonymous/global/named-module file. It mirrors
-        // `Elaborate.run`'s `ns` exactly (a nested `module` is a holder, not a namespace
-        // segment, so it passes the enclosing ns through unchanged), so a local
-        // `SymbolKey` minted from it equals the type's emitted `TDecl.Namespace`.
-        let out = ResizeArray<ModuleElem<SyntaxToken> * OpenScope * string>()
+        : WalkedElem<SyntaxToken> list =
+        // Each surfaced element carries its `DeclContainment`: the enclosing `namespace`
+        // group plus every `module` it is nested in. The walk FLATTENS the module tree
+        // (the wrapper element is dropped), so this is the only record of where the
+        // element was declared — and it is what a local `SymbolKey` is minted from
+        // (`NameResolutionTypeRegistration.stampLocalTypeKey`).
+        let out = ResizeArray<WalkedElem<SyntaxToken>>()
 
         let longIdentText (li: LongIdent<SyntaxToken>) : string =
             li.Idents |> Seq.map nameOf |> String.concat "."
@@ -928,7 +981,7 @@ module CstWalk =
             (start: OpenScope)
             (isRec: bool)
             (inRec: bool)
-            (declNs: string)
+            (containment: DeclContainment<SyntaxToken>)
             : unit =
             onScope elems inRec
 
@@ -938,40 +991,62 @@ module CstWalk =
                 let constScope = (start, elems) ||> Seq.fold accumulate
 
                 for e in elems do
-                    emit e constScope inRec declNs
+                    emit e constScope inRec containment
             else
                 let mutable s = start
 
                 for e in elems do
-                    emit e s inRec declNs
+                    emit e s inRec containment
                     s <- accumulate s e
 
-        and emit (e: ModuleElem<SyntaxToken>) (scope: OpenScope) (inRec: bool) (declNs: string) : unit =
+        and emit
+            (e: ModuleElem<SyntaxToken>)
+            (scope: OpenScope)
+            (inRec: bool)
+            (containment: DeclContainment<SyntaxToken>)
+            : unit =
             match e with
-            | ModuleElem.Module(ModuleDefn.ModuleDefn(isRec = innerRec; body = ModuleDefnBody(elements = inner))) ->
-                // The wrapper is dropped (as in `implFileElems`); the body is walked
-                // with the enclosing scope inherited as its seed. A module is a *holder*,
-                // not a namespace segment, so `declNs` passes through unchanged — this is
-                // the rule `Elaborate.run` applies (the module name becomes the let-holder,
-                // never part of a nested type's `Namespace`).
+            | ModuleElem.Module((ModuleDefn.ModuleDefn(isRec = innerRec; body = ModuleDefnBody(elements = inner))) as md) ->
+                // The wrapper is dropped (as in `implFileElems`); the body is walked with
+                // the enclosing scope inherited as its seed. A module is a *holder*, not a
+                // namespace segment, so it EXTENDS the containment's holder chain and
+                // leaves its `Namespace` alone.
                 match inner with
                 | ValueSome innerElems ->
-                    processElems innerElems scope innerRec.IsSome (inRec || innerRec.IsSome) declNs
+                    processElems
+                        innerElems
+                        scope
+                        innerRec.IsSome
+                        (inRec || innerRec.IsSome)
+                        (DeclContainment.enter md containment)
                 | ValueNone -> ()
-            | _ -> out.Add(e, scope, declNs)
+            | _ ->
+                out.Add
+                    {
+                        Elem = e
+                        Scope = scope
+                        Containment = containment
+                    }
+
+        let top = DeclContainment.ofNamespace ""
 
         match file with
-        | ImplementationFile.AnonymousModule elems -> processElems elems ambient false false ""
+        | ImplementationFile.AnonymousModule elems -> processElems elems ambient false false top
         | ImplementationFile.NamedModule(NamedModule.NamedModule(isRec = isRec; elements = elems)) ->
-            processElems elems ambient isRec.IsSome isRec.IsSome ""
+            processElems elems ambient isRec.IsSome isRec.IsSome top
         | ImplementationFile.Namespaces groups ->
             for g in groups do
                 match g with
                 | NamespaceDeclGroup.Named(isRec = isRec; longIdent = nsLi; elements = elems) ->
                     // The namespace's own name is an implicit prefix for its body, and the
-                    // declaring namespace its types are emitted into (`Elaborate.run`).
-                    processElems elems (addOpen ambient nsLi) isRec.IsSome isRec.IsSome (longIdentText nsLi)
-                | NamespaceDeclGroup.Global(elements = elems) -> processElems elems ambient false false ""
+                    // declaring namespace at the root of its elements' containment.
+                    processElems
+                        elems
+                        (addOpen ambient nsLi)
+                        isRec.IsSome
+                        isRec.IsSome
+                        (DeclContainment.ofNamespace (longIdentText nsLi))
+                | NamespaceDeclGroup.Global(elements = elems) -> processElems elems ambient false false top
 
         List.ofSeq out
 
@@ -983,10 +1058,10 @@ module CstWalk =
         (ambient: OpenScope)
         (file: ImplementationFile<SyntaxToken>)
         : (ModuleElem<SyntaxToken> * OpenScope) list =
-        // Drop the declaring-namespace slot — consumers that don't mint local
-        // `SymbolKey`s (Unification's walkElems, VesperLib) keep the pair shape.
+        // Drop the containment — consumers that don't mint local `SymbolKey`s
+        // (Unification's walkElems, VesperLib) keep the pair shape.
         walkModuleTreeWith nameOf ambient (fun _ _ -> ()) file
-        |> List.map (fun (e, s, _) -> e, s)
+        |> List.map (fun w -> w.Elem, w.Scope)
 
     /// The signature elements a pass walks for a signature (`.fsi`) file — the
     /// `.fsi` analogue of `implFileElems`. A `namespace`-headed file contributes

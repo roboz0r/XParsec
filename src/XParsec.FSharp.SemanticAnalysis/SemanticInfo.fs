@@ -104,15 +104,17 @@ and ModuleKey =
 [<RequireQualifiedAccess>]
 type TypeHolder =
     | InNamespace of ns: NamespaceKey
-    /// NO PRODUCER YET — representable, matched everywhere, constructed nowhere.
-    /// Local type registration (`TypeRegistration.stampLocalTypeKey`) still folds the
-    /// declaring module into the namespace path, so `namespace N` + `module M` +
-    /// `type T` currently mints `Holder = InNamespace [N; M]` — which names `M` as a
-    /// NAMESPACE. That is the last of the old string-flattening, and it is now a lie
-    /// the type is capable of not telling: wiring the producer is a self-contained
-    /// follow-up (mint `InModule` from the enclosing module's `ModuleKey`, which
-    /// `ModuleHolder.InModule` already has producers for). Until then, do not read a
-    /// type's `Namespace` as evidence that its tail segments are namespaces.
+    /// A type declared inside a `module` — `namespace N` + `module M` + `type T`.
+    /// `parent` names the module's COMPILED holder type (the `…Module` suffix already
+    /// applied), so the chain reads as the containment the CLR will eventually emit:
+    /// `T` nested in `M`, `M` in namespace `N`.
+    ///
+    /// The `TypeRegistry` claim table is still `(name, arity)`-keyed — namespace- AND
+    /// module-blind — so two sibling modules declaring the same type name still contest
+    /// one claim and the second is rejected as a duplicate. Making the CLAIM
+    /// holder-aware is what admits `N.A.T` and `N.B.T` as two types, and it can only
+    /// ship together with CLR nested-type emission (today the backend writes every
+    /// `TypeDef` flat, so two claims would collide on one metadata name).
     | InModule of parent: ModuleKey
     /// EXTERNAL ONLY — a CLR *nested* type. Unconstructible from Vesper source (the
     /// parser cannot declare a nested type); required to name

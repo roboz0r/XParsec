@@ -601,16 +601,23 @@ module NameResolution =
     let private walkElems
         (ctx: PassContext)
         (walker: CstWalk.ExprWalker<Scope list>)
-        (pairs: (ModuleElem<SyntaxToken> * OpenScope * string) list)
+        (elems: WalkedElem<SyntaxToken> list)
         =
+        // The compiled-module-name pre-scan. `moduleHolderName` (the `…Module` suffix
+        // rule) reads it, and the very first key minted below may be a module-held type's
+        // — so the whole unit's nominal name set must be fixed BEFORE the identity pass,
+        // not accumulated during it.
+        for w in elems do
+            noteNominalTypeNames ctx w.Elem
+
         // Identity pre-pass: claim every type's `(name, arity)` and mint its `SymbolKey`,
-        // in SOURCE order and regardless of kind. The third slot is the declaring
-        // namespace, which rides into the minted key. This is the only pass that may
+        // in SOURCE order and regardless of kind. The element's `Containment` (namespace +
+        // enclosing modules) rides into the minted key. This is the only pass that may
         // diagnose a duplicate type definition, and the only one that mints a local type
         // key — so the kind-detail passes below carry neither obligation and cannot drift
         // apart on either.
-        for (m, _, declNs) in pairs do
-            registerTypeIdentities ctx declNs m
+        for w in elems do
+            registerTypeIdentities ctx w.Containment w.Elem
 
         // Kind-detail passes: fields, cases, enum case names, class members / ctor params.
         // Each recovers its own identity by `TypeRegistry.tryOwnIdentity`, so a rejected
@@ -619,61 +626,61 @@ module NameResolution =
         // finish before classes, because a class's `static let` runs `bindingsOfPat`, whose
         // ctor-vs-binder disambiguation reads `ctx.Types.CtorIndex`. Registration resolves
         // no external short names, so it ignores the per-element scope.
-        for (m, _, _) in pairs do
-            registerRecordTypes ctx m
+        for w in elems do
+            registerRecordTypes ctx w.Elem
 
-        for (m, _, _) in pairs do
-            registerUnionTypes ctx m
+        for w in elems do
+            registerUnionTypes ctx w.Elem
 
-        for (m, _, _) in pairs do
-            registerEnumTypes ctx m
+        for w in elems do
+            registerEnumTypes ctx w.Elem
 
-        for (m, _, _) in pairs do
-            registerAbbreviationTypes ctx m
+        for w in elems do
+            registerAbbreviationTypes ctx w.Elem
 
-        for (m, _, _) in pairs do
-            registerClassTypes ctx m
+        for w in elems do
+            registerClassTypes ctx w.Elem
 
         // Inheritance (B-4): stamp each class's BaseType / BaseCtorArgs after
         // every class is registered (so a parent declared later resolves), then
         // sweep for cycles once the whole graph is populated.
-        for (m, _, _) in pairs do
-            registerInheritedSlots ctx m
+        for w in elems do
+            registerInheritedSlots ctx w.Elem
 
         checkInheritanceCycles ctx
 
         // Union/record augmentation members + interface impls register after the type
         // itself (P3d.3).
-        for (m, _, _) in pairs do
-            registerNominalMembers ctx m
+        for w in elems do
+            registerNominalMembers ctx w.Elem
 
         // Stamp the written external type heads in each type definition's structure
         // (fields, member sigs, inherit, interface, abbrev RHS, delegate) under the
         // element's own open scope, so `translateType` reads the resolved store-face
         // key for these signature positions. Independent of the expression / pattern
         // walks below, which stamp the member-body and value positions.
-        for (m, openScope, _) in pairs do
-            ctx.Resolution.OpenScope <- openScope
-            stampTypeDefnTypes ctx m
+        for w in elems do
+            ctx.Resolution.OpenScope <- w.Scope
+            stampTypeDefnTypes ctx w.Elem
 
         // walkModuleElem skips ModuleElem.Type, so class/union member bodies are
         // walked here with each type's own scope (`this` + ctor params), giving
         // member-body idents Binding entries before Unification types them.
         // ctx.Resolution.OpenScope is set per element so a member body resolves
         // short external names against the `open`s in scope at that element.
-        for (m, openScope, _) in pairs do
-            ctx.Resolution.OpenScope <- openScope
-            walkClassBodies ctx walker m
+        for w in elems do
+            ctx.Resolution.OpenScope <- w.Scope
+            walkClassBodies ctx walker w.Elem
 
-        for (m, openScope, _) in pairs do
-            ctx.Resolution.OpenScope <- openScope
-            walkNominalBodies ctx walker m
+        for w in elems do
+            ctx.Resolution.OpenScope <- w.Scope
+            walkNominalBodies ctx walker w.Elem
 
         let mutable scope = [ Map.empty ]
 
-        for (m, openScope, _) in pairs do
-            ctx.Resolution.OpenScope <- openScope
-            scope <- walkModuleElem ctx walker scope m
+        for w in elems do
+            ctx.Resolution.OpenScope <- w.Scope
+            scope <- walkModuleElem ctx walker scope w.Elem
 
     /// The simple (last-segment) name of any named `TypeDefn` shape; `ValueNone`
     /// for the nameless `Missing` / `SkipsTokens` placeholders.
@@ -775,8 +782,8 @@ module NameResolution =
         // Seed the walk from the stable ambient prelude. walkElems overwrites
         // ctx.Resolution.OpenScope per element, so the seed is read from
         // AmbientOpenScope, not the scope it mutates.
-        // walkModuleTreeWith keeps the declaring-namespace slot walkElems threads into
-        // each minted local `SymbolKey`; the no-op onScope hook is the plain walk.
+        // walkModuleTreeWith keeps the declaring containment walkElems threads into each
+        // minted local `SymbolKey`; the no-op onScope hook is the plain walk.
         walkElems
             ctx
             walker

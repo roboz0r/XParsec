@@ -2,6 +2,7 @@ module XParsec.FSharp.SemanticAnalysis.Tests.SymbolKeyTests
 
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 // Guards the "asm agrees across every mint path" invariant. Unification compares
 // nominal `SemType`s by *full* `SymbolKey` equality,
@@ -33,8 +34,9 @@ let tests =
                 let viaQualified =
                     SymbolKeyOps.qualifiedTypeKeyOf (Some "Vesper.List") "Vesper.Collections.List" 1
 
-                // The local-def path (`LocalSymbolKey.ofType (Some "Vesper.List")
-                // "Vesper.Collections" "List" 1`) produces exactly this literal.
+                // The local-def path (`LocalSymbolKey.ofType` over the same containment —
+                // namespace `Vesper.Collections`, home `Vesper.List`) produces exactly
+                // this literal.
                 Expect.equal viaOrigin RuntimeNames.vesperListKey "origin mint = canonical (incl. asm)"
                 Expect.equal viaQualified RuntimeNames.vesperListKey "qualified mint = canonical (incl. asm)"
                 Expect.equal viaOrigin viaQualified "both external mint paths agree"
@@ -230,5 +232,127 @@ let tests =
                     (SymbolKeyOps.qualifiedName homed)
                     (SymbolKeyOps.qualifiedName k)
                     "the containment chain is untouched"
+            }
+        ]
+
+// The DECLARING containment of a project-local type, as minted by
+// `NameResolutionTypeRegistration.stampLocalTypeKey`. A type declared inside a `module`
+// is held by that module (`TypeHolder.InModule`), not by the namespace the module sits in
+// — the module name is neither folded into the namespace path nor dropped.
+//
+// The `(name, arity)` CLAIM table stays namespace- and module-blind, so this does not yet
+// admit two same-named sibling-module types (see `Codegen.Clr.Tests.LocalModuleTests`),
+// and the emitted metadata name is unchanged: `typeMetaName` renders an `InModule` key
+// exactly as the namespace-held key it replaces.
+module private Local =
+
+    /// The `TypeKey` NameResolution minted for the local type `name` at `arity`.
+    let typeKeyOf (arity: int) (name: string) (src: string) : TypeKey =
+        let ctx, _ = analyseNameRes (realProvider.Force()) src
+
+        match TypeRegistry.tryTypeClaim ctx.Types name arity with
+        | ValueSome id -> id.Key
+        | ValueNone -> failtestf "no type claim for %s`%d" name arity
+
+    let source (lines: string list) : string = String.concat "\n" lines
+
+[<Tests>]
+let localTypeContainment =
+    testList
+        "SymbolKey local type containment"
+        [
+            test "a type declared directly in a namespace is held by the NAMESPACE" {
+                let k =
+                    Local.typeKeyOf 0 "T" (Local.source [ "namespace N"; ""; "type T = { x: int }" ])
+
+                match k.Holder with
+                | TypeHolder.InNamespace ns ->
+                    Expect.equal (List.ofSeq ns.Path.Underlying) [ "N" ] "the declaring namespace, segmented"
+                | other -> failtestf "expected InNamespace, got %A" other
+            }
+
+            test "a type declared inside a module is held by the MODULE" {
+                let k =
+                    Local.typeKeyOf 0 "T" (Local.source [ "namespace N"; ""; "module M ="; "    type T = { x: int }" ])
+
+                match k.Holder with
+                | TypeHolder.InModule m ->
+                    Expect.equal m.Name "M" "the enclosing module, by its compiled holder name"
+
+                    match m.Holder with
+                    | ModuleHolder.InNamespace ns ->
+                        Expect.equal
+                            (List.ofSeq ns.Path.Underlying)
+                            [ "N" ]
+                            "the namespace at the root of the chain — `M` is NOT a namespace segment"
+                    | other -> failtestf "expected the module to sit in a namespace, got %A" other
+                | other -> failtestf "expected InModule, got %A" other
+
+                Expect.equal
+                    (List.ofSeq k.Namespace.Path.Underlying)
+                    [ "N" ]
+                    "`TypeKey.Namespace` walks the chain to its root"
+
+                // The behaviour freeze: the module rides in the KEY, and nowhere else. The
+                // metadata name a module-held type renders (and emits) as is unchanged.
+                Expect.equal (SymbolKeyOps.typeMetaName k) "N.T" "the rendered metadata name does not move"
+            }
+
+            test "a NESTED module produces a nested InModule chain" {
+                let k =
+                    Local.typeKeyOf
+                        0
+                        "T"
+                        (Local.source
+                            [
+                                "namespace N"
+                                ""
+                                "module A ="
+                                "    module B ="
+                                "        type T = { x: int }"
+                            ])
+
+                match k.Holder with
+                | TypeHolder.InModule b ->
+                    Expect.equal b.Name "B" "held by the INNERMOST module"
+
+                    match b.Holder with
+                    | ModuleHolder.InModule a ->
+                        Expect.equal a.Name "A" "which is itself held by the outer module"
+
+                        Expect.equal
+                            (List.ofSeq a.Namespace.Path.Underlying)
+                            [ "N" ]
+                            "and the outer module by the namespace — neither module is a namespace segment"
+                    | other -> failtestf "expected B's holder to be module A, got %A" other
+                | other -> failtestf "expected InModule, got %A" other
+
+                Expect.equal (SymbolKeyOps.typeMetaName k) "N.T" "the rendered metadata name is still flat"
+            }
+
+            // `ModuleKey.Name` carries the COMPILED holder name — the static class the module
+            // compiles to — which is what a `ModuleKey` means at every other mint (the
+            // contract face bakes the suffix in at mint time too). The rule has ONE
+            // implementation (`moduleHolderName`), so the key and the emitted holder cannot
+            // disagree about which class holds what.
+            test "the module's key carries its COMPILED holder name (…Module on a type collision)" {
+                let k =
+                    Local.typeKeyOf
+                        0
+                        "T"
+                        (Local.source
+                            [
+                                "namespace N"
+                                ""
+                                "type M = { a: int }"
+                                ""
+                                "module M ="
+                                "    type T = { x: int }"
+                            ])
+
+                match k.Holder with
+                | TypeHolder.InModule m ->
+                    Expect.equal m.Name "MModule" "the module collides with `type M`, so its holder class is suffixed"
+                | other -> failtestf "expected InModule, got %A" other
             }
         ]

@@ -7,24 +7,26 @@ open XParsec.FSharp.Parser
 
 // Side tables hold all in-flight semantic information. CST is never mutated.
 
-/// Project-local nominal identity for a type definition. `asm` is the type's **home assembly** — `Some <thisAsm>`
-/// when the compilation knows its target assembly (`PassContext.AssemblyName`),
-/// `None` only on the front-end-only / contract-scrape paths that never emit. It
-/// is invariant per type: a consumer mints the SAME key for this type from its
-/// `SymbolOrigin.Assembly`, so a project-local key equals the cross-package
-/// reference key (the property the codegen local/external branch reads). `name`
-/// is the .NET arity-qualified simple name (`Choice\`2`); `ns` is the declaring
-/// namespace, threaded through registration (`stampLocalTypeKey`).
+/// Project-local nominal identity for a type definition. The home assembly sits at the
+/// root of the `holder` chain — `Some <thisAsm>` when the compilation knows its target
+/// assembly (`PassContext.AssemblyName`), `None` only on the front-end-only /
+/// contract-scrape paths that never emit. It is invariant per type: a consumer mints the
+/// SAME key for this type from its `SymbolOrigin.Assembly`, so a project-local key equals
+/// the cross-package reference key (the property the codegen local/external branch reads).
+/// `name` is the .NET arity-qualified simple name (`Choice\`2`).
 module internal LocalSymbolKey =
 
-    /// The project-local `SymbolKey.TypeKey` for `name` at `arity`, declared in
-    /// namespace `ns`, with home assembly `asm` (`Some <thisAsm>` for an emitting
-    /// compilation, `None` for the front-end-only paths). The arity-name rule is
-    /// `SymbolKeyOps.arityName` — the one shared definition, so the emitted metadata
-    /// name and the stamped `SymbolKey` name can't drift. This key IS the registry key
-    /// (`TypeRegistry` tables are `TypeKey`-keyed).
-    let ofType (asm: string option) (ns: string) (name: string) (arity: int) : TypeKey =
-        SymbolKeyOps.typeKeyOf asm ns (SymbolKeyOps.arityName name arity)
+    /// The project-local `TypeKey` for `name` at `arity`, declared in `holder` — the
+    /// declaring namespace, or the enclosing module chain rooted in it
+    /// (`NameResolutionTypeRegistration.localTypeHolder` is the one producer of the
+    /// latter). The arity-name rule is `SymbolKeyOps.arityName` — the one shared
+    /// definition, so the emitted metadata name and the stamped `SymbolKey` name can't
+    /// drift. This key IS the registry key (`TypeRegistry` tables are `TypeKey`-keyed).
+    let ofType (holder: TypeHolder) (name: string) (arity: int) : TypeKey =
+        {
+            Holder = holder
+            Name = SymbolKeyOps.arityName name arity
+        }
 
     /// The project-local `SymbolKey.MemberKey` for a member `name` of `kind` on the
     /// type identified by `declKey`, with `arity` value parameters. Project-local
@@ -212,15 +214,15 @@ type RecordTypeInfo
             fields,
             declKey,
             ValueNone,
-            LocalSymbolKey.ofType None "" name typeParams.Length
+            LocalSymbolKey.ofType (TypeHolder.InNamespace NamespaceKey.Global) name typeParams.Length
         )
 
     member val Name = name
-    /// Stable project-local nominal identity — the arity-qualified
-    /// `TypeKey(asm, declNs, name\`arity)` minted by `stampLocalTypeKey` at registration
-    /// (`asm`/`declNs` = the type's home assembly + declaring namespace). The
-    /// convenience constructor (synthesis / test paths with no namespace in scope)
-    /// defaults to the `TypeKey(None, "", name\`arity)` placeholder.
+    /// Stable project-local nominal identity — the arity-qualified `TypeKey` minted by
+    /// `stampLocalTypeKey` at registration, whose holder chain is the type's declaring
+    /// containment (namespace + enclosing modules) rooted in its home assembly. The
+    /// convenience constructor (synthesis / test paths with no containment in scope)
+    /// defaults to the global-namespace, home-less placeholder.
     member val TypeKey: TypeKey = key
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     member val TypeParams = typeParams
@@ -287,14 +289,20 @@ type UnionTypeInfo
         key: TypeKey
     ) =
     new(name, typeParams, cases, declKey) =
-        UnionTypeInfo(name, typeParams, cases, declKey, ValueNone, LocalSymbolKey.ofType None "" name typeParams.Length)
+        UnionTypeInfo(
+            name,
+            typeParams,
+            cases,
+            declKey,
+            ValueNone,
+            LocalSymbolKey.ofType (TypeHolder.InNamespace NamespaceKey.Global) name typeParams.Length
+        )
 
     member val Name = name
-    /// Stable project-local nominal identity — the arity-qualified
-    /// `TypeKey(asm, declNs, name\`arity)` (e.g. `Choice\`2`) minted by `stampLocalTypeKey`
-    /// at registration to match the emitted metadata name. The convenience constructor
-    /// (synthesis / test paths with no namespace in scope) defaults to the
-    /// `TypeKey(None, "", name\`arity)` placeholder.
+    /// Stable project-local nominal identity — the arity-qualified `TypeKey` (e.g.
+    /// `Choice\`2`) minted by `stampLocalTypeKey` at registration to match the emitted
+    /// metadata name. The convenience constructor (synthesis / test paths with no
+    /// containment in scope) defaults to the global-namespace, home-less placeholder.
     member val TypeKey: TypeKey = key
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     member val TypeParams = typeParams
@@ -414,7 +422,7 @@ type IntrinsicAbbrevInfo
 /// the minted nominal `Key`; the case→literal *values* are resolved later by
 /// `Elaborate.tryEnumType` (which alone has the literal readers in compile order)
 /// and ride the surfaced `TTypeKind.Enum` node, the single source of truth.
-/// `Key` is the arity-0 `TypeKey(asm, declNs, name)` minted by `stampLocalTypeKey`,
+/// `Key` is the arity-0 `TypeKey` minted by `stampLocalTypeKey`,
 /// so a `(x: E)` annotation resolves to `TyEnum Key` and the surfaced decl carries
 /// the identical key.
 [<Sealed>]
@@ -434,8 +442,8 @@ type EnumTypeInfo(name: string, caseNames: string[], caseStringValues: string[] 
     /// cannot disagree on which cases carry a string constant).
     member val CaseStringValues: string[] voption = caseStringValues
     member val DeclKey = declKey
-    /// Stable project-local nominal identity — the arity-0 `TypeKey(asm, declNs,
-    /// name)` minted by `stampLocalTypeKey`; matches the surfaced `TDecl.Type.Key`.
+    /// Stable project-local nominal identity — the arity-0 `TypeKey` minted by
+    /// `stampLocalTypeKey`; matches the surfaced `TDecl.Type.Key`.
     member val TypeKey: TypeKey = key
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     /// Is `n` one of this enum's declared cases? Drives the `E.C1` membership check.
@@ -469,15 +477,15 @@ type AbbreviationInfo
             rhsCst,
             declKey,
             ValueNone,
-            LocalSymbolKey.ofType None "" name typeParams.Length
+            LocalSymbolKey.ofType (TypeHolder.InNamespace NamespaceKey.Global) name typeParams.Length
         )
 
     member val Name = name
-    /// Stable project-local nominal identity — the arity-qualified
-    /// `TypeKey(asm, declNs, name\`arity)` minted by `stampLocalTypeKey` at registration.
-    /// Abbreviations are transparent (never emitted), so this is for symmetry. The
-    /// convenience constructor (synthesis / test paths with no namespace in scope)
-    /// defaults to the `TypeKey(None, "", name\`arity)` placeholder.
+    /// Stable project-local nominal identity — the arity-qualified `TypeKey` minted by
+    /// `stampLocalTypeKey` at registration. Abbreviations are transparent (never
+    /// emitted), so this is for symmetry. The convenience constructor (synthesis / test
+    /// paths with no containment in scope) defaults to the global-namespace, home-less
+    /// placeholder.
     member val TypeKey: TypeKey = key
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     member val TypeParams = typeParams
@@ -565,9 +573,8 @@ type ClassTypeInfo
         key: TypeKey
     ) =
     member val Name = name
-    /// Stable project-local nominal identity — the arity-qualified
-    /// `TypeKey(asm, declNs, name\`arity)` minted by `stampLocalTypeKey` at registration
-    /// to match the emitted metadata name.
+    /// Stable project-local nominal identity — the arity-qualified `TypeKey` minted by
+    /// `stampLocalTypeKey` at registration to match the emitted metadata name.
     member val TypeKey: TypeKey = key
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     member val TypeParams = typeParams

@@ -146,11 +146,24 @@ type PassContextTypes =
         /// `NameResolutionTypeRegistration.registerTypeIdentities`, which is also the sole
         /// mint site of a project-local type `SymbolKey`.
         TypeClaims: Dictionary<string, ResizeArray<TypeIdentity>>
+        /// The RECORD / UNION / CLASS short names this unit declares — the names a
+        /// `module` of the same name collides with, and so the ONE input (with the
+        /// module's own attributes) to the `…Module` suffix rule
+        /// (`NameResolutionTypeRegistration.moduleHolderName`).
+        ///
+        /// Separate from the kind registries — and from `TypeClaims` — because the rule
+        /// must give the SAME answer at both of its call sites, and those two sites sit on
+        /// opposite sides of registration: the key mint runs DURING the identity pass (the
+        /// kind registries do not exist yet, and a `module Foo` may textually precede the
+        /// `type Foo` it collides with), the emitter's holder-name site runs long after.
+        /// So the set is filled by one sweep of the whole unit BEFORE the first key is
+        /// minted, from the same `tryDeclaredTypeName` the claims come from.
+        NominalTypeNames: HashSet<string>
         /// Uniqueness witness for project-local `SymbolKey`s.
-        /// Maps each minted `TypeKey(None, ns, name\`arity)` → the decl-site
+        /// Maps each minted type `TypeKey` → the decl-site
         /// `NodeKey` that first minted it. Stamped through `TypeRegistry.recordKeyOrigin`
         /// as each type registers; a second *distinct* declaration minting the same key
-        /// is a uniqueness violation (a missing/wrong `ns` in the mint, not a user
+        /// is a uniqueness violation (a missing/wrong containment in the mint, not a user
         /// duplicate, which is caught earlier and never reaches the stamp). The gate
         /// that proves a local `SymbolKey` is unique enough to become the TAST identity.
         SymbolKeyOrigins: Dictionary<SymbolKey, NodeKey>
@@ -176,6 +189,7 @@ module PassContextTypes =
             ClassNames = Dictionary<_, _>()
             AbbreviationNames = Dictionary<_, _>()
             TypeClaims = Dictionary<_, _>()
+            NominalTypeNames = HashSet<_>()
             SymbolKeyOrigins = Dictionary<_, _>()
         }
 
@@ -328,6 +342,15 @@ module TypeRegistry =
     /// project-local type at all? For diagnostics that must tell "not a class" from
     /// "unknown type".
     let isTypeNameDeclared (types: PassContextTypes) (name: string) : bool = types.TypeClaims.ContainsKey name
+
+    /// Note a record / union / class short name (`NominalTypeNames`). Called by the
+    /// pre-scan that runs ahead of the identity pass; see the field's doc.
+    let noteNominalTypeName (types: PassContextTypes) (name: string) : unit =
+        types.NominalTypeNames.Add name |> ignore
+
+    /// Does this unit declare a record / union / class called `name`? THE
+    /// module-name-collision test behind the `…Module` suffix — see `NominalTypeNames`.
+    let isNominalTypeName (types: PassContextTypes) (name: string) : bool = types.NominalTypeNames.Contains name
 
     /// The identity THIS declaration claimed, or `ValueNone` when the claim is held by a
     /// different declaration — i.e. this one is a duplicate, already diagnosed by the

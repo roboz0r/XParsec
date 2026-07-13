@@ -99,20 +99,21 @@ let tests =
             }
         ]
 
-// ---- A module is NOT part of a type's identity (pinned defect) --------------
+// ---- A module is not yet part of a type's CLAIM (pinned defect) --------------
 //
-// `walkModuleTreeWith` threads the declaring namespace through a `ModuleElem.Module`
-// UNCHANGED ("a module is a holder, not a namespace segment"), so `stampLocalTypeKey`
-// mints `TypeKey(Holder = InNamespace [N])` for `namespace N` + `module M` + `type T`:
-// the module name `M` appears neither in the key nor in the emitted metadata (the CLR
-// backend writes `T` as a TOP-LEVEL TypeDef with Namespace `N` — the NestedClass table
-// is never written). `TypeRegistry`'s duplicate check is likewise keyed on the BARE
-// short name + arity.
+// The type's KEY now names its module — `stampLocalTypeKey` mints
+// `TypeKey(Holder = InModule M)` for `namespace N` + `module M` + `type T`
+// (`SymbolKeyTests`, "SymbolKey local type containment"). What has NOT moved is the
+// `(name, arity)` CLAIM: `TypeRegistry.TypeClaims` is module- AND namespace-blind, so two
+// sibling modules declaring `type T` still contest ONE claim. Nor has the emitted
+// metadata: the CLR backend writes `T` as a TOP-LEVEL TypeDef with Namespace `N` — the
+// NestedClass table is never written.
 //
 // CORRECT behaviour (what F# does, and what these tests must be flipped to assert once
-// the module rides in the key and the emitter nests the TypeDef): the program below is
-// LEGAL. `N.A.T` and `N.B.T` are two distinct types and must both compile, each emitting
-// its own TypeDef nested in its module's holder class.
+// the CLAIM is holder-aware and the emitter nests the TypeDef — one commit, since a
+// holder-aware claim admits two `T`s that a flat emitter would collide): the program
+// below is LEGAL. `N.A.T` and `N.B.T` are two distinct types and must both compile, each
+// emitting its own TypeDef nested in its module's holder class.
 //
 // CURRENT behaviour, pinned below: the two are indistinguishable. The front end rejects
 // the second as `Duplicate type definition: T`, the second type is never registered, and

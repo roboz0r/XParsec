@@ -104,35 +104,83 @@ module NameResolutionTypeRegistration =
             }
         )
 
+    /// The COMPILED holder-type name of a module: `Foo`, or `FooModule` when the module
+    /// would otherwise collide with a same-named nominal type in this unit, or when
+    /// `[<CompilationRepresentation(ModuleSuffix)>]` pins the suffix. A module compiles to
+    /// a static class, and this is that class's name.
+    ///
+    /// THE one implementation of the rule. Both readers call it: the local type-key mint
+    /// (`localTypeHolder`, below) and the emitter's holder-name site
+    /// (`Elaborate.translateModuleElem`) — which used to compute it independently, from a
+    /// registry that does not yet exist when the key is minted.
+    let moduleHolderName (ctx: PassContext) (md: ModuleDefn<SyntaxToken>) : string =
+        let (ModuleDefn.ModuleDefn(attributes = attrs; ident = ident)) = md
+        let name = ctx.NameOf ident
+
+        if
+            TypeRegistry.isNominalTypeName ctx.Types name
+            || VesperLibTypeTranslate.hasModuleSuffix ctx.Lexed ctx.Input attrs
+        then
+            name + "Module"
+        else
+            name
+
+    /// The `TypeHolder` a declaration in `c` sits in: the declaring namespace, or — for a
+    /// type declared inside a `module` — the enclosing module chain rooted in that
+    /// namespace. THE sole producer of `TypeHolder.InModule`.
+    ///
+    /// SOURCE vs COMPILED module name, decided here: `ModuleKey.Name` carries the
+    /// COMPILED holder name (`ListModule`, not `List`). That is what a `ModuleKey` means
+    /// at every other mint — `SymbolKeyOps.moduleFullName` renders it as a *type* name,
+    /// `ClrEnv.externalModuleRef` emits a `TypeRef` for it, and the contract face already
+    /// bakes the suffix in at `ModuleKey` mint time (`VesperLib.extractModuleSigElement`)
+    /// — so a source-named local `ModuleKey` would make one type mean two things depending
+    /// on which producer minted it. The two faces agree by construction because there is
+    /// one suffix rule (`moduleHolderName`) over one input set (`NominalTypeNames` + the
+    /// module's attributes), fixed before the first key is minted.
+    let localTypeHolder (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : TypeHolder =
+        // The home assembly is this compilation's target (`ctx.AssemblyName`); `None` on
+        // the front-end-only paths that pass no assembly name. Invariant per type, so this
+        // local key equals the key a consumer mints for the same type from its
+        // `SymbolOrigin.Assembly`.
+        let ns = SymbolKeyOps.namespaceKey (SymbolKeyOps.asmOf ctx.AssemblyName) c.Namespace
+
+        let mutable holder = ModuleHolder.InNamespace ns
+        let mutable declModule = ValueNone
+
+        for md in c.Modules do
+            let m = SymbolKeyOps.moduleKeyOf holder (moduleHolderName ctx md)
+            holder <- ModuleHolder.InModule m
+            declModule <- ValueSome m
+
+        match declModule with
+        | ValueNone -> TypeHolder.InNamespace ns
+        | ValueSome m -> TypeHolder.InModule m
+
     /// Mint a project-local `SymbolKey` for a type declaration and assert it is unique
-    /// across the compilation. `declNs` is the declaring namespace threaded from the
-    /// module walk, so the key — `TypeKey(None, declNs, name\`arity)` — equals the
-    /// identity the type emits as (its `TDecl.Namespace` + arity-suffixed metadata name).
-    /// THE sole mint site: called once per accepted claim from `registerTypeIdentities`,
-    /// which hands the key to the per-kind registrar via `TypeRegistry.tryOwnIdentity`.
+    /// across the compilation. The key's holder chain is the declaring containment
+    /// threaded from the module walk, so the key names exactly where the type was
+    /// declared. THE sole mint site: called once per accepted claim from
+    /// `registerTypeIdentities`, which hands the key to the per-kind registrar via
+    /// `TypeRegistry.tryOwnIdentity`.
     ///
     /// The collision branch is an INTERNAL-ERROR BACKSTOP, unreachable from source today
     /// and deliberately kept. Unreachable because the name-table claim `(name, arity)` is
-    /// namespace-BLIND while the key is namespace-QUALIFIED: the claim is strictly the
-    /// coarser test, so it rejects every duplicate a key collision could witness, and two
-    /// surviving claims differ in `name\`arity` and therefore in their keys. Kept because
-    /// the claim is about to become holder-aware (a type's `TypeHolder` / declaring
-    /// module), at which point two distinct claims CAN collapse onto one key if the mint
-    /// drops the distinguishing holder — precisely the bug `SymbolKeyOrigins` exists to
-    /// witness, and precisely why it is not a user diagnostic.
+    /// namespace- AND module-BLIND while the key is fully qualified: the claim is strictly
+    /// the coarser test, so it rejects every duplicate a key collision could witness, and
+    /// two surviving claims differ in `name\`arity` and therefore in their keys. Kept
+    /// because the claim is to become holder-aware (which is what admits `N.A.T` and
+    /// `N.B.T` as two types), at which point two distinct claims CAN collapse onto one key
+    /// if the mint drops the distinguishing holder — precisely the bug `SymbolKeyOrigins`
+    /// exists to witness, and precisely why it is not a user diagnostic.
     let private stampLocalTypeKey
         (ctx: PassContext)
         (declKey: NodeKey)
-        (declNs: string)
+        (c: DeclContainment<SyntaxToken>)
         (name: string)
         (arity: int)
         : TypeKey =
-        // The home assembly is this compilation's target (`ctx.AssemblyName`);
-        // `None` on the front-end-only paths that pass no assembly name. Invariant
-        // per type, so this local key equals the key a consumer mints for the same
-        // type from its `SymbolOrigin.Assembly`.
-        let key =
-            LocalSymbolKey.ofType (SymbolKeyOps.asmOf ctx.AssemblyName) declNs name arity
+        let key = LocalSymbolKey.ofType (localTypeHolder ctx c) name arity
 
         match TypeRegistry.recordKeyOrigin ctx.Types declKey (SymbolKey.Type key) with
         | ValueSome _ ->
@@ -141,9 +189,8 @@ module NameResolutionTypeRegistration =
                     Key = declKey
                     Message =
                         sprintf
-                            "Internal error: project-local SymbolKey collision for '%s' (namespace '%s', arity %d)"
-                            name
-                            declNs
+                            "Internal error: project-local SymbolKey collision for '%s' (arity %d)"
+                            (SymbolKeyOps.typeMetaName key)
                             arity
                     Code = ""
                     Severity = Severity.Error
@@ -178,6 +225,34 @@ module NameResolutionTypeRegistration =
             | ValueSome d -> ValueSome(struct (d.TypeName, TypeDeclKind.Class))
             | ValueNone -> ValueNone
 
+    /// The simple name a `TypeName` declares — `ValueNone` for the dotted/empty shapes a
+    /// registrar declines.
+    let private tryDeclaredSimpleName (ctx: PassContext) (tn: TypeName<SyntaxToken>) : string voption =
+        let (TypeName(ident = nameLi)) = tn
+
+        if nameLi.Idents.Length = 1 then
+            ValueSome(ctx.NameOf nameLi.Idents.[0])
+        else
+            ValueNone
+
+    /// Pre-scan: note the RECORD / UNION / CLASS names this element declares
+    /// (`TypeRegistry.NominalTypeNames`). Sweeps the WHOLE unit before the identity pass,
+    /// because the `…Module` suffix rule (`moduleHolderName`) must give the same answer at
+    /// key-mint time and at emit time and a `module Foo` may textually precede the
+    /// `type Foo` it collides with. Derived from `tryDeclaredTypeName`, so the set cannot
+    /// drift from the claims it shadows.
+    let noteNominalTypeNames (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
+        match m with
+        | ModuleElem.Type defs ->
+            for td in defs do
+                match tryDeclaredTypeName td with
+                | ValueSome(struct (tn, (TypeDeclKind.Record | TypeDeclKind.Union | TypeDeclKind.Class))) ->
+                    match tryDeclaredSimpleName ctx tn with
+                    | ValueSome name -> TypeRegistry.noteNominalTypeName ctx.Types name
+                    | ValueNone -> ()
+                | _ -> ()
+        | _ -> ()
+
     /// Establish the nominal identity — name, arity, decl `NodeKey`, minted `SymbolKey` —
     /// of every type in this element, in SOURCE order, regardless of kind. Runs to
     /// completion over the whole compilation before any per-kind registrar, so:
@@ -191,7 +266,11 @@ module NameResolutionTypeRegistration =
     /// Order-insensitive by construction: identity carries no field/case/member types (those
     /// start as placeholder TyVars that Unification's fill pre-passes Link later), so a type
     /// may reference another declared anywhere in the file.
-    let registerTypeIdentities (ctx: PassContext) (declNs: string) (m: ModuleElem<SyntaxToken>) : unit =
+    let registerTypeIdentities
+        (ctx: PassContext)
+        (c: DeclContainment<SyntaxToken>)
+        (m: ModuleElem<SyntaxToken>)
+        : unit =
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
@@ -229,7 +308,7 @@ module NameResolutionTypeRegistration =
                                     Arity = arity
                                     Kind = kind
                                     DeclKey = declKey
-                                    Key = stampLocalTypeKey ctx declKey declNs name arity
+                                    Key = stampLocalTypeKey ctx declKey c name arity
                                 }
 
                             // Contract-source an intrinsic binding's identity: mint its
@@ -240,8 +319,16 @@ module NameResolutionTypeRegistration =
                             // namespace by name. Identity, so it is minted here; the
                             // target-representation string is detail and stays in the
                             // abbreviation registrar.
+                            //
+                            // NAMESPACE-only (not the containment): an intrinsic's canon key
+                            // is asm-blind and must equal the CONTRACT's
+                            // `SymbolKeyOps.intrinsicCanonKey`, which recovers the namespace
+                            // from the dotted compiled name. An intrinsic is a primitive
+                            // binding declared at namespace level (`namespace Vesper` +
+                            // `type int = (# … #)`); a module-held one has no contract face
+                            // to agree with.
                             if kind = TypeDeclKind.IntrinsicRepr then
-                                ctx.Types.IntrinsicKeys.[name] <- SymbolKeyOps.typeKey None declNs name
+                                ctx.Types.IntrinsicKeys.[name] <- SymbolKeyOps.typeKey None c.Namespace name
         | _ -> ()
 
     let private registerRecordTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
