@@ -81,6 +81,15 @@ module NameResolution =
     /// primary-constructor argument. Member names are NOT in lexical scope:
     /// sibling members reference one another only via `this.OtherMember`. Static
     /// scope is empty: statics don't see `this` or ctor args (F# spec §8.7).
+    ///
+    /// A type body has the module's two-tier shape, and this walk is what enforces it:
+    /// the `let` preamble is one strictly TOP-DOWN sequence — each initialiser is walked
+    /// under a scope holding only the lets ABOVE it, so `let a = b` naming a later `b` is
+    /// unresolved, as F# reports it (FS0039) — while the MEMBERS are a mutually-recursive
+    /// group. The group falls out of members never entering lexical scope at all: a member
+    /// reaches a sibling through `this`, whose type carries a placeholder TyVar for EVERY
+    /// member from registration onwards, so a call to a member declared below resolves with
+    /// no ordering constraint to satisfy.
     let private walkTypeBodies (ctx: PassContext) (walker: CstWalk.ExprWalker<Scope list>) (w: TypeBodiesWalk) : unit =
         let mutable scopeMap: Scope = Map.empty
         scopeMap <- Map.add w.ThisName (w.ThisKey, false) scopeMap

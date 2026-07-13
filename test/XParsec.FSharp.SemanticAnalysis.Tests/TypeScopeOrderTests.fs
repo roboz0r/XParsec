@@ -250,4 +250,73 @@ let tests =
 
                     Expect.equal shadowed external "f's parameter binds the external `exn`, not the local one below"
                 }
+
+            // A type BODY has the module's two-tier shape: its `let`/`do` preamble is one
+            // strictly top-down sequence (each binding sees only the ones ABOVE it), and its
+            // MEMBERS are a mutually-recursive group that may reference each other in any
+            // order and see every let. Confirmed against the reference compiler: a preamble
+            // `let` naming a later `let` is FS0039 "not defined" (static and instance alike),
+            // while a member calling a member declared below it compiles.
+            yield
+                test "a class static let referencing a later static let is rejected" {
+                    expectError
+                        "Unresolved identifier: b"
+                        "type C() =\n    static let a = b\n    static let b = 1\n    static member A = a"
+                }
+
+            yield
+                test "a class static let referencing an earlier static let is accepted" {
+                    expectClean "type C() =\n    static let b = 1\n    static let a = b + 1\n    static member A = a"
+                }
+
+            yield
+                test "a member calling a member declared below it is accepted" {
+                    expectClean "type C() =\n    member this.P() = this.Q() + 1\n    member _.Q() = 2"
+                }
+
+            yield
+                test "a member referencing an earlier let and a later member is accepted" {
+                    expectClean
+                        "type C() =\n    static let k = 10\n    member this.P() = k + this.Q()\n    member _.Q() = 2"
+                }
+
+            // Member names are not in the preamble's LEXICAL scope — a let is evaluated
+            // during construction, so it may only reach a member through the type (`C.Q()`)
+            // or the self-identifier, never by bare name. F# agrees: bare `Q` is FS0039.
+            yield
+                test "a class let referencing a member by bare name is rejected" {
+                    expectError
+                        "Unresolved identifier: Q"
+                        "type C() =\n    static let a = Q()\n    static member Q() = 2\n    static member A = a"
+                }
+
+            yield
+                test "a class static let referencing a static member through the type name is accepted" {
+                    expectClean
+                        "type C() =\n    static let a = C.Q()\n    static member Q() = 2\n    static member A = a"
+                }
+
+            // The preamble and the primary `inherit` args are scoped and inferred like any
+            // other expression, so an operator in either must carry a compiled name through to
+            // Elaborate — the same requirement a member body has.
+            yield
+                test "an operator in a primary inherit argument is accepted" {
+                    expectClean
+                        "type B(n: int) =\n    member _.N = n\ntype D() =\n    inherit B(1 + 2)\n    member this.M = 3"
+                }
+
+            // The ordering rule above is enforced over the `static let`s, which are the only
+            // preamble bindings modelled: `extractStaticLets` admits `static let` and drops an
+            // instance `let` (it has no backing field / ctor-init lowering yet). So an instance
+            // `let` binds nothing and every reference to it is unresolved. F# ACCEPTS this
+            // program and prints 2 — the divergence is the missing FEATURE, not the ordering,
+            // and modelling instance lets flips this test to `expectClean`. Asserting the wrong
+            // current behaviour rather than inventing a skip, as the CLR suite's
+            // `LocalModuleTests` does.
+            yield
+                test "a member referencing an instance let is (wrongly) rejected" {
+                    expectError
+                        "Unresolved identifier: a"
+                        "type C() =\n    let b = 1\n    let a = b + 1\n    member _.A = a"
+                }
         ]

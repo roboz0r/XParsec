@@ -170,9 +170,29 @@ module Desugar =
                         | ValueNone -> ()
                     | _ -> ()
 
+            // The class PREAMBLE (`[static] let` initialisers, `[static] do` bodies) and the
+            // primary `inherit Base(args)` argument expression are ordinary expressions that
+            // NameResolution scopes and Unification infers, so their operators need
+            // compiled-name entries exactly as a member body's do — without them `inferInfix`
+            // falls through to a free TyVar and Elaborate throws `InfixApp … missing
+            // DesugaredForm`.
+            let walkClassBody (b: ObjectModelBody<SyntaxToken>) =
+                for d in b.classPreamble do
+                    match d with
+                    | ClassFunctionOrValueDefn.LetBindings(bindings = bindings) ->
+                        for binding in bindings do
+                            CstWalk.iterExpr walker () binding.expr
+                    | ClassFunctionOrValueDefn.Do(expr = e) -> CstWalk.iterExpr walker () e
+
+                match b.inherits with
+                | ValueSome(ClassInheritsDecl(expr = ValueSome e)) -> CstWalk.iterExpr walker () e
+                | _ -> ()
+
+                walkMemberElems b.elements
+
             for td in defs do
                 match TypeDefnPatterns.tryObjectModelBody td with
-                | ValueSome b -> walkMemberElems b.elements
+                | ValueSome b -> walkClassBody b
                 | ValueNone ->
                     match td with
                     | TypeDefn.Union(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
