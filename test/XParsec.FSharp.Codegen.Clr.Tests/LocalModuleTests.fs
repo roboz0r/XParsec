@@ -1,6 +1,7 @@
 module XParsec.FSharp.Codegen.Clr.Tests.LocalModuleTests
 
 open Expecto
+open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // G15 / G16 — local (in-file) module resolution.
@@ -96,4 +97,100 @@ let tests =
                             "printfn \"%d\" (b.Get())"
                         ])
             }
+        ]
+
+// ---- A module is NOT part of a type's identity (pinned defect) --------------
+//
+// `walkModuleTreeWith` threads the declaring namespace through a `ModuleElem.Module`
+// UNCHANGED ("a module is a holder, not a namespace segment"), so `stampLocalTypeKey`
+// mints `TypeKey(Holder = InNamespace [N])` for `namespace N` + `module M` + `type T`:
+// the module name `M` appears neither in the key nor in the emitted metadata (the CLR
+// backend writes `T` as a TOP-LEVEL TypeDef with Namespace `N` — the NestedClass table
+// is never written). `TypeRegistry`'s duplicate check is likewise keyed on the BARE
+// short name + arity.
+//
+// CORRECT behaviour (what F# does, and what these tests must be flipped to assert once
+// the module rides in the key and the emitter nests the TypeDef): the program below is
+// LEGAL. `N.A.T` and `N.B.T` are two distinct types and must both compile, each emitting
+// its own TypeDef nested in its module's holder class.
+//
+// CURRENT behaviour, pinned below: the two are indistinguishable. The front end rejects
+// the second as `Duplicate type definition: T`, the second type is never registered, and
+// the PE carries a single `N.T`. Where a *body* then uses the dropped type, the failure
+// is worse than a diagnostic — codegen crashes outright.
+//
+// There is no known-failing-test convention in this suite (`ptest` marks debug probes,
+// `skiptest` marks unavailable-environment rows), so these assert the WRONG current
+// behaviour rather than invent a bespoke skip: the fix flips them.
+
+/// `namespace N` holding two sibling modules `A` and `B`, each declaring its OWN
+/// `type T` (`inA` / `inB` are the module bodies, indented in). Two distinct types
+/// under one short name — legal F#, and the shape that collapses to one identity here.
+let private siblingModuleTypes (inA: string list) (inB: string list) : string =
+    let body (m: string) (lines: string list) =
+        (sprintf "module %s =" m) :: (lines |> List.map (fun l -> "    " + l))
+
+    String.concat "\n" ([ "namespace N"; "" ] @ body "A" inA @ [ "" ] @ body "B" inB)
+
+/// The record pair: `N.A.T = { x: int }` and `N.B.T = { y: int }` — same name,
+/// incompatible field sets, so nothing can excuse conflating them.
+let private recordA = [ "type T = { x: int }" ]
+let private recordB = [ "type T = { y: int }" ]
+let private recordPair = siblingModuleTypes recordA recordB
+
+[<Tests>]
+let moduleIsNotPartOfTypeIdentity =
+    testList
+        "LocalModule type identity"
+        [
+            for kind, inA, inB in
+                [
+                    "record", recordA, recordB
+                    "union", [ "type T ="; "    | Ca of int" ], [ "type T ="; "    | Cb of string" ]
+                ] ->
+                test $"a sibling module's same-named {kind} is (wrongly) rejected as a duplicate" {
+                    failsWith "Duplicate type definition: T" (siblingModuleTypes inA inB)
+                }
+
+            yield
+                test "only ONE N.T TypeDef is emitted — the sibling module's type is dropped" {
+                    let _, artifact = compileSource "SiblingModuleTypeIdentity" recordPair
+
+                    let ts =
+                        peTypeDefNames (Codegen.toBytes artifact) |> List.filter (fun n -> n = "N.T")
+
+                    // Correct: TWO distinct type-defs (`N.A/T` and `N.B/T`, nested in their
+                    // module holders). Current: one `N.T` — the module is not in the key, so
+                    // `B`'s `T` is never registered and never emitted.
+                    Expect.equal ts [ "N.T" ] "expected the single flattened N.T the module-blind key mints"
+                }
+
+            // The dropped registration is not merely cosmetic. `B`'s `{ y = 2 }` finds no
+            // record type behind the name, so its type stays an unresolved typar and the
+            // BACKEND faults on it — a compiler crash, not a reported error.
+            yield
+                test "a body constructing the dropped sibling type crashes the backend" {
+                    let src =
+                        siblingModuleTypes
+                            [ "type T = { x: int }"; "let mk () = { x = 1 }" ]
+                            [ "type T = { y: int }"; "let mk () = { y = 2 }" ]
+
+                    Expect.throws
+                        (fun () -> compileSource "SiblingModuleTypeCtor" src |> ignore)
+                        "expected the emitter to fault on the unregistered sibling record"
+                }
+
+            // Classes take an even worse path: the collision surfaces inside codegen as a
+            // duplicate-key insert, so the compiler throws before any diagnostic is reported.
+            yield
+                test "same-named classes in sibling modules crash codegen on a duplicate key" {
+                    let src =
+                        siblingModuleTypes
+                            [ "type T(n: int) ="; "    member _.N = n" ]
+                            [ "type T(s: string) ="; "    member _.S = s" ]
+
+                    Expect.throws
+                        (fun () -> compileSource "SiblingModuleClassIdentity" src |> ignore)
+                        "expected the duplicate nominal key insert to throw"
+                }
         ]
