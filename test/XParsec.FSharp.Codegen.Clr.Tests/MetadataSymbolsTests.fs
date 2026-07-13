@@ -26,7 +26,7 @@ let tests =
                 | ValueSome(ExternalTypeShape.Class info) ->
                     Expect.equal info.Arity 1 "one declared typar"
                     Expect.isFalse info.IsInterface "a class, not an interface"
-                    Expect.equal info.Origin.Namespace "System.Collections.Generic" "origin namespace"
+                    Expect.equal info.Origin.Namespace.Dotted "System.Collections.Generic" "origin namespace"
                     Expect.isTrue info.Origin.Assembly.IsSome "origin carries the defining assembly"
                 | other -> failtestf "expected a Class shape, got %A" other
             }
@@ -113,7 +113,15 @@ let tests =
                 | ValueSome m ->
                     Expect.isTrue m.IsStatic "Default is static"
                     Expect.equal m.Storage MemberStorage.Property "Default is a property"
-                    Expect.equal m.Origin.DeclaringType (Some eqComparer) "member origin names the declaring type"
+                    // The declaring type is carried by the KEY's containment chain, typed —
+                    // not by a string beside it.
+                    match m.Key with
+                    | SymbolKey.Member mk ->
+                        Expect.equal
+                            (SymbolKeyOps.typeMetaName mk.Decl)
+                            eqComparer
+                            "member key's declaring TypeKey names the declaring type"
+                    | other -> failtestf "expected a Member key, got %A" other
 
                     // Instantiated at `'T = int`, the property type is
                     // `EqualityComparer<int>` (the §7.3 per-use substitution).

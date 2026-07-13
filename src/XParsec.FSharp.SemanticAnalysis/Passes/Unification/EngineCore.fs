@@ -444,7 +444,7 @@ module UnificationEngineCore =
         // match chain, not a closure/array scan, to keep the mismatch path allocation-free.
         let inline pick (cap: RuntimeNames.CapabilityIdentity voption) : SymbolKey voption =
             match cap with
-            | ValueSome c when c.Matches key -> ValueSome(ValueOption.defaultValue c.Key c.CanonKey)
+            | ValueSome c when c.Matches key -> ValueSome(SymbolKey.Type(ValueOption.defaultValue c.Key c.CanonKey))
             | _ -> ValueNone
 
         match pick caps.Enumerable with

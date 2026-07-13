@@ -150,11 +150,11 @@ module Inline =
     /// trait call can dispatch to. The single definition of "is a nominal operand";
     /// `resolveTraitCall` alone consults it, and a receiver it declines becomes an
     /// `UnresolvedTrait` — "this type does not support this operator".
-    let private nominalHeadKey (t: SemType) : SymbolKey voption =
+    let private nominalHeadKey (t: SemType) : TypeKey voption =
         match UnionFind.headZonk t with
-        | TyClass(k, _)
-        | TyUnion(k, _)
-        | TyRecord(k, _) -> ValueSome k
+        | TyClass(SymbolKey.Type k, _)
+        | TyUnion(SymbolKey.Type k, _)
+        | TyRecord(SymbolKey.Type k, _) -> ValueSome k
         | _ -> ValueNone
 
     /// Build the typar-substituting mapper for one inline expansion. The

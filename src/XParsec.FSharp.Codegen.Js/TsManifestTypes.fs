@@ -108,7 +108,14 @@ module internal TsManifestTranslate =
     /// The identity minted for one declared `Interface`/`Class` export. `IsInterface`
     /// disambiguates a heritage entry's slot (interface list vs base class) in
     /// `classifyHeritage`; only these two export kinds enter the table at all.
-    type TypeIdentity = { Key: SymbolKey; IsInterface: bool }
+    type TypeIdentity =
+        {
+            Key: TypeKey
+            IsInterface: bool
+        }
+
+        /// The `SymbolKey` face — what `Resolve` hands the front end.
+        member this.SymKey: SymbolKey = SymbolKey.Type this.Key
 
     /// THE LAW (`SymbolKeyOps.arityName`) — the ONE spelling site of a declared type's
     /// identity. A generic nominal type's compiled name is arity-suffixed
@@ -127,9 +134,9 @@ module internal TsManifestTranslate =
     /// reference applies ALL its type args (TS has no partial application and no arity
     /// overloading), so the applied count IS the declared arity for an in-package
     /// resolution.
-    let mint (moduleSpec: string) (nsPath: string) (name: string) (arity: int) : string * SymbolKey =
+    let mint (moduleSpec: string) (nsPath: string) (name: string) (arity: int) : string * TypeKey =
         let simple = SymbolKeyOps.arityName name arity
-        qualify nsPath simple, SymbolKey.TypeKey(Some moduleSpec, nsPath, simple)
+        qualify nsPath simple, SymbolKeyOps.typeKeyOf (Some moduleSpec) nsPath simple
 
     /// The per-manifest translation context, threaded as ONE argument through every
     /// walk rather than positional parameters: a new per-manifest fact (a refs table
@@ -174,7 +181,7 @@ module internal TsManifestTranslate =
         /// provider. `SymbolKeyOps.qualifiedName` of the returned key equals the table
         /// key (`mint`) — the exact string the front end hands to `TryLookupMember`.
         member ctx.Resolve(name: string) : SymbolKey option =
-            ctx.Types |> Map.tryFind name |> Option.map (fun id -> id.Key)
+            ctx.Types |> Map.tryFind name |> Option.map (fun id -> id.SymKey)
 
         /// The full declared identity (key + interface-vs-class kind); `None` for a
         /// name not declared in this package (cross-package / unknown).
@@ -215,7 +222,7 @@ module internal TsManifestTranslate =
     /// and the key `Resolve` hands out cannot diverge. Total for exports of the
     /// manifest the ctx was built from; a miss means the table builder and the export
     /// walker disagree on the export list (a bug, not a data condition).
-    let declaredIdentity (ctx: TranslateCtx) (nsPath: string) (name: string) (arity: int) : string * SymbolKey =
+    let declaredIdentity (ctx: TranslateCtx) (nsPath: string) (name: string) (arity: int) : string * TypeKey =
         let qn = fst (mint ctx.ModuleSpec nsPath name arity)
 
         match Map.tryFind qn ctx.Types with
@@ -229,9 +236,7 @@ module internal TsManifestTranslate =
         // "" for a top-level export, `NS`/`NS.Inner` for a member nested in one (or
         // more) `export namespace`s — the JS analog of a .NET `Type.Namespace`.
         {
-            Assembly = Some ctx.ModuleSpec
-            Namespace = nsPath
-            DeclaringType = None
+            Namespace = SymbolKeyOps.namespaceKey (Some ctx.ModuleSpec) nsPath
         }
 
     // ─── Structural shape-hash ─────────────────────────────────────────────
@@ -317,7 +322,7 @@ module internal TsManifestTranslate =
     /// OWN exports. A structural value flowing across manifests and accessed only where a
     /// DIFFERENT manifest registered the members is a known gap, not exercised by current
     /// fixtures — cross-manifest structural member resolution is deliberately not built here.
-    let structuralKey (hash: string) : string * SymbolKey =
+    let structuralKey (hash: string) : string * TypeKey =
         mint structuralHome structuralHome hash 0
 
     /// Every anonymous OBJECT shape (`Structural` with fields) reachable from a `TypeRef`,
@@ -494,10 +499,11 @@ module internal TsManifestTranslate =
                         // `TsGlobalHomes.mountFor`.
                         let ns = TsGlobalHomes.mountFor entry.Home
 
-                        let key =
-                            SymbolKey.TypeKey(Some entry.Home, ns, SymbolKeyOps.arityName name entry.Arity)
+                        // Through `mint` — THE one spelling site of a declared type's identity —
+                        // so a ref's key cannot drift from the declaration's.
+                        let key = snd (mint entry.Home ns name entry.Arity)
 
-                        FTClass(key, EqArray.ofSeq args)
+                        FTClass(SymbolKey.Type key, EqArray.ofSeq args)
                     | Schema.RefKind.Alias
                     | Schema.RefKind.Enum -> intrinsicOrOpaque name
                 | None -> intrinsicOrOpaque name
@@ -551,7 +557,7 @@ module internal TsManifestTranslate =
         | Schema.TypeRef.Structural(printed, fields, index) ->
             match fields, index with
             | [], [] -> FTUnknown("structural:" + structuralHash printed fields)
-            | _ -> FTClass(structuralKey (structuralHash printed fields) |> snd, EqArray.empty)
+            | _ -> FTClass(SymbolKey.Type(structuralKey (structuralHash printed fields) |> snd), EqArray.empty)
 
     let unitFrozen: FrozenType = FTConst(RuntimeNames.unitKey, EqArray.empty)
 

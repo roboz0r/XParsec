@@ -89,12 +89,11 @@ module EmitLoops =
     /// identical handle. Minted once here.
     let private mintDisposeHandle (env: EmitEnv) : EntityHandle =
         env.Provider.ExternalMemberRef(
-            SymbolKey.MemberKey(
-                SymbolKey.TypeKey(None, "System", "IDisposable"),
-                "Dispose",
-                EqArray.empty,
-                MemberKind.Method
-            ),
+            SymbolKeyOps.memberKey
+                (SymbolKeyOps.typeKeyOf None "System" "IDisposable")
+                "Dispose"
+                EqArray.empty
+                MemberKind.Method,
             false,
             false,
             FTFun(FTConst(RuntimeNames.unitKey, EqArray.empty), FTConst(RuntimeNames.unitKey, EqArray.empty))
@@ -390,17 +389,16 @@ module EmitLoops =
                 // `EndFinally` shape as `TExprG.Use`'s disposal.
                 let enumTy =
                     FTClass(
-                        SymbolKey.TypeKey(None, "System.Collections.Generic", "IEnumerator`1"),
+                        SymbolKeyOps.typeKey None "System.Collections.Generic" "IEnumerator`1",
                         EqArray.singleton elemTy
                     )
 
                 let geKey =
-                    SymbolKey.MemberKey(
-                        SymbolKey.TypeKey(None, "System.Collections.Generic", "IEnumerable`1"),
-                        "GetEnumerator",
-                        EqArray.empty,
+                    SymbolKeyOps.memberKey
+                        (SymbolKeyOps.typeKeyOf None "System.Collections.Generic" "IEnumerable`1")
+                        "GetEnumerator"
+                        EqArray.empty
                         MemberKind.Method
-                    )
 
                 let geHandle =
                     env.Provider.ExternalMemberRef(
@@ -411,12 +409,11 @@ module EmitLoops =
                     )
 
                 let mnKey =
-                    SymbolKey.MemberKey(
-                        SymbolKey.TypeKey(None, "System.Collections", "IEnumerator"),
-                        "MoveNext",
-                        EqArray.empty,
+                    SymbolKeyOps.memberKey
+                        (SymbolKeyOps.typeKeyOf None "System.Collections" "IEnumerator")
+                        "MoveNext"
+                        EqArray.empty
                         MemberKind.Method
-                    )
 
                 let mnHandle =
                     env.Provider.ExternalMemberRef(
@@ -430,12 +427,11 @@ module EmitLoops =
                     )
 
                 let curKey =
-                    SymbolKey.MemberKey(
-                        SymbolKey.TypeKey(None, "System.Collections.Generic", "IEnumerator`1"),
-                        "Current",
-                        EqArray.empty,
+                    SymbolKeyOps.memberKey
+                        (SymbolKeyOps.typeKeyOf None "System.Collections.Generic" "IEnumerator`1")
+                        "Current"
+                        EqArray.empty
                         MemberKind.Property
-                    )
 
                 let curHandle = env.Provider.ExternalMemberRef(curKey, true, false, elemTy)
 

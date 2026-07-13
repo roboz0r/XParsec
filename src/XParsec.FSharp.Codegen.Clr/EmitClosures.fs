@@ -236,12 +236,12 @@ module EmitClosures =
         | Some n -> n
         | None -> sprintf "value@%d" k.Offset
 
-    /// `(ns, name)` of a `TypeKey` — used to match a value's type against the
+    /// `(ns, name)` of a `TypeSlotKey` — used to match a value's type against the
     /// ref-struct set, keyed on `(ns, name)` because the use-site `FTClass` key and
     /// the decl key can carry different `asm` qualification.
     let typeKeyNsName (k: SymbolKey) : (string * string) option =
         match k with
-        | SymbolKey.TypeKey(_, ns, name) -> Some(ns, name)
+        | SymbolKey.Type t -> Some(t.Namespace.Dotted, SymbolKeyOps.typeNestedName t)
         | _ -> None
 
     /// Classify the *generic* module-level values (`let empty : SetTree<'T> = …`)

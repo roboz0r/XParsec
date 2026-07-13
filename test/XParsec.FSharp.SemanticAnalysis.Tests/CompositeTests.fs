@@ -12,7 +12,7 @@ open XParsec.FSharp.SemanticAnalysis
 let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
     let origin =
         { SymbolOrigin.Empty with
-            Namespace = tag
+            Namespace = SymbolKeyOps.namespaceKey None tag
         }
 
     { new IExternalSymbolProvider
@@ -58,12 +58,11 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
                           MethodArity = 0
                           Origin = origin
                           Key =
-                              SymbolKey.MemberKey(
-                                  SymbolKey.TypeKey(origin.Assembly, origin.Namespace, name),
-                                  name,
-                                  EqArray.empty,
+                              SymbolKeyOps.memberKey
+                                  (SymbolKeyOps.typeKeyOf origin.Assembly origin.Namespace.Dotted name)
+                                  name
+                                  EqArray.empty
                                   MemberKind.Method
-                              )
                           OptionalDefaults = []
                           IsOptional = false
                       }
@@ -137,11 +136,12 @@ let tests =
                 let composed = ExternalSymbolProviders.composite [ a; b ]
 
                 match composed.TryLookupType "shared" with
-                | ValueSome(ExternalTypeShape.Class info) -> Expect.equal info.Origin.Namespace "a" "type: a wins"
+                | ValueSome(ExternalTypeShape.Class info) ->
+                    Expect.equal info.Origin.Namespace.Dotted "a" "type: a wins"
                 | other -> failtestf "expected Class shape from a, got %A" other
 
                 match composed.TryLookupMember(SymbolKeyOps.qualifiedTypeKey "shared" 0, "shared") with
-                | ValueSome m -> Expect.equal m.Origin.Namespace "a" "member: a wins"
+                | ValueSome m -> Expect.equal m.Origin.Namespace.Dotted "a" "member: a wins"
                 | ValueNone -> failtest "expected member from a"
             }
 

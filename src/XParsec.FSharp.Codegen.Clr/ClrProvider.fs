@@ -21,7 +21,7 @@ type ClrProvider
     (
         ctx: MetadataContext,
         reprs: Map<string, string>,
-        references: Map<string, AssemblyName>,
+        references: Map<string, System.Reflection.AssemblyName>,
         symbols: IExternalSymbolProvider,
         assemblyName: string
     ) =
@@ -177,7 +177,7 @@ type ClrProvider
     /// Register a captureless `Stack` (value-struct) closure
     /// under a synthetic project-local `SymbolKey` and return the `FrozenType` that
     /// names it. A closure has no `FrozenType` of its own (it is keyed by
-    /// `TypeKey.Closure name`, codegen-only), but a value-struct closure must be
+    /// `TypeSlotKey.Closure name`, codegen-only), but a value-struct closure must be
     /// *encodable* — its by-value local, its `initobj`, and the constrained-slot
     /// `MethodSpec` type-argument all reference it. Minting an `FTClass(synthKey, [])`
     /// keyed at the emitted assembly and registering `synthKey → defHandle` in
@@ -189,7 +189,7 @@ type ClrProvider
     /// cannot collide with a real `userTypes` key; the guard below fails fast if
     /// that invariant is ever broken.
     member _.RegisterStackClosureValueType(name: string, defHandle: EntityHandle) : FrozenType =
-        let key = SymbolKey.TypeKey(env.EnvAsm, "<closure>", name)
+        let key = SymbolKeyOps.typeKey env.EnvAsm "<closure>" name
 
         if env.UserTypes.ContainsKey key then
             failwithf "Emit: synthetic value-struct closure key '%s' collides with a registered type" name
@@ -328,7 +328,10 @@ type ClrProvider
                 // the caller's hard error. (Every lowerable printf call is now a `TExpr.Format`
                 // lowered in Elaborate, so no `printfn` App reaches here — the cold recipe is gone.)
                 match key with
-                | ValueSome(SymbolKey.ValueKey(_, ns, name)) when ns <> "" -> recipes.EmitExternalCall(ns, name, fnTy)
+                | ValueSome(SymbolKey.Binding {
+                                                  Decl = ModuleHolder.InModule m
+                                                  Name = name
+                                              }) -> recipes.EmitExternalCall(m, name, fnTy)
                 | _ -> ValueNone
 
         member _.TryEmitCtor(key, tyArgs, argTypes) = ext.ExternalCtor(key, tyArgs, argTypes)

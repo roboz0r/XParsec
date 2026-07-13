@@ -56,7 +56,7 @@ module TsManifestProvider =
         : ExternalSymbol =
         { sym with
             Origin = originFor ctx nsPath
-            Key = SymbolKey.ValueKey(Some ctx.ModuleSpec, nsPath, name)
+            Key = SymbolKeyOps.valueKey (Some ctx.ModuleSpec) nsPath name
             ImportForm = importFormOfShape import
         }
 

@@ -18,14 +18,14 @@ module JsNativeSymbols =
 
     let private errorOrigin: SymbolOrigin =
         {
-            Assembly = Some RuntimeAssembly
-            Namespace = ""
-            DeclaringType = None
+            Namespace = SymbolKeyOps.namespaceKey (Some RuntimeAssembly) ""
         }
 
     /// `Error` is global, so its compiled / lookup name is the bare `Error`.
-    let private errorKey: SymbolKey =
-        SymbolKey.TypeKey(Some RuntimeAssembly, "", "Error")
+    let private errorTypeKey: TypeKey =
+        SymbolKeyOps.typeKeyOf (Some RuntimeAssembly) "" "Error"
+
+    let private errorKey: SymbolKey = SymbolKey.Type errorTypeKey
 
     let private errorTy: FrozenType = FTClass(errorKey, EqArray.empty)
 
@@ -36,7 +36,7 @@ module JsNativeSymbols =
     /// `new Error(message: string)` — the JS `Error` constructor as an `ExternalMember`.
     let private errorCtor: ExternalMember =
         ExternalMember.ctor
-            errorKey
+            errorTypeKey
             (ExternalSignature.make (0, 0, stringTy, errorTy))
             (EqArray.singleton "string")
             errorOrigin
@@ -51,7 +51,7 @@ module JsNativeSymbols =
             Signature = ExternalSignature.make (0, 0, unitTy, stringTy)
             MethodArity = 0
             Origin = errorOrigin
-            Key = SymbolKey.MemberKey(errorKey, "message", EqArray.empty, MemberKind.Property)
+            Key = SymbolKeyOps.memberKey errorTypeKey "message" EqArray.empty MemberKind.Property
             OptionalDefaults = []
             IsOptional = false
         }
@@ -104,16 +104,18 @@ module JsNativeSymbols =
 
     let private collectionsGenericOrigin: SymbolOrigin =
         {
-            Assembly = Some RuntimeAssembly
-            Namespace = collectionsGenericNs
-            DeclaringType = None
+            Namespace = SymbolKeyOps.namespaceKey (Some RuntimeAssembly) collectionsGenericNs
         }
 
-    let private ienumeratorKey: SymbolKey =
-        SymbolKey.TypeKey(Some RuntimeAssembly, collectionsGenericNs, "IEnumerator`1")
+    let private ienumeratorTypeKey: TypeKey =
+        SymbolKeyOps.typeKeyOf (Some RuntimeAssembly) collectionsGenericNs "IEnumerator`1"
 
-    let private ienumerableKey: SymbolKey =
-        SymbolKey.TypeKey(Some RuntimeAssembly, collectionsGenericNs, "IEnumerable`1")
+    let private ienumerableTypeKey: TypeKey =
+        SymbolKeyOps.typeKeyOf (Some RuntimeAssembly) collectionsGenericNs "IEnumerable`1"
+
+    let private ienumeratorKey: SymbolKey = SymbolKey.Type ienumeratorTypeKey
+
+    let private ienumerableKey: SymbolKey = SymbolKey.Type ienumerableTypeKey
 
     /// The compiled qualified name of the erased `IEnumerable\`1` interface — the name
     /// `for … in` recognition matches (`pickEnumerableElem`). A provider that wants a
@@ -126,7 +128,7 @@ module JsNativeSymbols =
     let private mkIfaceMember
         (origin: SymbolOrigin)
         (declaringArity: int)
-        (declKey: SymbolKey)
+        (declKey: TypeKey)
         (name: string)
         (isProperty: bool)
         (parameters: FrozenType)
@@ -143,7 +145,7 @@ module JsNativeSymbols =
             Signature = ExternalSignature.make (declaringArity, 0, parameters, ret)
             MethodArity = 0
             Origin = origin
-            Key = SymbolKey.MemberKey(declKey, name, EqArray.empty, MemberKind.InterfaceMethod declKey)
+            Key = SymbolKeyOps.memberKey declKey name EqArray.empty (MemberKind.InterfaceMethod declKey)
             OptionalDefaults = []
             IsOptional = false
         }
@@ -172,8 +174,8 @@ module JsNativeSymbols =
             1
             collectionsGenericOrigin
             [|
-                mkIfaceMember collectionsGenericOrigin 1 ienumeratorKey "MoveNext" false unitTy boolTy
-                mkIfaceMember collectionsGenericOrigin 1 ienumeratorKey "Current" true unitTy selfTypar
+                mkIfaceMember collectionsGenericOrigin 1 ienumeratorTypeKey "MoveNext" false unitTy boolTy
+                mkIfaceMember collectionsGenericOrigin 1 ienumeratorTypeKey "Current" true unitTy selfTypar
             |]
 
     /// `IEnumerable<'T>` — `GetEnumerator(): IEnumerator<'T>`.
@@ -185,7 +187,7 @@ module JsNativeSymbols =
                 mkIfaceMember
                     collectionsGenericOrigin
                     1
-                    ienumerableKey
+                    ienumerableTypeKey
                     "GetEnumerator"
                     false
                     unitTy

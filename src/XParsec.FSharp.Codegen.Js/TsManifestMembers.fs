@@ -40,7 +40,7 @@ module internal TsManifestMembers =
     /// `pickBestOverload` expects. Each ctor's `argSig` interns its parameter shape.
     let private expandCtor
         (ctx: TranslateCtx)
-        (declKey: SymbolKey)
+        (declKey: TypeKey)
         (origin: SymbolOrigin)
         (declArity: int)
         (mem: Schema.Member)
@@ -58,7 +58,7 @@ module internal TsManifestMembers =
     /// carries the InterfaceMethod-vs-Method `kind` chosen by the caller.
     let expandMethod
         (ctx: TranslateCtx)
-        (declKey: SymbolKey)
+        (declKey: TypeKey)
         (origin: SymbolOrigin)
         (declArity: int)
         (kind: MemberKind)
@@ -73,7 +73,7 @@ module internal TsManifestMembers =
                 Signature = signatureOf ctx declArity sg
                 MethodArity = sg.TypeParams
                 Origin = origin
-                Key = SymbolKey.MemberKey(declKey, mem.Name, EqArray.ofList argSig, kind)
+                Key = SymbolKeyOps.memberKey declKey mem.Name (EqArray.ofList argSig) kind
                 OptionalDefaults = List.replicate (trailingOptionalCount sg.Params) TConstValue.Unit
                 IsOptional = mem.Optional
             }
@@ -81,7 +81,7 @@ module internal TsManifestMembers =
 
     let toExternalMembers
         (ctx: TranslateCtx)
-        (declKey: SymbolKey)
+        (declKey: TypeKey)
         (origin: SymbolOrigin)
         (declArity: int)
         (isInterface: bool)
@@ -103,7 +103,7 @@ module internal TsManifestMembers =
                     Signature = ExternalSignature.make (declArity, 0, unitFrozen, ret)
                     MethodArity = 0
                     Origin = origin
-                    Key = SymbolKey.MemberKey(declKey, mem.Name, EqArray.empty, MemberKind.Property)
+                    Key = SymbolKeyOps.memberKey declKey mem.Name EqArray.empty MemberKind.Property
                     OptionalDefaults = []
                     IsOptional = mem.Optional
                 }
@@ -333,9 +333,7 @@ module internal TsManifestMembers =
 
             let origin: SymbolOrigin =
                 {
-                    Assembly = Some structuralHome
-                    Namespace = structuralHome
-                    DeclaringType = None
+                    Namespace = SymbolKeyOps.namespaceKey (Some structuralHome) structuralHome
                 }
 
             // One Property member per field, through the SAME `toExternalMembers`

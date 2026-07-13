@@ -564,7 +564,7 @@ let private mkMember (name: string) (methodArity: int) (parameters: FrozenType) 
         Signature = mkSignature 0 methodArity parameters ret
         MethodArity = methodArity
         Origin = SymbolOrigin.Empty
-        Key = SymbolKey.MemberKey(SymbolKeyOps.qualifiedTypeKeyOf None "C" 0, name, EqArray.empty, MemberKind.Method)
+        Key = SymbolKeyOps.memberKey (SymbolKeyOps.qualifiedTypeKeyOfT None "C" 0) name EqArray.empty MemberKind.Method
         OptionalDefaults = []
         IsOptional = false
     }

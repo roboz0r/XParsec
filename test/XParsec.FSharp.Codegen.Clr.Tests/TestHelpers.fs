@@ -246,7 +246,7 @@ type private PackageLoadContext() =
 
     member _.Register(name: string, asm: Assembly) = built.[name] <- asm
 
-    override _.Load(name: AssemblyName) : Assembly =
+    override _.Load(name: System.Reflection.AssemblyName) : Assembly =
         match built.TryGetValue name.Name with
         | true, asm -> asm
         | _ -> null
@@ -621,7 +621,7 @@ type private PrintfLoadContext(printfPath: string) as this =
     let printf =
         lazy (use ms = new IO.MemoryStream(IO.File.ReadAllBytes printfPath) in this.LoadFromStream ms)
 
-    override _.Load(name: AssemblyName) : Assembly =
+    override _.Load(name: System.Reflection.AssemblyName) : Assembly =
         if name.Name = "Vesper.Printf" then printf.Value else null
 
 /// Create a fresh collectible ALC bound to the Vesper-compiled `Vesper.Printf.dll`,

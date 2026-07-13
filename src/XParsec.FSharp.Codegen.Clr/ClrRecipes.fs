@@ -285,24 +285,46 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             Pushes = 1
         }
 
-    /// The member-ref parent `TypeRef` for an external module's compiled holder type — `declFullName`
-    /// is the holder's fully-qualified compiled name (`Vesper.OptionModule`), `metaNs` its metadata
-    /// namespace (the package namespace, `Vesper`). A nested holder (`Outer.Inner`) chains through the
-    /// enclosing `TypeRef` with the bare nested name + empty namespace, exactly as `ClrEnv.externalClassRef`
-    /// does for a nested class.
-    let externalModuleRef (asm: string option) (metaNs: string) (declFullName: string) : EntityHandle =
+    /// The member-ref parent `TypeRef` for an external module's compiled holder type.
+    /// `declModule` is the binding's declaring `ModuleKey` (`Vesper.OptionModule`), `metaNs`
+    /// the PACKAGE namespace its origin records (`Vesper`). A NESTED module holder
+    /// (`Vesper.Outer.Inner`) chains through the enclosing `TypeRef` with the bare nested
+    /// name + empty namespace, exactly as `ClrEnv.externalClassRef` does for a nested class.
+    ///
+    /// Where the namespace ends and the module chain begins is the ORIGIN's fact, not the
+    /// key's — a `BindingKey` minted from a flat compiled name can only take the last
+    /// segment as its module. So the split is a segment-list PREFIX test of the package
+    /// namespace against the module's own namespace path (what the old
+    /// `StartsWith(ns + ".")` + `Split('.')` always meant), not a string cut.
+    let externalModuleRef (asm: string option) (metaNs: NamespaceKey) (declModule: ModuleKey) : EntityHandle =
         let asmRef = externalAsmRef asm
-        let simple = SymbolOrigin.StripNamespace metaNs declFullName
+        let modNs = declModule.Namespace.Path
+        let pkgNs = metaNs.Path
 
-        match simple.Split('.') with
-        | [| flat |] -> toEntity (ctx.TypeRef(asmRef, metaNs, flat))
-        | parts ->
-            let mutable scope = toEntity (ctx.TypeRef(asmRef, metaNs, parts.[0]))
+        // The module segments hidden inside the key's namespace path: everything past the
+        // package namespace. A non-prefix origin drops none (the old StripNamespace no-op).
+        let isPrefix =
+            pkgNs.Length <= modNs.Length
+            && Seq.forall2 (=) (Seq.truncate pkgNs.Length modNs.Underlying) pkgNs.Underlying
 
-            for i in 1 .. parts.Length - 1 do
-                scope <- toEntity (ctx.TypeRef(scope, "", parts.[i]))
+        let dropped = if isPrefix then pkgNs.Length else 0
 
-            scope
+        let outerModules = [| for i in dropped .. modNs.Length - 1 -> modNs.[i] |]
+
+        let nsSlot = metaNs.Dotted
+
+        let mutable scope =
+            match outerModules with
+            | [||] -> toEntity (ctx.TypeRef(asmRef, nsSlot, declModule.Name))
+            | _ -> toEntity (ctx.TypeRef(asmRef, nsSlot, outerModules.[0]))
+
+        for i in 1 .. outerModules.Length - 1 do
+            scope <- toEntity (ctx.TypeRef(scope, "", outerModules.[i]))
+
+        if outerModules.Length > 0 then
+            scope <- toEntity (ctx.TypeRef(scope, "", declModule.Name))
+
+        scope
 
     /// The EXTERNAL head of the seq-interface witness
     /// (`FrozenTypeBridge.pickInterfaceWitness` is the shared tail;
@@ -346,12 +368,15 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     /// needs no `MethodSpec`. `ValueNone` ⇒ the symbol is unknown to the provider, or carries no home
     /// assembly (a project-local symbol the provider never sees), in which case the caller falls back to
     /// its hard error.
-    let emitExternalCall (declFullName: string) (name: string) (fnTy: FrozenType) : CallRecipe voption =
+    let emitExternalCall (declModule: ModuleKey) (name: string) (fnTy: FrozenType) : CallRecipe voption =
         let compiledFullName =
-            if declFullName = "" then
-                name
-            else
-                declFullName + "." + name
+            SymbolKeyOps.qualifiedName (
+                SymbolKey.Binding
+                    {
+                        Decl = ModuleHolder.InModule declModule
+                        Name = name
+                    }
+            )
 
         match symbols.TryLookupOpenSignature compiledFullName with
         | ValueNone -> ValueNone
@@ -433,7 +458,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                 s
 
             let parent =
-                externalModuleRef openSig.Origin.Assembly openSig.Origin.Namespace declFullName
+                externalModuleRef openSig.Origin.Assembly openSig.Origin.Namespace declModule
 
             let memberRef = toEntity (ctx.MemberRef(parent, name, msig))
 
@@ -1033,7 +1058,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     member _.FunInterfaceSpec(a, b) = funInterfaceSpec a b
     member _.FlatFunInterfaceSpecN(tys) = flatFunInterfaceSpecN tys
     member _.EmitFold fnTy = emitFold fnTy
-    member _.EmitExternalCall(declFullName, name, fnTy) = emitExternalCall declFullName name fnTy
+    member _.EmitExternalCall(declModule, name, fnTy) = emitExternalCall declModule name fnTy
     member _.BuildFormatHandles() = buildFormatHandles ()
     member _.FormatSinkHandles = formatSinkHandles.Value
     member _.StructuralFormatSignature() = structuralFormatSignature ()

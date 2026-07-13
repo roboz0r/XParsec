@@ -380,7 +380,7 @@ type ExternalMember =
     /// `signature`, the `argSig` the key interns, the `origin`, and any
     /// `optionalDefaults` (metadata-layer only — the contract layers pass `[]`).
     static member ctor
-        (declKey: SymbolKey)
+        (declKey: TypeKey)
         (signature: ExternalSignature)
         (argSig: EqArray<string>)
         (origin: SymbolOrigin)
@@ -393,7 +393,7 @@ type ExternalMember =
             Signature = signature
             MethodArity = 0
             Origin = origin
-            Key = SymbolKey.MemberKey(declKey, ".ctor", argSig, MemberKind.Method)
+            Key = SymbolKeyOps.memberKey declKey ".ctor" argSig MemberKind.Method
             OptionalDefaults = optionalDefaults
             IsOptional = false
         }
@@ -1133,7 +1133,7 @@ module ExternalSymbols =
     /// `List` union implements `seq`. `for-in` resolution stays structural-primary, so a
     /// `ValueNone` Enumerable/Enumerator here is harmless (§5.1).
     let resolveCapabilities (provider: IExternalSymbolProvider) : RuntimeNames.CapabilityIds =
-        let ofKey (key: SymbolKey) : RuntimeNames.CapabilityIdentity =
+        let ofKey (key: TypeKey) : RuntimeNames.CapabilityIdentity =
             {
                 RuntimeNames.CapabilityIdentity.Key = key
                 RuntimeNames.CapabilityIdentity.CanonKey = ValueNone
@@ -1166,16 +1166,16 @@ module ExternalSymbols =
         let resolveAnchor (lookup: string) (bclFace: string voption) : RuntimeNames.CapabilityIdentity voption =
             match provider.TryLookupType lookup with
             | ValueSome(ExternalTypeShape.Intrinsic { Id = { Platform = Some fqn } }) ->
-                ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf None fqn 0))
+                ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOfT None fqn 0))
             | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
                 ValueSome
                     {
-                        RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOf None platform 0
+                        RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOfT None platform 0
                         RuntimeNames.CapabilityIdentity.CanonKey =
-                            ValueSome(SymbolKeyOps.qualifiedTypeKeyOf None lookup 0)
+                            ValueSome(SymbolKeyOps.qualifiedTypeKeyOfT None lookup 0)
                     }
             | ValueSome(ExternalTypeShape.Class _) ->
-                let canonKey = SymbolKeyOps.qualifiedTypeKeyOf None lookup 0
+                let canonKey = SymbolKeyOps.qualifiedTypeKeyOfT None lookup 0
 
                 match bclFace with
                 | ValueSome bcl when shimConfirms bcl lookup ->
@@ -1184,7 +1184,7 @@ module ExternalSymbols =
                     // `CanonKey` = canonical). `capabilityCanonKey` then folds either spelling → canon.
                     ValueSome
                         {
-                            RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOf None bcl 0
+                            RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOfT None bcl 0
                             RuntimeNames.CapabilityIdentity.CanonKey = ValueSome canonKey
                         }
                 | _ -> ValueSome(ofKey canonKey)

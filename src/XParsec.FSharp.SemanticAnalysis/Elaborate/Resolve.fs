@@ -122,15 +122,18 @@ module internal ElaborateResolve =
             | Expr.TypeApp(expr = inner) -> tryClassRef ctx inner
             | _ -> ValueNone
 
-    /// The declaring nominal `SymbolKey` of a class/union receiver type — the
-    /// `decl` slot of the `MemberKey` minted for an instance member access. Only
-    /// called where the receiver is already known to be nominal (the active
-    /// patterns / `InstanceMethodCall` guard on `TyClass`/`TyUnion`), so a
-    /// non-nominal type is a Elaborate invariant break.
-    let nominalDeclKey (ty: SemType) : SymbolKey =
+    /// The declaring nominal `TypeKey` of a class/union receiver type — the `Decl`
+    /// slot of the `MemberKey` minted for an instance member access. Only called
+    /// where the receiver is already known to be nominal (the active patterns /
+    /// `InstanceMethodCall` guard on `TyClass`/`TyUnion`), so a non-nominal type is an
+    /// Elaborate invariant break. The `SymbolKey.Type` narrowing rides the SAME arm:
+    /// the nominal `SemType` cases still carry a `SymbolKey` (widening the type IR to
+    /// carry a `TypeKey` is a separate change), but every producer of one mints
+    /// `SymbolKey.Type`, so a non-type key here is the same invariant break.
+    let nominalDeclKey (ty: SemType) : TypeKey =
         match Unification.zonk ty with
-        | TyClass(key, _)
-        | TyUnion(key, _) -> key
+        | TyClass(SymbolKey.Type key, _)
+        | TyUnion(SymbolKey.Type key, _) -> key
         | other -> failwithf "Elaborate: expected a class/union receiver for a member access, got %A" other
 
     /// Look up `memberName` on `typeName` — a class or (P3d.3) a union
@@ -141,17 +144,17 @@ module internal ElaborateResolve =
         (ctx: PassContext)
         (typeName: string)
         (memberName: string)
-        : (SymbolKey * TypeMemberInfo) voption =
-        let pick (key: SymbolKey) (members: TypeMemberInfo[]) =
+        : (TypeKey * TypeMemberInfo) voption =
+        let pick (key: TypeKey) (members: TypeMemberInfo[]) =
             match members |> Array.tryFind (fun m -> m.Name = memberName) with
             | Some m -> ValueSome(key, m)
             | None -> ValueNone
 
         match ctx.Types.Class.TryGetValue typeName with
-        | true, info -> pick info.Key info.Members
+        | true, info -> pick info.TypeKey info.Members
         | false, _ ->
             match ctx.Types.Union.TryGetValue typeName with
-            | true, info -> pick info.Key info.Members
+            | true, info -> pick info.TypeKey info.Members
             | false, _ -> ValueNone
 
     /// Key-based sibling of `tryClassMember`: resolves the declaring class / union
@@ -165,17 +168,17 @@ module internal ElaborateResolve =
         (ctx: PassContext)
         (typeKey: SymbolKey)
         (memberName: string)
-        : (SymbolKey * TypeMemberInfo) voption =
-        let pick (key: SymbolKey) (members: TypeMemberInfo[]) =
+        : (TypeKey * TypeMemberInfo) voption =
+        let pick (key: TypeKey) (members: TypeMemberInfo[]) =
             match members |> Array.tryFind (fun m -> m.Name = memberName) with
             | Some m -> ValueSome(key, m)
             | None -> ValueNone
 
         match TypeRegistry.tryClassByKey ctx.Types typeKey with
-        | ValueSome info -> pick info.Key info.Members
+        | ValueSome info -> pick info.TypeKey info.Members
         | ValueNone ->
             match TypeRegistry.tryUnionByKey ctx.Types typeKey with
-            | ValueSome info -> pick info.Key info.Members
+            | ValueSome info -> pick info.TypeKey info.Members
             | ValueNone -> ValueNone
 
     // --- Implicit value→`obj` upcast ----------------------------------------
@@ -290,8 +293,8 @@ module internal ElaborateResolve =
     /// Parameter SemTypes for an instance/static member call resolved to
     /// `declKey.memberName`; empty when the member is unresolved (the call still
     /// emits — just unwrapped, exactly as before this plan).
-    let memberParamTys (ctx: PassContext) (declKey: SymbolKey) (memberName: string) : SemType list =
-        match tryClassMemberByKey ctx declKey memberName with
+    let memberParamTys (ctx: PassContext) (declKey: TypeKey) (memberName: string) : SemType list =
+        match tryClassMemberByKey ctx (SymbolKey.Type declKey) memberName with
         | ValueSome(_, m) -> flatMemberParams m.Type
         | ValueNone -> []
 
@@ -372,7 +375,7 @@ module internal ElaborateResolve =
     let private tryLongIdentStaticMember
         (ctx: PassContext)
         (li: LongIdent<SyntaxToken>)
-        : (SymbolKey * TypeMemberInfo) voption =
+        : (TypeKey * TypeMemberInfo) voption =
         if li.Idents.Length <> 2 then
             ValueNone
         else
@@ -456,14 +459,14 @@ module internal ElaborateResolve =
         | _ -> ValueNone
 
     [<return: Struct>]
-    let (|StaticMethod|_|) (ctx: PassContext) (li: LongIdent<SyntaxToken>) : (SymbolKey * string) voption =
+    let (|StaticMethod|_|) (ctx: PassContext) (li: LongIdent<SyntaxToken>) : (TypeKey * string) voption =
         match tryLongIdentStaticMember ctx li with
         | ValueSome(declKey, m) when m.Kind = ClassMemberKind.Method ->
             ValueSome(declKey, ctx.NameOf li.Idents.[li.Idents.Length - 1])
         | _ -> ValueNone
 
     [<return: Struct>]
-    let (|StaticMember|_|) (ctx: PassContext) (li: LongIdent<SyntaxToken>) : (SymbolKey * string) voption =
+    let (|StaticMember|_|) (ctx: PassContext) (li: LongIdent<SyntaxToken>) : (TypeKey * string) voption =
         match tryLongIdentStaticMember ctx li with
         | ValueSome(declKey, _) -> ValueSome(declKey, ctx.NameOf li.Idents.[li.Idents.Length - 1])
         | ValueNone -> ValueNone
@@ -480,7 +483,7 @@ module internal ElaborateResolve =
     let (|TypeAppStaticMember|_|)
         (ctx: PassContext)
         (e: Expr<SyntaxToken>)
-        : (SymbolKey * string * ClassMemberKind) voption =
+        : (TypeKey * string * ClassMemberKind) voption =
         match e with
         | Expr.DotLookup(expr = Expr.TypeApp(expr = classExpr); longIdentOrOp = LongIdentOrOp.LongIdent li) when
             li.Idents.Length = 1
@@ -538,7 +541,7 @@ module internal ElaborateResolve =
     let mkMethodCall
         (ctx: PassContext)
         (receiver: TExpr)
-        (declKey: SymbolKey)
+        (declKey: TypeKey)
         (memberName: string)
         (args: EqArray<TExpr>)
         (ty: SemType)
@@ -556,7 +559,7 @@ module internal ElaborateResolve =
     let mkInterfaceMethodCall
         (ctx: PassContext)
         (receiver: TExpr)
-        (ifaceKey: SymbolKey)
+        (ifaceKey: TypeKey)
         (ifaceArgs: EqArray<SemType>)
         (memberName: string)
         (args: EqArray<TExpr>)
@@ -570,7 +573,7 @@ module internal ElaborateResolve =
     /// `StaticMethodCall` resolved to `declKey.memberName`.
     let mkStaticMethodCall
         (ctx: PassContext)
-        (declKey: SymbolKey)
+        (declKey: TypeKey)
         (memberName: string)
         (args: EqArray<TExpr>)
         (ty: SemType)
@@ -672,7 +675,7 @@ module internal ElaborateResolve =
         | TyClass(clsKey, args) ->
             match TypeRegistry.tryClassByKey ctx.Types clsKey with
             | ValueSome info when isMember info.Members ->
-                let key = LocalSymbolKey.ofMember clsKey segName 0 MemberKind.Property
+                let key = LocalSymbolKey.ofMember info.TypeKey segName 0 MemberKind.Property
                 TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy, tok)
             | _ ->
                 // An *inherited* member (declared on a base class, e.g. `node.Key`
@@ -701,7 +704,7 @@ module internal ElaborateResolve =
         | TyUnion(unionKey, args) ->
             match TypeRegistry.tryUnionByKey ctx.Types unionKey with
             | ValueSome info when isMember info.Members ->
-                let key = LocalSymbolKey.ofMember unionKey segName 0 MemberKind.Property
+                let key = LocalSymbolKey.ofMember info.TypeKey segName 0 MemberKind.Property
                 TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy, tok)
             | _ -> TExpr.FieldGet(receiver, segName, stepTy, tok)
         // `arr.Length` on an intrinsic rank-1 array desugars to the core
@@ -723,7 +726,7 @@ module internal ElaborateResolve =
     let (|InstanceMethodCall|_|)
         (ctx: PassContext)
         (funcExpr: Expr<SyntaxToken>)
-        : (Expr<SyntaxToken> * SymbolKey * string) voption =
+        : (Expr<SyntaxToken> * TypeKey * string) voption =
         match funcExpr with
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
             let memberName = ctx.NameOf li.Idents.[0]
@@ -732,7 +735,7 @@ module internal ElaborateResolve =
             | TyClass(typeKey, _)
             | TyUnion(typeKey, _) ->
                 match tryClassMemberByKey ctx typeKey memberName with
-                | ValueSome(_, m) when m.Kind = ClassMemberKind.Method -> ValueSome(r, typeKey, memberName)
+                | ValueSome(declKey, m) when m.Kind = ClassMemberKind.Method -> ValueSome(r, declKey, memberName)
                 | _ -> ValueNone
             | _ -> ValueNone
         | _ -> ValueNone
@@ -813,7 +816,7 @@ module internal ElaborateResolve =
     let (|TyparInterfaceMethod|_|)
         (ctx: PassContext)
         (li: LongIdent<SyntaxToken>)
-        : (LongIdent<SyntaxToken> * SemType * SymbolKey * EqArray<SemType> * string) voption =
+        : (LongIdent<SyntaxToken> * SemType * TypeKey * EqArray<SemType> * string) voption =
         let n = li.Idents.Length
 
         if n < 2 then

@@ -1431,7 +1431,7 @@ module Unification =
                     addDiag
                         nameKey
                         "FS0378"
-                        (sprintf "A type with %s must implement '%s'." attr (SymbolKeyOps.qualifiedName c.Key))
+                        (sprintf "A type with %s must implement '%s'." attr (SymbolKeyOps.qualifiedName c.SymKey))
                 | ValueSome _ -> ()
                 | ValueNone ->
                     addDiag

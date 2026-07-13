@@ -495,7 +495,7 @@ module internal UnificationInferApp =
                                                 ctx.Provider.TryLookupMembers(scratchKey, "ToString")
                                                 |> Array.tryFind (fun m ->
                                                     match m.Key with
-                                                    | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length = 0
+                                                    | SymbolKey.Member mk -> mk.ArgSig.Length = 0
                                                     | _ -> false
                                                 )
 

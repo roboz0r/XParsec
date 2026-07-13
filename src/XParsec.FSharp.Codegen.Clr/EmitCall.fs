@@ -353,7 +353,7 @@ module EmitCall =
 
             let argSig =
                 match key with
-                | SymbolKey.MemberKey(_, _, argSig, _) -> argSig
+                | SymbolKey.Member mk -> mk.ArgSig
                 | other -> failwithf "Emit: ExternalMember key is not a MemberKey: %A" other
 
             let argCount = argSig.Length

@@ -23,9 +23,7 @@ let tests =
                 let viaOrigin =
                     SymbolKeyOps.externalTypeKey
                         {
-                            Assembly = Some "Vesper.List"
-                            Namespace = "Vesper.Collections"
-                            DeclaringType = None
+                            Namespace = SymbolKeyOps.namespaceKey (Some "Vesper.List") "Vesper.Collections"
                         }
                         "Vesper.Collections.List"
                         1
@@ -46,9 +44,7 @@ let tests =
                 let viaOrigin =
                     SymbolKeyOps.externalTypeKey
                         {
-                            Assembly = Some "Vesper.Core"
-                            Namespace = "Vesper"
-                            DeclaringType = None
+                            Namespace = SymbolKeyOps.namespaceKey (Some "Vesper.Core") "Vesper"
                         }
                         "Vesper.Ref"
                         1
@@ -80,5 +76,104 @@ let tests =
                     (SymbolKeyOps.qualifiedName homeA)
                     (SymbolKeyOps.qualifiedName homeB)
                     "yet they project to the same qualified name — exactly the silent-mismatch shape"
+            }
+
+            // A package origin is a BLANKET fact (`Vesper`), but a type in that package can
+            // live DEEPER (`Vesper.Collections.seq`). Deriving the namespace by stripping the
+            // blanket origin off the compiled name mis-cuts it into ns=`Vesper` /
+            // name=`Collections.seq`, which then fails to match the capability's canonical
+            // key. The namespace must come from the name the type belongs to.
+            test "blanket package origin does not mis-cut a deeper compiled name" {
+                let blanket =
+                    {
+                        Namespace = SymbolKeyOps.namespaceKey (Some "Vesper.Core") "Vesper"
+                    }
+
+                let viaOrigin = SymbolKeyOps.externalTypeKeyOf blanket "Vesper.Collections.seq" 1
+
+                let viaQualified =
+                    SymbolKeyOps.qualifiedTypeKeyOfT (Some "Vesper.Core") "Vesper.Collections.seq" 1
+
+                Expect.equal viaOrigin viaQualified "both external mint paths agree"
+
+                Expect.equal
+                    (List.ofSeq viaOrigin.Namespace.Path.Underlying)
+                    [ "Vesper"; "Collections" ]
+                    "the namespace is segmented from the name, not cut at the blanket origin"
+
+                Expect.equal viaOrigin.Name "seq`1" "the simple name is the last segment, arity-suffixed"
+            }
+
+            // `typeMetaName` is THE renderer and `typeKeyOf` THE parser for the `+`-mangled
+            // reflection display name of a CLR nested type. They must invert each other, and
+            // the nesting must land in the holder chain — not survive inside a key's `Name`.
+            test "nested type: the `+` chain becomes holders, and renders back unchanged" {
+                let k =
+                    SymbolKeyOps.typeKeyOf
+                        (Some "System.Private.CoreLib")
+                        "System.Collections.Generic"
+                        "List`1+Enumerator"
+
+                match k.Holder with
+                | TypeHolder.InType outer ->
+                    Expect.equal outer.Name "List`1" "the outer keeps its arity suffix"
+                    Expect.equal k.Name "Enumerator" "the inner Name is the bare segment, not `+`-mangled"
+                | other -> failtestf "expected InType, got %A" other
+
+                Expect.equal
+                    (SymbolKeyOps.typeMetaName k)
+                    "System.Collections.Generic.List`1+Enumerator"
+                    "the renderer inverts the parser"
+
+                Expect.equal
+                    (SymbolKeyOps.typeNs k)
+                    "System.Collections.Generic"
+                    "a nested type reports its OUTER's namespace, as the CLR does"
+
+                // A nested type's arity is carried by its OUTER, so requesting arity 1 must not
+                // re-suffix the inner segment.
+                Expect.equal
+                    (SymbolKeyOps.qualifiedTypeKeyOfT (Some "A") "N.List`1+Enumerator" 1
+                     |> SymbolKeyOps.typeMetaName)
+                    "N.List`1+Enumerator"
+                    "the arity is already spelled by the outer; it is not re-appended to the inner"
+            }
+
+            // `moduleKeyOf` is a last-dot split; its only correctness argument is that
+            // `moduleFullName` inverts it exactly.
+            test "module full name round-trips through moduleKeyOf" {
+                Expect.equal
+                    (SymbolKeyOps.moduleFullName (SymbolKeyOps.moduleKeyOf (Some "A") "Vesper.Unchecked"))
+                    "Vesper.Unchecked"
+                    "namespace-qualified module round-trips"
+
+                Expect.equal
+                    (SymbolKeyOps.moduleFullName (SymbolKeyOps.moduleKeyOf (Some "A") "Util"))
+                    "Util"
+                    "a module in the global namespace round-trips"
+            }
+
+            // The UNQUALIFIED binding — a flat package's export / a global extern. Its holder
+            // is the global namespace, NOT an absent one: it still carries the home assembly,
+            // which is what a `ModuleKey voption` could not have done.
+            test "unqualified binding: holder is the global namespace, home assembly survives" {
+                let b = SymbolKeyOps.bindingKeyOf (Some "pkg") "" "f"
+
+                match b.Decl with
+                | ModuleHolder.InNamespace ns ->
+                    Expect.isTrue ns.Path.IsEmpty "the global namespace is an EMPTY path, not a sentinel"
+
+                    Expect.equal
+                        ns.Origin
+                        (Origin.InAssembly(AssemblyName "pkg"))
+                        "the home assembly is reachable through the holder chain"
+                | other -> failtestf "expected InNamespace, got %A" other
+
+                Expect.equal (SymbolKeyOps.holderFullName b.Decl) "" "an empty holder renders empty"
+
+                Expect.equal
+                    (SymbolKeyOps.qualifiedName (SymbolKey.Binding b))
+                    "f"
+                    "qualifiedName drops the empty holder rather than emitting a leading dot"
             }
         ]

@@ -112,7 +112,7 @@ module UnificationInferOverload =
     /// single tuple param.
     and memberParamCount (m: ExternalMember) : int =
         match m.Key with
-        | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length
+        | SymbolKey.Member mk -> mk.ArgSig.Length
         | _ -> 0
 
     /// Flattens the tupled signature back to N parameters.

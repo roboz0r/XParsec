@@ -79,7 +79,7 @@ type MetadataContext() =
 
     /// Identified by the loaded assembly's name / version / public-key token, so
     /// the emitted reference matches whatever is loaded in the host process.
-    member _.AssemblyRef(name: AssemblyName) : AssemblyReferenceHandle =
+    member _.AssemblyRef(name: System.Reflection.AssemblyName) : AssemblyReferenceHandle =
         let key = name.FullName
         asmRefNames.Add name.Name |> ignore
 

@@ -196,8 +196,8 @@ module TypeRegistry =
     /// A non-`TypeKey` key never names such a type, so it misses.
     let private tryByTypeKey (table: Dictionary<string, 'T>) (key: SymbolKey) : 'T voption =
         match key with
-        | SymbolKey.TypeKey(name = name) ->
-            match table.TryGetValue name with
+        | SymbolKey.Type t ->
+            match table.TryGetValue t.Name with
             | true, info -> ValueSome info
             | false, _ -> ValueNone
         | _ -> ValueNone

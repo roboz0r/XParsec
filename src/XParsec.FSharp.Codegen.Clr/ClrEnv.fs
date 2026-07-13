@@ -40,7 +40,7 @@ type internal ClrEnv
     (
         ctx: MetadataContext,
         reprs: Map<string, string>,
-        references: Map<string, AssemblyName>,
+        references: Map<string, System.Reflection.AssemblyName>,
         symbols: ICodegenSymbols,
         assemblyName: string
     ) =
@@ -50,12 +50,15 @@ type internal ClrEnv
     /// equals this — the codegen local/external branch (asm-discrimination).
     let envAsm = SymbolKeyOps.asmOf assemblyName
 
-    let refOrHost (simpleName: string) (hostFallback: unit -> AssemblyName) : AssemblyName =
+    let refOrHost
+        (simpleName: string)
+        (hostFallback: unit -> System.Reflection.AssemblyName)
+        : System.Reflection.AssemblyName =
         match references.TryFind simpleName with
         | Some an -> an
         | None -> hostFallback ()
 
-    let refRequired (simpleName: string) (need: string) : AssemblyName =
+    let refRequired (simpleName: string) (need: string) : System.Reflection.AssemblyName =
         match references.TryFind simpleName with
         | Some an -> an
         | None ->
@@ -409,7 +412,7 @@ type internal ClrEnv
                         |> Array.tryFind (fun a -> a.GetName().Name = simpleName)
                     with
                     | Some a -> a.GetName()
-                    | None -> AssemblyName(simpleName)
+                    | None -> System.Reflection.AssemblyName(simpleName)
 
             toEntity (ctx.AssemblyRef an)
 
@@ -437,10 +440,8 @@ type internal ClrEnv
             externalClassRef (SymbolKeyOps.qualifiedTypeKeyOf None platform 0)
         | _ ->
 
-            match lookupClassShape key with
-            | ValueSome info ->
-                let ns = info.Origin.Namespace
-                let simple = SymbolOrigin.StripNamespace ns (SymbolKeyOps.qualifiedName key)
+            match key, lookupClassShape key with
+            | SymbolKey.Type t, ValueSome info ->
                 let asm = externalAsmRef info.Origin.Assembly
 
                 // A nested type's `TypeRef` (`List`1+Enumerator`, the duck-typed struct
@@ -448,18 +449,26 @@ type internal ClrEnv
                 // ResolutionScope with the *bare* nested name + empty namespace — a flat
                 // `Outer+Inner` name with the AssemblyRef scope fails to bind
                 // (`TypeLoadException`). The `+` is a reflection display convention, not a
-                // metadata name. Top-level (`+`-free) names take the single-segment path
-                // unchanged. The generic args ride the innermost nested TypeRef, so the
-                // encoder needs no further nesting awareness.
-                match simple.Split('+') with
-                | [| flat |] -> ValueSome(toEntity (ctx.TypeRef(asm, ns, flat)))
-                | parts ->
-                    let mutable scope = toEntity (ctx.TypeRef(asm, ns, parts.[0]))
+                // metadata name. `TypeHolder.InType` IS that chain, so this walks the key's
+                // own holders instead of re-parsing a `+`-mangled string. The generic args
+                // ride the innermost nested TypeRef, so the encoder needs no further
+                // nesting awareness.
+                let rec typeRefOf (t: TypeKey) : EntityHandle =
+                    match t.Holder with
+                    | TypeHolder.InType outer -> toEntity (ctx.TypeRef(typeRefOf outer, "", t.Name))
+                    | TypeHolder.InNamespace ns -> toEntity (ctx.TypeRef(asm, ns.Dotted, t.Name))
+                    | TypeHolder.InModule m ->
+                        // A module-held type compiles to a type NESTED in the module's holder
+                        // type, so its `TypeRef` must chain through `externalModuleRef` — not
+                        // fall back to the namespace, which would silently drop `m` and emit a
+                        // ref that does not bind. No producer mints this holder yet; when one
+                        // does, this is the site that must be wired, so it fails loud.
+                        failwithf
+                            "ClrEnv: module-held external type has no TypeRef encoding yet: %s in %s"
+                            t.Name
+                            m.Name
 
-                    for i in 1 .. parts.Length - 1 do
-                        scope <- toEntity (ctx.TypeRef(scope, "", parts.[i]))
-
-                    ValueSome scope
+                ValueSome(typeRefOf t)
             | _ -> ValueNone
 
     /// Whether a referenced-assembly type is a .NET value type (`struct`) — `false`
@@ -482,17 +491,19 @@ type internal ClrEnv
         | _ -> ValueNone
 
     let externalRecordRef (key: SymbolKey) (arity: int) : (EntityHandle * ExternalFieldShape[]) voption =
-        match externalRecordShape key arity with
-        | ValueNone -> ValueNone
-        | ValueSome(fields, origin) ->
-            let ns = origin.Namespace
-            let bareSimple = SymbolOrigin.StripNamespace ns (SymbolKeyOps.qualifiedName key)
+        // A non-type key names no type, so it mints no `TypeRef`: `ValueNone` hands the
+        // caller its hard error. It must NOT fall back to a fabricated `(ns = "", name =
+        // <whole dotted name>)` ref, which binds to nothing and fails at load, not here.
+        match key, externalRecordShape key arity with
+        | SymbolKey.Type t, ValueSome(fields, origin) ->
+            // Namespace + simple name come off the KEY's own containment chain (a record is
+            // never a CLR nested type). Metadata `TypeRef` simple names carry the `` `n ``
+            // arity suffix; the contract-layer key (`Vesper.Ref`) lacks it, the metadata-layer
+            // key (`Vesper.Ref`1`) has it. Add when absent.
+            let simple = SymbolKeyOps.arityName t.Name arity
 
-            // Metadata `TypeRef` simple names carry the `` `n `` arity suffix; the contract-layer key
-            // (`Vesper.Ref`) lacks it, the metadata-layer key (`Vesper.Ref`1`) has it. Add when absent.
-            let simple = SymbolKeyOps.arityName bareSimple arity
-
-            ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, ns, simple)), fields)
+            ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, t.Namespace.Dotted, simple)), fields)
+        | _ -> ValueNone
 
     /// Referenced-assembly union shape by `SymbolKey` + arity — the mirror of
     /// `externalRecordShape` for cross-package case construction (`Some` / `None`).
@@ -504,15 +515,12 @@ type internal ClrEnv
         | _ -> ValueNone
 
     let externalUnionRef (key: SymbolKey) (arity: int) : (EntityHandle * ExternalCaseShape[]) voption =
-        match externalUnionShape key arity with
-        | ValueNone -> ValueNone
-        | ValueSome(cases, origin) ->
-            let ns = origin.Namespace
-            let bareSimple = SymbolOrigin.StripNamespace ns (SymbolKeyOps.qualifiedName key)
+        match key, externalUnionShape key arity with
+        | SymbolKey.Type t, ValueSome(cases, origin) ->
+            let simple = SymbolKeyOps.arityName t.Name arity
 
-            let simple = SymbolKeyOps.arityName bareSimple arity
-
-            ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, ns, simple)), cases)
+            ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, t.Namespace.Dotted, simple)), cases)
+        | _ -> ValueNone
 
     // While encoding a closure's own members (Invoke / .ctor /
     // capture fields / its TypeSpec from inside its body), the enclosing method's

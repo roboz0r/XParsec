@@ -1067,7 +1067,7 @@ module internal NominalEmit =
 
                     provider.InstanceMethodSignature(
                         [],
-                        FTClass(SymbolKey.TypeKey(None, "System.Collections", "IEnumerator"), EqArray.empty)
+                        FTClass(SymbolKeyOps.typeKey None "System.Collections" "IEnumerator", EqArray.empty)
                     ),
                     Emit.buildEnumerableGetEnumeratorCoSlot getEnumerator
                 | CoSlot.EnumeratorCurrent ->
@@ -1118,7 +1118,7 @@ module internal NominalEmit =
                 []
 
         asm.AddTypeRowExtras(
-            TypeKey.Nominal td.Key,
+            TypeSlotKey.Nominal td.Key,
             {
                 Interfaces = interfaces
                 BaseType = baseTypeHandle

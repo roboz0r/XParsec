@@ -260,13 +260,28 @@ module private MetadataMapping =
         : ExternalSignature =
         ExternalSignature.make (declaringArity, methodArity, parameters, ret)
 
-    /// `SymbolKey.TypeKey` for the declaring type.
-    let declTypeKey (t: Type) : SymbolKey =
-        let asm = t.Assembly.GetName().Name |> Option.ofObj
-        let full = metadataName t
-        let ns = if isNull t.Namespace then "" else t.Namespace
-        let simple = SymbolOrigin.StripNamespace ns full
-        SymbolKey.TypeKey(asm, ns, simple)
+    /// The declaring type's `TypeKey`, read STRUCTURALLY off the reflection object: a
+    /// nested type's containment is `Type.DeclaringType`, so the key's holder chain is
+    /// built by recursion, never by cutting `FullName` on `.` and `+`. Reflection's
+    /// `Ns.Outer`1+Inner` display spelling is a rendering (`SymbolKeyOps.typeMetaName`);
+    /// it is not an input here. `Type.Name` is already the bare innermost segment, and a
+    /// nested type reports its outer's namespace — which is what the holder chain gives.
+    let rec declTypeKey (t: Type) : TypeKey =
+        let t =
+            if t.IsGenericType && not t.IsGenericTypeDefinition then
+                t.GetGenericTypeDefinition()
+            else
+                t
+
+        let holder =
+            if t.IsNested then
+                TypeHolder.InType(declTypeKey t.DeclaringType)
+            else
+                let asm = t.Assembly.GetName().Name |> Option.ofObj
+                let ns = if isNull t.Namespace then "" else t.Namespace
+                TypeHolder.InNamespace(SymbolKeyOps.namespaceKey asm ns)
+
+        { Holder = holder; Name = t.Name }
 
 /// `IExternalSymbolProvider` over reference assembly paths via a shared `MetadataLoadContext`.
 /// `reverseCanon` is the harvested `{ platform-repr → [canon] }` map (`System.Int32 → [int]`)
@@ -339,14 +354,14 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
             resolveCache.[name] <- found
             found
 
-    let originOf (t: Type) (declaring: string option) : SymbolOrigin =
+    let originOf (t: Type) : SymbolOrigin =
         {
-            Assembly = t.Assembly.GetName().Name |> Option.ofObj
             Namespace =
-                (match t.Namespace with
-                 | null -> ""
-                 | ns -> ns)
-            DeclaringType = declaring
+                SymbolKeyOps.namespaceKey
+                    (t.Assembly.GetName().Name |> Option.ofObj)
+                    (match t.Namespace with
+                     | null -> ""
+                     | ns -> ns)
         }
 
     /// A genuine public FIELD (`String.Empty`, `Vector3.X`, `ValueTuple.Item1`) as an
@@ -357,7 +372,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
     /// `IsLiteral` (a `const`, lowers to `ldc` not a field load) and `IsSpecialName` (the
     /// enum `value__`), plus unmappable field types, drop out as `None`. Shared by the
     /// eager `enumerateClassMembers` field walk and the lazy `TryLookupMember` fallback.
-    let fieldMemberOf (declKey: SymbolKey) (origin: SymbolOrigin) (arity: int) (f: FieldInfo) : ExternalMember option =
+    let fieldMemberOf (declKey: TypeKey) (origin: SymbolOrigin) (arity: int) (f: FieldInfo) : ExternalMember option =
         if f.IsLiteral || f.IsSpecialName then
             None
         else
@@ -371,7 +386,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                         Signature = MetadataMapping.propertySignature arity valueTy
                         MethodArity = 0
                         Origin = origin
-                        Key = SymbolKey.MemberKey(declKey, f.Name, EqArray.empty, MemberKind.Property)
+                        Key = SymbolKeyOps.memberKey declKey f.Name EqArray.empty MemberKind.Property
                         OptionalDefaults = []
                         IsOptional = false
                     }
@@ -381,12 +396,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
     /// Shared by the eager `enumerateClassMembers` method walk and the lazy
     /// `TryLookupMember` per-type probe so the two paths can never drift on the shape
     /// they mint for the same `MethodInfo`.
-    let methodMemberOf
-        (declKey: SymbolKey)
-        (origin: SymbolOrigin)
-        (arity: int)
-        (m: MethodInfo)
-        : ExternalMember option =
+    let methodMemberOf (declKey: TypeKey) (origin: SymbolOrigin) (arity: int) (m: MethodInfo) : ExternalMember option =
         MetadataMapping.tryMethodSignature reverseCanon m
         |> Option.map (fun (ps, ret) ->
             let argSig =
@@ -403,7 +413,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                 Signature = MetadataMapping.methodSignature arity methodArity (ps, ret)
                 MethodArity = methodArity
                 Origin = origin
-                Key = SymbolKey.MemberKey(declKey, m.Name, argSig, MemberKind.Method)
+                Key = SymbolKeyOps.memberKey declKey m.Name argSig MemberKind.Method
                 OptionalDefaults = MetadataMapping.optionalDefaults (m.GetParameters())
                 IsOptional = false
             }
@@ -412,7 +422,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
     /// A mapped property as an `ExternalMember`; `None` if its value type doesn't map.
     /// Shared by the eager and lazy paths (see `methodMemberOf`).
     let propertyMemberOf
-        (declKey: SymbolKey)
+        (declKey: TypeKey)
         (origin: SymbolOrigin)
         (arity: int)
         (p: PropertyInfo)
@@ -426,7 +436,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                 Signature = MetadataMapping.propertySignature arity valueTy
                 MethodArity = 0
                 Origin = origin
-                Key = SymbolKey.MemberKey(declKey, p.Name, EqArray.empty, MemberKind.Property)
+                Key = SymbolKeyOps.memberKey declKey p.Name EqArray.empty MemberKind.Property
                 OptionalDefaults = []
                 IsOptional = false
             }
@@ -435,7 +445,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
     /// Public declared members of `t` whose signatures map. Accessors are modelled
     /// through `Storage = Property` and filtered from the method walk. Must hold `gate`.
     let enumerateClassMembers (t: Type) : ExternalMember[] =
-        let origin = originOf t (Some(MetadataMapping.metadataName t))
+        let origin = originOf t
         let declKey = MetadataMapping.declTypeKey t
         // The declaring type's typar count — the width of the signature
         // template's declaring axis (`FTTypar(Declaring,i)`, `i < arity`).
@@ -478,7 +488,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                         Signature = MetadataMapping.methodSignature arity 0 (ps, ret)
                         MethodArity = 0
                         Origin = origin
-                        Key = SymbolKey.MemberKey(declKey, "get_Item", argSig, MemberKind.Method)
+                        Key = SymbolKeyOps.memberKey declKey "get_Item" argSig MemberKind.Method
                         OptionalDefaults = []
                         IsOptional = false
                     }
@@ -582,7 +592,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                             FrozenInterfaces = buildClassInterfaces t
                             FrozenBaseType = buildClassBaseType t
                             Flags = decodeClassFlags t
-                            Origin = originOf t None
+                            Origin = originOf t
                         }
 
                     ValueSome(ExternalTypeShape.Class shape)
@@ -603,7 +613,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                     // an *inherited* member resolves) is `candidates` below. Each member's
                     // `declKey`/`origin` come from the type it is declared on.
                     let commonOf (st: Type) =
-                        let origin = originOf st (Some(MetadataMapping.metadataName st))
+                        let origin = originOf st
                         let declKey = MetadataMapping.declTypeKey st
 
                         let arity =
@@ -703,12 +713,12 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                         methods
                         |> Array.filter (fun m ->
                             match m.Key with
-                            | SymbolKey.MemberKey(_, _, argSig, kind) -> seen.Add((argSig, kind, m.MethodArity))
+                            | SymbolKey.Member mk -> seen.Add((mk.ArgSig, mk.Kind, m.MethodArity))
                             | _ -> true
                         )
                         |> Array.sortByDescending (fun m ->
                             match m.Key with
-                            | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length
+                            | SymbolKey.Member mk -> mk.ArgSig.Length
                             | _ -> 0
                         )
 

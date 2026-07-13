@@ -184,9 +184,9 @@ module EmitJsContext =
                 let baseName = SymbolKeyOps.simpleName key
 
                 let home =
-                    match key with
-                    | SymbolKey.TypeKey(Some asm, _, _) -> ValueSome asm
-                    | _ -> failwithf "EmitJs: external union '%s' has no home assembly (key %A)" baseName key
+                    match SymbolKeyOps.keyAsm key with
+                    | Some asm -> ValueSome asm
+                    | None -> failwithf "EmitJs: external union '%s' has no home assembly (key %A)" baseName key
 
                 let info, _ =
                     buildUnionInfo home baseName [ for c in cases -> c.Name, List.ofArray c.FieldNames ]
@@ -310,11 +310,11 @@ module EmitJsContext =
             // mirroring the external-union case-class import (`addTypeRef`). The
             // `import { E } + E.Ci` shape is exactly what `tsc` emits for the enum, so
             // no object map is re-emitted. The key's home assembly selects the module.
-            match enumKey with
-            | SymbolKey.TypeKey(Some asm, _, _) ->
+            match SymbolKeyOps.keyAsm enumKey with
+            | Some asm ->
                 let local = JsImports.addTypeRef ctx.Imports asm (SymbolKeyOps.simpleName enumKey)
                 JsExpr.Member(JsExpr.Identifier(local, loc), JsExpr.Identifier(caseName, ValueNone), false, loc)
-            | _ ->
+            | None ->
                 failwithf
                     "EmitJs: enum case '%s' on a type with no emitted enum object and no home assembly (key %A)"
                     caseName
@@ -342,13 +342,13 @@ module EmitJsContext =
     /// front-end special-cased — so the backend synthesises its key, the codegen-owned
     /// analogue of the CLR backend's `AppendStructured<T>` member ref.
     let structuralFormatKey: SymbolKey voption =
-        ValueSome(SymbolKey.ValueKey(Some "Vesper.Printf", "Vesper.StructuralPrinter", "structuralFormat"))
+        ValueSome(SymbolKeyOps.valueKey (Some "Vesper.Printf") "Vesper.StructuralPrinter" "structuralFormat")
 
     /// The runtime entry a `%O` on a `float32` renders through — `float32ToString` in the
     /// same `Vesper.Printf.mjs`, synthesised exactly like `structuralFormatKey` (no
     /// front-end symbol resolves to it; the specifier is front-end special-cased).
     let float32ToStringKey: SymbolKey voption =
-        ValueSome(SymbolKey.ValueKey(Some "Vesper.Printf", "Vesper.StructuralPrinter", "float32ToString"))
+        ValueSome(SymbolKeyOps.valueKey (Some "Vesper.Printf") "Vesper.StructuralPrinter" "float32ToString")
 
     /// The JS repr `int64` / `uint64` bind to (`prim-types-int.js.fs`).
     [<Literal>]

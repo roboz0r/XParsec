@@ -172,7 +172,10 @@ module ExternalSymbolProviders =
                 // pointing at one identity.
                 let restampKey (k: SymbolKey) : SymbolKey =
                     match k with
-                    | SymbolKey.ValueKey(_, ns, name) -> SymbolKey.ValueKey(o.Assembly, ns, name)
+                    | SymbolKey.Binding b ->
+                        SymbolKey.Binding(
+                            SymbolKeyOps.bindingKeyOf o.Assembly (SymbolKeyOps.holderFullName b.Decl) b.Name
+                        )
                     | _ -> k
 
                 fun (s: ExternalSymbol) ->
@@ -190,61 +193,37 @@ module ExternalSymbolProviders =
         // their `Origin`. Class/Record/Union do today; Abbrev doesn't (its
         // cross-package emit path lands later, with the same shape). Extend
         // this match — not three call sites — when a new case learns origin.
-        // The namespace a Class/Record/Union/Enum extern's `Origin` should carry, given the
-        // package-blanket manifest namespace `o.Namespace` and the type's looked-up compiled
-        // `name`. Normally the type lives directly in the manifest namespace and the two agree,
-        // but a type may live in a SUB-namespace (JS capabilities: `Vesper.Collections.seq` under
-        // manifest `Vesper` — on JS a capability is a single-faced `Class`, not the CLR
-        // `IntrinsicInterface`). The extractor records `SymbolOrigin.Empty`, so blanket-stamping
-        // `o.Namespace` would leave `externalTypeKey` to split `Vesper.Collections.seq` at the
-        // wrong dot (`ns = "Vesper"`, `name = "Collections.seq"`), and the mis-split use-site key
-        // no longer matches `resolveCapabilities`' `CanonKey` (`ns = "Vesper.Collections"`) — the
-        // same failure the `IntrinsicInterface` arm's `Id.Canon` fix repairs on CLR. Derive the
-        // namespace from `name` when it STRICTLY EXTENDS the manifest namespace; otherwise keep
-        // the blanket (types directly in the namespace are unchanged — their derived ns equals it).
-        let originNsFor (name: string) (o: SymbolOrigin) : string =
-            let dot = name.LastIndexOf '.'
-
-            if dot < 0 then
-                o.Namespace
-            else
-                let ns = name.Substring(0, dot)
-
-                if o.Namespace <> "" && ns.StartsWith(o.Namespace + ".") then
-                    ns
-                else
-                    o.Namespace
-
-        let stampType (name: string) (shape: ExternalTypeShape) : ExternalTypeShape =
+        //
+        // The origin is a PACKAGE fact (home assembly + manifest namespace); a type's own
+        // namespace lives in its key, so no per-type namespace repair happens here.
+        let stampType (shape: ExternalTypeShape) : ExternalTypeShape =
             match stampOrigin with
             | ValueNone -> shape
             | ValueSome o ->
-                // Each shape owns its namespace SOURCE (see `originNsFor` above for why the
-                // blanket `o.Namespace` mis-splits a sub-namespace capability): a nominal extern
-                // derives it from the compiled `name`; a capability `IntrinsicInterface` takes it
-                // from its authoritative, pre-split `Id.Canon`. The home ASSEMBLY is always `o`.
-                let withNs ns = { o with Namespace = ns }
-                let nominalNs = originNsFor name o
-
                 match shape with
-                | ExternalTypeShape.Class info -> ExternalTypeShape.Class { info with Origin = withNs nominalNs }
-                | ExternalTypeShape.Record(arity, fields, _) ->
-                    ExternalTypeShape.Record(arity, fields, withNs nominalNs)
-                | ExternalTypeShape.Union(arity, cases, ifaces, _) ->
-                    ExternalTypeShape.Union(arity, cases, ifaces, withNs nominalNs)
-                | ExternalTypeShape.Enum(cases, _) -> ExternalTypeShape.Enum(cases, withNs nominalNs)
+                | ExternalTypeShape.Class info -> ExternalTypeShape.Class { info with Origin = o }
+                | ExternalTypeShape.Record(arity, fields, _) -> ExternalTypeShape.Record(arity, fields, o)
+                | ExternalTypeShape.Union(arity, cases, ifaces, _) -> ExternalTypeShape.Union(arity, cases, ifaces, o)
+                | ExternalTypeShape.Enum(cases, _) -> ExternalTypeShape.Enum(cases, o)
                 // Origin-stamped like a `Class` (its value resolution key is asm-qualified via
-                // `Origin`; the extractor left it `Empty`), but its namespace comes from the
-                // pre-split `Canon` (`Vesper.Collections` for `seq`; `disposable` et al. already
-                // sit directly in `Vesper`). `originNsFor name` is only the fallback if the canon
-                // isn't a `TypeKey`.
+                // `Origin`; the extractor left it `Empty`), but its namespace comes from its
+                // authoritative canonical key (`Vesper.Collections` for `seq`; `disposable` et al.
+                // already sit directly in `Vesper`), which is where the capability's identity is.
                 | ExternalTypeShape.IntrinsicInterface s ->
-                    let canonNs =
+                    // The canon key is asm-blind by convention, so only its PATH is taken;
+                    // the home assembly stays the package's.
+                    let canonPath =
                         match s.Canon with
-                        | SymbolKey.TypeKey(_, ns, _) -> ns
-                        | _ -> nominalNs
+                        | SymbolKey.Type t -> t.Namespace.Path
+                        | _ -> o.Namespace.Path
 
-                    ExternalTypeShape.IntrinsicInterface { s with Origin = withNs canonNs }
+                    ExternalTypeShape.IntrinsicInterface
+                        { s with
+                            Origin =
+                                {
+                                    Namespace = { o.Namespace with Path = canonPath }
+                                }
+                        }
                 | ExternalTypeShape.Abbrev _
                 // An intrinsic carries no `Origin` (its identity is the canon,
                 // asm-blind), so origin stamping leaves it unchanged.
@@ -268,7 +247,7 @@ module ExternalSymbolProviders =
                   firstHit (fun s -> s.TryLookup name) |> ValueOption.map stampSymbol
 
               member _.TryLookupType(name: string) =
-                  firstHit (fun s -> s.TryLookupType name) |> ValueOption.map (stampType name)
+                  firstHit (fun s -> s.TryLookupType name) |> ValueOption.map stampType
 
               // First source that knows a case of this name wins; re-stamp the
               // package origin onto the result exactly as `TryLookupType` does for
@@ -281,8 +260,7 @@ module ExternalSymbolProviders =
               member _.AmbientOpenPrefixes = ambient
           interface IExternalSymbolStore with
               member _.TryLookupType(key: SymbolKey) =
-                  firstHit (fun s -> s.TryLookupType key)
-                  |> ValueOption.map (stampType (SymbolKeyOps.qualifiedName key))
+                  firstHit (fun s -> s.TryLookupType key) |> ValueOption.map stampType
 
               member _.TryLookupMember(key, memberName) =
                   firstHit (fun s -> s.TryLookupMember(key, memberName))

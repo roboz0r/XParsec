@@ -205,13 +205,13 @@ module internal UnificationInferRecordAccess =
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target ->
                     match resolveStep target with
-                    | TyClass(ifaceKey, ifaceArgs) ->
+                    | TyClass(SymbolKey.Type ifaceKey, ifaceArgs) ->
                         // Resolve by the interface's key, not a bare name: an
                         // arity-overloaded interface (`Fun`2`/`Fun`3`) has no bare alias, so a
                         // bare read would miss a `'T :> Fun<…>` bound's local interface.
-                        match TypeRegistry.tryClassByKey ctx.Types ifaceKey with
+                        match TypeRegistry.tryClassByKey ctx.Types (SymbolKey.Type ifaceKey) with
                         | ValueSome info when info.IsInterface ->
-                            match tryClassChainMember ctx ifaceKey ifaceArgs memberName with
+                            match tryClassChainMember ctx (SymbolKey.Type ifaceKey) ifaceArgs memberName with
                             | ValueSome mty ->
                                 ctx.Resolution.TyparInterfaceCall.Set(diagKey, (ifaceKey, ifaceArgs))
                                 ValueSome mty
@@ -224,7 +224,7 @@ module internal UnificationInferRecordAccess =
                             // we record `TyparInterfaceCall` — *not* `ExternalAccess` —
                             // exactly as the local path does, and Elaborate emits the same
                             // `CallVia.Interface` dispatch (now on an external `TypeSpec`).
-                            match ctx.Provider.TryLookupMember(ifaceKey, memberName) with
+                            match ctx.Provider.TryLookupMember(SymbolKey.Type ifaceKey, memberName) with
                             | ValueSome m when not m.IsStatic ->
                                 ctx.Resolution.TyparInterfaceCall.Set(diagKey, (ifaceKey, ifaceArgs))
                                 ValueSome(ExternalSymbols.openSignature m (ifaceArgs.AsSpan().ToArray()))

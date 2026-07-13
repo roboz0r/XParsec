@@ -91,7 +91,19 @@ module JsImports =
     /// The alias/namespace-local is `$`-prefixed (`$` is illegal in F#, so
     /// collision-free). Fails loudly for a package with no authored runtime module.
     let addRef (imports: JsImports) (compiledName: string) (key: SymbolKey voption) (form: ImportForm) : string =
-        match key with
+        // An external value is a BINDING with a home assembly. A project-local binding
+        // (`Origin.Local`) has no module to import from, so it is unsupported here —
+        // the same error a non-binding key gets, stated once.
+        let unsupported () =
+            failwithf "JS codegen (Step 5b): unsupported external value '%s' (key %A)" compiledName key
+
+        let b =
+            match key with
+            | ValueSome(SymbolKey.Binding b) -> b
+            | _ -> unsupported ()
+
+        match b.Origin with
+        | Origin.Local -> unsupported ()
         // A GLOBAL pack's export (its home is a `TsGlobalHomes.isGlobalHome`) is
         // provided by the JS runtime intrinsically: emit its BARE export name, record
         // NO import. Global rides the HOME, so this is decided by the key's home
@@ -100,10 +112,19 @@ module JsImports =
         // external-new arm; this covers a Global pack's free-function / variable
         // exports.) A node module MOUNTS under a namespace too (`node/fs → Node.Fs`)
         // but is NOT a global home, so it falls through to a real import below.
-        | ValueSome(SymbolKey.ValueKey(Some asm, _, name)) when TsGlobalHomes.isGlobalHome asm -> name
-        | ValueSome(SymbolKey.ValueKey(Some asm, ns, name)) ->
+        | Origin.InAssembly a when TsGlobalHomes.isGlobalHome a.Name -> b.Name
+        | Origin.InAssembly a ->
+            let asm = a.Name
+            let name = b.Name
             let entry = entryFor imports asm (sprintf "external value '%s'" compiledName)
-            let alias = "$" + (ns + "." + name).Replace('.', '_')
+
+            // The alias is `$<holder>_<name>` with every `.` underscored. An UNQUALIFIED
+            // binding's holder is the global namespace (`""`), so the leading `.` of the
+            // join survives as a leading `_` (`$_f`) — the shape the emitted import lines
+            // (and their tests) expect. Joining here rather than through `qualifiedName`
+            // (which drops the empty holder) keeps that spelling exact.
+            let alias =
+                "$" + (SymbolKeyOps.holderFullName b.Decl + "." + name).Replace('.', '_')
 
             // Bind an at-most-one module slot (`Default`/`Namespace`), ENFORCED: a
             // second, different local would silently clobber the first in the emitted
@@ -135,7 +156,6 @@ module JsImports =
                 let nsLocal = "$ns_" + asm.Replace('.', '_').Replace('/', '_')
                 bindOnce entry.Namespace (fun v -> entry.Namespace <- Some v) "namespace import" nsLocal
                 nsLocal + "." + name
-        | _ -> failwithf "JS codegen (Step 5b): unsupported external value '%s' (key %A)" compiledName key
 
     /// Resolve an external union's case class to its local import identifier, importing
     /// the class export `className` from `asm`'s module aliased as `$<asm>_<className>`

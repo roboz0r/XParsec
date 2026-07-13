@@ -99,7 +99,7 @@ module Materialise =
             let referenceSources =
                 let fromProject =
                     project.References
-                    |> List.map (fun path -> AssemblyName.GetAssemblyName(path).Name, path)
+                    |> List.map (fun path -> System.Reflection.AssemblyName.GetAssemblyName(path).Name, path)
                     |> Map.ofList
 
                 let withFallback name (hostPath: unit -> string) m =

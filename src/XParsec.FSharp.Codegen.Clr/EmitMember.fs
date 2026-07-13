@@ -140,7 +140,7 @@ module EmitMember =
 
         let ifaceKey =
             match key with
-            | SymbolKey.MemberKey(decl, _, _, _) -> decl
+            | SymbolKey.Member mk -> SymbolKey.Type mk.Decl
             | _ -> failwithf "EmitMember: CallVia.Interface member key is not a MemberKey: %A" key
 
         // The abstract slot the `constrained. callvirt` targets. A *project-local*
@@ -348,7 +348,8 @@ module EmitMember =
             // member-ref path instead of failing in `resolveStaticMember`.
             let isLocal =
                 match key with
-                | SymbolKey.MemberKey(declKey, _, _, _) ->
+                | SymbolKey.Member mk ->
+                    let declKey = SymbolKey.Type mk.Decl
                     env.Unions.ContainsKey declKey || env.Classes.ContainsKey declKey
                 | _ -> true
 

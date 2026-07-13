@@ -150,7 +150,7 @@ module EmitBindings =
 
             let isLocalDisposeKey (key: SymbolKey) =
                 match key with
-                | SymbolKey.MemberKey(declKey, _, _, _) -> isLocalType declKey
+                | SymbolKey.Member mk -> isLocalType (SymbolKey.Type mk.Decl)
                 | _ -> false
 
             match dispose with
@@ -160,12 +160,11 @@ module EmitBindings =
             // exist on it (`MemoryStream` inherits `Stream.Dispose`).
             | Disposal.ViaCapability _ when isLocalBinder ->
                 emitLocalDispose (
-                    SymbolKey.MemberKey(
-                        fst (nominalShape "use-dispose receiver" varTy),
-                        "Dispose",
-                        EqArray.empty,
+                    SymbolKeyOps.memberKey
+                        (nominalTypeKey "use-dispose receiver" varTy)
+                        "Dispose"
+                        EqArray.empty
                         MemberKind.Method
-                    )
                 )
             | Disposal.ViaCapability slot -> emitExternalDispose slot
             // The carve-out: an own pattern `Dispose()`, called directly. The project-local

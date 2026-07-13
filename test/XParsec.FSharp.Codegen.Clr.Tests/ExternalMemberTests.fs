@@ -70,10 +70,22 @@ let tests =
                     // GetHashCode(T) — an instance method on the open type, its
                     // argSig the declaring typar `!0`.
                     match ghKey with
-                    | SymbolKey.MemberKey(SymbolKey.TypeKey(asm, ns, name), "GetHashCode", argSig, MemberKind.Method) ->
-                        Expect.isTrue asm.IsSome "GetHashCode decl carries the defining assembly"
-                        Expect.equal ns "System.Collections.Generic" "GetHashCode decl namespace"
-                        Expect.equal name "EqualityComparer`1" "GetHashCode decl type name (arity-suffixed)"
+                    | SymbolKey.Member {
+                                           Decl = decl
+                                           Name = "GetHashCode"
+                                           ArgSig = argSig
+                                           Kind = MemberKind.Method
+                                       } ->
+                        Expect.isTrue
+                            (SymbolKeyOps.typeAsm decl).IsSome
+                            "GetHashCode decl carries the defining assembly"
+
+                        Expect.equal
+                            (SymbolKeyOps.typeNs decl)
+                            "System.Collections.Generic"
+                            "GetHashCode decl namespace"
+
+                        Expect.equal decl.Name "EqualityComparer`1" "GetHashCode decl type name (arity-suffixed)"
                         Expect.equal (EqArray.toList argSig) [ "!0" ] "GetHashCode(T) argSig is the declaring typar"
                     | other -> failtestf "unexpected GetHashCode key %A" other
 
@@ -94,9 +106,18 @@ let tests =
                         | other -> failtestf "Default should be typed EqualityComparer<int>, got %A" other
 
                         match defKey with
-                        | SymbolKey.MemberKey(SymbolKey.TypeKey(_, ns, name), "Default", argSig, MemberKind.Property) ->
-                            Expect.equal ns "System.Collections.Generic" "Default decl namespace"
-                            Expect.equal name "EqualityComparer`1" "Default decl type name"
+                        | SymbolKey.Member {
+                                               Decl = decl
+                                               Name = "Default"
+                                               ArgSig = argSig
+                                               Kind = MemberKind.Property
+                                           } ->
+                            Expect.equal
+                                (SymbolKeyOps.typeNs decl)
+                                "System.Collections.Generic"
+                                "Default decl namespace"
+
+                            Expect.equal decl.Name "EqualityComparer`1" "Default decl type name"
                             Expect.isTrue argSig.IsEmpty "Default is a property: empty argSig"
                         | other -> failtestf "unexpected Default key %A" other
                     | other -> failtestf "expected a static `Default` ExternalMember receiver, got %A" other
@@ -181,10 +202,22 @@ let tests =
                     | other -> failtestf "the application should be typed int, got %A" other
 
                     match ghKey with
-                    | SymbolKey.MemberKey(SymbolKey.TypeKey(asm, ns, name), "GetHashCode", argSig, MemberKind.Method) ->
-                        Expect.isTrue asm.IsSome "GetHashCode decl carries the defining assembly"
-                        Expect.equal ns "System.Collections.Generic" "GetHashCode decl namespace"
-                        Expect.equal name "EqualityComparer`1" "GetHashCode decl type name (arity-suffixed)"
+                    | SymbolKey.Member {
+                                           Decl = decl
+                                           Name = "GetHashCode"
+                                           ArgSig = argSig
+                                           Kind = MemberKind.Method
+                                       } ->
+                        Expect.isTrue
+                            (SymbolKeyOps.typeAsm decl).IsSome
+                            "GetHashCode decl carries the defining assembly"
+
+                        Expect.equal
+                            (SymbolKeyOps.typeNs decl)
+                            "System.Collections.Generic"
+                            "GetHashCode decl namespace"
+
+                        Expect.equal decl.Name "EqualityComparer`1" "GetHashCode decl type name (arity-suffixed)"
                         Expect.equal (EqArray.toList argSig) [ "!0" ] "GetHashCode(T) argSig is the declaring typar"
                     | other -> failtestf "unexpected GetHashCode key %A" other
 
@@ -379,10 +412,15 @@ let tests =
                     | other -> failtestf "Out should be typed System.IO.TextWriter, got %A" other
 
                     match key with
-                    | SymbolKey.MemberKey(SymbolKey.TypeKey(asm, ns, name), "Out", argSig, MemberKind.Property) ->
-                        Expect.isTrue asm.IsSome "Out decl carries the defining assembly"
-                        Expect.equal ns "System" "Out decl namespace"
-                        Expect.equal name "Console" "Out decl type name (non-generic, no arity suffix)"
+                    | SymbolKey.Member {
+                                           Decl = decl
+                                           Name = "Out"
+                                           ArgSig = argSig
+                                           Kind = MemberKind.Property
+                                       } ->
+                        Expect.isTrue (SymbolKeyOps.typeAsm decl).IsSome "Out decl carries the defining assembly"
+                        Expect.equal (SymbolKeyOps.typeNs decl) "System" "Out decl namespace"
+                        Expect.equal decl.Name "Console" "Out decl type name (non-generic, no arity suffix)"
                         Expect.isTrue argSig.IsEmpty "Out is a property: empty argSig"
                     | other -> failtestf "unexpected Out key %A" other
                 | other -> failtestf "expected a static `Out` ExternalMember, got %A" other
@@ -409,14 +447,16 @@ let tests =
 
                 match value with
                 | ValueSome(TExpr.ExternalMember(ValueNone,
-                                                 SymbolKey.MemberKey(SymbolKey.TypeKey(_, "System", "Console"),
-                                                                     "Out",
-                                                                     EqList [],
-                                                                     MemberKind.Property),
+                                                 SymbolKey.Member {
+                                                                      Decl = decl
+                                                                      Name = "Out"
+                                                                      ArgSig = EqList []
+                                                                      Kind = MemberKind.Property
+                                                                  },
                                                  "Out",
                                                  MemberStorage.Property,
                                                  _,
-                                                 _)) -> ()
+                                                 _)) when SymbolKeyOps.typeMetaName decl = "System.Console" -> ()
                 | other -> failtestf "expected the same keyed Console.Out ExternalMember, got %A" other
             }
 

@@ -197,7 +197,7 @@ type PassContextResolution =
         /// Elaborate can thread them onto `CallVia.Interface` and codegen mint the slot
         /// on the *instantiated* interface `TypeSpec`; empty for a non-generic
         /// interface. Absent ⇒ an ordinary nominal-receiver member access.
-        TyparInterfaceCall: SideTable<SymbolKey * EqArray<SemType>>
+        TyparInterfaceCall: SideTable<TypeKey * EqArray<SemType>>
         /// Keyed by an external-value use-site (the `Expr.Ident` / `Expr.LongIdentOrOp`
         /// that resolved through `IExternalSymbolProvider.TryLookup`): the resolved
         /// value's `SymbolKey.ValueKey`. Elaborate stamps it onto `TExpr.External` so

@@ -112,13 +112,7 @@ module NameResolutionTypeRegistration =
     /// distinguishing namespace; it is reported as an internal error (a user
     /// duplicate is rejected before the stamp and never reaches here). Callers
     /// pass the result into the registered info's constructor as its `Key`.
-    let stampLocalTypeKey
-        (ctx: PassContext)
-        (declKey: NodeKey)
-        (declNs: string)
-        (name: string)
-        (arity: int)
-        : SymbolKey =
+    let stampLocalTypeKey (ctx: PassContext) (declKey: NodeKey) (declNs: string) (name: string) (arity: int) : TypeKey =
         // The home assembly is this compilation's target (`ctx.AssemblyName`);
         // `None` on the front-end-only paths that pass no assembly name. Invariant
         // per type, so this local key equals the key a consumer mints for the same
@@ -126,7 +120,7 @@ module NameResolutionTypeRegistration =
         let key =
             LocalSymbolKey.ofType (SymbolKeyOps.asmOf ctx.AssemblyName) declNs name arity
 
-        match TypeRegistry.recordKeyOrigin ctx.Types declKey key with
+        match TypeRegistry.recordKeyOrigin ctx.Types declKey (SymbolKey.Type key) with
         | ValueSome _ ->
             ctx.Diagnostics.Add
                 {
@@ -229,7 +223,7 @@ module NameResolutionTypeRegistration =
                     // record by its arity-qualified `SymbolKey` (via `tryRecordByKey`),
                     // not the bare name — an arity-overloaded record (`Point`2`/`Point`3`)
                     // has no bare alias. Mirrors the union/enum decl-site stamp.
-                    ctx.Resolution.ResolvedType.Set(declKey, key)
+                    ctx.Resolution.ResolvedType.Set(declKey, SymbolKey.Type key)
 
                     for fi in fieldInfos do
                         match ctx.Types.FieldIndex.TryGetValue fi.Name with
@@ -578,7 +572,7 @@ module NameResolutionTypeRegistration =
                         // name field is the identity string, arity rides in the `TyConst`
                         // args), so `Translate` resolves `int` to `Vesper.int` from the
                         // contract rather than re-deriving the namespace by name.
-                        ctx.Types.IntrinsicKeys.[name] <- SymbolKey.TypeKey(None, declNs, name)
+                        ctx.Types.IntrinsicKeys.[name] <- SymbolKeyOps.typeKey None declNs name
                         registerMemberHostIfAny ()
 
                         match tag with

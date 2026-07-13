@@ -182,22 +182,23 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// Both axes' use-site instantiations are recovered by matching that open form against `memberTy`:
     /// the declaring args parameterise the parent `TypeSpec`; the method args (if any) the `MethodSpec`.
     let externalMemberRef (key: SymbolKey) (isProperty: bool) (isStatic: bool) (memberTy: FrozenType) : EntityHandle =
+        // `MemberKey.Decl` IS a `TypeKey`, so the declaring type needs no runtime re-check
+        // (the `failwithf "declaring key is not a TypeKey"` this used to carry is deleted,
+        // not ported). `name` is the type's simple metadata name — `+`-joined for a CLR
+        // nested type, produced by the ONE renderer.
         let declKey, memberName, argSig =
             match key with
-            | SymbolKey.MemberKey(d, m, a, _) -> d, m, a
+            | SymbolKey.Member mk -> mk.Decl, mk.Name, mk.ArgSig
             | other -> failwithf "ClrProvider: ExternalMember key is not a MemberKey: %A" other
 
-        let ns, name =
-            match declKey with
-            | SymbolKey.TypeKey(_, ns, name) -> ns, name
-            | other -> failwithf "ClrProvider: ExternalMember declaring key is not a TypeKey: %A" other
+        let name = SymbolKeyOps.typeNestedName declKey
 
         let memoKey = ExternalMemberCacheKey.Ref(key, isProperty, isStatic, memberTy)
 
         match externalMemberCache.TryGetValue memoKey with
         | true, h -> h
         | _ ->
-            let declFullName = if ns = "" then name else ns + "." + name
+            let declFullName = SymbolKeyOps.typeMetaName declKey
 
             let declArity = arityOfMetaName name
 
@@ -209,12 +210,12 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 recoverOpenTypars declArity methodArity (openTemplate chosen isProperty) memberTy
 
             let tref =
-                match externalClassRef declKey with
+                match externalClassRef (SymbolKey.Type declKey) with
                 | ValueSome t -> t
                 | ValueNone ->
                     failwithf "ClrProvider: external declaring type '%s' did not resolve at emit" declFullName
 
-            let parent = externalTypeSpec declKey tref (declArgs)
+            let parent = externalTypeSpec (SymbolKey.Type declKey) tref (declArgs)
 
             let handle =
                 methodSpec
@@ -250,14 +251,18 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// rebase onto an arbitrary same-named member, which would mint a wrong ref).
     let tryCapabilityBaseMemberKey (key: SymbolKey) : SymbolKey voption =
         match key with
-        | SymbolKey.MemberKey(declKey, memberName, _, kind) ->
-            match env.LookupTypeByKey declKey with
+        | SymbolKey.Member {
+                               Decl = declKey
+                               Name = memberName
+                               Kind = kind
+                           } ->
+            match env.LookupTypeByKey(SymbolKey.Type declKey) with
             | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
                 let members = symbols.TryLookupMembers(platform, memberName)
 
                 let declaredOn (m: ExternalMember) =
                     match m.Key with
-                    | SymbolKey.MemberKey(d, _, _, _) -> SymbolKeyOps.qualifiedName d
+                    | SymbolKey.Member mk -> SymbolKeyOps.typeMetaName mk.Decl
                     | _ -> ""
 
                 // Declared on the platform face itself → the existing face-parented
@@ -275,7 +280,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                         members
                         |> Array.tryFind (fun m ->
                             match m.Key with
-                            | SymbolKey.MemberKey(_, _, _, k) -> k = kind
+                            | SymbolKey.Member mk -> mk.Kind = kind
                             | _ -> false
                         )
                     with
@@ -300,20 +305,17 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         : EntityHandle =
         let declKey, memberName, argSig =
             match key with
-            | SymbolKey.MemberKey(d, m, a, _) -> d, m, a
+            | SymbolKey.Member mk -> mk.Decl, mk.Name, mk.ArgSig
             | other -> failwithf "ClrProvider: ExternalMember key is not a MemberKey: %A" other
 
-        let ns, name =
-            match declKey with
-            | SymbolKey.TypeKey(_, ns, name) -> ns, name
-            | other -> failwithf "ClrProvider: ExternalMember declaring key is not a TypeKey: %A" other
+        let name = SymbolKeyOps.typeNestedName declKey
 
         let memoKey = ExternalMemberCacheKey.On(key, declTy, isProperty, isStatic, memberTy)
 
         match externalMemberCache.TryGetValue memoKey with
         | true, h -> h
         | _ ->
-            let declFullName = if ns = "" then name else ns + "." + name
+            let declFullName = SymbolKeyOps.typeMetaName declKey
 
             let chosen = lookupChosen declFullName memberName key
             let methodArity = chosen.MethodArity
@@ -358,20 +360,17 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     let externalFieldRef (key: SymbolKey) (declTy: FrozenType voption) (memberTy: FrozenType) : EntityHandle =
         let declKey, fieldName =
             match key with
-            | SymbolKey.MemberKey(d, m, _, _) -> d, m
+            | SymbolKey.Member mk -> mk.Decl, mk.Name
             | other -> failwithf "ClrProvider: ExternalField key is not a MemberKey: %A" other
 
-        let ns, name =
-            match declKey with
-            | SymbolKey.TypeKey(_, ns, name) -> ns, name
-            | other -> failwithf "ClrProvider: ExternalField declaring key is not a TypeKey: %A" other
+        let name = SymbolKeyOps.typeNestedName declKey
 
         let memoKey = ExternalMemberCacheKey.Field(key, declTy, memberTy)
 
         match externalMemberCache.TryGetValue memoKey with
         | true, h -> h
         | _ ->
-            let declFullName = if ns = "" then name else ns + "." + name
+            let declFullName = SymbolKeyOps.typeMetaName declKey
 
             let chosen = lookupChosen declFullName fieldName key
             let openFieldTy = chosen.Signature.Return
@@ -388,12 +387,12 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     let declArgs, _ = recoverOpenTypars declArity 0 openFieldTy memberTy
 
                     let tref =
-                        match externalClassRef declKey with
+                        match externalClassRef (SymbolKey.Type declKey) with
                         | ValueSome t -> t
                         | ValueNone ->
                             failwithf "ClrProvider: external declaring type '%s' did not resolve at emit" declFullName
 
-                    externalTypeSpec declKey tref declArgs
+                    externalTypeSpec (SymbolKey.Type declKey) tref declArgs
 
             let s = BlobBuilder()
             encodeType (BlobEncoder(s).FieldSignature()) openFieldTy
@@ -557,7 +556,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             candidates
             |> Array.filter (fun m ->
                 match m.Key with
-                | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length = arity
+                | SymbolKey.Member mk -> mk.ArgSig.Length = arity
                 | _ -> false
             )
 
@@ -574,7 +573,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
             let argSigLen =
                 match chosen.Key with
-                | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length
+                | SymbolKey.Member mk -> mk.ArgSig.Length
                 | _ -> 0
 
             match externalClassRef key with

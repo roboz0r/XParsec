@@ -116,7 +116,7 @@ module EmitJsCapabilities =
     /// Synthesised by the backend (like `EmitJsContext.structuralFormatKey`) — the protocol is
     /// a codegen concern, so no front-end symbol resolves to it.
     let private enumeratorOfKey: SymbolKey voption =
-        ValueSome(SymbolKey.ValueKey(Some "Vesper.Core", "Vesper.Collections", "enumeratorOf"))
+        ValueSome(SymbolKeyOps.valueKey (Some "Vesper.Core") "Vesper.Collections" "enumeratorOf")
 
     // ---- The CONSUMER table --------------------------------------------------
 

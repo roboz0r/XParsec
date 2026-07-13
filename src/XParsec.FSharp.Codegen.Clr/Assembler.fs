@@ -37,7 +37,7 @@ type internal Assembler
     let references =
         bclReferences @ project.References
         |> List.map (fun path ->
-            let an = AssemblyName.GetAssemblyName path
+            let an = System.Reflection.AssemblyName.GetAssemblyName path
             an.Name, an
         )
         |> Map.ofList
@@ -74,7 +74,7 @@ type internal Assembler
     let closureByNode = layout.ClosureByNode
 
     // closure name → its `Closure` record, so the type-layout
-    // pass (keyed only by `TypeKey.Closure name`) can branch a value-struct closure
+    // pass (keyed only by `TypeSlotKey.Closure name`) can branch a value-struct closure
     // onto struct attrs / `System.ValueType` base.
     let closureByName = Dictionary<string, Emit.Closure>()
 
@@ -124,7 +124,7 @@ type internal Assembler
             // arity, and home assembly) so same-named overloads (`Choice\`2`…
             // `Choice\`7`) and same-name-different-namespace types don't collide in
             // `userTypes` / `genericUnions`.
-            provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeKey.Nominal td.Key)))
+            provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
 
             if not td.TypeParams.IsEmpty then
                 let shape =
@@ -143,7 +143,7 @@ type internal Assembler
         recordDecls
         |> List.iter (fun rd ->
             let td = rd.Decl
-            provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeKey.Nominal td.Key)))
+            provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
 
             if not td.TypeParams.IsEmpty then
                 let shape = [ for f in rd.Fields -> f.Name, f.Type ]
@@ -154,7 +154,7 @@ type internal Assembler
         classDecls
         |> List.iter (fun cd ->
             let td = cd.Decl
-            provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeKey.Nominal td.Key)))
+            provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
 
             if cd.ValueKind <> ClassValueKind.RefType then
                 provider.RegisterUserValueType td.Key
@@ -184,7 +184,7 @@ type internal Assembler
     do
         interfaceDecls
         |> List.iter (fun (td, _) ->
-            provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeKey.Nominal td.Key)))
+            provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
 
             // A *generic* interface (`IStructSeq<'E>`) also enters the generic-class
             // registry so a constrained-typar dispatch (`CallVia.Interface`)
@@ -209,7 +209,7 @@ type internal Assembler
         for td in
             (enumDecls |> List.map (fun ed -> ed.Decl))
             @ (structEnumDecls |> List.map (fun sed -> sed.Decl)) do
-            provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeKey.Nominal td.Key)))
+            provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
             provider.RegisterUserValueType td.Key
 
     // A *generic* closure is a real generic `TypeDefinition` after the nominal
@@ -220,7 +220,7 @@ type internal Assembler
         closures
         |> List.iter (fun c ->
             if c.Typars > 0 then
-                let handle = toEntity (layoutHandles.TypeDefOf(TypeKey.Closure c.Name))
+                let handle = toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Closure c.Name))
 
                 provider.RegisterClosure(
                     c.Name,
@@ -244,7 +244,7 @@ type internal Assembler
     do
         for c in closures do
             if c.IsValueStruct then
-                let defHandle = toEntity (layoutHandles.TypeDefOf(TypeKey.Closure c.Name))
+                let defHandle = toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Closure c.Name))
                 let ft = provider.RegisterStackClosureValueType(c.Name, defHandle)
                 closureValueTypeByNode.[c.Node] <- ft
                 closureTypeDefByNode.[c.Node] <- defHandle
@@ -345,7 +345,7 @@ type internal Assembler
                     // The cached-singleton field's type is the closure's own reference
                     // type, encoded from its TypeDef handle (no `FrozenType`).
                     | FieldKey.ClosureCached name ->
-                        provider.ClosureSelfFieldSignature(toEntity (layoutHandles.TypeDefOf(TypeKey.Closure name)))
+                        provider.ClosureSelfFieldSignature(toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Closure name)))
                     // A stored module value whose initialiser feeds a
                     // value-struct source lambda into a `'TFunc`-carrying result type —
                     // rewrite the typar-position leaf to the `<closure>$` value-struct so
@@ -567,7 +567,7 @@ type internal Assembler
 
     // The Prepare-minted `InterfaceImpl` / `BaseType` handles per type —
     // everything else a `TypeDefinition` row needs comes from the layout.
-    let typeRowExtras = Dictionary<TypeKey, TypeRowExtras>()
+    let typeRowExtras = Dictionary<TypeSlotKey, TypeRowExtras>()
 
     member _.Provider = provider
     member _.Icodegen = icodegen
@@ -617,7 +617,7 @@ type internal Assembler
 
     /// Record a type's Prepare-minted `InterfaceImpl` / `BaseType` handles
     /// for `Finalise`'s `TypeDefinition` row.
-    member _.AddTypeRowExtras(key: TypeKey, extras: TypeRowExtras) = typeRowExtras.Add(key, extras)
+    member _.AddTypeRowExtras(key: TypeSlotKey, extras: TypeRowExtras) = typeRowExtras.Add(key, extras)
 
     // The construction-site `Newobj` targets the ctor's `Def` directly via
     // this dict. Generic closures mint a fresh `MemberRef` at the use site
@@ -762,7 +762,7 @@ type internal Assembler
 
             // The wrapper extends `System.ValueType` (value-type-ness); no interfaces.
             this.AddTypeRowExtras(
-                TypeKey.Nominal td.Key,
+                TypeSlotKey.Nominal td.Key,
                 {
                     Interfaces = []
                     BaseType = provider.ValueTypeBase
@@ -893,7 +893,7 @@ type internal Assembler
                     provider.FlatFunInterfaceSpecN(tys)
 
             if isGenericClosure then
-                let closureHandle = toEntity (layoutHandles.TypeDefOf(TypeKey.Closure c.Name))
+                let closureHandle = toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Closure c.Name))
 
                 for i in 0 .. c.Typars - 1 do
                     genericParams.Add(closureHandle, i, sprintf "T%d" i)
@@ -901,7 +901,7 @@ type internal Assembler
                 provider.ExitClosureTyparScope()
 
             typeRowExtras.Add(
-                TypeKey.Closure c.Name,
+                TypeSlotKey.Closure c.Name,
                 {
                     Interfaces = [ ifaceSpec ]
                     // A `Stack` closure is a value type, so it
@@ -1181,7 +1181,7 @@ type internal Assembler
                 // keeps the sealed-class `closureAttrs` over `System.Object`.
                 let attrs =
                     match slot.Key with
-                    | TypeKey.Closure name when closureIsValueStruct name -> classAttrsOf true true
+                    | TypeSlotKey.Closure name when closureIsValueStruct name -> classAttrsOf true true
                     | _ -> closureAttrs
 
                 let closureHandle =

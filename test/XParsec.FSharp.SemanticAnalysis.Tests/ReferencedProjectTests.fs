@@ -212,12 +212,12 @@ let tests =
 
                 expectCapability
                     "Vesper.Collections.enumerator`1"
-                    (SymbolKey.TypeKey(None, "Vesper.Collections", "enumerator"))
+                    (SymbolKeyOps.typeKey None "Vesper.Collections" ("enumerator"))
                     "System.Collections.Generic.IEnumerator`1"
 
                 expectCapability
                     "Vesper.Collections.seq`1"
-                    (SymbolKey.TypeKey(None, "Vesper.Collections", "seq"))
+                    (SymbolKeyOps.typeKey None "Vesper.Collections" ("seq"))
                     "System.Collections.Generic.IEnumerable`1"
 
                 // `enumerator` inherits `disposable` (BCL parity), so its capability shape must
@@ -333,7 +333,7 @@ let tests =
                 | ValueSome(ExternalTypeShape.Class info) ->
                     Expect.equal info.Arity 2 "Fun has two typars"
                     Expect.equal info.Origin.Assembly (Some "Vesper.Core") "origin assembly = Vesper.Core"
-                    Expect.equal info.Origin.Namespace "Vesper" "origin namespace = Vesper"
+                    Expect.equal info.Origin.Namespace.Dotted "Vesper" "origin namespace = Vesper"
                 | other -> failtestf "expected Vesper.Fun as Class shape, got %A" other
             }
 

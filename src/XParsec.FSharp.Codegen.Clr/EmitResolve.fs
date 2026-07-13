@@ -46,6 +46,16 @@ module EmitResolve =
         | ValueSome(k, xs) -> k, xs
         | ValueNone -> failwithf "Emit: %s on non-nominal type %A" what ty
 
+    /// The nominal receiver's declaring `TypeKey` — what a `MemberKey.Decl` slot takes.
+    /// The `SymbolKey.Type` narrowing rides `nominalShape`'s EXISTING invariant check: a
+    /// nominal `FrozenType` always carries a type key (the type IR still carries a
+    /// `SymbolKey` — the reshape stopped at the key itself), so a non-type key here is the
+    /// same "non-nominal receiver" break, not a new failure mode.
+    let nominalTypeKey (what: string) (ty: FrozenType) : TypeKey =
+        match receiverShape ty with
+        | ValueSome(SymbolKey.Type t, _) -> t
+        | _ -> failwithf "Emit: %s on non-nominal type %A" what ty
+
     /// Recover a generic member's instantiation by structurally matching its
     /// declared *open* curried signature (`ParamTys -> RetTy`, in declaring-/method-axis
     /// markers) against the call's *instantiated* argument + result types. Returns
@@ -288,8 +298,7 @@ module EmitResolve =
             args.Length > 0
             && (
                 match key with
-                | SymbolKey.MemberKey(declKey, _, _, _) ->
-                    SymbolKeyOps.qualifiedName declKey = SymbolKeyOps.qualifiedName rKey
+                | SymbolKey.Member mk -> SymbolKeyOps.typeMetaName mk.Decl = SymbolKeyOps.qualifiedName rKey
                 | _ -> false
             )
             ->
@@ -319,7 +328,7 @@ module EmitResolve =
         // directly, so no class-name reverse index is needed.
         let key, name =
             match memberKey with
-            | SymbolKey.MemberKey(decl, n, _, _) -> decl, n
+            | SymbolKey.Member mk -> SymbolKey.Type mk.Decl, mk.Name
             | _ -> failwithf "Emit: expected a MemberKey for a static member call, got %A" memberKey
 
         // The declaring type's instantiation at *this* call site. A static member

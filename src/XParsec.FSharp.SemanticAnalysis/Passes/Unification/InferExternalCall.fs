@@ -372,7 +372,8 @@ module internal UnificationInferExternalCall =
             match ctx.Resolution.ExternalAccess.TryGetValue fnKey with
             | ValueSome info when not info.IsValueMember && not (List.isEmpty info.OptionalDefaults) ->
                 match info.Key with
-                | SymbolKey.MemberKey(_, _, argSig, _) ->
+                | SymbolKey.Member mk ->
+                    let argSig = mk.ArgSig
                     let optDefaults = info.OptionalDefaults
                     let fullCount = argSig.Length
                     let requiredCount = fullCount - List.length optDefaults

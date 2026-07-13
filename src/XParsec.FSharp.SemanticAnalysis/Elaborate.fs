@@ -1236,7 +1236,8 @@ module Elaborate =
         let key =
             match TypeRegistry.tryEnum ctx.Types name with
             | ValueSome info -> info.Key
-            | ValueNone -> LocalSymbolKey.ofType (SymbolKeyOps.asmOf ctx.AssemblyName) (defaultArg ns "") name 0
+            | ValueNone ->
+                SymbolKey.Type(LocalSymbolKey.ofType (SymbolKeyOps.asmOf ctx.AssemblyName) (defaultArg ns "") name 0)
 
         let tcases =
             EqArray.ofSeq (
@@ -1644,7 +1645,13 @@ module Elaborate =
                 // same `(asm, ns, name\`arity)` identity registration would, so a
                 // reference to the interface compares equal to this decl's key.
                 let key =
-                    LocalSymbolKey.ofType (SymbolKeyOps.asmOf ctx.AssemblyName) (defaultArg ns "") name typars.Length
+                    SymbolKey.Type(
+                        LocalSymbolKey.ofType
+                            (SymbolKeyOps.asmOf ctx.AssemblyName)
+                            (defaultArg ns "")
+                            name
+                            typars.Length
+                    )
 
                 Some(
                     mkTypeDecl

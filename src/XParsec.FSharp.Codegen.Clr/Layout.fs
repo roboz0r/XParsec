@@ -89,7 +89,7 @@ module internal MethodAttrSets =
 /// synthesized unique name, holders by `Emit.HolderKey`. Structural equality;
 /// a collision is a bug that should fail loudly (dictionary add throws).
 [<RequireQualifiedAccess>]
-type internal TypeKey =
+type internal TypeSlotKey =
     | ModulePseudo
     | Nominal of SymbolKey
     | Closure of name: string
@@ -236,7 +236,7 @@ type internal PreparedMethod =
     }
 
 /// The Prepare-minted handles a `TypeDefinition` row needs at write time,
-/// keyed by `TypeKey`. Pre-minted because a generic parent's / interface's
+/// keyed by `TypeSlotKey`. Pre-minted because a generic parent's / interface's
 /// `TypeSpec` encoding can depend on ambient state only live during the
 /// type's Prepare window (e.g. the closure-typar scope).
 type internal TypeRowExtras =
@@ -255,7 +255,7 @@ type internal TypeRowExtras =
 /// prefix sums over the list (see `Layout.deriveHandles`).
 type internal TypeSlot =
     {
-        Key: TypeKey
+        Key: TypeSlotKey
         Kind: TypeSlotKind
         Namespace: string
         /// Metadata name, already arity-suffixed (`SymbolKeyOps.arityName`).
@@ -301,15 +301,15 @@ type internal AssemblyLayout =
         DefinesStructuralFormatInterfaces: bool
     }
 
-/// The resolved handle lookup derived from the layout once: `TypeKey` →
+/// The resolved handle lookup derived from the layout once: `TypeSlotKey` →
 /// `TypeDefinitionHandle` (position), plus each type's first-field /
 /// first-method handle from prefix-summing `FieldCount`/`MethodCount`.
 /// **No handle arithmetic exists outside this derivation.**
 type internal LayoutHandles =
     {
-        TypeDefs: Dictionary<TypeKey, TypeDefinitionHandle>
-        FirstFields: Dictionary<TypeKey, FieldDefinitionHandle>
-        FirstMethods: Dictionary<TypeKey, MethodDefinitionHandle>
+        TypeDefs: Dictionary<TypeSlotKey, TypeDefinitionHandle>
+        FirstFields: Dictionary<TypeSlotKey, FieldDefinitionHandle>
+        FirstMethods: Dictionary<TypeSlotKey, MethodDefinitionHandle>
         MethodDefs: Dictionary<MethodKey, MethodDefinitionHandle>
         /// Total ranged-table rows the layout owns — writer-level row-count
         /// checks compare the real builder counts against these.
@@ -317,9 +317,9 @@ type internal LayoutHandles =
         TotalMethods: int
     }
 
-    member this.TypeDefOf(key: TypeKey) : TypeDefinitionHandle = this.TypeDefs.[key]
-    member this.FirstFieldOf(key: TypeKey) : FieldDefinitionHandle = this.FirstFields.[key]
-    member this.FirstMethodOf(key: TypeKey) : MethodDefinitionHandle = this.FirstMethods.[key]
+    member this.TypeDefOf(key: TypeSlotKey) : TypeDefinitionHandle = this.TypeDefs.[key]
+    member this.FirstFieldOf(key: TypeSlotKey) : FieldDefinitionHandle = this.FirstFields.[key]
+    member this.FirstMethodOf(key: TypeSlotKey) : MethodDefinitionHandle = this.FirstMethods.[key]
     member this.MethodDefOf(key: MethodKey) : MethodDefinitionHandle = this.MethodDefs.[key]
 
 module internal Layout =
@@ -554,7 +554,7 @@ module internal Layout =
         (methodCount: int)
         : TypeSlot =
         {
-            Key = TypeKey.Nominal td.Key
+            Key = TypeSlotKey.Nominal td.Key
             Kind = kind
             Namespace = defaultArg td.Namespace ""
             MetaName = SymbolKeyOps.arityName td.Name td.TypeParams.Length
@@ -673,7 +673,7 @@ module internal Layout =
 
         let moduleSlot =
             {
-                Key = TypeKey.ModulePseudo
+                Key = TypeSlotKey.ModulePseudo
                 Kind = TypeSlotKind.ModulePseudo
                 Namespace = ""
                 MetaName = "<Module>"
@@ -1074,7 +1074,7 @@ module internal Layout =
 
                     let slot =
                         {
-                            Key = TypeKey.Closure c.Name
+                            Key = TypeSlotKey.Closure c.Name
                             Kind = TypeSlotKind.Closure
                             Namespace = ""
                             MetaName = SymbolKeyOps.arityName c.Name c.Typars
@@ -1115,7 +1115,7 @@ module internal Layout =
 
                     let slot =
                         {
-                            Key = TypeKey.Holder h
+                            Key = TypeSlotKey.Holder h
                             Kind = TypeSlotKind.Holder hasCctor
                             Namespace = defaultArg ns ""
                             MetaName = holderName
@@ -1227,7 +1227,7 @@ module internal Layout =
             then
                 [
                     {
-                        Key = TypeKey.Program
+                        Key = TypeSlotKey.Program
                         Kind = TypeSlotKind.Program hasProgramCctor
                         Namespace = ""
                         MetaName = project.ModuleName
@@ -1292,9 +1292,9 @@ module internal Layout =
     /// `FieldCount` / `MethodCount` (an empty range naturally points past the
     /// end of the previous owner's range).
     let deriveHandles (layout: AssemblyLayout) : LayoutHandles =
-        let typeDefs = Dictionary<TypeKey, TypeDefinitionHandle>()
-        let firstFields = Dictionary<TypeKey, FieldDefinitionHandle>()
-        let firstMethods = Dictionary<TypeKey, MethodDefinitionHandle>()
+        let typeDefs = Dictionary<TypeSlotKey, TypeDefinitionHandle>()
+        let firstFields = Dictionary<TypeSlotKey, FieldDefinitionHandle>()
+        let firstMethods = Dictionary<TypeSlotKey, MethodDefinitionHandle>()
         let methodDefs = Dictionary<MethodKey, MethodDefinitionHandle>()
         let mutable fieldCursor = 0
         let mutable methodCursor = 0

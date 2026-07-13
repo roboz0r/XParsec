@@ -600,9 +600,7 @@ module ReferencedProject =
 
             let origin =
                 {
-                    Assembly = Some manifest.Name
-                    Namespace = manifest.Namespace
-                    DeclaringType = None
+                    Namespace = SymbolKeyOps.namespaceKey (Some manifest.Name) manifest.Namespace
                 }
 
             // The contract's implicit prelude: its `[<AutoOpen>]` modules (most

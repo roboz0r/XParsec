@@ -39,12 +39,11 @@ let private markerMember: ExternalMember =
         MethodArity = 0
         Origin = origin
         Key =
-            SymbolKey.MemberKey(
-                SymbolKey.TypeKey(origin.Assembly, origin.Namespace, "Cls"),
-                "m",
-                EqArray.empty,
+            SymbolKeyOps.memberKey
+                (SymbolKeyOps.typeKeyOf origin.Assembly origin.Namespace.Dotted "Cls")
+                "m"
+                EqArray.empty
                 MemberKind.Method
-            )
         OptionalDefaults = []
         IsOptional = false
     }

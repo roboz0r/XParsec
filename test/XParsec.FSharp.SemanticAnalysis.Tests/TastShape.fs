@@ -72,7 +72,7 @@ let private constText (v: TConstValue) : string =
 /// the class. Falls back to the key's own simple name for any other shape.
 let private memberDeclName (key: SymbolKey) : string =
     match key with
-    | SymbolKey.MemberKey(decl, _, _, _) -> SymbolKeyOps.simpleName decl
+    | SymbolKey.Member mk -> SymbolKeyOps.bareName mk.Decl.Name
     | _ -> SymbolKeyOps.simpleName key
 
 /// Minimal `SemType` → readable name, for rendering cast targets (`:>` / `:?` /

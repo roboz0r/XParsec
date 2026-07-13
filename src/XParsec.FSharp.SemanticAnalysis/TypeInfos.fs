@@ -22,8 +22,8 @@ module internal LocalSymbolKey =
     /// compilation, `None` for the front-end-only paths). The arity-name rule is
     /// `SymbolKeyOps.arityName` — the one shared definition, so the registry key
     /// (`TypeRegistry.keyFor`) and the stamped `SymbolKey` name can't drift.
-    let ofType (asm: string option) (ns: string) (name: string) (arity: int) : SymbolKey =
-        SymbolKey.TypeKey(asm, ns, SymbolKeyOps.arityName name arity)
+    let ofType (asm: string option) (ns: string) (name: string) (arity: int) : TypeKey =
+        SymbolKeyOps.typeKeyOf asm ns (SymbolKeyOps.arityName name arity)
 
     /// The project-local `SymbolKey.MemberKey` for a member `name` of `kind` on the
     /// type identified by `declKey`, with `arity` value parameters. Project-local
@@ -37,8 +37,8 @@ module internal LocalSymbolKey =
     /// analogue of the external `MemberKey` minted by `MetadataSymbols` / `VesperLib`;
     /// carried on the local member-call TAST nodes so codegen reads the declaring type
     /// off `decl` instead of re-deriving it from a class-name string.
-    let ofMember (declKey: SymbolKey) (name: string) (arity: int) (kind: MemberKind) : SymbolKey =
-        SymbolKey.MemberKey(declKey, name, EqArray.ofList (List.replicate arity ""), kind)
+    let ofMember (declKey: TypeKey) (name: string) (arity: int) (kind: MemberKind) : SymbolKey =
+        SymbolKeyOps.memberKey declKey name (EqArray.ofList (List.replicate arity "")) kind
 
 // `ModuleMemberInfo` moved to `SideTypes.fs` (it must precede `Tast.fs`).
 
@@ -168,7 +168,13 @@ type ClassInterfaceImplInfo
 /// piece: a class yields `TyClass(Key, args)`, a union `TyUnion(Key, args)`, a record
 /// `TyRecord(Key, args)`, so the `this`-type seeding inside an impl body is exact.
 type IInterfaceImplHost =
+    /// The nominal identity as a `SymbolKey` — what the `SemType`/`FrozenType` nominal
+    /// cases carry.
     abstract member Key: SymbolKey
+    /// The SAME identity as a `TypeKey`. A nominal type's key can only ever be a type
+    /// key, and the declaring slot of a `MemberKey` / a `TypeHolder` demands one — so
+    /// this is the face those consumers take, with no narrowing check anywhere.
+    abstract member TypeKey: TypeKey
     abstract member DeclKey: NodeKey
     abstract member TypeParams: EqArray<string * TypeVar>
     /// Source-text name bound to `this` inside member / impl bodies (`"this"` unless
@@ -196,7 +202,7 @@ type RecordTypeInfo
         fields: RecordFieldInfo[],
         declKey: NodeKey,
         typarConstraints: TyparConstraints<SyntaxToken> voption,
-        key: SymbolKey
+        key: TypeKey
     ) =
     new(name, typeParams, fields, declKey) =
         RecordTypeInfo(
@@ -214,7 +220,8 @@ type RecordTypeInfo
     /// (`asm`/`declNs` = the type's home assembly + declaring namespace). The
     /// convenience constructor (synthesis / test paths with no namespace in scope)
     /// defaults to the `TypeKey(None, "", name\`arity)` placeholder.
-    member val Key: SymbolKey = key
+    member val TypeKey: TypeKey = key
+    member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     member val TypeParams = typeParams
     member val Fields = fields
     member val DeclKey = declKey
@@ -255,6 +262,7 @@ type RecordTypeInfo
 
     interface IInterfaceImplHost with
         member this.Key = this.Key
+        member this.TypeKey = this.TypeKey
         member this.DeclKey = this.DeclKey
         member this.TypeParams = this.TypeParams
         member this.ThisName = this.ThisName
@@ -275,7 +283,7 @@ type UnionTypeInfo
         cases: UnionCaseInfo[],
         declKey: NodeKey,
         typarConstraints: TyparConstraints<SyntaxToken> voption,
-        key: SymbolKey
+        key: TypeKey
     ) =
     new(name, typeParams, cases, declKey) =
         UnionTypeInfo(name, typeParams, cases, declKey, ValueNone, LocalSymbolKey.ofType None "" name typeParams.Length)
@@ -286,7 +294,8 @@ type UnionTypeInfo
     /// at registration to match the emitted metadata name. The convenience constructor
     /// (synthesis / test paths with no namespace in scope) defaults to the
     /// `TypeKey(None, "", name\`arity)` placeholder.
-    member val Key: SymbolKey = key
+    member val TypeKey: TypeKey = key
+    member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     member val TypeParams = typeParams
     member val Cases = cases
     member val DeclKey = declKey
@@ -324,6 +333,7 @@ type UnionTypeInfo
 
     interface IInterfaceImplHost with
         member this.Key = this.Key
+        member this.TypeKey = this.TypeKey
         member this.DeclKey = this.DeclKey
         member this.TypeParams = this.TypeParams
         member this.ThisName = this.ThisName
@@ -347,11 +357,12 @@ type UnionTypeInfo
 /// member-inline harvest; it is never emitted.
 [<Sealed>]
 type IntrinsicAbbrevInfo
-    (name: string, typeParams: EqArray<string * TypeVar>, declKey: NodeKey, key: SymbolKey, selfKey: SymbolKey) =
+    (name: string, typeParams: EqArray<string * TypeVar>, declKey: NodeKey, key: TypeKey, selfKey: SymbolKey) =
     member val Name = name
     /// Stable project-local nominal identity, minted by `stampLocalTypeKey` at
     /// registration to match a use-site key. Never emitted (the abbrev is intrinsic).
-    member val Key: SymbolKey = key
+    member val TypeKey: TypeKey = key
+    member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     /// The abbrev's INTRINSIC identity key (verbatim name, contract namespace,
     /// asm-blind), resolved through `TypeRegistry.intrinsicKeyOf` at registration —
     /// the SAME key a use-site (`Translate`) resolves the abbrev name to. Distinct
@@ -376,6 +387,7 @@ type IntrinsicAbbrevInfo
 
     interface IInterfaceImplHost with
         member this.Key = this.Key
+        member this.TypeKey = this.TypeKey
         member this.DeclKey = this.DeclKey
         member this.TypeParams = this.TypeParams
         member this.ThisName = this.ThisName
@@ -405,8 +417,8 @@ type IntrinsicAbbrevInfo
 /// so a `(x: E)` annotation resolves to `TyEnum Key` and the surfaced decl carries
 /// the identical key.
 [<Sealed>]
-type EnumTypeInfo
-    (name: string, caseNames: string[], caseStringValues: string[] voption, declKey: NodeKey, key: SymbolKey) =
+type EnumTypeInfo(name: string, caseNames: string[], caseStringValues: string[] voption, declKey: NodeKey, key: TypeKey)
+    =
     member val Name = name
     /// Case identifiers in declaration order. The `E.C1` qualified-access path
     /// checks membership here; a name absent from it is a resolution error.
@@ -423,7 +435,8 @@ type EnumTypeInfo
     member val DeclKey = declKey
     /// Stable project-local nominal identity — the arity-0 `TypeKey(asm, declNs,
     /// name)` minted by `stampLocalTypeKey`; matches the surfaced `TDecl.Type.Key`.
-    member val Key: SymbolKey = key
+    member val TypeKey: TypeKey = key
+    member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     /// Is `n` one of this enum's declared cases? Drives the `E.C1` membership check.
     member this.HasCase(n: string) = Array.contains n caseNames
 
@@ -446,7 +459,7 @@ type AbbreviationInfo
         rhsCst: Type<SyntaxToken>,
         declKey: NodeKey,
         typarConstraints: TyparConstraints<SyntaxToken> voption,
-        key: SymbolKey
+        key: TypeKey
     ) =
     new(name, typeParams, rhsCst, declKey) =
         AbbreviationInfo(
@@ -464,7 +477,8 @@ type AbbreviationInfo
     /// Abbreviations are transparent (never emitted), so this is for symmetry. The
     /// convenience constructor (synthesis / test paths with no namespace in scope)
     /// defaults to the `TypeKey(None, "", name\`arity)` placeholder.
-    member val Key: SymbolKey = key
+    member val TypeKey: TypeKey = key
+    member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     member val TypeParams = typeParams
     member val RhsCst = rhsCst
     member val DeclKey = declKey
@@ -547,13 +561,14 @@ type ClassTypeInfo
         thisName: string,
         thisKey: NodeKey,
         baseKey: NodeKey,
-        key: SymbolKey
+        key: TypeKey
     ) =
     member val Name = name
     /// Stable project-local nominal identity — the arity-qualified
     /// `TypeKey(asm, declNs, name\`arity)` minted by `stampLocalTypeKey` at registration
     /// to match the emitted metadata name.
-    member val Key: SymbolKey = key
+    member val TypeKey: TypeKey = key
+    member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
     member val TypeParams = typeParams
     member val CtorParams = ctorParams
     member val Members = members
@@ -663,6 +678,7 @@ type ClassTypeInfo
 
     interface IInterfaceImplHost with
         member this.Key = this.Key
+        member this.TypeKey = this.TypeKey
         member this.DeclKey = this.DeclKey
         member this.TypeParams = this.TypeParams
         member this.ThisName = this.ThisName

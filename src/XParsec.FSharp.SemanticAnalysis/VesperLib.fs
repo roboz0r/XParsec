@@ -437,13 +437,11 @@ module VesperLib =
                             else
                                 let key' =
                                     match m.Key with
-                                    | SymbolKey.MemberKey(decl, name, _, kind) ->
-                                        SymbolKey.MemberKey(
-                                            decl,
-                                            name,
-                                            ExternalSymbols.argSigOfParameters sign.Parameters,
-                                            kind
-                                        )
+                                    | SymbolKey.Member mk ->
+                                        SymbolKey.Member
+                                            { mk with
+                                                ArgSig = ExternalSymbols.argSigOfParameters sign.Parameters
+                                            }
                                     | other -> other
 
                                 { m with
@@ -496,7 +494,7 @@ module VesperLib =
                     | true, ExternalTypeShape.Class shape -> shape.Arity
                     | _ -> 0
 
-                let declKey = SymbolKeyOps.qualifiedTypeKeyOf None k arity
+                let declKey = SymbolKeyOps.qualifiedTypeKeyOfT None k arity
 
                 let ctorMembers =
                     [
@@ -1064,7 +1062,7 @@ module VesperLib =
             // the finalize-pass ctor loop applies — both route through the shared
             // `qualifiedTypeKeyOf` so the `.ctor` and ordinary members of a type
             // carry the identical declaring key.
-            let declKey = SymbolKeyOps.qualifiedTypeKeyOf None compiled arity
+            let declKey = SymbolKeyOps.qualifiedTypeKeyOfT None compiled arity
 
             let members = ResizeArray<ExternalMember>()
             // The per-member signature CSTs, index-aligned with `members`;
@@ -1147,7 +1145,7 @@ module VesperLib =
                                     // frozen signature's `MethodArity`.
                                     MethodArity = 0
                                     Origin = SymbolOrigin.Empty
-                                    Key = SymbolKey.MemberKey(declKey, memberName, EqArray.empty, kind)
+                                    Key = SymbolKeyOps.memberKey declKey memberName EqArray.empty kind
                                     // The `.fsi` contract layer doesn't publish optional-parameter
                                     // defaults yet.
                                     OptionalDefaults = []

@@ -20,7 +20,7 @@ module JsExternalMembers =
     /// The declaring type's `SymbolKey` from a member-call node's `key`.
     let declKey (key: SymbolKey) : SymbolKey =
         match key with
-        | SymbolKey.MemberKey(decl, _, _, _) -> decl
+        | SymbolKey.Member mk -> SymbolKey.Type mk.Decl
         | _ -> key
 
     /// Instance method → `<Type>__<member>`; instance property getter →
@@ -112,7 +112,7 @@ module JsExternalMembers =
     /// reason the CLR `ExternalMember` arm reads `argSig`, not `memberTy`).
     let memberArgCount (key: SymbolKey) (memberName: string) : int =
         match key with
-        | SymbolKey.MemberKey(_, _, argSig, _) -> argSig.Length
+        | SymbolKey.Member mk -> mk.ArgSig.Length
         | other -> failwithf "EmitJs: attached member '%s' key is not a MemberKey: %A" memberName other
 
     /// `recv.<member>` — the shared attached-member access shape. A manifest
@@ -256,7 +256,7 @@ module JsExternalMembers =
         // export (`name`) from the same home module the bare free function would.
         let valueKey =
             match declKey with
-            | SymbolKey.TypeKey(home, ns, _) -> SymbolKey.ValueKey(home, ns, memberName)
+            | SymbolKey.Type t -> SymbolKeyOps.valueKey (SymbolKeyOps.typeAsm t) (SymbolKeyOps.typeNs t) memberName
             | _ ->
                 failwithf
                     "EmitJs (Step 9b): erased grouping member '%s' has a non-type declaring key %A"

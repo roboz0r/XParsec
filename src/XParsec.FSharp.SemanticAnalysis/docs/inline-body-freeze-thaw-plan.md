@@ -52,8 +52,66 @@ Both are in the tree; the code is their canonical record, so it is not restated 
    `'ty`-generic and mapped by `TastConvert.constraintOf`, closing the raw-`SemType`
    hole that would otherwise have smuggled a live cell through a frozen clause.
 
+Also landed, out of the `SymbolKey` reshape's review (the code is their record):
+`SymbolOrigin` no longer carries a `DeclaringType` string — a member's declaring type is
+`MemberKey.Decl : TypeKey`, and an origin names a *place*, not a containment;
+`MetadataSymbols.declTypeKey` reads the holder chain off `Type.DeclaringType` instead of
+cutting `FullName` on `.` and `+`; and `ClrEnv.externalRecordRef` / `externalUnionRef` no
+longer fall back to a fabricated `(ns = "", name = <whole dotted name>)` `TypeRef` on a
+non-type key.
+
 Freeze still **drops** inline decls from the emittable `Decls`. Making it publish them
-is Phase 1.
+is Phase 1 — gated on Phase 0 below.
+
+## Phase 0 — finish the `SymbolKey` containment chain (BLOCKS Phase 1)
+
+`SymbolKey` became a containment chain (assembly → namespace → module\* → type → member).
+For `TypeKey` that is real: `ClrEnv.externalClassRef` walks `TypeHolder.InType`, and
+`MetadataSymbols.declTypeKey` reads the chain off `Type.DeclaringType`. **For
+`ModuleKey` / `BindingKey` it is not.** `SymbolKeyOps.moduleKeyOf` always mints
+`Holder = InNamespace`, taking the last dotted segment as the module name, so:
+
+- `ModuleHolder.InModule` never wraps a nested `ModuleKey` — nested modules stay
+  flattened into the namespace path, and the doc-comment on `TypeHolder.InModule`
+  claiming *"`ModuleHolder.InModule` already has producers"* for them is false.
+- `ClrRecipes.externalModuleRef` must therefore **recover** the module chain by
+  subtracting a blanket package namespace from the key's namespace path with a
+  segment-prefix test. Its own comment concedes it: *"Where the namespace ends and the
+  module chain begins is the ORIGIN's fact, not the key's."* When the prefix test fails,
+  `dropped = 0` and every namespace segment is emitted as a nested-module `TypeRef` — a
+  ref that does not bind, emitted silently.
+- The same lossy mint reappears wherever a binding key is built from a flat string:
+  `TsManifestProvider.stampValueSymbol` gives one `ExternalSymbol` an `Origin` whose
+  namespace and a `Key` whose namespace **disagree**; `JsExternalMembers.erasedGroupingRef`
+  round-trips a `TypeKey` through `(asm, dotted-ns)` to build a sibling binding;
+  `ExternalSymbols.restampKey` re-derives the whole holder chain from a rendered string
+  just to change the home assembly at its root.
+
+This is the last of the string-flattening, and it is what Phase 1's key-minting step
+would be minting *against*.
+
+**The move.** `bindingKeyOf` / `moduleKeyOf` take a **`ModuleHolder`**, not a flat
+dotted string. Every producer already knows the segments — a TS `export namespace`, a
+manifest's `(Namespace, Holder)`, `ModuleMemberInfo`'s three parts — and today throws
+them away at the boundary. Then:
+
+- `externalModuleRef` becomes the mirror of `ClrEnv.typeRefOf`: a 5-line recursive walk
+  over `ModuleHolder`, no `metaNs` parameter, no prefix test, no `dropped` fallback
+  (~29 lines → ~5, in a 1075-line file).
+- `restampKey` becomes a structural `SymbolKeyOps.reroot : Origin -> SymbolKey ->
+  SymbolKey` that rewrites the `Origin` at the root of the chain — total over all three
+  key kinds, so its `| _ -> k` arm goes too.
+- `TsManifestProvider`'s two conventions collapse to one, and the origin/key
+  disagreement is unrepresentable.
+- The `TypeHolder.InModule` producer (already recorded as a follow-up at its site) lands
+  with it: `ClrEnv.typeRefOf` currently `failwithf`s on that holder, which is the site
+  that must be wired.
+
+**Verify:** `SymbolKeyTests` now pins the blanket-origin mis-cut, the nested-type
+render/parse round-trip, the `moduleFullName`/`moduleKeyOf` round-trip, and the
+unqualified-binding holder. Phase 0 must keep all four green and add the nested-module
+case (`moduleFullName` of a hand-built `InModule` chain), which no producer can currently
+mint.
 
 ## Phase 1
 
@@ -86,24 +144,32 @@ Key = ctx.Resolver.TryLookup(qualifiedValueName info) |> ValueOption.map (fun s 
 ```
 
 `qualifiedValueName` flattens `ModuleMemberInfo`'s `(Namespace, Holder, Name)` into a
-dotted string and looks it back up — to recover a `SymbolKey.ValueKey(asm, ns, name)`
-built from that same triple. Its own doc-comment concedes the failure mode: *"a wrong
-reconstruction simply misses (`ValueNone`), never mis-keys."* It works today only
-because the cross-package path extracted the package's contract from its `.fsi`, so the
-symbol already exists in a provider for the name to hit.
+dotted string and looks it back up — to recover a `BindingKey` built from that same
+triple. Its own doc-comment concedes the failure mode: *"a wrong reconstruction simply
+misses (`ValueNone`), never mis-keys."* It works today only because the cross-package
+path extracted the package's contract from its `.fsi`, so the symbol already exists in a
+provider for the name to hit.
 
 **Multi-file has no `.fsi` per file.** File N's provider is built from N's compiled
 unit, and freeze drops inline decls — so there is nothing for the name to recover
 against. So:
 
-- Freeze **mints** `ValueKey(asm, ns, name)` for each inline value directly from
-  `ModuleMembers`, and publishes it in the unit's symbol vocabulary.
+- Freeze **mints** a `BindingKey` for each inline value directly from `ModuleMembers`,
+  and publishes it in the unit's symbol vocabulary.
 - `ValueInlineBody.Key : SymbolKey voption` collapses to a real `SymbolKey`, and the
   did-the-lookup-hit branch stops existing.
-- **Check first:** `qualifiedValueName` concatenates *three* parts but `ValueKey` has
-  *two* slots (`ns`, `name`), so confirm how module values fold `Holder` into `ns`
-  elsewhere before minting. Minting a key that disagrees with the resolver's would
-  trade an honest miss for a silent mis-key — strictly worse.
+
+**BLOCKED ON PHASE 0.** The old "check first" caveat here — *`qualifiedValueName`
+concatenates three parts but the key has two slots, so confirm how module values fold
+`Holder` into `ns` before minting* — is not a caveat to discharge by inspection. It is
+Phase 0's defect: `BindingKey.Decl` is minted from a FLAT dotted string
+(`SymbolKeyOps.bindingKeyOf`), whose last segment becomes the module and whose prefix
+becomes the namespace. So the three-part `(Namespace, Holder, Name)` fact is destroyed at
+the mint and guessed back at every consumer. Minting an inline value's key against that
+would be minting against a lossy encoding — exactly the "trade an honest miss for a
+silent mis-key" outcome this step must avoid. Land Phase 0 first; then `ModuleMembers`'
+`(Namespace, Holder)` maps onto a `ModuleHolder` with nothing thrown away, and this step
+is a direct construction.
 
 Stated plainly, because it inverts the intuition: **an inline function needs a real
 `SymbolKey` precisely *because* it never reaches codegen.** Every other symbol gets its
@@ -163,11 +229,59 @@ inter-assembly it rides the target-neutral sidecar/source channel exactly as now
 
 ## Phasing
 
+- **Phase 0 (blocks Phase 1):** finish the containment chain on the module/binding axis —
+  `bindingKeyOf` / `moduleKeyOf` take a `ModuleHolder`; `externalModuleRef` walks it;
+  `reroot` replaces `restampKey`; the `TypeHolder.InModule` producer lands. See above.
 - **Phase 1 (this plan):** freeze-inline, minted inline `SymbolKey`s, the decl-scoped
   thaw glue, `InlineBody.Decl : Frozen.TDecl`, the interface fold, the two `Inline.fs`
   TODOs deleted. No change to splice semantics — same lowering, fresh cells.
 - **Phase 2 (separate, enabled):** retire the `ExternalSymbol.Instantiate` closures onto
   `instantiateWith`, making `IExternalSymbolProvider` `SemType`-free in full.
+- **Phase 3 (independent of 0–2; do whenever):** narrow the key-typed fields and
+  interface parameters that are *always* one case. The reshape proved the trade on
+  `MemberKey.Decl : TypeKey` (it deleted three `failwithf` arms); it stopped one level
+  out, so ~25 impossible-arm fallbacks remain. All mechanical:
+  - `ExternalMember.Key : MemberKey` (always is one). Deletes the re-narrowing at
+    `InferOverload`, `InferApp`, `InferExternalCall`, `VesperLib`, and the five surviving
+    `failwithf "… is not a MemberKey"` in `ClrExternalMembers` / `EmitCall` / `EmitMember`.
+  - `ExternalSymbol.Key : BindingKey`; `IntrinsicIdentity.Canon` / `IntrinsicInterfaceShape.Canon` /
+    `IntrinsicReverseCanon` : `TypeKey` (kills the unreachable arm in
+    `ExternalSymbolProviders.stampType`).
+  - `ICodegenProvider.ExternalMemberRef` / `ExternalMemberRefOn` / `ExternalFieldRef` /
+    `TryCapabilityBaseMemberKey` take a `MemberKey`; `ClrEnv.externalClassRef` /
+    `externalRecordRef` / `externalUnionRef` / `externalIsValueType` / `LookupTypeByKey`
+    and `TypeRegistry.try*ByKey` / `IExternalSymbolStore.TryLookup*` take a `TypeKey`.
+    Narrow ONCE at the type-IR boundary instead of at every use. (The `_` arms that
+    *fabricated* a `TypeRef` are already fixed; these deletions remove the arms entirely.)
+  - Side tables typed wider than their only writer: `TypeRegistry.SymbolKeyOrigins`,
+    `PassContext.ResolvedType`, `TypeRegistry.IntrinsicKeys`.
+  - Promote asm-blind `TypeKey` equality (`RuntimeNames.sameTypeAsmBlind`, currently
+    `private`) into `SymbolKeyOps` and route the three hand-rolled string compares through
+    it: `EmitResolve.fs` (a *correctness gate* — `ExternalMemberRefOn` vs
+    `ExternalMemberRef`), `EmitClosures`' `HashSet<string * string>` (→ `HashSet<TypeKey>`),
+    `Unification.fs`'s `qualifiedName k = qualifiedName info.Key`.
+  - Drop `IInterfaceImplHost.TypeKey` (no interface-level consumer; callers use the
+    concrete info's member).
+- **Phase 4 (independent; do whenever):** make `ICodegenSymbols` key-addressed. Today
+  `ClrExternalMembers` renders a `TypeKey` to a metadata name, hands it across
+  `ICodegenProvider.TryLookupType/TryLookupMember : string -> …`, and `CodegenSymbols`
+  immediately **re-parses it back into a `TypeKey`** (`lookupKeyOfCompiledName`), dropping
+  the `Origin` in transit — the "asm-blind by design" note is a description of what the
+  round-trip loses. Key-addressing the type/member faces retires
+  `lookupKeyOfCompiledName`'s codegen consumer; combined with Phase 0 + `declTypeKey`
+  (already structural), it leaves `typeKeyOf`'s `+`-parser with **no producer at all**,
+  which is the correct end state — `+` becomes a pure rendering concern.
+- **Not scheduled — `SemType`/`FrozenType` nominal payloads carry `TypeKey`.** The IR's
+  `TyClass`/`TyRecord`/`TyUnion` / `FTClass`/… still carry a `SymbolKey` where only a type
+  is possible, costing three narrow-and-fail-loud sites (`Elaborate.Resolve.nominalDeclKey`,
+  `Inline.nominalHeadKey`, `EmitResolve.nominalTypeKey`). Mechanical but ~1300 sites; gated
+  on size, not design.
+- **Not scheduled — `SymbolKeyOps` API shape.** The `Of` suffix means "returns the narrow
+  record" in `typeKeyOf`/`bindingKeyOf`/`memberKeyOf`/`moduleKeyOf`/`externalTypeKeyOf` and
+  "returns `SymbolKey`" in `valueKeyOf`/`qualifiedTypeKeyOf`; the collision forced
+  `qualifiedTypeKeyOfT` into existence. One convention (narrow constructors named for what
+  they return) deletes five `SymbolKey`-returning pass-throughs and `…OfT` with them. Do it
+  when Phase 3 is already touching these call sites, not as its own churn.
 - **Not scheduled — generic closures.** Emptying `FTLocalTypar` of population (so it
   could become a hard error everywhere) means lifting a locally-generalized binding to
   its own typar axis, the way F# emits `f<'a,'b>` plus a generic closure class

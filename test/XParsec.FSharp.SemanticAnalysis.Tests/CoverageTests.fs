@@ -678,8 +678,8 @@ let tests =
                     |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
 
                 match valExpr with
-                | TExpr.StaticPropertyGet(SymbolKey.MemberKey(decl, name, _, _), ty, _) ->
-                    Expect.equal (SymbolKeyOps.simpleName decl) "C" "class name"
+                | TExpr.StaticPropertyGet(SymbolKey.Member { Decl = decl; Name = name }, ty, _) ->
+                    Expect.equal (SymbolKeyOps.bareName decl.Name) "C" "class name"
                     Expect.equal name "Origin" "property name"
                     Expect.equal ty BuiltinTypes.tyInt "ty is int"
                 | _ -> failtestf "expected StaticPropertyGet, got %A" valExpr
@@ -702,8 +702,8 @@ let tests =
                     |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
 
                 match valExpr with
-                | TExpr.StaticMethodCall(SymbolKey.MemberKey(decl, methodName, _, _), args, ty, _) ->
-                    Expect.equal (SymbolKeyOps.simpleName decl) "C" "class name"
+                | TExpr.StaticMethodCall(SymbolKey.Member { Decl = decl; Name = methodName }, args, ty, _) ->
+                    Expect.equal (SymbolKeyOps.bareName decl.Name) "C" "class name"
                     Expect.equal methodName "M" "method name"
                     Expect.equal args.Length 1 "one arg"
                     Expect.equal ty BuiltinTypes.tyInt "method return"
