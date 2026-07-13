@@ -51,6 +51,7 @@
     <Compile Include="ExternalUnionRecordQualifierStampTests.fs" />
     <Compile Include="ResolvedTypeHeadStampTests.fs" />
     <Compile Include="ResolverAllowlistTests.fs" />
+    <Compile Include="SecondaryCtorParamTypesTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

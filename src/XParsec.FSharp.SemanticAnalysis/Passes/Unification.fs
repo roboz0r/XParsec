@@ -193,42 +193,50 @@ module Unification =
     /// Link each ctor-param placeholder TyVar to its declared type.
     /// Un-annotated arguments leave the placeholder free so a use site can
     /// pin it via argument-type unification in `inferNew` / `inferApp`.
+    /// Link a ctor's parameter annotations into its registered params' TyVars, shared
+    /// by the primary and secondary ctor paths.
+    ///
+    /// `parms` is matched POSITIONALLY: `walk` carries a cursor into it, so every arm
+    /// that stands for a parameter must advance the cursor. An arm that neither links
+    /// nor advances would slide each later annotation onto the preceding parameter.
+    /// Ctor args are restricted to a simple identifier with an optional annotation
+    /// (`Validation` rejects anything else and drops the offending param), so
+    /// `Typed(NamedSimple, _)` is the only annotated shape that can reach here — do not
+    /// add arms for richer patterns without lifting that restriction first.
+    let private fillCtorParamTypes (ctx: PassContext) (parms: ClassCtorParamInfo[]) (p: Pat<SyntaxToken>) : unit =
+        let idx = ref 0
+
+        let rec walk (p: Pat<SyntaxToken>) =
+            match p with
+            | Pat.EmptyBlock _ -> ()
+            | Pat.NamedSimple _ -> incr idx
+            | Pat.Typed(pat = Pat.NamedSimple _; typ = t) ->
+                let i = !idx
+                incr idx
+
+                if i < parms.Length then
+                    let translated = translateType ctx t
+
+                    match parms.[i].Type with
+                    | TyVar tv -> (UnionFind.find tv).Link <- ValueSome translated
+                    | _ -> ()
+            | Pat.EnclosedBlock(pat = inner) -> walk inner
+            | Pat.Tuple(patterns = pats) ->
+                for sub in pats do
+                    walk sub
+            | _ -> ()
+
+        walk p
+
     let private fillClassCtorParamTypes
         (ctx: PassContext)
         (info: ClassTypeInfo)
         (pcOpt: PrimaryConstrArgs<SyntaxToken> voption)
         : unit =
         match pcOpt with
+        | ValueSome(PrimaryConstrArgs(pat = ValueSome p)) -> fillCtorParamTypes ctx info.CtorParams p
+        | ValueSome(PrimaryConstrArgs(pat = ValueNone))
         | ValueNone -> ()
-        | ValueSome(PrimaryConstrArgs(pat = ValueNone)) -> ()
-        | ValueSome(PrimaryConstrArgs(pat = ValueSome p)) ->
-            let idx = ref 0
-
-            let rec walk (p: Pat<SyntaxToken>) =
-                match p with
-                | Pat.NamedSimple _ -> incr idx
-                | Pat.Typed(pat = inner; typ = t) ->
-                    let i = !idx
-                    incr idx
-
-                    if i < info.CtorParams.Length then
-                        let translated = translateType ctx t
-
-                        match info.CtorParams.[i].Type with
-                        | TyVar tv ->
-                            let root = UnionFind.find tv
-                            root.Link <- ValueSome translated
-                        | _ -> ()
-
-                    ignore inner
-                | Pat.EnclosedBlock(pat = inner)
-                | Pat.Attributed(pat = inner) -> walk inner
-                | Pat.Tuple(patterns = pats) ->
-                    for sub in pats do
-                        walk sub
-                | _ -> ()
-
-            walk p
 
     /// Fold a curried member signature into a `TyFun` chain (a multi-arg
     /// group `a * b` is a tuple parameter), under the caller's typar scope.
@@ -620,35 +628,6 @@ module Unification =
     /// param-collection order; un-annotated params are left free so the chain-call
     /// unification pins them. Parallel to `fillClassCtorParamTypes` but driven by a
     /// raw `Pat` (the `new(...)` pattern) rather than `PrimaryConstrArgs`.
-    let private fillSecondaryCtorParamTypes
-        (ctx: PassContext)
-        (parms: ClassCtorParamInfo[])
-        (p: Pat<SyntaxToken>)
-        : unit =
-        let idx = ref 0
-
-        let rec walk (p: Pat<SyntaxToken>) =
-            match p with
-            | Pat.EmptyBlock _ -> ()
-            | Pat.NamedSimple _ -> incr idx
-            | Pat.Typed(pat = Pat.NamedSimple _; typ = t) ->
-                let i = !idx
-                incr idx
-
-                if i < parms.Length then
-                    let translated = translateType ctx t
-
-                    match parms.[i].Type with
-                    | TyVar tv -> (UnionFind.find tv).Link <- ValueSome translated
-                    | _ -> ()
-            | Pat.EnclosedBlock(pat = inner) -> walk inner
-            | Pat.Tuple(patterns = pats) ->
-                for sub in pats do
-                    walk sub
-            | _ -> ()
-
-        walk p
-
     /// Type a secondary ctor body (`new(args) = …; SelfType(primaryArgs)`).
     /// `expected` is the primary ctor's tupled parameter type (the chain-call
     /// target). The `let`-preamble binders are inferred in order; the final chain
@@ -740,7 +719,7 @@ module Unification =
                     )
 
                 for sc in info.SecondaryCtors do
-                    fillSecondaryCtorParamTypes ctx sc.Params sc.ParamPat
+                    fillCtorParamTypes ctx sc.Params sc.ParamPat
 
                     for p in sc.Params do
                         match p.Type with
