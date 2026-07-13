@@ -31,6 +31,24 @@ module internal ElaborateResolve =
         | TyEnum key -> ValueSome key
         | _ -> ValueNone
 
+    [<return: Struct>]
+    let (|LocalClass|_|) (ctx: PassContext) (ty: SemType) : ClassTypeInfo voption =
+        match Unification.zonk ty with
+        | TyClass(key, _) -> TypeRegistry.tryClassByKey ctx.Types key
+        | _ -> ValueNone
+
+    [<return: Struct>]
+    let (|LocalRecord|_|) (ctx: PassContext) (ty: SemType) : RecordTypeInfo voption =
+        match Unification.zonk ty with
+        | TyRecord(key, _) -> TypeRegistry.tryRecordByKey ctx.Types key
+        | _ -> ValueNone
+
+    [<return: Struct>]
+    let (|LocalUnion|_|) (ctx: PassContext) (ty: SemType) : UnionTypeInfo voption =
+        match Unification.zonk ty with
+        | TyUnion(key, _) -> TypeRegistry.tryUnionByKey ctx.Types key
+        | _ -> ValueNone
+
     /// The enum key for a two-segment `E.C1` access/pattern, binding it once and
     /// collapsing the formerly-separate local-registry and type-signal arms into a
     /// single freeze arm (used by both `ElaborateExpr`'s `StaticFieldGet` and
@@ -283,30 +301,24 @@ module internal ElaborateResolve =
     /// local param model — the provider recipe boxes), matching codegen's old
     /// `noObjSlots`.
     let ctorParamTys (ctx: PassContext) (classTy: SemType) (argCount: int) : SemType list =
-        match Unification.zonk classTy with
-        | TyClass(key, _) ->
-            match TypeRegistry.tryClassByKey ctx.Types key with
-            | ValueSome info ->
-                if argCount = info.CtorParams.Length then
-                    [ for p in info.CtorParams -> p.Type ]
-                else
-                    match info.SecondaryCtors |> Array.tryFind (fun sc -> sc.Params.Length = argCount) with
-                    | Some sc -> [ for p in sc.Params -> p.Type ]
-                    | None -> []
-            | ValueNone -> []
+        match classTy with
+        | LocalClass ctx info ->
+            if argCount = info.CtorParams.Length then
+                [ for p in info.CtorParams -> p.Type ]
+            else
+                match info.SecondaryCtors |> Array.tryFind (fun sc -> sc.Params.Length = argCount) with
+                | Some sc -> [ for p in sc.Params -> p.Type ]
+                | None -> []
         | _ -> []
 
     /// The declared SemType of a record field, for boxing a value flowing into an
     /// `obj` field. `ValueNone` for an external record (no local field model).
     let recordFieldTy (ctx: PassContext) (recordTy: SemType) (fieldName: string) : SemType voption =
-        match Unification.zonk recordTy with
-        | TyRecord(key, _) ->
-            match TypeRegistry.tryRecordByKey ctx.Types key with
-            | ValueSome info ->
-                match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
-                | Some f -> ValueSome f.Type
-                | None -> ValueNone
-            | ValueNone -> ValueNone
+        match recordTy with
+        | LocalRecord ctx info ->
+            match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
+            | Some f -> ValueSome f.Type
+            | None -> ValueNone
         | _ -> ValueNone
 
     /// Field SemTypes of a union case, in declaration order — for boxing a
@@ -314,14 +326,11 @@ module internal ElaborateResolve =
     /// gap codegen could not close: `EmittedCase.Fields` carries only handles, not
     /// the field types Elaborate has here). Empty for an external union.
     let unionCaseFieldTys (ctx: PassContext) (unionTy: SemType) (caseName: string) : SemType list =
-        match Unification.zonk unionTy with
-        | TyUnion(key, _) ->
-            match TypeRegistry.tryUnionByKey ctx.Types key with
-            | ValueSome info ->
-                match info.Cases |> Array.tryFind (fun c -> c.Name = caseName) with
-                | Some c -> List.ofArray c.Fields
-                | None -> []
-            | ValueNone -> []
+        match unionTy with
+        | LocalUnion ctx info ->
+            match info.Cases |> Array.tryFind (fun c -> c.Name = caseName) with
+            | Some c -> List.ofArray c.Fields
+            | None -> []
         | _ -> []
 
     /// Resolve `head.M` when the head is a local binding of a `TyClass`/`TyUnion`

@@ -617,8 +617,7 @@ module internal ElaborateExpr =
         // Arrays never retarget — always the list chain + `Array.ofList` boundary.
         let listTy, consName, nilName =
             match zonked with
-            | TyUnion(unionKey, _) when not isArray && (TypeRegistry.tryUnionByKey ctx.Types unionKey).IsSome ->
-                let info = (TypeRegistry.tryUnionByKey ctx.Types unionKey).Value
+            | LocalUnion ctx info when not isArray ->
                 let nilCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 0)
                 let consCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 2)
 

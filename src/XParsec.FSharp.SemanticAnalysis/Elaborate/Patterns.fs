@@ -24,8 +24,7 @@ module internal ElaboratePatterns =
     /// keeps `("Cons", "Nil")`.
     let listCaseNames (ctx: PassContext) (ty: SemType) : string * string =
         match Unification.zonk ty with
-        | TyUnion(unionKey, _) when (TypeRegistry.tryUnionByKey ctx.Types unionKey).IsSome ->
-            let info = (TypeRegistry.tryUnionByKey ctx.Types unionKey).Value
+        | LocalUnion ctx info ->
             let nilCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 0)
             let consCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 2)
 
