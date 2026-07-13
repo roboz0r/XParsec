@@ -152,15 +152,7 @@ module NameResolutionTypeRegistration =
                 let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
                 let arity = typeParams.Length
 
-                // Records are arity-overloadable (`Point`2`/`Point`3`), so the
-                // duplicate test is `(name, arity)`-keyed; the cross-kind union check
-                // is likewise arity-aware (a record `Foo`2` may coexist with a union
-                // `Foo`1`). Abbreviations aren't arity-overloaded, so their check stays bare.
-                if
-                    TypeRegistry.containsRecord ctx.Types name arity
-                    || TypeRegistry.containsUnion ctx.Types name arity
-                    || TypeRegistry.containsAbbrev ctx.Types name
-                then
+                if TypeRegistry.containsAnyType ctx.Types name arity then
                     ctx.Diagnostics.Add
                         {
                             Key = NodeKey.ofToken nameTok NodeKind.DeclType
@@ -318,11 +310,7 @@ module NameResolutionTypeRegistration =
                 // so the duplicate test and the registry key are arity-qualified.
                 let typeArity = typeParams.Length
 
-                if
-                    TypeRegistry.containsUnion ctx.Types name typeArity
-                    || TypeRegistry.containsRecord ctx.Types name typeArity
-                    || TypeRegistry.containsClass ctx.Types name typeArity
-                then
+                if TypeRegistry.containsAnyType ctx.Types name typeArity then
                     ctx.Diagnostics.Add
                         {
                             Key = declKey
@@ -426,13 +414,8 @@ module NameResolutionTypeRegistration =
                 let name = ctx.NameOf nameTok
                 let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
 
-                if
-                    TypeRegistry.containsEnum ctx.Types name
-                    || TypeRegistry.containsUnion ctx.Types name 0
-                    || TypeRegistry.containsRecord ctx.Types name 0
-                    || TypeRegistry.containsClass ctx.Types name 0
-                    || TypeRegistry.containsAbbrev ctx.Types name
-                then
+                // Enums are non-generic, so they claim their name at arity 0.
+                if TypeRegistry.containsAnyType ctx.Types name 0 then
                     ctx.Diagnostics.Add
                         {
                             Key = declKey
@@ -519,19 +502,10 @@ module NameResolutionTypeRegistration =
                 let nameTok = nameLi.Idents.[0]
                 let name = ctx.NameOf nameTok
                 let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
-                // The abbreviation's own generic arity, for the arity-keyed record
-                // cross-check. (Abbreviations themselves stay bare-keyed.)
-                let arity = (typarNamesOfTypeName ctx tn).Length
 
-                if
-                    TypeRegistry.containsRecord ctx.Types name arity
-                    || ctx.Types.Union.ContainsKey name
-                    || TypeRegistry.containsAbbrev ctx.Types name
-                    // Enums register BEFORE abbreviations, so this collision is the
-                    // abbreviation's to detect — the enum registrar cannot see us.
-                    || TypeRegistry.containsEnum ctx.Types name
-                    || ctx.Types.IntrinsicReprTypes.ContainsKey name
-                then
+                // An abbreviation is bare-keyed and bare-resolved, so it claims its name
+                // at EVERY arity — its own arity does not narrow the claim.
+                if TypeRegistry.containsAnyTypeBare ctx.Types name then
                     ctx.Diagnostics.Add
                         {
                             Key = declKey

@@ -78,20 +78,21 @@ type PassContextTypes =
         /// (bare name for a non-generic union, ``name`N`` for arity N>0); a *single*
         /// generic arity of a name additionally registers a bare-name alias, so a
         /// generic union written without args (or read by bare name in legacy paths)
-        /// still resolves exactly as before. This maps the bare short name → the arity
-        /// of its current alias, or `-1` once a second arity collides and the alias is
-        /// withdrawn (the name is then only resolvable by its arity-key). Internal to
-        /// `TypeRegistry.registerUnion`; not read elsewhere.
+        /// still resolves exactly as before. This maps the bare short name → what owns
+        /// the bare key: the arity of its current alias, `0` when a real *non-generic*
+        /// union owns it (so no alias may be installed over it, and the
+        /// duplicate-definition test can tell the two apart), or `-1` once a second
+        /// arity collides and the alias is withdrawn (the name is then only resolvable
+        /// by its arity-key). Internal to `TypeRegistry`; not read elsewhere.
         UnionBareArity: Dictionary<string, int>
         /// Bookkeeping for the bare-name alias `Class` keeps for arity-overloaded
         /// classes / interfaces (`Fun\`2` vs `Fun\`3`). Mirrors `UnionBareArity`
         /// exactly: `Class` is keyed by `TypeRegistry.keyFor` (bare name for a
         /// non-generic class, ``name`N`` for arity N>0); a *single* generic arity
         /// of a name additionally registers a bare-name alias so every existing
-        /// single-arity class read by bare name still resolves. Maps the bare short
-        /// name → the arity of its current alias, or `-1` once a second arity
-        /// collides and the alias is withdrawn (the name is then only resolvable by
-        /// its arity-key). Internal to `TypeRegistry.registerClass`.
+        /// single-arity class read by bare name still resolves. Same `alias arity` /
+        /// `0` (non-generic owner) / `-1` (withdrawn) encoding as `UnionBareArity`.
+        /// Internal to `TypeRegistry`.
         ClassBareArity: Dictionary<string, int>
         /// Bookkeeping for the bare-name alias `Record` keeps for arity-overloaded
         /// records (`Point\`2` vs `Point\`3`). Mirrors `UnionBareArity` /
@@ -166,8 +167,13 @@ module TypeRegistry =
     // between the union and class registries — so the mechanism lives here once.
 
     /// Register `info` under its arity-key, maintaining (or withdrawing) the
-    /// bare-name alias. The `-1` sentinel in `bareArity` marks a demoted name that
-    /// is resolvable only by its arity-key. Idempotent for a repeat `(name, arity)`.
+    /// bare-name alias. `bareArity` records what OWNS the bare key `name`, which
+    /// `keyFor` gives both to a non-generic type and to a generic type's alias:
+    ///   * `0`  — a real non-generic type; there is no alias slot to hand out.
+    ///   * `N`  — the alias of the single registered arity `N`.
+    ///   * `-1` — demoted: a second arity collided, the alias is withdrawn, and the
+    ///            name resolves only by its arity-key.
+    /// Idempotent for a repeat `(name, arity)`.
     let private registerArityKeyed
         (table: Dictionary<string, 'T>)
         (bareArity: Dictionary<string, int>)
@@ -177,18 +183,41 @@ module TypeRegistry =
         : unit =
         table.[keyFor name arity] <- info
 
-        if arity > 0 then
+        if arity = 0 then
+            // The non-generic type owns the bare key outright (it IS its arity-key),
+            // evicting any alias a generic namesake had installed there.
+            bareArity.[name] <- 0
+        else
             match bareArity.TryGetValue name with
             | false, _ ->
                 table.[name] <- info
                 bareArity.[name] <- arity
             | true, a when a = arity -> table.[name] <- info // refresh the same-arity alias
+            | true, 0 -> () // the bare key is a non-generic type's own: no alias to give
             | true, -1 -> () // already demoted: only the arity-key resolves
             | true, _ ->
                 // A second distinct arity for this short name: withdraw the now-
                 // ambiguous bare alias; both arities resolve only by their key.
                 table.Remove name |> ignore
                 bareArity.[name] <- -1
+
+    /// True iff EXACTLY `(name, arity)` is registered. At arity > 0 the arity-key
+    /// answers it. At arity 0 the table key is the BARE name, which a generic
+    /// namesake's alias also occupies — so `bareArity`'s `0` (written only by a real
+    /// non-generic registration) is the witness, and a generic `Foo\`1` alias does not
+    /// masquerade as a non-generic `Foo`.
+    let private containsArity
+        (table: Dictionary<string, 'T>)
+        (bareArity: Dictionary<string, int>)
+        (name: string)
+        (arity: int)
+        : bool =
+        if arity = 0 then
+            match bareArity.TryGetValue name with
+            | true, 0 -> true
+            | _ -> false
+        else
+            table.ContainsKey(keyFor name arity)
 
     /// Resolve an arity-overloaded type by its project-local `SymbolKey`. The key's
     /// `TypeKey` `name` component *is* the registry key (both route through
@@ -213,10 +242,11 @@ module TypeRegistry =
     let registerRecord (types: PassContextTypes) (name: string) (arity: int) (info: RecordTypeInfo) : unit =
         registerArityKeyed types.Record types.RecordBareArity name arity info
 
-    /// True iff a record with this exact `(name, arity)` is registered (the arity-key,
-    /// never the bare alias) — the duplicate-definition test (mirror `containsClass`).
+    /// True iff a record with this exact `(name, arity)` is registered (never a
+    /// generic namesake's bare alias) — the record half of the duplicate-definition
+    /// test (`containsAnyType`).
     let containsRecord (types: PassContextTypes) (name: string) (arity: int) : bool =
-        types.Record.ContainsKey(keyFor name arity)
+        containsArity types.Record types.RecordBareArity name arity
 
     /// Resolve a record by bare short name. Single-arity records keep a bare-name
     /// alias (`registerRecord`); a name with two registered arities has its alias
@@ -247,11 +277,11 @@ module TypeRegistry =
     let registerClass (types: PassContextTypes) (name: string) (arity: int) (info: ClassTypeInfo) : unit =
         registerArityKeyed types.Class types.ClassBareArity name arity info
 
-    /// True iff a class with this exact `(name, arity)` is registered (the arity-
-    /// key, never the bare alias) — the duplicate-definition test (mirror
-    /// `containsUnion`).
+    /// True iff a class with this exact `(name, arity)` is registered (never a generic
+    /// namesake's bare alias) — the class half of the duplicate-definition test
+    /// (`containsAnyType`).
     let containsClass (types: PassContextTypes) (name: string) (arity: int) : bool =
-        types.Class.ContainsKey(keyFor name arity)
+        containsArity types.Class types.ClassBareArity name arity
 
     /// Resolve a class by bare short name. Single-arity classes keep a bare-name
     /// alias (`registerClass`), so this resolves them; a name with two registered
@@ -353,10 +383,61 @@ module TypeRegistry =
     let registerUnion (types: PassContextTypes) (name: string) (arity: int) (info: UnionTypeInfo) : unit =
         registerArityKeyed types.Union types.UnionBareArity name arity info
 
-    /// True iff a union with this exact `(name, arity)` is registered (the arity-
-    /// key, never the bare alias) — the duplicate-definition test.
+    /// True iff a union with this exact `(name, arity)` is registered (never a generic
+    /// namesake's bare alias) — the union half of the duplicate-definition test.
     let containsUnion (types: PassContextTypes) (name: string) (arity: int) : bool =
-        types.Union.ContainsKey(keyFor name arity)
+        containsArity types.Union types.UnionBareArity name arity
+
+    /// Is a record / union / class of this short name registered at ANY arity? The
+    /// `*BareArity` witness answers it: every registration writes an entry (`0` for a
+    /// non-generic, `N` for a single generic arity, `-1` once two collide), so the
+    /// presence of the key IS "this kind claims this name somewhere".
+    let private containsAnyArity (types: PassContextTypes) (name: string) : bool =
+        types.RecordBareArity.ContainsKey name
+        || types.UnionBareArity.ContainsKey name
+        || types.ClassBareArity.ContainsKey name
+
+    /// THE duplicate-type-definition test. Every registration site (record, union,
+    /// enum, abbreviation, class) asks this one question with its own declared
+    /// `arity`, so a new kind cannot be wired into one guard and forgotten in the
+    /// others — and so a duplicate is always rejected BEFORE `stampLocalTypeKey`,
+    /// keeping that function's SymbolKey-collision diagnostic unreachable from user
+    /// source (it is an internal-error backstop, not a user diagnostic).
+    ///
+    /// The rule: a declaration claims a *name at an arity*, and a claim may be held
+    /// by at most one type of any kind.
+    ///   * Records, unions and classes are arity-overloadable (`Foo` and ``Foo`1``
+    ///     are distinct types), so each claims exactly `(name, arity)`.
+    ///   * An enum is non-generic, so it claims `(name, 0)`: it collides with a
+    ///     record `Foo` but NOT with a record ``Foo`1``.
+    ///   * An abbreviation — and an inline-IL intrinsic repr — is keyed by BARE name in
+    ///     its table and resolved by bare name at every use site, so its claim is
+    ///     arity-BLIND. `containsAbbrev` below therefore ignores the arity, and the
+    ///     abbreviation's OWN guard must be `containsAnyTypeBare`, not this — the claim
+    ///     has to be blind in BOTH directions or it is not a claim at all.
+    let containsAnyType (types: PassContextTypes) (name: string) (arity: int) : bool =
+        containsRecord types name arity
+        || containsUnion types name arity
+        || containsClass types name arity
+        || (arity = 0 && containsEnum types name)
+        || containsAbbrev types name
+        || types.IntrinsicReprTypes.ContainsKey name
+
+    /// The duplicate test for a declaration whose claim is BARE — an abbreviation or an
+    /// inline-IL intrinsic repr. Its table has no arity in its key and every use site
+    /// resolves it by bare name, so it claims the name at EVERY arity and collides with
+    /// a same-named type of any kind at any arity.
+    ///
+    /// This is not pedantry about a symmetry: `containsAnyType` alone would let a
+    /// generic `type Foo<'a> = …` alias register alongside a non-generic record `Foo`
+    /// (their arities differ, so no arity-precise check fires) — and a bare `Foo` at a
+    /// use site then resolves through `Abbreviation`, which `resolveBareTypeName` checks
+    /// BEFORE `Record`, yielding the generic alias applied to no arguments.
+    let containsAnyTypeBare (types: PassContextTypes) (name: string) : bool =
+        containsAnyArity types name
+        || containsEnum types name
+        || containsAbbrev types name
+        || types.IntrinsicReprTypes.ContainsKey name
 
     /// Resolve a union by `(name, arity)` — exact arity-key only, so a wrong arity
     /// misses (the caller diagnoses). Does NOT fall back to the bare alias.

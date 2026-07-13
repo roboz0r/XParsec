@@ -417,16 +417,6 @@ let tests =
                 | false, _ -> failtest "class type C not registered"
             }
 
-            test "class duplicate type name diagnoses against record" {
-                let ctx = analyse "type C = { X: int }\ntype C() = class end"
-
-                let hasDup =
-                    ctx.Diagnostics
-                    |> Seq.exists (fun d -> d.Message.Contains "Duplicate type definition")
-
-                Expect.isTrue hasDup "duplicate-type diagnostic emitted"
-            }
-
             test "ClassMemberIndex maps member name to declaring class" {
                 let ctx = analyse "type C() =\n    member this.M () = 1"
 
@@ -705,4 +695,63 @@ let tests =
                 Expect.isTrue (TypeRegistry.containsUnion ctx.Types "Choice" 2) "Choice`2 registered"
                 Expect.isTrue (TypeRegistry.containsUnion ctx.Types "Choice" 3) "Choice`3 registered"
             }
+        ]
+
+/// Two type declarations claiming the same name at the same arity must be rejected as a
+/// user error by whichever kind registers second — regardless of the two KINDS involved
+/// and of the fixed registration order (record → union → enum → abbrev → class). The
+/// single `TypeRegistry.containsAnyType` test is what makes that hold; before it, the
+/// per-kind guards each omitted different kinds, and a pair that slipped through minted
+/// two identical `SymbolKey`s and surfaced as an "Internal error" collision.
+[<Tests>]
+let crossKindDuplicateTypes =
+    /// A duplicate is a plain user diagnostic: never the `stampLocalTypeKey` collision
+    /// backstop, which is unreachable from source once the duplicate is rejected first.
+    let expectDuplicate (source: string) =
+        let ctx = analyse source
+
+        let has (s: string) =
+            ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains s)
+
+        Expect.isTrue (has "Duplicate type definition") "duplicate-type diagnostic emitted"
+        Expect.isFalse (has "Internal error") "no internal SymbolKey-collision error"
+
+    testList
+        "NameResolution cross-kind duplicate types"
+        [
+            // Registration order is fixed (record → union → enum → abbrev → class), so a
+            // pair is caught by whichever KIND registers second — source order is
+            // irrelevant, and one row per unordered pair covers it.
+            for kind1, kind2, source in
+                [
+                    "enum", "abbreviation", "type E = | A = 1\ntype E = int"
+                    "record", "enum", "type E = { X: int }\ntype E = | A = 1"
+                    "union", "abbreviation", "type U = | A\ntype U = int"
+                    "class", "enum", "type C() = class end\ntype C = | A = 1"
+                    "record", "class", "type C = { X: int }\ntype C() = class end"
+                    // An abbreviation's claim is arity-BLIND in both directions: it is
+                    // bare-keyed and bare-resolved, so a GENERIC alias cannot coexist with
+                    // a non-generic type of another kind even though their arities differ.
+                    // Were it allowed, a bare `Foo` would resolve through `Abbreviation`
+                    // (which `resolveBareTypeName` checks first) to the generic alias,
+                    // applied to no arguments.
+                    "record", "generic abbreviation", "type Foo = { X: int }\ntype Foo<'a> = 'a"
+                    "enum", "generic abbreviation", "type Foo = | A = 1\ntype Foo<'a> = 'a"
+                ] -> test $"{kind1} and {kind2} of the same name collide" { expectDuplicate source }
+
+            yield
+                test "a non-generic enum and a generic record of the same name coexist" {
+                    // The claim is on (name, ARITY): `E` and `E`1` are distinct types (as in
+                    // F#), so the cross-kind test must not conflate them. The negative that
+                    // keeps `containsAnyType` from degenerating into a bare-name test.
+                    let ctx = analyse "type E = | A = 1\ntype E<'a> = { X: 'a }"
+
+                    let has (s: string) =
+                        ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains s)
+
+                    Expect.isFalse (has "Duplicate type definition") "no duplicate for E vs E`1"
+                    Expect.isFalse (has "SymbolKey collision") "distinct keys, so no collision"
+                    Expect.isTrue (TypeRegistry.containsEnum ctx.Types "E") "enum E registered"
+                    Expect.isTrue (TypeRegistry.containsRecord ctx.Types "E" 1) "record E`1 registered"
+                }
         ]
