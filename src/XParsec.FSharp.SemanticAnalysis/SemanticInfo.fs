@@ -124,8 +124,9 @@ type TypeHolder =
     | InType of outer: TypeKey
 
 /// A type definition. `Name` keeps the arity suffix (`` IEnumerable`1 ``) — see
-/// `SymbolKeyOps.arityName`, which must remain the ONE definition shared with
-/// `TypeRegistry.keyFor` (registry key and stamped name must not drift). For a
+/// `SymbolKeyOps.arityName`, which must remain the ONE definition of that rule (the
+/// emitted metadata name and the stamped name must not drift). A project-local type's
+/// `TypeKey` is also its `TypeRegistry` key. For a
 /// NESTED type `Name` is the bare innermost segment (`Enumerator`); the `+`-mangled
 /// reflection spelling is produced on demand by `SymbolKeyOps.typeMetaName`, the one
 /// renderer, and parsed back by `SymbolKeyOps.typeKeyOf`, the one parser.

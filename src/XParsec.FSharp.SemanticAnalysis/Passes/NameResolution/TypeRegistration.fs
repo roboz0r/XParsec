@@ -209,12 +209,12 @@ module NameResolutionTypeRegistration =
 
                     rejectCustomOnDataType ctx declKey info.EqualitySupport info.ComparisonSupport
 
-                    TypeRegistry.registerRecord ctx.Types name arity info
+                    TypeRegistry.registerRecord ctx.Types info
 
                     // Stamp the decl-site key so `Elaborate.tryRecordType` resolves this
                     // record by its arity-qualified `SymbolKey` (via `tryRecordByKey`),
                     // not the bare name — an arity-overloaded record (`Point`2`/`Point`3`)
-                    // has no bare alias. Mirrors the union/enum decl-site stamp.
+                    // does not resolve by bare name. Mirrors the union/enum decl-site stamp.
                     ctx.Resolution.ResolvedType.Set(declKey, SymbolKey.Type key)
 
                     for fi in fieldInfos do
@@ -365,7 +365,7 @@ module NameResolutionTypeRegistration =
 
                     rejectCustomOnDataType ctx declKey info.EqualitySupport info.ComparisonSupport
 
-                    TypeRegistry.registerUnion ctx.Types name typeArity info
+                    TypeRegistry.registerUnion ctx.Types info
 
                     // Record the decl-site identity
                     // so the type-decl emitter (`Elaborate.tryUnionType`) recovers the

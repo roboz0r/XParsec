@@ -69,7 +69,7 @@ module Unification =
                     ->
                     let name = ctx.NameOf nameLi.Idents.[0]
                     // Resolve THIS decl's own record by (name, arity): an arity-overloaded
-                    // record (`Point`2`/`Point`3`) has its bare alias withdrawn, so a bare
+                    // record (`Point`2`/`Point`3`) does not resolve by bare name, so a bare
                     // read would miss both and leave their field TyVars unlinked.
                     let arity = NameResolutionTypeRegistration.arityOfTypeName ctx tn
 
@@ -1068,7 +1068,7 @@ module Unification =
                 if nameLi.Idents.Length = 1 then
                     // Carry the generic arity so the member-prototype linker resolves
                     // the right `(name, arity)` class (an overloaded `Box\`1`/`Box\`2`
-                    // has no bare alias).
+                    // does not resolve by bare name).
                     let arity = NameResolutionTypeRegistration.arityOfTypeName ctx d.TypeName
 
                     ValueSome(ctx.NameOf nameLi.Idents.[0], arity, d.PrimaryConstr, d.Body)
@@ -1256,9 +1256,9 @@ module Unification =
                     let (TypeName(ident = nameLi)) = d.TypeName
 
                     if nameLi.Idents.Length = 1 then
-                        // Resolve by arity-key: an overloaded `Foo\`1`/`Foo\`2` host has
-                        // no bare alias, so a bare-name lookup would skip its interface
-                        // impls. Mirrors `fillClassMembers` / `walkClassBodies`.
+                        // Resolve by arity-key: an overloaded `Foo\`1`/`Foo\`2` host does
+                        // not resolve by bare name, so a bare-name lookup would skip its
+                        // interface impls. Mirrors `fillClassMembers` / `walkClassBodies`.
                         let arity = NameResolutionTypeRegistration.arityOfTypeName ctx d.TypeName
 
                         match TypeRegistry.tryClassArity ctx.Types (ctx.NameOf nameLi.Idents.[0]) arity with

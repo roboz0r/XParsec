@@ -98,15 +98,15 @@ module internal UnificationInferIdentExpr =
             // takes priority over a union ctor — preserves the original cascade
             // order so a static member shadows the not-a-case diagnostic.
             let classHit =
-                match ctx.Types.Class.TryGetValue headName with
-                | true, info -> tryStaticMember info.TypeParams info.Members
-                | false, _ -> ValueNone
+                match TypeRegistry.tryClass ctx.Types headName with
+                | ValueSome info -> tryStaticMember info.TypeParams info.Members
+                | ValueNone -> ValueNone
 
             match classHit with
             | ValueSome ty -> ty
             | ValueNone ->
-                match ctx.Types.Union.TryGetValue headName with
-                | true, info ->
+                match TypeRegistry.tryUnionBare ctx.Types headName with
+                | ValueSome info ->
                     match tryStaticMember info.TypeParams info.Members with
                     | ValueSome ty -> ty
                     | ValueNone ->
@@ -115,7 +115,7 @@ module internal UnificationInferIdentExpr =
                         match resolveQualifiedCtor ctx headName tailName with
                         | ValueSome info -> ctorType ctx info
                         | ValueNone -> errorTy ctx key (sprintf "Union '%s' has no case '%s'" headName tailName)
-                | false, _ ->
+                | ValueNone ->
                     // Qualified external union case (`Option.Some`) — the head is
                     // an external union, not a local one. NameResolution stamped
                     // the resolved case at this node's key.
@@ -241,10 +241,10 @@ module internal UnificationInferIdentExpr =
                         ValueSome(substituteWith subst m.Type)
                     | None -> ValueNone
 
-                match ctx.Types.Class.TryGetValue className with
-                | true, info -> resolve info.TypeParams info.Members
-                | false, _ ->
-                    match ctx.Types.Union.TryGetValue className with
-                    | true, info -> resolve info.TypeParams info.Members
-                    | false, _ -> ValueNone
+                match TypeRegistry.tryClass ctx.Types className with
+                | ValueSome info -> resolve info.TypeParams info.Members
+                | ValueNone ->
+                    match TypeRegistry.tryUnionBare ctx.Types className with
+                    | ValueSome info -> resolve info.TypeParams info.Members
+                    | ValueNone -> ValueNone
         | _ -> ValueNone

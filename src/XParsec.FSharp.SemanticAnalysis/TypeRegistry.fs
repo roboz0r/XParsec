@@ -12,13 +12,17 @@ open XParsec.FSharp.Parser
 
 type PassContextTypes =
     {
+        /// Keyed by the type's own project-local `TypeKey` — the WHOLE containment
+        /// chain, not a name: a table entry and the `SymbolKey` a consumer carries are
+        /// the same value, so `tryRecordByKey` is a genuine key-addressed read.
         /// Field types are filled in by Unification after the registry is populated.
-        Record: Dictionary<string, RecordTypeInfo>
+        Record: Dictionary<TypeKey, RecordTypeInfo>
+        /// Keyed by `TypeKey` (see `Record`).
         /// Case field types are filled in by Unification after the registry is populated.
-        Union: Dictionary<string, UnionTypeInfo>
-        /// Member types start as placeholder TyVars and get linked by Unification's
-        /// `fillClassMembers` pre-pass.
-        Class: Dictionary<string, ClassTypeInfo>
+        Union: Dictionary<TypeKey, UnionTypeInfo>
+        /// Keyed by `TypeKey` (see `Record`). Member types start as placeholder TyVars
+        /// and get linked by Unification's `fillClassMembers` pre-pass.
+        Class: Dictionary<TypeKey, ClassTypeInfo>
         /// Project-local enum type declarations, keyed by bare short name (enums
         /// are non-generic, so no arity overload). Populated by
         /// `NameResolution.registerEnumTypeDefn`; read by `translateType` (so
@@ -73,31 +77,18 @@ type PassContextTypes =
         /// Resolved as an `IInterfaceImplHost` by `tryNonClassMemberHost`, so the member
         /// bodies name-resolve, type, and elaborate on the shared host path.
         IntrinsicAbbrevHost: Dictionary<string, IntrinsicAbbrevInfo>
-        /// Bookkeeping for the bare-name alias `Union` keeps for arity-overloaded
-        /// unions (`Choice\`2`…`Choice\`7`). `Union` is keyed by `TypeRegistry.keyFor`
-        /// (bare name for a non-generic union, ``name`N`` for arity N>0); a *single*
-        /// generic arity of a name additionally registers a bare-name alias, so a
-        /// generic union written without args (or read by bare name in legacy paths)
-        /// still resolves exactly as before. This maps the bare short name → what owns
-        /// the bare key: the arity of its current alias, `0` when a real *non-generic*
-        /// union owns it (so no alias may be installed over it, and the
-        /// duplicate-definition test can tell the two apart), or `-1` once a second
-        /// arity collides and the alias is withdrawn (the name is then only resolvable
-        /// by its arity-key). Internal to `TypeRegistry`; not read elsewhere.
-        UnionBareArity: Dictionary<string, int>
-        /// Bookkeeping for the bare-name alias `Class` keeps for arity-overloaded
-        /// classes / interfaces (`Fun\`2` vs `Fun\`3`). Mirrors `UnionBareArity`
-        /// exactly: `Class` is keyed by `TypeRegistry.keyFor` (bare name for a
-        /// non-generic class, ``name`N`` for arity N>0); a *single* generic arity
-        /// of a name additionally registers a bare-name alias so every existing
-        /// single-arity class read by bare name still resolves. Same `alias arity` /
-        /// `0` (non-generic owner) / `-1` (withdrawn) encoding as `UnionBareArity`.
-        /// Internal to `TypeRegistry`.
-        ClassBareArity: Dictionary<string, int>
-        /// Bookkeeping for the bare-name alias `Record` keeps for arity-overloaded
-        /// records (`Point\`2` vs `Point\`3`). Mirrors `UnionBareArity` /
-        /// `ClassBareArity` exactly. Internal to `TypeRegistry.registerRecord`.
-        RecordBareArity: Dictionary<string, int>
+        /// Reverse index: record short name (NO arity suffix, as written in source) →
+        /// the `TypeKey`s of every registered record claiming it. The only route from a
+        /// bare name back to a type: the tables are key-addressed, so a name has a
+        /// *candidate set*, not an entry. An arity-overloaded name (`Point\`2` /
+        /// `Point\`3`) holds several keys; a bare-name read of it does not resolve
+        /// (`tryRecord`). Same shape as `CtorIndex` / `FieldIndex`.
+        RecordNames: Dictionary<string, ResizeArray<TypeKey>>
+        /// Reverse index: union short name → candidate `TypeKey`s. See `RecordNames`.
+        UnionNames: Dictionary<string, ResizeArray<TypeKey>>
+        /// Reverse index: class / interface short name → candidate `TypeKey`s. See
+        /// `RecordNames`.
+        ClassNames: Dictionary<string, ResizeArray<TypeKey>>
         /// Uniqueness witness for project-local `SymbolKey`s.
         /// Maps each minted `TypeKey(None, ns, name\`arity)` → the decl-site
         /// `NodeKey` that first minted it. Stamped through `TypeRegistry.recordKeyOrigin`
@@ -123,27 +114,24 @@ module PassContextTypes =
             IntrinsicKeys = Dictionary<_, _>()
             HeritableExternBases = HashSet<_>()
             IntrinsicAbbrevHost = Dictionary<_, _>()
-            UnionBareArity = Dictionary<_, _>()
-            ClassBareArity = Dictionary<_, _>()
-            RecordBareArity = Dictionary<_, _>()
+            RecordNames = Dictionary<_, _>()
+            UnionNames = Dictionary<_, _>()
+            ClassNames = Dictionary<_, _>()
             SymbolKeyOrigins = Dictionary<_, _>()
         }
 
-/// Arity-aware access to the project-local *union* registry. F# (and .NET) let a
-/// type name be overloaded by generic arity — `Choice<'T1,'T2>` and
-/// `Choice<'T1,'T2,'T3>` are distinct types `Choice\`2` / `Choice\`3`. The bare
-/// `Dictionary<string, _>` keys would collapse them onto `"Choice"`, so unions are
-/// keyed by `keyFor name arity`. A *single*-arity name also keeps a bare-name alias
-/// (so every existing single-arity lookup by bare name keeps working unchanged);
-/// the alias is withdrawn once a second arity registers (`UnionBareArity`). Records,
-/// unions, and classes are all arity-keyed this way; only abbreviations stay bare.
+/// Access to the project-local record / union / class registries. Each is keyed by
+/// the type's own `TypeKey`, so containment (and the `` `N `` arity suffix a `TypeKey`
+/// carries in its `Name`) is part of the key by construction: `Choice<'T1,'T2>` and
+/// `Choice<'T1,'T2,'T3>` are distinct keys, and so are same-named types in different
+/// places. A *name* therefore addresses a CANDIDATE SET (`RecordNames` / `UnionNames` /
+/// `ClassNames`), never an entry — the three lookup faces below are the only ways in:
+///   * by `SymbolKey` (`tryRecordByKey` / …) — exact, the identity a consumer already holds;
+///   * by `(name, arity)` (`tryRecordArity` / `tryUnion` / `tryClassArity`) — exact;
+///   * by BARE name (`tryRecord` / `tryUnionBare` / `tryClass`) — resolves only when the
+///     name is unambiguous (see `tryKeyOfBareName`).
+/// Only enums and abbreviations stay bare-name-keyed (neither is arity-overloadable).
 module TypeRegistry =
-
-    /// The .NET-style key: the bare name for a non-generic type, ``name`N`` for
-    /// arity N>0. Matches the emitted metadata type name. Delegates to
-    /// `SymbolKeyOps.arityName` so the registry key and the stamped `SymbolKey`
-    /// name share one rule.
-    let keyFor (name: string) (arity: int) : string = SymbolKeyOps.arityName name arity
 
     /// The contract-sourced identity key for a locally-declared intrinsic (`int`,
     /// `[]`, a user intrinsic-abbrev): the qualified `SymbolKey` registration stamped
@@ -158,168 +146,151 @@ module TypeRegistry =
         | true, k -> k
         | _ -> RuntimeNames.primitiveKey name
 
-    // --- Arity-overload mechanism (shared by Union and Class) --------------------
-    // F# / .NET overload a type *name* by generic arity (`Choice\`2`/`Choice\`3`,
-    // `Fun\`2`/`Fun\`3`). Such a kind is keyed by `keyFor name arity`; a *single*
-    // registered arity also keeps a bare-name alias so every legacy bare-name read
-    // still resolves, and the alias is withdrawn (sentinel `-1`) once a second arity
-    // collides. `table` + its `bareArity` companion are the only things that differ
-    // between the union and class registries — so the mechanism lives here once.
+    // --- Key-addressed mechanism (shared by Record, Union and Class) --------------
+    // A `table` + its short-name `index` are the only things that differ between the
+    // three kinds, so the mechanism lives here once. The table is keyed by `TypeKey`;
+    // the index maps the source-written short name to the keys claiming it.
 
-    /// Register `info` under its arity-key, maintaining (or withdrawing) the
-    /// bare-name alias. `bareArity` records what OWNS the bare key `name`, which
-    /// `keyFor` gives both to a non-generic type and to a generic type's alias:
-    ///   * `0`  — a real non-generic type; there is no alias slot to hand out.
-    ///   * `N`  — the alias of the single registered arity `N`.
-    ///   * `-1` — demoted: a second arity collided, the alias is withdrawn, and the
-    ///            name resolves only by its arity-key.
-    /// Idempotent for a repeat `(name, arity)`.
-    let private registerArityKeyed
-        (table: Dictionary<string, 'T>)
-        (bareArity: Dictionary<string, int>)
+    /// Register `info` under its own `TypeKey` and index that key under `name` (the
+    /// short name as written, no arity suffix — the key carries the arity). Idempotent:
+    /// re-registering the same key refreshes the entry and does not duplicate the
+    /// index candidate.
+    let private registerKeyed
+        (table: Dictionary<TypeKey, 'T>)
+        (index: Dictionary<string, ResizeArray<TypeKey>>)
         (name: string)
-        (arity: int)
+        (key: TypeKey)
         (info: 'T)
         : unit =
-        table.[keyFor name arity] <- info
+        table.[key] <- info
 
-        if arity = 0 then
-            // The non-generic type owns the bare key outright (it IS its arity-key),
-            // evicting any alias a generic namesake had installed there.
-            bareArity.[name] <- 0
-        else
-            match bareArity.TryGetValue name with
-            | false, _ ->
-                table.[name] <- info
-                bareArity.[name] <- arity
-            | true, a when a = arity -> table.[name] <- info // refresh the same-arity alias
-            | true, 0 -> () // the bare key is a non-generic type's own: no alias to give
-            | true, -1 -> () // already demoted: only the arity-key resolves
-            | true, _ ->
-                // A second distinct arity for this short name: withdraw the now-
-                // ambiguous bare alias; both arities resolve only by their key.
-                table.Remove name |> ignore
-                bareArity.[name] <- -1
+        match index.TryGetValue name with
+        | true, keys ->
+            if not (keys.Contains key) then
+                keys.Add key
+        | false, _ ->
+            let keys = ResizeArray 1
+            keys.Add key
+            index.[name] <- keys
 
-    /// True iff EXACTLY `(name, arity)` is registered. At arity > 0 the arity-key
-    /// answers it. At arity 0 the table key is the BARE name, which a generic
-    /// namesake's alias also occupies — so `bareArity`'s `0` (written only by a real
-    /// non-generic registration) is the witness, and a generic `Foo\`1` alias does not
-    /// masquerade as a non-generic `Foo`.
-    let private containsArity
-        (table: Dictionary<string, 'T>)
-        (bareArity: Dictionary<string, int>)
+    /// The key a name claims at EXACTLY this arity, if any. The `TypeKey`'s `Name` is
+    /// the arity-qualified name (`SymbolKeyOps.arityName` is the one rule both the mint
+    /// and this read use), so the arity test is a name test on the candidates.
+    let private tryKeyOfArity
+        (index: Dictionary<string, ResizeArray<TypeKey>>)
         (name: string)
         (arity: int)
-        : bool =
-        if arity = 0 then
-            match bareArity.TryGetValue name with
-            | true, 0 -> true
-            | _ -> false
-        else
-            table.ContainsKey(keyFor name arity)
+        : TypeKey voption =
+        match index.TryGetValue name with
+        | true, keys ->
+            let arityName = SymbolKeyOps.arityName name arity
+            let i = keys.FindIndex(fun k -> k.Name = arityName)
+            if i < 0 then ValueNone else ValueSome keys.[i]
+        | false, _ -> ValueNone
 
-    /// Resolve an arity-overloaded type by its project-local `SymbolKey`. The key's
-    /// `TypeKey` `name` component *is* the registry key (both route through
-    /// `SymbolKeyOps.arityName`), so this reads it VERBATIM — no `simpleName` strip.
-    /// A non-`TypeKey` key never names such a type, so it misses.
-    let private tryByTypeKey (table: Dictionary<string, 'T>) (key: SymbolKey) : 'T voption =
+    /// What a BARE (arity-less) short name resolves to. A NON-GENERIC type owns its
+    /// short name outright — its key's `Name` *is* the bare name — so it wins whenever
+    /// one exists; failing that a lone candidate resolves; and an arity-overloaded name
+    /// (`Point\`2` / `Point\`3`) is genuinely ambiguous unqualified, so it resolves to
+    /// NOTHING and the caller must come with an arity or a key.
+    let private tryKeyOfBareName (index: Dictionary<string, ResizeArray<TypeKey>>) (name: string) : TypeKey voption =
+        match index.TryGetValue name with
+        | true, keys ->
+            let i = keys.FindIndex(fun k -> k.Name = name)
+
+            if i >= 0 then ValueSome keys.[i]
+            elif keys.Count = 1 then ValueSome keys.[0]
+            else ValueNone
+        | false, _ -> ValueNone
+
+    let private tryOfKey (table: Dictionary<TypeKey, 'T>) (key: TypeKey voption) : 'T voption =
+        match key with
+        | ValueSome k ->
+            match table.TryGetValue k with
+            | true, info -> ValueSome info
+            | false, _ -> ValueNone
+        | ValueNone -> ValueNone
+
+    /// Resolve a type by its project-local `SymbolKey` — a real key-addressed read: the
+    /// `TypeKey` a consumer carries IS the table's key, containment and arity suffix
+    /// included, so a same-named type declared elsewhere cannot answer for it. A
+    /// non-`TypeKey` key never names a type, so it misses.
+    let private tryByTypeKey (table: Dictionary<TypeKey, 'T>) (key: SymbolKey) : 'T voption =
         match key with
         | SymbolKey.Type t ->
-            match table.TryGetValue t.Name with
+            match table.TryGetValue t with
             | true, info -> ValueSome info
             | false, _ -> ValueNone
         | _ -> ValueNone
 
-    // --- Records / classes --------------------------------------
-    // Records, unions, and classes are all arity-overloadable in F# (`Point\`2`/
-    // `Point\`3`, `Choice\`2`/`Choice\`3`, `Fun\`2`/`Fun\`3`), so each is keyed by
-    // `keyFor name arity` with a bare-name alias (`registerArityKeyed`). Only
-    // abbreviations stay bare-keyed (not arity-overloaded today).
+    // --- Records / unions / classes -----------------------------------------------
+    // All three are arity-overloadable in F# (`Point\`2`/`Point\`3`,
+    // `Choice\`2`/`Choice\`3`, `Fun\`2`/`Fun\`3`) and all three are keyed by their own
+    // `TypeKey`, which carries the arity in its `Name`. Only abbreviations and enums
+    // stay bare-name-keyed (neither is arity-overloaded).
 
-    /// Register a record under its arity-key, keeping the bare-name alias while the
-    /// short name is single-arity (`RecordBareArity`). See `registerArityKeyed`.
-    let registerRecord (types: PassContextTypes) (name: string) (arity: int) (info: RecordTypeInfo) : unit =
-        registerArityKeyed types.Record types.RecordBareArity name arity info
+    /// Register a record under its own `TypeKey`, indexing that key under the record's
+    /// short name. The key comes off the `info` — there is no second spelling of the
+    /// identity to drift from it.
+    let registerRecord (types: PassContextTypes) (info: RecordTypeInfo) : unit =
+        registerKeyed types.Record types.RecordNames info.Name info.TypeKey info
 
-    /// True iff a record with this exact `(name, arity)` is registered (never a
-    /// generic namesake's bare alias) — the record half of the duplicate-definition
-    /// test (`containsAnyType`).
+    /// True iff a record claims exactly `(name, arity)` — the record half of the
+    /// duplicate-definition test (`containsAnyType`).
     let containsRecord (types: PassContextTypes) (name: string) (arity: int) : bool =
-        containsArity types.Record types.RecordBareArity name arity
+        (tryKeyOfArity types.RecordNames name arity).IsSome
 
-    /// Resolve a record by bare short name. Single-arity records keep a bare-name
-    /// alias (`registerRecord`); a name with two registered arities has its alias
-    /// withdrawn and misses here (callers holding an arity-qualified key use
-    /// `tryRecordByKey`; those with a use-site arity use `tryRecordArity`). The
-    /// recognition-only call sites (module-vs-type tests, qualified heads) ride this alias.
+    /// Resolve a record by BARE short name (see `tryKeyOfBareName`): the non-generic
+    /// record of that name, else the lone candidate, else nothing — an arity-overloaded
+    /// name does not resolve unqualified. Callers holding a key use `tryRecordByKey`;
+    /// those with a use-site arity use `tryRecordArity`.
     let tryRecord (types: PassContextTypes) (name: string) : RecordTypeInfo voption =
-        match types.Record.TryGetValue name with
-        | true, info -> ValueSome info
-        | false, _ -> ValueNone
+        tryOfKey types.Record (tryKeyOfBareName types.RecordNames name)
 
-    /// Resolve a record by `(name, arity)` — exact arity-key only, so a wrong arity
-    /// misses. Does NOT fall back to the bare alias (mirror `tryClassArity`/`tryUnion`).
+    /// Resolve a record by `(name, arity)` — exact arity, so a wrong arity misses.
     let tryRecordArity (types: PassContextTypes) (name: string) (arity: int) : RecordTypeInfo voption =
-        match types.Record.TryGetValue(keyFor name arity) with
-        | true, info -> ValueSome info
-        | false, _ -> ValueNone
+        tryOfKey types.Record (tryKeyOfArity types.RecordNames name arity)
 
     /// Resolve a record by its project-local `SymbolKey` — the reader-side companion
-    /// to `tryUnionByKey`/`tryClassByKey`. Reads the key's arity-qualified name
-    /// VERBATIM (via `tryByTypeKey`), so a consumer holding a `TyRecord(key, _)`
-    /// resolves the exact arity without a `simpleName` strip.
+    /// to `tryUnionByKey`/`tryClassByKey`. See `tryByTypeKey`.
     let tryRecordByKey (types: PassContextTypes) (key: SymbolKey) : RecordTypeInfo voption =
         tryByTypeKey types.Record key
 
-    /// Register a class under its arity-key, keeping the bare-name alias while the
-    /// short name is single-arity (`ClassBareArity`). See `registerArityKeyed`.
-    let registerClass (types: PassContextTypes) (name: string) (arity: int) (info: ClassTypeInfo) : unit =
-        registerArityKeyed types.Class types.ClassBareArity name arity info
+    /// Register a class under its own `TypeKey`. See `registerRecord`.
+    let registerClass (types: PassContextTypes) (info: ClassTypeInfo) : unit =
+        registerKeyed types.Class types.ClassNames info.Name info.TypeKey info
 
-    /// True iff a class with this exact `(name, arity)` is registered (never a generic
-    /// namesake's bare alias) — the class half of the duplicate-definition test
-    /// (`containsAnyType`).
+    /// True iff a class claims exactly `(name, arity)` — the class half of the
+    /// duplicate-definition test (`containsAnyType`).
     let containsClass (types: PassContextTypes) (name: string) (arity: int) : bool =
-        containsArity types.Class types.ClassBareArity name arity
+        (tryKeyOfArity types.ClassNames name arity).IsSome
 
-    /// Resolve a class by bare short name. Single-arity classes keep a bare-name
-    /// alias (`registerClass`), so this resolves them; a name with two registered
-    /// arities has its alias withdrawn and misses here (callers holding an
-    /// arity-qualified key use `tryClassByKey`). The recognition-only call sites
-    /// (`Scope.fs`, `NameResolution.fs`, qualified-static heads) ride this alias.
+    /// Resolve a class by BARE short name (see `tryKeyOfBareName`). The
+    /// recognition-only call sites (`Scope.fs`, `NameResolution.fs`, qualified-static
+    /// heads) read the registry this way; a caller holding a key uses `tryClassByKey`.
     let tryClass (types: PassContextTypes) (name: string) : ClassTypeInfo voption =
-        match types.Class.TryGetValue name with
-        | true, info -> ValueSome info
-        | false, _ -> ValueNone
+        tryOfKey types.Class (tryKeyOfBareName types.ClassNames name)
 
-    /// Resolve a class by `(name, arity)` — exact arity-key only, so a wrong arity
-    /// misses. Does NOT fall back to the bare alias (mirror `tryUnion`).
+    /// Resolve a class by `(name, arity)` — exact arity, so a wrong arity misses.
     let tryClassArity (types: PassContextTypes) (name: string) (arity: int) : ClassTypeInfo voption =
-        match types.Class.TryGetValue(keyFor name arity) with
-        | true, info -> ValueSome info
-        | false, _ -> ValueNone
+        tryOfKey types.Class (tryKeyOfArity types.ClassNames name arity)
 
     /// Resolve a class by its project-local `SymbolKey` — the class analogue of
     /// `tryUnionByKey`. See `tryByTypeKey`.
     let tryClassByKey (types: PassContextTypes) (key: SymbolKey) : ClassTypeInfo voption = tryByTypeKey types.Class key
 
-    /// True iff a class is registered under this `SymbolKey`'s arity-qualified name —
-    /// the key-based membership gate (the `tryClassByKey`-shaped mirror of
-    /// `containsClass`). A caller holding a `TyClass` key uses this so an
-    /// arity-overloaded class (whose bare alias is withdrawn) isn't misclassified as
-    /// external.
+    /// True iff a class is registered under this `SymbolKey` — the key-based membership
+    /// gate (the `tryClassByKey`-shaped mirror of `containsClass`). A caller holding a
+    /// `TyClass` key uses this so a local class is never misclassified as external.
     let containsClassKey (types: PassContextTypes) (key: SymbolKey) : bool = (tryByTypeKey types.Class key).IsSome
 
     /// Resolve a nominal type that may carry `interface … with` impls — a class,
-    /// union, *or* record — by its arity-qualified `SymbolKey` (via `tryByTypeKey`,
-    /// which reads the key's ``name`arity`` verbatim), surfaced as the shared
+    /// union, *or* record — by its `SymbolKey`, surfaced as the shared
     /// `IInterfaceImplHost`. The `subsumes` interface-admission walk uses this so a
     /// union's/record's declared interfaces participate in subtyping exactly like a
-    /// class's. Class → union → record, so a class wins a name collision (as the
-    /// bare-alias reads always have). Key-based (not bare short name): an
-    /// arity-overloaded host (`Foo`2`/`Foo`3`) has its bare alias withdrawn, so a
-    /// bare lookup would miss the local host and mis-classify the type as external.
+    /// class's. Class → union → record: a key can only be registered in one of the
+    /// three (the duplicate-definition test forbids a name+arity claimed twice), so the
+    /// order is a search order, not a precedence.
     let tryInterfaceImplHostByKey (types: PassContextTypes) (key: SymbolKey) : IInterfaceImplHost voption =
         match tryByTypeKey types.Class key with
         | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
@@ -330,28 +301,6 @@ module TypeRegistry =
                 match tryByTypeKey types.Record key with
                 | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
                 | ValueNone -> ValueNone
-
-    /// Resolve a union, record, or inline intrinsic-abbrev host (NOT a class) by bare
-    /// short name as the shared `IInterfaceImplHost`. The non-class analogue of the
-    /// `tryClassLikeDecl` path: the host-body passes route their
-    /// `TypeDefnPatterns.tryNonClassMemberHostDecl` match through this one lookup, so they
-    /// share one bare-name convention instead of skewing against the arity-key. (The
-    /// subtype walk resolves the same hosts by `SymbolKey` via `tryInterfaceImplHostByKey`.)
-    /// The intrinsic-abbrev host is admitted so `type X = (# … #) with member …` fills
-    /// and elaborates its members on the SAME `fillHostMembers` path — its `MkSelfType`
-    /// yields the abbrev's `TyConst` identity, so the members' self-type stays intrinsic.
-    /// Classes are excluded — they fill and resolve through their own richer path
-    /// (`fillClassMembers` / `walkClassBodies`), so admitting one here would double-fill.
-    let tryNonClassMemberHost (types: PassContextTypes) (name: string) : IInterfaceImplHost voption =
-        match types.Union.TryGetValue name with
-        | true, info -> ValueSome(info :> IInterfaceImplHost)
-        | false, _ ->
-            match types.Record.TryGetValue name with
-            | true, info -> ValueSome(info :> IInterfaceImplHost)
-            | false, _ ->
-                match types.IntrinsicAbbrevHost.TryGetValue name with
-                | true, info -> ValueSome(info :> IInterfaceImplHost)
-                | false, _ -> ValueNone
 
     /// Register an enum under its bare short name (enums are non-generic, so no
     /// arity overload — mirrors records, not unions).
@@ -378,24 +327,22 @@ module TypeRegistry =
         | true, info -> ValueSome info
         | false, _ -> ValueNone
 
-    /// Register a union under its arity-key, keeping the bare-name alias while the
-    /// short name is single-arity (`UnionBareArity`). See `registerArityKeyed`.
-    let registerUnion (types: PassContextTypes) (name: string) (arity: int) (info: UnionTypeInfo) : unit =
-        registerArityKeyed types.Union types.UnionBareArity name arity info
+    /// Register a union under its own `TypeKey`. See `registerRecord`.
+    let registerUnion (types: PassContextTypes) (info: UnionTypeInfo) : unit =
+        registerKeyed types.Union types.UnionNames info.Name info.TypeKey info
 
-    /// True iff a union with this exact `(name, arity)` is registered (never a generic
-    /// namesake's bare alias) — the union half of the duplicate-definition test.
+    /// True iff a union claims exactly `(name, arity)` — the union half of the
+    /// duplicate-definition test.
     let containsUnion (types: PassContextTypes) (name: string) (arity: int) : bool =
-        containsArity types.Union types.UnionBareArity name arity
+        (tryKeyOfArity types.UnionNames name arity).IsSome
 
-    /// Is a record / union / class of this short name registered at ANY arity? The
-    /// `*BareArity` witness answers it: every registration writes an entry (`0` for a
-    /// non-generic, `N` for a single generic arity, `-1` once two collide), so the
-    /// presence of the key IS "this kind claims this name somewhere".
+    /// Is a record / union / class of this short name registered at ANY arity? A
+    /// short-name index entry exists iff some type of that kind claims the name, so the
+    /// presence of the key IS the answer.
     let private containsAnyArity (types: PassContextTypes) (name: string) : bool =
-        types.RecordBareArity.ContainsKey name
-        || types.UnionBareArity.ContainsKey name
-        || types.ClassBareArity.ContainsKey name
+        types.RecordNames.ContainsKey name
+        || types.UnionNames.ContainsKey name
+        || types.ClassNames.ContainsKey name
 
     /// THE duplicate-type-definition test. Every registration site (record, union,
     /// enum, abbreviation, class) asks this one question with its own declared
@@ -439,29 +386,52 @@ module TypeRegistry =
         || containsAbbrev types name
         || types.IntrinsicReprTypes.ContainsKey name
 
-    /// Resolve a union by `(name, arity)` — exact arity-key only, so a wrong arity
-    /// misses (the caller diagnoses). Does NOT fall back to the bare alias.
+    /// Resolve a union by `(name, arity)` — exact arity, so a wrong arity misses (the
+    /// caller diagnoses).
     let tryUnion (types: PassContextTypes) (name: string) (arity: int) : UnionTypeInfo voption =
-        match types.Union.TryGetValue(keyFor name arity) with
-        | true, info -> ValueSome info
-        | false, _ -> ValueNone
+        tryOfKey types.Union (tryKeyOfArity types.UnionNames name arity)
 
-    /// Resolve a union by its project-local `SymbolKey` — the arity-qualified
-    /// `TypeKey(None, _, name\`arity)` minted onto `UnionTypeInfo.Key` and stamped
-    /// into `Resolution.ResolvedType`. The key's
-    /// `name` component *is* the registry key: both it and `keyFor` use the one
-    /// `SymbolKeyOps.arityName` rule, so this is a direct `Union` lookup with
-    /// no arity re-derivation. A non-`TypeKey` key (a value / member) never names a
-    /// union, so it misses. The reader-side seam for SymbolKey-first resolution.
+    /// Resolve a union by BARE short name (see `tryKeyOfBareName`) — the union sibling
+    /// of `tryRecord` / `tryClass`, for the recognition-only call sites (a qualified
+    /// ctor / static head, the module-vs-type name test).
+    let tryUnionBare (types: PassContextTypes) (name: string) : UnionTypeInfo voption =
+        tryOfKey types.Union (tryKeyOfBareName types.UnionNames name)
+
+    /// Resolve a union by its project-local `SymbolKey` — the `TypeKey` minted onto
+    /// `UnionTypeInfo.Key` and stamped into `Resolution.ResolvedType`. A non-`TypeKey`
+    /// key (a value / member) never names a union, so it misses. The reader-side seam
+    /// for SymbolKey-first resolution.
     let tryUnionByKey (types: PassContextTypes) (key: SymbolKey) : UnionTypeInfo voption = tryByTypeKey types.Union key
 
+    /// Resolve a union, record, or inline intrinsic-abbrev host (NOT a class) by bare
+    /// short name as the shared `IInterfaceImplHost`. The non-class analogue of the
+    /// `tryClassLikeDecl` path: the host-body passes route their
+    /// `TypeDefnPatterns.tryNonClassMemberHostDecl` match through this one lookup, so they
+    /// share one bare-name convention. (The subtype walk resolves the same hosts by
+    /// `SymbolKey` via `tryInterfaceImplHostByKey`.)
+    /// The intrinsic-abbrev host is admitted so `type X = (# … #) with member …` fills
+    /// and elaborates its members on the SAME `fillHostMembers` path — its `MkSelfType`
+    /// yields the abbrev's `TyConst` identity, so the members' self-type stays intrinsic.
+    /// Classes are excluded — they fill and resolve through their own richer path
+    /// (`fillClassMembers` / `walkClassBodies`), so admitting one here would double-fill.
+    let tryNonClassMemberHost (types: PassContextTypes) (name: string) : IInterfaceImplHost voption =
+        match tryUnionBare types name with
+        | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
+        | ValueNone ->
+            match tryRecord types name with
+            | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
+            | ValueNone ->
+                match types.IntrinsicAbbrevHost.TryGetValue name with
+                | true, info -> ValueSome(info :> IInterfaceImplHost)
+                | false, _ -> ValueNone
+
     /// The declaring union of a registered case, resolved by its `(UnionName,
-    /// UnionArity)`. The case came from a registered union, so this is total in
-    /// practice; falls back to the bare alias defensively.
+    /// UnionArity)` — the pair the case was stamped with at registration, so this is
+    /// total: a case cannot exist without its union.
     let unionOfCase (types: PassContextTypes) (info: UnionCaseInfo) : UnionTypeInfo =
         match tryUnion types info.UnionName info.UnionArity with
         | ValueSome u -> u
-        | ValueNone -> types.Union.[info.UnionName]
+        | ValueNone -> failwithf "Internal error: union case '%s' has no registered union '%s'" info.Name info.UnionName
 
     /// Is `qualifier.caseName` a *local* union-case reference — the case is
     /// registered and one of its declaring unions has the short name `qualifier`?

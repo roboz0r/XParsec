@@ -517,7 +517,7 @@ module Elaborate =
             None
         else
             // Resolve by the arity-key, not the bare name: an arity-overloaded
-            // interface (`Fun\`2`/`Fun\`3`) has its bare alias withdrawn, so a bare
+            // interface (`Fun\`2`/`Fun\`3`) does not resolve by bare name, so a bare
             // read would miss and silently drop the decl.
             match TypeRegistry.tryClassArity ctx.Types name arity with
             | ValueNone -> None
@@ -1313,7 +1313,7 @@ module Elaborate =
         : (TDecl * (TypeVar * SemType) list) option =
         // Resolve the record by the `SymbolKey` `NameResolution` stamped at the decl
         // site (`tryRecordByKey`), not the bare name — an arity-overloaded record
-        // (`Point`2`/`Point`3`) has its bare alias withdrawn. Mirrors `tryUnionType`.
+        // (`Point`2`/`Point`3`) does not resolve by bare name. Mirrors `tryUnionType`.
         let resolved =
             match declKey with
             | ValueSome k ->
@@ -1377,7 +1377,7 @@ module Elaborate =
         (elements: TypeDefnElements<SyntaxToken>)
         : (TDecl * (TypeVar * SemType) list) option =
         // Resolve by the arity-key, not the bare name: an arity-overloaded class
-        // (`Box\`1`/`Box\`2`) has its bare alias withdrawn, so a bare read would
+        // (`Box\`1`/`Box\`2`) does not resolve by bare name, so a bare read would
         // miss (or fetch the wrong arity's info) and drop / mis-emit the decl.
         match TypeRegistry.tryClassArity ctx.Types name arity with
         | ValueNone -> None
@@ -1857,9 +1857,9 @@ module Elaborate =
                     // which has no project type to collide with but must still
                     // compile to `ArrayModule` to match its contract + FSharp.Core).
                     if
-                        ctx.Types.Union.ContainsKey moduleName
-                        || ctx.Types.Record.ContainsKey moduleName
-                        || ctx.Types.Class.ContainsKey moduleName
+                        (TypeRegistry.tryUnionBare ctx.Types moduleName).IsSome
+                        || (TypeRegistry.tryRecord ctx.Types moduleName).IsSome
+                        || (TypeRegistry.tryClass ctx.Types moduleName).IsSome
                         || VesperLibTypeTranslate.hasModuleSuffix ctx.Lexed ctx.Input attrs
                     then
                         moduleName + "Module"

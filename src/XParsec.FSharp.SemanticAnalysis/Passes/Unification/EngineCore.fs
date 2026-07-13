@@ -339,8 +339,8 @@ module UnificationEngineCore =
         let seen = HashSet<SymbolKey>()
 
         // Resolve by the `SymbolKey` the receiver carries, never a bare-name strip:
-        // an arity-overloaded class (`Fun\`2` vs `Fun\`3`, whose bare alias is
-        // withdrawn) walks the correct chain, and the base-type recursion passes the
+        // an arity-overloaded class (`Fun\`2` vs `Fun\`3`, which does not resolve by
+        // bare name) walks the correct chain, and the base-type recursion passes the
         // parent's key straight through with no arity round-trip.
         let rec walk (clsKey: SymbolKey) (args: EqArray<SemType>) : ChainMember voption =
             if not (seen.Add clsKey) then
@@ -603,7 +603,7 @@ module UnificationEngineCore =
     // `TyRecord`), or `ValueNone` for a `TyConst` / non-nominal. The subtype walk
     // resolves a local base / interface-impl host by this arity-qualified key rather
     // than a bare-name strip of the qualified canonical name: an arity-overloaded
-    // local type (`Box`1`/`Box`2`) has its bare alias withdrawn, so a `shortName`
+    // local type (`Box`1`/`Box`2`) does not resolve by bare name, so a `shortName`
     // lookup would miss it and mis-route to the provider (mirrors `tryExternalReceiver`,
     // whose external test is likewise `(tryClassByKey key).IsNone`).
     let private nominalKeyOf (ty: SemType) : SymbolKey voption =

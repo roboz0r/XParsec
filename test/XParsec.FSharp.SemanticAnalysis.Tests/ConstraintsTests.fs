@@ -45,21 +45,26 @@ let tests =
         [
             test "generic record with constraints captures TyparConstraints" {
                 let ctx = analyseNR "type Set<'a when 'a : comparison> = { Items: 'a list }"
-                let info = ctx.Types.Record.["Set"]
-                Expect.isTrue info.TyparConstraints.IsSome "TyparConstraints captured"
+
+                match TypeRegistry.tryRecord ctx.Types "Set" with
+                | ValueSome info -> Expect.isTrue info.TyparConstraints.IsSome "TyparConstraints captured"
+                | ValueNone -> failtest "record Set not registered"
             }
 
             test "generic union with constraints captures TyparConstraints" {
                 let ctx = analyseNR "type Tree<'a when 'a : comparison> = | Leaf | Node of 'a"
 
-                let info = ctx.Types.Union.["Tree"]
-                Expect.isTrue info.TyparConstraints.IsSome "TyparConstraints captured"
+                match TypeRegistry.tryUnionBare ctx.Types "Tree" with
+                | ValueSome info -> Expect.isTrue info.TyparConstraints.IsSome "TyparConstraints captured"
+                | ValueNone -> failtest "union Tree not registered"
             }
 
             test "non-constrained generic record has ValueNone TyparConstraints" {
                 let ctx = analyseNR "type Box<'a> = { Value: 'a }"
-                let info = ctx.Types.Record.["Box"]
-                Expect.isTrue info.TyparConstraints.IsNone "no TyparConstraints"
+
+                match TypeRegistry.tryRecord ctx.Types "Box" with
+                | ValueSome info -> Expect.isTrue info.TyparConstraints.IsNone "no TyparConstraints"
+                | ValueNone -> failtest "record Box not registered"
             }
 
             test "equality constraint satisfied by int" {

@@ -94,14 +94,14 @@ module UnificationEngine =
             let name = SymbolKeyOps.simpleName key
 
             // Resolve by the arity-qualified key: an arity-overloaded record
-            // (`Point`2`/`Point`3`) has no bare alias. `name` still labels the DotSource.
+            // (`Point`2`/`Point`3`) does not resolve by bare name. `name` still labels the DotSource.
             match TypeRegistry.tryRecordByKey ctx.Types key with
             | ValueSome info ->
                 DotSource.Resolved(name, "field", mkNamedTypeSubst info.TypeParams args, fieldLookup info.Fields)
             | ValueNone -> DotSource.UnknownType(name, "record")
         | ValueSome(NominalKind.Class, key, args) ->
             // Membership by the class's key (arity included): an arity-overloaded
-            // local class (`Fun`2`/`Fun`3`) has no bare alias, so a bare `ContainsKey`
+            // local class (`Fun`2`/`Fun`3`) does not resolve by bare name, so a bare `ContainsKey`
             // would misclassify it as external. The key rides the `ClassChain` walk.
             if TypeRegistry.containsClassKey ctx.Types key then
                 DotSource.ClassChain(key, args)
@@ -111,7 +111,7 @@ module UnificationEngine =
                 DotSource.ExternalClass(key, args)
         | ValueSome(NominalKind.Union, key, args) ->
             // Resolve by the arity-qualified key (mirror the record arm): an
-            // arity-overloaded union (`Choice`2`/`Choice`3`) has no bare alias.
+            // arity-overloaded union (`Choice`2`/`Choice`3`) does not resolve by bare name.
             // `name` is display-only — the `Resolved` label and the `UnknownType`
             // diagnostic.
             let name = SymbolKeyOps.simpleName key

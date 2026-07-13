@@ -179,7 +179,7 @@ module NameResolutionScope =
                 // unresolved diagnostic for all four.
                 if
                     ctx.Types.CtorIndex.ContainsKey name
-                    || ctx.Types.Class.ContainsKey name
+                    || (TypeRegistry.tryClass ctx.Types name).IsSome
                     // A generic external-type receiver (`EqualityComparer<int>`) was
                     // resolved at exact arity by the enclosing TypeApp visit, which
                     // stamped this use site's `ResolvedType`; a non-generic one
@@ -523,10 +523,14 @@ module NameResolutionScope =
                                 let staticIn (members: TypeMemberInfo[]) =
                                     members |> Array.exists (fun m -> m.IsStatic && m.Name = memberName)
 
-                                (ctx.Types.Class.ContainsKey typeName
-                                 && staticIn ctx.Types.Class.[typeName].Members)
-                                || (ctx.Types.Union.ContainsKey typeName
-                                    && staticIn ctx.Types.Union.[typeName].Members))
+                                (match TypeRegistry.tryClass ctx.Types typeName with
+                                 | ValueSome info -> staticIn info.Members
+                                 | ValueNone -> false)
+                                || (
+                                    match TypeRegistry.tryUnionBare ctx.Types typeName with
+                                    | ValueSome info -> staticIn info.Members
+                                    | ValueNone -> false
+                                ))
 
                         // `E.C1` — a two-segment enum-case access. The head names a
                         // project-local enum, so suppress (Unification's `InferIdentExpr`

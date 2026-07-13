@@ -556,7 +556,7 @@ module internal UnificationInferControlFlow =
                     match resolveStep target with
                     | TyClass(ifaceKey, ifaceArgs) ->
                         // Resolve by the interface's key, not a bare name: an
-                        // arity-overloaded interface (`Fun`2`/`Fun`3`) has no bare alias.
+                        // arity-overloaded interface (`Fun`2`/`Fun`3`) does not resolve by bare name.
                         match TypeRegistry.tryClassByKey ctx.Types ifaceKey with
                         | ValueSome info when info.IsInterface ->
                             match
@@ -597,7 +597,7 @@ module internal UnificationInferControlFlow =
                     match resolveStep target with
                     | TyClass(ifaceKey, ifaceArgs) ->
                         // Resolve by the interface's key, not a bare name: an
-                        // arity-overloaded interface (`Fun`2`/`Fun`3`) has no bare alias.
+                        // arity-overloaded interface (`Fun`2`/`Fun`3`) does not resolve by bare name.
                         match TypeRegistry.tryClassByKey ctx.Types ifaceKey with
                         | ValueSome info when info.IsInterface ->
                             match tryClassChainMember ctx ifaceKey ifaceArgs "GetEnumerator" with

@@ -174,10 +174,13 @@ module internal UnificationInferPat =
             && (li.Idents.Length = 1
                 && ctx.Types.CtorIndex.ContainsKey(ctx.NameOf li.Idents.[0])
                 || li.Idents.Length = 2
-                   && ctx.Types.Union.ContainsKey(ctx.NameOf li.Idents.[0])
-                   && (let info = ctx.Types.Union.[ctx.NameOf li.Idents.[0]]
-                       let caseName = ctx.NameOf li.Idents.[1]
-                       info.Cases |> Array.exists (fun c -> c.Name = caseName)))
+                   && (
+                       match TypeRegistry.tryUnionBare ctx.Types (ctx.NameOf li.Idents.[0]) with
+                       | ValueSome info ->
+                           let caseName = ctx.NameOf li.Idents.[1]
+                           info.Cases |> Array.exists (fun c -> c.Name = caseName)
+                       | ValueNone -> false
+                   ))
             ->
             let info =
                 if li.Idents.Length = 1 then
@@ -437,9 +440,9 @@ module internal UnificationInferPat =
             let candidate =
                 match qualifier with
                 | Some typeName ->
-                    match ctx.Types.Record.TryGetValue typeName with
-                    | true, info -> ValueSome info
-                    | false, _ ->
+                    match TypeRegistry.tryRecord ctx.Types typeName with
+                    | ValueSome info -> ValueSome info
+                    | ValueNone ->
                         ctx.Diagnostics.Add
                             {
                                 Key = key

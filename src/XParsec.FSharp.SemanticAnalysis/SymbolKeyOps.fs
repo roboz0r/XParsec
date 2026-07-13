@@ -277,12 +277,12 @@ module SymbolKeyOps =
     /// name component. Dropping the arity is LOSSY, so this is for uses where the
     /// arity is genuinely not part of the identity: human-facing diagnostics, and
     /// backends whose names carry no generic arity (the JS emitter, CLR member-name
-    /// mangling). It is NOT a registry lookup key — the `TypeRegistry` tables are
-    /// arity-keyed and withdraw the bare alias for an overloaded name (`Foo`2`/
-    /// `Foo`3`), so a `simpleName`-keyed lookup silently MISSES an overloaded type
-    /// and mis-classifies it as external. To resolve a key against a registry use the
-    /// `*ByKey` helpers (`tryClassByKey` / `tryUnionByKey` / `tryRecordByKey` /
-    /// `tryInterfaceImplHostByKey`), which read the arity-qualified name verbatim.
+    /// mangling). It is NOT a registry lookup key — the `TypeRegistry` tables are keyed
+    /// by the whole `TypeKey`, and a bare short name does not even resolve for an
+    /// arity-overloaded type (`Foo`2`/`Foo`3`), so a `simpleName`-keyed lookup MISSES
+    /// and mis-classifies the type as external. To resolve a key against a registry use
+    /// the `*ByKey` helpers (`tryClassByKey` / `tryUnionByKey` / `tryRecordByKey` /
+    /// `tryInterfaceImplHostByKey`), which take the key itself.
     let simpleName (k: SymbolKey) : string = bareName (intrinsicName k)
 
     /// The fully-qualified compiled name for an EXTERNAL nominal lookup

@@ -780,7 +780,7 @@ module VesperLib =
                 // Arity-suffix generic types (`Vesper.Choice`2`) so an arity-
                 // overloaded type doesn't collapse onto its bare compiled name in
                 // `ctx.TypeShapes` / the reverse case index. This matches the emitted
-                // metadata name (`TypeRegistry.keyFor`) and the arity-suffixed probe
+                // metadata name (`SymbolKeyOps.arityName`) and the arity-suffixed probe
                 // the consumer resolves a written head with
                 // (`NameResolutionTypeHeadStamp.arityProbes`). Non-generic types keep
                 // their bare name.

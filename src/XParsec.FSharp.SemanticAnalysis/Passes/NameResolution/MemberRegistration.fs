@@ -579,7 +579,7 @@ module NameResolutionMemberRegistration =
                         | ValueSome v -> v
                         | ValueNone -> ComparisonVerdict.NoComparison
 
-                    TypeRegistry.registerClass ctx.Types name typeParams.Length info
+                    TypeRegistry.registerClass ctx.Types info
 
                     for m in members do
                         let entry = { Class = info; Member = m }
@@ -692,9 +692,9 @@ module NameResolutionMemberRegistration =
             match TypeRegistry.tryRecord ctx.Types name with
             | ValueSome info -> TyRecord(info.Key, args)
             | ValueNone ->
-                match ctx.Types.Union.TryGetValue name with
-                | true, info -> TyUnion(info.Key, args)
-                | false, _ ->
+                match TypeRegistry.tryUnionBare ctx.Types name with
+                | ValueSome info -> TyUnion(info.Key, args)
+                | ValueNone ->
                     match TypeRegistry.tryClass ctx.Types name with
                     | ValueSome info -> TyClass(info.Key, args)
                     | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
@@ -750,9 +750,9 @@ module NameResolutionMemberRegistration =
             else
                 let name = ctx.NameOf nameTok
 
-                match ctx.Types.Class.TryGetValue name with
-                | true, info -> ValueSome(TyClass(info.Key, EqArray.ofList targs))
-                | false, _ when ctx.Types.HeritableExternBases.Contains name ->
+                match TypeRegistry.tryClass ctx.Types name with
+                | ValueSome info -> ValueSome(TyClass(info.Key, EqArray.ofList targs))
+                | ValueNone when ctx.Types.HeritableExternBases.Contains name ->
                     // A heritable external base (`inherit Attribute`, where `Attribute`
                     // is `(# class "System.Attribute" #)`): resolve to the EXTERNAL type
                     // its repr names, so the base freezes to an `FTClass` the codegen
@@ -778,7 +778,7 @@ module NameResolutionMemberRegistration =
                     // loudly rather than silently degrade to a confusing "unknown type".
                     | false, _ ->
                         failwithf "Internal error: heritable external base '%s' has no recorded intrinsic repr" name
-                | false, _ ->
+                | ValueNone ->
                     // A referenced heritable primitive (`exn`): the provider publishes it as
                     // an `Intrinsic` with a class surface (contract `inherit obj` + ctors).
                     // Resolve it through the provider (bare name, then ambient opens, scanning
@@ -799,8 +799,8 @@ module NameResolutionMemberRegistration =
                     | ValueSome canon -> ValueSome(TyConst(canon, EqArray.ofList targs))
                     | ValueNone ->
                         if
-                            ctx.Types.Record.ContainsKey name
-                            || ctx.Types.Union.ContainsKey name
+                            (TypeRegistry.tryRecord ctx.Types name).IsSome
+                            || (TypeRegistry.tryUnionBare ctx.Types name).IsSome
                             || ctx.Types.Abbreviation.ContainsKey name
                             || ctx.Types.IntrinsicReprTypes.ContainsKey name
                         then
@@ -829,8 +829,8 @@ module NameResolutionMemberRegistration =
                         let (TypeName(ident = nameLi)) = d.TypeName
 
                         if nameLi.Idents.Length = 1 then
-                            match ctx.Types.Class.TryGetValue(ctx.NameOf nameLi.Idents.[0]) with
-                            | true, info ->
+                            match TypeRegistry.tryClass ctx.Types (ctx.NameOf nameLi.Idents.[0]) with
+                            | ValueSome info ->
                                 let typarScope =
                                     (Map.empty, info.TypeParams)
                                     ||> EqArray.fold (fun acc (n, tv) -> Map.add n tv acc)
@@ -840,7 +840,7 @@ module NameResolutionMemberRegistration =
                                     info.BaseType <- ValueSome parentTy
                                     info.BaseCtorArgs <- exprOpt
                                 | ValueNone -> ()
-                            | false, _ -> ()
+                            | ValueNone -> ()
         | _ -> ()
 
     /// Detect inheritance cycles after every class's `BaseType` is stamped. Walks
@@ -907,24 +907,24 @@ module NameResolutionMemberRegistration =
                     typeName = TypeName(ident = nameLi); extensions = ValueSome(TypeExtensionElements(elements = elems))) when
                     nameLi.Idents.Length = 1
                     ->
-                    match ctx.Types.Union.TryGetValue(ctx.NameOf nameLi.Idents.[0]) with
-                    | true, info ->
+                    match TypeRegistry.tryUnionBare ctx.Types (ctx.NameOf nameLi.Idents.[0]) with
+                    | ValueSome info ->
                         let x = extract info.DeclKey info.TypeParams elems
                         info.Members <- x.Members
                         info.InterfaceImpls <- x.InterfaceImpls
                         info.ThisKey <- x.ThisKey
-                    | false, _ -> ()
+                    | ValueNone -> ()
                 | TypeDefn.Record(
                     typeName = TypeName(ident = nameLi); extensions = ValueSome(TypeExtensionElements(elements = elems))) when
                     nameLi.Idents.Length = 1
                     ->
-                    match ctx.Types.Record.TryGetValue(ctx.NameOf nameLi.Idents.[0]) with
-                    | true, info ->
+                    match TypeRegistry.tryRecord ctx.Types (ctx.NameOf nameLi.Idents.[0]) with
+                    | ValueSome info ->
                         let x = extract info.DeclKey info.TypeParams elems
                         info.Members <- x.Members
                         info.InterfaceImpls <- x.InterfaceImpls
                         info.ThisKey <- x.ThisKey
-                    | false, _ -> ()
+                    | ValueNone -> ()
                 // An inline intrinsic-abbrev host (`type X = (# … #) with member …`):
                 // stamp its augmentation members + `ThisKey` exactly as the union/record
                 // arms do. The host is present in `IntrinsicAbbrevHost` only for an

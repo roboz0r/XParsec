@@ -125,12 +125,12 @@ let tests =
             test "record type definition registers in ctx.Types.Record" {
                 let ctx = analyse "type R = { X: int; Y: int }"
 
-                match ctx.Types.Record.TryGetValue "R" with
-                | true, info ->
+                match TypeRegistry.tryRecord ctx.Types "R" with
+                | ValueSome info ->
                     Expect.equal info.Fields.Length 2 "two fields"
                     Expect.equal info.Fields.[0].Name "X" "first field is X"
                     Expect.equal info.Fields.[1].Name "Y" "second field is Y"
-                | false, _ -> failtest "record type R not registered"
+                | ValueNone -> failtest "record type R not registered"
             }
 
             test "record field index is built" {
@@ -158,19 +158,19 @@ let tests =
             test "mutable field IsMutable is true" {
                 let ctx = analyse "type P = { X: int; mutable Y: int }"
 
-                match ctx.Types.Record.TryGetValue "P" with
-                | true, info ->
+                match TypeRegistry.tryRecord ctx.Types "P" with
+                | ValueSome info ->
                     Expect.isFalse info.Fields.[0].IsMutable "X is immutable"
                     Expect.isTrue info.Fields.[1].IsMutable "Y is mutable"
-                | false, _ -> failtest "record type P not registered"
+                | ValueNone -> failtest "record type P not registered"
             }
 
             test "union type definition registers in ctx.Types.Union" {
                 let ctx =
                     analyse "type S =\n    | Circle of float\n    | Rectangle of float * float\n    | Point"
 
-                match ctx.Types.Union.TryGetValue "S" with
-                | true, info ->
+                match TypeRegistry.tryUnionBare ctx.Types "S" with
+                | ValueSome info ->
                     Expect.equal info.Cases.Length 3 "three cases"
                     Expect.equal info.Cases.[0].Name "Circle" "Circle case"
                     Expect.equal info.Cases.[1].Name "Rectangle" "Rectangle case"
@@ -178,7 +178,7 @@ let tests =
                     Expect.equal info.Cases.[0].Fields.Length 1 "Circle: 1 field"
                     Expect.equal info.Cases.[1].Fields.Length 2 "Rectangle: 2 fields"
                     Expect.equal info.Cases.[2].Fields.Length 0 "Point: nullary"
-                | false, _ -> failtest "union type S not registered"
+                | ValueNone -> failtest "union type S not registered"
             }
 
             test "duplicate union type name diagnoses" {
@@ -228,11 +228,11 @@ let tests =
             test "generic record registers single TypeParam" {
                 let ctx = analyse "type Box<'a> = { Value: 'a }"
 
-                match ctx.Types.Record.TryGetValue "Box" with
-                | true, info ->
+                match TypeRegistry.tryRecord ctx.Types "Box" with
+                | ValueSome info ->
                     Expect.equal info.TypeParams.Length 1 "one typar"
                     Expect.equal (fst info.TypeParams.[0]) "'a" "name is 'a"
-                | false, _ -> failtest "Box not registered"
+                | ValueNone -> failtest "Box not registered"
             }
 
             test "generic record's field type shares typar identity" {
@@ -246,8 +246,8 @@ let tests =
                 NameResolution.run ctx file
                 Unification.run ctx file
 
-                match ctx.Types.Record.TryGetValue "Box" with
-                | true, info ->
+                match TypeRegistry.tryRecord ctx.Types "Box" with
+                | ValueSome info ->
                     let _, tparTv = info.TypeParams.[0]
                     let tparRoot = UnionFind.find tparTv
                     let fieldTy = Unification.zonk info.Fields.[0].Type
@@ -257,28 +257,28 @@ let tests =
                         let fieldRoot = UnionFind.find fieldTv
                         Expect.isTrue (System.Object.ReferenceEquals(tparRoot, fieldRoot)) "field shares typar root"
                     | other -> failtestf "expected TyVar, got %A" other
-                | false, _ -> failtest "Box not registered"
+                | ValueNone -> failtest "Box not registered"
             }
 
             test "generic record keeps declaration order" {
                 let ctx = analyse "type Pair<'a, 'b> = { First: 'a; Second: 'b }"
 
-                match ctx.Types.Record.TryGetValue "Pair" with
-                | true, info ->
+                match TypeRegistry.tryRecord ctx.Types "Pair" with
+                | ValueSome info ->
                     Expect.equal info.TypeParams.Length 2 "two typars"
                     Expect.equal (fst info.TypeParams.[0]) "'a" "first is 'a"
                     Expect.equal (fst info.TypeParams.[1]) "'b" "second is 'b"
-                | false, _ -> failtest "Pair not registered"
+                | ValueNone -> failtest "Pair not registered"
             }
 
             test "generic union registers TypeParams" {
                 let ctx = analyse "type Option<'a> = | Some of 'a | None"
 
-                match ctx.Types.Union.TryGetValue "Option" with
-                | true, info ->
+                match TypeRegistry.tryUnionBare ctx.Types "Option" with
+                | ValueSome info ->
                     Expect.equal info.TypeParams.Length 1 "one typar"
                     Expect.equal (fst info.TypeParams.[0]) "'a" "name is 'a"
-                | false, _ -> failtest "Option not registered"
+                | ValueNone -> failtest "Option not registered"
             }
 
             test "implicit free typar in type-def diagnoses" {
@@ -341,7 +341,7 @@ let tests =
                 // Every registered type carries a project-local `SymbolKey`.
                 // Non-generic types key on the bare name; generic types carry the
                 // `` `N `` arity suffix that matches the emitted metadata name and
-                // codegen's `userTypes` keying (`TypeRegistry.keyFor`).
+                // codegen's `userTypes` keying (`SymbolKeyOps.arityName`).
                 let ctx =
                     analyse (
                         "type R = { X: int }\n"
@@ -353,14 +353,14 @@ let tests =
                     )
 
                 let recordKey n =
-                    match ctx.Types.Record.TryGetValue n with
-                    | true, info -> info.Key
-                    | false, _ -> failtestf "record %s not registered" n
+                    match TypeRegistry.tryRecord ctx.Types n with
+                    | ValueSome info -> info.Key
+                    | ValueNone -> failtestf "record %s not registered" n
 
                 let unionKey n =
-                    match ctx.Types.Union.TryGetValue n with
-                    | true, info -> info.Key
-                    | false, _ -> failtestf "union %s not registered" n
+                    match TypeRegistry.tryUnionBare ctx.Types n with
+                    | ValueSome info -> info.Key
+                    | ValueNone -> failtestf "union %s not registered" n
 
                 let abbrevKey n =
                     match ctx.Types.Abbreviation.TryGetValue n with
@@ -391,30 +391,30 @@ let tests =
                 // The key's name component is exactly what codegen keys `userTypes` on.
                 Expect.equal
                     (unionKey "Choice")
-                    (SymbolKeyOps.typeKey None "" (TypeRegistry.keyFor "Choice" 2))
-                    "union key name matches TypeRegistry.keyFor"
+                    (SymbolKeyOps.typeKey None "" (SymbolKeyOps.arityName "Choice" 2))
+                    "union key name matches SymbolKeyOps.arityName"
             }
 
             test "Phase 1: generic class Key is arity-suffixed" {
                 let ctx = analyse "type C<'a>(x: 'a) =\n    member this.X = x"
 
-                match ctx.Types.Class.TryGetValue "C" with
-                | true, info ->
+                match TypeRegistry.tryClass ctx.Types "C" with
+                | ValueSome info ->
                     Expect.equal info.Key (SymbolKeyOps.typeKey None "" ("C`1")) "generic class → arity-suffixed key"
-                | false, _ -> failtest "class C not registered"
+                | ValueNone -> failtest "class C not registered"
             }
 
             test "class type registers in ctx.Types.Class with ctor params and members" {
                 let ctx = analyse "type C(x: int) =\n    member this.X = x"
 
-                match ctx.Types.Class.TryGetValue "C" with
-                | true, info ->
+                match TypeRegistry.tryClass ctx.Types "C" with
+                | ValueSome info ->
                     Expect.equal info.CtorParams.Length 1 "one ctor param"
                     Expect.equal info.CtorParams.[0].Name "x" "ctor param named x"
                     Expect.equal info.Members.Length 1 "one member"
                     Expect.equal info.Members.[0].Name "X" "member named X"
                     Expect.equal info.Members.[0].Kind ClassMemberKind.Property "member is a property"
-                | false, _ -> failtest "class type C not registered"
+                | ValueNone -> failtest "class type C not registered"
             }
 
             test "ClassMemberIndex maps member name to declaring class" {
@@ -428,12 +428,12 @@ let tests =
             test "static member registers with IsStatic = true" {
                 let ctx = analyse "type C() =\n    static member M () = 1"
 
-                match ctx.Types.Class.TryGetValue "C" with
-                | true, info ->
+                match TypeRegistry.tryClass ctx.Types "C" with
+                | ValueSome info ->
                     Expect.equal info.Members.Length 1 "one member"
                     Expect.isTrue info.Members.[0].IsStatic "M is static"
                     Expect.equal info.Members.[0].Name "M" "member named M"
-                | false, _ -> failtest "class type C not registered"
+                | ValueNone -> failtest "class type C not registered"
             }
 
             // B-8: `[<Sealed>]` and `[<AllowNullLiteral>]` decode through
@@ -441,21 +441,21 @@ let tests =
             test "[<Sealed>] stamps ClassTypeInfo.IsSealed" {
                 let ctx = analyse "[<Sealed>]\ntype C() = member this.M () = 1"
 
-                match ctx.Types.Class.TryGetValue "C" with
-                | true, info ->
+                match TypeRegistry.tryClass ctx.Types "C" with
+                | ValueSome info ->
                     Expect.isTrue info.IsSealed "[<Sealed>] sets IsSealed"
                     Expect.isFalse info.AllowNullLiteral "AllowNullLiteral not stamped"
-                | false, _ -> failtest "class type C not registered"
+                | ValueNone -> failtest "class type C not registered"
             }
 
             test "[<AllowNullLiteral>] stamps ClassTypeInfo.AllowNullLiteral" {
                 let ctx = analyse "[<AllowNullLiteral>]\ntype C() = member this.M () = 1"
 
-                match ctx.Types.Class.TryGetValue "C" with
-                | true, info ->
+                match TypeRegistry.tryClass ctx.Types "C" with
+                | ValueSome info ->
                     Expect.isTrue info.AllowNullLiteral "[<AllowNullLiteral>] sets AllowNullLiteral"
                     Expect.isFalse info.IsSealed "IsSealed not stamped"
-                | false, _ -> failtest "class type C not registered"
+                | ValueNone -> failtest "class type C not registered"
             }
 
             test "fully-qualified [<Microsoft.FSharp.Core.Sealed>] still stamps IsSealed" {
@@ -464,19 +464,19 @@ let tests =
                 let ctx =
                     analyse "[<Microsoft.FSharp.Core.SealedAttribute>]\ntype C() = member this.M () = 1"
 
-                match ctx.Types.Class.TryGetValue "C" with
-                | true, info -> Expect.isTrue info.IsSealed "long-ident [<...Sealed>] is decoded"
-                | false, _ -> failtest "class type C not registered"
+                match TypeRegistry.tryClass ctx.Types "C" with
+                | ValueSome info -> Expect.isTrue info.IsSealed "long-ident [<...Sealed>] is decoded"
+                | ValueNone -> failtest "class type C not registered"
             }
 
             test "no class-shaping attribute leaves IsSealed=false, AllowNullLiteral=false" {
                 let ctx = analyse "type C() = member this.M () = 1"
 
-                match ctx.Types.Class.TryGetValue "C" with
-                | true, info ->
+                match TypeRegistry.tryClass ctx.Types "C" with
+                | ValueSome info ->
                     Expect.isFalse info.IsSealed "default: not sealed"
                     Expect.isFalse info.AllowNullLiteral "default: no null literal"
-                | false, _ -> failtest "class type C not registered"
+                | ValueNone -> failtest "class type C not registered"
             }
 
             // --- Phase 2 / B-4: inheritance registration (Step 2.1) -------------
@@ -485,21 +485,21 @@ let tests =
                 let ctx =
                     analyse "type B(x: int) =\n    member this.X = x\ntype D(y: int) =\n    inherit B(y)"
 
-                match ctx.Types.Class.TryGetValue "D" with
-                | true, info ->
+                match TypeRegistry.tryClass ctx.Types "D" with
+                | ValueSome info ->
                     Expect.equal info.BaseType (ValueSome(TyClass("B", EqArray.empty))) "D inherits B"
                     Expect.isTrue info.BaseCtorArgs.IsSome "base-ctor args captured"
-                | false, _ -> failtest "class type D not registered"
+                | ValueNone -> failtest "class type D not registered"
             }
 
             test "class without inherit clause has ValueNone BaseType" {
                 let ctx = analyse "type C() =\n    member this.M () = 1"
 
-                match ctx.Types.Class.TryGetValue "C" with
-                | true, info ->
+                match TypeRegistry.tryClass ctx.Types "C" with
+                | ValueSome info ->
                     Expect.equal info.BaseType ValueNone "no base type"
                     Expect.equal info.BaseCtorArgs ValueNone "no base-ctor args"
-                | false, _ -> failtest "class type C not registered"
+                | ValueNone -> failtest "class type C not registered"
             }
 
             test "generic inherit clause records translated type args" {
@@ -507,13 +507,13 @@ let tests =
                     analyse
                         "type Box<'a>(v: 'a) =\n    member this.V = v\ntype IntBox(n: int) =\n    inherit Box<int>(n)"
 
-                match ctx.Types.Class.TryGetValue "IntBox" with
-                | true, info ->
+                match TypeRegistry.tryClass ctx.Types "IntBox" with
+                | ValueSome info ->
                     Expect.equal
                         info.BaseType
                         (ValueSome(TyClass("Box", EqArray.singleton (TyConst(RuntimeNames.intKey, EqArray.empty)))))
                         "IntBox inherits Box<int>"
-                | false, _ -> failtest "class type IntBox not registered"
+                | ValueNone -> failtest "class type IntBox not registered"
             }
 
             test "base in scope inside derived member body" {
@@ -521,8 +521,8 @@ let tests =
                     analyse
                         "type B() =\n    member this.M () = 1\ntype D() =\n    inherit B()\n    member this.N () = base.M()"
 
-                match ctx.Types.Class.TryGetValue "D" with
-                | true, info ->
+                match TypeRegistry.tryClass ctx.Types "D" with
+                | ValueSome info ->
                     // The `base` binder gets a self-entry in the instance scope.
                     match ctx.Bindings.Binding.TryGetValue info.BaseKey with
                     | ValueSome rb -> Expect.equal rb.BindingSite info.BaseKey "base self-entry"
@@ -534,7 +534,7 @@ let tests =
                         |> Seq.exists (fun d -> d.Message.Contains "Unresolved" && d.Message.Contains "base")
 
                     Expect.isFalse unresolvedBase "base resolves inside derived member"
-                | false, _ -> failtest "class type D not registered"
+                | ValueNone -> failtest "class type D not registered"
             }
 
             test "base not in scope without inherit clause diagnoses" {
@@ -552,19 +552,19 @@ let tests =
                     analyse
                         "type B() =\n    member this.M () = 1\ntype D() =\n    inherit B()\n    override this.M () = 2"
 
-                match ctx.Types.Class.TryGetValue "D" with
-                | true, info ->
+                match TypeRegistry.tryClass ctx.Types "D" with
+                | ValueSome info ->
                     Expect.equal info.Members.Length 1 "one member on D"
                     Expect.isTrue info.Members.[0].IsOverride "override flag set"
-                | false, _ -> failtest "class type D not registered"
+                | ValueNone -> failtest "class type D not registered"
             }
 
             test "plain member leaves IsOverride false" {
                 let ctx = analyse "type C() =\n    member this.M () = 1"
 
-                match ctx.Types.Class.TryGetValue "C" with
-                | true, info -> Expect.isFalse info.Members.[0].IsOverride "plain member is not an override"
-                | false, _ -> failtest "class type C not registered"
+                match TypeRegistry.tryClass ctx.Types "C" with
+                | ValueSome info -> Expect.isFalse info.Members.[0].IsOverride "plain member is not an override"
+                | ValueNone -> failtest "class type C not registered"
             }
 
             test "inheriting from a non-class diagnoses" {
@@ -575,9 +575,9 @@ let tests =
 
                 Expect.isTrue cannotInherit "cannot-inherit-from-non-class diagnostic"
 
-                match ctx.Types.Class.TryGetValue "D" with
-                | true, info -> Expect.equal info.BaseType ValueNone "BaseType not stamped for non-class parent"
-                | false, _ -> failtest "class type D not registered"
+                match TypeRegistry.tryClass ctx.Types "D" with
+                | ValueSome info -> Expect.equal info.BaseType ValueNone "BaseType not stamped for non-class parent"
+                | ValueNone -> failtest "class type D not registered"
             }
 
             test "heritable extern class (# class repr #) registers without diagnostic" {

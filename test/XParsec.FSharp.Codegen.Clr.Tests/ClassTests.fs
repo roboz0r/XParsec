@@ -1625,8 +1625,8 @@ let interfaceImplTests =
                 let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
                 Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
 
-                match ctx.Types.Class.TryGetValue "C" with
-                | true, info ->
+                match TypeRegistry.tryClass ctx.Types "C" with
+                | ValueSome info ->
                     Expect.equal info.InterfaceImpls.Length 1 "one interface impl registered on C"
                     let impl = info.InterfaceImpls.[0]
 
@@ -1636,7 +1636,7 @@ let interfaceImplTests =
                     | other -> failtestf "interface impl did not resolve to an interface TyClass: %A" other
 
                     Expect.equal impl.Members.Length 1 "the CompareTo member is registered on the impl"
-                | false, _ -> failtest "class C was not registered"
+                | ValueNone -> failtest "class C was not registered"
             }
 
             test "implementing a non-interface type is rejected with a diagnostic" {
@@ -1693,8 +1693,8 @@ let interfaceImplTests =
                 let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
                 Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
 
-                match ctx.Types.Class.TryGetValue "C" with
-                | true, info ->
+                match TypeRegistry.tryClass ctx.Types "C" with
+                | ValueSome info ->
                     Expect.equal info.InterfaceImpls.Length 2 "two interface impls registered on C"
 
                     Expect.isTrue
@@ -1705,7 +1705,7 @@ let interfaceImplTests =
                              | _ -> false
                          ))
                         "both interface impls resolved to an interface TyClass"
-                | false, _ -> failtest "class C was not registered"
+                | ValueNone -> failtest "class C was not registered"
             }
 
             // A *generic* struct implementing a *generic*
@@ -1743,14 +1743,14 @@ let interfaceImplTests =
 
                 Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
 
-                match ctx.Types.Class.TryGetValue "Box" with
-                | true, info ->
+                match TypeRegistry.tryClass ctx.Types "Box" with
+                | ValueSome info ->
                     Expect.equal info.InterfaceImpls.Length 1 "one interface impl registered on Box"
 
                     match info.InterfaceImpls.[0].Resolved with
                     | ValueSome(TyClass(name, _)) -> Expect.stringContains name "IBox" "impl resolved to IBox"
                     | other -> failtestf "interface impl did not resolve to IBox: %A" other
-                | false, _ -> failtest "struct Box was not registered"
+                | ValueNone -> failtest "struct Box was not registered"
             }
 
             // Argument + return types must match the interface

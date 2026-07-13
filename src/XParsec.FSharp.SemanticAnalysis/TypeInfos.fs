@@ -20,8 +20,9 @@ module internal LocalSymbolKey =
     /// The project-local `SymbolKey.TypeKey` for `name` at `arity`, declared in
     /// namespace `ns`, with home assembly `asm` (`Some <thisAsm>` for an emitting
     /// compilation, `None` for the front-end-only paths). The arity-name rule is
-    /// `SymbolKeyOps.arityName` — the one shared definition, so the registry key
-    /// (`TypeRegistry.keyFor`) and the stamped `SymbolKey` name can't drift.
+    /// `SymbolKeyOps.arityName` — the one shared definition, so the emitted metadata
+    /// name and the stamped `SymbolKey` name can't drift. This key IS the registry key
+    /// (`TypeRegistry` tables are `TypeKey`-keyed).
     let ofType (asm: string option) (ns: string) (name: string) (arity: int) : TypeKey =
         SymbolKeyOps.typeKeyOf asm ns (SymbolKeyOps.arityName name arity)
 

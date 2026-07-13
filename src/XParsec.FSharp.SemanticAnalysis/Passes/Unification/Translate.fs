@@ -418,22 +418,22 @@ module internal UnificationTranslate =
                 let diagKey = NodeKey.ofToken nameTok NodeKind.TypeNamed
                 expandAbbreviation ctx diagKey info args
             | false, _ ->
-                match ctx.Types.Record.TryGetValue name with
-                | true, info ->
+                match TypeRegistry.tryRecord ctx.Types name with
+                | ValueSome info ->
                     // Back-fill generic args with fresh TyVars at the current level —
                     // unpinned at the declaration site, fixed by surrounding unification
                     // (e.g. `r : Box` unifies the args with whatever `r`'s usage pins).
                     let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
                     TyRecord(info.Key, args)
-                | false, _ ->
-                    match ctx.Types.Union.TryGetValue name with
-                    | true, info ->
+                | ValueNone ->
+                    match TypeRegistry.tryUnionBare ctx.Types name with
+                    | ValueSome info ->
                         let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
                         // Record the resolved union identity at this use site
                         // (populate-only for now).
                         ctx.Resolution.ResolvedType.Set(NodeKey.ofToken nameTok NodeKind.TypeNamed, info.Key)
                         TyUnion(info.Key, args)
-                    | false, _ ->
+                    | ValueNone ->
                         match ctx.Types.Enum.TryGetValue name with
                         // A `(x: E)` annotation referencing a project-local enum. An enum
                         // is niladic (no type args), so the reference is just `TyEnum
@@ -442,11 +442,11 @@ module internal UnificationTranslate =
                             ctx.Resolution.ResolvedType.Set(NodeKey.ofToken nameTok NodeKind.TypeNamed, info.Key)
                             TyEnum info.Key
                         | false, _ ->
-                            match ctx.Types.Class.TryGetValue name with
-                            | true, info ->
+                            match TypeRegistry.tryClass ctx.Types name with
+                            | ValueSome info ->
                                 let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
                                 TyClass(info.Key, args)
-                            | false, _ ->
+                            | ValueNone ->
                                 match resolveExternal name with
                                 | ValueSome ty -> ty
                                 // `undefined` is a JS-only intrinsic with NO CLR repr. A
@@ -490,9 +490,9 @@ module internal UnificationTranslate =
             if expected <> argCount then
                 diagnoseArity expected
 
-        // A project-local generic type (union or class) resolves the same way: an
-        // exact arity-key match first (no diagnostic — the right `Foo\`N`), else the
-        // bare alias of a single, *different* arity (keeping the legacy
+        // A project-local generic type (record, union or class) resolves the same way:
+        // an exact arity match first (no diagnostic — the right `Foo\`N`), else the
+        // bare-name resolution of a single, *different* arity (keeping the legacy
         // "expects N got M" diagnostic). `mkTy` builds the shape and performs any
         // kind-specific use-site stamping. Returns `ValueNone` if neither resolves.
         let resolveLocalGeneric
@@ -510,11 +510,6 @@ module internal UnificationTranslate =
                     ValueSome(mkTy info)
                 | ValueNone -> ValueNone
 
-        let bareNameIn (table: Dictionary<string, 'I>) (n: string) : 'I voption =
-            match table.TryGetValue n with
-            | true, info -> ValueSome info
-            | false, _ -> ValueNone
-
         if ctx.Types.IntrinsicReprTypes.ContainsKey name then
             // Generic primitive binding: nominal, not transparent. A *generic*
             // intrinsic (the array `[]`, repr `!0[]`) forwards its type args so the
@@ -529,21 +524,21 @@ module internal UnificationTranslate =
                 checkArity (info.TypeParams.Length)
                 expandAbbreviation ctx diagKey info translatedArgs
             | false, _ ->
-                // Record, union, then class, as sibling links: each is "arity-key,
-                // else bare alias" (`resolveLocalGeneric`), so an arity-overloaded
-                // name (`Point`2`/`Point`3`, whose bare alias is withdrawn) resolves to
+                // Record, union, then class, as sibling links: each is "exact arity,
+                // else bare name" (`resolveLocalGeneric`), so an arity-overloaded name
+                // (`Point`2`/`Point`3`, which does not resolve by bare name) resolves to
                 // the right arity. A union additionally stamps the resolved use site;
                 // record and class do not.
                 let local =
                     resolveLocalGeneric
                         (fun () -> TypeRegistry.tryRecordArity ctx.Types name argCount)
-                        (bareNameIn ctx.Types.Record)
+                        (TypeRegistry.tryRecord ctx.Types)
                         (fun i -> i.TypeParams.Length)
                         (fun info -> TyRecord(info.Key, translatedArgs))
                     |> ValueOption.orElseWith (fun () ->
                         resolveLocalGeneric
                             (fun () -> TypeRegistry.tryUnion ctx.Types name argCount)
-                            (bareNameIn ctx.Types.Union)
+                            (TypeRegistry.tryUnionBare ctx.Types)
                             (fun i -> i.TypeParams.Length)
                             (fun info ->
                                 ctx.Resolution.ResolvedType.Set(diagKey, info.Key)
@@ -553,7 +548,7 @@ module internal UnificationTranslate =
                     |> ValueOption.orElseWith (fun () ->
                         resolveLocalGeneric
                             (fun () -> TypeRegistry.tryClassArity ctx.Types name argCount)
-                            (bareNameIn ctx.Types.Class)
+                            (TypeRegistry.tryClass ctx.Types)
                             (fun i -> i.TypeParams.Length)
                             (fun info -> TyClass(info.Key, translatedArgs))
                     )

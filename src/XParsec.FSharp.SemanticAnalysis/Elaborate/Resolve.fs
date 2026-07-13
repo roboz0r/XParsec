@@ -107,14 +107,14 @@ module internal ElaborateResolve =
             | Expr.Ident t ->
                 let n = ctx.NameOf t
 
-                if ctx.Types.Class.ContainsKey n then
+                if (TypeRegistry.tryClass ctx.Types n).IsSome then
                     ValueSome n
                 else
                     stampedExternal ()
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
                 let n = ctx.NameOf li.Idents.[0]
 
-                if ctx.Types.Class.ContainsKey n then
+                if (TypeRegistry.tryClass ctx.Types n).IsSome then
                     ValueSome n
                 else
                     stampedExternal ()
@@ -150,17 +150,17 @@ module internal ElaborateResolve =
             | Some m -> ValueSome(key, m)
             | None -> ValueNone
 
-        match ctx.Types.Class.TryGetValue typeName with
-        | true, info -> pick info.TypeKey info.Members
-        | false, _ ->
-            match ctx.Types.Union.TryGetValue typeName with
-            | true, info -> pick info.TypeKey info.Members
-            | false, _ -> ValueNone
+        match TypeRegistry.tryClass ctx.Types typeName with
+        | ValueSome info -> pick info.TypeKey info.Members
+        | ValueNone ->
+            match TypeRegistry.tryUnionBare ctx.Types typeName with
+            | ValueSome info -> pick info.TypeKey info.Members
+            | ValueNone -> ValueNone
 
     /// Key-based sibling of `tryClassMember`: resolves the declaring class / union
     /// by its arity-qualified `SymbolKey` (`tryClassByKey`/`tryUnionByKey`, which
     /// read the key's ``Name`arity`` verbatim), not the bare simple name. An
-    /// arity-overloaded receiver (`Fun`2`/`Fun`3`) has its bare-name alias withdrawn,
+    /// arity-overloaded receiver (`Fun`2`/`Fun`3`) does not resolve by bare name,
     /// so a `simpleName`-keyed lookup would miss and the call would mis-lower to a
     /// `Vesper.Fun::Invoke` function application. Callers holding the receiver's
     /// `TyClass`/`TyUnion` key must route through here.
@@ -361,8 +361,8 @@ module internal ElaborateResolve =
                         let memberName = ctx.NameOf li.Idents.[1]
 
                         // Resolve by the arity-qualified key, not the bare simple name:
-                        // an arity-overloaded receiver (`Fun`2`/`Fun`3`) has its bare
-                        // alias withdrawn, so a bare lookup would miss and `f.Invoke(a,b)`
+                        // an arity-overloaded receiver (`Fun`2`/`Fun`3`) does not resolve
+                        // by bare name, so a bare lookup would miss and `f.Invoke(a,b)`
                         // would mis-lower to a `Vesper.Fun::Invoke` function application.
                         match tryClassMemberByKey ctx typeKey memberName with
                         | ValueSome(_, m) -> ValueSome(rb.BindingSite, Unification.zonk (TyVar tv), m)

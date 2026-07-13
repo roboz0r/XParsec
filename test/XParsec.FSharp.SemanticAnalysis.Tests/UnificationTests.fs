@@ -791,9 +791,9 @@ let tests =
                     analyse
                         "type B() =\n    member this.M () = 1\ntype D() =\n    inherit B()\n    member this.N () = 2"
 
-                match ctx.Types.Class.TryGetValue "D" with
-                | true, info -> Expect.equal (typeOf ctx info.BaseKey) (TyClass("B", EqArray.empty)) "base : B"
-                | false, _ -> failtest "class type D not registered"
+                match TypeRegistry.tryClass ctx.Types "D" with
+                | ValueSome info -> Expect.equal (typeOf ctx info.BaseKey) (TyClass("B", EqArray.empty)) "base : B"
+                | ValueNone -> failtest "class type D not registered"
             }
 
             test "generic base-ctor arg types under parent typar substitution" {

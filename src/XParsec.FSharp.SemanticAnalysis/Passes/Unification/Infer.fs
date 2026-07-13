@@ -291,7 +291,7 @@ module UnificationInfer =
             | TyUnion(headKey, args)
             | TyRecord(headKey, args) ->
                 // Resolve the local host by the arity-qualified key, not the bare
-                // name: an arity-overloaded host (`Foo`2`/`Foo`3`) has no bare alias.
+                // name: an arity-overloaded host (`Foo`2`/`Foo`3`) does not resolve by bare name.
                 // `simple` is kept only for the diagnostic text.
                 let simple = SymbolKeyOps.simpleName headKey
 

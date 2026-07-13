@@ -307,7 +307,7 @@ module NameResolution =
         : unit =
         // Resolve the class-like decl to its registered `ClassTypeInfo` (paired with
         // the decl body). Keys by the arity-`SymbolKey`, not the bare name: an
-        // overloaded `Box\`1`/`Box\`2` has no bare alias, and a bare-name miss would
+        // overloaded `Box\`1`/`Box\`2` does not resolve by bare name, and a bare-name miss would
         // skip BOTH classes' member bodies (their `this`/ctor params never enter
         // scope). Mirrors `fillClassMembers`.
         let bodyOf (td: TypeDefn<SyntaxToken>) =

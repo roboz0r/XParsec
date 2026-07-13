@@ -52,8 +52,8 @@ module internal UnificationInferResolve =
     /// `Point(3, 4)` calls (no `new`) through the function-application
     /// machinery. `ValueNone` if `name` isn't in `ctx.Types.Class`.
     let tryClassCtorAsFunction (ctx: PassContext) (name: string) : SemType voption =
-        match ctx.Types.Class.TryGetValue name with
-        | true, info ->
+        match TypeRegistry.tryClass ctx.Types name with
+        | ValueSome info ->
             let args, subst = freshNamedInstance ctx info.TypeParams
             let receiverTy = TyClass(info.Key, args)
 
@@ -64,7 +64,7 @@ module internal UnificationInferResolve =
                 |> tupleOrSingle ctx
 
             ValueSome(TyFun(arg, receiverTy))
-        | false, _ -> ValueNone
+        | ValueNone -> ValueNone
 
     let classCtorAsFunction (ctx: PassContext) (name: string) : SemType =
         match tryClassCtorAsFunction ctx name with
@@ -130,7 +130,7 @@ module internal UnificationInferResolve =
         // `Choice\`2`…`Choice\`7`), so resolve through the reverse case index and let
         // the written qualifier select which union short name the case belongs to.
         // Avoids a bare `Union.[typeName]` lookup, which can't see an arity-overloaded
-        // union (its bare alias is withdrawn).
+        // union (it does not resolve by bare name).
         match ctx.Types.CtorIndex.TryGetValue caseName with
         | false, _ -> ValueNone
         | true, infos -> infos |> EqArray.tryFind (fun c -> c.UnionName = typeName)

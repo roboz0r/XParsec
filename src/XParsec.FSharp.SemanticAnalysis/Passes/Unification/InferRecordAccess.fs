@@ -1,4 +1,4 @@
-﻿namespace XParsec.FSharp.SemanticAnalysis.Passes
+namespace XParsec.FSharp.SemanticAnalysis.Passes
 
 open System.Collections.Generic
 open System.Collections.Immutable
@@ -64,9 +64,9 @@ module internal UnificationInferRecordAccess =
         let candidate =
             match qualifier with
             | Some typeName ->
-                match ctx.Types.Record.TryGetValue typeName with
-                | true, info -> ValueSome info
-                | false, _ ->
+                match TypeRegistry.tryRecord ctx.Types typeName with
+                | ValueSome info -> ValueSome info
+                | ValueNone ->
                     ctx.Error(key, sprintf "Unknown record type qualifier: %s" typeName)
                     ValueNone
             | None ->
@@ -207,7 +207,7 @@ module internal UnificationInferRecordAccess =
                     match resolveStep target with
                     | TyClass(SymbolKey.Type ifaceKey, ifaceArgs) ->
                         // Resolve by the interface's key, not a bare name: an
-                        // arity-overloaded interface (`Fun`2`/`Fun`3`) has no bare alias, so a
+                        // arity-overloaded interface (`Fun`2`/`Fun`3`) does not resolve by bare name, so a
                         // bare read would miss a `'T :> Fun<…>` bound's local interface.
                         match TypeRegistry.tryClassByKey ctx.Types (SymbolKey.Type ifaceKey) with
                         | ValueSome info when info.IsInterface ->
@@ -245,7 +245,7 @@ module internal UnificationInferRecordAccess =
             | ValueNone -> errorTy ctx diagKey (sprintf "Unknown record type '%s'" (SymbolKeyOps.simpleName recKey))
         | TyClass(clsKey, args) ->
             // Resolve by the (arity-qualified) key, not the bare name: an
-            // arity-overloaded receiver (`Fun\`2`/`Fun\`3`) has no bare alias, so a
+            // arity-overloaded receiver (`Fun\`2`/`Fun\`3`) does not resolve by bare name, so a
             // bare read would miss. `clsSimple` survives only for the diagnostic path.
             let clsSimple = SymbolKeyOps.simpleName clsKey
 

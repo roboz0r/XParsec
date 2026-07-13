@@ -256,6 +256,36 @@ let tests =
                     (sprintf "missing IEquatable<Self> ⇒ must-implement error; got %A" (errors tast))
             }
 
+            // The custom-eq/comp conformance sweep visits each host ONCE. It iterates the
+            // class/union/record registries, which are keyed by `TypeKey` — one entry per
+            // type. A GENERIC host is the regression guard: while the registries were
+            // string-keyed, a single-arity generic type sat under BOTH its bare name and
+            // its ``name`N`` arity-key, so the sweep visited it twice and every diagnostic
+            // it raised was emitted twice.
+            test "[<CustomEquality>] generic class WITHOUT IEquatable<Self> ⇒ exactly one error of each kind" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "[<CustomEquality; NoComparison>]"
+                            "type ById<'a>(id: 'a) ="
+                            "    member _.Id = id"
+                            "    override this.Equals(o: obj) = false"
+                        ]
+
+                let tast, _ = compileSource "EqAttrCustomEqGenericMissing" src
+
+                let count (s: string) =
+                    errors tast |> List.filter (fun d -> d.Message.Contains s) |> List.length
+
+                Expect.equal (count "IEquatable") 1 "one must-implement-IEquatable error, not one per registry entry"
+
+                Expect.equal
+                    (count "must override 'Object.GetHashCode()'")
+                    1
+                    "one must-override-GetHashCode error, not one per registry entry"
+            }
+
             test "[<CustomComparison>] without [<CustomEquality>] ⇒ coherence error" {
                 let src =
                     String.concat
