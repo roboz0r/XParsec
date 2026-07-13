@@ -7,16 +7,48 @@ Delete this file once the work lands.
 
 ## The rule being implemented
 
-F# type scoping is strictly ordered:
+F# declaration scoping is strictly ordered, with exactly two recursive-group exceptions.
+All of the below was confirmed against `dotnet fsi` (see *The diagnostics to match*).
 
-- A type may reference types declared **above** it.
-- A type may **not** reference types declared below it.
-- The one exception is a `type X = … and Y = …` recursive group, whose members see
-  each other.
+### At module level: one top-down sequence
 
-The AST already carries exactly this unit: `ModuleElem.Type of ImArr<TypeDefn<'T>>`
-(`src/XParsec.FSharp/Declarations.fs:37`) — one `ModuleElem.Type` **is** one
-recursive group. The registration pass currently discards that structure.
+Types and `let` bindings are **one** ordered sequence, not two passes. Each element sees
+only what is declared **above** it.
+
+| source | F# |
+|---|---|
+| `type A` … `let f (a: A)` … `type B` … `let g (b: B)` | **legal** |
+| `let f (a: A) = a.x` above `type A = { x: int }` | `FS0039` The type 'A' is not defined |
+
+The one exception is the `type X = … and Y = …` recursive group. The AST already carries
+it: `ModuleElem.Type of ImArr<TypeDefn<'T>>` (`src/XParsec.FSharp/Declarations.fs:37`) —
+one `ModuleElem.Type` **is** one group. The registration pass currently discards this,
+registering every type in the file before any body is walked.
+
+### Inside a type body: lets are ordered, members are a group
+
+The class body has the **same two-tier shape**, and this symmetry is the thing to build
+on rather than special-case:
+
+| source | F# |
+|---|---|
+| `let a = b` where `b` is a *later* let | `FS0039` The value or constructor 'b' is not defined |
+| member `P` calling member `Q` declared *later* | **legal** |
+| member referencing an earlier let **and** a later member | **legal** |
+
+So: a type's `let` bindings respect top-down ordering and see only earlier lets. A type's
+**members form a recursive group** — they may reference each other in any order, and they
+see every let. Members are therefore registered *after* all of the type's let bindings.
+
+### The shape this implies
+
+Two nested applications of one idea — *an ordered sequence, punctuated by recursive
+groups*:
+
+| level | ordered | recursive group |
+|---|---|---|
+| module | types, `let` bindings | `type X = … and Y = …` |
+| type body | `let` / `do` bindings | the type's members |
 
 ## What is wrong today
 
@@ -220,17 +252,30 @@ Tracked separately in `docs/thermo-review-938dd9da34.md`; not a blocker here.
 
 ## Order of work
 
-1. **Fold the kind registrars into one `registerDetail`, driven from the identity claim.**
-   Keep the existing nine-scan driver in place; just make each registrar take a
-   `TypeIdentity` instead of re-deriving one. Green here means `tryOwnIdentity` has no
-   callers left.
-2. **Collapse the driver to a single top-down scan.** This is the step that flips
-   forward-reference programs from accepted to rejected.
-3. **Delete the ordering scaffolding**: `registerInheritedSlots`,
-   `TypeIdentity.DeclKey`, `tryOwnIdentity`, the whole-graph cycle sweep.
+1. **DONE (`7c4d7433`).** Fold the kind registrars onto the identity claim. Each registrar
+   is handed its `TypeIdentity` instead of re-deriving name / arity / key from the CST.
+   `tryOwnIdentity` deleted. Fixed three live bugs (an arity-overloaded class silently
+   lost its `inherit` clause; an arity-overloaded record/union silently lost its
+   augmentation block) and stopped a rejected duplicate's members leaking onto the
+   surviving claimant. `TypeIdentity.DeclKey` survives — it is genuine identity data, not
+   a round-trip artefact.
+2. **Collapse type registration to a single top-down scan** over `ModuleElem.Type` groups,
+   with the three-phase group algorithm above. This is the step that flips
+   *type-to-type* forward references from accepted to rejected.
+3. **Interleave module `let` bindings into that same scan.** Types and module-lets are one
+   ordered sequence (see *The rule being implemented*), so a `let`'s type annotations must
+   resolve against only the types claimed **above** it. Until this lands, the file-order
+   rule is half-enforced: `let f (a: A) = a.x` above `type A` is still wrongly accepted.
+   This is the step that touches body-walking, so see the landmine below.
+4. **Order the type body: lets top-down, members as a recursive group.** Verify whether
+   the current implementation already gets this right; if it does, this step is a test
+   plus a comment, not a change.
+5. **Delete the ordering scaffolding**: `registerInheritedSlots`, the whole-graph cycle
+   sweep, and any remaining CST re-scan.
 
-Tests that currently rely on forward visibility will go red at step 2. They are pinning
-the wrong semantics; fix them against the corrected registration once it is in place.
+Tests that rely on forward visibility go red at steps 2 and 3. They pin the wrong
+semantics; fix them by declaring in dependency order, or by joining with `and` where
+mutual recursion is genuinely intended. Do **not** weaken the rule to keep a test green.
 
 ## Landmine
 
