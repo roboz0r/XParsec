@@ -218,13 +218,13 @@ let tests =
                 | other -> failtestf "expected `fun x -> x + 1` body, got %A" other
             }
 
-            // A minter mirroring the one codegen owns: a monotone counter
-            // packed into synthetic inline-expansion keys, shared across calls.
+            // Mirrors the minter `InlineExpansion` owns: a monotone counter, shared across
+            // calls, so two expansions never mint the same binder key.
             let sharedMinter () =
                 let mutable n = 0
 
                 fun () ->
-                    let k = NodeKey.ofSyntheticCounter n NodeKind.SynthInlineExpansion
+                    let k = NodeKey.ofSyntheticCounter n NodeKind.SynthPreFreezeInline
                     n <- n + 1
                     k
 

@@ -132,12 +132,8 @@ type NodeKind =
     /// Synthetic binder for `this` (or `as self`) inside class member
     /// bodies. One per class, shared across every member.
     | SynthThisBinding = 1003us
-    /// Freshened binder produced when an `inline` body is expanded at a call
-    /// site (`Inline.freshen`). The distinct kind keeps freshened keys from
-    /// colliding with source keys (sign bit) or other synthetics; uniqueness comes
-    /// from a monotone counter (`ofSyntheticCounter`), so the key names no source
-    /// position.
-    | SynthInlineExpansion = 1004us
+    // 1004 was `SynthInlineExpansion`, minted by a codegen-side eta-expansion that no
+    // longer exists. Not reused: a value that named a kind must not come to mean another.
     /// Anchor for a "not yet supported" diagnostic on a CST shape whose own
     /// keying isn't yet implemented (e.g. `ModuleElem.Missing`,
     /// `ModuleElem.SkipsTokens`). The offset is the spawning token's source
@@ -149,11 +145,10 @@ type NodeKind =
     /// One per class with `inherit Base(...)`; shared across every member.
     /// Mirrors `SynthThisBinding`. Wired into Unification / Elaborate when inheritance is active.
     | SynthBaseBinding = 1006us
-    /// Freshened binder produced when the *pre-freeze* inline-expansion pass
-    /// (`InlineExpansion`) splices an `inline` body. A
-    /// distinct kind from `SynthInlineExpansion` so the pass's baked keys can
-    /// never collide with the keys codegen's (now-redundant) eta-expansion still
-    /// mints from the `SynthInlineExpansion` space during beat (a).
+    /// Freshened binder produced when the pre-freeze inline-expansion pass
+    /// (`InlineExpansion`, via `Inline.freshen`) splices an `inline` body, so independent
+    /// call sites do not alias each other's bound names. Uniqueness comes from a monotone
+    /// counter (`ofSyntheticCounter`), so the key names no source position.
     | SynthPreFreezeInline = 1007us
 
 [<Struct>]

@@ -154,9 +154,9 @@ a **perf** change and must be justified as one; it is not needed for any of P1�
 **Synthetic keys, and why kind cannot discriminate them.** `NodeKey.ofSynthetic` is called
 with two incompatible things. Sometimes it gets a genuine **spawning source offset**
 (`ElaborateExpr.fs:431`); sometimes it gets a **monotone counter** packed into the offset
-slot for uniqueness (`TastLower.fs:358-360`; also `Inline.freshen` and the `InlineExpansion`
-pass). A counter is not a source position, so a scoped lookup from such a node would compare
-garbage against a claim's `VisibleFrom`.
+slot for uniqueness (`TastLower.mintSyntheticParamKey`, and the `InlineExpansion` pass's
+minter that `Inline.freshen` splices with). A counter is not a source position, so a scoped
+lookup from such a node would compare garbage against a claim's `VisibleFrom`.
 
 The tempting guard — refuse `IsSynthetic`, or allowlist kinds — is **both unsound and
 over-broad**:

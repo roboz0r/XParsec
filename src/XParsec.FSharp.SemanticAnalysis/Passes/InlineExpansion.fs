@@ -358,10 +358,8 @@ module InlineExpansion =
         if List.isEmpty decls then
             decls
         else
-            // Build-wide monotone counter for freshened inline binders, in the
-            // dedicated `SynthPreFreezeInline` space so a baked key can never
-            // collide with the `SynthInlineExpansion` keys codegen's still-live
-            // eta-expansion mints.
+            // Build-wide monotone counter for freshened inline binders: one counter for the
+            // whole run, so two expansions of the same template never mint the same key.
             let mutable counter = 0
 
             let mint () =
