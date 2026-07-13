@@ -755,11 +755,6 @@ module NameResolutionTypeRegistration =
             let declKey = id.DeclKey
             let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
             let typarConstraints = typarConstraintsOfTypeName tn
-            // Generic arity overloads the short name (`Choice\`2`…`Choice\`7`), so the
-            // claim — and with it the registry key and every `UnionCaseInfo`'s owner
-            // arity — is arity-qualified.
-            let typeArity = id.Arity
-
             let caseInfos = ResizeArray<UnionCaseInfo>(cases.Length)
 
             underTyparScope
@@ -775,9 +770,11 @@ module NameResolutionTypeRegistration =
                         | ValueSome shape ->
                             let fieldTys = shape.FieldTypes |> Array.map (translateType ctx)
 
-                            caseInfos.Add(
-                                UnionCaseInfo(shape.Name, name, typeArity, fieldTys, shape.FieldNames, declKey)
-                            )
+                            // The case is stamped with its union's own claim KEY, so
+                            // "which union declares this case" never re-resolves a name
+                            // (the arity-overloaded `Choice\`2`…`Choice\`7` are distinct
+                            // keys, and the key says which).
+                            caseInfos.Add(UnionCaseInfo(shape.Name, name, id.Key, fieldTys, shape.FieldNames, declKey))
                         | ValueNone -> ()
                 )
 

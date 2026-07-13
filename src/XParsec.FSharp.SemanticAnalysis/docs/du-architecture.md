@@ -77,10 +77,11 @@ typars are rewritten to `TyTypar` at freeze time.
 
 `UnionCaseInfo` (`:145`) — one per case:
 
-- `Name`, `UnionName`, `UnionArity` (the declaring union's generic
-  arity; pairs with `UnionName` so arity-overloaded short names resolve
-  to the right union — `TypeRegistry.unionOfCase` keys on
-  `(UnionName, UnionArity)`).
+- `Name`, `UnionName` (the declaring union's short name as written — only
+  ever compared against a written qualifier), `UnionKey` (its `TypeKey`,
+  stamped from the union's claim at registration, so
+  `TypeRegistry.unionOfCase` is a key-addressed read and arity-overloaded
+  short names never need re-resolving).
 - `Fields : SemType[]` — declaration-order field types. Length 0 for
   nullary. Start as placeholder `TyVar`s, linked later (see fill-in).
 - `FieldNames : string voption[]` — per-field names for named fields

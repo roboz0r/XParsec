@@ -122,15 +122,25 @@ type TypeMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: Sem
 /// (`| Case of x: int * y: int`); positional fields have `ValueNone`.
 [<Sealed>]
 type UnionCaseInfo
-    (name: string, unionName: string, unionArity: int, fields: SemType[], fieldNames: string voption[], declKey: NodeKey)
-    =
+    (
+        name: string,
+        unionName: string,
+        unionKey: TypeKey,
+        fields: SemType[],
+        fieldNames: string voption[],
+        declKey: NodeKey
+    ) =
     member val Name = name
+    /// The declaring union's short name AS WRITTEN. Only ever compared against a written
+    /// QUALIFIER (`Choice.Choice1Of3`) — it is not this case's identity, and no lookup may
+    /// re-resolve it: a name identifies a type only as seen from somewhere, and by the time
+    /// a case is in hand its union is already resolved.
     member val UnionName = unionName
-    /// Generic arity of the declaring union (count of its type parameters). Pairs
-    /// with `UnionName` to resolve the *right* union when the short name is
-    /// overloaded by arity (`Choice\`2`…`Choice\`7`): `TypeRegistry.unionOfCase`
-    /// keys `ctx.Types.Union` by `(UnionName, UnionArity)`.
-    member val UnionArity = unionArity
+    /// The declaring union's `TypeKey`, stamped at registration from the union's own claim.
+    /// "Which union declares this case" is therefore identity navigation, answered by a
+    /// key-addressed read (`TypeRegistry.unionOfCase`) that asks no scoping question —
+    /// there is none left to ask.
+    member val UnionKey = unionKey
     member val Fields = fields
     member val FieldNames = fieldNames
     member val DeclKey = declKey

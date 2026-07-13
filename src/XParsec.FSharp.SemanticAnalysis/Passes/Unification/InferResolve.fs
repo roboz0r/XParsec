@@ -79,7 +79,7 @@ module internal UnificationInferResolve =
     /// The receiver union's typars are instantiated fresh so two independent
     /// uses of `Some` don't share a `'a`.
     let ctorType (ctx: PassContext) (info: UnionCaseInfo) : SemType =
-        let unionInfo = TypeRegistry.unionOfCase ctx.Types SourcePos.unbounded info
+        let unionInfo = TypeRegistry.unionOfCase ctx.Types info
         let args, subst = freshNamedInstance ctx unionInfo.TypeParams
         let unionTy = TyUnion(unionInfo.Key, args)
 

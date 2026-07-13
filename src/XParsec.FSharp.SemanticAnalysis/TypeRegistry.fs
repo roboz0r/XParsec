@@ -675,11 +675,14 @@ module TypeRegistry =
                 | true, info -> ValueSome(info :> IInterfaceImplHost)
                 | false, _ -> ValueNone
 
-    /// The declaring union of a registered case, resolved by its `(UnionName,
-    /// UnionArity)` — the pair the case was stamped with at registration, so this is
-    /// total: a case cannot exist without its union.
-    let unionOfCase (types: PassContextTypes) (useSite: SourcePos) (info: UnionCaseInfo) : UnionTypeInfo =
-        match tryUnion types useSite info.UnionName info.UnionArity with
+    /// The declaring union of a registered case — IDENTITY NAVIGATION, not a name lookup:
+    /// the case carries its union's `TypeKey` (stamped from the union's own claim at
+    /// registration), so this is a key-addressed read like every other `…ByKey` face and
+    /// takes no use site. There is no scoping question here: a caller holding a case got it
+    /// from a scoped read, so its union is visible by construction, and re-resolving the
+    /// union's NAME could only ever disagree with the case in hand.
+    let unionOfCase (types: PassContextTypes) (info: UnionCaseInfo) : UnionTypeInfo =
+        match tryOfKey types.Union (ValueSome info.UnionKey) with
         | ValueSome u -> u
         | ValueNone -> failwithf "Internal error: union case '%s' has no registered union '%s'" info.Name info.UnionName
 
@@ -692,11 +695,12 @@ module TypeRegistry =
     // position, so leaving one in place would leave a by-name read that is unscoped by
     // construction, which is the hole the by-name/by-key split exists to close.
 
-    /// Is the union declaring `case` visible from `useSite`? A case's `(UnionName,
-    /// UnionArity)` is the pair it was stamped with at registration, so this is the same
-    /// claim lookup every other by-name face makes.
+    /// Is the union declaring `case` visible from `useSite`? The case names its union by
+    /// KEY, so this asks the name table about that very key — the same `keyVisibleAt` test
+    /// the kind indexes are scoped by, and for the same reason: the file-order fact lives on
+    /// the CLAIM.
     let private caseVisibleAt (types: PassContextTypes) (useSite: SourcePos) (case: UnionCaseInfo) : bool =
-        (tryTypeClaim types useSite case.UnionName case.UnionArity).IsSome
+        keyVisibleAt types useSite case.UnionName case.UnionKey
 
     /// The records declaring a field called `name` that are VISIBLE from `useSite` — the
     /// candidate set a record literal / record pattern intersects over. A record declared
