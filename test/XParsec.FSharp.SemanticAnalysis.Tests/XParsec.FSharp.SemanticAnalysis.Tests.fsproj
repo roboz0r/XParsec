@@ -54,6 +54,7 @@
     <Compile Include="SecondaryCtorParamTypesTests.fs" />
     <Compile Include="DuplicateTypeNameTests.fs" />
     <Compile Include="TypeScopeOrderTests.fs" />
+    <Compile Include="FileOrderScopingTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

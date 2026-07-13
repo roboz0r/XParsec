@@ -130,15 +130,61 @@ faces, with every existing call site passing an explicit unbounded value. Nothin
 differently yet. Land it green.
 
 **Step 2 — the kind-agnostic name table.** Flip `tryTypeClaim` / `isTypeNameInScope` to
-honour `VisibleFrom`. This is the table `classifyTypeHead` and `Translate` consult. Pins:
-P7, P8.
+honour `VisibleFrom`, and pass a real position from the callers that resolve a *written*
+head (`classifyTypeHead`, `Translate`, `MemberRegistration`'s `inherit` split). A caller
+that observes the finished registry, or asks a question with no use site (`isTypeClaimed` —
+a duplicate is a duplicate wherever written), keeps `unbounded`.
 
-**Step 3 — the kind indexes.** Flip `tryKeyOfArity` / `tryKeyOfBareName`, which funnel
-*every* kind index (record / union / class / abbrev / enum) — so one edit covers
-`InferIdentExpr`, `InferCtor`, `InferPat`, `InferRecordAccess`. Pins: P5.
+**Behaviour-neutral**, and that is the point: type heads were *already* scoped, by
+registration-time classification. What this buys is that `Translate` can no longer disagree
+with `classifyTypeHead` even if the walk order changes — the scoping stops depending on
+when the scan runs. Pins: the recursive-group controls (a member body naming its own type;
+an `and`-sibling in a member signature and in a member body), which are what prove the
+group's-first-token anchoring works by containment.
+
+**Step 3 — the kind indexes.** Flip `tryKeyOfArity` / `tryKeyOfBareName`, the funnel for the
+`*Names → TypeKey` indexes. Flipping the helpers only makes them *able* to refuse; the work
+is replacing `SourcePos.unbounded` with the use site at each caller — `Scope.fs`'s two
+suppression sites (the diagnostic) and `InferCtor` / `InferIdentExpr` (the binding). No new
+predicate, no conjunction: the suppression fires *because* `tryClass` found a class, so once
+`tryClass` misses at the use site, diagnostic and binding fail together by construction.
+Pins: **P7, P8**.
+
+`tryEnum` needs its own flip — `PassContextTypes.Enum` is bare-name-keyed and never touches
+the funnel. Cheap: an enum's claim sits in `TypeClaims` like any other kind's, so it can gate
+on `tryTypeClaim … name 0`.
+
+**Step 3b — put `FieldIndex` and `CtorIndex` behind faces.** These are **not registry faces
+at all**: they are raw `Dictionary` field reads off `ctx.Types` (`InferResolve.fs:123,134,144`,
+`InferPat.fs:40,175`, `Scope.fs:181,220`, `Elaborate/Patterns.fs:51,168`,
+`Elaborate/Resolve.fs:397`). They take no `SourcePos` because they are not functions — so
+neither P5 (record label → `FieldIndex`) nor P4 (union case → `CtorIndex`) is reachable from
+`tryKeyOfBareName`, and Step 3's "one edit covers every kind index" is true only of the
+`*Names` indexes.
+
+This is also a hole in the by-name/by-key split: the property that split was for — *an
+unscoped by-name read is impossible to write by accident* — does not hold for a raw dictionary
+read, because there is no signature to demand a position. Putting both indexes behind faces
+that require a `SourcePos` is what closes it, and it is the prerequisite for Steps 4 and 5,
+not an optional tidy-up.
+
+Pins: **P5**.
+
+P7/P8 land HERE, not in Step 2 (an earlier draft of this doc said Step 2, and was wrong —
+confirmed empirically). `Foo(1)` and `Foo.Bar` never touch the name table: both resolve
+through `TypeRegistry.tryClass`, i.e. `tryKeyOfBareName`, a **kind index**. The name table
+answers *is a local type of this name visible here*; the kind index answers *which class*.
+
+Do not be tempted to pin P7/P8 early by gating the suppression logic in
+`NameResolution/Scope.fs` on `isTypeNameInScope` while the kind index stays unscoped. That
+was tried. It makes the *diagnostic* right while *binding* still resolves to the class
+declared below — a second checker beside the resolution it guards, which is precisely what
+"the diagnostic falls out of resolution failing" exists to avoid. Scope the index; the miss,
+and therefore the diagnostic, follow.
 
 **Step 4 — `unionOfCase`.** A separate index from the `*Names` dictionaries, so it needs
-its own flip. Pins: P4 — assert the **variable-pattern degradation**, not an error.
+its own flip; it rides on Step 3b's `CtorIndex` face. Pins: P4 — assert that the unrecognised
+uppercase ident becomes a **variable pattern**, not an error.
 
 **Step 5 — values, and the `module rec` gate.** Give `LocalModules` entries a
 `VisibleFrom`; gate `prebindModuleFunctionSchemes`' forward grant on the enclosing module's

@@ -188,13 +188,12 @@ module NameResolutionTypeHeadStamp =
     /// THE precedence rule, and the reason it is a classification rather than two
     /// independent probes: a local claim WINS, so a head whose name is claimed is never
     /// stamped, and a head that IS stamped is therefore external for good — the read side
-    /// prefers the stamp over the registry. `TypeClaims` is the scope in force where the
-    /// head is written (it grows as the top-down registration scan reaches each
-    /// `type … and …` group), so a head written ABOVE a same-named local declaration sees
-    /// no claim, stamps external, and keeps resolving to the external type even once the
-    /// local one is registered. That is F#'s file-order shadowing rule (`open System` + a
-    /// `type Uri` declared below a use of `Uri` binds `System.Uri`), and it is why the
-    /// stamping walk is part of registration rather than a sweep after it.
+    /// prefers the stamp over the registry. The claims consulted are those VISIBLE AT THE
+    /// HEAD — `head.Key` is where it is written — so a head written ABOVE a same-named local
+    /// declaration sees no claim, stamps external, and keeps resolving to the external type
+    /// even once the local one is registered. That is F#'s file-order shadowing rule
+    /// (`open System` + a `type Uri` declared below a use of `Uri` binds `System.Uri`), and
+    /// it now falls out of the head's POSITION alone, not out of when the walk reaches it.
     let classifyTypeHead (ctx: PassContext) (head: CstKeys.TypeHead) : TypeHeadVerdict =
         let idents = head.LongIdent.Idents
 
@@ -202,7 +201,7 @@ module NameResolutionTypeHeadStamp =
         // be claimed; a dotted name is external or nothing.
         if
             idents.Length = 1
-            && TypeRegistry.isTypeNameInScope ctx.Types SourcePos.unbounded (ctx.NameOf idents.[0])
+            && TypeRegistry.isTypeNameInScope ctx.Types (SourcePos.ofNodeKey head.Key) (ctx.NameOf idents.[0])
         then
             LocalType
         else

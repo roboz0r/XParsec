@@ -464,7 +464,7 @@ module internal UnificationTranslate =
         let diagKey = NodeKey.ofToken nameTok NodeKind.TypeNamed
 
         let claimed =
-            match TypeRegistry.tryTypeClaim ctx.Types SourcePos.unbounded name 0 with
+            match TypeRegistry.tryTypeClaim ctx.Types (SourcePos.ofNodeKey diagKey) name 0 with
             | ValueSome claim -> resolveClaimedType ctx diagKey claim EqArray.empty
             | ValueNone -> ValueNone
 
@@ -568,7 +568,7 @@ module internal UnificationTranslate =
             | ValueNone -> ValueNone
 
         let claimed =
-            match TypeRegistry.tryTypeClaim ctx.Types SourcePos.unbounded name argCount with
+            match TypeRegistry.tryTypeClaim ctx.Types (SourcePos.ofNodeKey diagKey) name argCount with
             | ValueSome claim -> resolveClaimedType ctx diagKey claim translatedArgs
             | ValueNone -> ValueNone
 

@@ -422,18 +422,25 @@ module TypeRegistry =
     let rejectDuplicateType (types: PassContextTypes) (rejected: RejectedTypeDefn) : unit =
         types.RejectedDuplicates.Add rejected
 
-    /// The identity holding `(name, arity)`, if any. The single route from a use-site
-    /// name+arity to the type that owns it — so a resolver ASKS which kind owns the name
-    /// instead of probing the kind tables in a hand-ordered precedence cascade.
-    let tryTypeClaim
-        (types: PassContextTypes)
-        (_useSite: SourcePos)
-        (name: string)
-        (arity: int)
-        : TypeIdentity voption =
+    /// Is this claim visible from `useSite`? THE file-order rule, in one comparison — see
+    /// `TypeIdentity.VisibleFrom`. A claim declared below the use answers for nothing, so a
+    /// use above a declaration sees exactly what F# sees there: the external universe, or
+    /// nothing at all.
+    let private visibleAt (useSite: SourcePos) (claim: TypeIdentity) : bool = claim.VisibleFrom <= useSite.Offset
+
+    /// The identity holding `(name, arity)` AS SEEN FROM `useSite`, if any. The single route
+    /// from a use-site name+arity to the type that owns it — so a resolver ASKS which kind
+    /// owns the name instead of probing the kind tables in a hand-ordered precedence cascade.
+    ///
+    /// A claim only answers when it is visible from the use (`visibleAt`): a name is not an
+    /// identity on its own, it is one only as seen from somewhere. Registration's own reads
+    /// were already scoped by the top-down scan (the table holds what is claimed so far); a
+    /// read from a body — walked long after the whole file is registered — is scoped by this
+    /// and nothing else.
+    let tryTypeClaim (types: PassContextTypes) (useSite: SourcePos) (name: string) (arity: int) : TypeIdentity voption =
         match types.TypeClaims.TryGetValue name with
         | true, claims ->
-            let i = claims.FindIndex(fun c -> c.Arity = arity)
+            let i = claims.FindIndex(fun c -> c.Arity = arity && visibleAt useSite c)
             if i < 0 then ValueNone else ValueSome claims.[i]
         | false, _ -> ValueNone
 
@@ -447,14 +454,16 @@ module TypeRegistry =
     let isTypeClaimed (types: PassContextTypes) (name: string) (arity: int) : bool =
         (tryTypeClaim types SourcePos.unbounded name arity).IsSome
 
-    /// Does any claim IN SCOPE hold `name` at SOME arity — i.e. is this name a
-    /// project-local type visible from where the registration scan currently is? THE
-    /// local/external precedence test: a written head whose name this answers `true` for
-    /// names a project-local type and nothing else, and one it answers `false` for is
-    /// external or nothing at all. During registration the answer is scoped by file order;
-    /// once the scan is done it is the whole unit.
-    let isTypeNameInScope (types: PassContextTypes) (_useSite: SourcePos) (name: string) : bool =
-        types.TypeClaims.ContainsKey name
+    /// Does any claim VISIBLE FROM `useSite` hold `name` at SOME arity — i.e. is this name a
+    /// project-local type there? THE local/external precedence test: a written head whose
+    /// name this answers `true` for names a project-local type and nothing else, and one it
+    /// answers `false` for is external or nothing at all. Arity-blind on purpose: a head
+    /// written at the wrong arity for the local type of that name is still LOCAL (an arity
+    /// diagnostic), never a silent fall-through to an external type of the same name.
+    let isTypeNameInScope (types: PassContextTypes) (useSite: SourcePos) (name: string) : bool =
+        match types.TypeClaims.TryGetValue name with
+        | true, claims -> claims.Exists(fun c -> visibleAt useSite c)
+        | false, _ -> false
 
     /// Note a record / union / class short name (`NominalTypeNames`). Called by the
     /// pre-scan that runs ahead of the identity pass; see the field's doc.

@@ -816,7 +816,7 @@ module NameResolutionMemberRegistration =
                         // table ⇒ no kind can be forgotten from this disjunction. A name the
                         // table does not know is unknown *here*, which includes a type
                         // declared below this group — nothing later can fill the slot.
-                        if TypeRegistry.isTypeNameInScope ctx.Types SourcePos.unbounded name then
+                        if TypeRegistry.isTypeNameInScope ctx.Types (SourcePos.ofNodeKey diagKey) name then
                             diagnose
                                 diagKey
                                 (sprintf "Cannot inherit from type '%s' — only classes are inheritable" name)
