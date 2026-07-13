@@ -430,26 +430,28 @@ let tests =
             }
 
             test "chained abbreviation expands transitively" {
-                let ctx = analyse "type A = B\ntype B = int\nlet x : A = 1"
-                // pat x at 28: 11 + 13 char type decls + "let ".
+                let ctx = analyse "type B = int\ntype A = B\nlet x : A = 1"
+                // pat x at 28: 13 + 11 char type decls + "let ".
                 let patKey = NodeKey.ofSource 28 NodeKind.PatIdent
                 Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "x : int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
-            test "order-independent within a module" {
-                // Pair declared after its first use as IntPair.
+            test "abbreviation of a generic type declared above it" {
                 let ctx =
-                    analyse "type IntPair = Pair<int>\ntype Pair<'a> = 'a * 'a\nlet p : IntPair = (1, 2)"
-                // pat p at 53: 25 + 24 char type decls + "let ".
+                    analyse "type Pair<'a> = 'a * 'a\ntype IntPair = Pair<int>\nlet p : IntPair = (1, 2)"
+                // pat p at 53: 24 + 25 char type decls + "let ".
                 let patKey = NodeKey.ofSource 53 NodeKind.PatIdent
                 let expected = TyTuple(EqArray.ofList [ BuiltinTypes.tyInt; BuiltinTypes.tyInt ])
                 Expect.equal (typeOf ctx patKey) expected "p : int * int"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
+            // An alias cycle is only WRITABLE inside one `type … and …` group: file-order
+            // scoping means an alias can only name a type declared above it, and a cycle
+            // needs a back-edge.
             test "cycle diagnoses without infinite-looping" {
-                let ctx = analyse "type A = B\ntype B = A"
+                let ctx = analyse "type A = B\nand B = A"
 
                 let hasCyclic = ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "cyclic")
 

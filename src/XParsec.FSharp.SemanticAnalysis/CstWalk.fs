@@ -810,6 +810,184 @@ module CstWalk =
 
         iterType it ret
 
+    /// An uncurried signature — a `DelegateSig`, or a GADT-syntax union case's
+    /// `Name : arg * arg -> ret`: every argument type, then the return type.
+    and iterTypeUncurriedSig (it: TypeIter) (sign: UncurriedSig<SyntaxToken>) : unit =
+        let (UncurriedSig(args = ArgsSpec.ArgsSpec(args = args); returnType = ret)) = sign
+
+        for (ArgSpec(typ = t)) in args do
+            iterType it t
+
+        iterType it ret
+
+    /// THE enumeration of the type positions a `type` definition's DECLARED STRUCTURE
+    /// writes: record/union field types, member value/signature types, interface
+    /// specs/impls, an abbreviation's RHS, a delegate signature, and the header's `when`
+    /// constraints. Every consumer of that surface — external-head stamping, the
+    /// file-order scope check — walks it through here, so no consumer can miss a position
+    /// another covers. Member *bodies* are not structure and are not reached.
+    ///
+    /// Two positions are handed OUT rather than iterated, because each has a consumer
+    /// that treats it specially: constructor-parameter annotations are PATTERN-embedded
+    /// (`onPat` owns the pattern walk, which carries more than type heads), and the
+    /// `inherit` clause is resolved by its own registrar (`onInherit`).
+    let iterTypeDefnTypes
+        (it: TypeIter)
+        (onPat: Pat<SyntaxToken> -> unit)
+        (onInherit: Type<SyntaxToken> -> unit)
+        (td: TypeDefn<SyntaxToken>)
+        : unit =
+        let ty (t: Type<SyntaxToken>) = iterType it t
+
+        let unionField (f: UnionTypeField<SyntaxToken>) =
+            match f with
+            | UnionTypeField.Unnamed(typ = t)
+            | UnionTypeField.Named(typ = t) -> ty t
+
+        let unionCase (UnionTypeCase(data = data)) =
+            match data with
+            | UnionTypeCaseData.Nullary _ -> ()
+            | UnionTypeCaseData.Nary(fields = fs) ->
+                for f in fs do
+                    unionField f
+            | UnionTypeCaseData.GadtNary(sign = s) -> iterTypeUncurriedSig it s
+            | UnionTypeCaseData.GadtNullary(typ = t) -> ty t
+
+        let returnTypeOf (b: Binding<SyntaxToken>) =
+            match b.returnType with
+            | ValueSome(ReturnType(typ = t)) -> ty t
+            | ValueNone -> ()
+
+        // A member's declared signature is its argument annotations plus its return type;
+        // the annotations are pattern-embedded, so they go through `onPat`.
+        let memberSig (b: Binding<SyntaxToken>) =
+            for ap in b.argumentPats do
+                onPat ap
+
+            returnTypeOf b
+
+        let methodOrProp (d: MethodOrPropDefn<SyntaxToken>) =
+            match d with
+            | MethodOrPropDefn.Method(defn = b)
+            | MethodOrPropDefn.Property(defn = b) -> memberSig b
+            | MethodOrPropDefn.PropertyWithGetSet(defns = bs) ->
+                for b in bs do
+                    memberSig b
+            | MethodOrPropDefn.AutoProperty(returnType = ValueSome(ReturnType(typ = t))) -> ty t
+            | MethodOrPropDefn.AutoProperty _ -> ()
+            | MethodOrPropDefn.AbstractSignature sign -> iterTypeMemberSig it sign
+
+        let memberDefn (md: MemberDefn<SyntaxToken>) =
+            match md with
+            | MemberDefn.Member(defn = d) -> methodOrProp d
+            | MemberDefn.Value(typ = t) -> ty t
+            | MemberDefn.AdditionalConstructor(pat = p) -> onPat p
+
+        let element (el: TypeDefnElement<SyntaxToken>) =
+            match el with
+            | TypeDefnElement.Member md -> memberDefn md
+            | TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(typ = t; objectMembers = oms)) ->
+                ty t
+
+                match oms with
+                | ValueSome(ObjectMembers(memberDefns = mds)) ->
+                    for md in mds do
+                        memberDefn md
+                | ValueNone -> ()
+            | TypeDefnElement.InterfaceSpec(InterfaceSpec(typ = t)) -> ty t
+            | TypeDefnElement.Inherit(ClassInheritsDecl(typ = t)) -> onInherit t
+
+        // A `[static] let` in a class preamble is a BODY, not declared structure — only its
+        // return annotation is part of the type's surface.
+        let preamble (d: ClassFunctionOrValueDefn<SyntaxToken>) =
+            match d with
+            | ClassFunctionOrValueDefn.LetBindings(bindings = bs) ->
+                for b in bs do
+                    returnTypeOf b
+            | ClassFunctionOrValueDefn.Do _ -> ()
+
+        let body (b: ObjectModelBody<SyntaxToken>) =
+            match b.inherits with
+            | ValueSome(ClassInheritsDecl(typ = t)) -> onInherit t
+            | ValueNone -> ()
+
+            for d in b.classPreamble do
+                preamble d
+
+            for el in b.elements do
+                element el
+
+        let extensions (ext: TypeExtensionElements<SyntaxToken> voption) =
+            match ext with
+            | ValueSome(TypeExtensionElements(elements = els)) ->
+                for el in els do
+                    element el
+            | ValueNone -> ()
+
+        // A type header's typar-definition `when` clause (`type M<'F when 'F :> …>`)
+        // lives on its `TypeName` — either the `TyparDefns`' trailing constraint list or
+        // the separate `postfixConstraints`. Neither is reachable from any field / member
+        // / param position, so both are enumerated here.
+        let headerConstraints (tn: TypeName<SyntaxToken>) =
+            let (TypeName(typarDefns = tds; postfixConstraints = post)) = tn
+
+            match tds with
+            | ValueSome(TyparDefns(constraints = ValueSome cs)) -> iterTypeConstraints it cs
+            | _ -> ()
+
+            match post with
+            | ValueSome cs -> iterTypeConstraints it cs
+            | ValueNone -> ()
+
+        match td with
+        | TypeDefn.Abbrev(typeName = tn)
+        | TypeDefn.Record(typeName = tn)
+        | TypeDefn.Union(typeName = tn)
+        | TypeDefn.Anon(typeName = tn)
+        | TypeDefn.Class(typeName = tn)
+        | TypeDefn.Struct(typeName = tn)
+        | TypeDefn.Interface(typeName = tn)
+        | TypeDefn.Delegate(typeName = tn)
+        | TypeDefn.TypeExtension(typeName = tn)
+        | TypeDefn.Enum(typeName = tn)
+        | TypeDefn.AbstractType(typeName = tn) -> headerConstraints tn
+        | TypeDefn.Missing
+        | TypeDefn.SkipsTokens _ -> ()
+
+        match td with
+        | TypeDefn.Abbrev(typ = t; extensions = ext) ->
+            ty t
+            extensions ext
+        | TypeDefn.Record(fields = fs; extensions = ext) ->
+            for RecordField(typ = t) in fs do
+                ty t
+
+            extensions ext
+        | TypeDefn.Union(cases = cs; extensions = ext) ->
+            for c in cs do
+                unionCase c
+
+            extensions ext
+        | TypeDefn.Anon(primaryConstr = pc; body = b)
+        | TypeDefn.Class(primaryConstr = pc; body = b)
+        | TypeDefn.Struct(primaryConstr = pc; body = b) ->
+            // Primary-constructor parameter annotations (`type Point(x: int, …)`) are
+            // pattern-embedded.
+            match pc with
+            | ValueSome(PrimaryConstrArgs(pat = ValueSome p)) -> onPat p
+            | _ -> ()
+
+            body b
+        | TypeDefn.Interface(body = b) -> body b
+        | TypeDefn.Delegate(sign = DelegateSig(sign = s)) -> iterTypeUncurriedSig it s
+        | TypeDefn.TypeExtension(elements = TypeExtensionElements(elements = els)) ->
+            for el in els do
+                element el
+        | TypeDefn.Enum _
+        | TypeDefn.AbstractType _
+        | TypeDefn.Missing
+        | TypeDefn.SkipsTokens _ -> ()
+
     /// The CST-`Pat` analogue of `iterType` — the single point where a pattern's
     /// recursion shape is enumerated. `VisitPat` fires on every `Pat` node before
     /// its children; returning `false` skips the default child recursion.

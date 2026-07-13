@@ -650,8 +650,11 @@ let tests =
                 Expect.isFalse (ctx.Types.HeritableExternBases.Contains "IFoo") "not recorded as a heritable base"
             }
 
+            // An inheritance cycle is only WRITABLE inside one `type … and …` group: file-order
+            // scoping means a class can only inherit from a type declared above it, and a
+            // cycle needs a back-edge.
             test "cyclic inheritance diagnoses" {
-                let ctx = analyse "type A() =\n    inherit B()\ntype B() =\n    inherit A()"
+                let ctx = analyse "type A() =\n    inherit B()\nand B() =\n    inherit A()"
 
                 let cyclic = ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "cyclic")
 

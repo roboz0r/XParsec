@@ -309,7 +309,7 @@ module UnificationEngineCore =
     /// `Members` table is searched before recursing into `BaseType`, so an
     /// `override` wins over the parent's declaration of the same name. The
     /// parent type stored on `BaseType` is already expressed in the derived
-    /// class's typar scope (NameResolution's `registerInheritedSlots`
+    /// class's typar scope (NameResolution's `registerInheritedSlot`
     /// translated it), so substituting the derived class's `TypeParams ↦ args`
     /// map onto it threads generic instantiation up the chain (`IntBox` ⊳
     /// `Box<int>` resolves `Box`'s `'a` to `int`). `seen` guards a cyclic

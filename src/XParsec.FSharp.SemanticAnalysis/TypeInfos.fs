@@ -112,8 +112,8 @@ type TypeMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: Sem
             this.MethodTypeParams
 
     /// `true` when the source declares the member with `MemberKeyword.Override`
-    /// or `MemberKeyword.Default`. Stamped by the `registerInheritedSlots`
-    /// post-pass; consumed by Elaborate/Codegen to choose `call` vs `callvirt`.
+    /// or `MemberKeyword.Default`. Stamped by member extraction; consumed by
+    /// Elaborate/Codegen to choose `call` vs `callvirt`.
     member val IsOverride: bool = false with get, set
 
 /// Field types start as fresh TyVar placeholders stamped by NameResolution and
@@ -256,7 +256,7 @@ type RecordTypeInfo
     /// member body in this record. Set during registration when there are members.
     member val ThisKey = Unchecked.defaultof<NodeKey> with get, set
     /// `interface IFace with member …` blocks declared on the record.
-    /// Stamped by `NameResolution.registerNominalMembers`; each impl's interface type
+    /// Stamped by `NameResolution.registerNominalMember`; each impl's interface type
     /// is resolved + verified, and its member bodies typed, by Unification's
     /// `fillHostMembers` (mirroring `UnionTypeInfo.InterfaceImpls`). Empty unless
     /// the record declares an `interface … with` block. `Elaborate` projects them onto
@@ -333,7 +333,7 @@ type UnionTypeInfo
     /// `TTypeDecl.ComparisonSupport` for codegen.
     member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
     /// `interface IFace with member …` blocks declared on the union.
-    /// Stamped by `NameResolution.registerNominalMembers`; each impl's interface type
+    /// Stamped by `NameResolution.registerNominalMember`; each impl's interface type
     /// is resolved + verified, and its member bodies typed, by Unification's
     /// `fillHostMembers` (mirroring `ClassTypeInfo.InterfaceImpls`). Empty unless
     /// the union declares an `interface … with` block. `Elaborate` projects them onto
@@ -383,7 +383,7 @@ type IntrinsicAbbrevInfo
     member val TypeParams = typeParams
     member val DeclKey = declKey
     /// Augmentation members (`with member …`). Stamped by
-    /// `NameResolution.registerNominalMembers`; types linked by Unification's
+    /// `NameResolution.registerNominalMember`; types linked by Unification's
     /// `fillHostMembers`. Empty until then.
     member val Members: TypeMemberInfo[] = [||] with get, set
     /// `this`-binding source name (default `"this"`; honours `as self`).
@@ -592,7 +592,7 @@ type ClassTypeInfo
     /// `BaseType` is `ValueSome`.
     member val BaseKey = baseKey
     /// Parent type from `inherit Base(args)` once resolved. Stays `ValueNone`
-    /// until the `registerInheritedSlots` walk fills it.
+    /// until the group-close `registerInheritedSlot` fill.
     /// `ValueNone` ⇒ codegen emits `TypeDefinition.BaseType = Object`.
     member val BaseType: SemType voption = ValueNone with get, set
     /// CST expression for the constructor arguments to the base type

@@ -577,38 +577,24 @@ module NameResolutionMemberRegistration =
     /// `[<CustomEquality>]` etc. are still illegal on it — run the kind-legality
     /// check (FS0382 / FS0377) so those produce a diagnostic, discarding the
     /// verdicts.
-    /// A `TypeDefn.Interface` claims no name and registers no detail, so it is absent from
-    /// `ClaimedTypeDefns` and this validation is driven from the CST — it is not a
+    /// A `TypeDefn.Interface` claims no name and registers no detail, so it is not a
+    /// claimed declaration and this validation is driven from the CST — it is not a
     /// registration.
-    let validateInterfaceTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
-        match m with
-        | ModuleElem.Type defs ->
-            for td in defs do
-                match td with
-                | TypeDefn.Interface(typeName = tn) ->
-                    let (TypeName(ident = nameLi)) = tn
+    let private validateInterfaceTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
+        match td with
+        | TypeDefn.Interface(typeName = tn) ->
+            let (TypeName(ident = nameLi)) = tn
 
-                    if nameLi.Idents.Length = 1 then
-                        let declKey = NodeKey.ofToken nameLi.Idents.[0] NodeKind.DeclType
+            if nameLi.Idents.Length = 1 then
+                let declKey = NodeKey.ofToken nameLi.Idents.[0] NodeKind.DeclType
 
-                        Attributes.validateEqCompAttributes
-                            ctx
-                            Attributes.EqCompTargetKind.Interface
-                            declKey
-                            (Attributes.attributesOfTypeName tn)
-                        |> ignore
-                | _ -> ()
+                Attributes.validateEqCompAttributes
+                    ctx
+                    Attributes.EqCompTargetKind.Interface
+                    declKey
+                    (Attributes.attributesOfTypeName tn)
+                |> ignore
         | _ -> ()
-
-    let registerClassTypes (ctx: PassContext) : unit =
-        for c in ctx.Types.ClaimedTypeDefns do
-            match c.Identity.Kind with
-            | TypeDeclKind.Class -> registerClassTypeDefn ctx c.Identity c.Defn
-            | _ -> ()
-
-    // A post-pass after
-    // `registerClassTypes` so a derived class can name a parent declared later in
-    // the file.
 
     /// Resolve a named type appearing in an `inherit` clause *argument* position
     /// (`inherit Box<int>(v)`'s `int`) to a best-effort `SemType`. A
@@ -782,8 +768,10 @@ module NameResolutionMemberRegistration =
                     | ValueNone ->
                         // The class arms above have already missed, so a name the NAME TABLE
                         // knows at any arity is a project-local type of some other kind. One
-                        // table ⇒ no kind can be forgotten from this disjunction.
-                        if TypeRegistry.isTypeNameDeclared ctx.Types name then
+                        // table ⇒ no kind can be forgotten from this disjunction. A name the
+                        // table does not know is unknown *here*, which includes a type
+                        // declared below this group — nothing later can fill the slot.
+                        if TypeRegistry.isTypeNameInScope ctx.Types name then
                             diagnose
                                 diagKey
                                 (sprintf "Cannot inherit from type '%s' — only classes are inheritable" name)
@@ -792,10 +780,15 @@ module NameResolutionMemberRegistration =
 
                         ValueNone
 
-    /// Stamp `BaseType` / `BaseCtorArgs` on each class with an `inherit` clause.
-    /// Runs after `registerClassTypes` so a forward / out-of-order parent
-    /// reference resolves. Cycle detection is a separate sweep
-    /// (`checkInheritanceCycles`) once every class is stamped.
+    /// Fill `BaseType` / `BaseCtorArgs` on a class with an `inherit` clause. An `inherit`
+    /// parent is the one reference resolved against the referent's registered DETAIL
+    /// (`ClassTypeInfo` for a local parent, `IntrinsicReprTypes` / `HeritableExternBases`
+    /// for a heritable extern base) rather than its identity, so it cannot be answered at
+    /// the point the clause is seen: `ClassTypeInfo.BaseType` is the PENDING SLOT, filled
+    /// once the whole group's detail is registered. A parent above the group is already
+    /// registered, a parent inside it registers before the group closes, and a parent below
+    /// it never will — which is exactly the unknown-type diagnostic `resolveInheritParent`
+    /// raises.
     ///
     /// The DERIVED class is recovered by the `TypeKey` on its own claim, never by name: a
     /// bare name does not address an arity-overloaded class (`Box\`1` / `Box\`2`), so a
@@ -820,20 +813,16 @@ module NameResolutionMemberRegistration =
                     | ValueNone -> ()
                 | ValueNone -> ()
 
-    let registerInheritedSlots (ctx: PassContext) : unit =
-        for c in ctx.Types.ClaimedTypeDefns do
-            match c.Identity.Kind with
-            | TypeDeclKind.Class -> registerInheritedSlot ctx c.Identity c.Defn
-            | _ -> ()
-
-    /// Detect inheritance cycles after every class's `BaseType` is stamped. Walks
-    /// each class's parent chain; on re-entry to the starting class emits a
-    /// "cyclic inheritance" diagnostic on its `DeclKey` and clears its `BaseType`
-    /// so later passes treat it as parent-less.
-    let checkInheritanceCycles (ctx: PassContext) : unit =
-        for kv in ctx.Types.Class do
-            let start = kv.Value
-
+    /// Detect inheritance cycles among the classes of ONE group, once every `BaseType`
+    /// slot in it is filled. Walks each class's parent chain; on re-entry to the starting
+    /// class emits a "cyclic inheritance" diagnostic on its `DeclKey` and clears its
+    /// `BaseType` so later passes treat it as parent-less.
+    ///
+    /// A group is the whole search space: a class names only what is declared above it or
+    /// joined to it by `and`, so an inheritance back-edge — which is what a cycle needs —
+    /// can only run between members of one `type … and …` group.
+    let private checkGroupInheritanceCycles (ctx: PassContext) (classes: ClassTypeInfo seq) : unit =
+        for start in classes do
             // Compare on the class's `SymbolKey` (arity included), not its bare name,
             // so an arity-overloaded self-reference (`Foo\`2` : `Foo\`3`) isn't falsely
             // flagged as a cycle.
@@ -920,6 +909,67 @@ module NameResolutionMemberRegistration =
             | false, _ -> ()
         | _ -> ()
 
-    let registerNominalMembers (ctx: PassContext) : unit =
-        for c in ctx.Types.ClaimedTypeDefns do
-            registerNominalMember ctx c.Identity c.Defn
+    /// Register one accepted declaration's kind-specific DETAIL — fields, cases, enum case
+    /// names, class members / ctor params, abbreviation RHS — plus any `with member …`
+    /// augmentation on it. Dispatches on the `TypeDeclKind` its claim recorded and is
+    /// HANDED the identity it registers under, so no registrar re-derives a name / arity /
+    /// key from the CST and none can be reached for a rejected duplicate.
+    let private registerDetail (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
+        match id.Kind with
+        | TypeDeclKind.Record -> registerRecordTypeDefn ctx id td
+        | TypeDeclKind.Union -> registerUnionTypeDefn ctx id td
+        | TypeDeclKind.Enum -> registerEnumTypeDefn ctx id td
+        | TypeDeclKind.Abbreviation
+        | TypeDeclKind.IntrinsicRepr -> registerAbbreviationDefn ctx id td
+        | TypeDeclKind.Class -> registerClassTypeDefn ctx id td
+
+        registerNominalMember ctx id td
+
+    /// Register one `type … and …` group — the unit of mutual recursion, and the unit of
+    /// registration. `ModuleElem.Type` IS that group, so the driver above is a single
+    /// top-down scan and F#'s file-order type scoping falls out of it: at the moment a
+    /// group registers, `TypeClaims` holds every type above it and nothing below.
+    ///
+    /// Three phases, because references into the group split into two tiers:
+    ///
+    /// 1. CLAIM every member's `(name, arity)` + `TypeKey`, in source order. A reference
+    ///    that needs only the referent's key and arity — a nominal head in a field type, a
+    ///    member signature, a type argument — is satisfied outright by this, which is the
+    ///    whole of `and`-joined mutual recursion for records, unions and member sigs.
+    /// 2. REGISTER DETAIL, in source order, and check every written head against the scope
+    ///    the claim phase just fixed.
+    /// 3. CLOSE: fill the `inherit` slots — the one reference that reads the referent's
+    ///    registered detail rather than its identity — and then check for a cycle through
+    ///    them. Both are group-local because nothing outside the group can name into it.
+    let registerGroup
+        (ctx: PassContext)
+        (c: DeclContainment<SyntaxToken>)
+        (defs: ImmutableArray<TypeDefn<SyntaxToken>>)
+        : unit =
+        let claims = ResizeArray<ClaimedTypeDefn>(defs.Length)
+
+        for td in defs do
+            match claimTypeIdentity ctx c td with
+            | ValueSome claimed -> claims.Add claimed
+            | ValueNone -> ()
+
+        for claimed in claims do
+            checkTypesInScope ctx claimed.Defn
+            registerDetail ctx claimed.Identity claimed.Defn
+
+        // An `interface … end` declares no type to register — its eq/comp attributes are
+        // still illegal, so the kind-legality check runs over the group's CST.
+        for td in defs do
+            validateInterfaceTypeDefn ctx td
+
+        let classes = ResizeArray<ClassTypeInfo>()
+
+        for claimed in claims do
+            if claimed.Identity.Kind = TypeDeclKind.Class then
+                registerInheritedSlot ctx claimed.Identity claimed.Defn
+
+                match TypeRegistry.tryClassByKey ctx.Types (SymbolKey.Type claimed.Identity.Key) with
+                | ValueSome info -> classes.Add info
+                | ValueNone -> ()
+
+        checkGroupInheritanceCycles ctx classes

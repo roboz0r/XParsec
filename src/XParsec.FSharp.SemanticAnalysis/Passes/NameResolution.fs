@@ -348,7 +348,7 @@ module NameResolution =
                             SecondaryCtors = info.SecondaryCtors
                             InheritsExpr =
                                 // Walk the primary base-ctor args only when
-                                // `registerInheritedSlots` resolved the parent
+                                // `registerInheritedSlot` resolved the parent
                                 // (otherwise it already diagnosed the clause).
                                 match info.BaseType, body.inherits with
                                 | ValueSome _, ValueSome(ClassInheritsDecl(expr = e)) -> e
@@ -419,152 +419,19 @@ module NameResolution =
     /// argument-pattern annotations) are stamped by the expression / pattern walks;
     /// this covers only the declared-signature surface.
     let private stampTypeDefnTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
-        let stampRecordField (RecordField(typ = t)) = stampTypeHeads ctx t
-
-        let stampUnionField (f: UnionTypeField<SyntaxToken>) =
-            match f with
-            | UnionTypeField.Unnamed(typ = t)
-            | UnionTypeField.Named(typ = t) -> stampTypeHeads ctx t
-
-        let stampUnionCase (UnionTypeCase(data = data)) =
-            match data with
-            | UnionTypeCaseData.Nullary _ -> ()
-            | UnionTypeCaseData.Nary(fields = fs) ->
-                for f in fs do
-                    stampUnionField f
-            | UnionTypeCaseData.GadtNary(sign = s) -> stampUncurriedSig ctx s
-            | UnionTypeCaseData.GadtNullary(typ = t) -> stampTypeHeads ctx t
-
-        let stampMethodOrProp (d: MethodOrPropDefn<SyntaxToken>) =
-            match d with
-            | MethodOrPropDefn.Method(defn = b)
-            | MethodOrPropDefn.Property(defn = b) -> stampBindingSigTypes ctx b
-            | MethodOrPropDefn.PropertyWithGetSet(defns = bs) ->
-                for b in bs do
-                    stampBindingSigTypes ctx b
-            | MethodOrPropDefn.AutoProperty(returnType = ValueSome(ReturnType(typ = t))) -> stampTypeHeads ctx t
-            | MethodOrPropDefn.AutoProperty _ -> ()
-            | MethodOrPropDefn.AbstractSignature sign -> stampMemberSig ctx sign
-
-        let stampMemberDefn (md: MemberDefn<SyntaxToken>) =
-            match md with
-            | MemberDefn.Member(defn = d) -> stampMethodOrProp d
-            | MemberDefn.Value(typ = t) -> stampTypeHeads ctx t
-            | MemberDefn.AdditionalConstructor(pat = p) -> stampPatCases ctx p
-
-        let stampTypeDefnElement (el: TypeDefnElement<SyntaxToken>) =
-            match el with
-            | TypeDefnElement.Member md -> stampMemberDefn md
-            | TypeDefnElement.InterfaceImpl(InterfaceImpl.InterfaceImpl(typ = t; objectMembers = oms)) ->
-                stampTypeHeads ctx t
-                // Stamp the impl block's member SIGNATURES too (`member _.MoveNext() : bool`,
-                // `member _.Current : obj`): an interface-impl member's return-type head
-                // (`bool`/`obj`/`unit`/`IEnumerator<'T>`) is reachable from NEITHER the
-                // body walk (which stamps its param patterns and body only) NOR the
-                // interface-type stamp above, so it must be stamped here — the read side
-                // has no by-name fallback.
-                match oms with
-                | ValueSome(ObjectMembers(memberDefns = mds)) ->
-                    for md in mds do
-                        stampMemberDefn md
-                | ValueNone -> ()
-            | TypeDefnElement.InterfaceSpec(InterfaceSpec(typ = t)) -> stampTypeHeads ctx t
-            | TypeDefnElement.Inherit(ClassInheritsDecl(typ = t)) -> stampTypeHeads ctx t
-
-        let stampClassPreamble (d: ClassFunctionOrValueDefn<SyntaxToken>) =
-            match d with
-            | ClassFunctionOrValueDefn.LetBindings(bindings = bs) ->
-                for b in bs do
-                    stampBindingSigTypes ctx b
-            | ClassFunctionOrValueDefn.Do _ -> ()
-
-        let stampBody (body: ObjectModelBody<SyntaxToken>) =
-            match body.inherits with
-            | ValueSome(ClassInheritsDecl(typ = t)) -> stampTypeHeads ctx t
-            | ValueNone -> ()
-
-            for d in body.classPreamble do
-                stampClassPreamble d
-
-            for el in body.elements do
-                stampTypeDefnElement el
-
-        let stampExtensions (ext: TypeExtensionElements<SyntaxToken> voption) =
-            match ext with
-            | ValueSome(TypeExtensionElements(elements = els)) ->
-                for el in els do
-                    stampTypeDefnElement el
-            | ValueNone -> ()
-
-        // A type header's typar-definition `when` clause (`type M<'F when 'F :> …>`)
-        // lives on its `TypeName` — either the `TyparDefns`' trailing constraint list
-        // or the separate `postfixConstraints`. Stamp both; the constraint bound is an
-        // external head no field/member/param stamper reaches.
-        let stampHeaderConstraints (tn: TypeName<SyntaxToken>) =
-            let (TypeName(typarDefns = tds; postfixConstraints = post)) = tn
-
-            match tds with
-            | ValueSome(TyparDefns(constraints = ValueSome cs)) -> stampTyparConstraints ctx cs
-            | _ -> ()
-
-            match post with
-            | ValueSome cs -> stampTyparConstraints ctx cs
-            | ValueNone -> ()
-
-        let stampTypeDefn (td: TypeDefn<SyntaxToken>) =
-            match td with
-            | TypeDefn.Abbrev(typeName = tn)
-            | TypeDefn.Record(typeName = tn)
-            | TypeDefn.Union(typeName = tn)
-            | TypeDefn.Anon(typeName = tn)
-            | TypeDefn.Class(typeName = tn)
-            | TypeDefn.Struct(typeName = tn)
-            | TypeDefn.Interface(typeName = tn)
-            | TypeDefn.Delegate(typeName = tn)
-            | TypeDefn.TypeExtension(typeName = tn)
-            | TypeDefn.Enum(typeName = tn)
-            | TypeDefn.AbstractType(typeName = tn) -> stampHeaderConstraints tn
-            | TypeDefn.Missing
-            | TypeDefn.SkipsTokens _ -> ()
-
-            match td with
-            | TypeDefn.Abbrev(typ = t; extensions = ext) ->
-                stampTypeHeads ctx t
-                stampExtensions ext
-            | TypeDefn.Record(fields = fs; extensions = ext) ->
-                for f in fs do
-                    stampRecordField f
-
-                stampExtensions ext
-            | TypeDefn.Union(cases = cs; extensions = ext) ->
-                for c in cs do
-                    stampUnionCase c
-
-                stampExtensions ext
-            | TypeDefn.Anon(primaryConstr = pc; body = body)
-            | TypeDefn.Class(primaryConstr = pc; body = body)
-            | TypeDefn.Struct(primaryConstr = pc; body = body) ->
-                // Primary-constructor parameter annotations (`type Point(x: int, …)`)
-                // are pattern-embedded; `stampPatCases` stamps their type heads.
-                match pc with
-                | ValueSome(PrimaryConstrArgs(pat = ValueSome p)) -> stampPatCases ctx p
-                | _ -> ()
-
-                stampBody body
-            | TypeDefn.Interface(body = body) -> stampBody body
-            | TypeDefn.Delegate(sign = DelegateSig(sign = s)) -> stampUncurriedSig ctx s
-            | TypeDefn.TypeExtension(elements = TypeExtensionElements(elements = els)) ->
-                for el in els do
-                    stampTypeDefnElement el
-            | TypeDefn.Enum _
-            | TypeDefn.AbstractType _
-            | TypeDefn.Missing
-            | TypeDefn.SkipsTokens _ -> ()
+        let it = stampTypeIter ctx
 
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
-                stampTypeDefn td
+                // The `inherit` clause is an ordinary head to the stamper (`CstWalk.iterType
+                // it`); a ctor-parameter pattern goes through `stampPatCases`, which stamps
+                // its annotation heads *and* the external union-case heads a pattern can
+                // carry. An interface-impl block's member signatures are reached through the
+                // shared enumeration — their return heads (`bool`/`IEnumerator<'T>`) are
+                // reachable from neither the body walk nor the interface-type head, and the
+                // read side has no by-name fallback.
+                CstWalk.iterTypeDefnTypes it (stampPatCases ctx) (CstWalk.iterType it) td
         | _ -> ()
 
     let private walkModuleElem
@@ -603,52 +470,27 @@ module NameResolution =
         (walker: CstWalk.ExprWalker<Scope list>)
         (elems: WalkedElem<SyntaxToken> list)
         =
-        // The compiled-module-name pre-scan. `moduleHolderName` (the `…Module` suffix
-        // rule) reads it, and the very first key minted below may be a module-held type's
-        // — so the whole unit's nominal name set must be fixed BEFORE the identity pass,
-        // not accumulated during it.
+        // The whole-unit type-name pre-scan. It is the only scan that must see a type
+        // before the registration scan reaches it: `moduleHolderName` (the `…Module`
+        // suffix rule) reads `NominalTypeNames` at the very first key mint, and
+        // `checkTypesInScope` reads `UnitTypeNames` to tell a reference to a type declared
+        // BELOW from a reference to an external one.
         for w in elems do
             noteNominalTypeNames ctx w.Elem
 
-        // Identity pre-pass: claim every type's `(name, arity)` and mint its `SymbolKey`,
-        // in SOURCE order and regardless of kind. The element's `Containment` (namespace +
-        // enclosing modules) rides into the minted key. This is the only pass that may
-        // diagnose a duplicate type definition, and the only one that mints a local type
-        // key — so the kind-detail passes below carry neither obligation and cannot drift
-        // apart on either.
+        // Type registration, top-down. F# type scoping is file-ordered — a type sees what
+        // is declared above it plus its own `type … and …` group — and `ModuleElem.Type`
+        // IS that group, so registering one group at a time in source order makes the rule
+        // structural rather than checked: when a group registers, the name table holds
+        // every type above it and nothing below. The element's `Containment` (namespace +
+        // enclosing modules) rides into each minted key; its `Scope` is the `open` set the
+        // group's written heads resolve against.
         for w in elems do
-            registerTypeIdentities ctx w.Containment w.Elem
-
-        // Kind-detail passes: fields, cases, enum case names, class members / ctor params.
-        // Each is driven off the ACCEPTED claims (`ctx.Types.ClaimedTypeDefns`, in source
-        // order) and is handed the identity it registers under, so a rejected duplicate is
-        // never presented to a registrar and no registrar re-derives a name / arity / key.
-        // Identity is already established for EVERY type, so these are order-insensitive
-        // with one exception that is load-bearing: unions must finish before classes,
-        // because a class's `static let` runs `bindingsOfPat`, whose ctor-vs-binder
-        // disambiguation reads `ctx.Types.CtorIndex`. Registration resolves no external
-        // short names, so it ignores the per-element scope.
-        registerRecordTypes ctx
-        registerUnionTypes ctx
-        registerEnumTypes ctx
-        registerAbbreviationTypes ctx
-        registerClassTypes ctx
-
-        // An `interface … end` declares no type to register — its eq/comp attributes are
-        // still illegal, so the kind-legality check runs over the CST.
-        for w in elems do
-            validateInterfaceTypes ctx w.Elem
-
-        // Inheritance: stamp each class's BaseType / BaseCtorArgs after
-        // every class is registered (so a parent declared later resolves), then
-        // sweep for cycles once the whole graph is populated.
-        registerInheritedSlots ctx
-
-        checkInheritanceCycles ctx
-
-        // Union/record augmentation members + interface impls register after the type
-        // itself.
-        registerNominalMembers ctx
+            match w.Elem with
+            | ModuleElem.Type defs ->
+                ctx.Resolution.OpenScope <- w.Scope
+                registerGroup ctx w.Containment defs
+            | _ -> ()
 
         // Stamp the written external type heads in each type definition's structure
         // (fields, member sigs, inherit, interface, abbrev RHS, delegate) under the

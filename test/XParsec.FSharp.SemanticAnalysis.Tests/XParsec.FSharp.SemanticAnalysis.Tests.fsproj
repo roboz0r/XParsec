@@ -53,6 +53,7 @@
     <Compile Include="ResolverAllowlistTests.fs" />
     <Compile Include="SecondaryCtorParamTypesTests.fs" />
     <Compile Include="DuplicateTypeNameTests.fs" />
+    <Compile Include="TypeScopeOrderTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

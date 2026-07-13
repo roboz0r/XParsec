@@ -28,10 +28,11 @@ type TypeDeclKind =
     | IntrinsicRepr
 
 /// The nominal identity of one type declaration — everything about it that is NOT
-/// kind-specific. Established for every type in ONE file-order pass
-/// (`NameResolutionTypeRegistration.registerTypeIdentities`) before any per-kind
-/// registrar runs, so the local `SymbolKey` has exactly one mint site and duplicate
-/// detection is one predicate over one table.
+/// kind-specific. Established by `NameResolutionTypeRegistration.claimTypeIdentity` for
+/// every member of a `type … and …` group before any of the group's per-kind registrars
+/// run, so the local `SymbolKey` has exactly one mint site, duplicate detection is one
+/// predicate over one table, and an intra-group reference that needs only a key and an
+/// arity is answerable the moment it is seen.
 type TypeIdentity =
     {
         /// The short name as written (no arity suffix — `Key.Name` carries that).
@@ -50,11 +51,10 @@ type TypeIdentity =
     }
 
 /// An ACCEPTED type declaration: the identity its claim established, paired with the CST
-/// it was claimed from. Retained in source order (`PassContextTypes.ClaimedTypeDefns`)
-/// and is THE input to every per-kind detail registrar — a registrar is HANDED its
-/// `TypeIdentity` rather than re-deriving name / arity / key from the CST, so its idea of
-/// the type cannot drift from the claim's, and a REJECTED duplicate (which never enters
-/// this list) can never reach a registrar at all.
+/// it was claimed from. THE input to every per-kind detail registrar — a registrar is
+/// HANDED its `TypeIdentity` rather than re-deriving name / arity / key from the CST, so
+/// its idea of the type cannot drift from the claim's, and a REJECTED duplicate (which is
+/// never claimed) can never reach a registrar at all.
 [<NoEquality; NoComparison>]
 type ClaimedTypeDefn =
     {
@@ -176,15 +176,22 @@ type PassContextTypes =
         /// may be held by at most one type of any kind — so duplicate detection is one
         /// predicate (`isTypeClaimed`) over this one table, and a kind added later cannot
         /// be wired into some guards and forgotten in others. Populated in source order by
-        /// `NameResolutionTypeRegistration.registerTypeIdentities`, which is also the sole
-        /// mint site of a project-local type `SymbolKey`.
+        /// `NameResolutionTypeRegistration.claimTypeIdentity`, which is also the sole mint
+        /// site of a project-local type `SymbolKey`.
+        ///
+        /// While the top-down registration scan is running, this table holds exactly the
+        /// types IN SCOPE at the group being registered: every type declared above it, plus
+        /// its own `type … and …` group (all of whose names are claimed before any of its
+        /// detail registers). That is F#'s file-order type scoping, and it is why a
+        /// registration-time miss against this table is a genuine "not defined" — see
+        /// `UnitTypeNames`.
         TypeClaims: Dictionary<string, ResizeArray<TypeIdentity>>
         /// Every ACCEPTED type declaration of this unit, in SOURCE order, with the identity
         /// its claim established. Co-populated with `TypeClaims` (one write, `claimType`),
         /// so the list and the name table cannot disagree about which declarations were
-        /// accepted. The per-kind detail registrars iterate THIS, not the CST: they are
-        /// handed an identity instead of re-deriving one, and a rejected duplicate is
-        /// absent from the list rather than gated out inside each registrar.
+        /// accepted. The accepted / rejected pair below it is the whole record of what the
+        /// registration scan decided about each `type` in the file; both are observability
+        /// only — the registrars are driven from the group being registered, not from here.
         ClaimedTypeDefns: ResizeArray<ClaimedTypeDefn>
         /// The type declarations rejected as duplicates, in source order. Observability
         /// only — see `RejectedTypeDefn`; nothing downstream may read it.
@@ -202,6 +209,17 @@ type PassContextTypes =
         /// So the set is filled by one sweep of the whole unit BEFORE the first key is
         /// minted, from the same `tryDeclaredTypeName` the claims come from.
         NominalTypeNames: HashSet<string>
+        /// EVERY type short name this unit declares, of every kind — the whole-file set,
+        /// fixed by the same pre-scan that fills `NominalTypeNames` and never added to
+        /// afterwards.
+        ///
+        /// `TypeClaims` is the VISIBLE set (it grows in file order as the top-down scan
+        /// reaches each group); this is the DECLARED set. A written name in this set but
+        /// not yet in `TypeClaims` is therefore declared BELOW the reference — out of scope
+        /// under F#'s file-order rule, and the one thing distinguishable at registration
+        /// time from a name this unit simply does not declare (which resolves externally,
+        /// or not at all, exactly as before).
+        UnitTypeNames: HashSet<string>
         /// Uniqueness witness for project-local `SymbolKey`s.
         /// Maps each minted type `TypeKey` → the decl-site
         /// `NodeKey` that first minted it. Stamped through `TypeRegistry.recordKeyOrigin`
@@ -235,6 +253,7 @@ module PassContextTypes =
             ClaimedTypeDefns = ResizeArray<_>()
             RejectedDuplicates = ResizeArray<_>()
             NominalTypeNames = HashSet<_>()
+            UnitTypeNames = HashSet<_>()
             SymbolKeyOrigins = Dictionary<_, _>()
         }
 
@@ -395,10 +414,20 @@ module TypeRegistry =
     let isTypeClaimed (types: PassContextTypes) (name: string) (arity: int) : bool =
         (tryTypeClaim types name arity).IsSome
 
-    /// Does any declaration claim `name` at SOME arity — i.e. is this name a
-    /// project-local type at all? For diagnostics that must tell "not a class" from
-    /// "unknown type".
-    let isTypeNameDeclared (types: PassContextTypes) (name: string) : bool = types.TypeClaims.ContainsKey name
+    /// Does any claim IN SCOPE hold `name` at SOME arity — i.e. is this name a
+    /// project-local type visible from where the registration scan currently is? For
+    /// diagnostics that must tell "not a class" from "unknown type".
+    let isTypeNameInScope (types: PassContextTypes) (name: string) : bool = types.TypeClaims.ContainsKey name
+
+    /// Does this unit declare `name` ANYWHERE, at any arity, of any kind
+    /// (`UnitTypeNames`)? Fixed by the pre-scan, so it answers for a type the top-down
+    /// registration scan has not reached yet — which, paired with `isTypeNameInScope`, is
+    /// how a forward reference is told apart from an external name.
+    let isTypeNameDeclaredInUnit (types: PassContextTypes) (name: string) : bool = types.UnitTypeNames.Contains name
+
+    /// Note a type short name into the whole-unit declared set (`UnitTypeNames`). Called
+    /// by the pre-scan, alongside `noteNominalTypeName`.
+    let noteUnitTypeName (types: PassContextTypes) (name: string) : unit = types.UnitTypeNames.Add name |> ignore
 
     /// Note a record / union / class short name (`NominalTypeNames`). Called by the
     /// pre-scan that runs ahead of the identity pass; see the field's doc.

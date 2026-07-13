@@ -181,7 +181,7 @@ module NameResolutionTypeHeadStamp =
     /// unstamped; `translateType` then takes its local-registry / opaque / `TyVar`
     /// paths. An abbrev head stamps its OWN key (the resolver's `keyOf` returns it);
     /// `translateType` dealiases on read.
-    let private stampTypeIter (ctx: PassContext) : CstWalk.TypeIter =
+    let stampTypeIter (ctx: PassContext) : CstWalk.TypeIter =
         { CstWalk.identityTypeIter with
             VisitType =
                 fun _ t ->

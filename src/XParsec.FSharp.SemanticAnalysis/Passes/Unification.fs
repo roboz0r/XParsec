@@ -744,7 +744,7 @@ module Unification =
     /// from `info.BaseType`'s already-translated `TyClass` args. Errors attach at
     /// the base-ctor-args expression and don't cascade into member-body inference.
     /// No-op for parent-less classes and for parents not in `ctx.Types.Class`
-    /// (`registerInheritedSlots` already diagnosed those).
+    /// (`registerInheritedSlot` already diagnosed those).
     let private fillBaseCtorCall (ctx: PassContext) (info: ClassTypeInfo) : unit =
         match info.BaseType, info.BaseCtorArgs with
         | ValueSome(TyClass(baseKey, baseArgs)), ValueSome argExpr ->
@@ -799,7 +799,7 @@ module Unification =
     /// Mint the `base` TyVar pre-linked to the parent's instantiated
     /// `TyClass` and seed `ctx.Bindings.TypeVar` at `info.BaseKey`, mirroring the
     /// `this` mint in `fillTypeMembers`. `info.BaseType` is already substituted
-    /// under the derived class's typar scope by `registerInheritedSlots`, so it
+    /// under the derived class's typar scope by `registerInheritedSlot`, so it
     /// links directly. No-op for parent-less classes.
     let private mintBaseTyVar (ctx: PassContext) (info: ClassTypeInfo) : unit =
         match info.BaseType with
