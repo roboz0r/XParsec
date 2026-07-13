@@ -161,8 +161,8 @@ module NameResolutionTypeRegistration =
     /// across the compilation. The key's holder chain is the declaring containment
     /// threaded from the module walk, so the key names exactly where the type was
     /// declared. THE sole mint site: called once per accepted claim from
-    /// `registerTypeIdentities`, which hands the key to the per-kind registrar via
-    /// `TypeRegistry.tryOwnIdentity`.
+    /// `registerTypeIdentities`, which hands the key to the per-kind registrar on the
+    /// declaration's `TypeIdentity`.
     ///
     /// The collision branch is an INTERNAL-ERROR BACKSTOP, unreachable from source today
     /// and deliberately kept. Unreachable because the name-table claim `(name, arity)` is
@@ -261,8 +261,9 @@ module NameResolutionTypeRegistration =
     ///     forgotten in others, which is exactly how `enum` slipped past the abbreviation
     ///     and class registrars;
     ///   * the local `SymbolKey` has exactly ONE mint site (`stampLocalTypeKey`);
-    ///   * the per-kind registrars stop owning duplicate detection — each opens with
-    ///     `TypeRegistry.tryOwnIdentity`, which is both the gate and the key source.
+    ///   * the per-kind registrars stop owning duplicate detection — each is driven off
+    ///     the accepted claims (`ClaimedTypeDefns`) and handed the identity it needs, so a
+    ///     rejected duplicate is never presented to one.
     /// Order-insensitive by construction: identity carries no field/case/member types (those
     /// start as placeholder TyVars that Unification's fill pre-passes Link later), so a type
     /// may reference another declared anywhere in the file.
@@ -279,14 +280,17 @@ module NameResolutionTypeRegistration =
                 | ValueSome(tn, kind) ->
                     let (TypeName(ident = nameLi)) = tn
 
+                    // A dotted / empty declared name claims nothing — and so, being absent
+                    // from `ClaimedTypeDefns`, reaches no registrar. THE one place the
+                    // single-ident shape of a declared type name is tested.
                     if nameLi.Idents.Length = 1 then
                         let nameTok = nameLi.Idents.[0]
                         let name = ctx.NameOf nameTok
                         let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
 
                         // An enum is non-generic: it claims its name at arity 0 whatever
-                        // typars were (illegally) written on it, matching the arity-0 key
-                        // its registrar mints.
+                        // typars were (illegally) written on it. THE one statement of the
+                        // rule — the enum registrar reads its arity off the claim.
                         let arity =
                             match kind with
                             | TypeDeclKind.Enum -> 0
@@ -300,15 +304,32 @@ module NameResolutionTypeRegistration =
                                     Code = ""
                                     Severity = Severity.Error
                                 }
-                        else
-                            TypeRegistry.claimTypeName
+
+                            // The first claimant keeps the name and this declaration
+                            // registers nothing — it is not in `ClaimedTypeDefns`, so no
+                            // registrar can reach it and no `SymbolKey` is minted for it.
+                            TypeRegistry.rejectDuplicateType
                                 ctx.Types
                                 {
                                     Name = name
                                     Arity = arity
                                     Kind = kind
                                     DeclKey = declKey
-                                    Key = stampLocalTypeKey ctx declKey c name arity
+                                    Defn = td
+                                }
+                        else
+                            TypeRegistry.claimType
+                                ctx.Types
+                                {
+                                    Identity =
+                                        {
+                                            Name = name
+                                            Arity = arity
+                                            Kind = kind
+                                            DeclKey = declKey
+                                            Key = stampLocalTypeKey ctx declKey c name arity
+                                        }
+                                    Defn = td
                                 }
 
                             // Contract-source an intrinsic binding's identity: mint its
@@ -331,95 +352,84 @@ module NameResolutionTypeRegistration =
                                 ctx.Types.IntrinsicKeys.[name] <- SymbolKeyOps.typeKey None c.Namespace name
         | _ -> ()
 
-    let private registerRecordTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
+    let private registerRecordTypeDefn (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Record(typeName = tn; fields = fields) ->
-            let (TypeName(ident = nameLi)) = tn
+            let name = id.Name
+            let declKey = id.DeclKey
+            let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
 
-            if nameLi.Idents.Length <> 1 then
-                ()
-            else
+            let fieldInfos =
+                [|
+                    for f in fields do
+                        let (RecordField(mutableToken = mt; ident = fid)) = f
+                        let fName = ctx.NameOf fid
+                        // Placeholder TyVar (not TyConst) so Unification can
+                        // Link the real type later via existing machinery.
+                        let tv = TypeVar()
+                        tv.Level <- 0
+                        yield RecordFieldInfo(fName, TyVar tv, mt.IsSome, NodeKey.ofToken fid NodeKind.DeclType)
+                |]
 
-                let nameTok = nameLi.Idents.[0]
-                let name = ctx.NameOf nameTok
-                let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
-                let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
+            let info =
+                RecordTypeInfo(name, typeParams, fieldInfos, declKey, typarConstraintsOfTypeName tn, id.Key)
 
-                match TypeRegistry.tryOwnIdentity ctx.Types name typeParams.Length declKey with
-                | ValueNone -> ()
-                | ValueSome { Key = key } ->
-                    let fieldInfos =
-                        [|
-                            for f in fields do
-                                let (RecordField(mutableToken = mt; ident = id)) = f
-                                let fName = ctx.NameOf id
-                                // Placeholder TyVar (not TyConst) so Unification can
-                                // Link the real type later via existing machinery.
-                                let tv = TypeVar()
-                                tv.Level <- 0
-                                yield RecordFieldInfo(fName, TyVar tv, mt.IsSome, NodeKey.ofToken id NodeKind.DeclType)
-                        |]
+            // Validate the equality / comparison attributes against the
+            // record kind (FS0382 / FS0377) and read the resolved verdicts.
+            let eqV, cmpV =
+                Attributes.validateEqCompAttributes
+                    ctx
+                    Attributes.EqCompTargetKind.Record
+                    declKey
+                    (Attributes.attributesOfTypeName tn)
 
-                    let info =
-                        RecordTypeInfo(name, typeParams, fieldInfos, declKey, typarConstraintsOfTypeName tn, key)
+            // Explicit equality attribute wins; absent, the default
+            // ⇒ Structural when every field is immutable,
+            // Reference otherwise. Feeds Unification.checkConstraint and the
+            // codegen triple gate (Elaborate copies it onto EqualitySupport).
+            info.EqualitySupport <-
+                match eqV with
+                | ValueSome v -> v
+                | ValueNone ->
+                    if fieldInfos |> Array.forall (fun fi -> not fi.IsMutable) then
+                        EqualityVerdict.Structural
+                    else
+                        EqualityVerdict.Reference
 
-                    // Validate the equality / comparison attributes against the
-                    // record kind (FS0382 / FS0377) and read the resolved verdicts.
-                    let eqV, cmpV =
-                        Attributes.validateEqCompAttributes
-                            ctx
-                            Attributes.EqCompTargetKind.Record
-                            nameTok
-                            (Attributes.attributesOfTypeName tn)
+            // Comparison defaults to NoComparison, explicit attribute overrides.
+            info.ComparisonSupport <-
+                match cmpV with
+                | ValueSome v -> v
+                | ValueNone -> ComparisonVerdict.NoComparison
 
-                    // Explicit equality attribute wins; absent, the default
-                    // ⇒ Structural when every field is immutable,
-                    // Reference otherwise. Feeds Unification.checkConstraint and the
-                    // codegen triple gate (Elaborate copies it onto EqualitySupport).
-                    info.EqualitySupport <-
-                        match eqV with
-                        | ValueSome v -> v
-                        | ValueNone ->
-                            if fieldInfos |> Array.forall (fun fi -> not fi.IsMutable) then
-                                EqualityVerdict.Structural
-                            else
-                                EqualityVerdict.Reference
+            rejectCustomOnDataType ctx declKey info.EqualitySupport info.ComparisonSupport
 
-                    // Comparison defaults to NoComparison, explicit attribute overrides.
-                    info.ComparisonSupport <-
-                        match cmpV with
-                        | ValueSome v -> v
-                        | ValueNone -> ComparisonVerdict.NoComparison
+            TypeRegistry.registerRecord ctx.Types info
 
-                    rejectCustomOnDataType ctx declKey info.EqualitySupport info.ComparisonSupport
+            // Stamp the decl-site key so `Elaborate.tryRecordType` resolves this
+            // record by its arity-qualified `SymbolKey` (via `tryRecordByKey`),
+            // not the bare name — an arity-overloaded record (`Point`2`/`Point`3`)
+            // does not resolve by bare name. Mirrors the union/enum decl-site stamp.
+            ctx.Resolution.ResolvedType.Set(declKey, info.Key)
 
-                    TypeRegistry.registerRecord ctx.Types info
+            for fi in fieldInfos do
+                match ctx.Types.FieldIndex.TryGetValue fi.Name with
+                | true, infos ->
+                    let buf = ResizeArray(infos.Length + 1)
+                    buf.Add info
 
-                    // Stamp the decl-site key so `Elaborate.tryRecordType` resolves this
-                    // record by its arity-qualified `SymbolKey` (via `tryRecordByKey`),
-                    // not the bare name — an arity-overloaded record (`Point`2`/`Point`3`)
-                    // does not resolve by bare name. Mirrors the union/enum decl-site stamp.
-                    ctx.Resolution.ResolvedType.Set(declKey, SymbolKey.Type key)
+                    for i in infos do
+                        buf.Add i
 
-                    for fi in fieldInfos do
-                        match ctx.Types.FieldIndex.TryGetValue fi.Name with
-                        | true, infos ->
-                            let buf = ResizeArray(infos.Length + 1)
-                            buf.Add info
-
-                            for i in infos do
-                                buf.Add i
-
-                            ctx.Types.FieldIndex.[fi.Name] <- EqArray.ofResizeArray buf
-                        | false, _ -> ctx.Types.FieldIndex.[fi.Name] <- EqArray.singleton info
+                    ctx.Types.FieldIndex.[fi.Name] <- EqArray.ofResizeArray buf
+                | false, _ -> ctx.Types.FieldIndex.[fi.Name] <- EqArray.singleton info
         | _ -> ()
 
-    let registerRecordTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
-        match m with
-        | ModuleElem.Type defs ->
-            for td in defs do
-                registerRecordTypeDefn ctx td
-        | _ -> ()
+    let registerRecordTypes (ctx: PassContext) : unit =
+        for c in ctx.Types.ClaimedTypeDefns do
+            match c.Identity.Kind with
+            | TypeDeclKind.Record -> registerRecordTypeDefn ctx c.Identity c.Defn
+            | _ -> ()
 
     /// Map a union-case head to its case name. Delegates to the shared
     /// `OperatorNames.unionCaseCtorName` (the operator-named cases that matter are
@@ -477,99 +487,89 @@ module NameResolutionTypeRegistration =
             else
                 ValueSome(n, specs.Length, gadtNames specs)
 
-    let private registerUnionTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
+    let private registerUnionTypeDefn (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Union(typeName = tn; cases = cases) ->
-            let (TypeName(ident = nameLi)) = tn
+            let name = id.Name
+            let declKey = id.DeclKey
+            let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
+            // Generic arity overloads the short name (`Choice\`2`…`Choice\`7`), so the
+            // claim — and with it the registry key and every `UnionCaseInfo`'s owner
+            // arity — is arity-qualified.
+            let typeArity = id.Arity
 
-            if nameLi.Idents.Length <> 1 then
-                ()
-            else
+            let caseInfos =
+                [|
+                    for UnionTypeCase(data = data) in cases do
+                        match inspectCaseData ctx data with
+                        | ValueSome(caseName, arity, fieldNames) ->
+                            let fieldTys =
+                                Array.init
+                                    arity
+                                    (fun _ ->
+                                        let tv = TypeVar()
+                                        tv.Level <- 0
+                                        TyVar tv
+                                    )
 
-                let nameTok = nameLi.Idents.[0]
-                let name = ctx.NameOf nameTok
-                let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
-                let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
-                // Generic arity overloads the short name (`Choice\`2`…`Choice\`7`),
-                // so the claim and the registry key are arity-qualified.
-                let typeArity = typeParams.Length
+                            yield UnionCaseInfo(caseName, name, typeArity, fieldTys, fieldNames, declKey)
+                        | ValueNone -> ()
+                |]
 
-                match TypeRegistry.tryOwnIdentity ctx.Types name typeArity declKey with
-                | ValueNone -> ()
-                | ValueSome { Key = key } ->
-                    let caseInfos =
-                        [|
-                            for UnionTypeCase(data = data) in cases do
-                                match inspectCaseData ctx data with
-                                | ValueSome(caseName, arity, fieldNames) ->
-                                    let fieldTys =
-                                        Array.init
-                                            arity
-                                            (fun _ ->
-                                                let tv = TypeVar()
-                                                tv.Level <- 0
-                                                TyVar tv
-                                            )
+            let info =
+                UnionTypeInfo(name, typeParams, caseInfos, declKey, typarConstraintsOfTypeName tn, id.Key)
 
-                                    yield UnionCaseInfo(caseName, name, typeArity, fieldTys, fieldNames, declKey)
-                                | ValueNone -> ()
-                        |]
+            // Validate the equality / comparison attributes against the
+            // union kind (FS0382 / FS0377) and read the resolved verdicts.
+            let eqV, cmpV =
+                Attributes.validateEqCompAttributes
+                    ctx
+                    Attributes.EqCompTargetKind.Union
+                    declKey
+                    (Attributes.attributesOfTypeName tn)
 
-                    let info =
-                        UnionTypeInfo(name, typeParams, caseInfos, declKey, typarConstraintsOfTypeName tn, key)
+            // Union equality defaults to Structural, explicit attribute overrides.
+            info.EqualitySupport <-
+                match eqV with
+                | ValueSome v -> v
+                | ValueNone -> EqualityVerdict.Structural
 
-                    // Validate the equality / comparison attributes against the
-                    // union kind (FS0382 / FS0377) and read the resolved verdicts.
-                    let eqV, cmpV =
-                        Attributes.validateEqCompAttributes
-                            ctx
-                            Attributes.EqCompTargetKind.Union
-                            nameTok
-                            (Attributes.attributesOfTypeName tn)
+            // Comparison defaults to NoComparison, explicit attribute overrides.
+            info.ComparisonSupport <-
+                match cmpV with
+                | ValueSome v -> v
+                | ValueNone -> ComparisonVerdict.NoComparison
 
-                    // Union equality defaults to Structural, explicit attribute overrides.
-                    info.EqualitySupport <-
-                        match eqV with
-                        | ValueSome v -> v
-                        | ValueNone -> EqualityVerdict.Structural
+            rejectCustomOnDataType ctx declKey info.EqualitySupport info.ComparisonSupport
 
-                    // Comparison defaults to NoComparison, explicit attribute overrides.
-                    info.ComparisonSupport <-
-                        match cmpV with
-                        | ValueSome v -> v
-                        | ValueNone -> ComparisonVerdict.NoComparison
+            TypeRegistry.registerUnion ctx.Types info
 
-                    rejectCustomOnDataType ctx declKey info.EqualitySupport info.ComparisonSupport
+            // Record the decl-site identity
+            // so the type-decl emitter (`Elaborate.tryUnionType`) recovers the
+            // union by key rather than re-deriving `(name, arity)`. `info.Key`
+            // is the arity-qualified `TypeKey(None, declNs, name\`arity)`; this
+            // stamp is co-populated with `ctx.Types.Union`, so the emitter's key
+            // lookup is exactly as total as a `(name, arity)` one.
+            ctx.Resolution.ResolvedType.Set(declKey, info.Key)
 
-                    TypeRegistry.registerUnion ctx.Types info
+            for c in caseInfos do
+                match ctx.Types.CtorIndex.TryGetValue c.Name with
+                | true, infos ->
+                    let buf = ResizeArray(infos.Length + 1)
+                    buf.Add c
 
-                    // Record the decl-site identity
-                    // so the type-decl emitter (`Elaborate.tryUnionType`) recovers the
-                    // union by key rather than re-deriving `(name, arity)`. `info.Key`
-                    // is the arity-qualified `TypeKey(None, declNs, name\`arity)`; this
-                    // stamp is co-populated with `ctx.Types.Union`, so the emitter's key
-                    // lookup is exactly as total as the former `(name, arity)` one.
-                    ctx.Resolution.ResolvedType.Set(declKey, info.Key)
+                    for i in infos do
+                        buf.Add i
 
-                    for c in caseInfos do
-                        match ctx.Types.CtorIndex.TryGetValue c.Name with
-                        | true, infos ->
-                            let buf = ResizeArray(infos.Length + 1)
-                            buf.Add c
-
-                            for i in infos do
-                                buf.Add i
-
-                            ctx.Types.CtorIndex.[c.Name] <- EqArray.ofResizeArray buf
-                        | false, _ -> ctx.Types.CtorIndex.[c.Name] <- EqArray.singleton c
+                    ctx.Types.CtorIndex.[c.Name] <- EqArray.ofResizeArray buf
+                | false, _ -> ctx.Types.CtorIndex.[c.Name] <- EqArray.singleton c
         | _ -> ()
 
-    let registerUnionTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
-        match m with
-        | ModuleElem.Type defs ->
-            for td in defs do
-                registerUnionTypeDefn ctx td
-        | _ -> ()
+    let registerUnionTypes (ctx: PassContext) : unit =
+        for c in ctx.Types.ClaimedTypeDefns do
+            match c.Identity.Kind with
+            | TypeDeclKind.Union -> registerUnionTypeDefn ctx c.Identity c.Defn
+            | _ -> ()
 
     /// Register an enum's nominal identity + case-name set so a `(x: E)` annotation
     /// resolves to `TyEnum Key` (in `translateType`) and a qualified `E.C1` access
@@ -578,61 +578,49 @@ module NameResolutionTypeRegistration =
     /// later by `Elaborate.tryEnumType` (the only stage with the literal readers in
     /// compile order) and ride the surfaced `TTypeKind.Enum` node. The minted `Key`
     /// is stamped at the decl site into `ResolvedType`, mirroring `registerUnionTypeDefn`.
-    let private registerEnumTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
+    let private registerEnumTypeDefn (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
-        | TypeDefn.Enum(typeName = tn; cases = cases) ->
-            let (TypeName(ident = nameLi)) = tn
+        | TypeDefn.Enum(cases = cases) ->
+            let name = id.Name
+            let declKey = id.DeclKey
+            let caseNames = [| for EnumTypeCase(ident = cid) in cases -> ctx.NameOf cid |]
 
-            if nameLi.Idents.Length <> 1 then
-                ()
-            else
-                let nameTok = nameLi.Idents.[0]
-                let name = ctx.NameOf nameTok
-                let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
+            // The case VALUES, but ONLY when EVERY case is a string literal —
+            // the literal-union admission (`subsumes`) runs before Elaborate
+            // resolves the full case table, so read the string form here
+            // through the SAME `StringLiterals.tryEnumCaseStringLiteral`
+            // projection `Elaborate.resolveEnumCaseValue` uses (peels a
+            // value-grouping paren, decodes escapes, admits verbatim/triple),
+            // so a legal `| A = ("auto")` is not silently declined. A single
+            // non-string case ⇒ `ValueNone` (the admission then declines and
+            // the enum stays a plain nominal).
+            let caseStringValues =
+                let vals =
+                    [|
+                        for EnumTypeCase(constValue = v) in cases do
+                            match StringLiterals.tryEnumCaseStringLiteral ctx v with
+                            | ValueSome s -> yield s
+                            | ValueNone -> ()
+                    |]
 
-                // Enums are non-generic, so the claim — and the minted key — are at arity 0.
-                match TypeRegistry.tryOwnIdentity ctx.Types name 0 declKey with
-                | ValueNone -> ()
-                | ValueSome { Key = key } ->
-                    let caseNames = [| for EnumTypeCase(ident = id) in cases -> ctx.NameOf id |]
+                if vals.Length = cases.Length && cases.Length > 0 then
+                    ValueSome vals
+                else
+                    ValueNone
 
-                    // The case VALUES, but ONLY when EVERY case is a string literal —
-                    // the literal-union admission (`subsumes`) runs before Elaborate
-                    // resolves the full case table, so read the string form here
-                    // through the SAME `StringLiterals.tryEnumCaseStringLiteral`
-                    // projection `Elaborate.resolveEnumCaseValue` uses (peels a
-                    // value-grouping paren, decodes escapes, admits verbatim/triple),
-                    // so a legal `| A = ("auto")` is not silently declined. A single
-                    // non-string case ⇒ `ValueNone` (the admission then declines and
-                    // the enum stays a plain nominal).
-                    let caseStringValues =
-                        let vals =
-                            [|
-                                for EnumTypeCase(constValue = v) in cases do
-                                    match StringLiterals.tryEnumCaseStringLiteral ctx v with
-                                    | ValueSome s -> yield s
-                                    | ValueNone -> ()
-                            |]
+            let info = EnumTypeInfo(name, caseNames, caseStringValues, declKey, id.Key)
+            TypeRegistry.registerEnum ctx.Types name info
 
-                        if vals.Length = cases.Length && cases.Length > 0 then
-                            ValueSome vals
-                        else
-                            ValueNone
-
-                    let info = EnumTypeInfo(name, caseNames, caseStringValues, declKey, key)
-                    TypeRegistry.registerEnum ctx.Types name info
-
-                    // Record the decl-site identity so `Elaborate.tryEnumType`
-                    // recovers the SAME key the annotation path resolves to.
-                    ctx.Resolution.ResolvedType.Set(declKey, info.Key)
+            // Record the decl-site identity so `Elaborate.tryEnumType`
+            // recovers the SAME key the annotation path resolves to.
+            ctx.Resolution.ResolvedType.Set(declKey, info.Key)
         | _ -> ()
 
-    let registerEnumTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
-        match m with
-        | ModuleElem.Type defs ->
-            for td in defs do
-                registerEnumTypeDefn ctx td
-        | _ -> ()
+    let registerEnumTypes (ctx: PassContext) : unit =
+        for c in ctx.Types.ClaimedTypeDefns do
+            match c.Identity.Kind with
+            | TypeDeclKind.Enum -> registerEnumTypeDefn ctx c.Identity c.Defn
+            | _ -> ()
 
     /// Stitch the inline-IL string of a `Type.ILIntrinsic` RHS
     /// (`(# "System.Int32" #)` → `"System.Int32"`). Mirrors Elaborate.stitchLiteralString.
@@ -658,103 +646,96 @@ module NameResolutionTypeRegistration =
     /// `TyConst name` rather than expanding the RHS. Other bodies are left
     /// unfilled; Unification's fillAbbreviationBodies forces each later, so an
     /// RHS can reference any other same-file type.
-    let private registerAbbreviationDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
+    let private registerAbbreviationDefn (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         match td with
         | TypeDefn.Abbrev(typeName = tn; typ = rhs; extensions = ext) ->
-            let (TypeName(ident = nameLi)) = tn
+            let name = id.Name
+            let declKey = id.DeclKey
+            let key = id.Key
+            let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
 
-            if nameLi.Idents.Length <> 1 then
-                ()
-            else
-
-                let nameTok = nameLi.Idents.[0]
-                let name = ctx.NameOf nameTok
-                let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
-                let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
-
-                match TypeRegistry.tryOwnIdentity ctx.Types name typeParams.Length declKey with
+            // An inline intrinsic-abbrev may carry a `with member …`
+            // augmentation (`type X = (# … #) with member …`) — but ONLY an
+            // ILIntrinsic RHS may. A transparent-alias abbrev with members
+            // (`type bad = int with member …`) is rejected here (F# rejects it
+            // too): the alias would have no distinct nominal identity to hang a
+            // member on. Registered as a host in `IntrinsicAbbrevHost` so the
+            // members name-resolve / type / elaborate on the shared host path,
+            // WITHOUT withdrawing the type from `IntrinsicReprTypes` (its
+            // `TyConst` identity is preserved at every other use site).
+            let registerMemberHostIfAny () =
+                match ext with
                 | ValueNone -> ()
-                | ValueSome { Key = key } ->
-                    // An inline intrinsic-abbrev may carry a `with member …`
-                    // augmentation (`type X = (# … #) with member …`) — but ONLY an
-                    // ILIntrinsic RHS may. A transparent-alias abbrev with members
-                    // (`type bad = int with member …`) is rejected here (F# rejects it
-                    // too): the alias would have no distinct nominal identity to hang a
-                    // member on. Registered as a host in `IntrinsicAbbrevHost` so the
-                    // members name-resolve / type / elaborate on the shared host path,
-                    // WITHOUT withdrawing the type from `IntrinsicReprTypes` (its
-                    // `TyConst` identity is preserved at every other use site).
-                    let registerMemberHostIfAny () =
-                        match ext with
-                        | ValueNone -> ()
-                        | ValueSome _ ->
-                            // The self-type key is the contract-sourced intrinsic identity
-                            // (`IntrinsicKeys.[name]`, stamped by the identity pass), routed
-                            // through the single `intrinsicKeyOf` resolver so `MkSelfType`
-                            // cannot diverge from the abbrev's use-site key on a non-`Vesper`
-                            // namespace.
-                            let selfKey = TypeRegistry.intrinsicKeyOf ctx.Types name
+                | ValueSome _ ->
+                    // The self-type key is the contract-sourced intrinsic identity
+                    // (`IntrinsicKeys.[name]`, stamped by the identity pass), routed
+                    // through the single `intrinsicKeyOf` resolver so `MkSelfType`
+                    // cannot diverge from the abbrev's use-site key on a non-`Vesper`
+                    // namespace.
+                    let selfKey = TypeRegistry.intrinsicKeyOf ctx.Types name
 
-                            ctx.Types.IntrinsicAbbrevHost.[name] <-
-                                IntrinsicAbbrevInfo(name, typeParams, declKey, key, selfKey)
+                    ctx.Types.IntrinsicAbbrevHost.[name] <- IntrinsicAbbrevInfo(name, typeParams, declKey, key, selfKey)
 
-                    match rhs with
-                    | Type.ILIntrinsic(kindTag = tag; instrParts = parts) ->
-                        ctx.Types.IntrinsicReprTypes.[name] <- ilIntrinsicString ctx parts
-                        registerMemberHostIfAny ()
+            match rhs with
+            | Type.ILIntrinsic(kindTag = tag; instrParts = parts) ->
+                ctx.Types.IntrinsicReprTypes.[name] <- ilIntrinsicString ctx parts
+                registerMemberHostIfAny ()
 
-                        match tag with
-                        // Untagged `(# "…" #)` — an opaque value repr, never a base.
-                        | ValueNone -> ()
-                        // A `class`-tagged intrinsic (`(# class "…" #)`) is a HERITABLE
-                        // external reference base, not an opaque value repr: record the
-                        // name so `resolveInheritParent` admits it as a parent.
-                        | ValueSome(ExternKind.Class _) -> ctx.Types.HeritableExternBases.Add name |> ignore
-                        // `(# interface "…" #)` parses (the AST carries the species for a
-                        // future `extends`-less InterfaceImpl path) but has no emit path
-                        // yet: an interface goes in `implements`, not the `extends` column,
-                        // and has no base `.ctor` to chain to. Reject it here rather than
-                        // let it fall through and mis-emit as a class base. Not added to
-                        // `HeritableExternBases`, so it can never reach codegen's base path.
-                        | ValueSome(ExternKind.Interface _) ->
-                            ctx.Diagnostics.Add
-                                {
-                                    Key = declKey
-                                    Message =
-                                        sprintf
-                                            "Heritable external interface base ('(# interface \"…\" #)') is not yet supported (type '%s'); only '(# class \"…\" #)' may be inherited"
-                                            name
-                                    Code = ""
-                                    Severity = Severity.Error
-                                }
-                    | _ ->
-                        // Guardrail: a transparent-alias abbrev cannot carry members.
-                        // Reject with a diagnostic and drop the augmentation; the alias
-                        // itself still registers so ordinary references keep resolving.
-                        match ext with
-                        | ValueSome _ ->
-                            ctx.Diagnostics.Add
-                                {
-                                    Key = declKey
-                                    Message =
-                                        sprintf
-                                            "Type abbreviation '%s' cannot carry augmentation members: only an inline-IL abbreviation ('type %s = (# \"…\" #) with member …') may declare members"
-                                            name
-                                            name
-                                    Code = ""
-                                    Severity = Severity.Error
-                                }
-                        | ValueNone -> ()
+                match tag with
+                // Untagged `(# "…" #)` — an opaque value repr, never a base.
+                | ValueNone -> ()
+                // A `class`-tagged intrinsic (`(# class "…" #)`) is a HERITABLE
+                // external reference base, not an opaque value repr: record the
+                // name so `resolveInheritParent` admits it as a parent.
+                | ValueSome(ExternKind.Class _) -> ctx.Types.HeritableExternBases.Add name |> ignore
+                // `(# interface "…" #)` parses (the AST carries the species for a
+                // future `extends`-less InterfaceImpl path) but has no emit path
+                // yet: an interface goes in `implements`, not the `extends` column,
+                // and has no base `.ctor` to chain to. Reject it here rather than
+                // let it fall through and mis-emit as a class base. Not added to
+                // `HeritableExternBases`, so it can never reach codegen's base path.
+                | ValueSome(ExternKind.Interface _) ->
+                    ctx.Diagnostics.Add
+                        {
+                            Key = declKey
+                            Message =
+                                sprintf
+                                    "Heritable external interface base ('(# interface \"…\" #)') is not yet supported (type '%s'); only '(# class \"…\" #)' may be inherited"
+                                    name
+                            Code = ""
+                            Severity = Severity.Error
+                        }
+            | _ ->
+                // Guardrail: a transparent-alias abbrev cannot carry members.
+                // Reject with a diagnostic and drop the augmentation; the alias
+                // itself still registers so ordinary references keep resolving.
+                match ext with
+                | ValueSome _ ->
+                    ctx.Diagnostics.Add
+                        {
+                            Key = declKey
+                            Message =
+                                sprintf
+                                    "Type abbreviation '%s' cannot carry augmentation members: only an inline-IL abbreviation ('type %s = (# \"…\" #) with member …') may declare members"
+                                    name
+                                    name
+                            Code = ""
+                            Severity = Severity.Error
+                        }
+                | ValueNone -> ()
 
-                        let info =
-                            AbbreviationInfo(name, typeParams, rhs, declKey, typarConstraintsOfTypeName tn, key)
+                let info =
+                    AbbreviationInfo(name, typeParams, rhs, declKey, typarConstraintsOfTypeName tn, key)
 
-                        TypeRegistry.registerAbbrev ctx.Types info
+                TypeRegistry.registerAbbrev ctx.Types info
         | _ -> ()
 
-    let registerAbbreviationTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
-        match m with
-        | ModuleElem.Type defs ->
-            for td in defs do
-                registerAbbreviationDefn ctx td
-        | _ -> ()
+    /// An `(# … #)` RHS claims `IntrinsicRepr` and every other RHS claims `Abbreviation`
+    /// (`tryDeclaredTypeName`); both are `TypeDefn.Abbrev` and both register here, the RHS
+    /// deciding which side table they land in.
+    let registerAbbreviationTypes (ctx: PassContext) : unit =
+        for c in ctx.Types.ClaimedTypeDefns do
+            match c.Identity.Kind with
+            | TypeDeclKind.Abbreviation
+            | TypeDeclKind.IntrinsicRepr -> registerAbbreviationDefn ctx c.Identity c.Defn
+            | _ -> ()

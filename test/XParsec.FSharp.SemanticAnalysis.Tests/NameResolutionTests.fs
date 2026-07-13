@@ -155,6 +155,50 @@ let tests =
                 Expect.isTrue hasDup "duplicate-type diagnostic emitted"
             }
 
+            // A registrar addresses its own type by the `TypeKey` on the identity it is
+            // handed, never by short name — a bare name does not address an arity-overloaded
+            // type, so a name lookup here would silently discard the declaration's `inherit`
+            // clause / `with member …` block. One test per registrar that has detail to
+            // write BACK onto an already-registered type.
+            test "every arity of an overloaded class gets its inherit clause" {
+                let ctx =
+                    analyse
+                        "type P() =\n    member this.V = 1\ntype D<'a>(x: 'a) =\n    inherit P()\n    member this.X = x\ntype D<'a, 'b>(x: 'a, y: 'b) =\n    inherit P()\n    member this.Y = y"
+
+                for arity in [ 1; 2 ] do
+                    match TypeRegistry.tryClassArity ctx.Types "D" arity with
+                    | ValueSome info -> Expect.isTrue info.BaseType.IsSome $"D`{arity} has a base type"
+                    | ValueNone -> failtest $"class D`{arity} not registered"
+            }
+
+            test "every arity of an overloaded record gets its augmentation members" {
+                let ctx =
+                    analyse
+                        "type R<'a> = { A: 'a }\n\n    member this.GetA = this.A\n\ntype R<'a, 'b> = { A2: 'a; B: 'b }\n\n    member this.GetB = this.B"
+
+                for arity, memberName in [ 1, "GetA"; 2, "GetB" ] do
+                    match TypeRegistry.tryRecordArity ctx.Types "R" arity with
+                    | ValueSome info ->
+                        Expect.isTrue
+                            (info.Members |> Array.exists (fun m -> m.Name = memberName))
+                            $"R`{arity} has member {memberName}"
+                    | ValueNone -> failtest $"record R`{arity} not registered"
+            }
+
+            test "every arity of an overloaded union gets its augmentation members" {
+                let ctx =
+                    analyse
+                        "type U<'a> =\n    | Ua of 'a\n\n    member this.GetA = 1\n\ntype U<'a, 'b> =\n    | Ub of 'a * 'b\n\n    member this.GetB = 2"
+
+                for arity, memberName in [ 1, "GetA"; 2, "GetB" ] do
+                    match TypeRegistry.tryUnion ctx.Types "U" arity with
+                    | ValueSome info ->
+                        Expect.isTrue
+                            (info.Members |> Array.exists (fun m -> m.Name = memberName))
+                            $"U`{arity} has member {memberName}"
+                    | ValueNone -> failtest $"union U`{arity} not registered"
+            }
+
             test "mutable field IsMutable is true" {
                 let ctx = analyse "type P = { X: int; mutable Y: int }"
 

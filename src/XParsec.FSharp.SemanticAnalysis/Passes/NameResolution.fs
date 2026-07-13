@@ -620,39 +620,35 @@ module NameResolution =
             registerTypeIdentities ctx w.Containment w.Elem
 
         // Kind-detail passes: fields, cases, enum case names, class members / ctor params.
-        // Each recovers its own identity by `TypeRegistry.tryOwnIdentity`, so a rejected
-        // duplicate registers nothing. Identity is already established for EVERY type, so
-        // these are order-insensitive with one exception that is load-bearing: unions must
-        // finish before classes, because a class's `static let` runs `bindingsOfPat`, whose
-        // ctor-vs-binder disambiguation reads `ctx.Types.CtorIndex`. Registration resolves
-        // no external short names, so it ignores the per-element scope.
-        for w in elems do
-            registerRecordTypes ctx w.Elem
+        // Each is driven off the ACCEPTED claims (`ctx.Types.ClaimedTypeDefns`, in source
+        // order) and is handed the identity it registers under, so a rejected duplicate is
+        // never presented to a registrar and no registrar re-derives a name / arity / key.
+        // Identity is already established for EVERY type, so these are order-insensitive
+        // with one exception that is load-bearing: unions must finish before classes,
+        // because a class's `static let` runs `bindingsOfPat`, whose ctor-vs-binder
+        // disambiguation reads `ctx.Types.CtorIndex`. Registration resolves no external
+        // short names, so it ignores the per-element scope.
+        registerRecordTypes ctx
+        registerUnionTypes ctx
+        registerEnumTypes ctx
+        registerAbbreviationTypes ctx
+        registerClassTypes ctx
 
+        // An `interface … end` declares no type to register — its eq/comp attributes are
+        // still illegal, so the kind-legality check runs over the CST.
         for w in elems do
-            registerUnionTypes ctx w.Elem
+            validateInterfaceTypes ctx w.Elem
 
-        for w in elems do
-            registerEnumTypes ctx w.Elem
-
-        for w in elems do
-            registerAbbreviationTypes ctx w.Elem
-
-        for w in elems do
-            registerClassTypes ctx w.Elem
-
-        // Inheritance (B-4): stamp each class's BaseType / BaseCtorArgs after
+        // Inheritance: stamp each class's BaseType / BaseCtorArgs after
         // every class is registered (so a parent declared later resolves), then
         // sweep for cycles once the whole graph is populated.
-        for w in elems do
-            registerInheritedSlots ctx w.Elem
+        registerInheritedSlots ctx
 
         checkInheritanceCycles ctx
 
         // Union/record augmentation members + interface impls register after the type
-        // itself (P3d.3).
-        for w in elems do
-            registerNominalMembers ctx w.Elem
+        // itself.
+        registerNominalMembers ctx
 
         // Stamp the written external type heads in each type definition's structure
         // (fields, member sigs, inherit, interface, abbrev RHS, delegate) under the

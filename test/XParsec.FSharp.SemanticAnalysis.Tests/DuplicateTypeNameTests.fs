@@ -89,6 +89,37 @@ let tests =
                     "generic abbrev, generic abbrev of another arity", "type Foo<'a> = 'a\ntype Foo<'a, 'b> = 'a * 'b"
                 ] -> test $"{kinds} of the same name coexist" { expectNoDuplicate source }
 
+            // The FIRST declaration to claim `(name, arity)` owns it; the duplicate registers
+            // nothing at all — it never reaches a registrar, so none of its detail (fields,
+            // cases, `with member …` augmentation, `inherit`) leaks onto the type that does
+            // own the name. A use site naming detail that existed only on the rejected
+            // declaration therefore fails ORDINARY lookup, which is the correct answer: a
+            // member-not-found diagnostic alongside the duplicate one, not a crash.
+            yield
+                test "detail of a rejected duplicate does not leak onto the claim's owner" {
+                    let tast =
+                        analyse
+                            "type Foo = { a: int }\ntype Foo = { a: int } with\n    member this.Bar() = 1\nlet f (v: Foo) = v.Bar()"
+
+                    let errors =
+                        [
+                            for d in tast.Diagnostics do
+                                if d.Severity = Severity.Error then
+                                    yield d.Message
+                        ]
+
+                    Expect.isTrue
+                        (errors |> List.exists (fun m -> m.Contains "Duplicate type definition"))
+                        "the second Foo is rejected"
+
+                    Expect.isTrue
+                        (errors
+                         |> List.exists (fun m -> m.StartsWith "Type 'Foo' has no" && m.Contains "'Bar'"))
+                        (sprintf "`Bar` is not on the surviving Foo, and says so; diagnostics were %A" errors)
+
+                    Expect.isFalse (has tast "Internal error") "no internal SymbolKey-collision error"
+                }
+
             yield
                 test "a bare name resolves to the type CLAIMING it at arity 0, not a generic alias" {
                     // The reason arity-keying the abbreviation table is the right fix. With a

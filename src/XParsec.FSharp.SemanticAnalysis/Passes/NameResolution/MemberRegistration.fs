@@ -465,156 +465,146 @@ module NameResolutionMemberRegistration =
     /// parser emits Anon for the bare `type C(...) = member ...` form without an
     /// explicit `class`/`end`). Member types are placeholder TyVars; Unification's
     /// fillClassMembers links them once each member body is inferred.
-    let private registerClassTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
+    let private registerClassTypeDefn (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         match TypeDefnPatterns.tryClassLikeDecl td with
         | ValueNone -> ()
         | ValueSome d ->
             let tn, pc, asD, body = d.TypeName, d.PrimaryConstr, d.AsDefn, d.Body
-            let (TypeName(ident = nameLi)) = tn
+            let name = id.Name
+            let declKey = id.DeclKey
+            let classTyparNames = typarNamesOfTypeName ctx tn
+            let typeParams = mkTypeParams classTyparNames
+            let ctorParams = extractCtorParams ctx declKey pc
 
-            if nameLi.Idents.Length <> 1 then
-                ()
-            else
+            let memberInfos =
+                ResizeArray<TypeMemberInfo>(extractMembers ctx declKey classTyparNames body.elements)
 
-                let nameTok = nameLi.Idents.[0]
-                let name = ctx.NameOf nameTok
-                let declKey = NodeKey.ofToken nameTok NodeKind.DeclType
-                // Generic arity overloads the short name (`Fun\`2` vs `Fun\`3`), so the
-                // claim is `(name, arity)`-keyed — a class `Foo\`2` may legitimately
-                // coexist with a union / record `Foo\`1`.
-                let classArity = arityOfTypeName ctx tn
+            let thisName =
+                match asD with
+                | ValueSome(AsDefn(ident = aid)) -> ctx.NameOf aid
+                | ValueNone -> "this"
 
-                match TypeRegistry.tryOwnIdentity ctx.Types name classArity declKey with
-                | ValueNone -> ()
-                | ValueSome { Key = key } ->
-                    let classTyparNames = typarNamesOfTypeName ctx tn
-                    let typeParams = mkTypeParams classTyparNames
-                    let ctorParams = extractCtorParams ctx declKey pc
+            let thisKey = NodeKey.ofSynthetic declKey.Offset NodeKind.SynthThisBinding
+            let baseKey = NodeKey.ofSynthetic declKey.Offset NodeKind.SynthBaseBinding
 
-                    let memberInfos =
-                        ResizeArray<TypeMemberInfo>(extractMembers ctx declKey classTyparNames body.elements)
+            let members = memberInfos.ToArray()
 
-                    let thisName =
-                        match asD with
-                        | ValueSome(AsDefn(ident = id)) -> ctx.NameOf id
-                        | ValueNone -> "this"
+            let staticLets = extractStaticLets ctx declKey body.classPreamble
 
-                    let thisKey = NodeKey.ofSynthetic declKey.Offset NodeKind.SynthThisBinding
-                    let baseKey = NodeKey.ofSynthetic declKey.Offset NodeKind.SynthBaseBinding
+            let info =
+                ClassTypeInfo(name, typeParams, ctorParams, members, declKey, thisName, thisKey, baseKey, id.Key)
 
-                    let members = memberInfos.ToArray()
+            info.StaticLets <- staticLets
+            info.SecondaryCtors <- extractSecondaryCtors ctx declKey body.elements
+            // No `PrimaryConstrArgs` (`pc = ValueNone`) ⇒ the `val`-field form
+            // (`type T = val …; new(…) = …`): the secondaries are the only ctors,
+            // so codegen must not synthesise a colliding primary `.ctor`.
+            info.HasPrimaryCtor <- pc.IsSome
 
-                    let staticLets = extractStaticLets ctx declKey body.classPreamble
+            // `[<Sealed>]` flips TypeAttributes.Sealed on the emitted
+            // TypeDefinition; `[<AllowNullLiteral>]` lets Unification's
+            // Expr.Null arm unify against this class.
+            let classAttrs =
+                Attributes.decodeClassAttributes ctx (Attributes.attributesOfTypeName tn)
 
-                    let info =
-                        ClassTypeInfo(name, typeParams, ctorParams, members, declKey, thisName, thisKey, baseKey, key)
+            info.IsSealed <- classAttrs.IsSealed
+            info.AllowNullLiteral <- classAttrs.AllowNullLiteral
+            info.InterfaceImpls <- extractInterfaceImpls ctx classTyparNames body.elements
+            // The class's `when 'S :> IFace` typar constraints, attached to the
+            // prototype TyVars by `fillClassMembers` so a member-body access on
+            // a constrained class typar resolves through the interface.
+            info.TyparConstraints <- NameResolutionTypeRegistration.typarConstraintsOfTypeName tn
 
-                    info.StaticLets <- staticLets
-                    info.SecondaryCtors <- extractSecondaryCtors ctx declKey body.elements
-                    // No `PrimaryConstrArgs` (`pc = ValueNone`) ⇒ the `val`-field form
-                    // (`type T = val …; new(…) = …`): the secondaries are the only ctors,
-                    // so codegen must not synthesise a colliding primary `.ctor`.
-                    info.HasPrimaryCtor <- pc.IsSome
+            // `[<Struct>]` (or the `type X = struct … end` shape) ⇒ value
+            // type. A struct is implicitly sealed (no derivation), so the
+            // emitted `TypeAttributes.Sealed` rides `IsValueType` too.
+            let isValueType = classAttrs.IsValueType || TypeDefnPatterns.isStructShape td
+            info.IsValueType <- isValueType
+            // A project-local interface (all-abstract body) — so
+            // `resolveInterfaceImpls` / the subtype check recognise it without
+            // an external-provider entry.
+            info.IsInterface <- TypeDefnPatterns.isInterfaceShape td
+            // `[<IsByRefLike>]` ⇒ a byref-like (`ref struct`) value type.
+            info.IsByRefLike <- classAttrs.IsByRefLike
+            info.InstanceFields <- extractInstanceFields ctx body.elements
 
-                    // `[<Sealed>]` flips TypeAttributes.Sealed on the emitted
-                    // TypeDefinition; `[<AllowNullLiteral>]` lets Unification's
-                    // Expr.Null arm unify against this class.
-                    let classAttrs =
-                        Attributes.decodeClassAttributes ctx (Attributes.attributesOfTypeName tn)
+            // Validate equality / comparison attributes against the class
+            // kind (FS0382 / FS0377) and stamp kind-aware verdicts. A value
+            // type defaults to `Structural`; a reference class to
+            // `Reference`. Comparison opt-in ⇒ `NoComparison`. Custom* and
+            // explicit Structural* / No* overrides come from the validator.
+            let classKind =
+                if isValueType then
+                    Attributes.EqCompTargetKind.Struct
+                else
+                    Attributes.EqCompTargetKind.RefClass
 
-                    info.IsSealed <- classAttrs.IsSealed
-                    info.AllowNullLiteral <- classAttrs.AllowNullLiteral
-                    info.InterfaceImpls <- extractInterfaceImpls ctx classTyparNames body.elements
-                    // The class's `when 'S :> IFace` typar constraints, attached to the
-                    // prototype TyVars by `fillClassMembers` so a member-body access on
-                    // a constrained class typar resolves through the interface.
-                    info.TyparConstraints <- NameResolutionTypeRegistration.typarConstraintsOfTypeName tn
+            let eqV, cmpV =
+                Attributes.validateEqCompAttributes ctx classKind declKey (Attributes.attributesOfTypeName tn)
 
-                    // `[<Struct>]` (or the `type X = struct … end` shape) ⇒ value
-                    // type. A struct is implicitly sealed (no derivation), so the
-                    // emitted `TypeAttributes.Sealed` rides `IsValueType` too.
-                    let isValueType = classAttrs.IsValueType || TypeDefnPatterns.isStructShape td
-                    info.IsValueType <- isValueType
-                    // A project-local interface (all-abstract body) — so
-                    // `resolveInterfaceImpls` / the subtype check recognise it without
-                    // an external-provider entry.
-                    info.IsInterface <- TypeDefnPatterns.isInterfaceShape td
-                    // `[<IsByRefLike>]` ⇒ a byref-like (`ref struct`) value type.
-                    info.IsByRefLike <- classAttrs.IsByRefLike
-                    info.InstanceFields <- extractInstanceFields ctx body.elements
+            info.EqualitySupport <-
+                match eqV with
+                | ValueSome v -> v
+                | ValueNone ->
+                    if isValueType then
+                        EqualityVerdict.Structural
+                    else
+                        EqualityVerdict.Reference
 
-                    // Validate equality / comparison attributes against the class
-                    // kind (FS0382 / FS0377) and stamp kind-aware verdicts. A value
-                    // type defaults to `Structural`; a reference class to
-                    // `Reference`. Comparison opt-in ⇒ `NoComparison`. Custom* and
-                    // explicit Structural* / No* overrides come from the validator.
-                    let classKind =
-                        if isValueType then
-                            Attributes.EqCompTargetKind.Struct
-                        else
-                            Attributes.EqCompTargetKind.RefClass
+            info.ComparisonSupport <-
+                match cmpV with
+                | ValueSome v -> v
+                | ValueNone -> ComparisonVerdict.NoComparison
 
-                    let eqV, cmpV =
-                        Attributes.validateEqCompAttributes ctx classKind nameTok (Attributes.attributesOfTypeName tn)
+            TypeRegistry.registerClass ctx.Types info
 
-                    info.EqualitySupport <-
-                        match eqV with
-                        | ValueSome v -> v
-                        | ValueNone ->
-                            if isValueType then
-                                EqualityVerdict.Structural
-                            else
-                                EqualityVerdict.Reference
+            for m in members do
+                let entry = { Class = info; Member = m }
 
-                    info.ComparisonSupport <-
-                        match cmpV with
-                        | ValueSome v -> v
-                        | ValueNone -> ComparisonVerdict.NoComparison
+                match ctx.Types.ClassMemberIndex.TryGetValue m.Name with
+                | true, lst ->
+                    let buf = ResizeArray(lst.Length + 1)
+                    buf.Add entry
 
-                    TypeRegistry.registerClass ctx.Types info
+                    for e in lst do
+                        buf.Add e
 
-                    for m in members do
-                        let entry = { Class = info; Member = m }
-
-                        match ctx.Types.ClassMemberIndex.TryGetValue m.Name with
-                        | true, lst ->
-                            let buf = ResizeArray(lst.Length + 1)
-                            buf.Add entry
-
-                            for e in lst do
-                                buf.Add e
-
-                            ctx.Types.ClassMemberIndex.[m.Name] <- EqArray.ofResizeArray buf
-                        | false, _ -> ctx.Types.ClassMemberIndex.[m.Name] <- EqArray.singleton entry
+                    ctx.Types.ClassMemberIndex.[m.Name] <- EqArray.ofResizeArray buf
+                | false, _ -> ctx.Types.ClassMemberIndex.[m.Name] <- EqArray.singleton entry
 
     /// An interface carries no `ClassTypeInfo` (no equality / comparison verdict
     /// to stamp), but `[<StructuralEquality>]` / `[<ReferenceEquality>]` /
     /// `[<CustomEquality>]` etc. are still illegal on it — run the kind-legality
     /// check (FS0382 / FS0377) so those produce a diagnostic, discarding the
     /// verdicts.
-    let private validateInterfaceTypeDefn (ctx: PassContext) (td: TypeDefn<SyntaxToken>) : unit =
-        match td with
-        | TypeDefn.Interface(typeName = tn) ->
-            let (TypeName(ident = nameLi)) = tn
-
-            if nameLi.Idents.Length = 1 then
-                let nameTok = nameLi.Idents.[0]
-
-                Attributes.validateEqCompAttributes
-                    ctx
-                    Attributes.EqCompTargetKind.Interface
-                    nameTok
-                    (Attributes.attributesOfTypeName tn)
-                |> ignore
-        | _ -> ()
-
-    let registerClassTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
+    /// A `TypeDefn.Interface` claims no name and registers no detail, so it is absent from
+    /// `ClaimedTypeDefns` and this validation is driven from the CST — it is not a
+    /// registration.
+    let validateInterfaceTypes (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
-                registerClassTypeDefn ctx td
-                validateInterfaceTypeDefn ctx td
+                match td with
+                | TypeDefn.Interface(typeName = tn) ->
+                    let (TypeName(ident = nameLi)) = tn
+
+                    if nameLi.Idents.Length = 1 then
+                        let declKey = NodeKey.ofToken nameLi.Idents.[0] NodeKind.DeclType
+
+                        Attributes.validateEqCompAttributes
+                            ctx
+                            Attributes.EqCompTargetKind.Interface
+                            declKey
+                            (Attributes.attributesOfTypeName tn)
+                        |> ignore
+                | _ -> ()
         | _ -> ()
+
+    let registerClassTypes (ctx: PassContext) : unit =
+        for c in ctx.Types.ClaimedTypeDefns do
+            match c.Identity.Kind with
+            | TypeDeclKind.Class -> registerClassTypeDefn ctx c.Identity c.Defn
+            | _ -> ()
 
     // A post-pass after
     // `registerClassTypes` so a derived class can name a parent declared later in
@@ -806,32 +796,35 @@ module NameResolutionMemberRegistration =
     /// Runs after `registerClassTypes` so a forward / out-of-order parent
     /// reference resolves. Cycle detection is a separate sweep
     /// (`checkInheritanceCycles`) once every class is stamped.
-    let registerInheritedSlots (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
-        match m with
-        | ModuleElem.Type defs ->
-            for td in defs do
-                match TypeDefnPatterns.tryClassLikeDecl td with
-                | ValueNone -> ()
-                | ValueSome d ->
-                    match d.Body.inherits with
+    ///
+    /// The DERIVED class is recovered by the `TypeKey` on its own claim, never by name: a
+    /// bare name does not address an arity-overloaded class (`Box\`1` / `Box\`2`), so a
+    /// name lookup here would drop the `inherit` clause of either.
+    let private registerInheritedSlot (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
+        match TypeDefnPatterns.tryClassLikeDecl td with
+        | ValueNone -> ()
+        | ValueSome d ->
+            match d.Body.inherits with
+            | ValueNone -> ()
+            | ValueSome(ClassInheritsDecl(typ = parentTyp; expr = exprOpt)) ->
+                match TypeRegistry.tryClassByKey ctx.Types (SymbolKey.Type id.Key) with
+                | ValueSome info ->
+                    let typarScope =
+                        (Map.empty, info.TypeParams)
+                        ||> EqArray.fold (fun acc (n, tv) -> Map.add n tv acc)
+
+                    match resolveInheritParent ctx typarScope parentTyp with
+                    | ValueSome parentTy ->
+                        info.BaseType <- ValueSome parentTy
+                        info.BaseCtorArgs <- exprOpt
                     | ValueNone -> ()
-                    | ValueSome(ClassInheritsDecl(typ = parentTyp; expr = exprOpt)) ->
-                        let (TypeName(ident = nameLi)) = d.TypeName
+                | ValueNone -> ()
 
-                        if nameLi.Idents.Length = 1 then
-                            match TypeRegistry.tryClass ctx.Types (ctx.NameOf nameLi.Idents.[0]) with
-                            | ValueSome info ->
-                                let typarScope =
-                                    (Map.empty, info.TypeParams)
-                                    ||> EqArray.fold (fun acc (n, tv) -> Map.add n tv acc)
-
-                                match resolveInheritParent ctx typarScope parentTyp with
-                                | ValueSome parentTy ->
-                                    info.BaseType <- ValueSome parentTy
-                                    info.BaseCtorArgs <- exprOpt
-                                | ValueNone -> ()
-                            | ValueNone -> ()
-        | _ -> ()
+    let registerInheritedSlots (ctx: PassContext) : unit =
+        for c in ctx.Types.ClaimedTypeDefns do
+            match c.Identity.Kind with
+            | TypeDeclKind.Class -> registerInheritedSlot ctx c.Identity c.Defn
+            | _ -> ()
 
     /// Detect inheritance cycles after every class's `BaseType` is stamped. Walks
     /// each class's parent chain; on re-entry to the starting class emits a
@@ -877,9 +870,12 @@ module NameResolutionMemberRegistration =
     /// `extensions.elements`. A v1 union/record has no primary ctor / `as` alias, so
     /// `this` is always `"this"`. The member/impl extraction is kind-agnostic (the same
     /// collection the class registration uses); only the write-back target type differs,
-    /// so the host interface (read-only) can't carry it — the two arms set their own
-    /// `info`.
-    let registerNominalMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) : unit =
+    /// so the host interface (read-only) can't carry it — each arm sets its own `info`.
+    ///
+    /// The AUGMENTED type is recovered by the `TypeKey` on its own claim, never by name: a
+    /// bare name does not address an arity-overloaded union / record, so a name lookup
+    /// here would drop the whole `with member …` block of either.
+    let private registerNominalMember (ctx: PassContext) (id: TypeIdentity) (td: TypeDefn<SyntaxToken>) : unit =
         let extract (declKey: NodeKey) (typeParams: EqArray<string * TypeVar>) elems =
             let typarNames = [ for (n, _) in typeParams -> n ]
 
@@ -889,49 +885,41 @@ module NameResolutionMemberRegistration =
                 ThisKey = NodeKey.ofSynthetic declKey.Offset NodeKind.SynthThisBinding
             |}
 
-        match m with
-        | ModuleElem.Type defs ->
-            for td in defs do
-                match td with
-                | TypeDefn.Union(
-                    typeName = TypeName(ident = nameLi); extensions = ValueSome(TypeExtensionElements(elements = elems))) when
-                    nameLi.Idents.Length = 1
-                    ->
-                    match TypeRegistry.tryUnionBare ctx.Types (ctx.NameOf nameLi.Idents.[0]) with
-                    | ValueSome info ->
-                        let x = extract info.DeclKey info.TypeParams elems
-                        info.Members <- x.Members
-                        info.InterfaceImpls <- x.InterfaceImpls
-                        info.ThisKey <- x.ThisKey
-                    | ValueNone -> ()
-                | TypeDefn.Record(
-                    typeName = TypeName(ident = nameLi); extensions = ValueSome(TypeExtensionElements(elements = elems))) when
-                    nameLi.Idents.Length = 1
-                    ->
-                    match TypeRegistry.tryRecord ctx.Types (ctx.NameOf nameLi.Idents.[0]) with
-                    | ValueSome info ->
-                        let x = extract info.DeclKey info.TypeParams elems
-                        info.Members <- x.Members
-                        info.InterfaceImpls <- x.InterfaceImpls
-                        info.ThisKey <- x.ThisKey
-                    | ValueNone -> ()
-                // An inline intrinsic-abbrev host (`type X = (# … #) with member …`):
-                // stamp its augmentation members + `ThisKey` exactly as the union/record
-                // arms do. The host is present in `IntrinsicAbbrevHost` only for an
-                // ILIntrinsic RHS (a transparent-alias abbrev with members was rejected
-                // at registration), so this arm fires only for the sanctioned host. No
-                // `interface … with` on the intrinsic host (out of scope) — the extracted
-                // `InterfaceImpls` are always empty.
-                | TypeDefn.Abbrev(
-                    typeName = TypeName(ident = nameLi); extensions = ValueSome(TypeExtensionElements(elements = elems))) when
-                    nameLi.Idents.Length = 1
-                    ->
-                    match ctx.Types.IntrinsicAbbrevHost.TryGetValue(ctx.NameOf nameLi.Idents.[0]) with
-                    | true, info ->
-                        let x = extract info.DeclKey info.TypeParams elems
-                        info.Members <- x.Members
-                        info.InterfaceImpls <- x.InterfaceImpls
-                        info.ThisKey <- x.ThisKey
-                    | false, _ -> ()
-                | _ -> ()
+        match td with
+        | TypeDefn.Union(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
+            match TypeRegistry.tryUnionByKey ctx.Types (SymbolKey.Type id.Key) with
+            | ValueSome info ->
+                let x = extract info.DeclKey info.TypeParams elems
+                info.Members <- x.Members
+                info.InterfaceImpls <- x.InterfaceImpls
+                info.ThisKey <- x.ThisKey
+            | ValueNone -> ()
+        | TypeDefn.Record(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
+            match TypeRegistry.tryRecordByKey ctx.Types (SymbolKey.Type id.Key) with
+            | ValueSome info ->
+                let x = extract info.DeclKey info.TypeParams elems
+                info.Members <- x.Members
+                info.InterfaceImpls <- x.InterfaceImpls
+                info.ThisKey <- x.ThisKey
+            | ValueNone -> ()
+        // An inline intrinsic-abbrev host (`type X = (# … #) with member …`):
+        // stamp its augmentation members + `ThisKey` exactly as the union/record
+        // arms do. The host is present in `IntrinsicAbbrevHost` only for an
+        // ILIntrinsic RHS (a transparent-alias abbrev with members was rejected
+        // at registration), so this arm fires only for the sanctioned host. No
+        // `interface … with` on the intrinsic host (out of scope) — the extracted
+        // `InterfaceImpls` are always empty. An intrinsic binding is non-generic in
+        // practice and its host table is name-keyed, so the name off the claim addresses it.
+        | TypeDefn.Abbrev(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
+            match ctx.Types.IntrinsicAbbrevHost.TryGetValue id.Name with
+            | true, info ->
+                let x = extract info.DeclKey info.TypeParams elems
+                info.Members <- x.Members
+                info.InterfaceImpls <- x.InterfaceImpls
+                info.ThisKey <- x.ThisKey
+            | false, _ -> ()
         | _ -> ()
+
+    let registerNominalMembers (ctx: PassContext) : unit =
+        for c in ctx.Types.ClaimedTypeDefns do
+            registerNominalMember ctx c.Identity c.Defn

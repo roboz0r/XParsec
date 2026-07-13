@@ -127,10 +127,10 @@ module Attributes =
         | RefClass
         | Interface
 
-    let private addDiag (ctx: PassContext) (nameTok: SyntaxToken) (code: string) (message: string) : unit =
+    let private addDiag (ctx: PassContext) (declKey: NodeKey) (code: string) (message: string) : unit =
         ctx.Diagnostics.Add
             {
-                Key = NodeKey.ofToken nameTok NodeKind.DeclType
+                Key = declKey
                 Message = message
                 Code = code
                 Severity = Severity.Error
@@ -138,17 +138,20 @@ module Attributes =
 
     /// Validate the equality / comparison attributes against the type kind
     /// (FS0382 kind-legality + FS0377 invalid-mix), emitting diagnostics at the
-    /// type-name token, and return the resolved `(EqualityVerdict voption,
+    /// type's declaration site, and return the resolved `(EqualityVerdict voption,
     /// ComparisonVerdict voption)` for the caller to default + stamp. `ValueNone`
     /// on either axis ⇒ no relevant attribute present (caller applies its
     /// kind-aware default). This is the single attribute-validation entry point
     /// for every type-registration site (record / union / class / interface);
     /// the within-axis "first wins" of `decode*Attributes` is preserved here for
     /// the verdict, while the mix check sees the whole set.
+    ///
+    /// `declKey` is the diagnostic site — the `TypeIdentity.DeclKey` a registrar is
+    /// handed, so no registration site re-derives the name token to key a diagnostic.
     let validateEqCompAttributes
         (ctx: PassContext)
         (kind: EqCompTargetKind)
-        (nameTok: SyntaxToken)
+        (declKey: NodeKey)
         (attrs: Attributes<SyntaxToken> voption)
         : EqualityVerdict voption * ComparisonVerdict voption =
         let s = collectEqCompAttrs ctx attrs
@@ -184,15 +187,15 @@ module Attributes =
             "Only record, union, exception and struct types may be augmented with the 'ReferenceEquality', 'StructuralEquality' and 'StructuralComparison' attributes."
 
         if (s.StructuralEq || s.StructuralCmp) && not structuralLegal then
-            addDiag ctx nameTok "FS0382" structMsg
+            addDiag ctx declKey "FS0382" structMsg
 
         if s.ReferenceEq && not referenceLegal then
-            addDiag ctx nameTok "FS0382" structMsg
+            addDiag ctx declKey "FS0382" structMsg
 
         if (s.CustomEq || s.CustomCmp) && not customLegal then
             addDiag
                 ctx
-                nameTok
+                declKey
                 "FS0382"
                 "The 'CustomEquality' and 'CustomComparison' attributes are not valid on an interface type."
 
@@ -227,7 +230,7 @@ module Attributes =
         if invalidMix then
             addDiag
                 ctx
-                nameTok
+                declKey
                 "FS0377"
                 "This type uses an invalid mix of the attributes 'NoEquality', 'ReferenceEquality', 'StructuralEquality', 'NoComparison' and 'StructuralComparison'."
 

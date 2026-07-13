@@ -41,12 +41,45 @@ type TypeIdentity =
         /// be held by different kinds.
         Arity: int
         Kind: TypeDeclKind
-        /// The declaration site. A per-kind registrar recovers its own identity by
-        /// matching on this (`TypeRegistry.tryOwnIdentity`); a decl whose claim is held
-        /// by a *different* `DeclKey` is a rejected duplicate and registers nothing.
+        /// The declaration site — the diagnostic key and the `DeclKey` stamped onto the
+        /// kind-specific `*TypeInfo`. Derived once, from the name token the claim was
+        /// read off, and handed to the per-kind registrar with the rest of the identity.
         DeclKey: NodeKey
         /// The project-local `SymbolKey`, minted once by `stampLocalTypeKey`.
         Key: TypeKey
+    }
+
+/// An ACCEPTED type declaration: the identity its claim established, paired with the CST
+/// it was claimed from. Retained in source order (`PassContextTypes.ClaimedTypeDefns`)
+/// and is THE input to every per-kind detail registrar — a registrar is HANDED its
+/// `TypeIdentity` rather than re-deriving name / arity / key from the CST, so its idea of
+/// the type cannot drift from the claim's, and a REJECTED duplicate (which never enters
+/// this list) can never reach a registrar at all.
+[<NoEquality; NoComparison>]
+type ClaimedTypeDefn =
+    {
+        Identity: TypeIdentity
+        Defn: TypeDefn<SyntaxToken>
+    }
+
+/// A type declaration REJECTED as a duplicate: an earlier declaration already holds its
+/// `(Name, Arity)` claim and keeps it. It registers no detail and mints no `SymbolKey` —
+/// a key is precisely what a rejected declaration does not get, which is why this is not a
+/// `TypeIdentity`. The duplicate diagnostic is raised where the claim is contested.
+///
+/// Retained for OBSERVABILITY ONLY (`PassContextTypes.RejectedDuplicates`): a rejected
+/// declaration should be inspectable rather than vanish. Name resolution, unification and
+/// codegen must NOT read it — the first claimant owns the name, and a reference to a
+/// member that existed only on the rejected declaration is a member-not-found diagnostic,
+/// which is the correct answer.
+[<NoEquality; NoComparison>]
+type RejectedTypeDefn =
+    {
+        Name: string
+        Arity: int
+        Kind: TypeDeclKind
+        DeclKey: NodeKey
+        Defn: TypeDefn<SyntaxToken>
     }
 
 type PassContextTypes =
@@ -146,6 +179,16 @@ type PassContextTypes =
         /// `NameResolutionTypeRegistration.registerTypeIdentities`, which is also the sole
         /// mint site of a project-local type `SymbolKey`.
         TypeClaims: Dictionary<string, ResizeArray<TypeIdentity>>
+        /// Every ACCEPTED type declaration of this unit, in SOURCE order, with the identity
+        /// its claim established. Co-populated with `TypeClaims` (one write, `claimType`),
+        /// so the list and the name table cannot disagree about which declarations were
+        /// accepted. The per-kind detail registrars iterate THIS, not the CST: they are
+        /// handed an identity instead of re-deriving one, and a rejected duplicate is
+        /// absent from the list rather than gated out inside each registrar.
+        ClaimedTypeDefns: ResizeArray<ClaimedTypeDefn>
+        /// The type declarations rejected as duplicates, in source order. Observability
+        /// only — see `RejectedTypeDefn`; nothing downstream may read it.
+        RejectedDuplicates: ResizeArray<RejectedTypeDefn>
         /// The RECORD / UNION / CLASS short names this unit declares — the names a
         /// `module` of the same name collides with, and so the ONE input (with the
         /// module's own attributes) to the `…Module` suffix rule
@@ -189,6 +232,8 @@ module PassContextTypes =
             ClassNames = Dictionary<_, _>()
             AbbreviationNames = Dictionary<_, _>()
             TypeClaims = Dictionary<_, _>()
+            ClaimedTypeDefns = ResizeArray<_>()
+            RejectedDuplicates = ResizeArray<_>()
             NominalTypeNames = HashSet<_>()
             SymbolKeyOrigins = Dictionary<_, _>()
         }
@@ -312,15 +357,27 @@ module TypeRegistry =
     // it DECLARES, at its declared arity — its target-representation string is not a
     // name-table concern.
 
-    /// Claim `(id.Name, id.Arity)` for this declaration. Called once per accepted type by
-    /// the file-order identity pass, which has already rejected a contested claim.
-    let claimTypeName (types: PassContextTypes) (id: TypeIdentity) : unit =
+    /// Accept a type declaration: claim `(Name, Arity)` for it in the name table AND
+    /// retain it, in source order, for the per-kind detail registrars. Called once per
+    /// accepted type by the file-order identity pass, which has already rejected a
+    /// contested claim. THE single write to both — so "claimed" and "will be registered"
+    /// are one fact, not two that can drift.
+    let claimType (types: PassContextTypes) (claimed: ClaimedTypeDefn) : unit =
+        let id = claimed.Identity
+
         match types.TypeClaims.TryGetValue id.Name with
         | true, claims -> claims.Add id
         | false, _ ->
             let claims = ResizeArray 1
             claims.Add id
             types.TypeClaims.[id.Name] <- claims
+
+        types.ClaimedTypeDefns.Add claimed
+
+    /// Record a declaration whose `(name, arity)` claim is already held. It registers
+    /// nothing; this retains it so the rejection is inspectable. See `RejectedTypeDefn`.
+    let rejectDuplicateType (types: PassContextTypes) (rejected: RejectedTypeDefn) : unit =
+        types.RejectedDuplicates.Add rejected
 
     /// The identity holding `(name, arity)`, if any. The single route from a use-site
     /// name+arity to the type that owns it — so a resolver ASKS which kind owns the name
@@ -351,15 +408,6 @@ module TypeRegistry =
     /// Does this unit declare a record / union / class called `name`? THE
     /// module-name-collision test behind the `…Module` suffix — see `NominalTypeNames`.
     let isNominalTypeName (types: PassContextTypes) (name: string) : bool = types.NominalTypeNames.Contains name
-
-    /// The identity THIS declaration claimed, or `ValueNone` when the claim is held by a
-    /// different declaration — i.e. this one is a duplicate, already diagnosed by the
-    /// identity pass. Every per-kind registrar opens with this: it is both the
-    /// duplicate gate and the source of the type's `SymbolKey`, so the two cannot drift.
-    let tryOwnIdentity (types: PassContextTypes) (name: string) (arity: int) (declKey: NodeKey) : TypeIdentity voption =
-        match tryTypeClaim types name arity with
-        | ValueSome id when id.DeclKey = declKey -> ValueSome id
-        | _ -> ValueNone
 
     // --- Records / unions / classes / abbreviations -----------------------------------
     // All four are arity-overloadable and keyed by their own `TypeKey`, which carries the
