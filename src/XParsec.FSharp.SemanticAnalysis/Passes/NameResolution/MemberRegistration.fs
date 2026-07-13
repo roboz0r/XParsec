@@ -702,13 +702,13 @@ module NameResolutionMemberRegistration =
         | None ->
             // Nominal heads carry their resolved `SymbolKey`; take it
             // off the registry `info` rather than re-stringing the name.
-            match TypeRegistry.tryRecord ctx.Types name with
+            match TypeRegistry.tryRecord ctx.Types SourcePos.unbounded name with
             | ValueSome info -> TyRecord(info.Key, args)
             | ValueNone ->
-                match TypeRegistry.tryUnionBare ctx.Types name with
+                match TypeRegistry.tryUnionBare ctx.Types SourcePos.unbounded name with
                 | ValueSome info -> TyUnion(info.Key, args)
                 | ValueNone ->
-                    match TypeRegistry.tryClass ctx.Types name with
+                    match TypeRegistry.tryClass ctx.Types SourcePos.unbounded name with
                     | ValueSome info -> TyClass(info.Key, args)
                     | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
 
@@ -763,7 +763,7 @@ module NameResolutionMemberRegistration =
             else
                 let name = ctx.NameOf nameTok
 
-                match TypeRegistry.tryClass ctx.Types name with
+                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded name with
                 | ValueSome info -> ValueSome(TyClass(info.Key, EqArray.ofList targs))
                 | ValueNone when ctx.Types.HeritableExternBases.Contains name ->
                     // A heritable external base (`inherit Attribute`, where `Attribute`
@@ -816,7 +816,7 @@ module NameResolutionMemberRegistration =
                         // table ⇒ no kind can be forgotten from this disjunction. A name the
                         // table does not know is unknown *here*, which includes a type
                         // declared below this group — nothing later can fill the slot.
-                        if TypeRegistry.isTypeNameInScope ctx.Types name then
+                        if TypeRegistry.isTypeNameInScope ctx.Types SourcePos.unbounded name then
                             diagnose
                                 diagKey
                                 (sprintf "Cannot inherit from type '%s' — only classes are inheritable" name)
@@ -1094,12 +1094,17 @@ module NameResolutionMemberRegistration =
     let registerGroup
         (ctx: PassContext)
         (c: DeclContainment<SyntaxToken>)
+        (recScopeOffset: int voption)
         (defs: ImmutableArray<TypeDefn<SyntaxToken>>)
         : unit =
         let claims = ResizeArray<ClaimedTypeDefn>(defs.Length)
+        // One offset for the whole group — the unit of mutual recursion is the unit of
+        // visibility, so an `and`-sibling cannot be visible from a different place than
+        // the type it is joined to.
+        let visibleFrom = typeGroupVisibleFrom recScopeOffset defs
 
         for td in defs do
-            match claimTypeIdentity ctx c td with
+            match claimTypeIdentity ctx c visibleFrom td with
             | ValueSome claimed -> claims.Add claimed
             | ValueNone -> ()
 

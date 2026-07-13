@@ -66,7 +66,7 @@ module internal ElaborateResolve =
             match enumKeyOfTy ty with
             | ValueSome key -> ValueSome key
             | ValueNone ->
-                match TypeRegistry.tryEnum ctx.Types (ctx.NameOf li.Idents.[0]) with
+                match TypeRegistry.tryEnum ctx.Types SourcePos.unbounded (ctx.NameOf li.Idents.[0]) with
                 | ValueSome info -> ValueSome info.Key
                 | ValueNone -> ValueNone
 
@@ -107,14 +107,14 @@ module internal ElaborateResolve =
             | Expr.Ident t ->
                 let n = ctx.NameOf t
 
-                if (TypeRegistry.tryClass ctx.Types n).IsSome then
+                if (TypeRegistry.tryClass ctx.Types SourcePos.unbounded n).IsSome then
                     ValueSome n
                 else
                     stampedExternal ()
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
                 let n = ctx.NameOf li.Idents.[0]
 
-                if (TypeRegistry.tryClass ctx.Types n).IsSome then
+                if (TypeRegistry.tryClass ctx.Types SourcePos.unbounded n).IsSome then
                     ValueSome n
                 else
                     stampedExternal ()
@@ -150,10 +150,10 @@ module internal ElaborateResolve =
             | Some m -> ValueSome(key, m)
             | None -> ValueNone
 
-        match TypeRegistry.tryClass ctx.Types typeName with
+        match TypeRegistry.tryClass ctx.Types SourcePos.unbounded typeName with
         | ValueSome info -> pick info.TypeKey info.Members
         | ValueNone ->
-            match TypeRegistry.tryUnionBare ctx.Types typeName with
+            match TypeRegistry.tryUnionBare ctx.Types SourcePos.unbounded typeName with
             | ValueSome info -> pick info.TypeKey info.Members
             | ValueNone -> ValueNone
 

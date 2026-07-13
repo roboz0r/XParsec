@@ -19,7 +19,7 @@ module internal UnificationInferPat =
     /// union RHS; a bare program leaves the container flexible (a fresh TyVar
     /// registered in `ctx.ListLiterals`) for consumer-driven resolution.
     let private consListTy (ctx: PassContext) (key: NodeKey) (elemTy: SemType) : SemType =
-        match TypeRegistry.tryAbbrevArity ctx.Types "list" 1 with
+        match TypeRegistry.tryAbbrevArity ctx.Types SourcePos.unbounded "list" 1 with
         | ValueSome info ->
             forceFill ctx info
             expandAbbreviation ctx key info (EqArray.singleton elemTy)
@@ -47,7 +47,7 @@ module internal UnificationInferPat =
 
             match info with
             | ValueSome i when i.Fields.Length = 0 ->
-                let unionInfo = TypeRegistry.unionOfCase ctx.Types i
+                let unionInfo = TypeRegistry.unionOfCase ctx.Types SourcePos.unbounded i
                 let args, _ = freshNamedInstance ctx unionInfo.TypeParams
                 let ty = TyUnion(unionInfo.Key, args)
                 let nodeTv = freshTv ctx key
@@ -66,7 +66,7 @@ module internal UnificationInferPat =
                         Severity = Severity.Error
                     }
 
-                let unionInfo = TypeRegistry.unionOfCase ctx.Types i
+                let unionInfo = TypeRegistry.unionOfCase ctx.Types SourcePos.unbounded i
                 let args, _ = freshNamedInstance ctx unionInfo.TypeParams
                 let ty = TyUnion(unionInfo.Key, args)
                 let nodeTv = freshTv ctx key
@@ -175,7 +175,7 @@ module internal UnificationInferPat =
                 && ctx.Types.CtorIndex.ContainsKey(ctx.NameOf li.Idents.[0])
                 || li.Idents.Length = 2
                    && (
-                       match TypeRegistry.tryUnionBare ctx.Types (ctx.NameOf li.Idents.[0]) with
+                       match TypeRegistry.tryUnionBare ctx.Types SourcePos.unbounded (ctx.NameOf li.Idents.[0]) with
                        | ValueSome info ->
                            let caseName = ctx.NameOf li.Idents.[1]
                            info.Cases |> Array.exists (fun c -> c.Name = caseName)
@@ -237,7 +237,7 @@ module internal UnificationInferPat =
                             Severity = Severity.Error
                         }
 
-                let unionInfo = TypeRegistry.unionOfCase ctx.Types i
+                let unionInfo = TypeRegistry.unionOfCase ctx.Types SourcePos.unbounded i
                 let args, subst = freshNamedInstance ctx unionInfo.TypeParams
                 let m = min subPats.Length i.Fields.Length
 
@@ -440,7 +440,7 @@ module internal UnificationInferPat =
             let candidate =
                 match qualifier with
                 | Some typeName ->
-                    match TypeRegistry.tryRecord ctx.Types typeName with
+                    match TypeRegistry.tryRecord ctx.Types SourcePos.unbounded typeName with
                     | ValueSome info -> ValueSome info
                     | ValueNone ->
                         ctx.Diagnostics.Add

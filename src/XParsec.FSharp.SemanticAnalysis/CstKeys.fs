@@ -142,6 +142,49 @@ module CstKeys =
         | Pat.Null t -> t
         | _ -> failwithf "CstKeys.firstTokenOfPat: TODO %A" p
 
+    /// The leftmost token a `TypeName` retains: its first attribute set's `[<`, else the
+    /// declared name (access modifier and prefix typars sit between the two, so the name
+    /// is a safe floor — no reference can be WRITTEN in either).
+    let private firstTokenOfTypeName (tn: TypeName<SyntaxToken>) : SyntaxToken voption =
+        let (TypeName(attributes = attrs; ident = li)) = tn
+
+        match attrs with
+        | ValueSome sets when sets.Length > 0 ->
+            let (AttributeSet(lBracket = lb)) = sets.[0]
+            ValueSome lb
+        | _ ->
+            if li.Idents.Length > 0 then
+                ValueSome li.Idents.[0]
+            else
+                ValueNone
+
+    /// The leftmost token the CST retains for a type definition. The `type` / `and`
+    /// keyword introducing it is consumed by the parser and NOT kept, so this is as far
+    /// left as a declaration can be anchored — but it still lies strictly between that
+    /// keyword and everything the declaration writes, and nothing can be written between
+    /// the keyword and the type's attributes/name. That is exactly the precision the
+    /// file-order visibility rule needs: a use above the `type` keyword is below this
+    /// offset, and everything the declaration contains is above it.
+    let tryFirstTokenOfTypeDefn (td: TypeDefn<SyntaxToken>) : SyntaxToken voption =
+        match td with
+        | TypeDefn.Abbrev(typeName = tn)
+        | TypeDefn.Record(typeName = tn)
+        | TypeDefn.Union(typeName = tn)
+        | TypeDefn.Anon(typeName = tn)
+        | TypeDefn.Class(typeName = tn)
+        | TypeDefn.Struct(typeName = tn)
+        | TypeDefn.Interface(typeName = tn)
+        | TypeDefn.Enum(typeName = tn)
+        | TypeDefn.Delegate(typeName = tn)
+        | TypeDefn.TypeExtension(typeName = tn)
+        | TypeDefn.AbstractType(typeName = tn) -> firstTokenOfTypeName tn
+        | TypeDefn.Missing -> ValueNone
+        | TypeDefn.SkipsTokens tokens ->
+            if tokens.Length > 0 then
+                ValueSome tokens.[0]
+            else
+                ValueNone
+
     let ofExpr (e: Expr<SyntaxToken>) : NodeKey =
         match e with
         // Key a dotted member access by its *member-name* token, not the receiver's

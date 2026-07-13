@@ -519,7 +519,7 @@ module Elaborate =
             // Resolve by the arity-key, not the bare name: an arity-overloaded
             // interface (`Fun\`2`/`Fun\`3`) does not resolve by bare name, so a bare
             // read would miss and silently drop the decl.
-            match TypeRegistry.tryClassArity ctx.Types name arity with
+            match TypeRegistry.tryClassArity ctx.Types SourcePos.unbounded name arity with
             | ValueNone -> None
             | ValueSome info ->
                 // The member signatures share these prototype TyVars (Unification
@@ -1237,7 +1237,7 @@ module Elaborate =
         // the same containment-derived holder, so a module-held enum cannot fall back to
         // a DIFFERENT key than the one registration minted.
         let key =
-            match TypeRegistry.tryEnum ctx.Types name with
+            match TypeRegistry.tryEnum ctx.Types SourcePos.unbounded name with
             | ValueSome info -> info.Key
             | ValueNone ->
                 SymbolKey.Type(LocalSymbolKey.ofType (NameResolutionTypeRegistration.localTypeHolder ctx c) name 0)
@@ -1382,7 +1382,7 @@ module Elaborate =
         // Resolve by the arity-key, not the bare name: an arity-overloaded class
         // (`Box\`1`/`Box\`2`) does not resolve by bare name, so a bare read would
         // miss (or fetch the wrong arity's info) and drop / mis-emit the decl.
-        match TypeRegistry.tryClassArity ctx.Types name arity with
+        match TypeRegistry.tryClassArity ctx.Types SourcePos.unbounded name arity with
         | ValueNone -> None
         | ValueSome info ->
             let markers = mkDeclTyparEnv info.TypeParams

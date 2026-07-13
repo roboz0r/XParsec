@@ -44,7 +44,7 @@ module UnificationSubsume =
 
         let enumName = SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName enumKey)
 
-        match TypeRegistry.tryEnum ctx.Types enumName with
+        match TypeRegistry.tryEnum ctx.Types SourcePos.unbounded enumName with
         // The registry is keyed by bare name but `enumKey` is the full identity axis
         // (home assembly + namespace) — require them to agree, so a same-named enum
         // from another namespace/package never admits against this one's value set.

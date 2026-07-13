@@ -66,8 +66,10 @@ module JsEmitHelpers =
         if Set.contains name jsReserved then name + "$" else name
 
     /// `NodeKey` → JS identifier. Real binders recover the source name from `Offset`
-    /// (apostrophes → `_`). Synthetic keys (`IsSynthetic`) carry a per-build counter,
-    /// NOT a source position — they get `_s<off>` to stay disjoint from `_v<off>`.
+    /// (apostrophes → `_`). A synthetic binder has no source name, so it is NAMED after
+    /// the key's `NameIndex` — a spawning offset or a mint counter, whichever the key
+    /// carries — as `_s<n>`, disjoint from `_v<n>`. `NameIndex`, not `Offset`: a
+    /// counter-minted key's offset is negative, which is not a legal identifier tail.
     let identName (source: string voption) (k: NodeKey) : string =
         match source with
         | ValueSome s when
@@ -82,7 +84,7 @@ module JsEmitHelpers =
                 i <- i + 1
 
             jsSafe ((s.Substring(k.Offset, i - k.Offset)).Replace('\'', '_'))
-        | _ -> (if k.IsSynthetic then "_s" else "_v") + string k.Offset
+        | _ -> (if k.IsSynthetic then "_s" else "_v") + string k.NameIndex
 
     // ---- Scalar constants ----------------------------------------------------
 

@@ -328,6 +328,7 @@ module NameResolution =
                     match
                         TypeRegistry.tryClassArity
                             ctx.Types
+                            SourcePos.unbounded
                             (ctx.NameOf nameLi.Idents.[0])
                             (arityOfTypeName ctx d.TypeName)
                     with
@@ -411,7 +412,7 @@ module NameResolution =
                 | ValueSome(struct (nameLi, ValueSome elems)) ->
                     let name = ctx.NameOf nameLi.Idents.[0]
 
-                    match TypeRegistry.tryNonClassMemberHost ctx.Types name with
+                    match TypeRegistry.tryNonClassMemberHost ctx.Types SourcePos.unbounded name with
                     | ValueSome host -> walkNominalHostBodies ctx walker name host elems
                     | ValueNone -> ()
                 | _ -> ()
@@ -480,7 +481,7 @@ module NameResolution =
             ctx.Resolution.OpenScope <- w.Scope
 
             match w.Elem with
-            | ModuleElem.Type defs -> registerGroup ctx w.Containment defs
+            | ModuleElem.Type defs -> registerGroup ctx w.Containment w.RecScopeOffset defs
             | m -> classifyTermTypes ctx m
 
         // walkModuleElem skips ModuleElem.Type, so class/union member bodies are

@@ -224,7 +224,7 @@ let tests =
                 let mutable n = 0
 
                 fun () ->
-                    let k = NodeKey.ofSynthetic n NodeKind.SynthInlineExpansion
+                    let k = NodeKey.ofSyntheticCounter n NodeKind.SynthInlineExpansion
                     n <- n + 1
                     k
 

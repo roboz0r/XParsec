@@ -257,14 +257,22 @@ module DeclContainment =
     let namespaceOpt (c: DeclContainment<'T>) : string option =
         if c.Namespace = "" then None else Some c.Namespace
 
-/// One flattened leaf element of a module tree, paired with the two ambient facts a pass
-/// needs at that position: the `open` scope active there, and the declaring containment
-/// a local `SymbolKey` is minted from.
+/// One flattened leaf element of a module tree, paired with the ambient facts a pass needs
+/// at that position: the `open` scope active there, the declaring containment a local
+/// `SymbolKey` is minted from, and the enclosing `rec` scope that widens what a declaration
+/// written here is visible from.
 type WalkedElem<'T> =
     {
         Elem: ModuleElem<'T>
         Scope: OpenScope
         Containment: DeclContainment<'T>
+        /// Source offset of the `module` / `namespace` keyword of the INNERMOST enclosing
+        /// `rec` scope, `ValueNone` outside one. `rec` is exactly the statement that a
+        /// declaration here is visible from the TOP of that scope rather than from where
+        /// it is written, so this is the offset a claim minted here records as its
+        /// `VisibleFrom` — the one place the rec-ness of a module enters the visibility
+        /// rule, which therefore needs no branch of its own.
+        RecScopeOffset: int voption
     }
 
 module CstWalk =
@@ -1150,18 +1158,28 @@ module CstWalk =
                 addAbbrev scope (nameOf id) (longIdentText li)
             | _ -> scope
 
+        // The rec scope a `module`/`namespace` body sits in: its OWN keyword when it is
+        // itself `rec` (the innermost rec scope wins), else whatever it inherited.
+        let innerRecScope (keyword: SyntaxToken) (isRec: SyntaxToken voption) (inherited: int voption) : int voption =
+            if isRec.IsSome then
+                ValueSome keyword.StartIndex
+            else
+                inherited
+
         // `isRec` is the scope's own rec flag (drives open-resolution's
-        // constant-prelude shape); `inRec` is the *propagated* flag (true if
-        // this scope or any enclosing scope is rec) — drives FS3200, which
-        // fires in non-rec submodules of a rec namespace too.
+        // constant-prelude shape). `recScope` is the *propagated* one: the innermost
+        // enclosing rec scope's keyword offset, overwritten only where a scope is itself
+        // rec, so it names the innermost rec ancestor and is `ValueNone` outside one. Its
+        // presence is the propagated rec BOOLEAN that FS3200 wants (it fires in a non-rec
+        // submodule of a rec namespace too), so the flag and the offset cannot disagree.
         let rec processElems
             (elems: ModuleElems<SyntaxToken>)
             (start: OpenScope)
             (isRec: bool)
-            (inRec: bool)
+            (recScope: int voption)
             (containment: DeclContainment<SyntaxToken>)
             : unit =
-            onScope elems inRec
+            onScope elems recScope.IsSome
 
             if isRec then
                 // Constant prelude: all opens/abbrevs in this scope apply to the
@@ -1169,22 +1187,23 @@ module CstWalk =
                 let constScope = (start, elems) ||> Seq.fold accumulate
 
                 for e in elems do
-                    emit e constScope inRec containment
+                    emit e constScope recScope containment
             else
                 let mutable s = start
 
                 for e in elems do
-                    emit e s inRec containment
+                    emit e s recScope containment
                     s <- accumulate s e
 
         and emit
             (e: ModuleElem<SyntaxToken>)
             (scope: OpenScope)
-            (inRec: bool)
+            (recScope: int voption)
             (containment: DeclContainment<SyntaxToken>)
             : unit =
             match e with
-            | ModuleElem.Module((ModuleDefn.ModuleDefn(isRec = innerRec; body = ModuleDefnBody(elements = inner))) as md) ->
+            | ModuleElem.Module((ModuleDefn.ModuleDefn(
+                moduleToken = kw; isRec = innerRec; body = ModuleDefnBody(elements = inner))) as md) ->
                 // The wrapper is dropped (as in `implFileElems`); the body is walked with
                 // the enclosing scope inherited as its seed. A module is a *holder*, not a
                 // namespace segment, so it EXTENDS the containment's holder chain and
@@ -1195,7 +1214,7 @@ module CstWalk =
                         innerElems
                         scope
                         innerRec.IsSome
-                        (inRec || innerRec.IsSome)
+                        (innerRecScope kw innerRec recScope)
                         (DeclContainment.enter md containment)
                 | ValueNone -> ()
             | _ ->
@@ -1204,27 +1223,28 @@ module CstWalk =
                         Elem = e
                         Scope = scope
                         Containment = containment
+                        RecScopeOffset = recScope
                     }
 
         let top = DeclContainment.ofNamespace ""
 
         match file with
-        | ImplementationFile.AnonymousModule elems -> processElems elems ambient false false top
-        | ImplementationFile.NamedModule(NamedModule.NamedModule(isRec = isRec; elements = elems)) ->
-            processElems elems ambient isRec.IsSome isRec.IsSome top
+        | ImplementationFile.AnonymousModule elems -> processElems elems ambient false ValueNone top
+        | ImplementationFile.NamedModule(NamedModule.NamedModule(moduleToken = kw; isRec = isRec; elements = elems)) ->
+            processElems elems ambient isRec.IsSome (innerRecScope kw isRec ValueNone) top
         | ImplementationFile.Namespaces groups ->
             for g in groups do
                 match g with
-                | NamespaceDeclGroup.Named(isRec = isRec; longIdent = nsLi; elements = elems) ->
+                | NamespaceDeclGroup.Named(namespaceToken = kw; isRec = isRec; longIdent = nsLi; elements = elems) ->
                     // The namespace's own name is an implicit prefix for its body, and the
                     // declaring namespace at the root of its elements' containment.
                     processElems
                         elems
                         (addOpen ambient nsLi)
                         isRec.IsSome
-                        isRec.IsSome
+                        (innerRecScope kw isRec ValueNone)
                         (DeclContainment.ofNamespace (longIdentText nsLi))
-                | NamespaceDeclGroup.Global(elements = elems) -> processElems elems ambient false false top
+                | NamespaceDeclGroup.Global(elements = elems) -> processElems elems ambient false ValueNone top
 
         List.ofSeq out
 

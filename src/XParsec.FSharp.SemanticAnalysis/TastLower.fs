@@ -357,7 +357,9 @@ module TastLower =
 
     let private mintSyntheticParamKey () : NodeKey =
         let c = System.Threading.Interlocked.Increment(&paramSynthCounter)
-        NodeKey.ofSynthetic c NodeKind.SynthLambdaBody
+        // A counter, not a source offset — `ofSyntheticCounter` puts it in the negative
+        // half of the offset slot so the key can never be read back as a position.
+        NodeKey.ofSyntheticCounter c NodeKind.SynthLambdaBody
 
     let mintUnitParamKey () : NodeKey = mintSyntheticParamKey ()
 

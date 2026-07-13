@@ -98,14 +98,14 @@ module internal UnificationInferIdentExpr =
             // takes priority over a union ctor — preserves the original cascade
             // order so a static member shadows the not-a-case diagnostic.
             let classHit =
-                match TypeRegistry.tryClass ctx.Types headName with
+                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded headName with
                 | ValueSome info -> tryStaticMember info.TypeParams info.Members
                 | ValueNone -> ValueNone
 
             match classHit with
             | ValueSome ty -> ty
             | ValueNone ->
-                match TypeRegistry.tryUnionBare ctx.Types headName with
+                match TypeRegistry.tryUnionBare ctx.Types SourcePos.unbounded headName with
                 | ValueSome info ->
                     match tryStaticMember info.TypeParams info.Members with
                     | ValueSome ty -> ty
@@ -241,10 +241,10 @@ module internal UnificationInferIdentExpr =
                         ValueSome(substituteWith subst m.Type)
                     | None -> ValueNone
 
-                match TypeRegistry.tryClass ctx.Types className with
+                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded className with
                 | ValueSome info -> resolve info.TypeParams info.Members
                 | ValueNone ->
-                    match TypeRegistry.tryUnionBare ctx.Types className with
+                    match TypeRegistry.tryUnionBare ctx.Types SourcePos.unbounded className with
                     | ValueSome info -> resolve info.TypeParams info.Members
                     | ValueNone -> ValueNone
         | _ -> ValueNone

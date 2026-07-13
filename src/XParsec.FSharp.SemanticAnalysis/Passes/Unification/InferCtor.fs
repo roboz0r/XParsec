@@ -365,7 +365,7 @@ module internal UnificationInferCtor =
         match headName with
         | ValueNone -> ValueNone
         | ValueSome name ->
-            match TypeRegistry.tryClass ctx.Types name with
+            match TypeRegistry.tryClass ctx.Types SourcePos.unbounded name with
             | ValueNone -> ValueNone
             | ValueSome info ->
                 let argTy = infer ctx argExpr

@@ -49,7 +49,7 @@ module internal UnificationInferLiteralExpr =
     ///      while a literal nothing else pins (`printfn "%A" [1;2;3]`) defaults
     ///      back to FSharp.Core's `list` in `resolveListLiterals`.
     and listLiteralTy (ctx: PassContext) (key: NodeKey) (elemTy: SemType) : SemType =
-        match TypeRegistry.tryAbbrevArity ctx.Types "list" 1 with
+        match TypeRegistry.tryAbbrevArity ctx.Types SourcePos.unbounded "list" 1 with
         | ValueSome info ->
             forceFill ctx info
             expandAbbreviation ctx key info (EqArray.singleton elemTy)

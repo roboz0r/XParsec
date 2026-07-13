@@ -894,7 +894,7 @@ module Unification =
             for td in defs do
                 match common td with
                 | ValueSome(name, arity, body) ->
-                    match TypeRegistry.tryClassArity ctx.Types name arity with
+                    match TypeRegistry.tryClassArity ctx.Types SourcePos.unbounded name arity with
                     | ValueSome info ->
                         let prelinkExtras () =
                             // Attach the class's `when 'S :> IFace` typar constraints
@@ -1014,7 +1014,9 @@ module Unification =
                 // members; without one there is nothing to fill.
                 match TypeDefnPatterns.tryNonClassMemberHostDecl td with
                 | ValueSome(struct (nameLi, ValueSome elems)) ->
-                    match TypeRegistry.tryNonClassMemberHost ctx.Types (ctx.NameOf nameLi.Idents.[0]) with
+                    match
+                        TypeRegistry.tryNonClassMemberHost ctx.Types SourcePos.unbounded (ctx.NameOf nameLi.Idents.[0])
+                    with
                     | ValueSome host -> fillHostMembers ctx host elems
                     | ValueNone -> ()
                 | _ -> ()
@@ -1040,7 +1042,13 @@ module Unification =
                         // interface impls. Mirrors `fillClassMembers` / `walkClassBodies`.
                         let arity = NameResolutionTypeRegistration.arityOfTypeName ctx d.TypeName
 
-                        match TypeRegistry.tryClassArity ctx.Types (ctx.NameOf nameLi.Idents.[0]) arity with
+                        match
+                            TypeRegistry.tryClassArity
+                                ctx.Types
+                                SourcePos.unbounded
+                                (ctx.NameOf nameLi.Idents.[0])
+                                arity
+                        with
                         | ValueSome info -> resolveInterfaceImpls ctx (info :> IInterfaceImplHost)
                         | ValueNone -> ()
                 | ValueNone ->
@@ -1050,7 +1058,12 @@ module Unification =
                     // no-op `resolveInterfaceImpls` — the elems are immaterial here.)
                     match TypeDefnPatterns.tryNonClassMemberHostDecl td with
                     | ValueSome(struct (nameLi, _)) ->
-                        match TypeRegistry.tryNonClassMemberHost ctx.Types (ctx.NameOf nameLi.Idents.[0]) with
+                        match
+                            TypeRegistry.tryNonClassMemberHost
+                                ctx.Types
+                                SourcePos.unbounded
+                                (ctx.NameOf nameLi.Idents.[0])
+                        with
                         | ValueSome host -> resolveInterfaceImpls ctx host
                         | ValueNone -> ()
                     | ValueNone -> ()

@@ -286,8 +286,40 @@ module NameResolutionTypeRegistration =
                 | ValueNone -> ()
         | _ -> ()
 
-    /// Establish the nominal identity — name, arity, decl `NodeKey`, minted `SymbolKey` —
-    /// of ONE type declaration, regardless of kind. Every type in a `type … and …` group is
+    /// WHERE the claims of one `type … and …` group become visible. `ModuleElem.Type` IS
+    /// the group, so this is computed once per group and every claim minted from it carries
+    /// the same offset (see `TypeIdentity.VisibleFrom`).
+    ///
+    /// Inside a `module rec` / `namespace rec` it is that scope's keyword: the declaration
+    /// is visible from the top of the module, which is the whole of what `rec` means.
+    /// Otherwise it is the group's own first token — so a use above the group cannot see
+    /// it, and everything the group writes (a field type, a member body, an `and`-sibling's
+    /// head) sits after it and can.
+    ///
+    /// `0` — visible from anywhere — when the group retains no token at all
+    /// (`TypeDefn.Missing`): a shape that declares nothing has nothing to scope.
+    ///
+    /// The search carries a `voption`, not a `0` sentinel: offset 0 is a REAL position (a
+    /// bare `type A = … and B = …` with no module header starts there), so a sentinel would
+    /// read "found nothing" off the first group in such a file and fall through to the
+    /// SECOND definition's offset — hiding the group from its own first member's body.
+    let typeGroupVisibleFrom (recScopeOffset: int voption) (defs: ImmutableArray<TypeDefn<SyntaxToken>>) : int =
+        match recScopeOffset with
+        | ValueSome offset -> offset
+        | ValueNone ->
+            let mutable found = ValueNone
+            let mutable i = 0
+
+            while found.IsNone && i < defs.Length do
+                found <- CstKeys.tryFirstTokenOfTypeDefn defs.[i]
+                i <- i + 1
+
+            match found with
+            | ValueSome t -> t.StartIndex
+            | ValueNone -> 0
+
+    /// Establish the nominal identity — name, arity, decl `NodeKey`, minted `SymbolKey`,
+    /// and the offset it is visible from — of ONE type declaration, regardless of kind. Every type in a `type … and …` group is
     /// claimed before ANY of the group's detail registers, so:
     ///   * duplicate detection is ONE predicate over ONE name table (`TypeRegistry`'s
     ///     `TypeClaims`) — a kind added later cannot be wired into some guards and
@@ -304,6 +336,7 @@ module NameResolutionTypeRegistration =
     let claimTypeIdentity
         (ctx: PassContext)
         (c: DeclContainment<SyntaxToken>)
+        (visibleFrom: int)
         (td: TypeDefn<SyntaxToken>)
         : ClaimedTypeDefn voption =
         match tryDeclaredTypeName td with
@@ -363,6 +396,7 @@ module NameResolutionTypeRegistration =
                                     Kind = kind
                                     DeclKey = declKey
                                     Key = stampLocalTypeKey ctx declKey c name arity
+                                    VisibleFrom = visibleFrom
                                 }
                             Defn = td
                         }

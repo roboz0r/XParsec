@@ -125,7 +125,7 @@ let tests =
             test "record type definition registers in ctx.Types.Record" {
                 let ctx = analyse "type R = { X: int; Y: int }"
 
-                match TypeRegistry.tryRecord ctx.Types "R" with
+                match TypeRegistry.tryRecord ctx.Types SourcePos.unbounded "R" with
                 | ValueSome info ->
                     Expect.equal info.Fields.Length 2 "two fields"
                     Expect.equal info.Fields.[0].Name "X" "first field is X"
@@ -166,7 +166,7 @@ let tests =
                         "type P() =\n    member this.V = 1\ntype D<'a>(x: 'a) =\n    inherit P()\n    member this.X = x\ntype D<'a, 'b>(x: 'a, y: 'b) =\n    inherit P()\n    member this.Y = y"
 
                 for arity in [ 1; 2 ] do
-                    match TypeRegistry.tryClassArity ctx.Types "D" arity with
+                    match TypeRegistry.tryClassArity ctx.Types SourcePos.unbounded "D" arity with
                     | ValueSome info -> Expect.isTrue info.BaseType.IsSome $"D`{arity} has a base type"
                     | ValueNone -> failtest $"class D`{arity} not registered"
             }
@@ -177,7 +177,7 @@ let tests =
                         "type R<'a> = { A: 'a }\n\n    member this.GetA = this.A\n\ntype R<'a, 'b> = { A2: 'a; B: 'b }\n\n    member this.GetB = this.B"
 
                 for arity, memberName in [ 1, "GetA"; 2, "GetB" ] do
-                    match TypeRegistry.tryRecordArity ctx.Types "R" arity with
+                    match TypeRegistry.tryRecordArity ctx.Types SourcePos.unbounded "R" arity with
                     | ValueSome info ->
                         Expect.isTrue
                             (info.Members |> Array.exists (fun m -> m.Name = memberName))
@@ -191,7 +191,7 @@ let tests =
                         "type U<'a> =\n    | Ua of 'a\n\n    member this.GetA = 1\n\ntype U<'a, 'b> =\n    | Ub of 'a * 'b\n\n    member this.GetB = 2"
 
                 for arity, memberName in [ 1, "GetA"; 2, "GetB" ] do
-                    match TypeRegistry.tryUnion ctx.Types "U" arity with
+                    match TypeRegistry.tryUnion ctx.Types SourcePos.unbounded "U" arity with
                     | ValueSome info ->
                         Expect.isTrue
                             (info.Members |> Array.exists (fun m -> m.Name = memberName))
@@ -202,7 +202,7 @@ let tests =
             test "mutable field IsMutable is true" {
                 let ctx = analyse "type P = { X: int; mutable Y: int }"
 
-                match TypeRegistry.tryRecord ctx.Types "P" with
+                match TypeRegistry.tryRecord ctx.Types SourcePos.unbounded "P" with
                 | ValueSome info ->
                     Expect.isFalse info.Fields.[0].IsMutable "X is immutable"
                     Expect.isTrue info.Fields.[1].IsMutable "Y is mutable"
@@ -213,7 +213,7 @@ let tests =
                 let ctx =
                     analyse "type S =\n    | Circle of float\n    | Rectangle of float * float\n    | Point"
 
-                match TypeRegistry.tryUnionBare ctx.Types "S" with
+                match TypeRegistry.tryUnionBare ctx.Types SourcePos.unbounded "S" with
                 | ValueSome info ->
                     Expect.equal info.Cases.Length 3 "three cases"
                     Expect.equal info.Cases.[0].Name "Circle" "Circle case"
@@ -272,7 +272,7 @@ let tests =
             test "generic record registers single TypeParam" {
                 let ctx = analyse "type Box<'a> = { Value: 'a }"
 
-                match TypeRegistry.tryRecord ctx.Types "Box" with
+                match TypeRegistry.tryRecord ctx.Types SourcePos.unbounded "Box" with
                 | ValueSome info ->
                     Expect.equal info.TypeParams.Length 1 "one typar"
                     Expect.equal (fst info.TypeParams.[0]) "'a" "name is 'a"
@@ -290,7 +290,7 @@ let tests =
                 NameResolution.run ctx file
                 Unification.run ctx file
 
-                match TypeRegistry.tryRecord ctx.Types "Box" with
+                match TypeRegistry.tryRecord ctx.Types SourcePos.unbounded "Box" with
                 | ValueSome info ->
                     let _, tparTv = info.TypeParams.[0]
                     let tparRoot = UnionFind.find tparTv
@@ -307,7 +307,7 @@ let tests =
             test "generic record keeps declaration order" {
                 let ctx = analyse "type Pair<'a, 'b> = { First: 'a; Second: 'b }"
 
-                match TypeRegistry.tryRecord ctx.Types "Pair" with
+                match TypeRegistry.tryRecord ctx.Types SourcePos.unbounded "Pair" with
                 | ValueSome info ->
                     Expect.equal info.TypeParams.Length 2 "two typars"
                     Expect.equal (fst info.TypeParams.[0]) "'a" "first is 'a"
@@ -318,7 +318,7 @@ let tests =
             test "generic union registers TypeParams" {
                 let ctx = analyse "type Option<'a> = | Some of 'a | None"
 
-                match TypeRegistry.tryUnionBare ctx.Types "Option" with
+                match TypeRegistry.tryUnionBare ctx.Types SourcePos.unbounded "Option" with
                 | ValueSome info ->
                     Expect.equal info.TypeParams.Length 1 "one typar"
                     Expect.equal (fst info.TypeParams.[0]) "'a" "name is 'a"
@@ -345,7 +345,7 @@ let tests =
             test "monomorphic abbreviation registers with no TypeParams" {
                 let ctx = analyse "type Name = string"
 
-                match TypeRegistry.tryAbbrevArity ctx.Types "Name" 0 with
+                match TypeRegistry.tryAbbrevArity ctx.Types SourcePos.unbounded "Name" 0 with
                 | ValueSome info -> Expect.isTrue info.TypeParams.IsEmpty "no typars"
                 | ValueNone -> failtest "abbreviation Name not registered"
             }
@@ -353,7 +353,7 @@ let tests =
             test "generic abbreviation keeps declaration order" {
                 let ctx = analyse "type Pair<'a, 'b> = 'a * 'b"
 
-                match TypeRegistry.tryAbbrevArity ctx.Types "Pair" 2 with
+                match TypeRegistry.tryAbbrevArity ctx.Types SourcePos.unbounded "Pair" 2 with
                 | ValueSome info ->
                     Expect.equal info.TypeParams.Length 2 "two typars"
                     Expect.equal (fst info.TypeParams.[0]) "'a" "first is 'a"
@@ -397,17 +397,17 @@ let tests =
                     )
 
                 let recordKey n =
-                    match TypeRegistry.tryRecord ctx.Types n with
+                    match TypeRegistry.tryRecord ctx.Types SourcePos.unbounded n with
                     | ValueSome info -> info.Key
                     | ValueNone -> failtestf "record %s not registered" n
 
                 let unionKey n =
-                    match TypeRegistry.tryUnionBare ctx.Types n with
+                    match TypeRegistry.tryUnionBare ctx.Types SourcePos.unbounded n with
                     | ValueSome info -> info.Key
                     | ValueNone -> failtestf "union %s not registered" n
 
                 let abbrevKey n arity =
-                    match TypeRegistry.tryAbbrevArity ctx.Types n arity with
+                    match TypeRegistry.tryAbbrevArity ctx.Types SourcePos.unbounded n arity with
                     | ValueSome info -> info.Key
                     | ValueNone -> failtestf "abbreviation %s not registered" n
 
@@ -445,7 +445,7 @@ let tests =
             test "Phase 1: generic class Key is arity-suffixed" {
                 let ctx = analyse "type C<'a>(x: 'a) =\n    member this.X = x"
 
-                match TypeRegistry.tryClass ctx.Types "C" with
+                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded "C" with
                 | ValueSome info ->
                     Expect.equal info.Key (SymbolKeyOps.typeKey None "" ("C`1")) "generic class → arity-suffixed key"
                 | ValueNone -> failtest "class C not registered"
@@ -454,7 +454,7 @@ let tests =
             test "class type registers in ctx.Types.Class with ctor params and members" {
                 let ctx = analyse "type C(x: int) =\n    member this.X = x"
 
-                match TypeRegistry.tryClass ctx.Types "C" with
+                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded "C" with
                 | ValueSome info ->
                     Expect.equal info.CtorParams.Length 1 "one ctor param"
                     Expect.equal info.CtorParams.[0].Name "x" "ctor param named x"
@@ -475,7 +475,7 @@ let tests =
             test "static member registers with IsStatic = true" {
                 let ctx = analyse "type C() =\n    static member M () = 1"
 
-                match TypeRegistry.tryClass ctx.Types "C" with
+                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded "C" with
                 | ValueSome info ->
                     Expect.equal info.Members.Length 1 "one member"
                     Expect.isTrue info.Members.[0].IsStatic "M is static"
@@ -488,7 +488,7 @@ let tests =
             test "[<Sealed>] stamps ClassTypeInfo.IsSealed" {
                 let ctx = analyse "[<Sealed>]\ntype C() = member this.M () = 1"
 
-                match TypeRegistry.tryClass ctx.Types "C" with
+                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded "C" with
                 | ValueSome info ->
                     Expect.isTrue info.IsSealed "[<Sealed>] sets IsSealed"
                     Expect.isFalse info.AllowNullLiteral "AllowNullLiteral not stamped"
@@ -498,7 +498,7 @@ let tests =
             test "[<AllowNullLiteral>] stamps ClassTypeInfo.AllowNullLiteral" {
                 let ctx = analyse "[<AllowNullLiteral>]\ntype C() = member this.M () = 1"
 
-                match TypeRegistry.tryClass ctx.Types "C" with
+                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded "C" with
                 | ValueSome info ->
                     Expect.isTrue info.AllowNullLiteral "[<AllowNullLiteral>] sets AllowNullLiteral"
                     Expect.isFalse info.IsSealed "IsSealed not stamped"
@@ -511,7 +511,7 @@ let tests =
                 let ctx =
                     analyse "[<Microsoft.FSharp.Core.SealedAttribute>]\ntype C() = member this.M () = 1"
 
-                match TypeRegistry.tryClass ctx.Types "C" with
+                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded "C" with
                 | ValueSome info -> Expect.isTrue info.IsSealed "long-ident [<...Sealed>] is decoded"
                 | ValueNone -> failtest "class type C not registered"
             }
@@ -519,7 +519,7 @@ let tests =
             test "no class-shaping attribute leaves IsSealed=false, AllowNullLiteral=false" {
                 let ctx = analyse "type C() = member this.M () = 1"
 
-                match TypeRegistry.tryClass ctx.Types "C" with
+                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded "C" with
                 | ValueSome info ->
                     Expect.isFalse info.IsSealed "default: not sealed"
                     Expect.isFalse info.AllowNullLiteral "default: no null literal"
@@ -532,7 +532,7 @@ let tests =
                 let ctx =
                     analyse "type B(x: int) =\n    member this.X = x\ntype D(y: int) =\n    inherit B(y)"
 
-                match TypeRegistry.tryClass ctx.Types "D" with
+                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded "D" with
                 | ValueSome info ->
                     Expect.equal info.BaseType (ValueSome(TyClass("B", EqArray.empty))) "D inherits B"
                     Expect.isTrue info.BaseCtorArgs.IsSome "base-ctor args captured"
@@ -542,7 +542,7 @@ let tests =
             test "class without inherit clause has ValueNone BaseType" {
                 let ctx = analyse "type C() =\n    member this.M () = 1"
 
-                match TypeRegistry.tryClass ctx.Types "C" with
+                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded "C" with
                 | ValueSome info ->
                     Expect.equal info.BaseType ValueNone "no base type"
                     Expect.equal info.BaseCtorArgs ValueNone "no base-ctor args"
@@ -554,7 +554,7 @@ let tests =
                     analyse
                         "type Box<'a>(v: 'a) =\n    member this.V = v\ntype IntBox(n: int) =\n    inherit Box<int>(n)"
 
-                match TypeRegistry.tryClass ctx.Types "IntBox" with
+                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded "IntBox" with
                 | ValueSome info ->
                     Expect.equal
                         info.BaseType
@@ -568,7 +568,7 @@ let tests =
                     analyse
                         "type B() =\n    member this.M () = 1\ntype D() =\n    inherit B()\n    member this.N () = base.M()"
 
-                match TypeRegistry.tryClass ctx.Types "D" with
+                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded "D" with
                 | ValueSome info ->
                     // The `base` binder gets a self-entry in the instance scope.
                     match ctx.Bindings.Binding.TryGetValue info.BaseKey with
@@ -599,7 +599,7 @@ let tests =
                     analyse
                         "type B() =\n    member this.M () = 1\ntype D() =\n    inherit B()\n    override this.M () = 2"
 
-                match TypeRegistry.tryClass ctx.Types "D" with
+                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded "D" with
                 | ValueSome info ->
                     Expect.equal info.Members.Length 1 "one member on D"
                     Expect.isTrue info.Members.[0].IsOverride "override flag set"
@@ -609,7 +609,7 @@ let tests =
             test "plain member leaves IsOverride false" {
                 let ctx = analyse "type C() =\n    member this.M () = 1"
 
-                match TypeRegistry.tryClass ctx.Types "C" with
+                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded "C" with
                 | ValueSome info -> Expect.isFalse info.Members.[0].IsOverride "plain member is not an override"
                 | ValueNone -> failtest "class type C not registered"
             }
@@ -622,7 +622,7 @@ let tests =
 
                 Expect.isTrue cannotInherit "cannot-inherit-from-non-class diagnostic"
 
-                match TypeRegistry.tryClass ctx.Types "D" with
+                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded "D" with
                 | ValueSome info -> Expect.equal info.BaseType ValueNone "BaseType not stamped for non-class parent"
                 | ValueNone -> failtest "class type D not registered"
             }
@@ -715,12 +715,12 @@ let tests =
                 let ctx =
                     analyse "namespace Foo.Bar\n\ntype Rec = { x: int }\ntype Choice<'a, 'b> = | C1 of 'a | C2 of 'b"
 
-                match TypeRegistry.tryRecord ctx.Types "Rec" with
+                match TypeRegistry.tryRecord ctx.Types SourcePos.unbounded "Rec" with
                 | ValueSome info ->
                     Expect.equal info.Key (SymbolKeyOps.typeKey None "Foo.Bar" ("Rec")) "record key carries namespace"
                 | ValueNone -> failtest "Rec not registered"
 
-                match TypeRegistry.tryUnion ctx.Types "Choice" 2 with
+                match TypeRegistry.tryUnion ctx.Types SourcePos.unbounded "Choice" 2 with
                 | ValueSome info ->
                     Expect.equal
                         info.Key
@@ -743,8 +743,12 @@ let tests =
 
                 Expect.isFalse collision "no SymbolKey collision for arity-overloaded Choice"
 
-                Expect.isTrue (TypeRegistry.tryUnion ctx.Types "Choice" 2).IsSome "Choice`2 registered"
+                Expect.isTrue
+                    (TypeRegistry.tryUnion ctx.Types SourcePos.unbounded "Choice" 2).IsSome
+                    "Choice`2 registered"
 
-                Expect.isTrue (TypeRegistry.tryUnion ctx.Types "Choice" 3).IsSome "Choice`3 registered"
+                Expect.isTrue
+                    (TypeRegistry.tryUnion ctx.Types SourcePos.unbounded "Choice" 3).IsSome
+                    "Choice`3 registered"
             }
         ]

@@ -52,7 +52,7 @@ module internal UnificationInferResolve =
     /// `Point(3, 4)` calls (no `new`) through the function-application
     /// machinery. `ValueNone` if `name` isn't in `ctx.Types.Class`.
     let tryClassCtorAsFunction (ctx: PassContext) (name: string) : SemType voption =
-        match TypeRegistry.tryClass ctx.Types name with
+        match TypeRegistry.tryClass ctx.Types SourcePos.unbounded name with
         | ValueSome info ->
             let args, subst = freshNamedInstance ctx info.TypeParams
             let receiverTy = TyClass(info.Key, args)
@@ -76,7 +76,7 @@ module internal UnificationInferResolve =
     /// The receiver union's typars are instantiated fresh so two independent
     /// uses of `Some` don't share a `'a`.
     let ctorType (ctx: PassContext) (info: UnionCaseInfo) : SemType =
-        let unionInfo = TypeRegistry.unionOfCase ctx.Types info
+        let unionInfo = TypeRegistry.unionOfCase ctx.Types SourcePos.unbounded info
         let args, subst = freshNamedInstance ctx unionInfo.TypeParams
         let unionTy = TyUnion(unionInfo.Key, args)
 

@@ -365,7 +365,7 @@ module InlineExpansion =
             let mutable counter = 0
 
             let mint () =
-                let k = NodeKey.ofSynthetic counter NodeKind.SynthPreFreezeInline
+                let k = NodeKey.ofSyntheticCounter counter NodeKind.SynthPreFreezeInline
                 counter <- counter + 1
                 k
 

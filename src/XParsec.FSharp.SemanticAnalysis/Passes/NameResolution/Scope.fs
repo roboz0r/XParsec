@@ -179,7 +179,7 @@ module NameResolutionScope =
                 // unresolved diagnostic for all four.
                 if
                     ctx.Types.CtorIndex.ContainsKey name
-                    || (TypeRegistry.tryClass ctx.Types name).IsSome
+                    || (TypeRegistry.tryClass ctx.Types SourcePos.unbounded name).IsSome
                     // A generic external-type receiver (`EqualityComparer<int>`) was
                     // resolved at exact arity by the enclosing TypeApp visit, which
                     // stamped this use site's `ResolvedType`; a non-generic one
@@ -534,11 +534,11 @@ module NameResolutionScope =
                                 let staticIn (members: TypeMemberInfo[]) =
                                     members |> Array.exists (fun m -> m.IsStatic && m.Name = memberName)
 
-                                (match TypeRegistry.tryClass ctx.Types typeName with
+                                (match TypeRegistry.tryClass ctx.Types SourcePos.unbounded typeName with
                                  | ValueSome info -> staticIn info.Members
                                  | ValueNone -> false)
                                 || (
-                                    match TypeRegistry.tryUnionBare ctx.Types typeName with
+                                    match TypeRegistry.tryUnionBare ctx.Types SourcePos.unbounded typeName with
                                     | ValueSome info -> staticIn info.Members
                                     | ValueNone -> false
                                 ))
@@ -551,7 +551,7 @@ module NameResolutionScope =
                         // `isQualifiedCtor` / `isQualifiedStatic` suppressions.
                         let isEnumCase =
                             li.Idents.Length = 2
-                            && (TypeRegistry.tryEnum ctx.Types (ctx.NameOf li.Idents.[0])).IsSome
+                            && (TypeRegistry.tryEnum ctx.Types SourcePos.unbounded (ctx.NameOf li.Idents.[0])).IsSome
 
                         // `Result.Ok` / `Option.Some` — a qualified *external* union case.
                         // The declaring union may be generic (`Result\`2`), but it is

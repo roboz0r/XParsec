@@ -41,44 +41,151 @@ cannot disagree. Any new scoping work should extend this, not add a parallel che
 
 ---
 
-## Residual 1 — expression-level references still see the whole file (THE BIG ONE)
+## Residual 1 — everything below a declaration can still see it (THE BIG ONE)
 
-We accept programs F# rejects:
+Registration is now file-ordered, but *resolution* is not. Every by-NAME lookup face on
+the registry answers against the registry as it stands **when the query runs**, and by the
+time any body is walked the whole file is registered. So a name declared below a use is
+still found.
 
-| program | F# | us |
+Type *heads* escape this only because `classifyTypeHead` renders its verdict **during**
+registration, where "claimed so far" is a live fact. Every other surface resolves later.
+
+### What F# actually does (probed, `dotnet fsi`)
+
+Six programs, six verdicts. These are the pinning tests; do not infer them, they are
+already probed.
+
+| # | program | F# |
 |---|---|---|
-| `let mk () = Foo(1)` above `type Foo(n: int)` | `FS0039` The value or constructor 'Foo' is not defined | **accepted, zero diagnostics** |
-| `let s () = Foo.Bar` above `type Foo` with `static member Bar` | `FS0039` The value, namespace, type or module 'Foo' is not defined | **accepted, zero diagnostics** |
+| P1 | `let f () = g ()` above `let g () = 1` | **FS0039** 'g' is not defined |
+| P2 | a class member calling a module `let` **below** it | **FS0039** 'helper' is not defined |
+| P3 | a class member calling a module `let` **above** it | accepted |
+| P4 | `match x with Alpha -> …` above `type U = Alpha \| Beta` | **accepted** — `Alpha` is a *variable pattern* (FS0049 + FS0026 "rule will never be matched") |
+| P5 | `let f () = { a = 1 }` above `type R = { a: int }` | **FS0039** record label 'a' is not defined |
+| P6 | every one of P1–P5 wrapped in `module rec` | **accepted** |
+| P7 | `let mk () = Foo(1)` above `type Foo(n: int)` | **FS0039** 'Foo' is not defined |
+| P8 | `let s () = Foo.Bar` above `type Foo` with `static member Bar` | **FS0039** 'Foo' is not defined |
 
-This is a **different surface** from everything above. Steps 4 and 5 work because type
-*heads* are classified during registration, where "what has been claimed so far" is a live
-fact. Constructor and static-access resolution happen in `InferIdentExpr` / ctor resolution
-during the **body walk**, which runs after the entire file is registered and has no notion
-of "declared above me" at all.
+P4 is not a quirk to be tolerated, and the "accepted" is not a leniency — it is the pattern
+grammar working. `U.Alpha` is not in scope, so `Alpha` names nothing, so it is a variable
+pattern, which is what an unrecognised ident in pattern position always is. That is the
+behaviour to pin. Asserting an *error* there would be pinning a rule F# does not have.
 
-### The proposed fix: a claim ordinal bound
+P6 is the load-bearing one. **We currently compile every module as if it were
+`module rec`.** `LocalModules` (short-name-keyed, whole-file) and
+`prebindModuleFunctionSchemes` (a whole-file pre-loop in `Unification.walkElems`) are not
+stray hacks — they are an *unconditional* implementation of a feature F# makes opt-in. The
+parser already records the flag (`DeclarationParsing.fs:168`,
+`ProgramStructureParsing.fs:28`; `CstWalk.fs:1187,1213` already destructures `isRec`).
 
-Give each claim a source ordinal (its index in `ClaimedTypeDefns`; a `type … and …` group
-occupies a contiguous range). Thread a visibility bound through the body walk — "resolve
-only against claims at or before my group's last ordinal" — set per element in the
-declaration-order loop that **already** iterates elements in order setting
-`ctx.Resolution.OpenScope`. It is the same loop, one more assignment.
+`module rec` / `namespace rec` are wanted eventually, and `VisibleFrom` is shaped so they
+cost almost nothing: the flag moves the field earlier and the lookup never branches. Types
+therefore keep working under `module rec` across Steps 2–4 for free. Full `rec` semantics
+are **not** in scope for this work — Step 5 gates the *value* grant, and anything beyond
+that is a later job.
 
-The registry's lookup faces (`tryTypeClaim`, `tryRecordArity`, `tryKeyOfBareName`, …) are
-already funnelled through the generic `tryKeyOf*` mechanism in `TypeRegistry.fs`, so the
-bound goes in **one place**, not scattered across call sites.
+### The fix: `VisibleFrom` on the claim, a use-site position on the query
 
-A below-declared type then simply **misses**, and resolution falls through to the external
-probe on its own — same shape as the type-head fix, so the diagnostic falls out of
-resolution failing rather than needing its own checker.
+`NodeKey.Offset` (`NodeKey.fs:151`) **is** the source offset, and one `PassContext` covers
+one file, so node keys are already a total order in file position. Nothing new is minted.
 
-**Landmine.** The body walk (`fillClassMembers` / `fillNominalMembers` / `walkModuleElem`
-in `Unification.walkElems`; `walkClassBodies` / `walkNominalBodies` / `walkModuleElem` in
-`NameResolution.walkElems`) runs in **declaration order to satisfy a module↔class
-dependency**: a class member calling an earlier module function needs its real generalised
-scheme, and a later module function over the class needs the member's already-typed body.
-Batching either way breaks one direction. Adding a bound to that loop is fine; **reordering
-it is not.**
+Store on each local claim a single `VisibleFrom: int`, and make every by-name lookup face
+take the use site's position. The whole rule is then one comparison:
+
+> a claim is visible at use `U`  ⟺  `claim.VisibleFrom ≤ U.Offset`
+
+`VisibleFrom` is:
+- the offset of the **first token of the claim's `type … and …` group** (the `type`
+  keyword) — *not* the individual type's own offset; or
+- the offset of the **innermost enclosing `rec` module**, when there is one.
+
+Two consequences fall out for free, which is the reason for this shape:
+
+- **The recursive-group exceptions stop being exceptions.** A member body inside the group
+  sits textually after the group's `type` keyword, so it sees its own type and its
+  `and`-siblings by containment. A use above the group does not. No contiguous-ordinal
+  range, no special case.
+- **`module rec` is a one-field change.** It moves `VisibleFrom` earlier; the lookup does
+  not branch.
+
+The same field extends to value bindings (`LocalModules` entries), which is what fixes P1
+and P2 while keeping P3 and P6.
+
+**Why a use-site position and not a bound threaded through the walk:** visibility becomes a
+property of the **query**, never of ambient walk state. A pass that queries the registry
+cannot forget to set a bound, because there is no bound to set — and a forgotten bound
+fails *silently*, by accepting too much. It also means the answer no longer depends on
+*when* a node is visited, only on *where it is*, which is what makes the walk orders below
+free to change.
+
+### Steps (independently landable)
+
+**Step 1 — plumbing, behaviour-neutral.**
+Add `VisibleFrom: int` to the claim (`TypeIdentity` / `ClaimedTypeDefn`), populated at
+registration from the group's first token, or from the innermost enclosing `rec` module
+when there is one. Introduce a use-site position type that **only a non-synthetic
+`NodeKey` can produce** (see the synthetic-key hazard below) and thread it into the by-name
+faces, with every existing call site passing an explicit unbounded value. Nothing resolves
+differently yet. Land it green.
+
+**Step 2 — the kind-agnostic name table.** Flip `tryTypeClaim` / `isTypeNameInScope` to
+honour `VisibleFrom`. This is the table `classifyTypeHead` and `Translate` consult. Pins:
+P7, P8.
+
+**Step 3 — the kind indexes.** Flip `tryKeyOfArity` / `tryKeyOfBareName`, which funnel
+*every* kind index (record / union / class / abbrev / enum) — so one edit covers
+`InferIdentExpr`, `InferCtor`, `InferPat`, `InferRecordAccess`. Pins: P5.
+
+**Step 4 — `unionOfCase`.** A separate index from the `*Names` dictionaries, so it needs
+its own flip. Pins: P4 — assert the **variable-pattern degradation**, not an error.
+
+**Step 5 — values, and the `module rec` gate.** Give `LocalModules` entries a
+`VisibleFrom`; gate `prebindModuleFunctionSchemes`' forward grant on the enclosing module's
+`isRec`. Pins: P1, P2, P3, P6.
+
+**Step 6 — performance, not correctness.** With visibility carried by the query,
+`NameResolution.walkElems`' four kind-batched loops (registration → all class bodies → all
+nominal bodies → all module elems) no longer encode anything. Collapse them to one. This is
+a **perf** change and must be justified as one; it is not needed for any of P1–P8.
+
+### Hazards
+
+**Synthetic keys, and why kind cannot discriminate them.** `NodeKey.ofSynthetic` is called
+with two incompatible things. Sometimes it gets a genuine **spawning source offset**
+(`ElaborateExpr.fs:431`); sometimes it gets a **monotone counter** packed into the offset
+slot for uniqueness (`TastLower.fs:358-360`; also `Inline.freshen` and the `InlineExpansion`
+pass). A counter is not a source position, so a scoped lookup from such a node would compare
+garbage against a claim's `VisibleFrom`.
+
+The tempting guard — refuse `IsSynthetic`, or allowlist kinds — is **both unsound and
+over-broad**:
+- *Unsound*: `SynthLambdaBody` is minted **both** ways, counter-packed at `TastLower.fs:360`
+  and offset-packed at `ElaborateExpr.fs:431`. Kind tells you nothing.
+- *Over-broad*: a spawning-offset synthetic (a desugared app, a `this` binder) has a real
+  position and **should** resolve there. Refusing it would leave desugared nodes unable to
+  resolve names at all.
+
+Discriminate on the **value**. A source offset indexes into a `string`, so a *negative*
+offset is a truly uninhabited domain — no real position can ever be one. Counter-based
+minters pack into **negative** 32-bit space (set bit 31 of the offset slot); `SourcePos`
+is constructible from a key **iff `Offset ≥ 0`**, and kind and the syn bit become irrelevant
+to it. The invariant is then checkable rather than a convention about which kinds are safe —
+which matters, because the "two kinds" the first draft of this doc named were already an
+incomplete list.
+
+**The `…ByKey` faces need no change.** A key already names a resolved type; there is no
+scoping question. It is exactly the by-name faces that must take a use site: `tryTypeClaim`,
+`isTypeNameInScope`, `tryClass` / `tryClassArity`, `tryRecord` / `tryRecordArity`,
+`tryUnionBare` / `tryUnion`, `tryAbbrev` / `tryAbbrevArity`, `tryEnum`, `unionOfCase`.
+Making precisely those require a position is the correct-by-construction split.
+
+**Not a landmine any more, but do not disturb it in Steps 1–5.** `Unification.walkElems`'
+third loop runs in declaration order to satisfy a module↔class dependency: a class member
+calling an *earlier* module function needs its real generalised scheme, and a *later*
+module function over the class needs the member's already-typed body. Batching either way
+breaks one direction. After Step 5 that ordering no longer carries scoping information —
+but it still carries the typing dependency, so Step 6 must leave it alone.
 
 ---
 
