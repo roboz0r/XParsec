@@ -1,5 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
+open System.Collections.Generic
+
 // Single point where the TAST's recursion shape is enumerated. Six passes used
 // to each hand-roll a match over every `TExpr` case (`Inline.substExpr`,
 // `Inline.freshen.fE`, `Elaborate.mapExprTypes`, `RefCellPromotion`'s collector +
@@ -524,6 +526,121 @@ module TastWalk =
             iterPat it arm.Pat
             arm.Guard |> Option.iter (iterExpr it)
             iterExpr it arm.Body
+
+    /// Every binder-site NodeKey introduced by a `TPat`. A `TExpr.Var` carries
+    /// the binding-site key directly, so a free variable is simply a `Var` whose
+    /// key is not in scope — no `ctx.Bindings.Binding` resolution needed.
+    let rec bindersOfTPat (p: TPat) : NodeKey list =
+        match p with
+        | TPat.NamedSimple(k, _, _) -> [ k ]
+        // An or-pattern binds nothing (name resolution drops its binders), so its
+        // alternatives introduce no binders here either.
+        | TPat.Or _
+        | TPat.Wildcard _
+        | TPat.Null _
+        | TPat.EnumCase _
+        | TPat.Const _ -> []
+        | TPat.Tuple(items, _, _) ->
+            [
+                for sub in items do
+                    yield! bindersOfTPat sub
+            ]
+        | TPat.Record(fields, _, _) ->
+            [
+                for (_, sub) in fields do
+                    yield! bindersOfTPat sub
+            ]
+        | TPat.Union(_, fields, _, _) ->
+            [
+                for sub in fields do
+                    yield! bindersOfTPat sub
+            ]
+        | TPat.TypeTestAs(_, inner, _, _) -> bindersOfTPat inner
+
+    /// Free variables of `body` RELATIVE to `bound`: every `TExpr.Var` whose binding
+    /// site is neither in the caller-supplied seed nor introduced by a scope the walk
+    /// enters (nested lambda, let/use, for, match arm). `bound` grows/shrinks as the
+    /// walk enters/leaves each scope.
+    ///
+    /// The seed is what makes the primitive serve two questions with one walk: a
+    /// closure's captures are "free given the lambda's own parameter binders"
+    /// (`Regions`), and a published inline template's dangling references are "free
+    /// given the template's own binders, after the module-sibling rewrite"
+    /// (`Freeze`). Both are the same scope-tracking walk over the same tree, so
+    /// neither owns it.
+    let freeVars (bound0: NodeKey seq) (body: TExpr) : HashSet<NodeKey> =
+        let result = HashSet<NodeKey>(HashIdentity.Structural)
+        let bound = HashSet<NodeKey>(HashIdentity.Structural)
+
+        for k in bound0 do
+            bound.Add k |> ignore
+
+        let addBinders (p: TPat) : NodeKey list =
+            [
+                for k in bindersOfTPat p do
+                    if bound.Add k then
+                        yield k
+            ]
+
+        let removeBinders (added: NodeKey list) =
+            for k in added do
+                bound.Remove k |> ignore
+
+        let iter: Iter =
+            { identityIter with
+                VisitExpr =
+                    fun it e ->
+                        match e with
+                        | TExpr.Var(k, _, _) ->
+                            if not (bound.Contains k) then
+                                result.Add k |> ignore
+
+                            false
+                        | TExpr.Lambda(p, b, _, _) ->
+                            let added = addBinders p
+                            iterExpr it b
+                            removeBinders added
+                            false
+                        | TExpr.Let(p, v, b, _, _) ->
+                            iterExpr it v
+                            let added = addBinders p
+                            iterExpr it b
+                            removeBinders added
+                            false
+                        | TExpr.Use(p, v, b, _, _, _) ->
+                            iterExpr it v
+                            let added = addBinders p
+                            iterExpr it b
+                            removeBinders added
+                            false
+                        | TExpr.ForTo(k, st, en, b, _, _) ->
+                            iterExpr it st
+                            iterExpr it en
+                            let isNew = bound.Add k
+                            iterExpr it b
+
+                            if isNew then
+                                bound.Remove k |> ignore
+
+                            false
+                        | TExpr.ForIn(p, src, b, _, _, _) ->
+                            iterExpr it src
+                            let added = addBinders p
+                            iterExpr it b
+                            removeBinders added
+                            false
+                        | _ -> true
+                VisitArm =
+                    fun it arm ->
+                        let added = addBinders arm.Pat
+                        arm.Guard |> Option.iter (iterExpr it)
+                        iterExpr it arm.Body
+                        removeBinders added
+                        false
+            }
+
+        iterExpr iter body
+        result
 
     /// Every `Var k` occurrence in `body`, each tagged with the count of enclosing
     /// *evaluation-deferring-or-repeating* constructs (lambdas and loop bodies)

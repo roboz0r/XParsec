@@ -280,115 +280,6 @@ module Regions =
             | true, captured -> s.Graph.AddEdge(captured, r)
             | _ -> ()
 
-    /// Every binder-site NodeKey introduced by a `TPat`. A `TExpr.Var` carries
-    /// the binding-site key directly, so a free variable is simply a `Var` whose
-    /// key is not in scope — no `ctx.Bindings.Binding` resolution needed.
-    let rec private bindersOfTPat (p: TPat) : NodeKey list =
-        match p with
-        | TPat.NamedSimple(k, _, _) -> [ k ]
-        // An or-pattern binds nothing (name resolution drops its binders), so its
-        // alternatives introduce no regions.
-        | TPat.Or _
-        | TPat.Wildcard _
-        | TPat.Null _
-        | TPat.EnumCase _
-        | TPat.Const _ -> []
-        | TPat.Tuple(items, _, _) ->
-            [
-                for sub in items do
-                    yield! bindersOfTPat sub
-            ]
-        | TPat.Record(fields, _, _) ->
-            [
-                for (_, sub) in fields do
-                    yield! bindersOfTPat sub
-            ]
-        | TPat.Union(_, fields, _, _) ->
-            [
-                for sub in fields do
-                    yield! bindersOfTPat sub
-            ]
-        | TPat.TypeTestAs(_, inner, _, _) -> bindersOfTPat inner
-
-    /// Free variables of a lambda body: every `TExpr.Var` whose binding site is
-    /// neither a parameter nor introduced by an inner scope. `bound` is seeded
-    /// with the lambda's own parameter binders and grown/shrunk as the walk
-    /// enters/leaves any scope-introducing node (nested lambda, let/use, for,
-    /// match arm).
-    let private collectFreeVars (paramBinders: NodeKey list) (body: TExpr) : HashSet<NodeKey> =
-        let result = HashSet<NodeKey>(HashIdentity.Structural)
-        let bound = HashSet<NodeKey>(HashIdentity.Structural)
-
-        for k in paramBinders do
-            bound.Add k |> ignore
-
-        let addBinders (p: TPat) : NodeKey list =
-            [
-                for k in bindersOfTPat p do
-                    if bound.Add k then
-                        yield k
-            ]
-
-        let removeBinders (added: NodeKey list) =
-            for k in added do
-                bound.Remove k |> ignore
-
-        let iter: TastWalk.Iter =
-            { TastWalk.identityIter with
-                VisitExpr =
-                    fun it e ->
-                        match e with
-                        | TExpr.Var(k, _, _) ->
-                            if not (bound.Contains k) then
-                                result.Add k |> ignore
-
-                            false
-                        | TExpr.Lambda(p, b, _, _) ->
-                            let added = addBinders p
-                            TastWalk.iterExpr it b
-                            removeBinders added
-                            false
-                        | TExpr.Let(p, v, b, _, _) ->
-                            TastWalk.iterExpr it v
-                            let added = addBinders p
-                            TastWalk.iterExpr it b
-                            removeBinders added
-                            false
-                        | TExpr.Use(p, v, b, _, _, _) ->
-                            TastWalk.iterExpr it v
-                            let added = addBinders p
-                            TastWalk.iterExpr it b
-                            removeBinders added
-                            false
-                        | TExpr.ForTo(k, st, en, b, _, _) ->
-                            TastWalk.iterExpr it st
-                            TastWalk.iterExpr it en
-                            let isNew = bound.Add k
-                            TastWalk.iterExpr it b
-
-                            if isNew then
-                                bound.Remove k |> ignore
-
-                            false
-                        | TExpr.ForIn(p, src, b, _, _, _) ->
-                            TastWalk.iterExpr it src
-                            let added = addBinders p
-                            TastWalk.iterExpr it b
-                            removeBinders added
-                            false
-                        | _ -> true
-                VisitArm =
-                    fun it arm ->
-                        let added = addBinders arm.Pat
-                        arm.Guard |> Option.iter (TastWalk.iterExpr it)
-                        TastWalk.iterExpr it arm.Body
-                        removeBinders added
-                        false
-            }
-
-        TastWalk.iterExpr iter body
-        result
-
     let private stampTyVar (ctx: PassContext) (key: NodeKey) (r: RegionId) : unit =
         if r.Raw >= 0 then
             match ctx.Bindings.TypeVar.TryGetValue key with
@@ -556,7 +447,7 @@ module Regions =
     /// `MintFunctionLevel` (the non-strict level rule then seeds an escaping
     /// parameter correctly). Finally the closure outlives its body's value.
     and private lambdaRegionWith (s: State) (ctx: PassContext) (r: RegionId) (param: TPat) (body: TExpr) : RegionId =
-        addCaptureEdges s (collectFreeVars (bindersOfTPat param) body) r
+        addCaptureEdges s (TastWalk.freeVars (TastWalk.bindersOfTPat param) body) r
         enterFun s
         registerParam s ctx param
         let bodyRegion = inferRegion s ctx body
@@ -569,7 +460,7 @@ module Regions =
         // via recordBindingRegion — same rule let-bindings use. Sharing a region
         // for `(a, b)` over-approximates safely ("if any escapes, treat siblings
         // as escaping"). Empty-binder patterns (Const / Wildcard) skip the mint.
-        match bindersOfTPat p with
+        match TastWalk.bindersOfTPat p with
         | [] -> ()
         | _ -> recordBindingRegion s ctx p (freshParam s)
 

@@ -164,26 +164,34 @@ module Freeze =
         | TDecl.Let(isInline = true) -> false
         | _ -> true
 
-    /// Rewrite a template's references to its SIBLING templates from `Var` to
-    /// `External`, carrying the sibling's published `SymbolKey`.
+    /// Rewrite a template's references to its MODULE-LEVEL SIBLINGS — every one of them,
+    /// inline or not — from `Var` to `External`, carrying the sibling's `SymbolKey`.
     ///
     /// A `Var` names a binder that exists only in THIS unit's tree; a consumer splicing
     /// the body has no such binder in scope. `External` + key is the cross-unit form,
-    /// and it must be baked into the PUBLISHED body — the consumer resolves it through
-    /// the by-key inline channel, hitting the same identity `Freeze` minted for the
-    /// sibling. (The simple `name` it also carries does NOT resolve at the consumer: the
-    /// provider index is qualified-name keyed and the holder is not auto-opened. That is
-    /// exactly why the key channel exists.)
-    let private rewriteSiblingRefs (siblings: Dictionary<NodeKey, ModuleMemberInfo>) (d: TDecl) : TDecl =
+    /// and it must be baked into the PUBLISHED body. The two kinds of sibling resolve
+    /// through different channels at the consumer, and the SAME key serves both: an
+    /// inline sibling resolves through the by-key inline channel (hitting the identity
+    /// `Freeze` minted for it here); an ordinary module value/function resolves to the
+    /// real compiled symbol its emission mints — the two agree by construction, since
+    /// `ModuleMemberInfo.Key` is the one place either is derived from. (The simple
+    /// `name` the node also carries does NOT resolve at the consumer: the provider index
+    /// is qualified-name keyed and the holder is not auto-opened. That is exactly why the
+    /// key channel exists.)
+    ///
+    /// So the rewrite map is `tast.ModuleMembers`, NOT the inline vocabulary: a template
+    /// may reference an ordinary module value (`let k = 3` / `let inline addK x = x + k`),
+    /// and that reference is just as un-splice-able as a reference to a sibling template.
+    let private rewriteSiblingRefs (siblings: Map<NodeKey, ModuleMemberInfo>) (d: TDecl) : TDecl =
         let mapper: TastWalk.Mapper =
             { TastWalk.identityMapper with
                 OverrideExpr =
                     fun _ e ->
                         match e with
                         | TExpr.Var(k, ty, tok) ->
-                            match siblings.TryGetValue k with
-                            | true, info -> ValueSome(TExpr.External(info.Name, ValueSome info.Key, ty, tok))
-                            | _ -> ValueNone
+                            match Map.tryFind k siblings with
+                            | Some info -> ValueSome(TExpr.External(info.Name, ValueSome info.Key, ty, tok))
+                            | None -> ValueNone
                         | _ -> ValueNone
             }
 
@@ -191,53 +199,100 @@ module Freeze =
         | TDecl.Let(pat, value, isInline, ty) -> TDecl.Let(pat, TastWalk.mapExpr mapper value, isInline, ty)
         | other -> other
 
+    /// The publish invariant, checked STRUCTURALLY on the rewritten body: every `Var` it
+    /// still carries must name a binder the SPLICE re-creates — the template's own name,
+    /// its parameters, its body-locals. Anything else is a binder that exists only in this
+    /// unit's tree, and splicing it at a consumer yields an unbound `NodeKey` (a bad local
+    /// slot in the emitted code, with nothing having said so).
+    ///
+    /// The residue this can actually catch, after `rewriteSiblingRefs` has keyed every
+    /// module-level sibling, is a reference to a TOP-LEVEL (implicit-`Program`-module)
+    /// binding: `Elaborate` records those in `TopLevelNames` and gives them NO
+    /// `ModuleMemberInfo`, hence no `SymbolKey`, hence nothing to rewrite to.
+    let private freeVarsOfBody (d: TDecl) : NodeKey list =
+        match d with
+        // The decl's own binder is in scope in its body (a template may be recursive), so
+        // it seeds the bound set; the walk binds the lambda params / locals as it enters them.
+        | TDecl.Let(pat, value, _, _) -> TastWalk.freeVars (TastWalk.bindersOfTPat pat) value |> List.ofSeq
+        | _ -> []
+
+    /// THE FAILURE POLICY for a template whose rewritten body still has a free `Var` —
+    /// the ONE spot that decides it. `true` ⇒ publish.
+    ///
+    /// Report an error-severity diagnostic and DROP the body from `InlineBodies`: an
+    /// un-splice-able template is not published, so a consumer gets a clean "no such
+    /// inline body" rather than silently bad codegen. The template still splices
+    /// correctly WITHIN this unit — `Passes.InlineExpansion` ran upstream, where the
+    /// binder is in scope — so nothing local regresses.
+    ///
+    /// Rejecting it is a CONCESSION, not a rule of the language: the input is legal F#,
+    /// and the reason we cannot publish it is ours — a top-level binding has no
+    /// `ModuleMemberInfo` to key. Giving those an identity (a `Program`-holder
+    /// `ModuleKey`) would empty this arm of population, and is the eventual fix. Until
+    /// then the boundary refuses what it cannot represent, loudly.
+    let private publishable (ctx: PassContext) (tast: TastFile) (binder: NodeKey) (rewritten: TDecl) : bool =
+        match freeVarsOfBody rewritten with
+        | [] -> true
+        | free ->
+            let name (k: NodeKey) =
+                match Map.tryFind k tast.TopLevelNames with
+                | Some n -> n
+                | None -> string k
+
+            ctx.Error(
+                binder,
+                sprintf
+                    "This inline binding cannot be published: its body references %s, which has no exportable identity (a top-level binding declares no module, so it has no symbol key a consumer could resolve). Move it into a module."
+                    (free |> List.map (fun k -> sprintf "'%s'" (name k)) |> String.concat ", ")
+            )
+
+            false
+
     let run (ctx: PassContext) (tast: TastFile) : Frozen.TastFile =
-        // The vocabulary's members, by binder key — both the set the sibling rewrite
-        // rewires against and the source of each published identity. A template with no
+        // ONE fold decides publication and produces the published entries. The inline
+        // VOCABULARY predicate (`isInlineVocabulary` + an exportable identity) decides
+        // WHAT gets published; `tast.ModuleMembers` — every module-level binder, inline or
+        // not — is what the body is rewritten AGAINST. A template with no
         // `ModuleMemberInfo` (a top-level `let inline` outside any module) has no home
         // module and so no exportable identity: it is spliced within its own unit and
         // published nowhere.
-        let vocabulary = Dictionary<NodeKey, ModuleMemberInfo>()
+        let inlineBodies = ResizeArray<TInlineValue>()
 
         for d in tast.Decls do
             match d with
             | TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) when isInlineVocabulary d ->
                 match Map.tryFind k tast.ModuleMembers with
-                | Some info -> vocabulary.[k] <- info
+                | Some info ->
+                    let rewritten = rewriteSiblingRefs tast.ModuleMembers d
+
+                    if publishable ctx tast k rewritten then
+                        inlineBodies.Add
+                            {
+                                // Minted, not recovered. Every OTHER symbol's identity is a side
+                                // effect of emitting it; an inline value is never emitted, so its
+                                // identity must be minted deliberately — here, from the holder
+                                // chain its declaration already knows.
+                                TInlineValue.Key = info.Key
+                                Body =
+                                    {
+                                        Decl = rewritten
+                                        ParamAttrs =
+                                            match ctx.InlineParamAttrs.TryGetValue k with
+                                            | true, a -> a
+                                            | _ -> [||]
+                                    }
+                            }
                 | None -> ()
             | _ -> ()
-
-        let inlineBodies =
-            [
-                for d in tast.Decls do
-                    match d with
-                    | TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) ->
-                        match vocabulary.TryGetValue k with
-                        | true, info ->
-                            yield
-                                {
-                                    // Minted, not recovered. Every OTHER symbol's identity is
-                                    // a side effect of emitting it; an inline value is never
-                                    // emitted, so its identity must be minted deliberately —
-                                    // here, from the holder chain its declaration already knows.
-                                    TInlineValue.Key = info.Key
-                                    Body =
-                                        {
-                                            Decl = rewriteSiblingRefs vocabulary d
-                                            ParamAttrs =
-                                                match ctx.InlineParamAttrs.TryGetValue k with
-                                                | true, a -> a
-                                                | _ -> [||]
-                                        }
-                                }
-                        | _ -> ()
-                    | _ -> ()
-            ]
 
         let frozen =
             { tast with
                 Decls = tast.Decls |> EqArray.toList |> List.filter emittable |> EqArray.ofList
-                InlineBodies = EqArray.ofList inlineBodies
+                InlineBodies = EqArray.ofList (List.ofSeq inlineBodies)
+                // Re-snapshot: the tree's `Diagnostics` were taken BEFORE the freeze, so a
+                // publish-invariant failure raised above would otherwise reach `ctx` and no
+                // one else — and the frozen tree is the assembly's output.
+                Diagnostics = List.ofSeq ctx.Diagnostics
             }
 
         TastConvert.file (freezeTy (schemeBinders ctx)) frozen

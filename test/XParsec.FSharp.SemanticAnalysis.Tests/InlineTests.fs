@@ -331,6 +331,82 @@ let tests =
                 Expect.isFalse (body.Contains "fun") (sprintf "both closures eliminated: %s" body)
             }
 
+            test "a published body's reference to a NON-inline module sibling is an External carrying its key" {
+                // The published body is spliced at a CONSUMER, where none of this unit's
+                // binders exist. A module-level sibling — inline template or ordinary
+                // compiled value, it makes no difference — must therefore leave the unit
+                // as `External` + `SymbolKey`, never as a `Var` naming a binder only this
+                // unit's tree has.
+                let input =
+                    "namespace Ns\n\nmodule M =\n    let k = 3\n    let inline addK x = x + k\n"
+
+                let lexed, file = parseFile input
+                let sem = Pipeline.analyseSem realProvider.Value input lexed file
+                let frozen = Pipeline.analyse realProvider.Value input lexed file
+
+                // `k` is the module's first decl; its published identity is the one its
+                // `ModuleMemberInfo` mints — the same one the rewrite must have baked in.
+                let kKey =
+                    match sem.Decls.[0] with
+                    | TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) -> k
+                    | other -> failtestf "expected `let k` first, got %A" other
+
+                let expected =
+                    match Map.tryFind kKey sem.ModuleMembers with
+                    | Some info -> info.Key
+                    | None -> failtest "`k` has no ModuleMemberInfo"
+
+                Expect.isEmpty frozen.Diagnostics "no diagnostics"
+
+                let body =
+                    match frozen.InlineBodies |> EqArray.toList with
+                    | [ v ] -> Inline.thawBody v.Body.Decl
+                    | other -> failtestf "expected exactly one published body, got %d" (List.length other)
+
+                let refs = ResizeArray<string * SymbolKey>()
+                let vars = ResizeArray<NodeKey>()
+
+                let collect =
+                    { TastWalk.identityIter with
+                        VisitExpr =
+                            fun _ e ->
+                                match e with
+                                | TExpr.External(name, ValueSome key, _, _) -> refs.Add(name, key)
+                                | TExpr.Var(k, _, _) -> vars.Add k
+                                | _ -> ()
+
+                                true
+                    }
+
+                match body with
+                | TDecl.Let(_, v, _, _) -> TastWalk.iterExpr collect v
+                | other -> failtestf "unexpected published decl %A" other
+
+                Expect.contains refs ("k", expected) "the sibling reference is an External carrying `k`'s SymbolKey"
+
+                // The only `Var` left is the template's own parameter, which the splice
+                // rebinds.
+                Expect.isFalse (vars.Contains kKey) "no residual Var naming `k`'s binder"
+            }
+
+            test "an inline template referencing a TOP-LEVEL binding is diagnosed, not published" {
+                // A top-level (implicit-`Program`-module) binding records a `TopLevelNames`
+                // entry but no `ModuleMemberInfo`, hence no `SymbolKey` — there is nothing
+                // for the sibling rewrite to bake in, so the free `Var` survives. That is
+                // exactly what the publish-time free-`Var` check exists to catch.
+                let input = "let k = 3\n\nmodule M =\n    let inline addK x = x + k\n"
+                let lexed, file = parseFile input
+                let _, frozen = Pipeline.analyseWithContext realProvider.Value input lexed file
+
+                Expect.isEmpty (EqArray.toList frozen.InlineBodies) "the un-splice-able template is not published"
+
+                let errors =
+                    frozen.Diagnostics
+                    |> List.filter (fun d -> d.Severity = Severity.Error && d.Message.Contains "cannot be published")
+
+                Expect.isNonEmpty errors "the free `Var` is reported"
+            }
+
             test "a stored inline lambda parameter survives as a closure" {
                 // `pick f = f` returns its parameter rather than applying it, so
                 // the lambda cannot be inlined away — it stays a real closure (the
