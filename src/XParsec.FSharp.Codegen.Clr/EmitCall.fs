@@ -54,10 +54,7 @@ module EmitCall =
         : bool =
         let elemOf =
             match arrTy with
-            | FTConst(key, args) when SymbolKeyOps.simpleName key = RuntimeNames.arrayName 1 ->
-                match EqArray.toList args with
-                | [ elem ] -> ValueSome elem
-                | _ -> ValueNone
+            | FTArray elem -> ValueSome elem
             | _ -> ValueNone
 
         let rec collect (acc: Frozen.TExpr list) (e: Frozen.TExpr) : Frozen.TExpr list option =
@@ -455,7 +452,7 @@ module EmitCall =
                     | other -> other
 
                 match declaredRet with
-                | FTConst(key, _) when SymbolKeyOps.simpleName key = "unit" -> true
+                | FTUnit -> true
                 | _ -> false
 
             let resultCount = if returnsVoid then 0 else 1

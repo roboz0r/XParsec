@@ -101,18 +101,19 @@ type internal ClrEncoder(env: ClrEnv) =
         // the BCL metadata with the primitive `object` token, so a user member
         // implementing it must match that encoding (see the `.Object()` recipes the
         // synthesised structural-equality triple already uses).
-        | FTConst(key, _) when SymbolKeyOps.simpleName key = RuntimeNames.objAbbrevName -> te.Object()
-        | FTConst(key, _) when SymbolKeyOps.simpleName key = "System.IO.TextWriter" -> te.Type(eTextWriter.Value, false)
-        | FTConst(key, _) when SymbolKeyOps.simpleName key = "Vesper.Formatter" -> te.Type(eFormatter.Value, true)
-        | FTConst(key, _) when SymbolKeyOps.simpleName key = "System.HashCode" -> te.Type(eHashCode.Value, true)
+        | FTObj -> te.Object()
+        | FTConst(key, _) when key = ClrSinkKeys.textWriter -> te.Type(eTextWriter.Value, false)
+        | FTConst(key, _) when key = ClrSinkKeys.formatter -> te.Type(eFormatter.Value, true)
+        | FTConst(key, _) when key = ClrSinkKeys.hashCode -> te.Type(eHashCode.Value, true)
         // Only scalar (argless) intrinsics rekey off their repr string. A generic
         // intrinsic (the array `[]`, `args ≠ []`) has no `!n`-substituting encoder
         // yet, so it falls through to
         // the catch-all "cannot encode" error — the green suite proves none reaches here.
         | FTConst(key, args) when args.IsEmpty && ((|PrimitiveRepr|_|) key).IsSome ->
             // Key the IL type off the representation string the canon maps to (`"int"` →
-            // `"System.Int32"` → `i4`), not the Vesper name.
-            let name = SymbolKeyOps.simpleName key
+            // `"System.Int32"` → `i4`), not the Vesper name — which survives only to name
+            // the type in the loud arm's diagnostic.
+            let (DisplayName name) = SymbolKeyOps.simpleName key
             let repr = ((|PrimitiveRepr|_|) key).Value
 
             if IntrinsicRepr.tryEncodeValueType te repr then
@@ -138,8 +139,7 @@ type internal ClrEncoder(env: ClrEnv) =
                 | _ -> failwithf "ClrProvider: no IL encoding for intrinsic representation %s (type %s)" repr name
         // The array intrinsic `[]<elem>` (`'T[]`) → an SZArray (rank-1 vector) of
         // the element. Higher-rank arrays (`[,]`) aren't emitted yet.
-        | FTConst(key, args) when args.Length = 1 && SymbolKeyOps.simpleName key = "[]" ->
-            encodeType (te.SZArray()) args.[0]
+        | FTArray elem -> encodeType (te.SZArray()) elem
         | FTFun(a, b) ->
             let g = te.GenericInstantiation(eFun2.Value, 2, false)
             encodeType (g.AddArgument()) a
@@ -301,7 +301,7 @@ type internal ClrEncoder(env: ClrEnv) =
         // recursive type encoder means it appears as a field / generic argument —
         // illegal in CLR metadata — so flag it explicitly rather than via the opaque
         // catch-all.
-        | FTConst(key, _) when SymbolKeyOps.simpleName key = RuntimeNames.byrefName ->
+        | FTByref _ ->
             failwithf
                 "ClrProvider: by-ref type '%A' in a non-param/return position (illegal as a field or generic argument)"
                 t

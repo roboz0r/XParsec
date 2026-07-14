@@ -53,7 +53,7 @@ let tests =
                                                   _,
                                                   _),
                                      true,
-                                     _) ] when SymbolKeyOps.simpleName key = "int" ->
+                                     _) ] when SymbolKeyOps.simpleName key = DisplayName "int" ->
                     Expect.equal clauses.Length 3 "three when-clauses, in source order"
 
                     // First clause is `when ^T : int = 1` — one constraint, body `1`.

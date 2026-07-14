@@ -344,7 +344,7 @@ module EmitClosures =
                 match typeKeyNsName key with
                 | Some nsName -> not (refStructNsNames.Contains nsName)
                 | None -> true
-            | FTConst(key, _) when SymbolKeyOps.simpleName key = RuntimeNames.byrefName -> false
+            | FTByref _ -> false
             | _ -> true
 
         // Ground (a field, not a generic method), not a stored closure (`FTFun`), and

@@ -91,7 +91,7 @@ module UnificationEngine =
         match tryResolveNominal linkTarget with
         | ValueNone -> DotSource.NotNominal
         | ValueSome(NominalKind.Record, key, args) ->
-            let name = SymbolKeyOps.simpleName key
+            let (DisplayName name) = SymbolKeyOps.simpleName key
 
             // Resolve by the arity-qualified key: an arity-overloaded record
             // (`Point`2`/`Point`3`) does not resolve by bare name. `name` still labels the DotSource.
@@ -114,7 +114,7 @@ module UnificationEngine =
             // arity-overloaded union (`Choice`2`/`Choice`3`) does not resolve by bare name.
             // `name` is display-only — the `Resolved` label and the `UnknownType`
             // diagnostic.
-            let name = SymbolKeyOps.simpleName key
+            let (DisplayName name) = SymbolKeyOps.simpleName key
 
             match TypeRegistry.tryUnionByKey ctx.Types key with
             | ValueSome info ->
@@ -193,8 +193,14 @@ module UnificationEngine =
     /// general `unify`/`subsumes` edge, so nothing widens outside a foreign-call arg.
     let private numericFamilyOr (ctx: PassContext) (ty: SemType) : SemType voption =
         match resolveStep ty with
-        | TyConst(key, args) when args.Length = 0 ->
-            match ctx.IntrinsicReverseCanon.Value.TryGetValue(SymbolKeyOps.simpleName key) with
+        // The reverse axis is keyed by the PLATFORM REPR, which is a string — so the only
+        // types that can hit it are the ones whose identity IS a platform name: a foreign
+        // (TS-manifest / native) type, minted `opaqueKey` in the global namespace. That is
+        // what `PlatformName` matches; a Vesper-qualified identity (an intrinsic canon, a
+        // user type that happens to be named `number`) is refused, so nothing resolves
+        // here by display name.
+        | TyConst(PlatformName platform, args) when args.Length = 0 ->
+            match ctx.IntrinsicReverseCanon.Value.TryGetValue platform with
             | true, (_ :: _ :: _ as canons) ->
                 ValueSome(SemType.MkUnion(seq { for c in canons -> TyConst(c, EqArray.empty) }))
             | _ -> ValueNone
@@ -499,14 +505,13 @@ module UnificationEngine =
                 let pending = root.PendingDotAccess
                 root.PendingDotAccess <- []
 
+                let (DisplayName shown) = SymbolKeyOps.simpleName key
+
                 for d in pending do
                     match tryClassChainMember ctx key args d.MemberName with
                     | ValueSome ty -> unify ctx d.UseKey (TyVar d.ResultTv) ty
                     | ValueNone ->
-                        ctx.Error(
-                            d.UseKey,
-                            sprintf "Type '%s' has no instance member '%s'" (SymbolKeyOps.simpleName key) d.MemberName
-                        )
+                        ctx.Error(d.UseKey, sprintf "Type '%s' has no instance member '%s'" shown d.MemberName)
             | DotSource.ExternalClass(key, args) ->
                 // Deferred mirror of `resolveFieldStep`'s external arm: the receiver
                 // TyVar resolved to a BCL/contract class or interface (e.g. the
@@ -1018,13 +1023,9 @@ module UnificationEngine =
                                 b.Resolved <- true
                                 unifySrtpAgainst ctx key candTy b
                             | None ->
-                                ctx.Error(
-                                    key,
-                                    sprintf
-                                        "Type '%s' has no static member '%s'"
-                                        (SymbolKeyOps.simpleName classKey)
-                                        b.MemberName
-                                )
+                                let (DisplayName shown) = SymbolKeyOps.simpleName classKey
+
+                                ctx.Error(key, sprintf "Type '%s' has no static member '%s'" shown b.MemberName)
 
                                 b.Resolved <- true
                         | ValueNone ->

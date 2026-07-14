@@ -25,6 +25,24 @@ type internal GenericClosureShape =
         DefHandle: EntityHandle
     }
 
+/// The CLR-only nominals the backend names DIRECTLY — a printf `TextWriter` sink, the
+/// `Vesper.Formatter` write-through handler, the `System.HashCode` accumulator. They reach
+/// the backend as `FTConst` over a bare platform name (`RuntimeNames.opaqueKey`), which is
+/// what the front end mints for a name the TARGET owns; the producer and the encoder that
+/// recognises it meet on THESE constants, by key identity, so neither can drift onto the
+/// display-name axis nor false-match a Vesper type of the same short name.
+[<RequireQualifiedAccess>]
+module internal ClrSinkKeys =
+
+    /// The printf writer sink (`fprintf`), minted by `PrintfSpec.tyTextWriter`.
+    let textWriter: SymbolKey = RuntimeNames.opaqueKey RuntimeNames.textWriterTypeName
+
+    /// The `Vesper.Printf` write-through format handler (`ClrRecipes`' `HandlerLocal`).
+    let formatter: SymbolKey = RuntimeNames.opaqueKey "Vesper.Formatter"
+
+    /// The `System.HashCode` accumulator local of a synthesised `GetHashCode`.
+    let hashCode: SymbolKey = RuntimeNames.opaqueKey "System.HashCode"
+
 /// Shared `ClrProvider` substrate: the `MetadataContext`, the resolution inputs
 /// (`reprs` / `references` / `symbols`), every lazily-minted assembly/type/member reference, the
 /// per-emission registries (user types, generic shapes, FSharp.Core deps), the ambient generic-typar
@@ -39,7 +57,7 @@ type internal GenericClosureShape =
 type internal ClrEnv
     (
         ctx: MetadataContext,
-        reprs: Map<string, string>,
+        reprs: IReadOnlyDictionary<SymbolKey, string>,
         references: Map<string, System.Reflection.AssemblyName>,
         symbols: ICodegenSymbols
     ) =
@@ -341,8 +359,6 @@ type internal ClrEnv
 
              toEntity (ctx.MemberRef(eHashCode.Value, "ToHashCode", s)))
 
-    let formatterTypeName = "Vesper.Formatter"
-
     /// Each distinct FSharp.Core construct the emission references — lets a build tell *positively*
     /// whether the PE depends on `FSharp.Core.dll` and *what* pins it. Every FSharp.Core ref is minted
     /// through this provider, so marking each use-site captures the whole dependency surface.
@@ -563,18 +579,18 @@ type internal ClrEnv
     member _.Symbols: ICodegenSymbols = symbols
 
     /// Resolve a Vesper primitive's canon `SymbolKey` to its IL representation string,
-    /// single-sourced from the `.fs` `(# … #)`: (1) this unit's OWN intrinsics (`reprs`
-    /// — the `.fs` being compiled, keyed by the bare `simpleName`), then (2) the
-    /// provider's harvested forward `{ canon -> platform }` map (the dependency closure),
-    /// keyed by the qualified canon `SymbolKey` directly. No hard-coded fallback. Codegen
-    /// carries the open-resolved canon key on its `FTConst` node (opens are a name-
-    /// resolution concern, already discharged), so the forward lookup is the key itself —
-    /// no string round-trip. (NOT `TryLookupType`, which is keyed by qualified compiled
-    /// name.)
+    /// single-sourced from the `.fs` `(# … #)`: (1) this unit's OWN intrinsics (`reprs` —
+    /// the `.fs` being compiled, `TastFile.IntrinsicReprKeys`), then (2) the provider's
+    /// harvested forward `{ canon -> platform }` map (the dependency closure). No
+    /// hard-coded fallback. BOTH halves are addressed by the canon `SymbolKey` itself —
+    /// codegen carries the open-resolved key on its `FTConst` node (opens are a
+    /// name-resolution concern, already discharged), so there is no string round-trip and
+    /// a user type sharing an intrinsic's short name cannot pick up its repr. (NOT
+    /// `TryLookupType`, which is keyed by qualified compiled name.)
     member _.TryPrimitiveRepr(key: SymbolKey) : string option =
-        match reprs.TryFind(SymbolKeyOps.simpleName key) with
-        | Some _ as hit -> hit
-        | None ->
+        match reprs.TryGetValue key with
+        | true, repr -> Some repr
+        | _ ->
             match symbols.IntrinsicForwardRepr.TryGetValue key with
             | true, repr -> Some repr
             | _ -> None
@@ -619,8 +635,6 @@ type internal ClrEnv
     member _.ENotSupportedExceptionCtor = eNotSupportedExceptionCtor
     member _.EDecimalCtor = eDecimalCtor
     member _.EHashCodeToHashCode = eHashCodeToHashCode
-
-    member _.FormatterTypeName = formatterTypeName
 
     member _.UserTypes = userTypes
     member _.UserValueTypes = userValueTypes

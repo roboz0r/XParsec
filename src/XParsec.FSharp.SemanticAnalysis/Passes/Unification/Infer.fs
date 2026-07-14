@@ -293,7 +293,7 @@ module UnificationInfer =
                 // Resolve the local host by the arity-qualified key, not the bare
                 // name: an arity-overloaded host (`Foo`2`/`Foo`3`) does not resolve by bare name.
                 // `simple` is kept only for the diagnostic text.
-                let simple = SymbolKeyOps.simpleName headKey
+                let (DisplayName simple) = SymbolKeyOps.simpleName headKey
 
                 match TypeRegistry.tryInterfaceImplHostByKey ctx.Types headKey with
                 | ValueSome host -> resolveLocal host headKey simple args

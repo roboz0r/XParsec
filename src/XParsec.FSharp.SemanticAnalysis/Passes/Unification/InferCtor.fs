@@ -144,14 +144,14 @@ module internal UnificationInferCtor =
             | ValueNone ->
                 match ExternalSymbols.tryIntrinsicClass ctx.Provider canonKey with
                 | ValueSome(struct (_, surface)) ->
+                    let (DisplayName shown) = SymbolKeyOps.simpleName canonKey
+
                     inferIntrinsicClassCtorCall
                         infer
                         ctx
                         (tyArgs.AsSpan().ToArray())
                         surface
-                        (sprintf
-                            "No applicable constructor on '%s' for the given arguments"
-                            (SymbolKeyOps.simpleName canonKey))
+                        (sprintf "No applicable constructor on '%s' for the given arguments" shown)
                         argExpr
 
                     receiverTy

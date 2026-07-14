@@ -173,7 +173,9 @@ module internal UnificationInferControlFlow =
     /// back to `%A`.
     let rec private describeUnionMember (m: SemType) : string =
         match resolveStep m with
-        | TyConst(key, args) when args.IsEmpty -> SymbolKeyOps.simpleName key
+        | TyConst(key, args) when args.IsEmpty ->
+            let (DisplayName shown) = SymbolKeyOps.simpleName key
+            shown
         | TyOr inner ->
             inner.Members
             |> EqSet.toList

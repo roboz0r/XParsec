@@ -135,7 +135,8 @@ module internal UnificationInferRecordAccess =
 
                 TyRecord(recKey, srcArgs)
             | ValueNone ->
-                ctx.Error(key, sprintf "Unknown record type '%s'" (SymbolKeyOps.simpleName recKey))
+                let (DisplayName shown) = SymbolKeyOps.simpleName recKey
+                ctx.Error(key, sprintf "Unknown record type '%s'" shown)
 
                 for FieldInitializer(expr = e) in inits do
                     infer ctx e |> ignore
@@ -242,12 +243,14 @@ module internal UnificationInferRecordAccess =
                 match info.Fields |> Array.tryFind (fun f -> f.Name = memberName) with
                 | Some field -> instantiateMember (info.TypeParams, args) field.Type
                 | None -> errorTy ctx diagKey (sprintf "Type '%s' has no field '%s'" info.Name memberName)
-            | ValueNone -> errorTy ctx diagKey (sprintf "Unknown record type '%s'" (SymbolKeyOps.simpleName recKey))
+            | ValueNone ->
+                let (DisplayName shown) = SymbolKeyOps.simpleName recKey
+                errorTy ctx diagKey (sprintf "Unknown record type '%s'" shown)
         | TyClass(clsKey, args) ->
             // Resolve by the (arity-qualified) key, not the bare name: an
             // arity-overloaded receiver (`Fun\`2`/`Fun\`3`) does not resolve by bare name, so a
             // bare read would miss. `clsSimple` survives only for the diagnostic path.
-            let clsSimple = SymbolKeyOps.simpleName clsKey
+            let (DisplayName clsSimple) = SymbolKeyOps.simpleName clsKey
 
             match TypeRegistry.tryClassByKey ctx.Types clsKey with
             | ValueSome info ->
@@ -343,14 +346,9 @@ module internal UnificationInferRecordAccess =
             // against the union's augmentation members.
             match TypeRegistry.tryUnionByKey ctx.Types unionKey with
             | ValueSome info ->
-                resolveLocalInstanceMember
-                    ctx
-                    diagKey
-                    (SymbolKeyOps.simpleName unionKey)
-                    info.TypeParams
-                    args
-                    info.Members
-                    memberName
+                let (DisplayName shown) = SymbolKeyOps.simpleName unionKey
+
+                resolveLocalInstanceMember ctx diagKey shown info.TypeParams args info.Members memberName
             | ValueNone ->
                 // Not a project-local union — an *external* one (e.g. a referenced
                 // `Vesper.Option` whose `IsSome`/`Value`/`IsNone` augmentation

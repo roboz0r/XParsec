@@ -379,7 +379,7 @@ type TExprG<'ty, 'tok> =
     /// expressions in source order, `ty` the declared result type. Codegen emits
     /// each arg then maps the mnemonic → `ILOpCode` (`Cil.tryOpCodeOfMnemonic`).
     /// The value-level sibling of the type-level `(# "..." #)` intrinsic carried
-    /// in `TastFile.IntrinsicReprTypes`; operator `.fs` bodies (`(=)` → `ceq`,
+    /// in `TastFile.IntrinsicReprKeys`; operator `.fs` bodies (`(=)` → `ceq`,
     /// `(+)` → `add`, …) lower to this so codegen owns no per-operator dispatch.
     ///
     /// `typeOperand` carries the single type token a tokenful array opcode needs
@@ -995,13 +995,21 @@ type TastFileG<'ty, 'tok> =
         // Qualified: this file `open`s `XParsec.FSharp.Parser`, which also declares a
         // `Diagnostic`; the bare name would bind to the parser's, mistyping the field.
         Diagnostics: XParsec.FSharp.SemanticAnalysis.Diagnostic list
-        /// Vesper type name → target IL representation string (e.g. `"int"` →
-        /// `"System.Int32"`), from this file's `type x = (# "..." #)` intrinsic
-        /// abbrevs. A use site resolves to `TyConst name`; the backend keys the
-        /// emitted IL type off the *representation string* (so a platform author
-        /// retargets a primitive by editing one `.fs` line). The backend overlays
-        /// these on its built-in defaults.
-        IntrinsicReprTypes: Map<string, string>
+        /// This unit's OWN intrinsics: the canon `SymbolKey` of a `type x = (# "..." #)`
+        /// abbrev → its target representation string (`Vesper.int` → `"System.Int32"`).
+        /// The backend keys the emitted IL type off the *representation string* (so a
+        /// platform author retargets a primitive by editing one `.fs` line), and asks for
+        /// it with the KEY the `FTConst` node carries — the frozen face of
+        /// `TypeRegistry.IntrinsicReprKeys`, and the local half of the same forward
+        /// `{ canon -> platform repr }` axis the provider's `IntrinsicForwardRepr` serves
+        /// for the dependency closure. Keyed by identity, never by declared name: a name
+        /// cannot say WHICH `int` it means, so a user type sharing an intrinsic's short
+        /// name would otherwise pick up its repr.
+        ///
+        /// A HASH map, not an F# `Map`: a `SymbolKey` is an identity, so it is equatable
+        /// but deliberately not ordered. Same face the provider's `IntrinsicForwardRepr`
+        /// presents, so the backend's two halves of the axis read alike.
+        IntrinsicReprKeys: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, string>
         /// A module-level binding's `NodeKey` → its named-holder placement
         /// (`module Foo`'s functions emit on a real `Foo`/`FooModule` static class,
         /// not the anonymous "Program" holder). Empty for a program with no named

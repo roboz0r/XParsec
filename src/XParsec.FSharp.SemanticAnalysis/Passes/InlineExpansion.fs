@@ -291,7 +291,9 @@ module InlineExpansion =
     /// may fall through to a `%A` dump of the internal `SemType` DU.
     let rec private receiverName (t: SemType) : string =
         match UnionFind.headZonk t with
-        | TyConst(key, _) -> SymbolKeyOps.simpleName key
+        | TyConst(key, _) ->
+            let (DisplayName shown) = SymbolKeyOps.simpleName key
+            shown
         | TyEnum key -> SymbolKeyOps.qualifiedName key
         | TyClass(k, _)
         | TyUnion(k, _)

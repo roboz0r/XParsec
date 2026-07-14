@@ -135,7 +135,9 @@ module EmitMember =
         (ty: FrozenType)
         : unit =
         let receiverTy = typeOfExpr receiver
-        let name = SymbolKeyOps.simpleName key
+        // Backend name emission: the CLR member name to bind against. A member name carries
+        // no arity, so the display projection IS the emitted name.
+        let (DisplayName name) = SymbolKeyOps.simpleName key
         let argTys = [ for a in args -> typeOfExpr a ]
 
         let ifaceKey =
@@ -184,7 +186,7 @@ module EmitMember =
         // A `unit`-returning instance method is emitted `void` (`NominalEmit`).
         let returnsUnit =
             match ty with
-            | FTConst(key, _) when SymbolKeyOps.simpleName key = "unit" -> true
+            | FTUnit -> true
             | _ -> false
 
         let resultCount = if returnsUnit then 0 else 1
@@ -266,8 +268,9 @@ module EmitMember =
             // A property is never a generic method, so the resolved member metadata
             // is unused here (`MethodTyparCount` is always 0 for a `get_<name>`).
             // A property get is a 0-argument access — no overload args to match.
-            let handle, _ =
-                resolveInstanceMember env receiverTy (SymbolKeyOps.simpleName key) []
+            // The CLR member NAME the metadata slot is bound by (no arity in it).
+            let (DisplayName memberName) = SymbolKeyOps.simpleName key
+            let handle, _ = resolveInstanceMember env receiverTy memberName []
             // A property get is never `unit`-returning, so it always yields a value.
             emitInstanceMember recur env b via receiver receiverTy handle EqArray.empty false
         | _ -> failwith "EmitMember.buildPropertyGet: unreachable"
@@ -283,8 +286,9 @@ module EmitMember =
             let receiverTy = typeOfExpr receiver
             let argTys = [ for a in args -> typeOfExpr a ]
 
-            let handle0, m =
-                resolveInstanceMember env receiverTy (SymbolKeyOps.simpleName key) argTys
+            // The CLR member NAME the metadata slot is bound by (no arity in it).
+            let (DisplayName memberName) = SymbolKeyOps.simpleName key
+            let handle0, m = resolveInstanceMember env receiverTy memberName argTys
 
             // A *generic instance method*: the
             // member-ref already carries the `GENERIC` header (its `'U` rides `!!i`),
@@ -311,7 +315,7 @@ module EmitMember =
             // detect it from the call's result type so the call declares 0 results.
             let returnsUnit =
                 match ty with
-                | FTConst(key, _) when SymbolKeyOps.simpleName key = "unit" -> true
+                | FTUnit -> true
                 | _ -> false
 
             emitInstanceMember recur env b via receiver receiverTy handle args returnsUnit
@@ -380,7 +384,7 @@ module EmitMember =
             // instance path (`emitInstanceMember`) does.
             let returnsUnit =
                 match ty with
-                | FTConst(key, _) when SymbolKeyOps.simpleName key = "unit" -> true
+                | FTUnit -> true
                 | _ -> false
 
             let resultCount = if returnsUnit then 0 else 1

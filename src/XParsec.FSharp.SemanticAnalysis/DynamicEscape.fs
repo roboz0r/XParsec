@@ -25,7 +25,9 @@ module DynamicEscape =
     /// falls back to the structural render.
     let private shown (t: SemType) : string =
         match t with
-        | TyConst(key, _) -> SymbolKeyOps.simpleName key
+        | TyConst(key, _) ->
+            let (DisplayName name) = SymbolKeyOps.simpleName key
+            name
         | TyClass(n, _) -> SymbolKeyOps.qualifiedName n
         | other -> sprintf "%A" other
 

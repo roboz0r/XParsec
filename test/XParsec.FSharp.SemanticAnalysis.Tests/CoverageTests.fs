@@ -644,7 +644,7 @@ let tests =
 
                 match body with
                 | TExpr.PropertyGet(_, key, _, ty, _) ->
-                    Expect.equal (SymbolKeyOps.simpleName key) "X" "property name"
+                    Expect.equal (SymbolKeyOps.simpleName key) (DisplayName "X") "property name"
                     Expect.equal ty BuiltinTypes.tyInt "property type"
                 | _ -> failtestf "expected PropertyGet, got %A" body
 
@@ -673,7 +673,7 @@ let tests =
 
                 match body with
                 | TExpr.MethodCall(_, key, _, args, ty, _) ->
-                    Expect.equal (SymbolKeyOps.simpleName key) "Magnitude" "method name"
+                    Expect.equal (SymbolKeyOps.simpleName key) (DisplayName "Magnitude") "method name"
                     Expect.equal args.Length 0 "no args (unit-arg fold)"
                     Expect.equal ty BuiltinTypes.tyInt "method return"
                 | _ -> failtestf "expected MethodCall, got %A" body
@@ -835,7 +835,7 @@ let tests =
 
                     match getBody with
                     | TExpr.StaticFieldGet(declKey, name, _, _) ->
-                        Expect.equal (SymbolKeyOps.simpleName declKey) "C" "static-field class"
+                        Expect.equal (SymbolKeyOps.simpleName declKey) (DisplayName "C") "static-field class"
                         Expect.equal name "x" "static-field name"
                     | other -> failtestf "expected StaticFieldGet body, got %A" other
                 | other -> failtestf "expected TTypeKind.Class, got %A" other
@@ -990,7 +990,9 @@ let tests =
                         VisitExpr =
                             fun _ e ->
                                 match e with
-                                | TExpr.MethodCall(_, key, via, _, _, _) when SymbolKeyOps.simpleName key = "M" ->
+                                | TExpr.MethodCall(_, key, via, _, _, _) when
+                                    SymbolKeyOps.simpleName key = DisplayName "M"
+                                    ->
                                     vias.Add via
                                 | _ -> ()
 
@@ -1149,8 +1151,8 @@ let tests =
                 match declType tast with
                 | TyFun(TyConst(a, aArgs), TyConst(b, bArgs)) ->
                     Expect.isTrue (aArgs.IsEmpty && bArgs.IsEmpty) "bigint is nullary"
-                    Expect.equal (SymbolKeyOps.simpleName a) "bigint" "param : bigint"
-                    Expect.equal (SymbolKeyOps.simpleName b) "bigint" "result : bigint"
+                    Expect.equal (SymbolKeyOps.simpleName a) (DisplayName "bigint") "param : bigint"
+                    Expect.equal (SymbolKeyOps.simpleName b) (DisplayName "bigint") "result : bigint"
                 | other -> failtestf "expected bigint -> bigint, got %A" other
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"

@@ -1999,12 +1999,11 @@ module Elaborate =
             // splice (`Passes.InlineExpansion`) reads them.
             InlineBodies = EqArray.empty
             Diagnostics = List.ofSeq ctx.Diagnostics
-            // Snapshot so the backend can key the emitted IL type off the
-            // representation string without the PassContext.
-            IntrinsicReprTypes =
-                ctx.Types.IntrinsicReprTypes
-                |> Seq.map (fun kv -> kv.Key, kv.Value)
-                |> Map.ofSeq
+            // Snapshot so the backend can key the emitted IL type off the representation
+            // string without the PassContext. The KEY-addressed table, not its by-name
+            // twin: the backend holds a resolved canon key, and a display name cannot say
+            // which type it names.
+            IntrinsicReprKeys = System.Collections.Generic.Dictionary(ctx.Types.IntrinsicReprKeys)
             // Snapshot the named-module placements: the backend keys
             // off a binding's `NodeKey.Raw` to emit it on its holder type.
             ModuleMembers = ctx.Bindings.ModuleMembers |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq

@@ -83,7 +83,9 @@ module JsExternalMembers =
             | FTClass(key, _)
             | FTUnion(key, _)
             | FTRecord(key, _) -> provider.TryLookupType key
-            | FTConst(key, _) -> ExternalSymbols.tryRuntimeType provider (SymbolKeyOps.simpleName key)
+            // An intrinsic's canon key is a nominal identity like any other — ask the store
+            // by the KEY, exactly as the nominal arms above do.
+            | FTConst(key, _) -> provider.TryLookupType key
             | _ -> ValueNone
 
         // Depth cap backstops a malformed cyclic `inherit`; each hop is a strict
@@ -299,8 +301,10 @@ module JsExternalMembers =
         : JsExpr =
         let isStatic = ValueOption.isNone receiver
 
-        let exportName =
-            mangledName (SymbolKeyOps.simpleName declKey) isStatic isProperty memberName
+        // Backend name emission: the JS export identifier is mangled from the type's name,
+        // which carries no arity on the target.
+        let (DisplayName declName) = SymbolKeyOps.simpleName declKey
+        let exportName = mangledName declName isStatic isProperty memberName
 
         let asm = assemblyOf provider declKey (sprintf "external member '%s'" memberName)
         let local = JsImports.addMemberRef imports asm exportName

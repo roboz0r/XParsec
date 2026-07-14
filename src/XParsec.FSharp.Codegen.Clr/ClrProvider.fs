@@ -13,14 +13,15 @@ open XParsec.FSharp.SemanticAnalysis
 ///   `ClrExternalMembers`— external member/ctor/field refs and generic-static-method specs;
 ///   `ClrRecipes`        — call/ctor/format recipes and the structural equality/comparison member refs.
 ///
-/// `reprs` is the Vesper-primitive-name → IL-representation map; `references` maps an assembly's
+/// `reprs` is this unit's own `{ intrinsic canon key -> IL representation }` map
+/// (`TastFile.IntrinsicReprKeys`); `references` maps an assembly's
 /// simple name to the identity read off its file, so an emitted `AssemblyRef` matches that exact
 /// artifact; `symbols` is the front end's resolution provider — pass
 /// `ExternalSymbolProviders.nullProvider` on paths that emit no external member access.
 type ClrProvider
     (
         ctx: MetadataContext,
-        reprs: Map<string, string>,
+        reprs: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, string>,
         references: Map<string, System.Reflection.AssemblyName>,
         symbols: IExternalSymbolProvider
     ) =
@@ -228,8 +229,7 @@ type ClrProvider
     member _.ValueTupleRefs(elemTys: FrozenType list) : ValueTupleHandles = enc.ValueTupleRefs elemTys
 
     /// The `System.HashCode` accumulator local type for a union's `GetHashCode`.
-    member _.HashCodeType: FrozenType =
-        FTConst(RuntimeNames.opaqueKey "System.HashCode", EqArray.empty)
+    member _.HashCodeType: FrozenType = FTConst(ClrSinkKeys.hashCode, EqArray.empty)
 
     member _.EqualityComparerDefault(elem: FrozenType) : EntityHandle = recipes.EqualityComparerDefault elem
 

@@ -339,12 +339,17 @@ module SymbolKeyOps =
     /// key against the registry use the `*ByKey` helpers (`tryClassByKey` /
     /// `tryUnionByKey` / `tryRecordByKey` / `tryInterfaceImplHostByKey`), which take the
     /// key itself; to reach an intrinsic's platform repr ask the key-addressed
-    /// `IntrinsicReprKeys` / `IntrinsicForwardRepr`.
+    /// `IntrinsicReprKeys` / `IntrinsicForwardRepr`; to recognise a well-known intrinsic
+    /// match the key (`IntrinsicTypePatterns`).
     ///
-    /// Legitimate consumers: diagnostics and display, and BACKEND NAME EMISSION — mangling
-    /// an identifier the target actually emits (a JS identifier, a CLR member name), whose
-    /// names carry no generic arity.
-    let simpleName (k: SymbolKey) : string = intrinsicName k
+    /// The `DisplayName` wrapper is what makes that a COMPILE ERROR rather than a rule: no
+    /// mint and no table accepts one, so the only way back to a string is an explicit
+    /// `let (DisplayName s) = …`. The two consumers that legitimately unwrap are diagnostics
+    /// / display and BACKEND NAME EMISSION (mangling an identifier the target actually
+    /// emits, whose names carry no generic arity). The name-axis sites that genuinely need
+    /// a string — a compiled-name-addressed store, a platform-repr map — take
+    /// `intrinsicName`, which stays non-lossy.
+    let simpleName (k: SymbolKey) : DisplayName = DisplayName(intrinsicName k)
 
     /// The fully-qualified compiled name for an EXTERNAL nominal lookup
     /// (`externalUnionRef` / `externalRecordRef` / `externalClassRef`): the full

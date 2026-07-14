@@ -18,7 +18,10 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 /// intrinsic forward map carries the `int`/`string` → IL-repr the element encoding
 /// needs (the two primitives these tests exercise); `nullProvider` because no
 /// external-symbol resolution is involved.
-let private ownIntrinsics = Map [ "int", "System.Int32"; "string", "System.String" ]
+let private ownIntrinsics =
+    System.Collections.Generic.Dictionary(
+        dict [ RuntimeNames.intKey, "System.Int32"; RuntimeNames.stringKey, "System.String" ]
+    )
 
 let private provider () =
     ClrProvider(MetadataContext(), ownIntrinsics, Map.empty, ExternalSymbolProviders.nullProvider)

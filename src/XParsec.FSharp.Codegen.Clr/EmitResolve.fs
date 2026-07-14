@@ -111,13 +111,14 @@ module EmitResolve =
             | false, _ -> ValueNone
         | _ -> ValueNone
 
-    /// The head identity of a `FrozenType` for overload-candidate matching: the
-    /// nominal name (arity suffix / namespace dropped to the comparable key), or a
-    /// structural tag. An open typar (`FTTypar`) is never compared — a generic
+    /// The head identity of a `FrozenType` for overload-candidate matching: the nominal's
+    /// FULLY-QUALIFIED name, or a structural tag. Qualified for an intrinsic head too, not
+    /// its display name: two heads are the same type only if they are the same identity, and
+    /// a bare name cannot say that. An open typar (`FTTypar`) is never compared — a generic
     /// parameter accepts any argument — so it has no head here.
     let private headOf (t: FrozenType) : string =
         match t with
-        | FTConst(key, _) -> SymbolKeyOps.simpleName key
+        | FTConst(k, _)
         | FTClass(k, _)
         | FTUnion(k, _)
         | FTRecord(k, _)

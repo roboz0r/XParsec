@@ -693,7 +693,7 @@ module internal NominalEmit =
             // `unit`-returning call as void + a reified `unit`.
             let returnsVoid =
                 match mem.ReturnTy with
-                | FTConst(key, _) when SymbolKeyOps.simpleName key = "unit" -> true
+                | FTUnit -> true
                 | _ -> false
 
             let bodyOffset =

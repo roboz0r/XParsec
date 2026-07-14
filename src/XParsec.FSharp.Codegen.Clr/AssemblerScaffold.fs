@@ -38,7 +38,7 @@ module internal AssemblerScaffold =
 
     let private isUnitTy t =
         match t with
-        | FTConst(key, _) when SymbolKeyOps.simpleName key = "unit" -> true
+        | FTUnit -> true
         | _ -> false
 
     /// The metadata parameter types of an abstract member after F#'s
@@ -111,7 +111,8 @@ module internal AssemblerScaffold =
         let ctx = MetadataContext()
         ctx.AddModuleAndAssembly(project.AssemblyName)
 
-        let provider = ClrProvider(ctx, Map.empty, Map.empty, symbols)
+        let provider =
+            ClrProvider(ctx, System.Collections.Generic.Dictionary(), Map.empty, symbols)
 
         let icodegen = provider :> ICodegenProvider
 

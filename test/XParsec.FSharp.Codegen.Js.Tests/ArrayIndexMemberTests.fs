@@ -64,7 +64,7 @@ let tests =
                 let getItemAccesses =
                     [
                         for KeyValue(_, info) in ctx.Resolution.ExternalAccess.AsDictionary() do
-                            if SymbolKeyOps.simpleName info.Key = "get_Item" then
+                            if SymbolKeyOps.simpleName info.Key = DisplayName "get_Item" then
                                 info
                     ]
 

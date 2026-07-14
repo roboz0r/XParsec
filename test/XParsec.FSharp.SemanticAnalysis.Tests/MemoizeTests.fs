@@ -71,7 +71,10 @@ let tests =
                 | ValueSome s ->
                     match ExternalSymbols.instantiateSymbol s 0 with
                     | TyConst(key, _) ->
-                        Expect.equal (SymbolKeyOps.simpleName key) "tag" "the inner symbol's payload survives"
+                        Expect.equal
+                            (SymbolKeyOps.simpleName key)
+                            (DisplayName "tag")
+                            "the inner symbol's payload survives"
                     | other -> failtestf "unexpected realised type %A" other
                 | ValueNone -> failtest "known should resolve through the cache"
             }

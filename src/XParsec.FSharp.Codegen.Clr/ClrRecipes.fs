@@ -25,8 +25,6 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
     let encodeListOf te inner = enc.EncodeListOf(te, inner)
     let methodSpec handle args = enc.MethodSpec(handle, args)
-    let formatterTypeName = env.FormatterTypeName
-
     let eTextWriter = env.ETextWriter
     let eStringBuilder = env.EStringBuilder
     let eFun2 = env.EFun2
@@ -367,7 +365,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             // from the same `isUnitReturn` of the (exactly-peeled) source result.
             let isUnitReturn t =
                 match t with
-                | FTConst(key, _) when SymbolKeyOps.simpleName key = "unit" -> true
+                | FTUnit -> true
                 | _ -> false
 
             let flatParamTys, openRetTy, returnsVoid, recipeGroups =
@@ -779,7 +777,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             toEntity (ctx.MemberRef(eFormatter.Value, name, s))
 
         {
-            HandlerLocal = FTConst(RuntimeNames.opaqueKey formatterTypeName, EqArray.empty)
+            HandlerLocal = FTConst(ClrSinkKeys.formatter, EqArray.empty)
             CtorWriter = ctorWriter
             CtorBuilder = ctorBuilder
             CtorString = ctorString

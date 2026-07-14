@@ -78,7 +78,7 @@ let tests =
                         Decls = EqArray.ofList synthDecls
                         InlineBodies = EqArray.empty
                         Diagnostics = []
-                        IntrinsicReprTypes = Map.empty
+                        IntrinsicReprKeys = System.Collections.Generic.Dictionary()
                         ModuleMembers = Map.empty
                         TopLevelNames = Map.empty
                         ClosureReprs = Map.empty
@@ -136,7 +136,7 @@ let tests =
                                 ]
                         InlineBodies = EqArray.empty
                         Diagnostics = []
-                        IntrinsicReprTypes = Map.empty
+                        IntrinsicReprKeys = System.Collections.Generic.Dictionary()
                         ModuleMembers = Map.empty
                         TopLevelNames = Map.empty
                         ClosureReprs = Map.empty

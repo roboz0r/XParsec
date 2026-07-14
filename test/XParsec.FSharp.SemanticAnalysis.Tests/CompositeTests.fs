@@ -90,7 +90,9 @@ let private valueTag (provider: IExternalSymbolProvider) (name: string) : string
     match provider.TryLookup name with
     | ValueSome sym ->
         match ExternalSymbols.instantiateSymbol sym 0 with
-        | TyConst(key, _) -> ValueSome(SymbolKeyOps.simpleName key)
+        | TyConst(key, _) ->
+            let (DisplayName name) = SymbolKeyOps.simpleName key
+            ValueSome name
         | _ -> ValueNone
     | ValueNone -> ValueNone
 

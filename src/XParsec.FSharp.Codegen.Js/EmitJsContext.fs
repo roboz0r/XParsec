@@ -181,7 +181,10 @@ module EmitJsContext =
         | _ ->
             match ctx.Provider.TryLookupType key with
             | ValueSome(ExternalTypeShape.Union(_, cases, _, origin)) ->
-                let baseName = SymbolKeyOps.simpleName key
+                // Backend name emission: the JS class/factory identifiers this union's
+                // cases are imported under are mangled off its name (JS names carry no
+                // generic arity).
+                let (DisplayName baseName) = SymbolKeyOps.simpleName key
 
                 // The shape the provider resolved is what knows WHERE the union lives —
                 // the key names only WHAT it is.
@@ -231,16 +234,17 @@ module EmitJsContext =
             | _ ->
                 match ctx.Records.TryGetValue key with
                 | true, info -> info.Name
-                | _ -> SymbolKeyOps.simpleName key
+                | _ ->
+                    // Backend name emission: what the type is called in the emitted JS.
+                    let (DisplayName name) = SymbolKeyOps.simpleName key
+                    name
 
         /// The callable identifier of a local member's emitted function.
         let localFn (ctx: WalkCtx) (key: SymbolKey) (isStatic: bool) (isProperty: bool) (loc: JsLoc voption) : JsExpr =
             let dk = JsExternalMembers.declKey key
+            let (DisplayName memberName) = SymbolKeyOps.simpleName key
 
-            JsExpr.Identifier(
-                JsExternalMembers.mangledName (typeName ctx dk) isStatic isProperty (SymbolKeyOps.simpleName key),
-                loc
-            )
+            JsExpr.Identifier(JsExternalMembers.mangledName (typeName ctx dk) isStatic isProperty memberName, loc)
 
     /// `throw new Error("…")` — the fallthrough for a non-exhaustive match.
     let matchFailure: JsStatement =
@@ -315,7 +319,9 @@ module EmitJsContext =
             let asm =
                 JsExternalMembers.assemblyOf ctx.Provider enumKey (sprintf "enum case '%s'" caseName)
 
-            let local = JsImports.addTypeRef ctx.Imports asm (SymbolKeyOps.simpleName enumKey)
+            // Backend name emission: the enum object is imported under the name `tsc` emits.
+            let (DisplayName enumName) = SymbolKeyOps.simpleName enumKey
+            let local = JsImports.addTypeRef ctx.Imports asm enumName
             JsExpr.Member(JsExpr.Identifier(local, loc), JsExpr.Identifier(caseName, ValueNone), false, loc)
 
     /// The import reference for an external VALUE: its home and the FORM its home module
@@ -375,11 +381,6 @@ module EmitJsContext =
     [<Literal>]
     let private BigIntRepr = "bigint"
 
-    /// The one canonical width whose JS repr is WIDER than itself (`prim-types-float.js.fs`
-    /// binds it to `number`, an IEEE-754 double).
-    [<Literal>]
-    let private Float32Canon = "float32"
-
     /// How a plain-value (`%O`) hole's operand must be stringified. JS renders a number by
     /// its RUNTIME type; F# renders it by the operand's STATIC WIDTH, and the two disagree
     /// wherever a width's JS repr is not the width itself. `%O` is the only specifier whose
@@ -401,14 +402,15 @@ module EmitJsContext =
     /// Classify a `%O` operand's static type. The `BigInt` arm reads the type's declared JS
     /// repr — the single source of truth (`prim-types-*.js.fs`), so a width that later binds
     /// to `bigint` inherits the suffix-stripping without touching this. `float32` cannot be
-    /// recovered that way, and is keyed by its intrinsic NAME instead: its repr (`number`) is
-    /// precisely what LOSES the width, so the F# type name is the only carrier of the fact.
-    /// The name needs no alias canonicalisation — an intrinsic abbreviation (`single`) is
-    /// expanded eagerly at name resolution, so only `float32` ever reaches here (see
+    /// recovered that way, and is matched against its canonical IDENTITY
+    /// (`RuntimeNames.float32Key`) instead: its repr (`number`) is precisely what LOSES the
+    /// width, so the type itself is the only carrier of the fact. The identity needs no
+    /// alias canonicalisation — an intrinsic abbreviation (`single`) is expanded eagerly at
+    /// name resolution, so only `float32` ever reaches here (see
     /// `Inline.staticOptTypesMatch`).
     let plainRenderOf (ctx: WalkCtx) (ty: FrozenType) : PlainRender =
         match ty with
-        | FTConst(key, _) when SymbolKeyOps.simpleName key = Float32Canon -> PlainRender.Single
+        | FTConst(key, _) when key = RuntimeNames.float32Key -> PlainRender.Single
         | FTConst(key, _) ->
             match ctx.Provider.IntrinsicForwardRepr.TryGetValue key with
             | true, repr when repr = BigIntRepr -> PlainRender.BigInt

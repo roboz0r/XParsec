@@ -132,7 +132,7 @@ let tests =
                         args.Length = 1
                         && (
                             match args.[0] with
-                            | TyConst(k, _) -> SymbolKeyOps.simpleName k = "int"
+                            | TyConst(k, _) -> SymbolKeyOps.simpleName k = DisplayName "int"
                             | _ -> false
                         )
                         ->
@@ -152,7 +152,8 @@ let tests =
                         ExternalSymbols.instantiateSignature m [| TyConst(RuntimeNames.intKey, EqArray.empty) |] 0
                     with
                     | TyFun(TyConst(k1, _), TyConst(k2, _)) when
-                        SymbolKeyOps.simpleName k1 = "int" && SymbolKeyOps.simpleName k2 = "int"
+                        SymbolKeyOps.simpleName k1 = DisplayName "int"
+                        && SymbolKeyOps.simpleName k2 = DisplayName "int"
                         ->
                         ()
                     | other -> failtestf "expected int -> int, got %A" other
@@ -170,7 +171,7 @@ let tests =
                     Expect.isTrue m.IsStatic "Empty is static"
 
                     match ExternalSymbols.instantiateSignature m [||] 0 with
-                    | TyConst(key, _) when SymbolKeyOps.simpleName key = "string" -> ()
+                    | TyConst(key, _) when SymbolKeyOps.simpleName key = DisplayName "string" -> ()
                     | other -> failtestf "Empty should be typed string, got %A" other
                 | ValueNone -> failtest "String.Empty did not resolve as a field"
             }

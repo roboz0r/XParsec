@@ -265,7 +265,8 @@ let tests =
 
                     match ty with
                     | TyFun(TyConst(k1, _), TyConst(k2, _)) when
-                        SymbolKeyOps.simpleName k1 = "bool" && SymbolKeyOps.simpleName k2 = "bool"
+                        SymbolKeyOps.simpleName k1 = DisplayName "bool"
+                        && SymbolKeyOps.simpleName k2 = DisplayName "bool"
                         ->
                         ()
                     | other -> failtestf "Expected bool -> bool, got %A" other
@@ -427,10 +428,10 @@ let tests =
                 let assertWidgetIntToInt (label: string) (ty: SemType) =
                     match ty with
                     | TyFun(TyUnion("Dep.Widget`1", args), TyConst(k, _)) when
-                        args.Length = 1 && SymbolKeyOps.simpleName k = "int"
+                        args.Length = 1 && SymbolKeyOps.simpleName k = DisplayName "int"
                         ->
                         match args.[0] with
-                        | TyConst(k, _) when SymbolKeyOps.simpleName k = "int" -> ()
+                        | TyConst(k, _) when SymbolKeyOps.simpleName k = DisplayName "int" -> ()
                         | other -> failtestf "%s: expected Dep.Widget<int>, got arg %A" label other
                     | other -> failtestf "%s: expected (Dep.Widget<int> -> int) with TyUnion head, got %A" label other
 
@@ -489,7 +490,7 @@ let tests =
                         (Seq.toList ctx.Symbols.Keys)
                 | ValueSome ty ->
                     match ty with
-                    | TyFun(TyUnknown name, TyConst(k, _)) when SymbolKeyOps.simpleName k = "int" ->
+                    | TyFun(TyUnknown name, TyConst(k, _)) when SymbolKeyOps.simpleName k = DisplayName "int" ->
                         Expect.stringContains name "Thing" "TyUnknown carries the unresolved name"
                     | other -> failtestf "expected (TyUnknown -> int); got %A" other
             }
@@ -1153,7 +1154,7 @@ let tests =
                         args.Length = 1
                         && (
                             match args.[0] with
-                            | TyConst(k, _) -> SymbolKeyOps.simpleName k = "int"
+                            | TyConst(k, _) -> SymbolKeyOps.simpleName k = DisplayName "int"
                             | _ -> false
                         )
                         ->
@@ -1186,7 +1187,7 @@ let tests =
                             |]
 
                     match okFieldType with
-                    | TyConst(k, _) when SymbolKeyOps.simpleName k = "int" -> ()
+                    | TyConst(k, _) when SymbolKeyOps.simpleName k = DisplayName "int" -> ()
                     | _ ->
                         match okFieldType with
                         | TyVar tv when tv.Level = 0 -> ()
@@ -1315,7 +1316,9 @@ let tests =
                             EqSet.toList members
                             |> List.map (fun ft ->
                                 match ft with
-                                | FTConst(k, _) -> SymbolKeyOps.simpleName k
+                                | FTConst(k, _) ->
+                                    let (DisplayName name) = SymbolKeyOps.simpleName k
+                                    name
                                 | other -> failtestf "expected FTConst members in objnull union; got %A" other
                             )
                             |> List.sort
@@ -1687,7 +1690,7 @@ let tests =
                 match ctx.Bindings.TypeVar.TryGetValue patKey with
                 | ValueSome tv ->
                     match Unification.zonk (TyVar tv) with
-                    | TyConst(k, _) when SymbolKeyOps.simpleName k = "int" -> ()
+                    | TyConst(k, _) when SymbolKeyOps.simpleName k = DisplayName "int" -> ()
                     | other -> failtestf "Expected int, got %A" other
                 | ValueNone -> failtest "no TypeVar for x"
             }

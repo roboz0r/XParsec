@@ -264,6 +264,23 @@ type SymbolKey =
     | Binding of BindingKey
     | Member of MemberKey
 
+/// A key's name AS SHOWN TO A HUMAN — the result of `SymbolKeyOps.simpleName`, which
+/// drops the containment chain and the generic arity. A LOSSY projection OUT of an
+/// identity, and never a route back INTO one: nothing mints a key from it, and no table
+/// is keyed by it.
+///
+/// A single-case DU, not an abbreviation, precisely so that recovering the string takes an
+/// explicit `let (DisplayName s) = …`. Two consumers legitimately do:
+///   * HUMAN — a diagnostic, an error message, display text;
+///   * BACKEND NAME EMISSION — mangling an identifier the target actually emits (a JS
+///     identifier, a CLR member name), whose names carry no generic arity.
+/// Every other unwrap is treating a display string as an identity — the bug this type
+/// exists to make greppable. To ask a table, ask the KEY (`TypeRegistry`'s `*ByKey`
+/// helpers, `IntrinsicReprKeys` / `IntrinsicForwardRepr`); to recognise a well-known
+/// intrinsic, match the KEY (`IntrinsicTypePatterns`).
+[<Struct>]
+type DisplayName = | DisplayName of string
+
 /// Where a resolved symbol physically lives — enough for codegen to mint a ref
 /// without re-resolving. It is the `key -> home` ORACLE: a `SymbolKey` names *what* a
 /// symbol is, and the shape a provider resolves for that key carries, here, *where* it
@@ -583,8 +600,9 @@ type FrozenType =
     /// marker role is `FTTypar`): an argless primitive / intrinsic
     /// (`FTConst(RuntimeNames.intKey, [])`) and a generic intrinsic forwarding its args
     /// (`'T[]` ≡ `FTConst(RuntimeNames.arrayKey 1, [elem])`). Carries the same qualified
-    /// `SymbolKey` its `SemType.TyConst` source does; codegen reads the bare identity
-    /// via `SymbolKeyOps.simpleName key`.
+    /// `SymbolKey` its `SemType.TyConst` source does; codegen recognises a well-known
+    /// intrinsic by KEY (`FTUnit`/`FTObj`/`FTArray`/`FTByref`, `IntrinsicTypePatterns`) and
+    /// reaches its platform repr through the key-addressed forward axis.
     | FTConst of key: SymbolKey * args: EqArray<FrozenType>
     /// Curried; multi-arg functions nest `FTFun`.
     | FTFun of arg: FrozenType * result: FrozenType

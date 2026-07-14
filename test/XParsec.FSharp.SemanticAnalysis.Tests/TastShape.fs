@@ -67,26 +67,33 @@ let private constText (v: TConstValue) : string =
     | TConstValue.String s -> "\"" + s + "\""
     | TConstValue.Unit -> "()"
 
+/// A key's display name, unwrapped — this whole module is a HUMAN-facing renderer (it
+/// prints the TAST as F#-like text for a test to assert on), which is exactly what
+/// `SymbolKeyOps.simpleName`'s `DisplayName` is for. Nothing here resolves anything by it.
+let shownName (key: SymbolKey) : string =
+    let (DisplayName name) = SymbolKeyOps.simpleName key
+    name
+
 /// The declaring type's simple name for a member key — `StaticMethodCall` /
 /// `StaticPropertyGet` carry a `SymbolKey.MemberKey` (Phase 4), whose `decl` is
 /// the class. Falls back to the key's own simple name for any other shape.
 let private memberDeclName (key: SymbolKey) : string =
     match key with
     | SymbolKey.Member mk -> SymbolKeyOps.bareName mk.Decl.Name
-    | _ -> SymbolKeyOps.simpleName key
+    | _ -> shownName key
 
 /// Minimal `SemType` → readable name, for rendering cast targets (`:>` / `:?` /
 /// `:?>`). Nominal types render as their name; structural ones approximate.
 let rec private tyName (t: SemType) : string =
     match t with
-    | TyConst(key, _) -> SymbolKeyOps.simpleName key
+    | TyConst(key, _) -> shownName key
     | TyVar _ -> "_"
     | TyFun(a, b) -> tyName a + " -> " + tyName b
     | TyTuple ts -> [ for t in ts -> tyName t ] |> String.concat " * "
     | TyRecord(n, _)
     | TyUnion(n, _)
     | TyClass(n, _)
-    | TyEnum n -> SymbolKeyOps.simpleName n
+    | TyEnum n -> shownName n
     | TyOr members -> [ for m in members.Members -> tyName m ] |> String.concat " | "
     | TyLiteral(LiteralConst.String s) -> "\"" + s + "\""
     | TyLiteral(LiteralConst.Int n) -> string n
@@ -401,7 +408,7 @@ type private Renderer() =
                 | CallVia.Interface _ -> ":"
             )
 
-            push (SymbolKeyOps.simpleName key)
+            push (shownName key)
             push "("
 
             args
@@ -426,12 +433,12 @@ type private Renderer() =
                 | CallVia.Interface _ -> ":"
             )
 
-            push (SymbolKeyOps.simpleName key)
+            push (shownName key)
 
         | TExpr.StaticMethodCall(key, args, _, _) ->
             push (memberDeclName key)
             push "."
-            push (SymbolKeyOps.simpleName key)
+            push (shownName key)
             push "("
 
             args
@@ -447,10 +454,10 @@ type private Renderer() =
         | TExpr.StaticPropertyGet(key, _, _) ->
             push (memberDeclName key)
             push "."
-            push (SymbolKeyOps.simpleName key)
+            push (shownName key)
 
         | TExpr.StaticFieldGet(declKey, name, _, _) ->
-            push (SymbolKeyOps.simpleName declKey)
+            push (shownName declKey)
             push "."
             push name
 
@@ -635,7 +642,7 @@ type private Renderer() =
         | TPat.Null _ -> push "null"
         | TPat.EnumCase(enumKey, caseName, _, _) ->
             // Renders identically to the `E.C1` expression form (`StaticFieldGet`).
-            push (SymbolKeyOps.simpleName enumKey)
+            push (shownName enumKey)
             push "."
             push caseName
         | TPat.Or(alts, _, _) ->
@@ -660,14 +667,14 @@ type private Renderer() =
         | TDecl.Type td ->
             let rec tyStr t =
                 match t with
-                | TyConst(key, _) -> SymbolKeyOps.simpleName key
+                | TyConst(key, _) -> shownName key
                 | TyVar _ -> "_"
                 | TyFun(a, b) -> tyStr a + " -> " + tyStr b
                 | TyTuple ts -> [ for t in ts -> tyStr t ] |> String.concat " * "
                 | TyRecord(n, _)
                 | TyUnion(n, _)
                 | TyClass(n, _)
-                | TyEnum n -> SymbolKeyOps.simpleName n
+                | TyEnum n -> shownName n
                 | TyOr members -> [ for m in members.Members -> tyStr m ] |> String.concat " | "
                 | TyLiteral(LiteralConst.String s) -> "\"" + s + "\""
                 | TyLiteral(LiteralConst.Int n) -> string n

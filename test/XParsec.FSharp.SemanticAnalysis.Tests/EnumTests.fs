@@ -55,7 +55,9 @@ let private singleLet (tast: TastFile) : TExpr * SemType =
 /// value's static type is the enum nominal (NOT its underlying int/string).
 let private enumTypeName (t: SemType) : string voption =
     match t with
-    | TyEnum k -> ValueSome(SymbolKeyOps.simpleName k)
+    | TyEnum k ->
+        let (DisplayName name) = SymbolKeyOps.simpleName k
+        ValueSome name
     | _ -> ValueNone
 
 let private warnings (tast: TastFile) =

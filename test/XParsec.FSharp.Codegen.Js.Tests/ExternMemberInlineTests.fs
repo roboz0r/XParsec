@@ -173,9 +173,9 @@ let tests =
                                         TExprG.ILIntrinsic _,
                                         FTFun(FTConst(k2, _), FTConst(k3, _)),
                                         _) when
-                            SymbolKeyOps.simpleName k1 = "int"
-                            && SymbolKeyOps.simpleName k2 = "int"
-                            && SymbolKeyOps.simpleName k3 = "int"
+                            SymbolKeyOps.simpleName k1 = DisplayName "int"
+                            && SymbolKeyOps.simpleName k2 = DisplayName "int"
+                            && SymbolKeyOps.simpleName k3 = DisplayName "int"
                             ->
                             ()
                         | other -> failtestf "expected inner `fun x -> (# … #)`, got %A" other
@@ -183,9 +183,9 @@ let tests =
                         // `declTy` is the full curried arrow `widget -> int -> int`.
                         match declTy with
                         | FTFun(FTConst(k1, _), FTFun(FTConst(k2, _), FTConst(k3, _))) when
-                            SymbolKeyOps.simpleName k1 = "widget"
-                            && SymbolKeyOps.simpleName k2 = "int"
-                            && SymbolKeyOps.simpleName k3 = "int"
+                            SymbolKeyOps.simpleName k1 = DisplayName "widget"
+                            && SymbolKeyOps.simpleName k2 = DisplayName "int"
+                            && SymbolKeyOps.simpleName k3 = DisplayName "int"
                             ->
                             ()
                         | other -> failtestf "declTy is not `widget -> int -> int`: %A" other
@@ -209,10 +209,11 @@ let tests =
                     | TDeclG.Let(_,
                                  TExprG.Lambda(TPatG.NamedSimple(_, FTConst(k0, _), _), TExprG.ILIntrinsic _, _, _),
                                  true,
-                                 declTy) when SymbolKeyOps.simpleName k0 = "int" ->
+                                 declTy) when SymbolKeyOps.simpleName k0 = DisplayName "int" ->
                         match declTy with
                         | FTFun(FTConst(k1, _), FTConst(k2, _)) when
-                            SymbolKeyOps.simpleName k1 = "int" && SymbolKeyOps.simpleName k2 = "int"
+                            SymbolKeyOps.simpleName k1 = DisplayName "int"
+                            && SymbolKeyOps.simpleName k2 = DisplayName "int"
                             ->
                             ()
                         | other -> failtestf "static declTy is not `int -> int`: %A" other
@@ -295,7 +296,7 @@ let tests =
                 | Some(_, body) ->
                     match body.Decl with
                     | TDeclG.Let(_, TExprG.Lambda(TPatG.NamedSimple(_, FTConst(key, _), _), _, _, _), true, _) when
-                        SymbolKeyOps.simpleName key = "widget"
+                        SymbolKeyOps.simpleName key = DisplayName "widget"
                         ->
                         ()
                     | other -> failtestf "expected a `this : widget`-first inline lambda, got %A" other

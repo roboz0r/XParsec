@@ -229,7 +229,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
                 // `unit`-as-`ValueTuple` convention.
                 (fun (ret: ReturnTypeEncoder) ->
                     match retTy with
-                    | FTConst(retKey, _) when not isStatic && SymbolKeyOps.simpleName retKey = "unit" -> ret.Void()
+                    | FTUnit when not isStatic -> ret.Void()
                     | _ -> encodeType (ret.Type()) retTy
                 ),
                 (fun (pars: ParametersEncoder) ->

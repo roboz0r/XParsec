@@ -100,6 +100,12 @@ module EmitPattern =
                 recur fldSlot subPat
         )
 
+    /// The built-in scalars whose CLR representation is a VALUE type: every numeric
+    /// (`RuntimeNames.numericTypeNames`, the shared source) plus this site's own two
+    /// non-numeric extras. `string` / `obj` / `unit` are absent — reference types.
+    let private valueTypePrimitiveNames: Set<string> =
+        RuntimeNames.numericTypeNames |> Set.add "bool" |> Set.add "char"
+
     /// Whether a (zonked) `FrozenType` is a CLR value type — drives the box vs
     /// no-op choice on `:>` and the `unbox.any` vs `castclass` choice on `:?>`
     /// (and the type-test pattern's `isinst` bind). User records / unions /
@@ -111,9 +117,9 @@ module EmitPattern =
         // Numeric primitives (incl. `decimal`) share `RuntimeNames.numericTypeNames`;
         // `bool` / `char` are the two non-numeric value-type scalars. `string` / `obj`
         // are `TyConst` but reference types, so they're excluded (not in the set).
-        | FTConst(key, _) ->
-            let n = SymbolKeyOps.simpleName key
-            RuntimeNames.numericTypeNames.Contains n || n = "bool" || n = "char"
+        // Matched by KEY (`isPrimitiveKeyIn` compares the `Vesper` intrinsic identity, not
+        // the display name), so a user type named `int` elsewhere is not a value type here.
+        | FTConst(key, _) -> RuntimeNames.isPrimitiveKeyIn valueTypePrimitiveNames key
         // A user-declared `[<Struct>]` type emitted into this assembly:
         // the `EmittedClass.IsValueType` flag drives
         // box-on-`:>` / `unbox.any`-on-`:?>` exactly as for a BCL value type. A

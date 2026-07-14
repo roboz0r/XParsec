@@ -266,7 +266,12 @@ module EmitJs =
                 | ValueSome(key, _) ->
                     JsExternalMembers.classFlagsOf ctx.Provider key
                     |> ValueOption.filter (fun flags -> flags.Global)
-                    |> ValueOption.map (fun _ -> SymbolKeyOps.simpleName key)
+                    // Backend name emission: the global class is `new`d under the name the
+                    // runtime knows it by.
+                    |> ValueOption.map (fun _ ->
+                        let (DisplayName name) = SymbolKeyOps.simpleName key
+                        name
+                    )
                 | ValueNone -> ValueNone
 
             match localClassName, globalClassName with
@@ -654,7 +659,9 @@ module EmitJs =
     /// member resolves to the attached method `partitionClassMembers` emitted on the
     /// receiver's class. Shared by the `PropertyGet`/`MethodCall` `CallVia.Interface` arms.
     and attachedAccess (ctx: WalkCtx) (loc: JsLoc voption) (receiver: Frozen.TExpr) (key: SymbolKey) : JsExpr =
-        JsExpr.Member(buildExpr ctx receiver, JsExpr.Identifier(SymbolKeyOps.simpleName key, ValueNone), false, loc)
+        // Backend name emission: the attached method is reached under its JS member name.
+        let (DisplayName memberName) = SymbolKeyOps.simpleName key
+        JsExpr.Member(buildExpr ctx receiver, JsExpr.Identifier(memberName, ValueNone), false, loc)
 
     /// A value bound to a name (a module value, or a `let` binder). A `Lambda`
     /// value routes through `emitFunction` carrying its binder key, so a

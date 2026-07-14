@@ -126,7 +126,10 @@ let tests =
                 | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k1, _), _),
                                TExpr.Var(_, TyConst(k2, _), _),
                                TyFun(TyConst(k3, _), TyConst(k4, _)),
-                               _) when [ k1; k2; k3; k4 ] |> List.forall (fun k -> SymbolKeyOps.simpleName k = "int") ->
+                               _) when
+                    [ k1; k2; k3; k4 ]
+                    |> List.forall (fun k -> SymbolKeyOps.simpleName k = DisplayName "int")
+                    ->
                     ()
                 | other -> failtestf "expected fully-int `fun x -> x`, got %A" other
             }
@@ -146,7 +149,7 @@ let tests =
 
                     match again with
                     | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k, _), _), _, _, _) when
-                        SymbolKeyOps.simpleName k = "bool"
+                        SymbolKeyOps.simpleName k = DisplayName "bool"
                         ->
                         ()
                     | other -> failtestf "second expansion at bool failed: %A" other
@@ -191,7 +194,8 @@ let tests =
                                                       _,
                                                       _),
                                             _) ] when
-                    SymbolKeyOps.simpleName k1 = "int" && SymbolKeyOps.simpleName k2 = "int"
+                    SymbolKeyOps.simpleName k1 = DisplayName "int"
+                    && SymbolKeyOps.simpleName k2 = DisplayName "int"
                     ->
                     ()
                 | _ -> failtestf "unexpected shape: %A" tast.Decls
@@ -213,7 +217,10 @@ let tests =
                                          _,
                                          _),
                                TyFun(TyConst(k3, _), TyConst(k4, _)),
-                               _) when [ k1; k2; k3; k4 ] |> List.forall (fun k -> SymbolKeyOps.simpleName k = "int") ->
+                               _) when
+                    [ k1; k2; k3; k4 ]
+                    |> List.forall (fun k -> SymbolKeyOps.simpleName k = DisplayName "int")
+                    ->
                     ()
                 | other -> failtestf "expected `fun x -> x + 1` body, got %A" other
             }

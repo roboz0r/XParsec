@@ -30,14 +30,19 @@ module NumberCovariance =
                 FloatCanon
                 other
 
+        // The `number` TOKEN is a platform name the manifest owns (`opaqueKey`, global
+        // namespace) — never a Vesper identity — so it is recognised by KEY, and a Vesper
+        // type named `number` in some namespace cannot be mistaken for it.
+        let numberKey = RuntimeNames.opaqueKey NumberToken
+
         let familyUnion =
             match Map.tryFind NumberToken inner.IntrinsicReverseCanon with
             | Some(_ :: _ as canons) -> FrozenType.MkUnion(seq { for c in canons -> FTConst(c, EqArray.empty) })
-            | _ -> FTConst(RuntimeNames.opaqueKey NumberToken, EqArray.empty)
+            | _ -> FTConst(numberKey, EqArray.empty)
 
         let resolveNumber (v: Variance) (t: FrozenType) : FrozenType voption =
             match t with
-            | FTConst(key, args) when SymbolKeyOps.simpleName key = NumberToken && args.Length = 0 ->
+            | FTConst(key, args) when key = numberKey && args.Length = 0 ->
                 match v with
                 | Variance.Co -> ValueSome(FTConst(RuntimeNames.floatKey, EqArray.empty))
                 | Variance.Inv -> ValueSome familyUnion

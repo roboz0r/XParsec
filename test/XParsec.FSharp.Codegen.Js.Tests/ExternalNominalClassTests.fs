@@ -224,7 +224,7 @@ let tests =
             test "NEGATIVE: a primitive return stays FTConst (not FTClass)" {
                 match returnOf "wantInt" with
                 | FTConst(key, _) ->
-                    Expect.equal (SymbolKeyOps.simpleName key) "int" "primitive must stay a bare FTConst"
+                    Expect.equal (SymbolKeyOps.simpleName key) (DisplayName "int") "primitive must stay a bare FTConst"
                 | other -> failtestf "wantInt return should be FTConst int, got %A" other
             }
 
@@ -237,7 +237,7 @@ let tests =
 
                     match target with
                     | FTConst(key, _) ->
-                        Expect.equal (SymbolKeyOps.simpleName key) "int" "the alias target stays FTConst"
+                        Expect.equal (SymbolKeyOps.simpleName key) (DisplayName "int") "the alias target stays FTConst"
                     | other -> failtestf "Count target should be FTConst int, got %A" other
                 | other -> failtestf "Count should resolve as ExternalTypeShape.Abbrev, got %A" other
             }

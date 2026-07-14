@@ -595,14 +595,14 @@ module Unification =
                 enterLevel ctx
 
                 try
+                    let (DisplayName shown) = SymbolKeyOps.simpleName canonKey
+
                     UnificationInferCtor.inferIntrinsicClassCtorCall
                         infer
                         ctx
                         (canonArgs.AsSpan().ToArray())
                         surface
-                        (sprintf
-                            "No applicable constructor on base '%s' for the given 'inherit' arguments"
-                            (SymbolKeyOps.simpleName canonKey))
+                        (sprintf "No applicable constructor on base '%s' for the given 'inherit' arguments" shown)
                         argExpr
                 finally
                     exitLevel ctx

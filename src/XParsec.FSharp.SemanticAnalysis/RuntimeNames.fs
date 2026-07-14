@@ -406,8 +406,8 @@ module RuntimeNames =
 
     /// The declaring namespace every built-in intrinsic identity carries — the
     /// `namespace Vesper` of `prim-types-*.fs`. Rides in the intrinsic's `SymbolKey`
-    /// so its identity is qualified like every nominal; codegen still reads the bare
-    /// name via `SymbolKeyOps.simpleName`. PRIVATE: the single literal backing the
+    /// so its identity is qualified like every nominal — codegen matches THAT key, never a
+    /// bare name. PRIVATE: the single literal backing the
     /// canonical `*Key` constants + `primitiveKey` below. An intrinsic's identity is
     /// otherwise CONTRACT-sourced (`TypeRegistry.intrinsicKeyOf` from the declaring
     /// `namespace`; the extractor's qualified `compiled` name) — never classified from
@@ -449,6 +449,20 @@ module RuntimeNames =
     /// decided by a shared name-set lookup.
     let opaqueKey (name: string) : SymbolKey = SymbolKeyOps.typeKey "" name
 
+    /// True iff `k` IS the identity of one of the built-in `namespace Vesper` primitives
+    /// named in `names` — i.e. `k = primitiveKey n` for some `n ∈ names`. The KEY-based
+    /// form of a `numericTypeNames`-style classification: the namespace and the arity are
+    /// compared, so a user type of the same short name in another namespace (or an
+    /// arity-overloaded one) cannot pass, which a `simpleName ∈ names` test could not say.
+    /// Each consumer still spells its own set at the use site (see `numericTypeNames`).
+    let private intrinsicHolder: TypeHolder =
+        TypeHolder.InNamespace(SymbolKeyOps.namespaceKey intrinsicNamespace)
+
+    let isPrimitiveKeyIn (names: Set<string>) (k: SymbolKey) : bool =
+        match k with
+        | SymbolKey.Type t -> t.Arity = 0 && t.Holder = intrinsicHolder && names.Contains t.Name
+        | _ -> false
+
     // --- Canonical intrinsic key identities ------------------------------------------
     //
     // One cached `SymbolKey` per well-known intrinsic — the single object every
@@ -473,6 +487,11 @@ module RuntimeNames =
     let byteKey: SymbolKey = primitiveKey "byte"
     let uint32Key: SymbolKey = primitiveKey "uint32"
     let floatKey: SymbolKey = primitiveKey "float"
+    /// The single-precision float. Its platform repr LOSES the width on JS (it shares
+    /// `number` with `float`), so the identity is the only carrier of "this is a single" —
+    /// which is why `EmitJsContext.plainRenderOf` must recognise it by KEY here rather than
+    /// through the repr axis.
+    let float32Key: SymbolKey = primitiveKey "float32"
     let decimalKey: SymbolKey = primitiveKey "decimal"
     let undefinedKey: SymbolKey = primitiveKey "undefined"
     let byrefKey: SymbolKey = primitiveKey byrefName
@@ -496,8 +515,11 @@ module RuntimeNames =
 /// ask "is this the `bool` / `unit` / `obj` / array / by-ref intrinsic?". Each matches the
 /// canonical `*Key` constant `RuntimeNames` mints, so the producers and these recognisers
 /// cannot drift, and arity/namespace are compared structurally rather than stripped. Prefer
-/// these over `SymbolKeyOps.intrinsicName key = "…"`; `SymbolKeyOps.simpleName` stays for
-/// human-facing display only. `AutoOpen` so a pass matches `| TyBool ->` unqualified.
+/// these over `SymbolKeyOps.intrinsicName key = "…"`; `SymbolKeyOps.simpleName` yields a
+/// `DisplayName` and cannot be compared against a name at all, which is the point. The
+/// BACKENDS match these too (the frozen mirrors `FTUnit`/`FTObj`/`FTArray`/`FTByref`), so
+/// there is one recogniser per intrinsic across the whole tree. `AutoOpen` so a pass
+/// matches `| TyBool ->` unqualified.
 [<AutoOpen>]
 module IntrinsicTypePatterns =
 
@@ -563,9 +585,43 @@ module IntrinsicTypePatterns =
         | TyConst(k, _) when RuntimeNames.isStructuralConstructorName (SymbolKeyOps.intrinsicName k) -> Some()
         | _ -> None
 
+    /// A key whose identity is a bare PLATFORM name — global namespace, arity 0, i.e. what
+    /// `RuntimeNames.opaqueKey` mints from a name the TARGET owns (a TS-manifest `number`,
+    /// a BCL sink name). Binds that name.
+    ///
+    /// The ONE sanctioned route from a key onto the platform-repr string axis (the reverse
+    /// `{ platform-repr -> canons }` map is keyed by a string because a platform repr IS a
+    /// string). It is not `simpleName`: it refuses any key with a declaring namespace, so a
+    /// Vesper-qualified identity — a user type named `number` in a namespace, or an
+    /// intrinsic canon — cannot be mistaken for a platform name.
+    let (|PlatformName|_|) (k: SymbolKey) : string option =
+        match k with
+        | SymbolKey.Type t when t.Arity = 0 && t.Holder = TypeHolder.InNamespace NamespaceKey.Global -> Some t.Name
+        | _ -> None
+
     let (|FTUnit|_|) (ft: FrozenType) =
         match ft with
         | FTConst(k, a) when a.IsEmpty && k = unitKey -> Some()
+        | _ -> None
+
+    /// Frozen mirror of `(|TyObj|_|)` — the `obj` root, which the CLR encodes as the
+    /// primitive `ELEMENT_TYPE_OBJECT` rather than a `class System.Object` `TypeRef`.
+    let (|FTObj|_|) (ft: FrozenType) =
+        match ft with
+        | FTConst(k, a) when a.IsEmpty && k = objKey -> Some()
+        | _ -> None
+
+    /// Frozen mirror of `(|TyArray|_|)` — the rank-1 array intrinsic `'T[]`, binding its
+    /// element type.
+    let (|FTArray|_|) (ft: FrozenType) =
+        match ft with
+        | FTConst(k, a) when a.Length = 1 && k = arrayKey1 -> Some a.[0]
+        | _ -> None
+
+    /// Frozen mirror of `(|TyByref|_|)` — a managed by-ref `T&`, binding its element type.
+    let (|FTByref|_|) (ft: FrozenType) =
+        match ft with
+        | FTConst(k, a) when a.Length = 1 && k = byrefKey -> Some a.[0]
         | _ -> None
 
     /// Frozen mirror of `(|TyNull|_|)` — the `null` member of a frozen `T | null`

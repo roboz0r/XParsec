@@ -310,14 +310,14 @@ module TastConvert =
         }
 
     /// The whole-file rebuild: `Decls` and `InlineBodies` mapped through `f`, the
-    /// non-`'ty` snapshot fields (`Diagnostics` / `IntrinsicReprTypes` /
+    /// non-`'ty` snapshot fields (`Diagnostics` / `IntrinsicReprKeys` /
     /// `ModuleMembers` / `ClosureReprs`) carried over.
     let file (f: 'a -> 'b) (tf: TastFileG<'a, 'tok>) : TastFileG<'b, 'tok> =
         {
             Decls = EqArray.map (decl f) tf.Decls
             InlineBodies = EqArray.map (inlineValue f) tf.InlineBodies
             Diagnostics = tf.Diagnostics
-            IntrinsicReprTypes = tf.IntrinsicReprTypes
+            IntrinsicReprKeys = tf.IntrinsicReprKeys
             ModuleMembers = tf.ModuleMembers
             TopLevelNames = tf.TopLevelNames
             ClosureReprs = tf.ClosureReprs
