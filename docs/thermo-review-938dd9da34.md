@@ -10,7 +10,7 @@ below are what remains after that work. Delete this file once they are closed.
 
 ## Status
 
-**Closed: 1, 2, 3, 5, 6, 7, 9.** Four commits (`24455419`, `18679fb6`, `3ecc37c4`, `918d66c8`) closed
+**Closed: 1, 2, 3, 4, 5, 6, 7, 9.** Four commits (`24455419`, `18679fb6`, `3ecc37c4`, `918d66c8`) closed
 finding 1 at its root rather than at the symptom the finding described. Finding 1's own
 prescription — key the provider stores by `SymbolKey` — is NOT what landed, and could not
 be: ten call sites mint a store key from a bare compiled name with no assembly in hand, and
@@ -121,7 +121,29 @@ explicit boundary rather than an over-wide field. Finding 10's complaint about t
 being a design-essay-in-a-type is closed with it: the note is deleted, replaced by a
 one-line invariant.
 
-**Open, unchanged: 4, 8, 10** and the remaining test gap (an arity overload
+**Finding 4 is CLOSED** (`139eb283`). Its diagnosis held: the qualified path already lived
+the "precedence is a lookup" thesis (finding 1's `claimRank` work), but the two LENIENT tails
+still cascaded. `tryTypeClaimAnyArity` (the bare-name twin of the existing
+`tryWrittenTypeClaimAnyArity`) collapses both to one any-arity claim + `resolveClaimedType`;
+`resolveLocalGeneric` and `checkArity` are gone. Two behavior facts fell out, neither in the
+finding:
+
+- The bare tail's intrinsic arm minted a MALFORMED `TyConst(k, [])` for a generic intrinsic
+  named without its arg (`seq`, `array`) — zero-arg, so it failed the arg-count unify in
+  `Engine` and the rank-1 array-element guard. It was the last kind-specific special-case in
+  the very tail the finding wanted uniform. Fixed: it now back-fills a fresh typar like every
+  other kind. Nothing depended on the `[]`.
+- An enum at the wrong arity previously fell to the undefined-head verdict (the old cascade had
+  no enum arm), silently failing to blame the arity of a type that exists. It is now blamed
+  like every other kind.
+
+One kind-specific branch SURVIVES, deliberately and faithfully to prior behavior: a
+generic-tail `IntrinsicRepr` at the wrong arity forwards its args to a `TyConst` and emits NO
+arity diagnostic (`claim.Kind <> IntrinsicRepr` guard). A stray-arity intrinsic reference
+(`int<string>`) is thus still undiagnosed — a smaller, pre-existing gap than the malformed-type
+one above, worth a follow-up but out of this finding's scope.
+
+**Open, unchanged: 8, 10** and the remaining test gap (an arity overload
 combined with `inherit` or an augmentation block).
 
 **Found while closing 5/6 — not in this review, all real:**
@@ -310,6 +332,9 @@ the dictionary and the list.
 ---
 
 ## 4. The cross-kind cascade was added, not replaced
+
+**CLOSED** (`139eb283`). See the Status section — it also fixed a malformed-intrinsic bug the
+cascade was hiding. Kept for the record.
 
 `Translate.resolveClaimedType` (`Passes/Unification/Translate.fs:391`) is introduced with
 a doc stating the thesis — *"cross-kind precedence is a LOOKUP, never a hand-ordered
