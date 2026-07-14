@@ -1,26 +1,38 @@
 module XParsec.FSharp.Codegen.Clr.Tests.LocalModuleTests
 
 open Expecto
+open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// G15 / G16 — local (in-file) module resolution.
+/// The source analyses with no errors. Every use of it pairs this with an assertion on the
+/// resolved IDENTITY (the emitted metadata, or a disjoint field set only one candidate type
+/// carries) — acceptance alone would let a conflation through.
+let private compiles (src: string) : unit =
+    let errs =
+        [
+            for d in (analyse src).Diagnostics do
+                if d.Severity = Severity.Error then
+                    yield d.Message
+        ]
+
+    Expect.isEmpty errs (sprintf "expected no errors; got %A" errs)
+
+// Local (in-file) module resolution, in two shapes:
 //
-// G15: a `let`-bound value/function of a sibling *local* module resolves
-//      *qualified* (`A.f`), from another module's body and from a class member.
-//      The module tree is flattened before name resolution, so without the
-//      `LocalModules` pre-pass the sibling is unresolvable (the provider only
-//      knows dependency packages, and a module name is not a value binding).
+//   * a `let`-bound value/function of a sibling *local* module resolves *qualified*
+//     (`A.f`), from another module's body and from a class member. The module tree is
+//     flattened before name resolution, so without the `LocalModules` pre-pass the sibling
+//     is unresolvable (the provider only knows dependency packages, and a module name is
+//     not a value binding).
+//   * an *unqualified* reference from a type nested *inside* a module up to one of that
+//     module's `let`-bound siblings (`SetIterator` → `collapseLHS` in `set.fs`) resolves —
+//     the enclosing module's bindings enter the nested type's member-body scope.
 //
-// G16: an *unqualified* reference from a type nested *inside* a module up to one
-//      of that module's `let`-bound siblings (`SetIterator` → `collapseLHS` in
-//      `set.fs`) resolves — the enclosing module's bindings enter the nested
-//      type's member-body scope.
-//
-// Both ride the `runs` driver (compile → run → assert stdout) so the resolution
-// fix is proven end to end: name resolution records the use site as an ordinary
-// local `Binding`, Unification types it via the member's generalised scheme, and
-// Elaborate lowers it to the same `TExpr.Var` a bare local reference produces.
+// Both ride the `runs` driver (compile → run → assert stdout), so resolution is proven end
+// to end: name resolution records the use site as an ordinary local `Binding`, Unification
+// types it via the member's generalised scheme, and Elaborate lowers it to the same
+// `TExpr.Var` a bare local reference produces.
 
 [<Tests>]
 let tests =
@@ -71,6 +83,7 @@ let tests =
                             "    [<Struct>]"
                             "    type Holder(seed: int) ="
                             "        member h.Compute() = secret () + seed"
+                            "open M"
                             "let r = Holder(0)"
                             "printfn \"%d\" (r.Compute())"
                         ])
@@ -93,6 +106,7 @@ let tests =
                             "        val mutable N: int"
                             "        new(x: int) = { N = seed x }"
                             "        member this.Get() = this.N"
+                            "open M"
                             "let b = Box(5)"
                             "printfn \"%d\" (b.Get())"
                         ])
@@ -200,35 +214,19 @@ let nestedEmission =
             }
         ]
 
-// ---- A module is not yet part of a type's CLAIM (pinned defect) --------------
+// ---- The module is part of a type's CLAIM ------------------------------------
 //
-// The type's KEY names its module — `stampLocalTypeKey` mints `TypeKey(Holder = InModule
-// M)` for `namespace N` + `module M` + `type T` (`SymbolKeyTests`, "SymbolKey local type
-// containment") — and the emitter now honours it: `T` is a TypeDef nested in `M`'s
-// compiled holder class, with a `NestedClass` row (asserted below and in
-// `MetadataStructureTests`).
+// A type claims `(holder, name, arity)`, so `N.A.T` and `N.B.T` are two types — not one
+// name contested twice. Each is a `TypeDef` nested in its own module's compiled holder
+// class, which is what gives two same-named types two distinguishable metadata names, and
+// each body constructs ITS OWN.
 //
-// What has NOT moved is the `(name, arity)` CLAIM: `TypeRegistry.TypeClaims` is module-
-// AND namespace-blind, so two sibling modules declaring `type T` still contest ONE claim.
-//
-// CORRECT behaviour (what F# does, and what these tests must be flipped to assert once
-// the CLAIM is holder-aware): the program below is LEGAL. `N.A.T` and `N.B.T` are two
-// distinct types and must both compile, each emitting its own TypeDef nested in its
-// module's holder class. Nested emission is the PRECONDITION for that flip — two claims
-// need two distinguishable metadata names — and it has landed; the claim itself has not.
-//
-// CURRENT behaviour, pinned below: the front end rejects the second as `Duplicate type
-// definition: T`, the second type is never registered, and the PE carries only `A`'s.
-// Where a *body* then uses the dropped type, the failure is worse than a diagnostic —
-// codegen crashes outright.
-//
-// There is no known-failing-test convention in this suite (`ptest` marks debug probes,
-// `skiptest` marks unavailable-environment rows), so these assert the WRONG current
-// behaviour rather than invent a bespoke skip: the fix flips them.
+// Asserted on the emitted metadata and through the loaded PE, not on acceptance alone: two
+// claims silently collapsed onto one type would compile clean and emit ONE nested `T`.
 
 /// `namespace N` holding two sibling modules `A` and `B`, each declaring its OWN
-/// `type T` (`inA` / `inB` are the module bodies, indented in). Two distinct types
-/// under one short name — legal F#, and the shape that collapses to one identity here.
+/// `type T` (`inA` / `inB` are the module bodies, indented in). Two distinct types under
+/// one short name.
 let private siblingModuleTypes (inA: string list) (inB: string list) : string =
     let body (m: string) (lines: string list) =
         (sprintf "module %s =" m) :: (lines |> List.map (fun l -> "    " + l))
@@ -236,13 +234,13 @@ let private siblingModuleTypes (inA: string list) (inB: string list) : string =
     String.concat "\n" ([ "namespace N"; "" ] @ body "A" inA @ [ "" ] @ body "B" inB)
 
 /// The record pair: `N.A.T = { x: int }` and `N.B.T = { y: int }` — same name,
-/// incompatible field sets, so nothing can excuse conflating them.
+/// incompatible field sets, so a conflation cannot hide.
 let private recordA = [ "type T = { x: int }" ]
 let private recordB = [ "type T = { y: int }" ]
 let private recordPair = siblingModuleTypes recordA recordB
 
 [<Tests>]
-let moduleIsNotPartOfTypeIdentity =
+let moduleIsPartOfTypeIdentity =
     testList
         "LocalModule type identity"
         [
@@ -250,13 +248,10 @@ let moduleIsNotPartOfTypeIdentity =
                 [
                     "record", recordA, recordB
                     "union", [ "type T ="; "    | Ca of int" ], [ "type T ="; "    | Cb of string" ]
-                ] ->
-                test $"a sibling module's same-named {kind} is (wrongly) rejected as a duplicate" {
-                    failsWith "Duplicate type definition: T" (siblingModuleTypes inA inB)
-                }
+                ] -> test $"sibling modules may each declare a {kind} named T" { compiles (siblingModuleTypes inA inB) }
 
             yield
-                test "only A's T is emitted, nested in A's holder — the sibling module's type is dropped" {
+                test "each sibling module's T is emitted, nested in ITS OWN holder" {
                     let _, artifact = compileSource "SiblingModuleTypeIdentity" recordPair
                     let bytes = Codegen.toBytes artifact
 
@@ -264,41 +259,58 @@ let moduleIsNotPartOfTypeIdentity =
                         MetadataStructure.emittedTypes bytes
                         |> List.map (fun t -> t.Name)
                         |> List.filter (fun n -> n.EndsWith "+T")
+                        |> List.sort
 
-                    // Correct: BOTH `N.A+T` and `N.B+T`. Current: only `A`'s — the claim is
-                    // module-blind, so `B`'s `T` is never registered and never emitted. The
-                    // *nesting* is right either way, which is what makes the flip possible.
-                    Expect.equal ts [ "N.A+T" ] "expected A's T nested in A's holder, and B's dropped"
+                    Expect.equal ts [ "N.A+T"; "N.B+T" ] "expected two nested Ts, one per module holder"
 
                     MetadataStructure.assertWellFormed "SiblingModuleTypeIdentity" bytes
+
+                    // They are two TYPES, not one reused: the loaded PE binds both, and each
+                    // carries only its own field.
+                    let asm = loadAssembly bytes
+                    let ta = asm.GetType "N.A+T"
+                    let tb = asm.GetType "N.B+T"
+                    Expect.isNotNull ta "expected N.A+T to bind"
+                    Expect.isNotNull tb "expected N.B+T to bind"
+                    Expect.notEqual ta tb "the sibling Ts are distinct runtime types"
+
+                    let fields (t: System.Type) =
+                        t.GetFields(
+                            System.Reflection.BindingFlags.Instance
+                            ||| System.Reflection.BindingFlags.Public
+                            ||| System.Reflection.BindingFlags.NonPublic
+                        )
+                        |> Array.map (fun f -> f.Name)
+                        |> Array.toList
+
+                    Expect.equal (fields ta) [ "x" ] "A's T keeps its own field"
+                    Expect.equal (fields tb) [ "y" ] "B's T keeps its own field"
                 }
 
-            // The dropped registration is not merely cosmetic. `B`'s `{ y = 2 }` finds no
-            // record type behind the name, so its type stays an unresolved typar and the
-            // BACKEND faults on it — a compiler crash, not a reported error.
+            // Each module's body resolves `T` to the `T` ITS OWN module declares. The field
+            // sets are DISJOINT, so acceptance IS the identity assertion: were `B`'s `T`
+            // bound to `A`'s, `{ y = 2 }` would name no field of it.
             yield
-                test "a body constructing the dropped sibling type crashes the backend" {
-                    let src =
+                test "each sibling module's body constructs its own T" {
+                    compiles (
                         siblingModuleTypes
-                            [ "type T = { x: int }"; "let mk () = { x = 1 }" ]
-                            [ "type T = { y: int }"; "let mk () = { y = 2 }" ]
-
-                    Expect.throws
-                        (fun () -> compileSource "SiblingModuleTypeCtor" src |> ignore)
-                        "expected the emitter to fault on the unregistered sibling record"
+                            [ "type T = { x: int }"; "let mk () : T = { x = 1 }"; "let get () = (mk ()).x" ]
+                            [ "type T = { y: int }"; "let mk () : T = { y = 2 }"; "let get () = (mk ()).y" ]
+                    )
                 }
 
-            // Classes take an even worse path: the collision surfaces inside codegen as a
-            // duplicate-key insert, so the compiler throws before any diagnostic is reported.
             yield
-                test "same-named classes in sibling modules crash codegen on a duplicate key" {
+                test "same-named classes in sibling modules are two classes" {
                     let src =
                         siblingModuleTypes
                             [ "type T(n: int) ="; "    member _.N = n" ]
                             [ "type T(s: string) ="; "    member _.S = s" ]
 
-                    Expect.throws
-                        (fun () -> compileSource "SiblingModuleClassIdentity" src |> ignore)
-                        "expected the duplicate nominal key insert to throw"
+                    let _, artifact = compileSource "SiblingModuleClassIdentity" src
+                    let bytes = Codegen.toBytes artifact
+
+                    let asm = loadAssembly bytes
+                    Expect.isNotNull (asm.GetType "N.A+T") "expected N.A+T to bind"
+                    Expect.isNotNull (asm.GetType "N.B+T") "expected N.B+T to bind"
                 }
         ]

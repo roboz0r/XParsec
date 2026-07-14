@@ -41,10 +41,19 @@ these two sites is wrong, and it is not the loud one" was the correct read: `Clr
 `failwithf` knew the answer all along, and is now the `TypeRef` that chains through the
 module's holder.
 
-**Open, unchanged: 3, 4, 5, 6, 8, 10** and the test gaps — except that the module-blind
-claim collision named under "Test gaps" is now PINNED (`DuplicateTypeNameTests`,
-`LocalModuleTests`), so the eventual fix has something to flip, and its emission
-precondition is met.
+Finding 1 is now closed in full: the registry half followed the provider half once the name
+table gained a use site to answer from (`UseSite` / `TypeRegistry.claimRank`), and with it
+project-local type scoping became F#'s — module-aware, `open`-aware, innermost-outward. The
+module-blind claim collision that "Test gaps" asked to pin is fixed rather than pinned.
+
+**Open, unchanged: 3, 4, 5, 6, 8, 10** and the remaining test gap (an arity overload
+combined with `inherit` or an augmentation block).
+
+**Known gap, deliberately deferred:** a qualified LOCAL type name (`A.T`, where `A` is a
+module of this unit) still does not resolve — `classifyTypeHead` treats any dotted head as
+external, and a miss becomes a fresh type variable rather than a diagnostic. Sibling
+same-named types are now legal, so this is the one way to name one of them from outside its
+module, and it is the natural next commit.
 
 ## What is right
 
@@ -68,7 +77,8 @@ one step short", not "this is the wrong idea".
 
 ## 1. The key is structured; every table that consumes it is still string-keyed
 
-**Priority: high. This is the through-line for findings 2, 3 and 7.**
+**CLOSED.** Both halves. Kept for the record of what the fix actually was, which is not
+what this finding prescribed.
 
 **PARTLY CLOSED — the provider half.** The `.fsi` contract leaf is now keyed by `TypeKey`
 (`ExternalSymbolProviders.KeyedLeaf` / `ofKeyedLeaf`), and `qualifiedName` is off its by-key
@@ -80,12 +90,27 @@ same thing*; `KeyedLeaf.ofNamed` states exactly that condition. Only the leaf th
 containment a name cannot express — the contract extractor, the sole producer of
 `TypeHolder.InModule` — had to become key-addressed, and it has.
 
-**STILL OPEN — the registry half.** `TypeRegistry.TypeClaims` remains
-`Dictionary<string, ResizeArray<TypeIdentity>>`, keyed by a bare short name with a linear
-arity scan. That is the module-blind duplicate-claim collision. Its precondition — two
-sibling modules' same-named types must be distinguishable in emitted metadata — is now met
-(they nest in their holders), so the pin in `LocalModuleTests` / `DuplicateTypeNameTests` is
-free to be flipped.
+**CLOSED — the registry half.** A claim is now `(holder, name, arity)`, so the module is
+part of a type's identity in the TABLE as well as in the key, and sibling `N.A.T` / `N.B.T`
+are two types rather than one contested name. The prescription below — "key `TypeClaims` by
+`TypeKey`" — is NOT what landed, and could not be: the table's other job is to answer a
+use-site NAME, which a key cannot address. What the name table needed was not a different
+key but a use site: F# type scoping is a module question as well as a file-order one, and a
+name table that cannot be asked "as seen from where?" can only guess.
+
+`UseSite` (place + enclosing module chain + the `open`s in scope) is now the sole currency
+of every by-name face, and `TypeRegistry.claimRank` is the sole statement of precedence —
+WHERE a claim enters the name environment, maximised over every way it is reachable
+(ancestor scope, or an `open`), because F# adds each to one environment and the last one
+added wins. Innermost-outward, open-beats-outer-decl, last-open-wins and decl-vs-open-by-
+text all fall out of that one `max`; there is no cascade. A sibling module is no ancestor,
+so a bare cross-module name is undefined (FS0039), as in F#.
+
+The tightening this implies — code that leaned on the module-blind table now fails as F#
+fails it — cost the corpus two fixtures, both of which were illegal F# relying on the
+defect. The `LocalModuleTests` / `DuplicateTypeNameTests` pins are flipped, and the pins
+that recorded the backend CRASHING on a dropped sibling type are gone: it emits both,
+nested in their own holders.
 
 Every provider store takes a `SymbolKey` and immediately renders it back to a flat
 string. From the shared leaf derivation, so this is the shape of the layer rather than

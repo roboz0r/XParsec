@@ -32,6 +32,10 @@ let private representative =
             "    type Tally = { Hits: int }"
             "    let twice (x: int) = x + x"
             "    let adder (k: int) = fun (x: int) -> x + k"
+            // `Tally` is held by `M`, so its name (and its field labels) reach the top level
+            // only through an `open` — a sibling scope sees nothing of a module it has not
+            // opened.
+            "open M"
             "let bump = M.adder 3"
             "let p = { X = 1; Y = 2 }"
             "let c = Counter(4)"

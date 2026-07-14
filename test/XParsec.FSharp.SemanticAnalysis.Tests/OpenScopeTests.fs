@@ -77,8 +77,7 @@ let tests =
 
             test "module abbrev expands the head segment before probing" {
                 let scope =
-                    {
-                        Prefixes = []
+                    { OpenScope.empty with
                         Abbrevs = Map.ofList [ "R", "A.B.C" ]
                     }
 
@@ -90,9 +89,8 @@ let tests =
 
             test "tryQualify: bare name first, then prefixes, head prefix shadows" {
                 let scope =
-                    {
+                    { OpenScope.empty with
                         Prefixes = [ "B"; "A" ]
-                        Abbrevs = Map.empty
                     }
 
                 // A name present at the root resolves bare, before any prefix.
@@ -112,9 +110,8 @@ let tests =
 
             test "tryResolve returns the looked-up value under the resolving prefix" {
                 let scope =
-                    {
+                    { OpenScope.empty with
                         Prefixes = [ "System.Collections.Generic" ]
-                        Abbrevs = Map.empty
                     }
 
                 let lookup name =

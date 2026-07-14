@@ -56,24 +56,39 @@ module ModuleRules =
         let (ModuleDefn.ModuleDefn(attributes = attrs; ident = ident)) = md
         holderNameOf r attrs (VesperLibTypeTranslate.nameOfTok r.Lexed r.Input ident)
 
+    /// Every scope `c` sits in, OUTERMOST first — the declaring namespace, then each
+    /// enclosing `module` — each paired with the dotted SOURCE path a local `open` names it
+    /// by. Both are built in ONE walk, so an `open`'s written path and the holder it opens
+    /// cannot drift: `ModuleKey.Name` carries the module's COMPILED holder name
+    /// (`ListModule`), which is precisely not what the source writes.
+    ///
+    /// SOURCE vs COMPILED module name, decided here: the COMPILED name is what a
+    /// `ModuleKey` means at every other mint — `SymbolKeyOps.moduleFullName` renders it as
+    /// a *type* name and `ClrEnv.externalModuleRef` emits a `TypeRef` for it — so a
+    /// source-named local `ModuleKey` would make one type mean two things depending on
+    /// which producer minted it. The SOURCE path exists only to answer "which scope does
+    /// this `open` name", and never leaves that question.
+    let holderScopes (r: ModuleNaming) (c: DeclContainment<SyntaxToken>) : (string * ModuleHolder) list =
+        let mutable holder = ModuleHolder.InNamespace(SymbolKeyOps.namespaceKey c.Namespace)
+        let mutable path = c.Namespace
+        let scopes = ResizeArray(c.Modules.Length + 1)
+        scopes.Add(path, holder)
+
+        for md in c.Modules do
+            let (ModuleDefn.ModuleDefn(ident = ident)) = md
+            let src = VesperLibTypeTranslate.nameOfTok r.Lexed r.Input ident
+            holder <- ModuleHolder.InModule(SymbolKeyOps.moduleKeyOf holder (holderName r md))
+            path <- if path.Length = 0 then src else path + "." + src
+            scopes.Add(path, holder)
+
+        List.ofSeq scopes
+
     /// The `ModuleHolder` a declaration in `c` sits in: the declaring namespace, or — for a
     /// declaration inside a `module` — the FULL enclosing module chain rooted in that
     /// namespace. Every local holder chain is built here, so a chain is nested exactly as
     /// far as the source is: `module A = module B =` yields `B ∈ A ∈ N`, never `B ∈ N`.
-    ///
-    /// SOURCE vs COMPILED module name, decided here: `ModuleKey.Name` carries the
-    /// COMPILED holder name (`ListModule`, not `List`). That is what a `ModuleKey` means
-    /// at every other mint — `SymbolKeyOps.moduleFullName` renders it as a *type* name and
-    /// `ClrEnv.externalModuleRef` emits a `TypeRef` for it — so a source-named local
-    /// `ModuleKey` would make one type mean two things depending on which producer minted
-    /// it.
     let holderChain (r: ModuleNaming) (c: DeclContainment<SyntaxToken>) : ModuleHolder =
-        let mutable holder = ModuleHolder.InNamespace(SymbolKeyOps.namespaceKey c.Namespace)
-
-        for md in c.Modules do
-            holder <- ModuleHolder.InModule(SymbolKeyOps.moduleKeyOf holder (holderName r md))
-
-        holder
+        holderScopes r c |> List.last |> snd
 
     /// A containment chain read as a TYPE's holder. THE sole producer of
     /// `TypeHolder.InModule`: both faces that know about modules — local registration and

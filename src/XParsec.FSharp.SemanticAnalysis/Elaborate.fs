@@ -522,10 +522,11 @@ module Elaborate =
         if body.inherits.IsSome || not body.classPreamble.IsEmpty || not allAbstractMethods then
             None
         else
-            // Resolve by the arity-key, not the bare name: an arity-overloaded
-            // interface (`Fun\`2`/`Fun\`3`) does not resolve by bare name, so a bare
-            // read would miss and silently drop the decl.
-            match TypeRegistry.tryClassArity ctx.Types UseSite.unbounded name arity with
+            // The key of the type being LOWERED, minted from the module the walk is in —
+            // not a by-name read. This is the declaration itself, so there is nothing to
+            // resolve: a sibling module's same-named interface is a different type, and an
+            // arity-overloaded `Fun\`2`/`Fun\`3` does not resolve by bare name at all.
+            match TypeRegistry.tryClassByKey ctx.Types (ctx.DeclaredTypeKey(name, arity)) with
             | ValueNone -> None
             | ValueSome info ->
                 // The member signatures share these prototype TyVars (Unification
@@ -1270,18 +1271,12 @@ module Elaborate =
         (cases: EnumTypeCases<SyntaxToken>)
         : (TDecl * (TypeVar * SemType) list) option =
         let ns = DeclContainment.namespaceOpt c
-        // Recover the SAME nominal key `NameResolution.registerEnumTypeDefn` minted
-        // and stamped, so the surfaced decl, the `(x: E)` annotation, and the
-        // `E.C1` access all share one identity. The registry lookup is total in
-        // practice (every enum registers); the direct mint is a defensive fallback
-        // (e.g. a duplicate enum the registrar rejected) using the identical formula —
-        // the same containment-derived holder, so a module-held enum cannot fall back to
-        // a DIFFERENT key than the one registration minted.
-        let key =
-            match TypeRegistry.tryEnum ctx.Types UseSite.unbounded name with
-            | ValueSome info -> info.Key
-            | ValueNone ->
-                SymbolKey.Type(LocalSymbolKey.ofType (NameResolutionTypeRegistration.localTypeHolder ctx c) name 0)
+        // The key of the type being LOWERED, minted from the module the walk is in — the
+        // SAME key `NameResolution.registerEnumTypeDefn` minted, so the surfaced decl, the
+        // `(x: E)` annotation and the `E.C1` access all share one identity. It stands on its
+        // own when the registry has no entry (a duplicate enum the registrar rejected), which
+        // is why the mint comes first and the lookup second.
+        let key = ctx.DeclaredTypeKey(name, 0)
 
         let tcases =
             EqArray.ofSeq (
@@ -1420,10 +1415,11 @@ module Elaborate =
         (arity: int)
         (elements: TypeDefnElements<SyntaxToken>)
         : (TDecl * (TypeVar * SemType) list) option =
-        // Resolve by the arity-key, not the bare name: an arity-overloaded class
-        // (`Box\`1`/`Box\`2`) does not resolve by bare name, so a bare read would
-        // miss (or fetch the wrong arity's info) and drop / mis-emit the decl.
-        match TypeRegistry.tryClassArity ctx.Types UseSite.unbounded name arity with
+        // The key of the type being LOWERED, minted from the module the walk is in — not a
+        // by-name read. This is the declaration itself: a sibling module's same-named class
+        // is a different type, and an arity-overloaded `Box\`1`/`Box\`2` does not resolve by
+        // bare name at all.
+        match TypeRegistry.tryClassByKey ctx.Types (ctx.DeclaredTypeKey(name, arity)) with
         | ValueNone -> None
         | ValueSome info ->
             let markers = mkDeclTyparEnv info.TypeParams
@@ -1720,10 +1716,7 @@ module Elaborate =
                 // registration would, from the SAME containment-derived holder
                 // (`localTypeHolder`), so a reference to the interface compares equal to
                 // this decl's key wherever the interface is declared.
-                let key =
-                    SymbolKey.Type(
-                        LocalSymbolKey.ofType (NameResolutionTypeRegistration.localTypeHolder ctx c) name typars.Length
-                    )
+                let key = ctx.DeclaredTypeKey(name, typars.Length)
 
                 Some(
                     mkTypeDecl
@@ -1763,9 +1756,6 @@ module Elaborate =
         | TypeDefn.Abbrev(typeName = tn; extensions = ext) -> tryIntrinsicAbbrevType ctx ns (typeNameSimple ctx tn) ext
         | _ -> None
 
-    let private longIdentText (ctx: PassContext) (li: LongIdent<SyntaxToken>) : string =
-        li.Idents |> Seq.map ctx.NameOf |> String.concat "."
-
     /// `c` is the element's declaring containment — the `namespace` group plus the
     /// `module`s it is nested in. Its innermost module is the compiled holder type a `let`
     /// binding lands on: such a binding records its `NodeKey` → `ModuleMemberInfo` so the
@@ -1774,19 +1764,13 @@ module Elaborate =
     /// `ModuleRules.holderChain` — the SAME chain builder the type-key mint reads
     /// (`localTypeHolder`), so a binding and a type declared in one module are held by the
     /// same module key, nesting included.
-    let rec private translateModuleElem
+    let private translateModuleElem
         (ctx: PassContext)
         (c: DeclContainment<SyntaxToken>)
         (m: ModuleElem<SyntaxToken>)
         : (TDecl * (TypeVar * SemType) list) list =
-        // Elaborate walks the module tree itself rather than the flattened element list, so
-        // this is ITS per-element seat: the by-name reads its lowering still makes (a class
-        // reference, a union-case head) must speak from the module they are written in, not
-        // from wherever the previous pass's walk finished.
-        let chain = ctx.EnterContainment c
-
         let holder =
-            match chain with
+            match ctx.CurrentHolder with
             | ModuleHolder.InModule mk -> Some mk
             | ModuleHolder.InNamespace _ -> None
 
@@ -1910,18 +1894,6 @@ module Elaborate =
             let eT = translateExpr ctx e
             [ TDecl.Expression(eT, typeOfKey ctx (CstKeys.ofExpr e)), [] ]
         | ModuleElem.Type defs -> defs |> Seq.choose (tryTypeDecl ctx c) |> List.ofSeq
-        // A nested `module Foo = …` surfaces its body flat as a decl LIST — the CLR backend
-        // still emits a module-held type as a TOP-LEVEL TypeDef (nesting is not wired),
-        // even though the type's KEY names the module. The containment is not flattened
-        // with it: `enter` extends the chain, so a binding at any depth is held by the
-        // whole chain of modules it is written in.
-        | ModuleElem.Module((ModuleDefn.ModuleDefn(body = ModuleDefnBody(elements = inner))) as md) ->
-            match inner with
-            | ValueSome innerElems ->
-                innerElems
-                |> Seq.collect (translateModuleElem ctx (DeclContainment.enter md c))
-                |> List.ofSeq
-            | ValueNone -> []
         | _ -> []
 
     /// The first half of the split Elaborate pass: translate
@@ -1934,26 +1906,18 @@ module Elaborate =
     /// today nothing runs between them and the output is byte-identical to the old
     /// fused pass.)
     let elaborate (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : (TDecl * (TypeVar * SemType) list) list =
-        // The containment mirrors `CstWalk.walkModuleTreeWith`'s exactly — same namespace
-        // at the root, same module chain — so the key a type's decl surfaces with is the
-        // key NameResolution minted for it.
-        let top = DeclContainment.ofNamespace ""
-
-        match file with
-        | ImplementationFile.AnonymousModule elems -> elems |> Seq.collect (translateModuleElem ctx top) |> List.ofSeq
-        | ImplementationFile.NamedModule(NamedModule.NamedModule(elements = elems)) ->
-            elems |> Seq.collect (translateModuleElem ctx top) |> List.ofSeq
-        | ImplementationFile.Namespaces groups ->
-            [
-                for g in groups do
-                    let containment, elems =
-                        match g with
-                        | NamespaceDeclGroup.Named(longIdent = li; elements = elems) ->
-                            DeclContainment.ofNamespace (longIdentText ctx li), elems
-                        | NamespaceDeclGroup.Global(elements = elems) -> top, elems
-
-                    yield! elems |> Seq.collect (translateModuleElem ctx containment)
-            ]
+        // The SAME flattened walk NameResolution and Unification take — a nested
+        // `module Foo = …` surfaces its body flat, in source order, with the containment
+        // extended (a binding at any depth is held by the whole chain of modules it is
+        // written in). Sharing the walk is what makes `EnterElement` reach here: the by-name
+        // reads lowering still makes (a class reference, a union-case head, an enum case)
+        // must speak from the module AND the `open`s they are written under, and only the
+        // walk knows those.
+        CstWalk.walkModuleTreeWith ctx.NameOf ctx.Resolution.AmbientOpenScope (fun _ _ -> ()) file
+        |> List.collect (fun w ->
+            ctx.EnterElement w
+            translateModuleElem ctx w.Containment w.Elem
+        )
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : TastFile =
         // Split pass: `elaborate` produces the

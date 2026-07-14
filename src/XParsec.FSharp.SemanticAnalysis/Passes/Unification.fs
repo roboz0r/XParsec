@@ -873,28 +873,14 @@ module Unification =
             checkInterfaceConformance ctx impl
 
     let private fillClassMembers (ctx: PassContext) (m: ModuleElem<SyntaxToken>) =
-        let common (td: TypeDefn<SyntaxToken>) =
-            match TypeDefnPatterns.tryClassLikeDecl td with
-            | ValueSome d ->
-                let (TypeName(ident = nameLi)) = d.TypeName
-
-                if nameLi.Idents.Length = 1 then
-                    // Carry the generic arity so the member-prototype linker resolves
-                    // the right `(name, arity)` class (an overloaded `Box\`1`/`Box\`2`
-                    // does not resolve by bare name).
-                    let arity = NameResolutionTypeRegistration.arityOfTypeName ctx d.TypeName
-
-                    ValueSome(ctx.NameOf nameLi.Idents.[0], arity, d.Body)
-                else
-                    ValueNone
-            | ValueNone -> ValueNone
-
         match m with
         | ModuleElem.Type defs ->
             for td in defs do
-                match common td with
-                | ValueSome(name, arity, body) ->
-                    match TypeRegistry.tryClassArity ctx.Types UseSite.unbounded name arity with
+                match TypeDefnPatterns.tryClassLikeDecl td with
+                | ValueSome d ->
+                    let body = d.Body
+
+                    match NameResolutionTypeRegistration.tryDeclaredClass ctx d.TypeName with
                     | ValueSome info ->
                         let prelinkExtras () =
                             // Attach the class's `when 'S :> IFace` typar constraints
@@ -1022,10 +1008,8 @@ module Unification =
                 // Only a `with` block (`ValueSome elems`) carries augmentation / interface-impl
                 // members; without one there is nothing to fill.
                 match TypeDefnPatterns.tryNonClassMemberHostDecl td with
-                | ValueSome(struct (nameLi, ValueSome elems)) ->
-                    match
-                        TypeRegistry.tryNonClassMemberHost ctx.Types UseSite.unbounded (ctx.NameOf nameLi.Idents.[0])
-                    with
+                | ValueSome(struct (tn, ValueSome elems)) ->
+                    match NameResolutionTypeRegistration.tryDeclaredNonClassHost ctx tn with
                     | ValueSome host -> fillHostMembers ctx host elems
                     | ValueNone -> ()
                 | _ -> ()
@@ -1043,32 +1027,17 @@ module Unification =
             for td in defs do
                 match TypeDefnPatterns.tryClassLikeDecl td with
                 | ValueSome d ->
-                    let (TypeName(ident = nameLi)) = d.TypeName
-
-                    if nameLi.Idents.Length = 1 then
-                        // Resolve by arity-key: an overloaded `Foo\`1`/`Foo\`2` host does
-                        // not resolve by bare name, so a bare-name lookup would skip its
-                        // interface impls. Mirrors `fillClassMembers` / `walkClassBodies`.
-                        let arity = NameResolutionTypeRegistration.arityOfTypeName ctx d.TypeName
-
-                        match
-                            TypeRegistry.tryClassArity ctx.Types UseSite.unbounded (ctx.NameOf nameLi.Idents.[0]) arity
-                        with
-                        | ValueSome info -> resolveInterfaceImpls ctx (info :> IInterfaceImplHost)
-                        | ValueNone -> ()
+                    match NameResolutionTypeRegistration.tryDeclaredClass ctx d.TypeName with
+                    | ValueSome info -> resolveInterfaceImpls ctx (info :> IInterfaceImplHost)
+                    | ValueNone -> ()
                 | ValueNone ->
                     // A union or record may also declare `interface … with` blocks;
                     // resolve them up front on the same path so a `:>` / coercion site
                     // sees them. (Impls ride the `with` block, so a type with none is a
                     // no-op `resolveInterfaceImpls` — the elems are immaterial here.)
                     match TypeDefnPatterns.tryNonClassMemberHostDecl td with
-                    | ValueSome(struct (nameLi, _)) ->
-                        match
-                            TypeRegistry.tryNonClassMemberHost
-                                ctx.Types
-                                UseSite.unbounded
-                                (ctx.NameOf nameLi.Idents.[0])
-                        with
+                    | ValueSome(struct (tn, _)) ->
+                        match NameResolutionTypeRegistration.tryDeclaredNonClassHost ctx tn with
                         | ValueSome host -> resolveInterfaceImpls ctx host
                         | ValueNone -> ()
                     | ValueNone -> ()

@@ -37,10 +37,19 @@ type TypeIdentity =
     {
         /// The short name as written (no arity suffix — `Key.Name` carries that).
         Name: string
-        /// Generic arity. `(Name, Arity)` is the CLAIM: at most one type of any kind
-        /// may hold it, so `Foo` and `` Foo`1 `` are distinct claims (as in F#) and may
-        /// be held by different kinds.
+        /// Generic arity. Part of the CLAIM: `Foo` and `` Foo`1 `` are distinct claims (as
+        /// in F#) and may be held by different kinds.
         Arity: int
+        /// The module / namespace chain the declaration sits in. Part of the CLAIM, and the
+        /// reason `N.A.T` and `N.B.T` are two types rather than one name contested twice: a
+        /// claim is `(Holder, Name, Arity)`, and at most one type of any kind may hold it.
+        /// It is also WHERE the claim answers from — a bare name reaches it only from
+        /// inside this holder chain, or through an `open` naming it.
+        ///
+        /// `Key.Holder` is this chain read as a type's holder (`ModuleRules.typeHolderOf`);
+        /// both come off the ONE chain the declaring containment yields, so they cannot
+        /// disagree about where the type was declared.
+        Holder: ModuleHolder
         Kind: TypeDeclKind
         /// The declaration site — the diagnostic key and the `DeclKey` stamped onto the
         /// kind-specific `*TypeInfo`. Derived once, from the name token the claim was
@@ -75,8 +84,9 @@ type ClaimedTypeDefn =
         Defn: TypeDefn<SyntaxToken>
     }
 
-/// A type declaration REJECTED as a duplicate: an earlier declaration already holds its
-/// `(Name, Arity)` claim and keeps it. It registers no detail and mints no `SymbolKey` —
+/// A type declaration REJECTED as a duplicate: an earlier declaration in the SAME module
+/// already holds its `(Holder, Name, Arity)` claim and keeps it. It registers no detail and
+/// mints no `SymbolKey` —
 /// a key is precisely what a rejected declaration does not get, which is why this is not a
 /// `TypeIdentity`. The duplicate diagnostic is raised where the claim is contested.
 ///
@@ -110,11 +120,12 @@ type PassContextTypes =
         /// as placeholder TyVars and get linked by Unification's `fillClassMembers` — a
         /// member's type is inferred from its body, so it is not structure.
         Class: Dictionary<TypeKey, ClassTypeInfo>
-        /// Project-local enum type declarations, keyed by bare short name (enums
-        /// are non-generic, so no arity overload). Populated by
+        /// Keyed by `TypeKey` (see `Record`) — an enum is non-generic, so its claim is
+        /// always `(holder, name, 0)`, but two sibling modules may each declare one and a
+        /// name would then address both. Populated by
         /// `NameResolution.registerEnumTypeDefn`; read by `translateType` (so
         /// `(x: E)` resolves to `TyEnum Key`) and the `E.C1` qualified-access path.
-        Enum: Dictionary<string, EnumTypeInfo>
+        Enum: Dictionary<TypeKey, EnumTypeInfo>
         /// Keyed by `TypeKey` (see `Record`) — an abbreviation is arity-overloadable
         /// like every other kind (`type T = int` coexists with `type T<'a> = …`), so a
         /// bare `T` at a use site cannot reach the generic alias.
@@ -205,22 +216,35 @@ type PassContextTypes =
         ClassNames: Dictionary<string, ResizeArray<TypeKey>>
         /// Reverse index: abbreviation short name → candidate `TypeKey`s. See `RecordNames`.
         AbbreviationNames: Dictionary<string, ResizeArray<TypeKey>>
-        /// THE name table: short name → every `(name, arity)` claim held under it,
-        /// regardless of KIND. A type declaration claims a name at an arity, and a claim
-        /// may be held by at most one type of any kind — so duplicate detection is one
-        /// predicate (`isTypeClaimed`) over this one table, and a kind added later cannot
-        /// be wired into some guards and forgotten in others. Populated in source order by
-        /// `NameResolutionTypeRegistration.claimTypeIdentity`, which is also the sole mint
-        /// site of a project-local type `SymbolKey`.
+        /// THE name table: short name → every `(holder, name, arity)` claim held under it,
+        /// regardless of KIND. A type declaration claims a name at an arity in the module
+        /// that holds it, and a claim may be held by at most one type of any kind — so
+        /// duplicate detection is one predicate (`isTypeClaimed`) over this one table, and a
+        /// kind added later cannot be wired into some guards and forgotten in others.
+        /// Populated in source order by `NameResolutionTypeRegistration.claimTypeIdentity`,
+        /// which is also the sole mint site of a project-local type `SymbolKey`.
+        ///
+        /// Several claims may sit under one short name — sibling modules each declaring `T`
+        /// — so a name addresses a CANDIDATE SET here exactly as it does in the kind
+        /// indexes. Which candidate a use site sees, and which wins when it sees more than
+        /// one, is `TypeRegistry`'s `claimRank`.
         ///
         /// While the top-down registration scan is running, this table holds exactly the
-        /// types IN SCOPE at the group being registered: every type declared above it, plus
-        /// its own `type … and …` group (all of whose names are claimed before any of its
-        /// detail registers). That is F#'s file-order type scoping, and it is why a
-        /// registration-time miss against this table is a genuine "not defined": nothing
-        /// below can answer for the name, so the head is either external or nothing at all
-        /// (`NameResolutionTypeHeadStamp.classifyTypeHead`).
+        /// types DECLARED ABOVE the group being registered, plus its own `type … and …`
+        /// group (all of whose names are claimed before any of its detail registers). That
+        /// is the file-order half of F# type scoping; the module half is `claimRank`'s.
         TypeClaims: Dictionary<string, ResizeArray<TypeIdentity>>
+        /// The module / namespace scopes this unit DECLARES, keyed by the dotted SOURCE
+        /// path an `open` names them by (`"N"`, `"N.A"`) — the one route from an `open`'s
+        /// written path to the holder it opens. Filled by `PassContext.EnterContainment` as
+        /// each pass walks into a scope, from `ModuleRules.holderScopes`, which is also
+        /// where the holder chain itself comes from: an `open`'s target and a declaration's
+        /// holder are then literally the same value, so they cannot fail to match.
+        ///
+        /// Keyed by the SOURCE path because that is what an `open` writes. A `ModuleKey`
+        /// carries the module's COMPILED holder name (`ListModule`), so the two spellings
+        /// are not interchangeable and the table is the translation.
+        LocalHolders: Dictionary<string, ModuleHolder>
         /// Every ACCEPTED type declaration of this unit, in SOURCE order, with the identity
         /// its claim established. Co-populated with `TypeClaims` (one write, `claimType`),
         /// so the list and the name table cannot disagree about which declarations were
@@ -275,6 +299,7 @@ module PassContextTypes =
             ClassNames = Dictionary<_, _>()
             AbbreviationNames = Dictionary<_, _>()
             TypeClaims = Dictionary<_, _>()
+            LocalHolders = Dictionary<_, _>()
             ClaimedTypeDefns = ResizeArray<_>()
             RejectedDuplicates = ResizeArray<_>()
             NominalTypeNames = HashSet<_>()
@@ -350,25 +375,131 @@ module TypeRegistry =
             keys.Add key
             index.[name] <- keys
 
-    /// Is this claim visible from `useSite`? THE file-order rule, in one comparison — see
-    /// `TypeIdentity.VisibleFrom`. A claim declared below the use answers for nothing, so a
-    /// use above a declaration sees exactly what F# sees there: the external universe, or
-    /// nothing at all.
-    let private visibleAt (useSite: UseSite) (claim: TypeIdentity) : bool = claim.VisibleFrom <= useSite.Offset
+    // --- What a use site can see, and which candidate wins ----------------------------
+    // F# builds the name environment by descending the module tree and ADDING, in source
+    // order, each declaration and each `open`; the last thing added wins. `claimRank` is
+    // that ordering, `BindingRank` is its value, and MAX is the resolution rule. Every
+    // by-name face below is a `max claimRank` over a candidate set — there is no second
+    // statement of precedence anywhere.
+
+    /// The module / namespace this `open` names, if THIS unit declares it. `open A` inside
+    /// `namespace N` names `N.A` before it names a top-level `A`, so the written path is
+    /// qualified by each enclosing scope in turn, longest first — F#'s own order. An `open`
+    /// of something this unit does not declare (`open System`) names no local holder and so
+    /// brings no local claim into scope; the external resolver reads it off
+    /// `OpenScope.Prefixes` instead.
+    let private openedHolder (types: PassContextTypes) (o: LocalOpen) : ModuleHolder voption =
+        let rec go (scope: string) =
+            let qualified = if scope.Length = 0 then o.Path else scope + "." + o.Path
+
+            match types.LocalHolders.TryGetValue qualified with
+            | true, h -> ValueSome h
+            | false, _ ->
+                if scope.Length = 0 then
+                    ValueNone
+                else
+                    let cut = scope.LastIndexOf '.'
+                    go (if cut < 0 then "" else scope.Substring(0, cut))
+
+        go o.Scope
+
+    /// WHERE this claim enters the name environment at `useSite` — `ValueNone` if it is not
+    /// in scope there at all. THE whole of project-local type scoping, in one function:
+    ///
+    ///   * a claim declared BELOW the use answers for nothing (`VisibleFrom`) — F# type
+    ///     scoping is file-ordered, and `module rec` is not an exception to it but a
+    ///     restatement (the claim's `VisibleFrom` is the `rec` keyword);
+    ///   * a claim held by an ANCESTOR scope of the use — its own module, an enclosing
+    ///     module, the namespace at the root — is in scope, at THAT scope's depth. So a
+    ///     type in the use's own module beats a same-named one in the module enclosing it,
+    ///     which beats one at namespace level. A SIBLING module is no ancestor, so its
+    ///     types are not in scope: a bare cross-module name is simply not defined (FS0039);
+    ///   * an `open` naming the claim's holder brings it in at the depth of the scope the
+    ///     `open` is WRITTEN in, and at the `open`'s own offset. So an `open` beats an
+    ///     enclosing module's declaration, the LAST of two `open`s wins, and within one
+    ///     scope a declaration and an `open` are ordered by nothing but the text.
+    ///
+    /// The MAXIMUM over every way the claim is reachable, because F# adds each of them to
+    /// ONE environment and the last one added is what the name means.
+    let private claimRank (types: PassContextTypes) (useSite: UseSite) (claim: TypeIdentity) : BindingRank voption =
+        if claim.VisibleFrom > useSite.Offset then
+            ValueNone
+        else
+            match useSite.Holder with
+            // Nowhere to speak from: the whole-unit view (`UseSite.unbounded`). Every claim
+            // is in scope, and none outranks another — so a caller that must choose still
+            // takes the first, as it did before it had anywhere to speak from.
+            | ValueNone -> ValueSome { Depth = 0; Offset = 0 }
+            | ValueSome here ->
+                let mutable best = ValueNone
+
+                let bid (r: BindingRank) =
+                    match best with
+                    | ValueSome b when b >= r -> ()
+                    | _ -> best <- ValueSome r
+
+                if here.SelfAndAncestors |> List.exists (fun h -> h = claim.Holder) then
+                    bid
+                        {
+                            Depth = claim.Holder.Depth
+                            Offset = claim.VisibleFrom
+                        }
+
+                for o in useSite.Opens do
+                    match openedHolder types o with
+                    | ValueSome opened when opened = claim.Holder ->
+                        bid
+                            {
+                                Depth = o.ScopeDepth
+                                Offset = o.Offset
+                            }
+                    | _ -> ()
+
+                best
+
+    /// The claim under `name` that WINS at `useSite` among those `admit`s — the max-rank
+    /// candidate. THE resolution primitive: every by-name face is this with a different
+    /// `admit`, so no face can invent a precedence of its own.
+    let private tryWinner
+        (types: PassContextTypes)
+        (useSite: UseSite)
+        (name: string)
+        (admit: TypeIdentity -> bool)
+        : TypeIdentity voption =
+        match types.TypeClaims.TryGetValue name with
+        | true, claims ->
+            let mutable best = ValueNone
+            let mutable bestRank = ValueNone
+
+            for c in claims do
+                if admit c then
+                    match claimRank types useSite c with
+                    | ValueSome r ->
+                        match bestRank with
+                        | ValueSome b when b >= r -> ()
+                        | _ ->
+                            bestRank <- ValueSome r
+                            best <- ValueSome c
+                    | ValueNone -> ()
+
+            best
+        | false, _ -> ValueNone
+
+    /// Is this claim in scope at `useSite`?
+    let private visibleAt (types: PassContextTypes) (useSite: UseSite) (claim: TypeIdentity) : bool =
+        (claimRank types useSite claim).IsSome
 
     /// Is the type `key` (claimed under the short name `name`) visible from `useSite`?
-    /// The kind indexes below map a name to KEYS, but the file-order fact lives on the
-    /// CLAIM — so a kind index is scoped by asking the name table about the very key it is
-    /// about to answer with. One claim holds `(name, arity)`, and a key carries both, so at
-    /// most one claim can match.
+    /// The kind indexes below map a name to KEYS, but the scoping facts live on the CLAIM —
+    /// so a kind index is scoped by asking the name table about the very key it is about to
+    /// answer with. A key carries holder, name and arity, so at most one claim can match.
     let private keyVisibleAt (types: PassContextTypes) (useSite: UseSite) (name: string) (key: TypeKey) : bool =
-        match types.TypeClaims.TryGetValue name with
-        | true, claims -> claims.Exists(fun c -> c.Key = key && visibleAt useSite c)
-        | false, _ -> false
+        (tryWinner types useSite name (fun c -> c.Key = key)).IsSome
 
-    /// The key a name claims at EXACTLY this arity AS SEEN FROM `useSite`, if any. The
-    /// arity is an INT on the key, so the test is an int compare — no `` `N `` suffix is
-    /// rendered and no string round-trip stands between the claim and the read.
+    /// The key a name claims at EXACTLY this arity AS SEEN FROM `useSite`, if any — the
+    /// winning claim's, restricted to the keys THIS kind's index holds (so a same-named type
+    /// of another kind that shadows it makes the kind read MISS, which is the right answer:
+    /// the name does not mean this kind here).
     ///
     /// With `tryKeyOfBareName` it is the funnel EVERY kind index (record / union / class /
     /// abbrev) resolves a name through, which is why the use site enters here rather than
@@ -382,22 +513,22 @@ module TypeRegistry =
         : TypeKey voption =
         match index.TryGetValue name with
         | true, keys ->
-            let i =
-                keys.FindIndex(fun k -> k.Arity = arity && keyVisibleAt types useSite name k)
-
-            if i < 0 then ValueNone else ValueSome keys.[i]
+            match tryWinner types useSite name (fun c -> c.Arity = arity && keys.Contains c.Key) with
+            | ValueSome c -> ValueSome c.Key
+            | ValueNone -> ValueNone
         | false, _ -> ValueNone
 
     /// What a BARE (arity-less) short name resolves to AS SEEN FROM `useSite`. A
     /// NON-GENERIC type owns its short name outright — nothing else can be written
-    /// unqualified and mean it — so it wins whenever one exists; failing that a lone
-    /// candidate resolves; and an arity-overloaded name (`Point<'a,'b>` / `Point<'a,'b,'c>`)
-    /// is genuinely ambiguous unqualified, so it resolves to NOTHING and the caller must
-    /// come with an arity or a key.
+    /// unqualified and mean it — so it wins whenever one is in scope; failing that the
+    /// candidates resolve only if they agree on an arity (a generic type named without its
+    /// arguments back-fills them); and a name overloaded on arity (`Point<'a,'b>` /
+    /// `Point<'a,'b,'c>`) is genuinely ambiguous unqualified, so it resolves to NOTHING and
+    /// the caller must come with an arity or a key.
     ///
-    /// The candidates are the VISIBLE ones: a type declared below the use is not merely
-    /// out-competed, it is not a candidate at all — so it cannot resolve, and cannot make
-    /// a visible sibling ambiguous either.
+    /// Among candidates of the SAME arity the winner is the max-rank one, exactly as for an
+    /// arity-qualified read: two sibling modules' `T`, both in scope through `open`s, are
+    /// not ambiguous — the later `open` wins, as it does in F#.
     let private tryKeyOfBareName
         (types: PassContextTypes)
         (index: Dictionary<string, ResizeArray<TypeKey>>)
@@ -406,21 +537,34 @@ module TypeRegistry =
         : TypeKey voption =
         match index.TryGetValue name with
         | true, keys ->
-            let mutable exact = ValueNone
-            let mutable lone = ValueNone
-            let mutable visible = 0
+            let inThisKind (c: TypeIdentity) = keys.Contains c.Key
 
-            for k in keys do
-                if keyVisibleAt types useSite name k then
-                    visible <- visible + 1
-                    lone <- ValueSome k
+            match tryWinner types useSite name (fun c -> c.Arity = 0 && inThisKind c) with
+            | ValueSome c -> ValueSome c.Key
+            | ValueNone ->
+                // No non-generic claimant. The generic ones answer only if they agree on an
+                // arity — otherwise the bare name genuinely does not say which type it means.
+                let arities =
+                    match types.TypeClaims.TryGetValue name with
+                    | true, claims ->
+                        let mutable seen = ValueNone
+                        let mutable oneArity = true
 
-                    if k.Arity = 0 then
-                        exact <- ValueSome k
+                        for c in claims do
+                            if inThisKind c && visibleAt types useSite c then
+                                match seen with
+                                | ValueSome a when a <> c.Arity -> oneArity <- false
+                                | _ -> seen <- ValueSome c.Arity
 
-            match exact with
-            | ValueSome _ -> exact
-            | ValueNone -> if visible = 1 then lone else ValueNone
+                        if oneArity then seen else ValueNone
+                    | false, _ -> ValueNone
+
+                match arities with
+                | ValueNone -> ValueNone
+                | ValueSome arity ->
+                    match tryWinner types useSite name (fun c -> c.Arity = arity && inThisKind c) with
+                    | ValueSome c -> ValueSome c.Key
+                    | ValueNone -> ValueNone
         | false, _ -> ValueNone
 
     let private tryOfKey (table: Dictionary<TypeKey, 'T>) (key: TypeKey voption) : 'T voption =
@@ -444,16 +588,16 @@ module TypeRegistry =
         | _ -> ValueNone
 
     // --- The name table -------------------------------------------------------------
-    // THE rule: a declaration claims a NAME at an ARITY, and a claim may be held by at
-    // most one type of ANY kind. Records, unions, classes and abbreviations are
-    // arity-overloadable (`Point\`2`/`Point\`3`, `type T = int` alongside
-    // `type T<'a> = …`), so each claims exactly `(name, arity)`; an enum is non-generic,
-    // so it claims `(name, 0)` and collides with a record `Foo` but NOT with a record
-    // ``Foo`1``; an intrinsic binding (`type int = (# "System.Int32" #)`) claims the name
-    // it DECLARES, at its declared arity — its target-representation string is not a
-    // name-table concern.
+    // THE rule: a declaration claims a NAME at an ARITY in the MODULE that holds it, and a
+    // claim may be held by at most one type of ANY kind. Records, unions, classes and
+    // abbreviations are arity-overloadable (`Point\`2`/`Point\`3`, `type T = int` alongside
+    // `type T<'a> = …`), so each claims exactly `(holder, name, arity)`; an enum is
+    // non-generic, so it claims `(holder, name, 0)` and collides with a record `Foo` in the
+    // same module but NOT with a record ``Foo`1``, and not with a `Foo` in a sibling module;
+    // an intrinsic binding (`type int = (# "System.Int32" #)`) claims the name it DECLARES,
+    // at its declared arity — its target-representation string is not a name-table concern.
 
-    /// Accept a type declaration: claim `(Name, Arity)` for it in the name table AND
+    /// Accept a type declaration: claim `(Holder, Name, Arity)` for it in the name table AND
     /// retain it, in source order, for the per-kind detail registrars. Called once per
     /// accepted type by the file-order identity pass, which has already rejected a
     /// contested claim. THE single write to both — so "claimed" and "will be registered"
@@ -475,33 +619,34 @@ module TypeRegistry =
     let rejectDuplicateType (types: PassContextTypes) (rejected: RejectedTypeDefn) : unit =
         types.RejectedDuplicates.Add rejected
 
-    /// The identity holding `(name, arity)` AS SEEN FROM `useSite`, if any. The single route
-    /// from a use-site name+arity to the type that owns it — so a resolver ASKS which kind
-    /// owns the name instead of probing the kind tables in a hand-ordered precedence cascade.
+    /// The identity a bare `name` at `arity` MEANS at `useSite`, if any — the winning claim
+    /// (`claimRank`). The single route from a use-site name+arity to the type that owns it —
+    /// so a resolver ASKS which kind owns the name instead of probing the kind tables in a
+    /// hand-ordered precedence cascade.
     ///
-    /// A claim only answers when it is visible from the use (`visibleAt`): a name is not an
-    /// identity on its own, it is one only as seen from somewhere. Registration's own reads
-    /// were already scoped by the top-down scan (the table holds what is claimed so far); a
-    /// read from a body — walked long after the whole file is registered — is scoped by this
-    /// and nothing else.
+    /// A claim only answers where it is in scope: a name is not an identity on its own, it
+    /// is one only as seen from somewhere. Registration's own reads are additionally scoped
+    /// by the top-down scan (the table holds only what is claimed so far); a read from a
+    /// body — walked long after the whole file is registered — is scoped by this and nothing
+    /// else.
     let tryTypeClaim (types: PassContextTypes) (useSite: UseSite) (name: string) (arity: int) : TypeIdentity voption =
-        match types.TypeClaims.TryGetValue name with
-        | true, claims ->
-            let i = claims.FindIndex(fun c -> c.Arity = arity && visibleAt useSite c)
-            if i < 0 then ValueNone else ValueSome claims.[i]
-        | false, _ -> ValueNone
+        tryWinner types useSite name (fun c -> c.Arity = arity)
 
-    /// THE duplicate-type-definition test: is `(name, arity)` already claimed, by any
-    /// kind? One table, one predicate — a kind added later cannot be wired into some
+    /// THE duplicate-type-definition test: is `(holder, name, arity)` already claimed, by
+    /// any kind? One table, one predicate — a kind added later cannot be wired into some
     /// guards and forgotten in others.
     ///
-    /// UNBOUNDED on purpose, and not a use site: a duplicate is a duplicate wherever it is
-    /// written. The test is scoped by the registration scan itself — the table holds
-    /// exactly the claims made so far — not by a position.
-    let isTypeClaimed (types: PassContextTypes) (name: string) (arity: int) : bool =
-        (tryTypeClaim types UseSite.unbounded name arity).IsSome
+    /// The HOLDER is part of the claim, so sibling `N.A.T` and `N.B.T` are two legal types
+    /// and only a second `T` in the SAME module is a duplicate. It takes no use site, and
+    /// must not: a duplicate is a duplicate wherever it is written, and whatever is in scope
+    /// where it is written. The test is scoped by the registration scan itself — the table
+    /// holds exactly the claims made so far.
+    let isTypeClaimed (types: PassContextTypes) (holder: ModuleHolder) (name: string) (arity: int) : bool =
+        match types.TypeClaims.TryGetValue name with
+        | true, claims -> claims.Exists(fun c -> c.Arity = arity && c.Holder = holder)
+        | false, _ -> false
 
-    /// Does any claim VISIBLE FROM `useSite` hold `name` at SOME arity — i.e. is this name a
+    /// Does any claim IN SCOPE AT `useSite` hold `name` at SOME arity — i.e. is this name a
     /// project-local type there? THE local/external precedence test: a written head whose
     /// name this answers `true` for names a project-local type and nothing else, and one it
     /// answers `false` for is external or nothing at all. Arity-blind on purpose: a head
@@ -509,8 +654,14 @@ module TypeRegistry =
     /// diagnostic), never a silent fall-through to an external type of the same name.
     let isTypeNameInScope (types: PassContextTypes) (useSite: UseSite) (name: string) : bool =
         match types.TypeClaims.TryGetValue name with
-        | true, claims -> claims.Exists(fun c -> visibleAt useSite c)
+        | true, claims -> claims.Exists(visibleAt types useSite)
         | false, _ -> false
+
+    /// Record a module / namespace scope this unit declares, under the dotted SOURCE path an
+    /// `open` names it by (`LocalHolders`). Idempotent — every pass re-walks the tree and
+    /// re-enters the same scopes.
+    let noteLocalHolder (types: PassContextTypes) (path: string) (holder: ModuleHolder) : unit =
+        types.LocalHolders.[path] <- holder
 
     /// Note a record / union / class short name (`NominalTypeNames`). Called by the
     /// pre-scan that runs ahead of the identity pass; see the field's doc.
@@ -593,24 +744,25 @@ module TypeRegistry =
                 | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
                 | ValueNone -> ValueNone
 
-    /// Register an enum under its bare short name — an enum is never generic, so its
-    /// claim is always `(name, 0)` and the name addresses at most one.
-    let registerEnum (types: PassContextTypes) (name: string) (info: EnumTypeInfo) : unit = types.Enum.[name] <- info
+    /// Register an enum under its own `TypeKey`. See `registerRecord` — an enum needs no
+    /// short-name index of its own, because it is never generic: its claim in the name table
+    /// is always `(holder, name, 0)`, and that claim carries the key.
+    let registerEnum (types: PassContextTypes) (info: EnumTypeInfo) : unit =
+        match info.Key with
+        | SymbolKey.Type k -> types.Enum.[k] <- info
+        | _ -> failwithf "Internal error: enum '%s' was minted a non-type SymbolKey" info.Name
 
     /// Resolve an enum by bare short name AS SEEN FROM `useSite`; `ValueNone` if none. Used
     /// by `translateType` (`(x: E)` → `TyEnum`) and the `E.C1` qualified-access path.
-    ///
-    /// The `Enum` table is bare-name-keyed and so never passes through the key-index funnel
-    /// that scopes the other kinds. It needs no separate rule, though: an enum's claim sits
-    /// in the name table like any other kind's, and an enum is never generic — so `(name, 0)`
-    /// visible at the use IS the whole test.
+    /// An enum is never generic, so the `(name, 0)` claim winning at the use IS the whole of
+    /// the resolution — there is no arity to disambiguate.
     let tryEnum (types: PassContextTypes) (useSite: UseSite) (name: string) : EnumTypeInfo voption =
         match tryTypeClaim types useSite name 0 with
         | ValueNone -> ValueNone
-        | ValueSome _ ->
-            match types.Enum.TryGetValue name with
-            | true, info -> ValueSome info
-            | false, _ -> ValueNone
+        | ValueSome claim -> tryOfKey types.Enum (ValueSome claim.Key)
+
+    /// Resolve an enum by its project-local `SymbolKey`. See `tryRecordByKey`.
+    let tryEnumByKey (types: PassContextTypes) (key: SymbolKey) : EnumTypeInfo voption = tryByTypeKey types.Enum key
 
     /// Register an abbreviation under its own `TypeKey`. See `registerRecord`.
     let registerAbbrev (types: PassContextTypes) (info: AbbreviationInfo) : unit =
@@ -673,6 +825,31 @@ module TypeRegistry =
         | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
         | ValueNone ->
             match tryRecord types useSite name with
+            | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
+            | ValueNone ->
+                match types.IntrinsicAbbrevHost.TryGetValue name with
+                | true, info -> ValueSome(info :> IInterfaceImplHost)
+                | false, _ -> ValueNone
+
+    /// The union / record / inline intrinsic-abbrev host a DECLARATION names — the
+    /// key-addressed face of `tryNonClassMemberHost`, for the passes that are walking the
+    /// declaration itself rather than a reference to it. A declaration knows exactly which
+    /// type it is, and two sibling modules may each declare `T`, so it must not re-find
+    /// itself by name.
+    ///
+    /// The nominal kinds answer by KEY. An intrinsic binding answers by NAME, and can only:
+    /// it is a primitive declared at namespace level and spelled bare at every face
+    /// (`IntrinsicReprTypes` / `IntrinsicKeys` / `IntrinsicAbbrevHost` are all bare-name
+    /// tables, because a primitive's name is its identity).
+    let tryNonClassMemberHostByKey
+        (types: PassContextTypes)
+        (key: SymbolKey)
+        (name: string)
+        : IInterfaceImplHost voption =
+        match tryByTypeKey types.Union key with
+        | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
+        | ValueNone ->
+            match tryByTypeKey types.Record key with
             | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
             | ValueNone ->
                 match types.IntrinsicAbbrevHost.TryGetValue name with

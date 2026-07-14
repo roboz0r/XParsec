@@ -451,28 +451,18 @@ module NameResolution =
         (walker: CstWalk.ExprWalker<Scope list>)
         (m: ModuleElem<SyntaxToken>)
         : unit =
-        // Resolve the class-like decl to its registered `ClassTypeInfo` (paired with
-        // the decl body). Keys by the arity-`SymbolKey`, not the bare name: an
-        // overloaded `Box\`1`/`Box\`2` does not resolve by bare name, and a bare-name miss would
-        // skip BOTH classes' member bodies (their `this`/ctor params never enter
-        // scope). Mirrors `fillClassMembers`.
+        // Resolve the class-like decl to its registered `ClassTypeInfo` (paired with the decl
+        // body) by the key the DECLARATION mints, not by its name: this is the class itself,
+        // so a sibling module's same-named class must not answer, and an overloaded
+        // `Box\`1`/`Box\`2` does not resolve by bare name at all (a miss would skip BOTH
+        // classes' member bodies — their `this`/ctor params would never enter scope).
+        // Mirrors `fillClassMembers`.
         let bodyOf (td: TypeDefn<SyntaxToken>) =
             match TypeDefnPatterns.tryClassLikeDecl td with
             | ValueSome d ->
-                let (TypeName(ident = nameLi)) = d.TypeName
-
-                if nameLi.Idents.Length = 1 then
-                    match
-                        TypeRegistry.tryClassArity
-                            ctx.Types
-                            UseSite.unbounded
-                            (ctx.NameOf nameLi.Idents.[0])
-                            (arityOfTypeName ctx d.TypeName)
-                    with
-                    | ValueSome info -> ValueSome(info, d.Body)
-                    | ValueNone -> ValueNone
-                else
-                    ValueNone
+                match tryDeclaredClass ctx d.TypeName with
+                | ValueSome info -> ValueSome(info, d.Body)
+                | ValueNone -> ValueNone
             | ValueNone -> ValueNone
 
         match m with
@@ -552,11 +542,9 @@ module NameResolution =
             for td in defs do
                 // Only a `with` block (`ValueSome elems`) carries augmentation / impl bodies.
                 match TypeDefnPatterns.tryNonClassMemberHostDecl td with
-                | ValueSome(struct (nameLi, ValueSome elems)) ->
-                    let name = ctx.NameOf nameLi.Idents.[0]
-
-                    match TypeRegistry.tryNonClassMemberHost ctx.Types UseSite.unbounded name with
-                    | ValueSome host -> walkNominalHostBodies ctx walker name host elems
+                | ValueSome(struct (TypeName(ident = nameLi) as tn, ValueSome elems)) ->
+                    match tryDeclaredNonClassHost ctx tn with
+                    | ValueSome host -> walkNominalHostBodies ctx walker (ctx.NameOf nameLi.Idents.[0]) host elems
                     | ValueNone -> ()
                 | _ -> ()
         | _ -> ()

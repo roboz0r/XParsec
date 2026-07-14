@@ -26,8 +26,8 @@ let private has (tast: TastFile) (s: string) =
     tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains s)
 
 /// A duplicate is a plain user diagnostic, never the `stampLocalTypeKey` collision
-/// backstop — that branch is unreachable from source because the name-table claim is
-/// namespace-blind and so strictly coarser than the key it guards.
+/// backstop — that branch witnesses a MINT that dropped something the claim kept, and the
+/// claim is `(holder, name, arity)`, which is exactly what the key is minted from.
 let private expectDuplicate (source: string) =
     let tast = analyse source
     Expect.isTrue (has tast "Duplicate type definition") "duplicate-type diagnostic emitted"
@@ -38,11 +38,11 @@ let private expectNoDuplicate (source: string) =
     Expect.isFalse (has tast "Duplicate type definition") "no duplicate-type diagnostic"
     Expect.isFalse (has tast "Internal error") "no internal SymbolKey-collision error"
 
-// One declaration claims one NAME at one ARITY, and a claim may be held by at most one
-// type of ANY kind (`TypeRegistry.TypeClaims`). Every pair below is the same predicate
-// over the same table, so a kind added later cannot be wired into some guards and
-// forgotten in others — the drift that once let an `enum` name be silently re-declared as
-// an abbreviation or a class.
+// One declaration claims one NAME at one ARITY in the MODULE that holds it, and a claim may
+// be held by at most one type of ANY kind (`TypeRegistry.TypeClaims`). Every pair below is
+// the same predicate over the same table, so a kind added later cannot be wired into some
+// guards and forgotten in others — the drift that once let an `enum` name be silently
+// re-declared as an abbreviation or a class.
 [<Tests>]
 let tests =
     testList
@@ -193,25 +193,25 @@ let tests =
                         (sprintf "no collision against its own contract; got %A" msgs)
                 }
 
-            // PINS CURRENT (wrong) BEHAVIOUR, so a future fix has something to flip. The
-            // claim table is `(name, arity)` — namespace- AND module-BLIND — while the key
-            // is fully qualified, so two SIBLING modules declaring the same type name contest
-            // ONE claim and the second is rejected as a duplicate, even though `N.A.T` and
-            // `N.B.T` are two distinct keys and two distinct types (see `TypeHolder.InModule`).
-            //
-            // Not fixed here: a holder-aware claim needs module-scoped name resolution first
-            // (today `tryKeyOfBareName` would see two visible candidates both named `T` and
-            // silently take the last), and CLR nested-type emission (the backend writes every
-            // `TypeDef` flat, so two claims would collide on one metadata name).
+            // The claim is `(holder, name, arity)`, so the MODULE is part of it: sibling
+            // modules each declaring `T` declare two types, not one name twice. Only a second
+            // `T` in the SAME module contests a claim.
             yield
-                test "sibling modules declaring the same type name contest ONE claim (module-blind)" {
+                test "sibling modules may each declare the same type name — different holders, different claims" {
                     let src =
                         "namespace N\n\nmodule A =\n    type T = { X: int }\n\nmodule B =\n    type T = { Y: int }"
 
                     let msgs = errors (analyseAs "MyApp" src)
 
-                    Expect.isTrue
+                    Expect.isFalse
                         (msgs |> List.exists (fun m -> m.Contains "Duplicate type definition: T"))
-                        (sprintf "`N.B.T` is rejected as a duplicate of `N.A.T`; got %A" msgs)
+                        (sprintf "`N.A.T` and `N.B.T` are two types; got %A" msgs)
+
+                    Expect.isEmpty msgs (sprintf "no diagnostics at all; got %A" msgs)
+                }
+
+            yield
+                test "a second declaration of the name in the SAME module is still a duplicate" {
+                    expectDuplicate "namespace N\n\nmodule A =\n    type T = { X: int }\n    type T = { Y: int }"
                 }
         ]

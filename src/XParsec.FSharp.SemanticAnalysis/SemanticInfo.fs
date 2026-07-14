@@ -78,6 +78,22 @@ type ModuleHolder =
         | ModuleHolder.InNamespace ns -> ns
         | ModuleHolder.InModule parent -> parent.Namespace
 
+    /// How many `module`s deep this scope is — a namespace body is 0. F# enters an inner
+    /// scope AFTER its enclosing one, so a deeper scope's contribution to the name
+    /// environment outranks everything the scopes above it added: this int is the whole of
+    /// "a bare name resolves innermost-outward".
+    member this.Depth: int =
+        match this with
+        | ModuleHolder.InNamespace _ -> 0
+        | ModuleHolder.InModule parent -> parent.Holder.Depth + 1
+
+    /// The scopes a bare name written HERE is searched in, innermost FIRST: this scope,
+    /// then each enclosing module, then the namespace at the root.
+    member this.SelfAndAncestors: ModuleHolder list =
+        match this with
+        | ModuleHolder.InNamespace _ -> [ this ]
+        | ModuleHolder.InModule parent -> this :: parent.Holder.SelfAndAncestors
+
 /// A module. NO arity — modules are not generic. That asymmetry with `TypeKey` is
 /// the point: a module is simpler (no generics, no overloading) and richer in
 /// containment (it holds modules *and* types).
@@ -99,12 +115,8 @@ type TypeHolder =
     /// applied), so the chain reads as the containment the CLR will eventually emit:
     /// `T` nested in `M`, `M` in namespace `N`.
     ///
-    /// The `TypeRegistry` claim table is still `(name, arity)`-keyed — namespace- AND
-    /// module-blind — so two sibling modules declaring the same type name still contest
-    /// one claim and the second is rejected as a duplicate. Making the CLAIM
-    /// holder-aware is what admits `N.A.T` and `N.B.T` as two types, and it can only
-    /// ship together with CLR nested-type emission (today the backend writes every
-    /// `TypeDef` flat, so two claims would collide on one metadata name).
+    /// The holder is part of the CLAIM a declaration holds (`TypeIdentity.Holder`), so
+    /// `N.A.T` and `N.B.T` are two distinct types — not one name contested twice.
     | InModule of parent: ModuleKey
     /// EXTERNAL ONLY — a CLR *nested* type. Unconstructible from Vesper source (the
     /// parser cannot declare a nested type); required to name
@@ -159,16 +171,38 @@ and TypeKey =
         | TypeHolder.InModule parent -> parent.Namespace
         | TypeHolder.InType outer -> outer.Namespace
 
+/// WHERE a candidate binding ENTERS the name environment as seen from one use site. F#
+/// builds that environment by descending the module tree and ADDING, in source order, each
+/// declaration and each `open` — and the LAST thing added wins. So precedence is not a
+/// hand-ordered cascade of special cases (innermost-first, open-beats-outer-decl,
+/// last-open-wins); it is a single ordering, and this is it:
+///
+///   * `Depth` — how many `module`s enclose the scope that added the binding. An inner
+///     scope is entered after its enclosing one, so it outranks everything above it. This
+///     is what makes a bare name resolve innermost-outward, and it is what keeps a
+///     `module rec` (where every declaration in the scope shares one offset) ordered.
+///   * `Offset` — where in that scope the binding was added: a declaration's own
+///     `VisibleFrom`, or the offset of the `open` that brought it in. Within one scope a
+///     declaration and an `open` are ordered by nothing but the text, which is exactly how
+///     F# orders them.
+///
+/// Comparison is structural and field-ordered — `Depth`, then `Offset` — so `max` IS the
+/// resolution rule.
+[<Struct>]
+type BindingRank = { Depth: int; Offset: int }
+
 /// WHERE a by-NAME lookup speaks FROM. A name is not an identity on its own — it is one
-/// only as seen from somewhere — and "somewhere" in F# is TWO facts, so they travel as one
-/// value rather than as two arguments a caller can supply half of:
+/// only as seen from somewhere — and "somewhere" in F# is three facts, so they travel as
+/// one value rather than as arguments a caller can supply some of:
 ///
 ///   * `Pos` — the place in the file. Declaration scoping is file-ordered, so a claim
 ///     answers only at offsets at or after it (`TypeIdentity.VisibleFrom`).
 ///   * `Holder` — the module / namespace chain the use is nested in, INNERMOST last (the
 ///     `ModuleHolder` chain `ModuleRules.holderChain` builds from the use's containment).
 ///     A bare name resolves innermost-outward, so a use inside `module A` is not the same
-///     use site as one at namespace level even at the same offset.
+///     use site as one at namespace level even at the same offset. A SIBLING module
+///     contributes nothing to it: `module A`'s types are simply not in scope in `module B`.
+///   * `Opens` — the `open`s in scope, which is how a sibling module's types get in.
 ///
 /// `Pos` is a `SourcePos`, whose representation is private: a use site can therefore only
 /// be pinned to a node that HAS a place in the file, and a counter-minted key cannot mint
@@ -179,6 +213,7 @@ type UseSite =
     {
         Pos: SourcePos
         Holder: ModuleHolder voption
+        Opens: LocalOpen list
     }
 
     /// The offset a visibility test compares a claim's `VisibleFrom` against.
@@ -193,6 +228,7 @@ module UseSite =
         {
             Pos = SourcePos.unbounded
             Holder = ValueNone
+            Opens = []
         }
 
 /// Was `SymbolKey.ValueKey`: a module-level binding / operator. No `ArgSig`: modules

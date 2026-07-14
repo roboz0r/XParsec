@@ -709,6 +709,11 @@ module NameResolutionMemberRegistration =
                 |> ignore
         | _ -> ()
 
+    /// The use site a single-segment type head written at `li` speaks from — its own place
+    /// in the file, under the module and `open`s the registration scan currently stands in.
+    let private useSiteOfHead (ctx: PassContext) (li: LongIdent<SyntaxToken>) : UseSite =
+        ctx.UseSiteAt(NodeKey.ofToken li.Idents.[li.Idents.Length - 1] NodeKind.TypeNamed)
+
     /// Resolve a named type appearing in an `inherit` clause *argument* position
     /// (`inherit Box<int>(v)`'s `int`) to a best-effort `SemType`. A
     /// registration-time mini-`translateType`: NameResolution runs before
@@ -738,7 +743,7 @@ module NameResolutionMemberRegistration =
             | None -> freshTv ()
         | Type.VarType(Typar.Anon _) -> freshTv ()
         | Type.NamedType li when li.Idents.Length = 1 ->
-            resolveInheritArgName ctx (ctx.NameOf li.Idents.[0]) EqArray.empty
+            resolveInheritArgName ctx (useSiteOfHead ctx li) (ctx.NameOf li.Idents.[0]) EqArray.empty
         | Type.GenericType(longIdent = li; typeArgs = args) when li.Idents.Length = 1 ->
             let targs =
                 EqArray.ofList
@@ -749,10 +754,11 @@ module NameResolutionMemberRegistration =
                             | TypeArg.Measure _ -> ()
                     ]
 
-            resolveInheritArgName ctx (ctx.NameOf li.Idents.[0]) targs
+            resolveInheritArgName ctx (useSiteOfHead ctx li) (ctx.NameOf li.Idents.[0]) targs
         | Type.SuffixedType(baseType = bt; longIdent = li) when li.Idents.Length = 1 ->
             resolveInheritArgName
                 ctx
+                (useSiteOfHead ctx li)
                 (ctx.NameOf li.Idents.[0])
                 (EqArray.singleton (translateInheritArg ctx typarScope bt))
         | Type.TupleType(types = types) ->
@@ -761,7 +767,12 @@ module NameResolutionMemberRegistration =
             TyFun(translateInheritArg ctx typarScope f, translateInheritArg ctx typarScope into)
         | _ -> freshTv ()
 
-    and private resolveInheritArgName (ctx: PassContext) (name: string) (args: EqArray<SemType>) : SemType =
+    and private resolveInheritArgName
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (name: string)
+        (args: EqArray<SemType>)
+        : SemType =
         // An intrinsic's identity is resolved (local registration first, then the provider
         // through ambient opens), never enumerated by name. `args` are empty for the scalar
         // intrinsics, so a uniform arm is behaviour-identical to the old per-name arms.
@@ -770,13 +781,13 @@ module NameResolutionMemberRegistration =
         | None ->
             // Nominal heads carry their resolved `SymbolKey`; take it
             // off the registry `info` rather than re-stringing the name.
-            match TypeRegistry.tryRecord ctx.Types UseSite.unbounded name with
+            match TypeRegistry.tryRecord ctx.Types useSite name with
             | ValueSome info -> TyRecord(info.Key, args)
             | ValueNone ->
-                match TypeRegistry.tryUnionBare ctx.Types UseSite.unbounded name with
+                match TypeRegistry.tryUnionBare ctx.Types useSite name with
                 | ValueSome info -> TyUnion(info.Key, args)
                 | ValueNone ->
-                    match TypeRegistry.tryClass ctx.Types UseSite.unbounded name with
+                    match TypeRegistry.tryClass ctx.Types useSite name with
                     | ValueSome info -> TyClass(info.Key, args)
                     | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
 
@@ -831,7 +842,7 @@ module NameResolutionMemberRegistration =
             else
                 let name = ctx.NameOf nameTok
 
-                match TypeRegistry.tryClass ctx.Types UseSite.unbounded name with
+                match TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt diagKey) name with
                 | ValueSome info -> ValueSome(TyClass(info.Key, EqArray.ofList targs))
                 | ValueNone when ctx.Types.HeritableExternBases.Contains name ->
                     // A heritable external base (`inherit Attribute`, where `Attribute`

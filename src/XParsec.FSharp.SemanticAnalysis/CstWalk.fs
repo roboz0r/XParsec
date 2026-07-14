@@ -3,6 +3,37 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.Collections.Immutable
 open XParsec.FSharp.Parser
 
+/// An `open` WRITTEN IN THIS UNIT, kept with the facts a project-local name resolution
+/// needs and the flat dotted `Prefixes` list cannot express.
+///
+/// F# builds the name environment by descending the module tree and ADDING, in source
+/// order, each declaration and each `open` — so the last thing added wins. Reproducing
+/// that ordering is the whole of `open`/declaration precedence, and it needs exactly two
+/// numbers per `open`: how deep the scope it is written in sits, and where in the file it
+/// is written. `Scope` is the third fact, and it is syntactic too: `open A` inside
+/// `namespace N` names `N.A` before it names `A`.
+///
+/// SYNTAX, not identity: this file compiles before `SemanticInfo`, and the holder an
+/// `open` names is not a syntactic fact anyway (a module's compiled holder name is
+/// `ModuleRules`' business). `TypeRegistry` turns this into a holder.
+[<NoComparison>]
+type LocalOpen =
+    {
+        /// The dotted path as WRITTEN (`"A"`, `"N.A"`).
+        Path: string
+        /// The dotted SOURCE path of the scope the `open` is written in (`"N.M"`; `""` at
+        /// the top of an anonymous module). The `open` resolves against each of its
+        /// prefixes, longest first, then against `Path` alone.
+        Scope: string
+        /// How many `module`s enclose the `open` (a namespace body is 0). An inner scope
+        /// is entered after its enclosing one, so this outranks everything the enclosing
+        /// scopes added.
+        ScopeDepth: int
+        /// Source offset of the `open` keyword — where the names it brings enter the
+        /// environment, and so what orders it against the declarations of its own scope.
+        Offset: int
+    }
+
 /// The active namespace prefixes in a lexical scope, most-recent-first (so a
 /// later `open` shadows an earlier one on a name collision — F# semantics).
 /// Drives short-name resolution: a bare `EqualityComparer` (under
@@ -19,6 +50,13 @@ type OpenScope =
         /// Each entry is a dotted namespace/module prefix (`"System.Collections.Generic"`),
         /// in shadowing order — head wins. Empty prefixes are never stored.
         Prefixes: string list
+        /// The `open`s WRITTEN IN THIS FILE, most recent first — the same opens `Prefixes`
+        /// carries, positioned. `Prefixes` is what the EXTERNAL resolver needs (a set of
+        /// dotted prefixes to try, ambient prelude included); this is what the PROJECT-LOCAL
+        /// resolver needs (where each `open` sits, so a name it brings can be ordered
+        /// against the declarations around it). The ambient prelude contributes to
+        /// `Prefixes` only: it names nothing this unit declares.
+        Locals: LocalOpen list
         /// Module-abbrev aliases (`module R = A.B.C` ⇒ `"R" → "A.B.C"`), expanded
         /// on the head segment of a dotted name before probing.
         Abbrevs: Map<string, string>
@@ -27,7 +65,12 @@ type OpenScope =
 module OpenScope =
 
     /// No opens, no abbrevs — the seed for a file with an empty ambient prelude.
-    let empty: OpenScope = { Prefixes = []; Abbrevs = Map.empty }
+    let empty: OpenScope =
+        {
+            Prefixes = []
+            Locals = []
+            Abbrevs = Map.empty
+        }
 
     /// Candidate fully-qualified names for `name`, in priority order: the
     /// abbrev-expanded name as written (covers already-qualified and root-scope
@@ -180,25 +223,28 @@ module TypeDefnPatterns =
     /// exact shape independently, each pairing it with a registry lookup
     /// (`TypeRegistry.tryNonClassMemberHost`). `ValueNone` for any other `TypeDefn` shape or
     /// a multi-ident name.
-    let tryNonClassMemberHostDecl (td: TypeDefn<'T>) : struct (LongIdent<'T> * TypeDefnElements<'T> voption) voption =
+    let tryNonClassMemberHostDecl (td: TypeDefn<'T>) : struct (TypeName<'T> * TypeDefnElements<'T> voption) voption =
         let extElems (ext: TypeExtensionElements<'T> voption) =
             match ext with
             | ValueSome(TypeExtensionElements(elements = elems)) -> ValueSome elems
             | ValueNone -> ValueNone
 
+        // The whole `TypeName` rides out, not just its `LongIdent`: a host is recovered from
+        // the registry by the KEY its declaration mints, and that needs the generic arity the
+        // header declares as well as the name.
         match td with
-        | TypeDefn.Union(typeName = TypeName(ident = nameLi); extensions = ext)
-        | TypeDefn.Record(typeName = TypeName(ident = nameLi); extensions = ext) when nameLi.Idents.Length = 1 ->
-            ValueSome(struct (nameLi, extElems ext))
+        | TypeDefn.Union(typeName = (TypeName(ident = nameLi) as tn); extensions = ext)
+        | TypeDefn.Record(typeName = (TypeName(ident = nameLi) as tn); extensions = ext) when nameLi.Idents.Length = 1 ->
+            ValueSome(struct (tn, extElems ext))
         // An inline intrinsic-abbrev augmented with `with member …`
         // (`type X = (# … #) with member …`) hosts its members on the same path.
         // Registration files the host in `IntrinsicAbbrevHost` ONLY for an ILIntrinsic
         // RHS carrying extensions (a transparent-alias abbrev with members is rejected
         // there), so the `tryNonClassMemberHost` lookup naturally skips a rejected one.
-        | TypeDefn.Abbrev(typeName = TypeName(ident = nameLi); extensions = ext & ValueSome _) when
+        | TypeDefn.Abbrev(typeName = (TypeName(ident = nameLi) as tn); extensions = ext & ValueSome _) when
             nameLi.Idents.Length = 1
             ->
-            ValueSome(struct (nameLi, extElems ext))
+            ValueSome(struct (tn, extElems ext))
         | _ -> ValueNone
 
     /// Project the `body` field from any object-model `TypeDefn` shape:
@@ -247,6 +293,19 @@ module DeclContainment =
     /// namespace / file module.
     let namespaceOpt (c: DeclContainment<'T>) : string option =
         if c.Namespace = "" then None else Some c.Namespace
+
+    /// The dotted SOURCE path of this containment (`"N.A.B"`; `""` at the top of an
+    /// anonymous module) — the namespace, plus each enclosing module's name AS WRITTEN.
+    /// This is what a local `open` names a scope by, and it is NOT what a `ModuleKey`
+    /// carries: a `ModuleKey` holds the module's COMPILED holder name (`ListModule`).
+    let sourcePath (nameOf: 'T -> string) (c: DeclContainment<'T>) : string =
+        let mutable path = c.Namespace
+
+        for ModuleDefn.ModuleDefn(ident = ident) in c.Modules do
+            let seg = nameOf ident
+            path <- if path.Length = 0 then seg else path + "." + seg
+
+        path
 
 /// One flattened leaf element of a module tree, paired with the ambient facts a pass needs
 /// at that position: the `open` scope active there, the declaring containment a local
@@ -1121,7 +1180,10 @@ module CstWalk =
         let longIdentText (li: LongIdent<SyntaxToken>) : string =
             li.Idents |> Seq.map nameOf |> String.concat "."
 
-        let addOpen (scope: OpenScope) (li: LongIdent<SyntaxToken>) : OpenScope =
+        // The implicit prefix a `namespace N` header contributes. It is not an `open` —
+        // the namespace HOLDS the body, so a project-local name finds it by ancestry — and
+        // so it adds a dotted prefix (for the external resolver) and no `LocalOpen`.
+        let addNamespacePrefix (scope: OpenScope) (li: LongIdent<SyntaxToken>) : OpenScope =
             let prefix = longIdentText li
 
             if prefix.Length = 0 then
@@ -1129,6 +1191,29 @@ module CstWalk =
             else
                 { scope with
                     Prefixes = prefix :: scope.Prefixes
+                }
+
+        let addOpen
+            (scope: OpenScope)
+            (containment: DeclContainment<SyntaxToken>)
+            (openToken: SyntaxToken)
+            (li: LongIdent<SyntaxToken>)
+            : OpenScope =
+            let prefix = longIdentText li
+
+            if prefix.Length = 0 then
+                scope
+            else
+                { scope with
+                    Prefixes = prefix :: scope.Prefixes
+                    Locals =
+                        {
+                            Path = prefix
+                            Scope = DeclContainment.sourcePath nameOf containment
+                            ScopeDepth = List.length containment.Modules
+                            Offset = openToken.StartIndex
+                        }
+                        :: scope.Locals
                 }
 
         let addAbbrev (scope: OpenScope) (alias: string) (target: string) : OpenScope =
@@ -1142,9 +1227,14 @@ module CstWalk =
         // Apply one element's own contribution (an `open` / module-abbrev) to the
         // running accumulator. `open type` is deferred (a member channel, not a
         // namespace prefix — §6), so only `ImportDecl.ImportDecl` contributes.
-        let accumulate (scope: OpenScope) (e: ModuleElem<SyntaxToken>) : OpenScope =
+        let accumulate
+            (containment: DeclContainment<SyntaxToken>)
+            (scope: OpenScope)
+            (e: ModuleElem<SyntaxToken>)
+            : OpenScope =
             match e with
-            | ModuleElem.Import(ImportDecl.ImportDecl(longIdent = li)) -> addOpen scope li
+            | ModuleElem.Import(ImportDecl.ImportDecl(openToken = kw; longIdent = li)) ->
+                addOpen scope containment kw li
             | ModuleElem.ModuleAbbrev(ModuleAbbrev.ModuleAbbrev(ident = id; longIdent = li)) ->
                 addAbbrev scope (nameOf id) (longIdentText li)
             | _ -> scope
@@ -1175,7 +1265,7 @@ module CstWalk =
             if isRec then
                 // Constant prelude: all opens/abbrevs in this scope apply to the
                 // whole body, regardless of position (§3.2, FS3200).
-                let constScope = (start, elems) ||> Seq.fold accumulate
+                let constScope = (start, elems) ||> Seq.fold (accumulate containment)
 
                 for e in elems do
                     emit e constScope recScope containment
@@ -1184,7 +1274,7 @@ module CstWalk =
 
                 for e in elems do
                     emit e s recScope containment
-                    s <- accumulate s e
+                    s <- accumulate containment s e
 
         and emit
             (e: ModuleElem<SyntaxToken>)
@@ -1231,7 +1321,7 @@ module CstWalk =
                     // declaring namespace at the root of its elements' containment.
                     processElems
                         elems
-                        (addOpen ambient nsLi)
+                        (addNamespacePrefix ambient nsLi)
                         isRec.IsSome
                         (innerRecScope kw isRec ValueNone)
                         (DeclContainment.ofNamespace (longIdentText nsLi))

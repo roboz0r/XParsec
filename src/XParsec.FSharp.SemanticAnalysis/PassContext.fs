@@ -851,8 +851,17 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// arrives here, so no walk can resolve names against the module the PREVIOUS walk
     /// finished in. Returns the chain, because a caller that needs it for an identity mint
     /// must not build a second one.
+    ///
+    /// Every scope on the way in is also recorded under the SOURCE path an `open` names it
+    /// by (`TypeRegistry.noteLocalHolder`), so the module tree an `open` resolves against is
+    /// learned from the same walk — and from the same chain — that a declaration's holder is.
     member this.EnterContainment(c: DeclContainment<SyntaxToken>) : ModuleHolder =
-        let chain = ModuleRules.holderChain this.ModuleNaming c
+        let scopes = ModuleRules.holderScopes this.ModuleNaming c
+
+        for (path, holder) in scopes do
+            TypeRegistry.noteLocalHolder types path holder
+
+        let chain = scopes |> List.last |> snd
         this.Resolution.EnclosingHolder <- ValueSome chain
         chain
 
@@ -865,15 +874,37 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
         this.EnterContainment w.Containment |> ignore
 
     /// The use site a by-NAME registry read from `key` speaks from: the node's place in the
-    /// file, plus the module chain the walk is currently inside (`EnclosingHolder`). The
-    /// only way to name a use site AT a node, so the two halves cannot be supplied
-    /// separately or one of them forgotten. A caller with nowhere to speak from passes
-    /// `UseSite.unbounded` instead and gets the whole-unit view.
+    /// file, plus the module chain and the `open`s the walk is currently inside. The only
+    /// way to name a use site AT a node, so the parts cannot be supplied separately or one
+    /// of them forgotten. A caller with nowhere to speak from passes `UseSite.unbounded`
+    /// instead and gets the whole-unit view.
     member this.UseSiteAt(key: NodeKey) : UseSite =
         {
             Pos = SourcePos.ofNodeKey key
             Holder = this.Resolution.EnclosingHolder
+            Opens = this.Resolution.OpenScope.Locals
         }
+
+    /// The module chain the walk currently stands in — what HOLDS a declaration written
+    /// here. The global namespace before a walk has entered anything, which is exactly the
+    /// containment of a declaration at the top of an anonymous module: the only thing
+    /// "nowhere" can mean for a DECLARATION. (A by-name READ from nowhere is a different
+    /// question, and `UseSite.Holder` keeps its `ValueNone` to ask it.)
+    member this.CurrentHolder: ModuleHolder =
+        match this.Resolution.EnclosingHolder with
+        | ValueSome h -> h
+        | ValueNone -> ModuleHolder.InNamespace NamespaceKey.Global
+
+    /// The `SymbolKey` a type DECLARED where the walk currently stands would be minted with
+    /// — `CurrentHolder` plus the declared name and arity.
+    ///
+    /// THE way a pass recovers the registered detail of a declaration it is WALKING, as
+    /// against a reference to one: a declaration knows exactly which type it is, so it must
+    /// not go looking for itself by name — two sibling modules may each declare `T`, and a
+    /// by-name read would answer with whichever one it found. Mints the identical key
+    /// `NameResolutionTypeRegistration.claimTypeIdentity` stamped, from the identical chain.
+    member this.DeclaredTypeKey(name: string, arity: int) : SymbolKey =
+        SymbolKey.Type(LocalSymbolKey.ofType (ModuleRules.typeHolderOf this.CurrentHolder) name arity)
 
     /// Source text of `token`. Empty for virtual (synthesised) tokens.
     member this.NameOf(token: SyntaxToken) : string =

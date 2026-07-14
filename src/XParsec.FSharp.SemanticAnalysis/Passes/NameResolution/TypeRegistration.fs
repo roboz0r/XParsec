@@ -128,30 +128,54 @@ module NameResolutionTypeRegistration =
     let localHolderChain (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : ModuleHolder =
         ModuleRules.holderChain ctx.ModuleNaming c
 
+    /// The registered `ClassTypeInfo` of the class-like DECLARATION `tn` heads — recovered
+    /// by the key the declaration mints in the module the walk stands in
+    /// (`PassContext.DeclaredTypeKey`), never by its name.
+    ///
+    /// Shared by every pass that walks a class's own body (name resolution's scope walk,
+    /// unification's member fill, its interface-impl resolution), so all three recover the
+    /// same class. A by-name read could not: an arity-overloaded `Box\`1`/`Box\`2` does not
+    /// resolve by bare name, and two sibling modules may each declare a `C`.
+    let tryDeclaredClass (ctx: PassContext) (tn: TypeName<SyntaxToken>) : ClassTypeInfo voption =
+        let (TypeName(ident = nameLi)) = tn
+
+        if nameLi.Idents.Length = 1 then
+            TypeRegistry.tryClassByKey
+                ctx.Types
+                (ctx.DeclaredTypeKey(ctx.NameOf nameLi.Idents.[0], arityOfTypeName ctx tn))
+        else
+            ValueNone
+
+    /// The registered union / record / inline intrinsic-abbrev host the DECLARATION `tn`
+    /// heads — the non-class sibling of `tryDeclaredClass`, and key-addressed for the same
+    /// reason (`TypeRegistry.tryNonClassMemberHostByKey`).
+    let tryDeclaredNonClassHost (ctx: PassContext) (tn: TypeName<SyntaxToken>) : IInterfaceImplHost voption =
+        let (TypeName(ident = nameLi)) = tn
+        let name = ctx.NameOf nameLi.Idents.[0]
+
+        TypeRegistry.tryNonClassMemberHostByKey ctx.Types (ctx.DeclaredTypeKey(name, arityOfTypeName ctx tn)) name
+
     /// Mint a project-local `SymbolKey` for a type declaration and assert it is unique
-    /// across the compilation. The key's holder chain is the declaring containment
+    /// across the compilation. The key's holder is the declaring containment's chain,
     /// threaded from the module walk, so the key names exactly where the type was
     /// declared. THE sole mint site: called once per accepted claim from
     /// `claimTypeIdentity`, which hands the key to the per-kind registrar on the
     /// declaration's `TypeIdentity`.
     ///
-    /// The collision branch is an INTERNAL-ERROR BACKSTOP, unreachable from source today
-    /// and deliberately kept. Unreachable because the name-table claim `(name, arity)` is
-    /// namespace- AND module-BLIND while the key is fully qualified: the claim is strictly
-    /// the coarser test, so it rejects every duplicate a key collision could witness, and
-    /// two surviving claims differ in `name\`arity` and therefore in their keys. Kept
-    /// because the claim is to become holder-aware (which is what admits `N.A.T` and
-    /// `N.B.T` as two types), at which point two distinct claims CAN collapse onto one key
-    /// if the mint drops the distinguishing holder — precisely the bug `SymbolKeyOrigins`
-    /// exists to witness, and precisely why it is not a user diagnostic.
+    /// The collision branch is an INTERNAL-ERROR BACKSTOP, not a user diagnostic. The
+    /// name-table claim is `(holder, name, arity)` and the key is minted from exactly those
+    /// three, so a collision here means two declarations the claim test called DISTINCT
+    /// collapsed onto one key — i.e. the mint dropped something the claim kept. That is a
+    /// bug in this pass; a user duplicate is caught by the claim test and never reaches the
+    /// stamp. `SymbolKeyOrigins` exists to witness it.
     let private stampLocalTypeKey
         (ctx: PassContext)
         (declKey: NodeKey)
-        (c: DeclContainment<SyntaxToken>)
+        (holder: ModuleHolder)
         (name: string)
         (arity: int)
         : TypeKey =
-        let key = LocalSymbolKey.ofType (localTypeHolder ctx c) name arity
+        let key = LocalSymbolKey.ofType (ModuleRules.typeHolderOf holder) name arity
 
         match TypeRegistry.recordKeyOrigin ctx.Types declKey (SymbolKey.Type key) with
         | ValueSome _ ->
@@ -390,7 +414,12 @@ module NameResolutionTypeRegistration =
                     | TypeDeclKind.Enum -> 0
                     | _ -> arityOfTypeName ctx tn
 
-                if TypeRegistry.isTypeClaimed ctx.Types name arity then
+                // The module chain that HOLDS the declaration — part of its claim, and the
+                // holder its key is minted from. One chain, both uses, so the type the claim
+                // says was declared here and the type the key names cannot come apart.
+                let holder = localHolderChain ctx c
+
+                if TypeRegistry.isTypeClaimed ctx.Types holder name arity then
                     ctx.Diagnostics.Add
                         {
                             Key = declKey
@@ -427,7 +456,7 @@ module NameResolutionTypeRegistration =
                     // one the source declared instead of cascading into either an "undefined
                     // type" storm or — worse — a silent bind to the external namesake this
                     // diagnostic exists to separate it from.
-                    let key = stampLocalTypeKey ctx declKey c name arity
+                    let key = stampLocalTypeKey ctx declKey holder name arity
 
                     diagnoseExternalClaim ctx declKey key
 
@@ -437,6 +466,7 @@ module NameResolutionTypeRegistration =
                                 {
                                     Name = name
                                     Arity = arity
+                                    Holder = holder
                                     Kind = kind
                                     DeclKey = declKey
                                     Key = key
@@ -913,7 +943,7 @@ module NameResolutionTypeRegistration =
                     ValueNone
 
             let info = EnumTypeInfo(name, caseNames, caseStringValues, declKey, id.Key)
-            TypeRegistry.registerEnum ctx.Types name info
+            TypeRegistry.registerEnum ctx.Types info
 
             // Record the decl-site identity so `Elaborate.tryEnumType`
             // recovers the SAME key the annotation path resolves to.

@@ -479,24 +479,24 @@ module internal UnificationTranslate =
             if ctx.Types.IntrinsicReprTypes.ContainsKey name then
                 TyConst(TypeRegistry.intrinsicKeyOf ctx.Types name, EqArray.empty)
             else
-                match TypeRegistry.tryAbbrev ctx.Types UseSite.unbounded name with
+                match TypeRegistry.tryAbbrev ctx.Types (ctx.UseSiteAt diagKey) name with
                 | ValueSome info ->
                     forceFill ctx info
                     let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
                     expandAbbreviation ctx diagKey info args
                 | ValueNone ->
-                    match TypeRegistry.tryRecord ctx.Types UseSite.unbounded name with
+                    match TypeRegistry.tryRecord ctx.Types (ctx.UseSiteAt diagKey) name with
                     | ValueSome info ->
                         let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
                         TyRecord(info.Key, args)
                     | ValueNone ->
-                        match TypeRegistry.tryUnionBare ctx.Types UseSite.unbounded name with
+                        match TypeRegistry.tryUnionBare ctx.Types (ctx.UseSiteAt diagKey) name with
                         | ValueSome info ->
                             let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
                             ctx.Resolution.ResolvedType.Set(diagKey, info.Key)
                             TyUnion(info.Key, args)
                         | ValueNone ->
-                            match TypeRegistry.tryClass ctx.Types UseSite.unbounded name with
+                            match TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt diagKey) name with
                             | ValueSome info ->
                                 let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
                                 TyClass(info.Key, args)
@@ -584,7 +584,7 @@ module internal UnificationTranslate =
                 // produces.
                 TyConst(TypeRegistry.intrinsicKeyOf ctx.Types name, translatedArgs)
             else
-                match TypeRegistry.tryAbbrev ctx.Types UseSite.unbounded name with
+                match TypeRegistry.tryAbbrev ctx.Types (ctx.UseSiteAt diagKey) name with
                 | ValueSome info ->
                     forceFill ctx info
                     checkArity (info.TypeParams.Length)
@@ -594,12 +594,12 @@ module internal UnificationTranslate =
                     // site; record and class do not.
                     let local =
                         resolveLocalGeneric
-                            (TypeRegistry.tryRecord ctx.Types UseSite.unbounded)
+                            (TypeRegistry.tryRecord ctx.Types (ctx.UseSiteAt diagKey))
                             (fun i -> i.TypeParams.Length)
                             (fun info -> TyRecord(info.Key, translatedArgs))
                         |> ValueOption.orElseWith (fun () ->
                             resolveLocalGeneric
-                                (TypeRegistry.tryUnionBare ctx.Types UseSite.unbounded)
+                                (TypeRegistry.tryUnionBare ctx.Types (ctx.UseSiteAt diagKey))
                                 (fun i -> i.TypeParams.Length)
                                 (fun info ->
                                     ctx.Resolution.ResolvedType.Set(diagKey, info.Key)
@@ -608,7 +608,7 @@ module internal UnificationTranslate =
                         )
                         |> ValueOption.orElseWith (fun () ->
                             resolveLocalGeneric
-                                (TypeRegistry.tryClass ctx.Types UseSite.unbounded)
+                                (TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt diagKey))
                                 (fun i -> i.TypeParams.Length)
                                 (fun info -> TyClass(info.Key, translatedArgs))
                         )
