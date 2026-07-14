@@ -120,12 +120,11 @@ module internal UnificationTranslate =
         | true, (canon :: _) -> TyConst(canon, args)
         | _ -> TyClass(SymbolKeyOps.externalTypeKey info.Origin compiled arity, args)
 
-    /// DEBUG-only witness for a DOTTED written head whose store-face read yielded no
-    /// type. A dotted name can never be project-local (local types are single-segment),
-    /// so it is external or unknown — and because the read side has no by-name
-    /// fallback, a defect here degrades to a free `TyVar` that unifies with anything,
-    /// surfacing as a baffling error (or wrong codegen) far from the cause. This fails
-    /// loudly at the cause instead, discriminating the two ways the read can miss:
+    /// DEBUG-only witness for a DOTTED written head that neither the store face nor the
+    /// project-local claim answered: so it is an EXTERNAL name, and the read side has no
+    /// by-name fallback for one — a defect here degrades to a free `TyVar` that unifies with
+    /// anything, surfacing as a baffling error (or wrong codegen) far from the cause. This
+    /// fails loudly at the cause instead, discriminating the two ways the read can miss:
     ///
     /// - **No stamp at all**, yet the resolver CAN resolve the spelling — the stamping
     ///   walk failed to reach this syntax position.
@@ -246,16 +245,16 @@ module internal UnificationTranslate =
             | ValueSome ty -> ty
             | ValueNone -> resolveBareTypeName ctx li.Idents.[0] (fun _name -> ValueNone)
         | Type.NamedType li ->
-            // Multi-segment named type (`System.Text.StringBuilder`). Project-local
-            // types are single-segment, so a dotted name is either external or
-            // unknown; read the stamped head before the catch-all TyVar.
+            // Qualified named type (`A.T`, `N.A.T`, `System.Text.StringBuilder`). A STAMP is
+            // NameResolution's committed verdict that it is EXTERNAL — it stamps only a head
+            // no local claim held where it was written — so it outranks the registry here
+            // exactly as it does for a bare head. Unstamped ⇒ the qualifier names a scope of
+            // THIS unit, or the head names nothing.
             let headKey = CstKeys.typeHeadKey t
 
             match tryResolveExternalTypeStamped ctx headKey EqArray.empty with
             | ValueSome ty -> ty
-            | ValueNone ->
-                assertNoDottedStampGap ctx headKey li 0
-                TyVar(freshTyVar ctx)
+            | ValueNone -> resolveQualifiedTypeName ctx headKey li EqArray.empty
         | Type.GenericType(longIdent = li; typeArgs = args) when
             li.Idents.Length = 1
             && args.Length = 1
@@ -324,9 +323,11 @@ module internal UnificationTranslate =
 
             resolveNamedGeneric ctx diagKey name translatedArgs
         | Type.GenericType(longIdent = li; typeArgs = args) ->
-            // Multi-segment generic type
-            // (`System.Collections.Generic.EqualityComparer<int>`); the
-            // single-segment forms are handled above.
+            // Qualified generic type (`A.T<int>`,
+            // `System.Collections.Generic.EqualityComparer<int>`); the single-segment forms
+            // are handled above. Resolved at the head's WRITTEN arity, exactly as a bare
+            // generic head is: `A.T<int>` names the `T\`1` of module `A`, and a same-named
+            // `T` at another arity is a different type.
             let translatedArgs =
                 EqArray.ofSeq (
                     seq {
@@ -341,9 +342,7 @@ module internal UnificationTranslate =
 
             match tryResolveExternalTypeStamped ctx headKey translatedArgs with
             | ValueSome ty -> ty
-            | ValueNone ->
-                assertNoDottedStampGap ctx headKey li translatedArgs.Length
-                TyVar(freshTyVar ctx)
+            | ValueNone -> resolveQualifiedTypeName ctx headKey li translatedArgs
         | Type.SuffixedType(baseType = baseTy; longIdent = li) when li.Idents.Length = 1 ->
             // Postfix generic syntax: `'T list` ≡ `list<'T>`. Multi-arg
             // postfix forms (`(int, string) Map`) parse the base as a tuple
@@ -388,9 +387,9 @@ module internal UnificationTranslate =
             // arrive as the reserved `TyConst`s above.
             mkUnion [ translateType ctx l; translateType ctx r ]
         | _ ->
-            // Multi-segment named/generic types and other shapes (arrays,
-            // anonymous records, etc.) aren't modelled yet. Hand back a free
-            // TyVar so unification can pin it via context.
+            // Shapes with no model yet — a multi-segment postfix application
+            // (`int A.T`), an anonymous record. Hand back a free TyVar so
+            // unification can pin it via context.
             TyVar(freshTyVar ctx)
 
     /// The `SemType` of the project-local type that CLAIMS `(name, arity)`, applied to
@@ -517,6 +516,59 @@ module internal UnificationTranslate =
                                 | ValueNone when name = RuntimeNames.undefinedTypeName ->
                                     TyConst(RuntimeNames.undefinedKey, EqArray.empty)
                                 | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
+
+    /// Resolve a type head written QUALIFIED (`A.T`, `N.A.T<int>`) whose stamped external
+    /// read already missed: so it names a project-local type THROUGH the scope holding it, or
+    /// it names nothing. The claim on `(path, name, arity)` answers — the same kind-agnostic
+    /// name-table lookup a bare head resolves through, reading from the scope the path names,
+    /// so a qualified reference to a record / union / class / enum / alias needs no cascade
+    /// of its own.
+    ///
+    /// A head whose QUALIFIER names a scope of this unit and that claims nothing there is a
+    /// DIAGNOSTIC, never a fresh TyVar: a free type variable unifies with everything, so the
+    /// mistake would type-check here and surface as unencodable IL / wrong JS far away. We
+    /// know every type our own scopes hold, so a name one does not hold is undefined and we
+    /// can say so.
+    ///
+    /// Under any OTHER qualifier the head is a name in the external universe, and an
+    /// unresolved one there is a name this compilation has nothing to say about — the
+    /// provider is a partial view (a stack with no BCL tail cannot resolve
+    /// `System.IO.TextWriter` yet must still type a body that mentions it). Those keep the
+    /// free TyVar, and the DEBUG witness stays the record of the two ways the EXTERNAL
+    /// round-trip can break.
+    and private resolveQualifiedTypeName
+        (ctx: PassContext)
+        (diagKey: NodeKey)
+        (li: LongIdent<SyntaxToken>)
+        (args: EqArray<SemType>)
+        : SemType =
+        let written = ctx.WrittenTypeNameOf li
+        let useSite = ctx.UseSiteAt diagKey
+
+        let claimed =
+            match TypeRegistry.tryWrittenTypeClaim ctx.Types useSite written args.Length with
+            | ValueSome claim -> resolveClaimedType ctx diagKey claim args
+            | ValueNone -> ValueNone
+
+        match claimed with
+        | ValueSome ty -> ty
+        | ValueNone ->
+            // The name reaches a local type at some OTHER arity: `A.T<int>` where `A` holds a
+            // non-generic `T`. The head names that type and gets its arity blamed — never a
+            // fall-through to an external type of the same spelling.
+            match TypeRegistry.tryWrittenTypeClaimAnyArity ctx.Types useSite written with
+            | ValueSome other ->
+                errorTy
+                    ctx
+                    diagKey
+                    (sprintf "Type '%s' expects %d type argument(s) but got %d" written.Written other.Arity args.Length)
+            | ValueNone ->
+                assertNoDottedStampGap ctx diagKey li args.Length
+
+                if TypeRegistry.isLocalScopePath ctx.Types useSite written.Path then
+                    errorTy ctx diagKey (sprintf "The type '%s' is not defined" written.Written)
+                else
+                    TyVar(freshTyVar ctx)
 
     /// Resolve a single-segment generic type reference. A STAMP on the head outranks the
     /// registry (see the `Type.NamedType` arm: a stamp is NameResolution's committed

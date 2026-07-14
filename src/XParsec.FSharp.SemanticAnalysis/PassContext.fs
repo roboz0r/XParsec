@@ -912,6 +912,20 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
         | TokenIndex.Regular iT -> this.Lexed.GetTokenString(iT, this.Input)
         | TokenIndex.Virtual -> ""
 
+    /// A written type name read off the syntax that spells it: the LAST segment is the type's
+    /// short name, everything before it the dotted SOURCE path of the scope qualifying it
+    /// (empty for a single-segment head). THE one place a long ident is split that way, so
+    /// every face that resolves a written type name — the head classifier, the type
+    /// translator, the ctor heads — splits it identically.
+    member this.WrittenTypeNameOf(li: LongIdent<SyntaxToken>) : WrittenTypeName =
+        let idents = li.Idents
+        let last = idents.Length - 1
+
+        {
+            Path = String.concat "." (seq { for i in 0 .. last - 1 -> this.NameOf idents.[i] })
+            Name = this.NameOf idents.[last]
+        }
+
     /// Allocation-free sibling of `NameOf`: a `ReadableString` view of `token`'s
     /// source text, without copying out a substring. Empty for virtual tokens.
     member this.ReadableOf(token: SyntaxToken) : ReadableString =

@@ -511,10 +511,12 @@ module NameResolutionTypeRegistration =
     /// the stamp this walk wrote (external) or the registry (local), so it cannot bind a
     /// head this walk called unknown, nor bind differently from what this walk accepted.
     ///
-    /// A DOTTED head is left to the store-face read: a project-local type is always
-    /// single-segment, so a dotted miss is an unmodelled external shape, not a scoping
-    /// error, and `translateType`'s opaque residue is the designed outcome (the DEBUG
-    /// `assertNoDottedStampGap` is the witness that guards it).
+    /// A DOTTED head names its type through a SCOPE (`A.T`), so what a miss means depends on
+    /// whose scope it is — a name a module of ours does not hold is undefined, a name under a
+    /// foreign qualifier is one the provider's partial view cannot settle. That verdict is
+    /// `translateType`'s (`resolveQualifiedTypeName`), which is where the head is resolved
+    /// against the scope its path names, so the miss is diagnosed once and by the reader that
+    /// knows which of the two it is.
     let private classifyingTypeIter (ctx: PassContext) : CstWalk.TypeIter =
         // `float<kg>` is a measured carrier, not a generic type applied to a type argument:
         // `translateType` reinterprets the WHOLE node — carrier and unit alike — as a

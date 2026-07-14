@@ -49,13 +49,17 @@ module internal UnificationInferResolve =
 
     /// Function value whose argument shape matches the primary constructor
     /// and whose result is the constructed `TyClass`. Routes bare
-    /// `Point(3, 4)` calls (no `new`) through the function-application
-    /// machinery. `ValueNone` if `name` isn't a class in scope AT `useSite` — a class
-    /// declared below the call names nothing there, so the call resolves to nothing and
-    /// NameResolution's "unresolved identifier" (which fires off the same miss) is the
-    /// whole verdict.
-    let tryClassCtorAsFunction (ctx: PassContext) (useSite: UseSite) (name: string) : SemType voption =
-        match TypeRegistry.tryClass ctx.Types useSite name with
+    /// `Point(3, 4)` calls (no `new`) — and `A.Point(3, 4)`, the class named through the
+    /// module holding it — through the function-application machinery. `ValueNone` if the
+    /// written name isn't a class in scope AT `useSite`: a class declared below the call names
+    /// nothing there, so the call resolves to nothing and NameResolution's "unresolved
+    /// identifier" (which fires off the same miss) is the whole verdict.
+    let tryWrittenClassCtorAsFunction
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (written: WrittenTypeName)
+        : SemType voption =
+        match TypeRegistry.tryWrittenClass ctx.Types useSite written with
         | ValueSome info ->
             let args, subst = freshNamedInstance ctx info.TypeParams
             let receiverTy = TyClass(info.Key, args)
@@ -68,6 +72,10 @@ module internal UnificationInferResolve =
 
             ValueSome(TyFun(arg, receiverTy))
         | ValueNone -> ValueNone
+
+    /// `tryWrittenClassCtorAsFunction` for a class named bare.
+    let tryClassCtorAsFunction (ctx: PassContext) (useSite: UseSite) (name: string) : SemType voption =
+        tryWrittenClassCtorAsFunction ctx useSite (WrittenTypeName.bare name)
 
     let classCtorAsFunction (ctx: PassContext) (useSite: UseSite) (name: string) : SemType =
         match tryClassCtorAsFunction ctx useSite name with

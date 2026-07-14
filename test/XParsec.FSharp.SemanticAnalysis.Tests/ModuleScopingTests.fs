@@ -24,24 +24,56 @@ let private expectRejected (source: string) =
     let es = errors (analyse source)
     Expect.isNonEmpty es "expected a diagnostic: the name names nothing in scope here"
 
-/// The `SymbolKey` of the type `typeName` declared in the module `moduleName` — selected by
-/// the declaration's own HOLDER, because the whole point here is that two sibling `T`s are
-/// two types and a name cannot tell them apart.
-let private typeDeclKeyIn (tast: TastFile) (moduleName: string) (typeName: string) : SymbolKey =
+/// The `SymbolKey` of the type `typeName` at `arity` declared in the module `moduleName` —
+/// selected by the declaration's own HOLDER and its own ARITY, because the whole point here
+/// is that two sibling `T`s (or two `T`s of different arity) are two types and a name cannot
+/// tell them apart.
+let private typeDeclKeyInArity (tast: TastFile) (moduleName: string) (typeName: string) (arity: int) : SymbolKey =
     let found =
         [
             for d in tast.Decls do
                 match d with
                 | TDecl.Type td when td.Name = typeName ->
                     match td.Key with
-                    | SymbolKey.Type { Holder = TypeHolder.InModule m } when m.Name = moduleName -> yield td.Key
+                    | SymbolKey.Type {
+                                         Holder = TypeHolder.InModule m
+                                         Arity = a
+                                     } when m.Name = moduleName && a = arity -> yield td.Key
                     | _ -> ()
                 | _ -> ()
         ]
 
     match found with
     | [ k ] -> k
-    | other -> failtestf "expected one '%s' held by module '%s', got %A" typeName moduleName other
+    | other -> failtestf "expected one '%s'/%d held by module '%s', got %A" typeName arity moduleName other
+
+/// The `SymbolKey` of the NON-GENERIC type `typeName` declared in the module `moduleName`.
+let private typeDeclKeyIn (tast: TastFile) (moduleName: string) (typeName: string) : SymbolKey =
+    typeDeclKeyInArity tast moduleName typeName 0
+
+/// The `SymbolKey` of the non-generic `typeName` declared in the module `inner` NESTED in the
+/// module `outer` — the whole chain, because a sibling module of the same short name as
+/// `inner` may declare the same type name, and only the chain tells the two apart.
+let private typeDeclKeyInNested (tast: TastFile) (outer: string) (inner: string) (typeName: string) : SymbolKey =
+    let found =
+        [
+            for d in tast.Decls do
+                match d with
+                | TDecl.Type td when td.Name = typeName ->
+                    match td.Key with
+                    | SymbolKey.Type {
+                                         Holder = TypeHolder.InModule {
+                                                                          Name = i
+                                                                          Holder = ModuleHolder.InModule o
+                                                                      }
+                                     } when i = inner && o.Name = outer -> yield td.Key
+                    | _ -> ()
+                | _ -> ()
+        ]
+
+    match found with
+    | [ k ] -> k
+    | other -> failtestf "expected one '%s' held by module '%s.%s', got %A" typeName outer inner other
 
 /// The `SymbolKey` of the type `typeName` declared directly in a NAMESPACE.
 let private typeDeclKeyInNamespace (tast: TastFile) (typeName: string) : SymbolKey =
@@ -304,5 +336,298 @@ let tests =
                     (nominalKey (soleLetArg declThenOpen))
                     (typeDeclKeyIn declThenOpen "A" "T")
                     "the `open` is written after the declaration, so it wins"
+            }
+        ]
+
+// A type is reached from outside the module holding it by NAMING that module: the qualifier
+// is a path through the scopes this unit declares, resolved from the use — its own scopes
+// (innermost first), the `open`s in force, or the root (a fully-qualified path). The type it
+// selects there is as local as a bare one.
+//
+// Every program below declares a SECOND `T`, in a sibling module, so nothing can pass by
+// conflating the two: only the key the name bound to says which `T` it meant.
+[<Tests>]
+let qualifiedTests =
+    testList
+        "ModuleScoping qualified"
+        [
+            test "a sibling module's type is reached by naming its module" {
+                let tast =
+                    analyse (
+                        src
+                            [
+                                "namespace N"
+                                ""
+                                "module A ="
+                                "    type T = { fromA: int }"
+                                ""
+                                "module B ="
+                                "    type T = { fromB: int }"
+                                "    let f (v: A.T) = v"
+                            ]
+                    )
+
+                expectClean tast
+
+                Expect.equal
+                    (nominalKey (soleLetArg tast))
+                    (typeDeclKeyIn tast "A" "T")
+                    "A.T is A's T — not the B.T that a bare T would have named"
+            }
+
+            test "a fully-qualified path names the type from anywhere in the unit" {
+                let tast =
+                    analyse (
+                        src
+                            [
+                                "namespace N"
+                                ""
+                                "module A ="
+                                "    type T = { fromA: int }"
+                                ""
+                                "module B ="
+                                "    type T = { fromB: int }"
+                                "    let f (v: N.A.T) = v"
+                            ]
+                    )
+
+                expectClean tast
+                Expect.equal (nominalKey (soleLetArg tast)) (typeDeclKeyIn tast "A" "T") "N.A.T is A's T"
+            }
+
+            // The namespace is not an ancestor scope of the use, so the path is resolved from
+            // the ROOT — the only route left, and the one F# leaves open from everywhere.
+            test "a fully-qualified path names the type from ANOTHER namespace" {
+                let tast =
+                    analyse (
+                        src
+                            [
+                                "namespace N"
+                                ""
+                                "module A ="
+                                "    type T = { fromA: int }"
+                                ""
+                                "module B ="
+                                "    type T = { fromB: int }"
+                                ""
+                                "namespace M"
+                                ""
+                                "module C ="
+                                "    let f (v: N.A.T) = v"
+                            ]
+                    )
+
+                expectClean tast
+                Expect.equal (nominalKey (soleLetArg tast)) (typeDeclKeyIn tast "A" "T") "N.A.T is A's T"
+            }
+
+            test "a nested module's type is reached through the path to it" {
+                let tast =
+                    analyse (
+                        src
+                            [
+                                "namespace N"
+                                ""
+                                "module A ="
+                                "    module B ="
+                                "        type T = { fromAB: int }"
+                                ""
+                                "module B ="
+                                "    type T = { fromB: int }"
+                                ""
+                                "module C ="
+                                "    let f (v: A.B.T) = v"
+                            ]
+                    )
+
+                expectClean tast
+
+                // The path is walked from its HEAD, so the `B` in `A.B` is the one A holds —
+                // not the sibling module B, whose own `T` is a different type entirely.
+                Expect.equal
+                    (nominalKey (soleLetArg tast))
+                    (typeDeclKeyInNested tast "A" "B" "T")
+                    "A.B.T is the T of the B nested in A"
+            }
+
+            // Arity is part of the claim, so it is part of what a qualified name selects: `A`
+            // holds BOTH a `T` and a `T<'a>`, and the written head picks one of them.
+            test "a qualified generic head resolves at its written arity" {
+                let source =
+                    src
+                        [
+                            "namespace N"
+                            ""
+                            "module A ="
+                            "    type T = { fromA: int }"
+                            "    type T<'a> = { fromGenericA: 'a }"
+                            ""
+                            "module B ="
+                            "    type T<'a> = { fromB: 'a }"
+                            "    let f (v: A.T<int>) = v"
+                        ]
+
+                let tast = analyse source
+                expectClean tast
+
+                Expect.equal
+                    (nominalKey (soleLetArg tast))
+                    (typeDeclKeyInArity tast "A" "T" 1)
+                    "A.T<int> is A's generic T, not its non-generic one and not B's"
+
+                match soleLetArg tast with
+                | SemType.TyRecord(_, args) ->
+                    Expect.equal (EqArray.toList args) [ BuiltinTypes.tyInt ] "the written type argument is applied"
+                | other -> failtestf "expected a record, got %A" other
+
+                // The same path at the OTHER arity names the other type — the arity is not
+                // decoration on one name, it is part of which claim is held.
+                let nonGeneric =
+                    analyse (
+                        src
+                            [
+                                "namespace N"
+                                ""
+                                "module A ="
+                                "    type T = { fromA: int }"
+                                "    type T<'a> = { fromGenericA: 'a }"
+                                ""
+                                "module B ="
+                                "    type T<'a> = { fromB: 'a }"
+                                "    let f (v: A.T) = v"
+                            ]
+                    )
+
+                expectClean nonGeneric
+
+                Expect.equal
+                    (nominalKey (soleLetArg nonGeneric))
+                    (typeDeclKeyInArity nonGeneric "A" "T" 0)
+                    "A.T names A's non-generic T"
+            }
+
+            // An `open` qualifies a PARTIAL path: `open N` + `A.T` names `N.A.T`, exactly as
+            // it brings `N`'s own types into scope bare. (Probed against `dotnet fsi`.)
+            test "an `open` qualifies a partial path" {
+                let tast =
+                    analyse (
+                        src
+                            [
+                                "namespace N"
+                                ""
+                                "module A ="
+                                "    type T = { fromA: int }"
+                                ""
+                                "namespace M"
+                                ""
+                                "module A ="
+                                "    type T = { fromM: int }"
+                                ""
+                                "module C ="
+                                "    open N"
+                                "    let f (v: A.T) = v"
+                            ]
+                    )
+
+                expectClean tast
+
+                // `M` also holds an `A.T`, and `M` is an ancestor scope of the use — so the
+                // `open N` must OUTRANK it (it is written deeper, and later), or the name
+                // would mean M's.
+                match soleLetArg tast with
+                | SemType.TyRecord(SymbolKey.Type k, _) ->
+                    Expect.equal k.Namespace.Dotted "N" "the `open N` qualifies A.T to N.A.T"
+                | other -> failtestf "expected a record, got %A" other
+            }
+
+            // A qualifier that names a module of THIS unit wins over an external type of the
+            // same dotted spelling: `Vesper.Collections.seq` is a real external type (the
+            // contract's `seq` interface), and the local module chain shadows it. F#'s answer,
+            // probed against `dotnet fsi`: the nearest scope that can name the qualifier wins,
+            // and the enclosing namespace holds this one.
+            test "a project-local qualified type beats an external type of the same spelling" {
+                let tast =
+                    analyse (
+                        src
+                            [
+                                "namespace N"
+                                ""
+                                "module Vesper ="
+                                "    module Collections ="
+                                "        type seq<'a> = { fromLocal: 'a }"
+                                ""
+                                "module B ="
+                                "    let f (v: Vesper.Collections.seq<int>) = v"
+                            ]
+                    )
+
+                expectClean tast
+
+                Expect.equal
+                    (nominalKey (soleLetArg tast))
+                    (typeDeclKeyInArity tast "Collections" "seq" 1)
+                    "the local Vesper.Collections.seq wins over the external one"
+            }
+
+            // A name a scope OF THIS UNIT does not hold is a DIAGNOSTIC: we know every type
+            // our own scopes hold. A fresh type variable would unify with anything and
+            // surface the mistake as unencodable output far from it.
+            //
+            // The same cannot be said under a qualifier we do not declare: what an external
+            // name means is the provider's to answer, and the provider is a partial view.
+            test "a name a module of this unit does not hold is not defined" {
+                expectRejected (
+                    src
+                        [
+                            "namespace N"
+                            ""
+                            "module A ="
+                            "    type T = { fromA: int }"
+                            ""
+                            "module B ="
+                            "    let f (v: A.Nope) = v"
+                        ]
+                )
+
+                expectRejected (
+                    src
+                        [
+                            "namespace N"
+                            ""
+                            "module A ="
+                            "    module B ="
+                            "        type T = { fromAB: int }"
+                            ""
+                            "module C ="
+                            "    let f (v: A.B.Nope) = v"
+                        ]
+                )
+            }
+
+            // The head names A's `T`, at an arity A does not hold it at — so the ARITY is
+            // blamed. A local claim is never abandoned for an external type of the same
+            // spelling just because the arity is wrong.
+            test "a qualified head at the wrong arity blames the arity" {
+                let es =
+                    errors (
+                        analyse (
+                            src
+                                [
+                                    "namespace N"
+                                    ""
+                                    "module A ="
+                                    "    type T = { fromA: int }"
+                                    ""
+                                    "module B ="
+                                    "    let f (v: A.T<int>) = v"
+                                ]
+                        )
+                    )
+
+                Expect.isNonEmpty es "expected an arity diagnostic"
+
+                Expect.isTrue
+                    (es |> List.exists (fun e -> e.Contains "A.T" && e.Contains "type argument"))
+                    (sprintf "expected the arity of A.T to be blamed; got %A" es)
             }
         ]

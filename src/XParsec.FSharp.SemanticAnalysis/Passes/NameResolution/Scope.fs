@@ -559,6 +559,14 @@ module NameResolutionScope =
                                     | ValueNone -> false
                                 ))
 
+                        // `A.T` — the whole name is a project-local TYPE named through the
+                        // module holding it, so the reference is a ctor / static head, not a
+                        // value. Unification resolves it through the type registry
+                        // (`tryWrittenClassCtorAsFunction`), so suppress here exactly as the
+                        // bare form is suppressed by never reaching this path at all.
+                        let isLocalQualifiedType =
+                            TypeRegistry.isWrittenTypeNameInScope ctx.Types useSite (ctx.WrittenTypeNameOf li)
+
                         // `E.C1` — a two-segment enum-case access. The head names a
                         // project-local enum, so suppress (Unification's `InferIdentExpr`
                         // enum arm resolves a valid case to `TyEnum` and emits the precise
@@ -711,6 +719,7 @@ module NameResolutionScope =
                         if
                             isQualifiedCtor
                             || isQualifiedStatic
+                            || isLocalQualifiedType
                             || isEnumCase
                             || isExternalQualifiedCase
                             // A generic external-type receiver written qualified

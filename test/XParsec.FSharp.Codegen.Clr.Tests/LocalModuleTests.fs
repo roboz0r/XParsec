@@ -313,4 +313,52 @@ let moduleIsPartOfTypeIdentity =
                     Expect.isNotNull (asm.GetType "N.A+T") "expected N.A+T to bind"
                     Expect.isNotNull (asm.GetType "N.B+T") "expected N.B+T to bind"
                 }
+
+            // A type is reached from OUTSIDE the module holding it by naming that module.
+            // `B` declares its own `T` with a different field, so a conflation would be caught
+            // twice over: the construction would take the wrong ctor argument, and the emitted
+            // member would hang off the wrong nested type.
+            yield
+                test "a body outside A constructs A.T by its qualified name" {
+                    let src =
+                        String.concat
+                            "\n"
+                            ([
+                                "namespace N"
+                                ""
+                                "module A ="
+                                "    type T(n: int) ="
+                                "        member _.N = n"
+                                ""
+                                "module B ="
+                                "    type T(s: string) ="
+                                "        member _.S = s"
+                                ""
+                                "module C ="
+                                // Both the annotation and the construction name A's T through
+                                // the module holding it.
+                                "    let make (n: int) : A.T = A.T(n)"
+                                "    let read (v: A.T) = v.N"
+                            ])
+
+                    let _, artifact = compileSource "QualifiedModuleTypeCtor" src
+                    let bytes = Codegen.toBytes artifact
+                    MetadataStructure.assertWellFormed "QualifiedModuleTypeCtor" bytes
+
+                    let asm = loadAssembly bytes
+                    let ta = asm.GetType "N.A+T"
+                    Expect.isNotNull ta "expected N.A+T to bind"
+
+                    // `make` returns A's T — and A's T is the one taking an int and carrying
+                    // `N`, not B's `string`/`S`.
+                    let make = (asm.GetType "N.C").GetMethod "make"
+                    Expect.equal make.ReturnType ta "make returns N.A+T"
+
+                    let v = make.Invoke(null, [| box 7 |])
+                    Expect.equal (v.GetType()) ta "the constructed value IS N.A+T"
+
+                    // A's own member (a property emits as `get_N`) reads back the ctor
+                    // argument: the construction ran A's ctor, not B's.
+                    Expect.equal ((ta.GetMethod "get_N").Invoke(v, [||]) :?> int) 7 "A.T(7).N = 7"
+                }
         ]

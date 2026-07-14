@@ -351,23 +351,24 @@ module internal UnificationInferCtor =
             | Expr.TypeApp(expr = h; types = ts) -> h, ValueSome [ for t in ts -> translateType ctx t ]
             | _ -> fn, ValueNone
 
+        // The head may name the class bare (`OnceEnum(x)`) or through the module holding it
+        // (`A.OnceEnum(x)`) — one written name either way.
         let headName =
             match headExpr with
             | Expr.Ident tok when not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken tok NodeKind.ExprIdent)) ->
-                ValueSome(ctx.NameOf tok)
+                ValueSome(WrittenTypeName.bare (ctx.NameOf tok))
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
-                li.Idents.Length = 1
-                && not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent))
+                not (ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent))
                 ->
-                ValueSome(ctx.NameOf li.Idents.[0])
+                ValueSome(ctx.WrittenTypeNameOf li)
             | _ -> ValueNone
 
         match headName with
         | ValueNone -> ValueNone
-        | ValueSome name ->
+        | ValueSome written ->
             // The head names a class only if one is in scope AT THE CALL: a class declared
             // below it is not constructible there.
-            match TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt key) name with
+            match TypeRegistry.tryWrittenClass ctx.Types (ctx.UseSiteAt key) written with
             | ValueNone -> ValueNone
             | ValueSome info ->
                 let argTy = infer ctx argExpr

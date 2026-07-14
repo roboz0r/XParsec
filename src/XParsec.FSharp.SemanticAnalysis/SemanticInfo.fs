@@ -231,6 +231,40 @@ module UseSite =
             Opens = []
         }
 
+/// A type name AS WRITTEN at a use site, split where the syntax splits it: the dotted SOURCE
+/// path of the scope that QUALIFIES the name (`"A"` in `A.T`, `"N.A"` in `N.A.T`, EMPTY for a
+/// bare `T`), and the short name itself. The two facts a by-name type lookup needs from the
+/// syntax, and the only two — a written head says which SCOPE to look in and which NAME to
+/// find there.
+///
+/// The path is a SOURCE path (what an `open` and a qualifier write), never a compiled holder
+/// name (`ListModule`): the scope it names is recovered by resolving it against the scopes
+/// this unit declares, exactly as an `open`'s path is.
+///
+/// A BARE name is the empty path — not a separate case. A bare name and a qualified one
+/// resolve by ONE rule (`TypeRegistry.claimRank`): the name enters the environment through a
+/// scope, and the empty path names the enclosing scope itself.
+[<Struct>]
+type WrittenTypeName =
+    {
+        /// The qualifying scope's dotted SOURCE path; empty for a bare name.
+        Path: string
+        /// The short type name (the last segment as written, no arity suffix).
+        Name: string
+    }
+
+    /// The name as the source spells it — for diagnostics.
+    member this.Written: string =
+        if this.Path.Length = 0 then
+            this.Name
+        else
+            this.Path + "." + this.Name
+
+module WrittenTypeName =
+
+    /// A name written with no qualifier.
+    let bare (name: string) : WrittenTypeName = { Path = ""; Name = name }
+
 /// Was `SymbolKey.ValueKey`: a module-level binding / operator. No `ArgSig`: modules
 /// do not overload.
 ///

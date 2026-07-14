@@ -111,23 +111,19 @@ module internal ElaborateResolve =
 
             // Scoped by the head's own position, exactly as Unification's ctor-as-function
             // read is: a class declared BELOW this head names nothing here, so the head is
-            // not a class reference and must not lower to a construction of it.
+            // not a class reference and must not lower to a construction of it. A head naming
+            // the class through the module holding it (`A.Point`) is a class reference on the
+            // same terms — the local read comes first, so a local class is never mistaken for
+            // an external type of the same dotted spelling.
+            let localClass (written: WrittenTypeName) : string voption =
+                if (TypeRegistry.tryWrittenClass ctx.Types (ctx.UseSiteAt key) written).IsSome then
+                    ValueSome written.Written
+                else
+                    stampedExternal ()
+
             match e with
-            | Expr.Ident t ->
-                let n = ctx.NameOf t
-
-                if (TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt key) n).IsSome then
-                    ValueSome n
-                else
-                    stampedExternal ()
-            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-                let n = ctx.NameOf li.Idents.[0]
-
-                if (TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt key) n).IsSome then
-                    ValueSome n
-                else
-                    stampedExternal ()
-            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent _) -> stampedExternal ()
+            | Expr.Ident t -> localClass (WrittenTypeName.bare (ctx.NameOf t))
+            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) -> localClass (ctx.WrittenTypeNameOf li)
             | Expr.TypeApp(expr = inner) -> tryClassRef ctx inner
             | _ -> ValueNone
 

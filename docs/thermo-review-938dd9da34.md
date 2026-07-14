@@ -46,14 +46,20 @@ table gained a use site to answer from (`UseSite` / `TypeRegistry.claimRank`), a
 project-local type scoping became F#'s — module-aware, `open`-aware, innermost-outward. The
 module-blind claim collision that "Test gaps" asked to pin is fixed rather than pinned.
 
+A written type name is now `{ Path; Name }`, a bare name being the EMPTY path rather than a
+separate case, so a qualified local name (`A.T`, `N.A.T`, nested `A.B.T`, `A.T<int>`) is the
+same lookup as a bare one: `pathReaches` enumerates the ways a written name reaches a scope
+of this unit — an ancestor, an `open` (which is how `open N` qualifies the partial `A.T`),
+or the root — and `claimRank` maximises over it. One rule ranks both.
+
+A dotted head under a qualifier THIS UNIT DECLARES now blames the name (or the arity) rather
+than degrading into a fresh type variable. Under any other qualifier the lenient `TyVar`
+stays, deliberately: inside our own scopes we know every type held, so a name they do not
+hold is undefined; under a foreign one the answer belongs to a partial view we cannot
+enumerate, and the SA test stack (BCL-less) has real cases that depend on it.
+
 **Open, unchanged: 3, 4, 5, 6, 8, 10** and the remaining test gap (an arity overload
 combined with `inherit` or an augmentation block).
-
-**Known gap, deliberately deferred:** a qualified LOCAL type name (`A.T`, where `A` is a
-module of this unit) still does not resolve — `classifyTypeHead` treats any dotted head as
-external, and a miss becomes a fresh type variable rather than a diagnostic. Sibling
-same-named types are now legal, so this is the one way to name one of them from outside its
-module, and it is the natural next commit.
 
 ## What is right
 

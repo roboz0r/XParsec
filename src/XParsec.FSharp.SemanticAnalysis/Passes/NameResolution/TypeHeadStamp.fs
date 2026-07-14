@@ -172,8 +172,9 @@ module NameResolutionTypeHeadStamp =
     /// exclusive, which is what makes this the ONE local/external precedence rule.
     [<Struct>]
     type TypeHeadVerdict =
-        /// A single-segment name a project-local claim already holds. Deliberately left
-        /// UNSTAMPED: `translateType` reads it off the registry.
+        /// A name a project-local claim already holds — bare (`T`), or qualified by the
+        /// module that holds it (`A.T`, `N.A.T`). Deliberately left UNSTAMPED:
+        /// `translateType` reads it off the registry.
         | LocalType
         /// Resolved — opens-aware, at the head's syntactic arity — through the external
         /// universe, and stamped into `ResolvedTypeHead`.
@@ -195,21 +196,19 @@ module NameResolutionTypeHeadStamp =
     /// declaration sees no claim, stamps external, and keeps resolving to the external type
     /// even once the local one is registered. That is F#'s file-order shadowing rule
     /// (`open System` + a `type Uri` declared below a use of `Uri` binds `System.Uri`), and
-    /// it now falls out of the head's POSITION alone, not out of when the walk reaches it.
+    /// it falls out of the head's POSITION alone, not out of when the walk reaches it.
+    ///
+    /// A head is LOCAL by the claims in scope where it is written, whether it is written bare
+    /// (`T`) or qualified by the module holding it (`A.T`, `N.A.T`) — the qualifier names a
+    /// scope of this unit, so the type it selects there is as local as a bare one, and beats
+    /// an external type of the same dotted spelling.
     let classifyTypeHead (ctx: PassContext) (head: CstKeys.TypeHead) : TypeHeadVerdict =
-        let idents = head.LongIdent.Idents
+        let written = ctx.WrittenTypeNameOf head.LongIdent
 
-        // A project-local type is always single-segment, so only a single-segment head can
-        // be claimed; a dotted name is external or nothing.
-        if
-            idents.Length = 1
-            && TypeRegistry.isTypeNameInScope ctx.Types (ctx.UseSiteAt head.Key) (ctx.NameOf idents.[0])
-        then
+        if TypeRegistry.isWrittenTypeNameInScope ctx.Types (ctx.UseSiteAt head.Key) written then
             LocalType
         else
-            let name = idents |> Seq.map ctx.NameOf |> String.concat "."
-
-            match tryResolveExternalTypeKey ctx name head.Arity with
+            match tryResolveExternalTypeKey ctx written.Written head.Arity with
             | ValueSome sym ->
                 ctx.Resolution.ResolvedTypeHead.Set(head.Key, sym)
                 ExternalType

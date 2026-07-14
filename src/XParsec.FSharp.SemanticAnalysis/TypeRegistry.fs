@@ -245,6 +245,13 @@ type PassContextTypes =
         /// carries the module's COMPILED holder name (`ListModule`), so the two spellings
         /// are not interchangeable and the table is the translation.
         LocalHolders: Dictionary<string, ModuleHolder>
+        /// The INVERSE of `LocalHolders`: the dotted SOURCE path each declared scope is
+        /// named by. A qualifier is written relative to a SCOPE (`A.T` inside `module N.B`
+        /// means `N.A.T`), so resolving one needs the source path of the scope it is written
+        /// in — and a use site carries its `ModuleHolder` chain, not a path. Written with
+        /// `LocalHolders` at the one site (`noteLocalHolder`), so the two directions cannot
+        /// disagree about which path names which scope.
+        LocalHolderPaths: Dictionary<ModuleHolder, string>
         /// Every ACCEPTED type declaration of this unit, in SOURCE order, with the identity
         /// its claim established. Co-populated with `TypeClaims` (one write, `claimType`),
         /// so the list and the name table cannot disagree about which declarations were
@@ -300,6 +307,7 @@ module PassContextTypes =
             AbbreviationNames = Dictionary<_, _>()
             TypeClaims = Dictionary<_, _>()
             LocalHolders = Dictionary<_, _>()
+            LocalHolderPaths = Dictionary<_, _>()
             ClaimedTypeDefns = ResizeArray<_>()
             RejectedDuplicates = ResizeArray<_>()
             NominalTypeNames = HashSet<_>()
@@ -382,15 +390,18 @@ module TypeRegistry =
     // by-name face below is a `max claimRank` over a candidate set — there is no second
     // statement of precedence anywhere.
 
-    /// The module / namespace this `open` names, if THIS unit declares it. `open A` inside
-    /// `namespace N` names `N.A` before it names a top-level `A`, so the written path is
-    /// qualified by each enclosing scope in turn, longest first — F#'s own order. An `open`
-    /// of something this unit does not declare (`open System`) names no local holder and so
-    /// brings no local claim into scope; the external resolver reads it off
-    /// `OpenScope.Prefixes` instead.
-    let private openedHolder (types: PassContextTypes) (o: LocalOpen) : ModuleHolder voption =
+    /// The scope this unit declares under the dotted SOURCE `path`, as a path is WRITTEN
+    /// INSIDE the scope whose own source path is `scope`: `scope.path` first, then each
+    /// shorter prefix of `scope`, longest first — F#'s own order — and finally `path` alone
+    /// (fully qualified from the root). So `open A` inside `namespace N` names `N.A` before
+    /// it names a top-level `A`, and so does the qualifier of an `A.T` written there.
+    ///
+    /// `ValueNone` for a path this unit does not declare (`open System`, `System.Uri`): it
+    /// names no local scope and so brings no local claim into reach; the external resolver
+    /// answers for it instead.
+    let private tryHolderOfPath (types: PassContextTypes) (scope: string) (path: string) : ModuleHolder voption =
         let rec go (scope: string) =
-            let qualified = if scope.Length = 0 then o.Path else scope + "." + o.Path
+            let qualified = if scope.Length = 0 then path else scope + "." + path
 
             match types.LocalHolders.TryGetValue qualified with
             | true, h -> ValueSome h
@@ -401,27 +412,129 @@ module TypeRegistry =
                     let cut = scope.LastIndexOf '.'
                     go (if cut < 0 then "" else scope.Substring(0, cut))
 
-        go o.Scope
+        go scope
 
-    /// WHERE this claim enters the name environment at `useSite` — `ValueNone` if it is not
-    /// in scope there at all. THE whole of project-local type scoping, in one function:
+    /// The module / namespace this `open` names, if THIS unit declares it — its written path
+    /// resolved from the scope it is written in.
+    let private openedHolder (types: PassContextTypes) (o: LocalOpen) : ModuleHolder voption =
+        tryHolderOfPath types o.Scope o.Path
+
+    /// The scope that the dotted SOURCE `path` names when it is written INSIDE the scope
+    /// `enclosing` — and `enclosing` itself when the path is empty, because a BARE name
+    /// qualifies by nothing and so names the scope it is written in. That identity is what
+    /// lets one rule rank a bare name and a qualified one (`claimRank`).
+    ///
+    /// Only an EXACT descent, no walking outward: which scopes a path may be read from is
+    /// `claimRank`'s question, and it asks this once per scope it is prepared to read from.
+    let private holderUnder (types: PassContextTypes) (enclosing: ModuleHolder) (path: string) : ModuleHolder voption =
+        if path.Length = 0 then
+            ValueSome enclosing
+        else
+            match types.LocalHolderPaths.TryGetValue enclosing with
+            | true, basePath ->
+                let qualified = if basePath.Length = 0 then path else basePath + "." + path
+
+                match types.LocalHolders.TryGetValue qualified with
+                | true, h -> ValueSome h
+                | false, _ -> ValueNone
+            | false, _ -> ValueNone
+
+    /// ONE way a written name REACHES a scope from a use site: the scope it reaches, and
+    /// where the name it qualifies enters the name environment through it.
+    [<Struct; NoComparison>]
+    type private ScopeReach =
+        {
+            /// The scope reached — where the claim must be held for this reach to answer.
+            Scope: ModuleHolder
+            /// How many `module`s enclose whatever ADDED the name (the enclosing scope, or the
+            /// `open`). An inner scope is entered after the scopes above it, so this is what
+            /// makes resolution innermost-outward.
+            Depth: int
+            /// Where in that scope the name enters, when the reach fixes it — an `open`'s own
+            /// offset. `ValueNone` when a SCOPE reaches the name directly (an ancestor, or the
+            /// root of a fully-qualified path): a declaration enters the environment where it
+            /// is WRITTEN, so the offset is the claim's own `VisibleFrom`.
+            Offset: int voption
+        }
+
+    /// EVERY way the written module `path` (EMPTY for a bare name) reaches a scope of this
+    /// unit from `useSite`. THE enumeration of routes a name may travel — the ranker below
+    /// maximises over it, and it is the only place the routes are stated:
+    ///
+    ///   * an ANCESTOR scope of the use — its own module, an enclosing module, the namespace
+    ///     at the root — reaches whatever `path` names UNDER it, at THAT scope's depth. For a
+    ///     bare name (empty path) that is the scope itself, so a type in the use's own module
+    ///     beats a same-named one in the module enclosing it, which beats one at namespace
+    ///     level. For `A.T` it is the `A` that scope holds. A SIBLING module is no ancestor,
+    ///     so a BARE cross-module name is simply not defined (FS0039) — but the sibling IS
+    ///     reached by naming it (`A.T`), because the scope enclosing both holds it;
+    ///   * an `open` reaches whatever `path` names under the scope it OPENS, at the depth of
+    ///     the scope the `open` is WRITTEN in and at the `open`'s own offset. So an `open`
+    ///     beats an enclosing module's declaration, the LAST of two `open`s wins, within one
+    ///     scope a declaration and an `open` are ordered by nothing but the text, and an
+    ///     `open N` qualifies a PARTIAL path (`A.T` ⇒ `N.A.T`);
+    ///   * a FULLY-QUALIFIED path (`N.A.T`) reaches its scope from the ROOT, from anywhere —
+    ///     including another namespace of the same unit — and ranks outermost, below every
+    ///     scope that could name it more nearly.
+    ///
+    /// EMPTY for a path that names no scope of this unit (`System.Text.StringBuilder`): the
+    /// external resolver answers for those, and a use site with nowhere to speak from
+    /// (`UseSite.unbounded`) reaches nothing this way — it sees every claim regardless.
+    let private pathReaches (types: PassContextTypes) (useSite: UseSite) (path: string) : ScopeReach list =
+        match useSite.Holder with
+        | ValueNone -> []
+        | ValueSome here ->
+            let reaches = ResizeArray()
+
+            for h in here.SelfAndAncestors do
+                match holderUnder types h path with
+                | ValueSome scope ->
+                    reaches.Add
+                        {
+                            Scope = scope
+                            Depth = h.Depth
+                            Offset = ValueNone
+                        }
+                | ValueNone -> ()
+
+            for o in useSite.Opens do
+                match openedHolder types o with
+                | ValueSome opened ->
+                    match holderUnder types opened path with
+                    | ValueSome scope ->
+                        reaches.Add
+                            {
+                                Scope = scope
+                                Depth = o.ScopeDepth
+                                Offset = ValueSome o.Offset
+                            }
+                    | ValueNone -> ()
+                | ValueNone -> ()
+
+            if path.Length > 0 then
+                match types.LocalHolders.TryGetValue path with
+                | true, scope ->
+                    reaches.Add
+                        {
+                            Scope = scope
+                            Depth = 0
+                            Offset = ValueNone
+                        }
+                | false, _ -> ()
+
+            List.ofSeq reaches
+
+    /// WHERE this claim enters the name environment at `useSite`, given the ways the written
+    /// name reaches a scope there — `ValueNone` if it is not in scope at all. THE whole of
+    /// project-local type scoping, with `pathReaches`:
     ///
     ///   * a claim declared BELOW the use answers for nothing (`VisibleFrom`) — F# type
     ///     scoping is file-ordered, and `module rec` is not an exception to it but a
     ///     restatement (the claim's `VisibleFrom` is the `rec` keyword);
-    ///   * a claim held by an ANCESTOR scope of the use — its own module, an enclosing
-    ///     module, the namespace at the root — is in scope, at THAT scope's depth. So a
-    ///     type in the use's own module beats a same-named one in the module enclosing it,
-    ///     which beats one at namespace level. A SIBLING module is no ancestor, so its
-    ///     types are not in scope: a bare cross-module name is simply not defined (FS0039);
-    ///   * an `open` naming the claim's holder brings it in at the depth of the scope the
-    ///     `open` is WRITTEN in, and at the `open`'s own offset. So an `open` beats an
-    ///     enclosing module's declaration, the LAST of two `open`s wins, and within one
-    ///     scope a declaration and an `open` are ordered by nothing but the text.
-    ///
-    /// The MAXIMUM over every way the claim is reachable, because F# adds each of them to
-    /// ONE environment and the last one added is what the name means.
-    let private claimRank (types: PassContextTypes) (useSite: UseSite) (claim: TypeIdentity) : BindingRank voption =
+    ///   * otherwise the MAXIMUM over every reach that lands on the scope HOLDING the claim,
+    ///     because F# adds each of them to ONE environment and the last one added is what the
+    ///     name means.
+    let private claimRank (useSite: UseSite) (reaches: ScopeReach list) (claim: TypeIdentity) : BindingRank voption =
         if claim.VisibleFrom > useSite.Offset then
             ValueNone
         else
@@ -430,50 +543,45 @@ module TypeRegistry =
             // is in scope, and none outranks another — so a caller that must choose still
             // takes the first, as it did before it had anywhere to speak from.
             | ValueNone -> ValueSome { Depth = 0; Offset = 0 }
-            | ValueSome here ->
+            | ValueSome _ ->
                 let mutable best = ValueNone
 
-                let bid (r: BindingRank) =
-                    match best with
-                    | ValueSome b when b >= r -> ()
-                    | _ -> best <- ValueSome r
-
-                if here.SelfAndAncestors |> List.exists (fun h -> h = claim.Holder) then
-                    bid
-                        {
-                            Depth = claim.Holder.Depth
-                            Offset = claim.VisibleFrom
-                        }
-
-                for o in useSite.Opens do
-                    match openedHolder types o with
-                    | ValueSome opened when opened = claim.Holder ->
-                        bid
+                for r in reaches do
+                    if r.Scope = claim.Holder then
+                        let rank =
                             {
-                                Depth = o.ScopeDepth
-                                Offset = o.Offset
+                                Depth = r.Depth
+                                Offset =
+                                    match r.Offset with
+                                    | ValueSome o -> o
+                                    | ValueNone -> claim.VisibleFrom
                             }
-                    | _ -> ()
+
+                        match best with
+                        | ValueSome b when b >= rank -> ()
+                        | _ -> best <- ValueSome rank
 
                 best
 
-    /// The claim under `name` that WINS at `useSite` among those `admit`s — the max-rank
+    /// The claim on `written` that WINS at `useSite` among those `admit`s — the max-rank
     /// candidate. THE resolution primitive: every by-name face is this with a different
-    /// `admit`, so no face can invent a precedence of its own.
+    /// `admit`, so no face can invent a precedence of its own, and a qualified name is not a
+    /// second resolver but the same one reading from the scope its path names.
     let private tryWinner
         (types: PassContextTypes)
         (useSite: UseSite)
-        (name: string)
+        (written: WrittenTypeName)
         (admit: TypeIdentity -> bool)
         : TypeIdentity voption =
-        match types.TypeClaims.TryGetValue name with
+        match types.TypeClaims.TryGetValue written.Name with
         | true, claims ->
+            let reaches = pathReaches types useSite written.Path
             let mutable best = ValueNone
             let mutable bestRank = ValueNone
 
             for c in claims do
                 if admit c then
-                    match claimRank types useSite c with
+                    match claimRank useSite reaches c with
                     | ValueSome r ->
                         match bestRank with
                         | ValueSome b when b >= r -> ()
@@ -485,73 +593,70 @@ module TypeRegistry =
             best
         | false, _ -> ValueNone
 
-    /// Is this claim in scope at `useSite`?
-    let private visibleAt (types: PassContextTypes) (useSite: UseSite) (claim: TypeIdentity) : bool =
-        (claimRank types useSite claim).IsSome
-
     /// Is the type `key` (claimed under the short name `name`) visible from `useSite`?
     /// The kind indexes below map a name to KEYS, but the scoping facts live on the CLAIM —
     /// so a kind index is scoped by asking the name table about the very key it is about to
     /// answer with. A key carries holder, name and arity, so at most one claim can match.
     let private keyVisibleAt (types: PassContextTypes) (useSite: UseSite) (name: string) (key: TypeKey) : bool =
-        (tryWinner types useSite name (fun c -> c.Key = key)).IsSome
+        (tryWinner types useSite (WrittenTypeName.bare name) (fun c -> c.Key = key)).IsSome
 
-    /// The key a name claims at EXACTLY this arity AS SEEN FROM `useSite`, if any — the
+    /// The key `written` claims at EXACTLY this arity AS SEEN FROM `useSite`, if any — the
     /// winning claim's, restricted to the keys THIS kind's index holds (so a same-named type
     /// of another kind that shadows it makes the kind read MISS, which is the right answer:
     /// the name does not mean this kind here).
     ///
-    /// With `tryKeyOfBareName` it is the funnel EVERY kind index (record / union / class /
+    /// With `tryKeyOfArglessName` it is the funnel EVERY kind index (record / union / class /
     /// abbrev) resolves a name through, which is why the use site enters here rather than
     /// at each kind's face: one place decides what a name can see.
     let private tryKeyOfArity
         (types: PassContextTypes)
         (index: Dictionary<string, ResizeArray<TypeKey>>)
         (useSite: UseSite)
-        (name: string)
+        (written: WrittenTypeName)
         (arity: int)
         : TypeKey voption =
-        match index.TryGetValue name with
+        match index.TryGetValue written.Name with
         | true, keys ->
-            match tryWinner types useSite name (fun c -> c.Arity = arity && keys.Contains c.Key) with
+            match tryWinner types useSite written (fun c -> c.Arity = arity && keys.Contains c.Key) with
             | ValueSome c -> ValueSome c.Key
             | ValueNone -> ValueNone
         | false, _ -> ValueNone
 
-    /// What a BARE (arity-less) short name resolves to AS SEEN FROM `useSite`. A
-    /// NON-GENERIC type owns its short name outright — nothing else can be written
-    /// unqualified and mean it — so it wins whenever one is in scope; failing that the
-    /// candidates resolve only if they agree on an arity (a generic type named without its
-    /// arguments back-fills them); and a name overloaded on arity (`Point<'a,'b>` /
-    /// `Point<'a,'b,'c>`) is genuinely ambiguous unqualified, so it resolves to NOTHING and
-    /// the caller must come with an arity or a key.
+    /// What a name written WITHOUT type arguments resolves to AS SEEN FROM `useSite`. A
+    /// NON-GENERIC type owns its name outright — nothing else can be written argument-less
+    /// and mean it — so it wins whenever one is in scope; failing that the candidates
+    /// resolve only if they agree on an arity (a generic type named without its arguments
+    /// back-fills them); and a name overloaded on arity (`Point<'a,'b>` / `Point<'a,'b,'c>`)
+    /// is genuinely ambiguous written this way, so it resolves to NOTHING and the caller
+    /// must come with an arity or a key.
     ///
     /// Among candidates of the SAME arity the winner is the max-rank one, exactly as for an
     /// arity-qualified read: two sibling modules' `T`, both in scope through `open`s, are
     /// not ambiguous — the later `open` wins, as it does in F#.
-    let private tryKeyOfBareName
+    let private tryKeyOfArglessName
         (types: PassContextTypes)
         (index: Dictionary<string, ResizeArray<TypeKey>>)
         (useSite: UseSite)
-        (name: string)
+        (written: WrittenTypeName)
         : TypeKey voption =
-        match index.TryGetValue name with
+        match index.TryGetValue written.Name with
         | true, keys ->
             let inThisKind (c: TypeIdentity) = keys.Contains c.Key
 
-            match tryWinner types useSite name (fun c -> c.Arity = 0 && inThisKind c) with
+            match tryWinner types useSite written (fun c -> c.Arity = 0 && inThisKind c) with
             | ValueSome c -> ValueSome c.Key
             | ValueNone ->
                 // No non-generic claimant. The generic ones answer only if they agree on an
-                // arity — otherwise the bare name genuinely does not say which type it means.
+                // arity — otherwise the name genuinely does not say which type it means.
                 let arities =
-                    match types.TypeClaims.TryGetValue name with
+                    match types.TypeClaims.TryGetValue written.Name with
                     | true, claims ->
+                        let reaches = pathReaches types useSite written.Path
                         let mutable seen = ValueNone
                         let mutable oneArity = true
 
                         for c in claims do
-                            if inThisKind c && visibleAt types useSite c then
+                            if inThisKind c && (claimRank useSite reaches c).IsSome then
                                 match seen with
                                 | ValueSome a when a <> c.Arity -> oneArity <- false
                                 | _ -> seen <- ValueSome c.Arity
@@ -562,7 +667,7 @@ module TypeRegistry =
                 match arities with
                 | ValueNone -> ValueNone
                 | ValueSome arity ->
-                    match tryWinner types useSite name (fun c -> c.Arity = arity && inThisKind c) with
+                    match tryWinner types useSite written (fun c -> c.Arity = arity && inThisKind c) with
                     | ValueSome c -> ValueSome c.Key
                     | ValueNone -> ValueNone
         | false, _ -> ValueNone
@@ -619,18 +724,28 @@ module TypeRegistry =
     let rejectDuplicateType (types: PassContextTypes) (rejected: RejectedTypeDefn) : unit =
         types.RejectedDuplicates.Add rejected
 
-    /// The identity a bare `name` at `arity` MEANS at `useSite`, if any — the winning claim
-    /// (`claimRank`). The single route from a use-site name+arity to the type that owns it —
-    /// so a resolver ASKS which kind owns the name instead of probing the kind tables in a
-    /// hand-ordered precedence cascade.
+    /// The identity the WRITTEN name `written` at `arity` MEANS at `useSite`, if any — the
+    /// winning claim (`claimRank`). The single route from a use-site name+arity to the type
+    /// that owns it — so a resolver ASKS which kind owns the name instead of probing the kind
+    /// tables in a hand-ordered precedence cascade. A qualified head (`A.T`, `N.A.T`) is the
+    /// same lookup with a non-empty path: the path says which SCOPE the name is read from.
     ///
     /// A claim only answers where it is in scope: a name is not an identity on its own, it
     /// is one only as seen from somewhere. Registration's own reads are additionally scoped
     /// by the top-down scan (the table holds only what is claimed so far); a read from a
     /// body — walked long after the whole file is registered — is scoped by this and nothing
     /// else.
+    let tryWrittenTypeClaim
+        (types: PassContextTypes)
+        (useSite: UseSite)
+        (written: WrittenTypeName)
+        (arity: int)
+        : TypeIdentity voption =
+        tryWinner types useSite written (fun c -> c.Arity = arity)
+
+    /// `tryWrittenTypeClaim` for a name written with no qualifier.
     let tryTypeClaim (types: PassContextTypes) (useSite: UseSite) (name: string) (arity: int) : TypeIdentity voption =
-        tryWinner types useSite name (fun c -> c.Arity = arity)
+        tryWrittenTypeClaim types useSite (WrittenTypeName.bare name) arity
 
     /// THE duplicate-type-definition test: is `(holder, name, arity)` already claimed, by
     /// any kind? One table, one predicate — a kind added later cannot be wired into some
@@ -646,22 +761,50 @@ module TypeRegistry =
         | true, claims -> claims.Exists(fun c -> c.Arity = arity && c.Holder = holder)
         | false, _ -> false
 
-    /// Does any claim IN SCOPE AT `useSite` hold `name` at SOME arity — i.e. is this name a
-    /// project-local type there? THE local/external precedence test: a written head whose
-    /// name this answers `true` for names a project-local type and nothing else, and one it
-    /// answers `false` for is external or nothing at all. Arity-blind on purpose: a head
-    /// written at the wrong arity for the local type of that name is still LOCAL (an arity
-    /// diagnostic), never a silent fall-through to an external type of the same name.
+    /// The claim the written name reaches at `useSite` at ANY arity — THE local/external
+    /// precedence test, and the type it reached. A written head this answers for names a
+    /// project-local type and nothing else; one it does not is external or nothing at all.
+    /// It holds for a QUALIFIED head as it does for a bare one: `A.T` names the local `A`'s
+    /// `T` even where an external `A.T` is also reachable, because the scope enclosing the
+    /// use holds `A` and nothing nearer can be named (probed against `dotnet fsi`).
+    ///
+    /// Arity-blind on purpose: a head written at the wrong arity for the local type of that
+    /// name is still LOCAL (an arity diagnostic), never a silent fall-through to an external
+    /// type of the same name. It answers WITH the claim, so the caller that blames the arity
+    /// blames the very type the precedence rule reached rather than re-finding one of its own.
+    let tryWrittenTypeClaimAnyArity
+        (types: PassContextTypes)
+        (useSite: UseSite)
+        (written: WrittenTypeName)
+        : TypeIdentity voption =
+        tryWinner types useSite written (fun _ -> true)
+
+    /// Does the written name reach a project-local type at `useSite`, at any arity? See
+    /// `tryWrittenTypeClaimAnyArity`.
+    let isWrittenTypeNameInScope (types: PassContextTypes) (useSite: UseSite) (written: WrittenTypeName) : bool =
+        (tryWrittenTypeClaimAnyArity types useSite written).IsSome
+
+    /// Does the QUALIFIER of a written name reach a scope THIS UNIT DECLARES at `useSite`
+    /// (`pathReaches`) — regardless of what, if anything, it holds under that name?
+    ///
+    /// The line between "this names nothing" and "this names something we cannot see": inside
+    /// a scope of our own we know every type it holds, so a name it does not hold is
+    /// undefined and can be said so. Under any other qualifier the answer belongs to the
+    /// external universe, which no consumer here can enumerate — an unresolved name there is
+    /// a name we have nothing to say about, not a name that does not exist.
+    let isLocalScopePath (types: PassContextTypes) (useSite: UseSite) (path: string) : bool =
+        not (List.isEmpty (pathReaches types useSite path))
+
+    /// `isWrittenTypeNameInScope` for a name written with no qualifier.
     let isTypeNameInScope (types: PassContextTypes) (useSite: UseSite) (name: string) : bool =
-        match types.TypeClaims.TryGetValue name with
-        | true, claims -> claims.Exists(visibleAt types useSite)
-        | false, _ -> false
+        isWrittenTypeNameInScope types useSite (WrittenTypeName.bare name)
 
     /// Record a module / namespace scope this unit declares, under the dotted SOURCE path an
-    /// `open` names it by (`LocalHolders`). Idempotent — every pass re-walks the tree and
-    /// re-enters the same scopes.
+    /// `open` — or a qualified name — names it by, and the path it is named by. Idempotent —
+    /// every pass re-walks the tree and re-enters the same scopes.
     let noteLocalHolder (types: PassContextTypes) (path: string) (holder: ModuleHolder) : unit =
         types.LocalHolders.[path] <- holder
+        types.LocalHolderPaths.[holder] <- path
 
     /// Note a record / union / class short name (`NominalTypeNames`). Called by the
     /// pre-scan that runs ahead of the identity pass; see the field's doc.
@@ -682,12 +825,12 @@ module TypeRegistry =
     let registerRecord (types: PassContextTypes) (info: RecordTypeInfo) : unit =
         registerKeyed types.Record types.RecordNames info.Name info.TypeKey info
 
-    /// Resolve a record by BARE short name (see `tryKeyOfBareName`): the non-generic
+    /// Resolve a record by BARE short name (see `tryKeyOfArglessName`): the non-generic
     /// record of that name, else the lone candidate, else nothing — an arity-overloaded
     /// name does not resolve unqualified. Callers holding a key use `tryRecordByKey`;
     /// those with a use-site arity use `tryRecordArity`.
     let tryRecord (types: PassContextTypes) (useSite: UseSite) (name: string) : RecordTypeInfo voption =
-        tryOfKey types.Record (tryKeyOfBareName types types.RecordNames useSite name)
+        tryOfKey types.Record (tryKeyOfArglessName types types.RecordNames useSite (WrittenTypeName.bare name))
 
     /// Resolve a record by `(name, arity)` — exact arity, so a wrong arity misses.
     let tryRecordArity
@@ -696,7 +839,7 @@ module TypeRegistry =
         (name: string)
         (arity: int)
         : RecordTypeInfo voption =
-        tryOfKey types.Record (tryKeyOfArity types types.RecordNames useSite name arity)
+        tryOfKey types.Record (tryKeyOfArity types types.RecordNames useSite (WrittenTypeName.bare name) arity)
 
     /// Resolve a record by its project-local `SymbolKey` — the reader-side companion
     /// to `tryUnionByKey`/`tryClassByKey`. See `tryByTypeKey`.
@@ -707,15 +850,25 @@ module TypeRegistry =
     let registerClass (types: PassContextTypes) (info: ClassTypeInfo) : unit =
         registerKeyed types.Class types.ClassNames info.Name info.TypeKey info
 
-    /// Resolve a class by BARE short name (see `tryKeyOfBareName`). The
-    /// recognition-only call sites (`Scope.fs`, `NameResolution.fs`, qualified-static
-    /// heads) read the registry this way; a caller holding a key uses `tryClassByKey`.
+    /// Resolve a class by the name as WRITTEN — bare (`T`) or qualified by the module that
+    /// holds it (`A.T`), which is how a body outside `A` names and constructs it. See
+    /// `tryKeyOfArglessName` for what an argument-less name resolves to.
+    let tryWrittenClass
+        (types: PassContextTypes)
+        (useSite: UseSite)
+        (written: WrittenTypeName)
+        : ClassTypeInfo voption =
+        tryOfKey types.Class (tryKeyOfArglessName types types.ClassNames useSite written)
+
+    /// Resolve a class by BARE short name. The recognition-only call sites (`Scope.fs`,
+    /// `NameResolution.fs`, qualified-static heads) read the registry this way; a caller
+    /// holding a key uses `tryClassByKey`.
     let tryClass (types: PassContextTypes) (useSite: UseSite) (name: string) : ClassTypeInfo voption =
-        tryOfKey types.Class (tryKeyOfBareName types types.ClassNames useSite name)
+        tryWrittenClass types useSite (WrittenTypeName.bare name)
 
     /// Resolve a class by `(name, arity)` — exact arity, so a wrong arity misses.
     let tryClassArity (types: PassContextTypes) (useSite: UseSite) (name: string) (arity: int) : ClassTypeInfo voption =
-        tryOfKey types.Class (tryKeyOfArity types types.ClassNames useSite name arity)
+        tryOfKey types.Class (tryKeyOfArity types types.ClassNames useSite (WrittenTypeName.bare name) arity)
 
     /// Resolve a class by its project-local `SymbolKey` — the class analogue of
     /// `tryUnionByKey`. See `tryByTypeKey`.
@@ -768,12 +921,14 @@ module TypeRegistry =
     let registerAbbrev (types: PassContextTypes) (info: AbbreviationInfo) : unit =
         registerKeyed types.Abbreviation types.AbbreviationNames info.Name info.TypeKey info
 
-    /// Resolve an abbreviation by BARE short name (see `tryKeyOfBareName`). Cross-kind
+    /// Resolve an abbreviation by BARE short name (see `tryKeyOfArglessName`). Cross-kind
     /// precedence is NOT this function's business: a caller that must know which kind owns
     /// a name asks `tryTypeClaim` first, and reaches here only for the lenient tail (a
     /// GENERIC alias named without its arguments back-fills fresh TyVars).
     let tryAbbrev (types: PassContextTypes) (useSite: UseSite) (name: string) : AbbreviationInfo voption =
-        tryOfKey types.Abbreviation (tryKeyOfBareName types types.AbbreviationNames useSite name)
+        tryOfKey
+            types.Abbreviation
+            (tryKeyOfArglessName types types.AbbreviationNames useSite (WrittenTypeName.bare name))
 
     /// Resolve an abbreviation by `(name, arity)` — exact arity, so a wrong arity misses.
     let tryAbbrevArity
@@ -782,7 +937,9 @@ module TypeRegistry =
         (name: string)
         (arity: int)
         : AbbreviationInfo voption =
-        tryOfKey types.Abbreviation (tryKeyOfArity types types.AbbreviationNames useSite name arity)
+        tryOfKey
+            types.Abbreviation
+            (tryKeyOfArity types types.AbbreviationNames useSite (WrittenTypeName.bare name) arity)
 
     /// Resolve an abbreviation by its project-local `SymbolKey`. See `tryRecordByKey`.
     let tryAbbrevByKey (types: PassContextTypes) (key: SymbolKey) : AbbreviationInfo voption =
@@ -795,13 +952,13 @@ module TypeRegistry =
     /// Resolve a union by `(name, arity)` — exact arity, so a wrong arity misses (the
     /// caller diagnoses).
     let tryUnion (types: PassContextTypes) (useSite: UseSite) (name: string) (arity: int) : UnionTypeInfo voption =
-        tryOfKey types.Union (tryKeyOfArity types types.UnionNames useSite name arity)
+        tryOfKey types.Union (tryKeyOfArity types types.UnionNames useSite (WrittenTypeName.bare name) arity)
 
-    /// Resolve a union by BARE short name (see `tryKeyOfBareName`) — the union sibling
+    /// Resolve a union by BARE short name (see `tryKeyOfArglessName`) — the union sibling
     /// of `tryRecord` / `tryClass`, for the recognition-only call sites (a qualified
     /// ctor / static head, the module-vs-type name test).
     let tryUnionBare (types: PassContextTypes) (useSite: UseSite) (name: string) : UnionTypeInfo voption =
-        tryOfKey types.Union (tryKeyOfBareName types types.UnionNames useSite name)
+        tryOfKey types.Union (tryKeyOfArglessName types types.UnionNames useSite (WrittenTypeName.bare name))
 
     /// Resolve a union by its project-local `SymbolKey` — the `TypeKey` minted onto
     /// `UnionTypeInfo.Key` and stamped into `Resolution.ResolvedType`. A non-`TypeKey`

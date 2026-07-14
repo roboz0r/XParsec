@@ -185,17 +185,30 @@ module internal UnificationInferIdentExpr =
                                 // call through the normal function arm.
                                 classCtorAsFunction ctx (ctx.UseSiteAt key) n
                     | ValueNone ->
-                        // A multi-segment qualified name that resolved to nothing.
-                        // If its qualifier names a known external union/record, the
-                        // tail is a missing member (`Result.Nope` / `Option.Nope`):
-                        // diagnose it rather than minting a fresh TyVar that unifies
-                        // with anything and hides the typo deep in codegen — the
-                        // symmetric front-end miss to `resolveFieldStep`'s instance-
-                        // member arm.
-                        match tryQualifiedExternalMemberMiss ctx e with
-                        | ValueSome(qual, memberName) ->
-                            errorTy ctx key (sprintf "Type '%s' has no value or member '%s'" qual memberName)
-                        | ValueNone -> TyVar(freshTyVar ctx)
+                        // A qualified name. `A.Point(3, 4)` — a class named through the module
+                        // holding it — is a ctor reference exactly as the bare `Point(3, 4)`
+                        // above is: the head names a TYPE, so it resolves through the type
+                        // registry, not as a value.
+                        let localCtor =
+                            match e with
+                            | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) ->
+                                tryWrittenClassCtorAsFunction ctx (ctx.UseSiteAt key) (ctx.WrittenTypeNameOf li)
+                            | _ -> ValueNone
+
+                        match localCtor with
+                        | ValueSome ty -> ty
+                        | ValueNone ->
+                            // A multi-segment qualified name that resolved to nothing.
+                            // If its qualifier names a known external union/record, the
+                            // tail is a missing member (`Result.Nope` / `Option.Nope`):
+                            // diagnose it rather than minting a fresh TyVar that unifies
+                            // with anything and hides the typo deep in codegen — the
+                            // symmetric front-end miss to `resolveFieldStep`'s instance-
+                            // member arm.
+                            match tryQualifiedExternalMemberMiss ctx e with
+                            | ValueSome(qual, memberName) ->
+                                errorTy ctx key (sprintf "Type '%s' has no value or member '%s'" qual memberName)
+                            | ValueNone -> TyVar(freshTyVar ctx)
 
     and qualifiedNameOf (ctx: PassContext) (e: Expr<SyntaxToken>) : string =
         match e with
