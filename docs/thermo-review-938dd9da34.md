@@ -28,10 +28,17 @@ complaint is void: it is no longer a one-field wrapper — it carries the home a
 directly and is the `key -> assembly` oracle a backend consults for an `AssemblyRef` scope
 or a JS import path.
 
-**Finding 2 is now MORE urgent, not less.** `typeNestedName`'s wildcard still swallows
-`TypeHolder.InModule`, so a module-held type's `qualifiedName` still drops its module — and
-the new collision check addresses the provider BY KEY, which projects through
-`qualifiedName`. That flattening now sits underneath the premise the whole reshape rests on.
+**Finding 2 is SUPERSEDED by
+`src/XParsec.FSharp.SemanticAnalysis/docs/nested-type-emission-plan.md`.** The finding is
+real and its diagnosis holds — `typeNestedName`'s wildcard swallows `TypeHolder.InModule`, so
+a module-held type's `qualifiedName` drops its module, and that flattening sits underneath
+the premise the whole reshape rests on. But its prescription ("make the match exhaustive;
+site the WHY on the new arm") is not a fix that can be taken on its own terms. The flat
+rendering is load-bearing against a backend that writes every `TypeDef` flat, and the
+contract extractor independently loses the module by round-tripping it through a dotted
+string. The renderer, the emitter and the extractor are one change, not three, and the plan
+scopes it. Finding 2's own "one of these two sites is wrong, and it is not the loud one" is
+the correct read: `ClrEnv`'s `failwithf` knew the answer all along.
 
 **Open, unchanged: 3, 4, 5, 6, 8, 10** and the test gaps — except that the module-blind
 claim collision named under "Test gaps" is now PINNED (`DuplicateTypeNameTests`), so the
