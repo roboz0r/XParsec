@@ -64,6 +64,24 @@ let private isHeadStamped (ctx: PassContext) (ty: Type<SyntaxToken>) : bool =
     | ValueSome head -> ctx.Resolution.ResolvedTypeHead.ContainsKey head.Key
     | ValueNone -> false
 
+/// A head nothing resolves is blamed by NAME, exactly ONCE: the annotation is the cause,
+/// and everything downstream of it must recover in silence rather than spray secondary
+/// errors through every expression that touched the binder.
+let private expectSoleUndefinedType (name: string) (input: string) =
+    let ctx, file = analyse input
+    Unification.run ctx file
+
+    let errors =
+        ctx.Diagnostics
+        |> Seq.filter (fun d -> d.Severity = Severity.Error)
+        |> Seq.map (fun d -> d.Message)
+        |> List.ofSeq
+
+    Expect.equal
+        errors
+        [ sprintf "The type '%s' is not defined" name ]
+        (sprintf "one diagnostic, naming the type, for: %s" input)
+
 // ---------------------------------------------------------------------------
 // Locators for the expression-embedded type positions `CstWalk.iterExprEmbeddedTypes`
 // enumerates. Each returns the `Type` nodes at ONE syntactic position, so a test can
@@ -229,9 +247,9 @@ let tests =
             }
 
             // An unknown (not-provider-known) annotation head is NOT stamped — the
-            // resolve-once layer records only heads it resolved; `translateType` then
-            // takes its opaque / `TyVar` path (or the resolver fallback for a synthesized
-            // node), never a stale stamp.
+            // resolve-once layer records only heads it resolved, never a stale stamp. The
+            // ABSENCE of a stamp is what tells `translateType` the name is undefined, so this
+            // is the read the undefined-type diagnostic below rests on.
             test "unknown annotation head is not stamped" {
                 let ctx, file = analyse "let f (x: Nope) = x"
 
@@ -244,14 +262,12 @@ let tests =
             }
 
             // End-to-end: the stamped key round-trips through the store face during
-            // inference. This must assert the annotation's resulting IDENTITY, not
-            // merely that it type-checks: a head the walk never stamped (or one the
-            // store cannot serve) does NOT degrade to a free TyVar — `translateType`
-            // falls to `TyConst(RuntimeNames.opaqueKey "Widget")`, a well-formed
-            // nominal keyed by the written name. That opaque form unifies with itself
-            // and clashes with `Box<Widget>` exactly as the resolved form does, so a
-            // diagnostics-only assertion passes even when the round-trip is entirely
-            // broken. Pinning `TyClass(externalTypeKey …)` is what excludes it.
+            // inference. This must assert the annotation's resulting IDENTITY, not merely
+            // that it type-checks free of diagnostics: `Widget` is a name the provider
+            // serves, so it is the ROUND-TRIP — stamp minted, store face served — that the
+            // identity witnesses, and a diagnostics-only assertion would witness only that
+            // the head was not diagnosed as undefined. Pinning `TyClass(externalTypeKey …)`
+            // is what excludes it.
             test "stamped heads resolve through the store face during inference" {
                 let ctx, file = analyse "let f (x: Widget) : Widget = x"
                 Unification.run ctx file
@@ -275,19 +291,28 @@ let tests =
                     "Widget -> Widget round-trips with no error"
             }
 
-            // The negative control for the assertion above: an unresolvable head is
-            // exactly the `TyConst(opaqueKey …)` residue, so the two forms are
-            // genuinely distinguishable and the positive test is not vacuous.
-            test "an unresolved head freezes to the opaque residue, not an external class" {
-                let ctx, file = analyse "let f (x: Gadget) = x"
-                Unification.run ctx file
+            // The negative control for the assertion above, and the rule itself: a name
+            // NOTHING resolves — no scope of this unit, no shape the provider serves — is not
+            // a type, whatever it is spelled like. It is diagnosed where it is written, so
+            // the positive test above is not vacuous: an annotation that type-checks in
+            // silence is one the target really could name.
+            test "a bare head nothing resolves is not a type — it is diagnosed" {
+                expectSoleUndefinedType "Gadget" "let f (x: Gadget) = x"
+            }
 
-                let patKey = NodeKey.ofSource 7 NodeKind.PatIdent
+            // The DOTTED spelling is the one a free TyVar left decorative: a free variable
+            // unifies with anything, so `Foo.Bar.Baz` typed as readily as `System.IO.TextWriter`
+            // and the annotation asserted nothing about the value it named.
+            test "a dotted head nothing resolves is not a type — it is diagnosed" {
+                expectSoleUndefinedType "Foo.Bar.Baz" "let f (x: Foo.Bar.Baz) = x"
+            }
 
-                Expect.equal
-                    (typeOf ctx patKey)
-                    (TyConst(RuntimeNames.opaqueKey "Gadget", EqArray.empty))
-                    "unknown head → opaque residue"
+            // The head of an APPLICATION is resolved no differently: an undefined head is
+            // undefined whether or not type arguments follow it (which it has no parameters to
+            // take). The argument is a head this provider DOES serve, so the head alone is
+            // blamed — the args resolve exactly as they would under a defined head.
+            test "an applied head nothing resolves is not a type — it is diagnosed" {
+                expectSoleUndefinedType "Gadget" "let f (x: Gadget<Widget>) = x"
             }
 
             // The three expression-embedded positions below sit BEHIND an expression

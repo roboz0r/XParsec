@@ -366,58 +366,25 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            test "fully-applied fprintf lowers to a writer-sink Format (native, not cold)" {
-                // The format is arg 1 (arg 0 is the writer); a fully-applied
-                // lowerable `fprintf` now mints a `TExpr.Format` with a
-                // `ToWriter` sink rather than falling to the FSharp.Core path.
-                let tast = analyse "let f (w: System.IO.TextWriter) = fprintf w \"%d\" 42"
+            // The sink families (`fprintf`, `bprintf`) name their leading argument's type —
+            // `System.IO.TextWriter`, `System.Text.StringBuilder` — and this provider, which
+            // carries no BCL, cannot resolve either. A writer/builder ANNOTATION here is
+            // therefore a name that is not defined, and is blamed as one; the lowering of an
+            // annotated sink argument to a real writer/builder class is pinned where a
+            // provider CAN name it (`Codegen.Clr.Tests.PrintfHappyPathTests`).
+            test "an fprintf writer annotated with an undefined type is blamed at the annotation" {
+                // The motivating nonsense: a free TyVar for an unresolved dotted head made the
+                // annotation decorative — `Foo.Bar.Baz` unified with the writer sink as readily
+                // as a real `TextWriter`, so the mistake type-checked in silence and detonated
+                // in the backend. One diagnostic, at the annotation, naming what was written.
+                let tast = analyse "let go (w: Foo.Bar.Baz) = fprintf w \"%d\" 42"
 
-                match lastDeclValue tast with
-                | TExpr.Lambda(_, body, _, _) ->
-                    match body with
-                    | TExpr.Format(FormatSink.ToWriter(_, false), segs, ty, _) ->
-                        Expect.equal ty tyUnit "fprintf result is unit"
+                let errors =
+                    tast.Diagnostics
+                    |> List.filter (fun d -> d.Severity = Severity.Error)
+                    |> List.map (fun d -> d.Message)
 
-                        match EqArray.toList segs with
-                        | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 42L), _, _)) ] ->
-                            Expect.equal hole.Ty tyInt "the %d hole types as int"
-                        | other -> failtestf "unexpected Format segments: %A" other
-                    | other -> failtestf "expected a ToWriter Format body, got: %A" other
-                | other -> failtestf "expected a lambda, got: %A" other
-
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
-            }
-
-            test "fully-applied fprintfn lowers to a newline writer-sink Format" {
-                let tast = analyse "let f (w: System.IO.TextWriter) = fprintfn w \"%d\" 42"
-
-                match lastDeclValue tast with
-                | TExpr.Lambda(_, TExpr.Format(FormatSink.ToWriter(_, true), _, _, _), _, _) -> ()
-                | other -> failtestf "expected a newline ToWriter Format body, got: %A" other
-
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
-            }
-
-            test "fully-applied bprintf lowers to a builder-sink Format (native, not cold)" {
-                // The format is arg 1 (arg 0 is the StringBuilder); a fully-applied
-                // lowerable `bprintf` mints a `TExpr.Format` with a `ToBuilder` sink
-                // rather than falling to the FSharp.Core path.
-                let tast = analyse "let f (sb: System.Text.StringBuilder) = bprintf sb \"%d\" 42"
-
-                match lastDeclValue tast with
-                | TExpr.Lambda(_, body, _, _) ->
-                    match body with
-                    | TExpr.Format(FormatSink.ToBuilder _, segs, ty, _) ->
-                        Expect.equal ty tyUnit "bprintf result is unit"
-
-                        match EqArray.toList segs with
-                        | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 42L), _, _)) ] ->
-                            Expect.equal hole.Ty tyInt "the %d hole types as int"
-                        | other -> failtestf "unexpected Format segments: %A" other
-                    | other -> failtestf "expected a ToBuilder Format body, got: %A" other
-                | other -> failtestf "expected a lambda, got: %A" other
-
-                Expect.isEmpty tast.Diagnostics "no diagnostics"
+                Expect.equal errors [ "The type 'Foo.Bar.Baz' is not defined" ] "one diagnostic, naming the type"
             }
 
             test "%a demands a callback printer — a bare value is a type error" {

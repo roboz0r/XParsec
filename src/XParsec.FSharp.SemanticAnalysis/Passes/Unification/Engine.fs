@@ -293,17 +293,25 @@ module UnificationEngine =
         // to the structural carried-vs-carried arms below and cannot loop.
         | FoldedCarrier ctx folded, _ -> unify ctx key folded b
         | _, FoldedCarrier ctx folded -> unify ctx key a folded
-        // An unresolved contract head unifies with nothing.
-        // Report at the use site and stop — the other side is left untouched (no Link),
-        // so one broken head can't cascade into a wrong inference elsewhere.
+        // An unresolved head unifies with nothing. Stop — the other side is left untouched
+        // (no Link), so one broken head can't cascade into a wrong inference elsewhere.
+        //
+        // A name THIS UNIT'S SOURCE wrote and nothing defined was already blamed where it was
+        // written (`UnificationTranslate`, which recorded it): the mistake is a spelling in
+        // the source, not a missing dependency, and re-reporting it at every contact would
+        // spray secondary errors across a program whose single fault the user has already been
+        // told about. What is left to report here is the OTHER producer of `TyUnknown` — a
+        // name a package's baked contract could not resolve, which no site in this unit could
+        // have blamed.
         | TyUnknown name, _
         | _, TyUnknown name ->
-            ctx.Error(
-                key,
-                sprintf
-                    "Type '%s' could not be resolved during contract extraction — is a package dependency missing?"
-                    name
-            )
+            if not (ctx.UndefinedTypeNames.Contains name) then
+                ctx.Error(
+                    key,
+                    sprintf
+                        "Type '%s' could not be resolved during contract extraction — is a package dependency missing?"
+                        name
+                )
         | TyConst(k1, a1), TyConst(k2, a2) when k1 = k2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
         | TyRecord(n1, a1), TyRecord(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2
         | TyUnion(n1, a1), TyUnion(n2, a2) when n1 = n2 && a1.Length = a2.Length -> unifyArgs ctx key a1 a2

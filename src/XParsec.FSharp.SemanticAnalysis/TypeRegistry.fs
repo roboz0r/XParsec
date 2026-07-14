@@ -784,17 +784,6 @@ module TypeRegistry =
     let isWrittenTypeNameInScope (types: PassContextTypes) (useSite: UseSite) (written: WrittenTypeName) : bool =
         (tryWrittenTypeClaimAnyArity types useSite written).IsSome
 
-    /// Does the QUALIFIER of a written name reach a scope THIS UNIT DECLARES at `useSite`
-    /// (`pathReaches`) — regardless of what, if anything, it holds under that name?
-    ///
-    /// The line between "this names nothing" and "this names something we cannot see": inside
-    /// a scope of our own we know every type it holds, so a name it does not hold is
-    /// undefined and can be said so. Under any other qualifier the answer belongs to the
-    /// external universe, which no consumer here can enumerate — an unresolved name there is
-    /// a name we have nothing to say about, not a name that does not exist.
-    let isLocalScopePath (types: PassContextTypes) (useSite: UseSite) (path: string) : bool =
-        not (List.isEmpty (pathReaches types useSite path))
-
     /// `isWrittenTypeNameInScope` for a name written with no qualifier.
     let isTypeNameInScope (types: PassContextTypes) (useSite: UseSite) (name: string) : bool =
         isWrittenTypeNameInScope types useSite (WrittenTypeName.bare name)

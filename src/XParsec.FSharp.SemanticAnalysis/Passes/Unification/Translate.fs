@@ -46,6 +46,32 @@ module internal UnificationTranslate =
         ctx.Error(key, msg)
         TyVar(freshTyVar ctx)
 
+    /// The shared tail of every WRITTEN type head no claim of this unit holds and no
+    /// external shape built — the one place that decides what a head naming nothing IS.
+    ///
+    /// A STAMP is NameResolution's committed verdict that the spelling DOES name a type of
+    /// the external universe; reaching here with one means the store served a shape with no
+    /// kind an annotation can take (an `ExternalTypeShape.Opaque` residue — a body-less
+    /// external type). The name is defined and only its structure is missing, so the head
+    /// keeps `residue`, the caller's best-effort identity, and the user is not blamed for a
+    /// name they got right.
+    ///
+    /// UNSTAMPED, nothing resolved the head at all — not a scope of this unit, not the
+    /// target's view of the world — so it is NOT A TYPE. Recovering with a free `TyVar` (which
+    /// unifies with everything) or an opaque nominal (which unifies with itself) would let ANY
+    /// spelling type-check silently, and the mistake would surface as unencodable output far
+    /// from the annotation that caused it. `TyUnknown` is the identity the contract extractor
+    /// already bakes for a name it cannot resolve, so the two faces agree on what an
+    /// unresolved name means. `ctx.UndefinedType` is the shared home of the verdict — the head
+    /// classifier reaches a bare head first and says the same thing, and a head both reach is
+    /// blamed once.
+    let private unresolvedHeadTy (ctx: PassContext) (diagKey: NodeKey) (name: string) (residue: SemType) : SemType =
+        if ctx.Resolution.ResolvedTypeHead.ContainsKey diagKey then
+            residue
+        else
+            ctx.UndefinedType(diagKey, name)
+            TyUnknown name
+
     /// Multi-segment qualified unit names (`Microsoft.FSharp.SI.kg`) and
     /// measure typars (`'u`) are v2 — they produce an empty term plus a
     /// diagnostic so the rest of inference continues without measure noise.
@@ -121,21 +147,26 @@ module internal UnificationTranslate =
         | _ -> TyClass(SymbolKeyOps.externalTypeKey info.Origin compiled arity, args)
 
     /// DEBUG-only witness for a DOTTED written head that neither the store face nor the
-    /// project-local claim answered: so it is an EXTERNAL name, and the read side has no
-    /// by-name fallback for one — a defect here degrades to a free `TyVar` that unifies with
-    /// anything, surfacing as a baffling error (or wrong codegen) far from the cause. This
-    /// fails loudly at the cause instead, discriminating the two ways the read can miss:
+    /// project-local claim answered. It guards the premise `unresolvedHeadTy` rests on: that
+    /// a head reaching it WITHOUT a stamp names nothing the target can resolve, so the user
+    /// may be told the type is not defined. A defect in the resolve-once boundary breaks that
+    /// premise in one direction or the other, and each is a lie told at a distance:
     ///
-    /// - **No stamp at all**, yet the resolver CAN resolve the spelling — the stamping
-    ///   walk failed to reach this syntax position.
-    /// - **Stamped, but the store cannot serve the key** — NameResolution's mint and
-    ///   the store face disagree on identity, so the round-trip the whole boundary
-    ///   rests on is broken for this key.
+    /// - **No stamp at all**, yet the resolver CAN resolve the spelling — the stamping walk
+    ///   failed to reach this syntax position. The read side has no by-name fallback, so a
+    ///   perfectly good `System.IO.TextWriter` would be blamed on the USER as an undefined
+    ///   type. Fail loudly at the compiler's own defect instead of accusing the source.
+    /// - **Stamped, but the store cannot serve the key** — NameResolution's mint and the
+    ///   store face disagree on identity, so the round-trip the whole boundary rests on is
+    ///   broken for this key. The stamp keeps the head off the undefined verdict, so it
+    ///   silently degrades to a free `TyVar` that unifies with anything — a baffling error
+    ///   (or wrong codegen) far from the cause.
     ///
     /// A stamp the store DOES serve but whose shape declines to build a type
     /// (`ExternalTypeShape.Opaque` — a body-less residue with no kind to resolve an
-    /// annotation to) is NOT a defect: the walk reached the node and the store answered.
-    /// The `TyVar` fallback is the designed outcome there, so the witness stays silent.
+    /// annotation to) is NOT a defect: the walk reached the node and the store answered, so
+    /// the name IS defined and the `TyVar` residue is the designed outcome. The witness stays
+    /// silent.
     ///
     /// The probes are resolver-face / store-face reaches sanctioned as diagnostics only:
     /// their results are never used to resolve, and Release builds compile them out.
@@ -446,7 +477,8 @@ module internal UnificationTranslate =
     /// CLAIMING `(name, 0)` if one exists (`resolveClaimedType`), else the lenient
     /// by-name tail — a GENERIC local type named without its arguments back-fills fresh
     /// TyVars (`r : Box` pins them from `r`'s usage) — else `resolveExternal`, then the
-    /// `undefined` / opaque residue. `resolveExternal` is the pluggable external tail: a
+    /// `undefined` intrinsic and finally `unresolvedHeadTy`, the shared undefined-head
+    /// verdict. `resolveExternal` is the pluggable external tail: a
     /// WRITTEN annotation (`Type.NamedType` arm) passes the STAMPED store-face read
     /// (`tryResolveExternalTypeStamped`), whereas a SYNTHESIZED carrier (the `float<m>`
     /// measure arm) — which NameResolution never walked and so never stamped — passes the
@@ -515,7 +547,12 @@ module internal UnificationTranslate =
                                 // origin-less.
                                 | ValueNone when name = RuntimeNames.undefinedTypeName ->
                                     TyConst(RuntimeNames.undefinedKey, EqArray.empty)
-                                | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
+                                | ValueNone ->
+                                    unresolvedHeadTy
+                                        ctx
+                                        diagKey
+                                        name
+                                        (TyConst(RuntimeNames.opaqueKey name, EqArray.empty))
 
     /// Resolve a type head written QUALIFIED (`A.T`, `N.A.T<int>`) whose stamped external
     /// read already missed: so it names a project-local type THROUGH the scope holding it, or
@@ -524,18 +561,12 @@ module internal UnificationTranslate =
     /// so a qualified reference to a record / union / class / enum / alias needs no cascade
     /// of its own.
     ///
-    /// A head whose QUALIFIER names a scope of this unit and that claims nothing there is a
-    /// DIAGNOSTIC, never a fresh TyVar: a free type variable unifies with everything, so the
-    /// mistake would type-check here and surface as unencodable IL / wrong JS far away. We
-    /// know every type our own scopes hold, so a name one does not hold is undefined and we
-    /// can say so.
-    ///
-    /// Under any OTHER qualifier the head is a name in the external universe, and an
-    /// unresolved one there is a name this compilation has nothing to say about — the
-    /// provider is a partial view (a stack with no BCL tail cannot resolve
-    /// `System.IO.TextWriter` yet must still type a body that mentions it). Those keep the
-    /// free TyVar, and the DEBUG witness stays the record of the two ways the EXTERNAL
-    /// round-trip can break.
+    /// A head that claims nothing here and carries no stamp names NOTHING — no scope of this
+    /// unit holds it, and NameResolution, which resolves every written head against the
+    /// target's whole external universe, did not resolve it either. It is undefined, under a
+    /// local qualifier or any other, and `unresolvedHeadTy` says so: a free type variable
+    /// unifies with everything, so leaving one would type-check the mistake here and surface
+    /// it as unencodable IL / wrong JS far away.
     and private resolveQualifiedTypeName
         (ctx: PassContext)
         (diagKey: NodeKey)
@@ -564,11 +595,7 @@ module internal UnificationTranslate =
                     (sprintf "Type '%s' expects %d type argument(s) but got %d" written.Written other.Arity args.Length)
             | ValueNone ->
                 assertNoDottedStampGap ctx diagKey li args.Length
-
-                if TypeRegistry.isLocalScopePath ctx.Types useSite written.Path then
-                    errorTy ctx diagKey (sprintf "The type '%s' is not defined" written.Written)
-                else
-                    TyVar(freshTyVar ctx)
+                unresolvedHeadTy ctx diagKey written.Written (TyVar(freshTyVar ctx))
 
     /// Resolve a single-segment generic type reference. A STAMP on the head outranks the
     /// registry (see the `Type.NamedType` arm: a stamp is NameResolution's committed
@@ -668,9 +695,11 @@ module internal UnificationTranslate =
                     match local with
                     | ValueSome ty -> ty
                     // The stamped external read already missed (`resolveNamedGeneric`), so
-                    // the name is unknown here — opaque TyConst, args ignored (matches the
-                    // bare-name arm).
-                    | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
+                    // nothing built this head — the shared undefined-head verdict decides,
+                    // exactly as for the bare-name arm. Its residue drops the type args: a
+                    // shape-less head has no parameters to apply them to.
+                    | ValueNone ->
+                        unresolvedHeadTy ctx diagKey name (TyConst(RuntimeNames.opaqueKey name, EqArray.empty))
 
     /// Build the annotation `SemType` from a resolved external shape + its matched
     /// compiled name. Shared by both resolution faces (the stamped store-face read

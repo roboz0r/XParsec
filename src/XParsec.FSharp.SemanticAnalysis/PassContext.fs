@@ -814,6 +814,17 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// `inferTypeAnnotation`. "Name the type at the escape point."
     member val DynamicEscapeSuppressed = HashSet<NodeKey>() with get
 
+    /// Type names this unit's SOURCE wrote and nothing defined (`UndefinedType`). The
+    /// unifier's `TyUnknown` arm reads this to stay silent for such a name: its own message
+    /// speaks for the OTHER producer of `TyUnknown` — a name a package's BAKED CONTRACT could
+    /// not resolve, which no site in this unit's source could blame — and would misattribute a
+    /// plain spelling mistake to a missing package dependency.
+    member val UndefinedTypeNames = HashSet<string>() with get
+
+    /// Written type heads already blamed as undefined, so a head two passes both reach is
+    /// blamed once (`UndefinedType`).
+    member val private undefinedTypeSites = HashSet<NodeKey>() with get
+
     /// Which cons-list a *bare-program* list literal/pattern (one no consumer
     /// pinned) defaults to when drained by `Unification.resolveListLiterals`.
     /// `false` (the default) keeps FSharp.Core's `list` — the form a normal
@@ -944,6 +955,19 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
                 Message = msg
                 Severity = Severity.Error
             }
+
+    /// Blame the written type head at `key`: `name` names no type — no scope of this unit
+    /// claims it and the target's external universe does not hold it. THE one home for that
+    /// verdict, so the passes that reach a head — the head classifier, which knows a bare name
+    /// nothing answers for, and type translation, which is where every written head is finally
+    /// resolved — say it identically and, reaching the same head, say it ONCE. The name is
+    /// recorded (`UndefinedTypeNames`) so the `TyUnknown` the head recovers with cannot be
+    /// blamed a second time downstream: one mistake, one diagnostic, at its cause.
+    member this.UndefinedType(key: NodeKey, name: string) =
+        this.UndefinedTypeNames.Add name |> ignore
+
+        if this.undefinedTypeSites.Add key then
+            this.Error(key, sprintf "The type '%s' is not defined" name)
 
     /// `Warning`-severity analogue of `Error`.
     member this.Warn(key: NodeKey, msg: string) =

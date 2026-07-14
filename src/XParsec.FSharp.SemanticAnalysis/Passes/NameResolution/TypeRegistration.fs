@@ -511,12 +511,11 @@ module NameResolutionTypeRegistration =
     /// the stamp this walk wrote (external) or the registry (local), so it cannot bind a
     /// head this walk called unknown, nor bind differently from what this walk accepted.
     ///
-    /// A DOTTED head names its type through a SCOPE (`A.T`), so what a miss means depends on
-    /// whose scope it is — a name a module of ours does not hold is undefined, a name under a
-    /// foreign qualifier is one the provider's partial view cannot settle. That verdict is
-    /// `translateType`'s (`resolveQualifiedTypeName`), which is where the head is resolved
-    /// against the scope its path names, so the miss is diagnosed once and by the reader that
-    /// knows which of the two it is.
+    /// A DOTTED head names its type through a SCOPE (`A.T`), and is left to `translateType`
+    /// (`resolveQualifiedTypeName`) — the reader that resolves a head against the scope its
+    /// path names, so the miss is judged where the head is actually resolved. Both readers
+    /// speak through `ctx.UndefinedType`, the one home for the verdict, so a head they BOTH
+    /// reach is blamed once and in the same words.
     let private classifyingTypeIter (ctx: PassContext) : CstWalk.TypeIter =
         // `float<kg>` is a measured carrier, not a generic type applied to a type argument:
         // `translateType` reinterprets the WHOLE node — carrier and unit alike — as a
@@ -541,16 +540,7 @@ module NameResolutionTypeRegistration =
                         | ValueSome head ->
                             match classifyTypeHead ctx head with
                             | UnknownType when head.LongIdent.Idents.Length = 1 ->
-                                ctx.Diagnostics.Add
-                                    {
-                                        Key = head.Key
-                                        Message =
-                                            sprintf
-                                                "The type '%s' is not defined"
-                                                (ctx.NameOf head.LongIdent.Idents.[0])
-                                        Code = ""
-                                        Severity = Severity.Error
-                                    }
+                                ctx.UndefinedType(head.Key, ctx.NameOf head.LongIdent.Idents.[0])
                             | UnknownType
                             | LocalType
                             | ExternalType -> ()

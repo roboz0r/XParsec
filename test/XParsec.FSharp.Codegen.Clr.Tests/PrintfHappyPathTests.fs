@@ -736,6 +736,32 @@ let tests =
                 | other -> failtestf "expected a ToWriter Format node, got: %A" other
             }
 
+            // The writer arrives as an ANNOTATED PARAMETER rather than a `System.Console.Out`
+            // expression, so the written `System.IO.TextWriter` must resolve to the very class
+            // the writer sink names and meet it under plain unification — a target that cannot
+            // name the sink cannot type this at all. Pins what the sibling above does not: the
+            // hole's TYPE and the `unit` result of the lowered write.
+            test "fully-applied `fprintf` on an annotated TextWriter param lowers to a writer-sink Format" {
+                match soleDecl "let f (w: System.IO.TextWriter) = fprintf w \"%d\" 42" with
+                | TDecl.Let(_, TExpr.Lambda(_, body, _, _), _, _) ->
+                    match body with
+                    | TExpr.Format(FormatSink.ToWriter(_, false), segs, ty, _) ->
+                        Expect.equal ty BuiltinTypes.tyUnit "fprintf result is unit"
+
+                        match EqArray.toList segs with
+                        | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 42L), _, _)) ] ->
+                            Expect.equal hole.Ty BuiltinTypes.tyInt "the %d hole types as int"
+                        | other -> failtestf "unexpected Format segments: %A" other
+                    | other -> failtestf "expected a ToWriter Format body, got: %A" other
+                | other -> failtestf "expected a lambda binding, got: %A" other
+            }
+
+            test "fully-applied `fprintfn` on an annotated TextWriter param lowers to a newline writer-sink Format" {
+                match soleDecl "let f (w: System.IO.TextWriter) = fprintfn w \"%d\" 42" with
+                | TDecl.Let(_, TExpr.Lambda(_, TExpr.Format(FormatSink.ToWriter(_, true), _, _, _), _, _), _, _) -> ()
+                | other -> failtestf "expected a newline ToWriter Format body, got: %A" other
+            }
+
             test "`fprintf System.Console.Out \"%d\" 42` writes 42 (no newline)" {
                 let exitCode, output =
                     withPrintfAlc (fun alc -> runDriverInAlc alc "fprintf System.Console.Out \"%d\" 42")
@@ -767,6 +793,23 @@ let tests =
                         Expect.equal (kindOf hole) PrintfSpec.HoleKind.Formatted "%d → Formatted"
                     | other -> failtestf "unexpected Format segments: %A" other
                 | other -> failtestf "expected a ToBuilder Format node, got: %A" other
+            }
+
+            // The builder twin of the annotated-writer case above: the written
+            // `System.Text.StringBuilder` must resolve to the class the builder sink names.
+            test "fully-applied `bprintf` on an annotated StringBuilder param lowers to a builder-sink Format" {
+                match soleDecl "let f (sb: System.Text.StringBuilder) = bprintf sb \"%d\" 42" with
+                | TDecl.Let(_, TExpr.Lambda(_, body, _, _), _, _) ->
+                    match body with
+                    | TExpr.Format(FormatSink.ToBuilder _, segs, ty, _) ->
+                        Expect.equal ty BuiltinTypes.tyUnit "bprintf result is unit"
+
+                        match EqArray.toList segs with
+                        | [ FormatSeg.Hole(hole, TExpr.Const(TConstValue.Integral(IntWidth.Int32, 42L), _, _)) ] ->
+                            Expect.equal hole.Ty BuiltinTypes.tyInt "the %d hole types as int"
+                        | other -> failtestf "unexpected Format segments: %A" other
+                    | other -> failtestf "expected a ToBuilder Format body, got: %A" other
+                | other -> failtestf "expected a lambda binding, got: %A" other
             }
 
             test "`bprintf` appends to the builder (read back via ToString)" {
