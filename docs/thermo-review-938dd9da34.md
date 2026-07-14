@@ -10,7 +10,7 @@ below are what remains after that work. Delete this file once they are closed.
 
 ## Status
 
-**Closed: 1, 2, 3, 7, 9.** Four commits (`24455419`, `18679fb6`, `3ecc37c4`, `918d66c8`) closed
+**Closed: 1, 2, 3, 5, 7, 9.** Four commits (`24455419`, `18679fb6`, `3ecc37c4`, `918d66c8`) closed
 finding 1 at its root rather than at the symptom the finding described. Finding 1's own
 prescription — key the provider stores by `SymbolKey` — is NOT what landed, and could not
 be: ten call sites mint a store key from a bare compiled name with no assembly in hand, and
@@ -70,8 +70,45 @@ top-level bindings a `Program`-holder identity would empty the arm of population
 eventual fix. The free-var walk was not written: `Regions`' private `bindersOfTPat` /
 `collectFreeVars` were hoisted to `TastWalk` and both sites share them.
 
-**Open, unchanged: 4, 5, 6, 8, 10** and the remaining test gap (an arity overload
+**Finding 5 is CLOSED** (`ae49f003`), and its prescription is NOT what landed. The finding
+reads the fold — the body riding the resolved entry — as the mistake, and would restore a
+separate `TryLookupInlineBody` table. That table is two independently-addressed stores that
+can DISAGREE (a key with a body and no entry, or the reverse); making them one was the real
+content of `5c45cce1`, and the frozen body is a cheap reference to carry. What was actually
+broken is the LOOKUP. A member splice could not ask by key, so it re-ran the NAME lookup and
+rescanned the overload set — and `TryLookupMember` collapses that set to a best-by-arity
+pick, so it could serve a SIBLING overload's body.
+
+So: the fold stays, and the store gains the missing twin —
+`TryLookupMemberByKey : MemberKey -> ExternalMember voption`. The two body-bearing key kinds
+ride different ENTRY types (a module `let inline` is a `Binding` on `ExternalSymbol`; a
+`(# … #)`-bodied member is a `Member` on `ExternalMember`), which the finding does not
+mention and which is the whole reason a splice site could get this wrong. One exhaustive
+kind-dispatch (`ExternalSymbolProviders.tryInlineBody`) is now the single door, so no call
+site knows the difference and a new key kind must decide there rather than silently yield
+"no body". The scan, its `option<voption<_>>`, and all eleven `InlineBody = ValueNone`
+boilerplate sites are gone; `thaw` returns the previously-dead `Tast.fs:1092` `TInlineBody`,
+reverting the anonymous-tuple churn the finding names. An external symbol's zero is now
+KEYED (`ExternalMember.OfKey` / `ofBindingKey`) — its `Name` is derived from the key rather
+than written beside it, so the two cannot disagree and no entry can be minted without an
+identity.
+
+**Open, unchanged: 4, 6, 8, 10** and the remaining test gap (an arity overload
 combined with `inherit` or an augmentation block).
+
+**Found while closing 5 — not in this review, both real:**
+
+- **The PRODUCER side has the same overload collapse.** `SymbolProviders.collectInlineBodies`
+  (`Codegen.Common/SymbolProviders.fs:138`) interns a harvested member body under a key it
+  gets from `TryLookupMember(tdecl.Key, m.Name)` — the best-by-arity pick. Two same-named
+  `(# … #)`-bodied member overloads therefore intern under ONE key and the second body
+  silently overwrites the first. No correctness in the lookup can recover a body that was
+  never stored. The honest fix is to select off `TryLookupMembers` by the harvested params'
+  `argSigOfParameters` spelling.
+- **`TestHelpers.mkMember` keys an `ExternalMember` with a `SymbolKey.Binding`** — a VALUE
+  key on a member entry, an identity no provider could serve. Harmless today (its consumers,
+  `ExternalSignatureOracleTests`, only read `Signature`), which is why it is the one entry
+  that cannot go through the keyed zero. Re-key those three sites onto `memberKeyOf`.
 
 ## What is right
 
@@ -269,6 +306,9 @@ tails collapse to three lines, deleting ~65 lines and `resolveLocalGeneric` with
 ---
 
 ## 5. The inline-body by-key channel was removed and re-implemented as a scan
+
+**CLOSED** (`ae49f003`), but NOT as prescribed — the fold was kept and the lookup fixed.
+See the Status section for why, and for the two hazards found while closing it.
 
 Commit `5c45cce1` retired `IExternalSymbolStore.TryLookupInlineBody : SymbolKey ->
 InlineBody voption` in favour of folding the body onto every resolved entry. The cost:
