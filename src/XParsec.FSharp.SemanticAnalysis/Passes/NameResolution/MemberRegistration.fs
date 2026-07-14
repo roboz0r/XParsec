@@ -770,13 +770,13 @@ module NameResolutionMemberRegistration =
         | None ->
             // Nominal heads carry their resolved `SymbolKey`; take it
             // off the registry `info` rather than re-stringing the name.
-            match TypeRegistry.tryRecord ctx.Types SourcePos.unbounded name with
+            match TypeRegistry.tryRecord ctx.Types UseSite.unbounded name with
             | ValueSome info -> TyRecord(info.Key, args)
             | ValueNone ->
-                match TypeRegistry.tryUnionBare ctx.Types SourcePos.unbounded name with
+                match TypeRegistry.tryUnionBare ctx.Types UseSite.unbounded name with
                 | ValueSome info -> TyUnion(info.Key, args)
                 | ValueNone ->
-                    match TypeRegistry.tryClass ctx.Types SourcePos.unbounded name with
+                    match TypeRegistry.tryClass ctx.Types UseSite.unbounded name with
                     | ValueSome info -> TyClass(info.Key, args)
                     | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
 
@@ -831,7 +831,7 @@ module NameResolutionMemberRegistration =
             else
                 let name = ctx.NameOf nameTok
 
-                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded name with
+                match TypeRegistry.tryClass ctx.Types UseSite.unbounded name with
                 | ValueSome info -> ValueSome(TyClass(info.Key, EqArray.ofList targs))
                 | ValueNone when ctx.Types.HeritableExternBases.Contains name ->
                     // A heritable external base (`inherit Attribute`, where `Attribute`
@@ -884,7 +884,7 @@ module NameResolutionMemberRegistration =
                         // table ⇒ no kind can be forgotten from this disjunction. A name the
                         // table does not know is unknown *here*, which includes a type
                         // declared below this group — nothing later can fill the slot.
-                        if TypeRegistry.isTypeNameInScope ctx.Types (SourcePos.ofNodeKey diagKey) name then
+                        if TypeRegistry.isTypeNameInScope ctx.Types (ctx.UseSiteAt diagKey) name then
                             diagnose
                                 diagKey
                                 (sprintf "Cannot inherit from type '%s' — only classes are inheritable" name)

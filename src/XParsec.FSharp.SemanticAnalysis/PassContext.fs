@@ -154,6 +154,14 @@ type PassContextResolution =
         /// Held apart from `OpenScope` because NameResolution and Unification must
         /// seed from the *same* prelude, which the per-element field overwrites.
         mutable AmbientOpenScope: OpenScope
+        /// The module / namespace chain enclosing the module element currently being
+        /// analysed — the holder half of a use site, set per top-level element by the pass
+        /// walk from the element's own `DeclContainment` (`PassContext.EnterElement`), in
+        /// lockstep with `OpenScope`. A bare name resolves innermost-outward, so a read
+        /// from inside `module A` is not the same read as one at namespace level; this is
+        /// the fact that tells them apart. `ValueNone` before the walk sets a per-element
+        /// holder — the pass speaks from nowhere yet.
+        mutable EnclosingHolder: ModuleHolder voption
         /// Per-signature type-parameter scope: each signature opens its own scope
         /// and restores the prior one on exit. Anonymous typars (`_`) never enter
         /// the scope — they're fresh per occurrence.
@@ -414,6 +422,7 @@ module PassContextResolution =
         {
             OpenScope = ambient
             AmbientOpenScope = ambient
+            EnclosingHolder = ValueNone
             TyparScope = Dictionary<string, TypeVar>(System.StringComparer.Ordinal)
             BindingTyparSeed = ValueNone
             EnclosingTypars = ValueNone
@@ -823,6 +832,48 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// sites; the cross-package twin travels in `ExternalSymbols.InlineBody`.
     /// Only bindings with at least one non-default parameter register here.
     member val InlineParamAttrs = Dictionary<NodeKey, ParamAttrs[]>() with get
+
+    /// The facts `ModuleRules` reads, as this compilation unit answers them. The nominal
+    /// type names come from the registry the pre-scan filled and the attributes from the
+    /// source text, so a module's compiled holder name is the same here as at every other
+    /// reader of the rule. The predicate is read at CALL time, so it sees a type declared
+    /// textually below the module it collides with.
+    member _.ModuleNaming: ModuleNaming =
+        {
+            Lexed = lexed
+            Input = input
+            IsNominalTypeName = TypeRegistry.isNominalTypeName types
+        }
+
+    /// Enter a module containment: the chain a by-name read from inside it speaks from.
+    /// THE single site that derives the holder, and the single site that sets it — a pass
+    /// that walks the module tree its own way (rather than the flattened element list) still
+    /// arrives here, so no walk can resolve names against the module the PREVIOUS walk
+    /// finished in. Returns the chain, because a caller that needs it for an identity mint
+    /// must not build a second one.
+    member this.EnterContainment(c: DeclContainment<SyntaxToken>) : ModuleHolder =
+        let chain = ModuleRules.holderChain this.ModuleNaming c
+        this.Resolution.EnclosingHolder <- ValueSome chain
+        chain
+
+    /// Enter a walked module element: bring the ambient facts a by-name read speaks
+    /// against — the `open`s in scope, and the module chain the element sits in — to the
+    /// element's own. THE single place both are set, so a pass cannot advance one and
+    /// leave the other pointing at the previous element.
+    member this.EnterElement(w: WalkedElem<SyntaxToken>) : unit =
+        this.Resolution.OpenScope <- w.Scope
+        this.EnterContainment w.Containment |> ignore
+
+    /// The use site a by-NAME registry read from `key` speaks from: the node's place in the
+    /// file, plus the module chain the walk is currently inside (`EnclosingHolder`). The
+    /// only way to name a use site AT a node, so the two halves cannot be supplied
+    /// separately or one of them forgotten. A caller with nowhere to speak from passes
+    /// `UseSite.unbounded` instead and gets the whole-unit view.
+    member this.UseSiteAt(key: NodeKey) : UseSite =
+        {
+            Pos = SourcePos.ofNodeKey key
+            Holder = this.Resolution.EnclosingHolder
+        }
 
     /// Source text of `token`. Empty for virtual (synthesised) tokens.
     member this.NameOf(token: SyntaxToken) : string =

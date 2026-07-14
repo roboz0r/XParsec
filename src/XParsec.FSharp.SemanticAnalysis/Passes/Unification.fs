@@ -894,7 +894,7 @@ module Unification =
             for td in defs do
                 match common td with
                 | ValueSome(name, arity, body) ->
-                    match TypeRegistry.tryClassArity ctx.Types SourcePos.unbounded name arity with
+                    match TypeRegistry.tryClassArity ctx.Types UseSite.unbounded name arity with
                     | ValueSome info ->
                         let prelinkExtras () =
                             // Attach the class's `when 'S :> IFace` typar constraints
@@ -1024,7 +1024,7 @@ module Unification =
                 match TypeDefnPatterns.tryNonClassMemberHostDecl td with
                 | ValueSome(struct (nameLi, ValueSome elems)) ->
                     match
-                        TypeRegistry.tryNonClassMemberHost ctx.Types SourcePos.unbounded (ctx.NameOf nameLi.Idents.[0])
+                        TypeRegistry.tryNonClassMemberHost ctx.Types UseSite.unbounded (ctx.NameOf nameLi.Idents.[0])
                     with
                     | ValueSome host -> fillHostMembers ctx host elems
                     | ValueNone -> ()
@@ -1052,11 +1052,7 @@ module Unification =
                         let arity = NameResolutionTypeRegistration.arityOfTypeName ctx d.TypeName
 
                         match
-                            TypeRegistry.tryClassArity
-                                ctx.Types
-                                SourcePos.unbounded
-                                (ctx.NameOf nameLi.Idents.[0])
-                                arity
+                            TypeRegistry.tryClassArity ctx.Types UseSite.unbounded (ctx.NameOf nameLi.Idents.[0]) arity
                         with
                         | ValueSome info -> resolveInterfaceImpls ctx (info :> IInterfaceImplHost)
                         | ValueNone -> ()
@@ -1070,7 +1066,7 @@ module Unification =
                         match
                             TypeRegistry.tryNonClassMemberHost
                                 ctx.Types
-                                SourcePos.unbounded
+                                UseSite.unbounded
                                 (ctx.NameOf nameLi.Idents.[0])
                         with
                         | ValueSome host -> resolveInterfaceImpls ctx host
@@ -1091,7 +1087,7 @@ module Unification =
         // Resolve every class's interface impls before any body types (so a
         // module function's `for x in (c: C)` and any `:>`/coercion sees them).
         for w in elems do
-            ctx.Resolution.OpenScope <- w.Scope
+            ctx.EnterElement w
             resolveInterfaceImplsForElem ctx w.Elem
 
         // Seed annotation-derived schemes for module-level functions
@@ -1107,7 +1103,7 @@ module Unification =
         // stand-in would never be read; seeding it anyway would keep the forward-reference
         // machinery alive for programs F# rejects.
         for w in elems do
-            ctx.Resolution.OpenScope <- w.Scope
+            ctx.EnterElement w
 
             match w.Elem with
             | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) when
@@ -1135,7 +1131,7 @@ module Unification =
         // extraction. `prebind` is still seeded above so genuine forward references
         // (mutual recursion, a `rec` module) keep a usable scheme.
         for w in elems do
-            ctx.Resolution.OpenScope <- w.Scope
+            ctx.EnterElement w
             fillClassMembers ctx w.Elem
             fillNominalMembers ctx w.Elem
             walkModuleElem ctx w.Elem

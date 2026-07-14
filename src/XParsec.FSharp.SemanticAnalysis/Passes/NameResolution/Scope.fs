@@ -183,8 +183,8 @@ module NameResolutionScope =
                 // *because* the lookup hit, so when the lookup misses here, it misses in
                 // Unification too and the diagnostic is the resolution failure itself.
                 if
-                    TypeRegistry.isCaseName ctx.Types (SourcePos.ofNodeKey useKey) name
-                    || (TypeRegistry.tryClass ctx.Types (SourcePos.ofNodeKey useKey) name).IsSome
+                    TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt useKey) name
+                    || (TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt useKey) name).IsSome
                     // A generic external-type receiver (`EqualityComparer<int>`) was
                     // resolved at exact arity by the enclosing TypeApp visit, which
                     // stamped this use site's `ResolvedType`; a non-generic one
@@ -219,7 +219,7 @@ module NameResolutionScope =
     /// nothing) and its sub-patterns as binders, not the whole thing as a binder
     /// Empty strings (virtual tokens) never
     /// match.
-    let private isCtorName (ctx: PassContext) (useSite: SourcePos) (name: string) : bool =
+    let private isCtorName (ctx: PassContext) (useSite: UseSite) (name: string) : bool =
         name.Length > 0
         && System.Char.IsUpper name.[0]
         && (TypeRegistry.isCaseName ctx.Types useSite name
@@ -234,7 +234,7 @@ module NameResolutionScope =
     /// misses, since a bare probe of an RQA case's short name is (correctly)
     /// rejected. Mirrors the recognition InferPat / Elaborate/Patterns apply, so a
     /// qualified external case's sub-patterns bind identically.
-    let private isPatNamedCtorHead (ctx: PassContext) (useSite: SourcePos) (li: LongIdent<SyntaxToken>) : bool =
+    let private isPatNamedCtorHead (ctx: PassContext) (useSite: UseSite) (li: LongIdent<SyntaxToken>) : bool =
         li.Idents.Length >= 1
         && (isCtorName ctx useSite (ctx.NameOf li.Idents.[li.Idents.Length - 1])
             || (li.Idents.Length = 2
@@ -244,7 +244,7 @@ module NameResolutionScope =
     /// bind nothing (Wildcard, Const, nullary ctors).
     let rec bindingsOfPat (ctx: PassContext) (p: Pat<SyntaxToken>) : (string * NodeKey) list =
         match p with
-        | Pat.NamedSimple t when isCtorName ctx (SourcePos.ofNodeKey (CstKeys.ofPat p)) (ctx.NameOf t) ->
+        | Pat.NamedSimple t when isCtorName ctx (ctx.UseSiteAt(CstKeys.ofPat p)) (ctx.NameOf t) ->
             // Uppercase-leading ident matching a known nullary ctor — a ctor
             // pattern, binds nothing.
             []
@@ -263,9 +263,7 @@ module NameResolutionScope =
             bindingsOfPat ctx inner
         | Pat.Record(fieldPats = fieldPats) ->
             [ for FieldPat(pat = sub) in fieldPats -> bindingsOfPat ctx sub ] |> List.concat
-        | Pat.Named(longIdent = li; argumentPats = args) when
-            isPatNamedCtorHead ctx (SourcePos.ofNodeKey (CstKeys.ofPat p)) li
-            ->
+        | Pat.Named(longIdent = li; argumentPats = args) when isPatNamedCtorHead ctx (ctx.UseSiteAt(CstKeys.ofPat p)) li ->
             // Ctor pattern (`Circle r`, `Result1.Ok x`, `Color.Red x`): head binds
             // nothing, sub-patterns introduce binders.
             [
@@ -505,7 +503,7 @@ module NameResolutionScope =
                         match ctx.Resolution.LocalModules.TryGetValue moduleName with
                         | true, members ->
                             match members.TryGetValue memberName with
-                            | true, m when m.VisibleFrom <= (SourcePos.ofNodeKey (CstKeys.ofExpr e)).Offset ->
+                            | true, m when m.VisibleFrom <= (ctx.UseSiteAt(CstKeys.ofExpr e)).Offset ->
                                 ctx.Bindings.Binding.Set(
                                     CstKeys.ofExpr e,
                                     {
@@ -529,7 +527,7 @@ module NameResolutionScope =
                     // Every local read below answers AS SEEN FROM this expression: a type
                     // declared under it cannot answer for the qualifier, so the suppression
                     // and the binding Unification makes fail together.
-                    let useSite = SourcePos.ofNodeKey (CstKeys.ofExpr e)
+                    let useSite = ctx.UseSiteAt(CstKeys.ofExpr e)
 
                     if not (tryStampExternalValue ctx (CstKeys.ofExpr e) qualName) then
                         // `Result2.Ok` — two-segment qualified ctor; resolves through

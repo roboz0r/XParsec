@@ -203,7 +203,7 @@ module NameResolutionTypeHeadStamp =
         // be claimed; a dotted name is external or nothing.
         if
             idents.Length = 1
-            && TypeRegistry.isTypeNameInScope ctx.Types (SourcePos.ofNodeKey head.Key) (ctx.NameOf idents.[0])
+            && TypeRegistry.isTypeNameInScope ctx.Types (ctx.UseSiteAt head.Key) (ctx.NameOf idents.[0])
         then
             LocalType
         else

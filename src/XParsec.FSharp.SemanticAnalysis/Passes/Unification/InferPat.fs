@@ -19,7 +19,7 @@ module internal UnificationInferPat =
     /// union RHS; a bare program leaves the container flexible (a fresh TyVar
     /// registered in `ctx.ListLiterals`) for consumer-driven resolution.
     let private consListTy (ctx: PassContext) (key: NodeKey) (elemTy: SemType) : SemType =
-        match TypeRegistry.tryAbbrevArity ctx.Types SourcePos.unbounded "list" 1 with
+        match TypeRegistry.tryAbbrevArity ctx.Types UseSite.unbounded "list" 1 with
         | ValueSome info ->
             forceFill ctx info
             expandAbbreviation ctx key info (EqArray.singleton elemTy)
@@ -40,7 +40,7 @@ module internal UnificationInferPat =
 
             n.Length > 0
             && System.Char.IsUpper n.[0]
-            && TypeRegistry.isCaseName ctx.Types (SourcePos.ofNodeKey key) n
+            && TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt key) n
             ->
             // Uppercase-leading bare ident matching a ctor IN SCOPE HERE —
             // reinterpret as a nullary ctor pattern. Multi-candidate names
@@ -49,7 +49,7 @@ module internal UnificationInferPat =
             // stays an ordinary binder (the arm below) — as in F#, where an
             // unrecognised ident in pattern position is a variable pattern.
             let n = ctx.NameOf t
-            let info, count = resolveCtorName ctx (SourcePos.ofNodeKey key) n
+            let info, count = resolveCtorName ctx (ctx.UseSiteAt key) n
 
             match info with
             | ValueSome i when i.Fields.Length = 0 ->
@@ -142,7 +142,7 @@ module internal UnificationInferPat =
             ty
         | Pat.Named(longIdent = li; argumentPats = args) when
             li.Idents.Length = 2
-            && (TypeRegistry.tryEnum ctx.Types (SourcePos.ofNodeKey key) (ctx.NameOf li.Idents.[0])).IsSome
+            && (TypeRegistry.tryEnum ctx.Types (ctx.UseSiteAt key) (ctx.NameOf li.Idents.[0])).IsSome
             ->
             // `| E.C1` — an enum-case constant pattern: the head names a
             // project-local enum, so the tail must be one of its cases. The
@@ -156,7 +156,7 @@ module internal UnificationInferPat =
             // are nullary; any (ill-formed) sub-patterns are still walked so their
             // binders register.
             let einfo =
-                (TypeRegistry.tryEnum ctx.Types (SourcePos.ofNodeKey key) (ctx.NameOf li.Idents.[0])).Value
+                (TypeRegistry.tryEnum ctx.Types (ctx.UseSiteAt key) (ctx.NameOf li.Idents.[0])).Value
 
             let caseName = ctx.NameOf li.Idents.[1]
 
@@ -181,12 +181,10 @@ module internal UnificationInferPat =
             && (let last = ctx.NameOf li.Idents.[li.Idents.Length - 1]
                 last.Length > 0 && System.Char.IsUpper last.[0])
             && (li.Idents.Length = 1
-                && TypeRegistry.isCaseName ctx.Types (SourcePos.ofNodeKey key) (ctx.NameOf li.Idents.[0])
+                && TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt key) (ctx.NameOf li.Idents.[0])
                 || li.Idents.Length = 2
                    && (
-                       match
-                           TypeRegistry.tryUnionBare ctx.Types (SourcePos.ofNodeKey key) (ctx.NameOf li.Idents.[0])
-                       with
+                       match TypeRegistry.tryUnionBare ctx.Types (ctx.UseSiteAt key) (ctx.NameOf li.Idents.[0]) with
                        | ValueSome info ->
                            let caseName = ctx.NameOf li.Idents.[1]
                            info.Cases |> Array.exists (fun c -> c.Name = caseName)
@@ -197,7 +195,7 @@ module internal UnificationInferPat =
                 if li.Idents.Length = 1 then
                     let name = ctx.NameOf li.Idents.[0]
 
-                    match resolveCtorName ctx (SourcePos.ofNodeKey key) name with
+                    match resolveCtorName ctx (ctx.UseSiteAt key) name with
                     | ValueSome i, _ -> ValueSome i
                     | ValueNone, count when count >= 2 ->
                         ctx.Diagnostics.Add
@@ -217,7 +215,7 @@ module internal UnificationInferPat =
                 else
                     let typeName = ctx.NameOf li.Idents.[0]
                     let caseName = ctx.NameOf li.Idents.[1]
-                    resolveQualifiedCtor ctx (SourcePos.ofNodeKey key) typeName caseName
+                    resolveQualifiedCtor ctx (ctx.UseSiteAt key) typeName caseName
 
             match info with
             | ValueNone ->
@@ -451,7 +449,7 @@ module internal UnificationInferPat =
             let candidate =
                 match qualifier with
                 | Some typeName ->
-                    match TypeRegistry.tryRecord ctx.Types (SourcePos.ofNodeKey key) typeName with
+                    match TypeRegistry.tryRecord ctx.Types (ctx.UseSiteAt key) typeName with
                     | ValueSome info -> ValueSome info
                     | ValueNone ->
                         ctx.Diagnostics.Add
@@ -464,7 +462,7 @@ module internal UnificationInferPat =
 
                         ValueNone
                 | None ->
-                    let cand, count = findUniqueRecordByFieldSet ctx (SourcePos.ofNodeKey key) names
+                    let cand, count = findUniqueRecordByFieldSet ctx (ctx.UseSiteAt key) names
 
                     match cand with
                     | ValueSome _ -> cand

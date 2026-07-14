@@ -435,7 +435,7 @@ module NameResolution =
         | true, moduleName ->
             match ctx.Resolution.LocalModules.TryGetValue moduleName with
             | true, members ->
-                let useSite = SourcePos.ofNodeKey declKey
+                let useSite = ctx.UseSiteAt declKey
                 let mutable m = Map.empty
 
                 for kv in members do
@@ -465,7 +465,7 @@ module NameResolution =
                     match
                         TypeRegistry.tryClassArity
                             ctx.Types
-                            SourcePos.unbounded
+                            UseSite.unbounded
                             (ctx.NameOf nameLi.Idents.[0])
                             (arityOfTypeName ctx d.TypeName)
                     with
@@ -555,7 +555,7 @@ module NameResolution =
                 | ValueSome(struct (nameLi, ValueSome elems)) ->
                     let name = ctx.NameOf nameLi.Idents.[0]
 
-                    match TypeRegistry.tryNonClassMemberHost ctx.Types SourcePos.unbounded name with
+                    match TypeRegistry.tryNonClassMemberHost ctx.Types UseSite.unbounded name with
                     | ValueSome host -> walkNominalHostBodies ctx walker name host elems
                     | ValueNone -> ()
                 | _ -> ()
@@ -621,7 +621,7 @@ module NameResolution =
         // value resolution and its body typing stay with the declaration-order body walk
         // below, which is ordered against `fillClassMembers` for the module↔class dependency.
         for w in elems do
-            ctx.Resolution.OpenScope <- w.Scope
+            ctx.EnterElement w
 
             match w.Elem with
             | ModuleElem.Type defs -> registerGroup ctx w.Containment w.RecScopeOffset defs
@@ -633,11 +633,11 @@ module NameResolution =
         // ctx.Resolution.OpenScope is set per element so a member body resolves
         // short external names against the `open`s in scope at that element.
         for w in elems do
-            ctx.Resolution.OpenScope <- w.Scope
+            ctx.EnterElement w
             walkClassBodies ctx walker w.Elem
 
         for w in elems do
-            ctx.Resolution.OpenScope <- w.Scope
+            ctx.EnterElement w
             walkNominalBodies ctx walker w.Elem
 
         // Module-level VALUES, in declaration order: `walkModuleElem` adds a `let`'s binders
@@ -665,7 +665,7 @@ module NameResolution =
                 let mutable seeded = List.head scope
 
                 for k in i .. j - 1 do
-                    ctx.Resolution.OpenScope <- elems.[k].Scope
+                    ctx.EnterElement elems.[k]
 
                     match elems.[k].Elem with
                     | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
@@ -677,7 +677,7 @@ module NameResolution =
                 scope <- seeded :: List.tail scope
 
             for k in i .. j - 1 do
-                ctx.Resolution.OpenScope <- elems.[k].Scope
+                ctx.EnterElement elems.[k]
                 scope <- walkModuleElem ctx walker scope elems.[k].Elem
 
             i <- j

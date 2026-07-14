@@ -159,6 +159,42 @@ and TypeKey =
         | TypeHolder.InModule parent -> parent.Namespace
         | TypeHolder.InType outer -> outer.Namespace
 
+/// WHERE a by-NAME lookup speaks FROM. A name is not an identity on its own — it is one
+/// only as seen from somewhere — and "somewhere" in F# is TWO facts, so they travel as one
+/// value rather than as two arguments a caller can supply half of:
+///
+///   * `Pos` — the place in the file. Declaration scoping is file-ordered, so a claim
+///     answers only at offsets at or after it (`TypeIdentity.VisibleFrom`).
+///   * `Holder` — the module / namespace chain the use is nested in, INNERMOST last (the
+///     `ModuleHolder` chain `ModuleRules.holderChain` builds from the use's containment).
+///     A bare name resolves innermost-outward, so a use inside `module A` is not the same
+///     use site as one at namespace level even at the same offset.
+///
+/// `Pos` is a `SourcePos`, whose representation is private: a use site can therefore only
+/// be pinned to a node that HAS a place in the file, and a counter-minted key cannot mint
+/// one. `Holder` is `ValueNone` exactly for a read that speaks from nowhere — the
+/// whole-unit view (`UseSite.unbounded`).
+[<NoComparison>]
+type UseSite =
+    {
+        Pos: SourcePos
+        Holder: ModuleHolder voption
+    }
+
+    /// The offset a visibility test compares a claim's `VisibleFrom` against.
+    member this.Offset: int = this.Pos.Offset
+
+module UseSite =
+
+    /// A read that sees EVERY declaration, wherever it sits and whatever holds it — for a
+    /// query with no position and no enclosing module to speak from (an observer of the
+    /// finished registry, a consumer that already holds a resolved key).
+    let unbounded: UseSite =
+        {
+            Pos = SourcePos.unbounded
+            Holder = ValueNone
+        }
+
 /// Was `SymbolKey.ValueKey`: a module-level binding / operator. No `ArgSig`: modules
 /// do not overload.
 ///

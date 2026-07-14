@@ -249,7 +249,7 @@ module private Local =
     let typeKeyOf (arity: int) (name: string) (src: string) : TypeKey =
         let ctx, _ = analyseNameRes (realProvider.Force()) src
 
-        match TypeRegistry.tryTypeClaim ctx.Types SourcePos.unbounded name arity with
+        match TypeRegistry.tryTypeClaim ctx.Types UseSite.unbounded name arity with
         | ValueSome id -> id.Key
         | ValueNone -> failtestf "no type claim for %s`%d" name arity
 

@@ -112,32 +112,21 @@ module NameResolutionTypeRegistration =
             }
         )
 
-    /// This pass's face of `ModuleNaming` — the unit's nominal type names come from the
-    /// registry `noteNominalTypeNames` filled, and the attributes from the source text.
-    /// The predicate is read at CALL time, so it sees every name the pre-scan noted,
-    /// including one declared textually below the module it collides with.
-    let moduleNaming (ctx: PassContext) : ModuleNaming =
-        {
-            Lexed = ctx.Lexed
-            Input = ctx.Input
-            IsNominalTypeName = TypeRegistry.isNominalTypeName ctx.Types
-        }
-
-    /// `ModuleRules.holderName` under this pass's `ModuleNaming`. The rule itself lives in
-    /// `ModuleRules` because the contract extractor — which is upstream of every pass and
-    /// has no `PassContext` — is its third reader.
+    /// `ModuleRules.holderName` under this unit's `ModuleNaming` (`PassContext.ModuleNaming`).
+    /// The rule itself lives in `ModuleRules` because the contract extractor — which is
+    /// upstream of every pass and has no `PassContext` — is its third reader.
     let moduleHolderName (ctx: PassContext) (md: ModuleDefn<SyntaxToken>) : string =
-        ModuleRules.holderName (moduleNaming ctx) md
+        ModuleRules.holderName ctx.ModuleNaming md
 
-    /// `ModuleRules.typeHolder` under this pass's `ModuleNaming`.
+    /// `ModuleRules.typeHolder` under this unit's `ModuleNaming`.
     let localTypeHolder (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : TypeHolder =
-        ModuleRules.typeHolder (moduleNaming ctx) c
+        ModuleRules.typeHolder ctx.ModuleNaming c
 
-    /// `ModuleRules.holderChain` under this pass's `ModuleNaming` — the holder a BINDING
+    /// `ModuleRules.holderChain` under this unit's `ModuleNaming` — the holder a BINDING
     /// declared in `c` sits in. The SAME chain `localTypeHolder` reads, so a binding and a
     /// type declared in one module agree about which module holds them.
     let localHolderChain (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : ModuleHolder =
-        ModuleRules.holderChain (moduleNaming ctx) c
+        ModuleRules.holderChain ctx.ModuleNaming c
 
     /// Mint a project-local `SymbolKey` for a type declaration and assert it is unique
     /// across the compilation. The key's holder chain is the declaring containment

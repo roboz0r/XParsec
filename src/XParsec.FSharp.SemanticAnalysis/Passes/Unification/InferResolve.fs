@@ -54,7 +54,7 @@ module internal UnificationInferResolve =
     /// declared below the call names nothing there, so the call resolves to nothing and
     /// NameResolution's "unresolved identifier" (which fires off the same miss) is the
     /// whole verdict.
-    let tryClassCtorAsFunction (ctx: PassContext) (useSite: SourcePos) (name: string) : SemType voption =
+    let tryClassCtorAsFunction (ctx: PassContext) (useSite: UseSite) (name: string) : SemType voption =
         match TypeRegistry.tryClass ctx.Types useSite name with
         | ValueSome info ->
             let args, subst = freshNamedInstance ctx info.TypeParams
@@ -69,7 +69,7 @@ module internal UnificationInferResolve =
             ValueSome(TyFun(arg, receiverTy))
         | ValueNone -> ValueNone
 
-    let classCtorAsFunction (ctx: PassContext) (useSite: SourcePos) (name: string) : SemType =
+    let classCtorAsFunction (ctx: PassContext) (useSite: UseSite) (name: string) : SemType =
         match tryClassCtorAsFunction ctx useSite name with
         | ValueSome t -> t
         | ValueNone -> TyVar(freshTyVar ctx)
@@ -124,7 +124,7 @@ module internal UnificationInferResolve =
     /// such ctor *here*" — either no union declares it, or the one that does is declared
     /// below the use; `count >= 2` means ambiguous. The caller emits the appropriate
     /// diagnostic.
-    let resolveCtorName (ctx: PassContext) (useSite: SourcePos) (name: string) : UnionCaseInfo voption * int =
+    let resolveCtorName (ctx: PassContext) (useSite: UseSite) (name: string) : UnionCaseInfo voption * int =
         match TypeRegistry.casesNamed ctx.Types useSite name with
         | [||] -> ValueNone, 0
         | [| only |] -> ValueSome only, 1
@@ -132,7 +132,7 @@ module internal UnificationInferResolve =
 
     let resolveQualifiedCtor
         (ctx: PassContext)
-        (useSite: SourcePos)
+        (useSite: UseSite)
         (typeName: string)
         (caseName: string)
         : UnionCaseInfo voption =
@@ -154,7 +154,7 @@ module internal UnificationInferResolve =
     /// no record label there, so the literal matches nothing (F#'s verdict).
     let findUniqueRecordByFieldSet
         (ctx: PassContext)
-        (useSite: SourcePos)
+        (useSite: UseSite)
         (names: string list)
         : RecordTypeInfo voption * int =
         match names with

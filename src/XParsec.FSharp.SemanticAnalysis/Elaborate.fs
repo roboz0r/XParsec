@@ -525,7 +525,7 @@ module Elaborate =
             // Resolve by the arity-key, not the bare name: an arity-overloaded
             // interface (`Fun\`2`/`Fun\`3`) does not resolve by bare name, so a bare
             // read would miss and silently drop the decl.
-            match TypeRegistry.tryClassArity ctx.Types SourcePos.unbounded name arity with
+            match TypeRegistry.tryClassArity ctx.Types UseSite.unbounded name arity with
             | ValueNone -> None
             | ValueSome info ->
                 // The member signatures share these prototype TyVars (Unification
@@ -1278,7 +1278,7 @@ module Elaborate =
         // the same containment-derived holder, so a module-held enum cannot fall back to
         // a DIFFERENT key than the one registration minted.
         let key =
-            match TypeRegistry.tryEnum ctx.Types SourcePos.unbounded name with
+            match TypeRegistry.tryEnum ctx.Types UseSite.unbounded name with
             | ValueSome info -> info.Key
             | ValueNone ->
                 SymbolKey.Type(LocalSymbolKey.ofType (NameResolutionTypeRegistration.localTypeHolder ctx c) name 0)
@@ -1423,7 +1423,7 @@ module Elaborate =
         // Resolve by the arity-key, not the bare name: an arity-overloaded class
         // (`Box\`1`/`Box\`2`) does not resolve by bare name, so a bare read would
         // miss (or fetch the wrong arity's info) and drop / mis-emit the decl.
-        match TypeRegistry.tryClassArity ctx.Types SourcePos.unbounded name arity with
+        match TypeRegistry.tryClassArity ctx.Types UseSite.unbounded name arity with
         | ValueNone -> None
         | ValueSome info ->
             let markers = mkDeclTyparEnv info.TypeParams
@@ -1779,8 +1779,14 @@ module Elaborate =
         (c: DeclContainment<SyntaxToken>)
         (m: ModuleElem<SyntaxToken>)
         : (TDecl * (TypeVar * SemType) list) list =
+        // Elaborate walks the module tree itself rather than the flattened element list, so
+        // this is ITS per-element seat: the by-name reads its lowering still makes (a class
+        // reference, a union-case head) must speak from the module they are written in, not
+        // from wherever the previous pass's walk finished.
+        let chain = ctx.EnterContainment c
+
         let holder =
-            match NameResolutionTypeRegistration.localHolderChain ctx c with
+            match chain with
             | ModuleHolder.InModule mk -> Some mk
             | ModuleHolder.InNamespace _ -> None
 

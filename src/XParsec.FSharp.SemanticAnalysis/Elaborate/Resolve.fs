@@ -70,7 +70,7 @@ module internal ElaborateResolve =
                 // Unification resolved the head at, so the fallback cannot see an enum the
                 // canonical `TyEnum` signal could not.
                 let useSite =
-                    SourcePos.ofNodeKey (NodeKey.ofToken (CstKeys.firstTokenOfLongIdent li) NodeKind.ExprIdent)
+                    ctx.UseSiteAt(NodeKey.ofToken (CstKeys.firstTokenOfLongIdent li) NodeKind.ExprIdent)
 
                 match TypeRegistry.tryEnum ctx.Types useSite (ctx.NameOf li.Idents.[0]) with
                 | ValueSome info -> ValueSome info.Key
@@ -116,14 +116,14 @@ module internal ElaborateResolve =
             | Expr.Ident t ->
                 let n = ctx.NameOf t
 
-                if (TypeRegistry.tryClass ctx.Types (SourcePos.ofNodeKey key) n).IsSome then
+                if (TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt key) n).IsSome then
                     ValueSome n
                 else
                     stampedExternal ()
             | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
                 let n = ctx.NameOf li.Idents.[0]
 
-                if (TypeRegistry.tryClass ctx.Types (SourcePos.ofNodeKey key) n).IsSome then
+                if (TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt key) n).IsSome then
                     ValueSome n
                 else
                     stampedExternal ()
@@ -151,7 +151,7 @@ module internal ElaborateResolve =
     /// `SymbolKey.MemberKey` off the resolved type (Phase 4).
     let private tryClassMember
         (ctx: PassContext)
-        (useSite: SourcePos)
+        (useSite: UseSite)
         (typeName: string)
         (memberName: string)
         : (TypeKey * TypeMemberInfo) voption =
@@ -397,7 +397,7 @@ module internal ElaborateResolve =
             let memberName = ctx.NameOf li.Idents.[1]
             // The written qualifier's own token IS the use site.
             let useSite =
-                SourcePos.ofNodeKey (NodeKey.ofToken (CstKeys.firstTokenOfLongIdent li) NodeKind.ExprIdent)
+                ctx.UseSiteAt(NodeKey.ofToken (CstKeys.firstTokenOfLongIdent li) NodeKind.ExprIdent)
 
             tryClassMember ctx useSite className memberName
             |> ValueOption.filter (fun (_, m) -> m.IsStatic)
@@ -420,7 +420,7 @@ module internal ElaborateResolve =
             // external case is never stamped — only its qualified form (the
             // length-2 arms below) is a ctor ref.
             let isCase (n: string) =
-                TypeRegistry.isCaseName ctx.Types (SourcePos.ofNodeKey key) n
+                TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt key) n
                 || ctx.Resolution.ExternalUnionCaseStamp.ContainsKey key
 
             match e with
@@ -436,7 +436,7 @@ module internal ElaborateResolve =
                 li.Idents.Length = 2
                 && TypeRegistry.localQualifiedCase
                     ctx.Types
-                    (SourcePos.ofNodeKey key)
+                    (ctx.UseSiteAt key)
                     (ctx.NameOf li.Idents.[0])
                     (ctx.NameOf li.Idents.[1])
                 ->
@@ -520,7 +520,7 @@ module internal ElaborateResolve =
             | ValueSome className ->
                 let memberName = ctx.NameOf li.Idents.[0]
 
-                match tryClassMember ctx (SourcePos.ofNodeKey (CstKeys.ofExpr e)) className memberName with
+                match tryClassMember ctx (ctx.UseSiteAt(CstKeys.ofExpr e)) className memberName with
                 | ValueSome(declKey, m) when m.IsStatic -> ValueSome(declKey, memberName, m.Kind)
                 | _ -> ValueNone
             | ValueNone -> ValueNone

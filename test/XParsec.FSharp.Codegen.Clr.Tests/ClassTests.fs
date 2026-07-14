@@ -1699,7 +1699,7 @@ let interfaceImplTests =
                 let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
                 Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
 
-                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded "C" with
+                match TypeRegistry.tryClass ctx.Types UseSite.unbounded "C" with
                 | ValueSome info ->
                     Expect.equal info.InterfaceImpls.Length 1 "one interface impl registered on C"
                     let impl = info.InterfaceImpls.[0]
@@ -1767,7 +1767,7 @@ let interfaceImplTests =
                 let errors = tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
                 Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
 
-                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded "C" with
+                match TypeRegistry.tryClass ctx.Types UseSite.unbounded "C" with
                 | ValueSome info ->
                     Expect.equal info.InterfaceImpls.Length 2 "two interface impls registered on C"
 
@@ -1817,7 +1817,7 @@ let interfaceImplTests =
 
                 Expect.isEmpty errors (sprintf "no front-end errors (%A)" errors)
 
-                match TypeRegistry.tryClass ctx.Types SourcePos.unbounded "Box" with
+                match TypeRegistry.tryClass ctx.Types UseSite.unbounded "Box" with
                 | ValueSome info ->
                     Expect.equal info.InterfaceImpls.Length 1 "one interface impl registered on Box"
 

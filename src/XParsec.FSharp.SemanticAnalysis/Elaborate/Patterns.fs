@@ -50,7 +50,7 @@ module internal ElaboratePatterns =
 
                 n.Length > 0
                 && System.Char.IsUpper n.[0]
-                && TypeRegistry.isCaseName ctx.Types (SourcePos.ofNodeKey key) n)
+                && TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt key) n)
             ->
             // Nullary ctor in pattern position — a local union or an external
             // referenced-package one (`None`, recognised upstream and read by key).
@@ -168,11 +168,11 @@ module internal ElaboratePatterns =
                     last.Length > 0
                     && System.Char.IsUpper last.[0]
                     && (li.Idents.Length = 1
-                        && TypeRegistry.isCaseName ctx.Types (SourcePos.ofNodeKey key) last
+                        && TypeRegistry.isCaseName ctx.Types (ctx.UseSiteAt key) last
                         || li.Idents.Length = 2
                            && TypeRegistry.localQualifiedCase
                                ctx.Types
-                               (SourcePos.ofNodeKey key)
+                               (ctx.UseSiteAt key)
                                (ctx.NameOf li.Idents.[0])
                                last)))
             ->
