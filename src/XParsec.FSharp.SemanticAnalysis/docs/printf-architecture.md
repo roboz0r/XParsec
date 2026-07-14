@@ -543,6 +543,161 @@ now issued by the general rule. `familyNeedsScratch` (`:368`) likewise stays sou
 construction: a scratch is resolved only on a callback call, which is by definition
 observable, so the scratch is never demanded on a target that cannot name the sink.
 
+### The JS `TextWriter` shim — and the two things that block it
+
+**Ruled (2026-07-14): `fprintf` / `bprintf` STAY in the shared contract.** They are not split
+into per-target contracts. Vesper source is written identically for every target; the *sink
+type* resolves per target through the provider — CLR binds it to `System.IO.TextWriter`, JS
+binds it to a **Vesper-authored shim**. The JS diagnostic is therefore not a permanent
+property of the target; it is the "no shim written yet" state, and the shim is the thing that
+flips it off — **with no compiler change**, which is the property the whole design exists to
+buy.
+
+That settles *what* the shim is. Three questions decide whether it is **declarable**, not
+merely writable. Probed 2026-07-14; two of the three answers are blockers.
+
+**1. What the lowering ACTUALLY CALLS on the sink: `Write(string)`. Nothing else. So the
+shim needs NO overloads, and the mangling dependency EVAPORATES.**
+
+This is the question that sets the scope of the whole piece of work, so it is answered from
+the code, not from the BCL's shape.
+
+*CLR.* The sink is touched in exactly two places. It is passed as a **ctor argument** to the
+`Vesper.Formatter` ref-struct (`EmitFormat.fs:58-63`: `ToWriter` → `CtorWriter`, `ToBuilder` →
+`CtorBuilder`), and it is written to **once, in `Flush`** (`formatter.fs:350-357`):
+
+```fsharp
+match this.Writer with
+| null -> match this.Builder with
+          | null -> ()
+          | sb -> sb.Append(this.Chars.Slice(0, this.Pos).ToString()) |> ignore
+| w -> w.Write(this.Chars.Slice(0, this.Pos).ToString())
+```
+
+`Write(string)` and `Append(string)`. **Every hole has already been rendered to characters by
+the handler** (`AppendFormatted` / `AppendBool` / `AppendZeroPaddedFloat` / …) *before* the
+sink is ever touched, and `printfn`'s newline rides as a trailing literal segment inside the
+same buffer. `System.IO.TextWriter`'s typed `Write(int)` / `Write(double)` / `WriteLine(…)`
+overloads are **never called by the printf lowering at all**.
+
+*JS.* The same conclusion, more directly. `EmitJsFormat.buildFormatArg` (`:465-497`) composes
+**a string** — a `+`-concatenation of per-hole rendered `JsRawSeg`s — which the existing arms
+hand to `console.log` (`EmitJs.fs:527-531`). So the `ToWriter` / `ToBuilder` arms that today
+`failwithf` (`:532`) need to emit precisely `w.Write(<that string expr>)` and
+`sb.Append(<that string expr>)`. One member each.
+
+**Three consequences, and they change the scope of the work.**
+
+- **The shim's declared surface has NO overloads.** `Write : string -> unit` (plus `Flush`,
+  and `ToString : unit -> string` on the `StringWriter` scratch). Nothing overloaded, so
+  nothing to mangle.
+- **The dependency on `js-overload-mangling-plan.md` does not exist for this work.** That plan
+  is real, fully specified, and unimplemented — and its *own* first consumer is the typed
+  `IFormatSink.Child` overloads (`Child$int` / `Child$string` / `Child$obj`), which is also
+  printf work (the "Typed `Child` atoms" deferred seam below). The two efforts are entangled at
+  the root, but **not on this path**: the sink shim does not need it. If the shim's surface
+  ever grows overloads — i.e. if the goal becomes a BCL-shaped `TextWriter` that *user* code
+  can call as `w.Write 42` — then it is **hard-blocked on that plan landing first**, and that
+  is a prerequisite with its own scope, not a detail of "write the shim". Do not conflate the
+  two, and do not invent a second mangling: the scheme is already designed
+  (`Type__member$<paramtoken>` readable / `Type__member$0<hash>` hashed, identity from
+  `FrozenType`, serializer in `Codegen.Common`).
+- **The `toFixed(1)` float-fidelity rule does NOT belong in the sink.** It cannot: printf never
+  calls `Write(double)`. Float rendering is *already* owned by the formatter on both targets —
+  CLR `Formatter.AppendFormatted` / `AppendDynamicPrecisionFloat`, JS `EmitJsFormat.buildHole`.
+  Putting a `42.0 → "42.0"` rule in the sink would make it a **third** independent copy of a
+  rule that already exists twice, firing only on a direct user `w.Write 42.0` that no printf
+  path emits — a defect, not a feature. The rule stays where the rendering is.
+
+**Net: this is "write a shim", not "implement a mangling scheme, then write a shim."**
+
+*(For the record, since it decides the above: `JsExternalMembers.mangledName`
+(`JsExternalMembers.fs:28-31`) is nominal-only — `typeName + "__" + memberName`, plus the
+static/property variants — with no parameter or arity component, so two overloads of a name
+mangle identically and one silently shadows the other. Its producers, `EmitJsMembers.fs:143`
+and `EmitJsContext.fs:247` / `JsExternalMembers.fs:307`, all feed it `m.Name` alone. It is
+also **unexercised** territory: the one heavily-overloaded Vesper contract, `formatter.fsi`
+(three `new:` ctors + four `AppendFormatted`), is explicitly excluded from JS
+(`Vesper.Printf/manifest.toml`: `inline-bodies-js = []`, no `impl-js`), so no JS-compiled
+Vesper type has ever had an overloaded member.)*
+
+**2. Class inheritance is NOT supported on the JS target — the sketch's shape is not
+expressible.** `EmitJsTypes.fs:402-404` hard-fails any `inherit` clause:
+*"class '%s' declares an `inherit` clause; class inheritance is not yet supported on the JS
+target"*. The sketched shim is an **abstract base** whose `_writeCore` throws and is
+overridden by a stdout writer / string writer — i.e. exactly an `inherit` hierarchy. It
+cannot be authored that way.
+
+The expressible shape is the one the repo already uses everywhere else: **a capability-style
+`interface` plus concrete implementors** (interfaces *are* supported and are how `disposable`
+/ `enumerable` work). The CLR face stays the abstract BCL class; the JS face is an interface.
+Nothing in the design requires the two faces to share a *kind* — the provider binds the sink
+per target, and (per question 1) the printf lowering only ever calls `Write(string)` on the
+receiver. `ScratchSink`'s `new StringWriter()` becomes a concrete JS class implementing that
+interface, with the parameterless `ToString` the `%a` capture-first residue block already
+demands (`InferApp.fs:493-499`).
+
+This is cheap precisely *because* the surface is one method. An abstract-base-with-`_writeCore`
+hierarchy would have needed JS class inheritance; a one-method interface needs nothing that
+does not already work.
+
+**3. Disposal: plug into the EXISTING protocol; do not declare `Dispose()`.** The sketch
+declares both `Dispose()` and `[Symbol.dispose]()`. That would invent a parallel convention,
+and it is the wrong one. The protocol:
+- `use w = …` lowers through `Disposal` (`Tast.fs:194-203`). `Disposal.ViaCapability` emits
+  `w[Symbol.dispose]()` — and JS **names its own slot**, ignoring the CLR `slot` key
+  (`EmitJs.fs:790-793`, `EmitJsCapabilities.fs:110-111`).
+- On the impl side, a type that declares `interface disposable` (`Vesper.Core/capabilities.fsi`)
+  has its `Dispose` emitted **as** the `[Symbol.dispose]()` method — the `Disposers` partition
+  (`EmitJsMembers.fs:107-109`, `EmitJsTypes.fs:95`).
+- A **bare** `Dispose()` member with no `interface disposable` is `Disposal.ViaOwnMember` (the
+  ref-struct / external-type carve-out) and lowers to the free receiver-first
+  `TextWriter__Dispose(w)` — a different call shape entirely.
+
+So the `.fsi` must say **`interface disposable`**, and the `[Symbol.dispose]()` method comes
+out for free. `disposable`'s CLR face is `System.IDisposable`, so the same declaration disposes
+correctly on both targets.
+
+**Who authors it: Vesper F#, not raw `.js`.** The repo's two precedents both compile Vesper F#
+to a committed `.mjs` — `Vesper.List/list.js.fs` (`impl-js` → `Vesper.List.mjs`) and
+`Vesper.Printf/structural-printer.js.fs` (→ the committed `Vesper.Printf.mjs` runtime asset,
+regenerated by the codegen-js suite). A hand-written `runtime/TextWriter.js` would be a second,
+divergent authoring pattern.
+
+**Host IO is not an obstacle, and therefore not an argument for raw `.js`.** The JS backend has
+a `$N`-template inline intrinsic (`EmitJs.fs:520-521` → `EmitJsFormat.expandTemplate`), used in
+production today as `(# "$0[$1]" target name : ^TResult #)`
+(`Vesper.Core/ops-dynamic.js.fs:31`). `(# "process.stdout.write($0)" s : unit #)` is expressible
+in Vesper F#.
+
+The remaining argument is single-sourcing: a hand-written `.js` sink would sit outside every
+differential test that keeps the two targets' rendering in agreement, and would invite exactly
+the third copy of the float rule that question 1 rules out. Authored as F# it compiles through
+the same backend, under the same tests, beside `structural-printer.js.fs`.
+
+**Recommendation: `src/Vesper.Printf/textwriter.js.fs`**, wired as `impl-js` and compiled to a
+committed `.mjs` like `Vesper.List` — *not* a hand-written `runtime/TextWriter.js`. Its contract
+face declares an **interface** (not an abstract class), **one non-overloaded `Write : string ->
+unit`** plus `Flush`, and **`interface disposable`**; the concrete implementors are a
+stdout/stderr writer (bottoming out in the `$N` template intrinsic) and the `StringWriter`
+scratch (a buffer plus `ToString`).
+
+### What remains BLOCKED until the shim exists
+
+- `fprintf` / `bprintf` on JS **diagnose** — the intended behaviour (the sink is an observable
+  argument). Unblocked by the shim.
+- `printf "%a"` / `"%t"` on JS **diagnose** (`PrintfSpecifierTests.fs:81-88`, unchanged — the
+  callback receives the state). Unblocked by the shim.
+- `printf` / `printfn` / `eprintf` / `eprintfn` **must keep working** — they are unobservable,
+  so the shim is *not* on their critical path. The `ToStdOut false` / `ToStdErr false` arms
+  still have to be emitted (see "Two capability axes"); that is independent of the shim and of
+  everything else here.
+
+**Not blocked on `js-overload-mangling-plan.md`** — established above: the lowering calls only
+`Write(string)`. That plan remains a prerequisite for two *other* things, both listed under
+Deferred seams: a BCL-shaped `TextWriter` that user code can call as `w.Write 42`, and the typed
+`IFormatSink.Child` atoms (its own stated first consumer). Neither is on this path.
+
 ### Honest costs
 
 - **The rule is enforced at the GATE, and the format-ANNOTATION route bypasses the gate.**
@@ -628,13 +783,20 @@ the moment it reaches for one.
 
 - **The sink model** — contract-declared, provider-resolved, `SymbolKey`-recognised, and
   resolved on demand by observability; see the section above.
+- **A BCL-shaped JS `TextWriter`** — one whose surface matches `System.IO.TextWriter`'s
+  (`Write` over string/char/int/float/obj), so user code calling `w.Write 42` is portable.
+  Hard-blocked on [js-overload-mangling-plan](js-overload-mangling-plan.md); *not* needed by
+  printf, which only ever calls `Write(string)` (see the sink-model section).
 - **Typed `Child` atoms** for JS fidelity — overloads for the IntrinsicRepr-encodable
   primitives (bool, char, string, sbyte…uint64, float32, float, decimal). Enumerate
   from `IntrinsicRepr`, *not* `DocLayout.formatPrimitive` (they disagree in ways that
-  matter for a set you cannot cheaply extend once frozen). Use **suffixed names**
-  (`ChildInt32`), not overloads: JS has no overload resolution, and this is a frozen
-  cross-target interface. They buy nothing load-bearing on the CLR (the box
-  round-trips the runtime type), so they wait for the per-type JS `Format` emitter.
+  matter for a set you cannot cheaply extend once frozen). They buy nothing load-bearing on
+  the CLR (the box round-trips the runtime type), so they wait for the per-type JS `Format`
+  emitter. **Hard-blocked on [js-overload-mangling-plan](js-overload-mangling-plan.md)**,
+  whose stated first consumer they are. (That plan supersedes the earlier "use suffixed
+  names (`ChildInt32`), not overloads" note here: real overloads are kept, and the *emitter*
+  derives `Child$int` / `Child$string` / `Child$obj` from the frozen signature — the naming
+  is a backend concern, not a contract deformation.)
 - **Per-type JS `Format` emitter** — the consumer the typed atoms serve.
 - **Zero-alloc partial application** — [printf-partial-app-plan](printf-partial-app-plan.md).
 - **Upstream RFC questions** (a `Case(name)` nullary shortcut, a `kind` enum arg on
