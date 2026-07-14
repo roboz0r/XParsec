@@ -8,6 +8,35 @@ Type registration is handled separately in
 `src/XParsec.FSharp.SemanticAnalysis/docs/top-down-registration-plan.md`; the findings
 below are what remains after that work. Delete this file once they are closed.
 
+## Status
+
+**Closed: 1, 7, 9.** Four commits (`24455419`, `18679fb6`, `3ecc37c4`, `918d66c8`) closed
+finding 1 at its root rather than at the symptom the finding described. Finding 1's own
+prescription — key the provider stores by `SymbolKey` — is NOT what landed, and could not
+be: ten call sites mint a store key from a bare compiled name with no assembly in hand, and
+`MetadataSymbols` answers by reflection, which is name-addressed by nature. The gap closed
+from the other side instead: the home assembly LEFT `SymbolKey` (it was never a
+disambiguator — every store face already discarded it), the arity ENTERED it as an `int`
+field (the `` `N `` mangling was a CLR-ism in a language-neutral identity), `simpleName`
+now returns a `DisplayName` so a display string cannot be a route back to an identity, and
+a referenced assembly already claiming a project-local type's FQN is now a diagnostic —
+which is what makes "one FQN names one type" checked rather than assumed. `SymbolKey`
+equality is now the single identity test in the tree.
+
+Finding 7 went with it (the round-trip it names is deleted). Finding 9's `SymbolOrigin`
+complaint is void: it is no longer a one-field wrapper — it carries the home assembly
+directly and is the `key -> assembly` oracle a backend consults for an `AssemblyRef` scope
+or a JS import path.
+
+**Finding 2 is now MORE urgent, not less.** `typeNestedName`'s wildcard still swallows
+`TypeHolder.InModule`, so a module-held type's `qualifiedName` still drops its module — and
+the new collision check addresses the provider BY KEY, which projects through
+`qualifiedName`. That flattening now sits underneath the premise the whole reshape rests on.
+
+**Open, unchanged: 3, 4, 5, 6, 8, 10** and the test gaps — except that the module-blind
+claim collision named under "Test gaps" is now PINNED (`DuplicateTypeNameTests`), so the
+eventual fix has something to flip.
+
 ## What is right
 
 Worth stating, because the core is sound and the findings below are all "this stopped
