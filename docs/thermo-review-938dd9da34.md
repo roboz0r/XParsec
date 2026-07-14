@@ -10,7 +10,7 @@ below are what remains after that work. Delete this file once they are closed.
 
 ## Status
 
-**Closed: 1, 2, 7, 9.** Four commits (`24455419`, `18679fb6`, `3ecc37c4`, `918d66c8`) closed
+**Closed: 1, 2, 3, 7, 9.** Four commits (`24455419`, `18679fb6`, `3ecc37c4`, `918d66c8`) closed
 finding 1 at its root rather than at the symptom the finding described. Finding 1's own
 prescription — key the provider stores by `SymbolKey` — is NOT what landed, and could not
 be: ten call sites mint a store key from a bare compiled name with no assembly in hand, and
@@ -58,7 +58,19 @@ stays, deliberately: inside our own scopes we know every type held, so a name th
 hold is undefined; under a foreign one the answer belongs to a partial view we cannot
 enumerate, and the SA test stack (BCL-less) has real cases that depend on it.
 
-**Open, unchanged: 3, 4, 5, 6, 8, 10** and the remaining test gap (an arity overload
+**Finding 3 is CLOSED** (`e191a865`). Its diagnosis held and its fix is the one that landed
+— rewrite against `tast.ModuleMembers`, then assert structurally at publish — with one
+thing the finding did not see: the assert has REAL population, and it is not a compiler bug.
+A top-level (implicit-`Program`-module) binding records a `TopLevelNames` entry and no
+`ModuleMemberInfo`, so it has no `SymbolKey` to rewrite to; `let k = 3` + `module M = let
+inline f x = x + k` is legal F# that survives the rewrite with a free `Var`. So the check is
+not an assertion but a POLICY, sited at one function (`Freeze.publishable`): diagnose and
+drop the body rather than publish it. That is a concession to a gap that is ours — giving
+top-level bindings a `Program`-holder identity would empty the arm of population, and is the
+eventual fix. The free-var walk was not written: `Regions`' private `bindersOfTPat` /
+`collectFreeVars` were hoisted to `TastWalk` and both sites share them.
+
+**Open, unchanged: 4, 5, 6, 8, 10** and the remaining test gap (an arity overload
 combined with `inherit` or an augmentation block).
 
 ## What is right
@@ -207,7 +219,8 @@ name), or render the chain and let `ClrEnv` keep owning the flat-emission conces
 
 ## 3. A published inline body can carry a dangling `Var`
 
-**Priority: high — silent, and produces bad codegen rather than a diagnostic.**
+**CLOSED** (`e191a865`). Kept for the record; see the Status section for what the fix
+turned out to be.
 
 `Freeze.rewriteSiblingRefs` (`SemanticAnalysis/Freeze.fs:177`) rewrites `TExpr.Var →
 TExpr.External` only for keys in `vocabulary`, and `vocabulary` is populated only from
