@@ -37,10 +37,12 @@ module ModuleRules =
     /// applying both named it `SetTreeModule` — two names for one class. That is why the
     /// rule is stated once, over an input set (`ModuleNaming`) narrow enough for every
     /// reader to construct.
-    let holderName (r: ModuleNaming) (md: ModuleDefn<SyntaxToken>) : string =
-        let (ModuleDefn.ModuleDefn(attributes = attrs; ident = ident)) = md
-        let name = VesperLibTypeTranslate.nameOfTok r.Lexed r.Input ident
-
+    ///
+    /// Stated over the two facts a module HEADER carries — its attributes and its SOURCE
+    /// name — rather than over one syntax, because there are three: an implementation
+    /// `ModuleDefn`, a signature `ModuleSignature`, and the trailing segment of a
+    /// `module A.B.C` signature header. All three must name the holder class the same way.
+    let holderNameOf (r: ModuleNaming) (attrs: Attributes<SyntaxToken> voption) (name: string) : string =
         if
             r.IsNominalTypeName name
             || VesperLibTypeTranslate.hasModuleSuffix r.Lexed r.Input attrs
@@ -48,6 +50,11 @@ module ModuleRules =
             name + "Module"
         else
             name
+
+    /// `holderNameOf` over an implementation file's module header.
+    let holderName (r: ModuleNaming) (md: ModuleDefn<SyntaxToken>) : string =
+        let (ModuleDefn.ModuleDefn(attributes = attrs; ident = ident)) = md
+        holderNameOf r attrs (VesperLibTypeTranslate.nameOfTok r.Lexed r.Input ident)
 
     /// The `ModuleHolder` a declaration in `c` sits in: the declaring namespace, or — for a
     /// declaration inside a `module` — the FULL enclosing module chain rooted in that
@@ -68,9 +75,15 @@ module ModuleRules =
 
         holder
 
-    /// The `TypeHolder` a type declared in `c` sits in — `holderChain` read as a type's
-    /// holder. THE sole producer of `TypeHolder.InModule`.
-    let typeHolder (r: ModuleNaming) (c: DeclContainment<SyntaxToken>) : TypeHolder =
-        match holderChain r c with
+    /// A containment chain read as a TYPE's holder. THE sole producer of
+    /// `TypeHolder.InModule`: both faces that know about modules — local registration and
+    /// the `.fsi` contract extractor — build the chain as a `ModuleHolder` and come here,
+    /// so a type declared in a module gets one holder, not one per face.
+    let typeHolderOf (h: ModuleHolder) : TypeHolder =
+        match h with
         | ModuleHolder.InNamespace ns -> TypeHolder.InNamespace ns
         | ModuleHolder.InModule m -> TypeHolder.InModule m
+
+    /// The `TypeHolder` a type declared in `c` sits in — `holderChain` read as a type's
+    /// holder.
+    let typeHolder (r: ModuleNaming) (c: DeclContainment<SyntaxToken>) : TypeHolder = typeHolderOf (holderChain r c)

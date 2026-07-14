@@ -127,8 +127,9 @@ type TypeHolder =
 /// `Name` is the PLAIN source name (`List`, `seq`, `[]`) — never the CLR `` `N ``-mangled
 /// metadata spelling, which is a *rendering* of `(Name, Arity)` and lives only at the
 /// metadata boundary (`SymbolKeyOps.typeMetaName`, the one renderer; `typeKeyOf`, the one
-/// parser — they are inverses). Because the arity is a FIELD, a producer cannot forget to
-/// state it, and no consumer can be arity-blind by accident.
+/// parser — inverses on the `InNamespace`/`InType` sublattice, which is the whole of what
+/// a bare metadata name can express; see `typeKeyOf`). Because the arity is a FIELD, a
+/// producer cannot forget to state it, and no consumer can be arity-blind by accident.
 ///
 /// For a NESTED type `Name`/`Arity` are the innermost segment's own (`Enumerator`, 0); the
 /// `+`-mangled reflection spelling is produced on demand, each segment rendering its OWN

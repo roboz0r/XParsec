@@ -68,6 +68,21 @@ one step short", not "this is the wrong idea".
 
 **Priority: high. This is the through-line for findings 2, 3 and 7.**
 
+**PARTLY CLOSED — the provider half.** The `.fsi` contract leaf is now keyed by `TypeKey`
+(`ExternalSymbolProviders.KeyedLeaf` / `ofKeyedLeaf`), and `qualifiedName` is off its by-key
+type path. The finding doubted its own prescription because "`MetadataSymbols` answers by
+reflection, which is name-addressed by nature" — but that is two populations, not one
+obstacle. A leaf whose type keys are all `InNamespace` (TS manifest, JS natives, a bare-IL
+scrape) may soundly answer a key by rendering it, *because there its name and its key say the
+same thing*; `KeyedLeaf.ofNamed` states exactly that condition. Only the leaf that mints a
+containment a name cannot express — the contract extractor, the sole producer of
+`TypeHolder.InModule` — had to become key-addressed, and it has.
+
+**STILL OPEN — the registry half.** `TypeRegistry.TypeClaims` remains
+`Dictionary<string, ResizeArray<TypeIdentity>>`, keyed by a bare short name with a linear
+arity scan. That is the module-blind duplicate-claim collision, and it is gated on
+`nested-type-emission-plan.md` landing first.
+
 Every provider store takes a `SymbolKey` and immediately renders it back to a flat
 string. From the shared leaf derivation, so this is the shape of the layer rather than
 one provider's shortcut (`SemanticAnalysis/ExternalSymbolProviders.fs:64`):

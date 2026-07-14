@@ -1726,6 +1726,44 @@ let tests =
                 | ValueNone -> failtest "no TypeVar for r"
             }
 
+            // The cross-face equality the contract's key mint exists to buy. `ByRefKinds.In`
+            // is declared inside `module ByRefKinds` in `namespace Microsoft.FSharp.Core`,
+            // so the identity a consumer's local containment would mint for it is an
+            // `InModule` chain — and the contract's store must answer THAT key, not a
+            // separately-spelled string. The store's index is the key's own rendering, so
+            // the two agree by construction rather than by coincidence.
+            test "a module-held contract type answers the KEY a module containment mints" {
+                let libProvider, _ = builtProvider.Value
+
+                let key: TypeKey =
+                    {
+                        Holder =
+                            TypeHolder.InModule(SymbolKeyOps.moduleInNamespace "Microsoft.FSharp.Core" "ByRefKinds")
+                        Name = "In"
+                        Arity = 0
+                    }
+
+                Expect.equal
+                    (SymbolKeyOps.typeMetaName key)
+                    "Microsoft.FSharp.Core.ByRefKinds+In"
+                    "the module's holder class encloses the type, as the CLR spells a nested type"
+
+                match libProvider.TryLookupType(SymbolKey.Type key) with
+                | ValueSome _ -> ()
+                | ValueNone -> failtest "the contract store must be addressable by the module-held type's key"
+            }
+
+            // …and the SOURCE still names it with dots (`byref<'T, ByRefKinds.In>` in the
+            // same `.fsi`). The written spelling is not the metadata name, so it reaches the
+            // identity through a redirect — never by being re-cut into a key of its own.
+            test "a module-held contract type still resolves by the name the source WRITES" {
+                let libProvider, _ = builtProvider.Value
+
+                match libProvider.TryLookupType "Microsoft.FSharp.Core.ByRefKinds.In" with
+                | ValueSome _ -> ()
+                | ValueNone -> failtest "the written dotted spelling must still resolve"
+            }
+
             test "defaultProvider caches the parsed lib across calls" {
                 // Production-path helper: subsequent calls for the same
                 // libRoot must return the same provider object, proving

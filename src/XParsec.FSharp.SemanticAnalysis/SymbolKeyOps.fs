@@ -14,7 +14,14 @@ namespace XParsec.FSharp.SemanticAnalysis
 ///     `` Outer`1+Inner`1 ``), plus the compiled-name-addressed provider stores that
 ///     genuinely key on it. The `` `N `` is a CLR convention and lives ONLY here.
 /// `typeSegmentName` / `typeMetaName` render an identity onto the name axis;
-/// `typeKeyOfSegment` / `typeKeyOf` parse one back. They are exact inverses.
+/// `typeKeyOfSegment` / `typeKeyOf` parse one back. They are inverses on the
+/// `InNamespace` / `InType` SUBLATTICE, and only there: the renderer is total (it spells
+/// an `InModule` holder too — `N.MModule+T`), but the parser cannot be. A `+` chain in a
+/// bare metadata string is CLR nesting and nothing in the string says "module", so
+/// `typeKeyOf` mints `InType`. That is right for its whole caller population, which is
+/// bare IL — IL has no modules. An `InModule` key is minted ONLY from Vesper metadata
+/// (the `.fsi` contract extractor, or local registration off the source containment),
+/// where the module chain is a fact the producer HOLDS; it is never parsed out of a name.
 ///
 /// This module deliberately precedes both `RuntimeNames` (which routes its
 /// `bareName` recognition through here) and `ExternalSymbols` (whose provider
@@ -154,16 +161,38 @@ module SymbolKeyOps =
             Arity = arity
         }
 
+    /// The `+`-joined chain of a module's COMPILED HOLDER-CLASS names, WITHOUT the
+    /// namespace (`A+B` for `module A` ⊃ `module B`). A module compiles to a static class
+    /// and a nested module to a class nested in it, so on the NAME axis a module chain is
+    /// a nested-class chain — the same `+` a `TypeHolder.InType` chain renders.
+    ///
+    /// NOT `moduleFullName`, which `.`-joins AND prefixes the namespace: that renders a
+    /// module as a QUALIFIED name (the JS import path, an `EmitExternalCall` target),
+    /// whereas this renders it as the NESTING PREFIX of something it holds. The two must
+    /// not be conflated — `.`-joining here is exactly the flattening that made
+    /// `typeMetaName` non-injective (`N.A.T` and `N.B.T` both rendering `N.T`).
+    let rec moduleNestedName (m: ModuleKey) : string =
+        match m.Holder with
+        | ModuleHolder.InNamespace _ -> m.Name
+        | ModuleHolder.InModule parent -> moduleNestedName parent + "+" + m.Name
+
     /// The `+`-joined nested chain WITHOUT the namespace (`` List`1+Enumerator ``); the
     /// rendered `Name` for a top-level type. The simple-name half of `typeMetaName`.
     /// EACH segment renders its OWN arity (the CLR rule), so a generic type nested in a
     /// generic type spells both (`` Outer`1+Inner`1 ``).
+    ///
+    /// EXHAUSTIVE by design — a type held by a `module` is a class nested in that module's
+    /// holder class, so it renders `+` exactly as a CLR-nested type does (`N.MModule+T`).
+    /// That is the CLR truth, the string `asm.GetType` binds, and what makes this renderer
+    /// INJECTIVE. Adding a `TypeHolder` case must break the build here rather than fall
+    /// into a wildcard that silently drops the holder.
     let rec typeNestedName (t: TypeKey) : string =
         let self = typeSegmentName t
 
         match t.Holder with
+        | TypeHolder.InNamespace _ -> self
+        | TypeHolder.InModule m -> moduleNestedName m + "+" + self
         | TypeHolder.InType outer -> typeNestedName outer + "+" + self
-        | _ -> self
 
     /// The declaring namespace of a type, dotted. A nested type reports its OUTER's
     /// namespace — which is what the CLR does.
@@ -182,9 +211,13 @@ module SymbolKeyOps =
     /// `name` may carry the `+`-mangled nested chain AND the `` `N `` suffixes a
     /// reflection display name produces — each segment's suffix is PARSED into that
     /// segment's `Arity` (`parseArity`), so the key round-trips exactly through
-    /// `typeMetaName`. THE parser; there is exactly one. A module-held type is minted by
-    /// `moduleTypeKey` (the parser cannot produce one: a `+` chain is CLR nesting, and
-    /// a `.` prefix is the namespace).
+    /// `typeMetaName`. THE parser; there is exactly one.
+    ///
+    /// It mints `InNamespace` / `InType` and NOTHING else — a partial inverse, honestly:
+    /// a bare metadata string cannot say whether a `+` segment is a class or a module's
+    /// holder class, and its callers are the bare-IL population, which has no modules. An
+    /// `InModule` key comes from a producer that HOLDS the module chain (the `.fsi`
+    /// contract extractor, local registration), never from re-cutting a name.
     let typeKeyOf (dottedNs: string) (name: string) : TypeKey =
         let ns = TypeHolder.InNamespace(namespaceKey dottedNs)
 
@@ -199,15 +232,28 @@ module SymbolKeyOps =
 
             k
 
-    /// Mint a namespace-held type key from a BARE source name and its arity as an INT —
-    /// for a producer that already holds the count (a declared typar list) and so must
-    /// never pack it into a string and have the parser dig it back out.
-    let typeKeyOfArity (dottedNs: string) (name: string) (arity: int) : TypeKey =
+    /// Mint a type key under a HOLDER from a BARE source name and its arity as an INT — for
+    /// a producer that holds the containment AND the count (a declared typar list): the
+    /// contract extractor's module chain, local registration. It must never pack the count
+    /// into a string and have the parser dig it back out.
+    ///
+    /// An ESCAPED name (`` ``[]`` ``) is the one place the count does not survive the name
+    /// axis: it can carry no `` `N `` (`arityName` / `parseArity` agree on that), so a
+    /// producer that DOES hold the count must still hold the key at `Arity = 0` — otherwise
+    /// the array's identity would differ between the producer that declared it (`type
+    /// ``[]``<'T>`, arity 1) and every producer that meets it as a name (arity 0), and the
+    /// two would not compare equal.
+    let typeKeyOfHolder (holder: TypeHolder) (name: string) (arity: int) : TypeKey =
         {
-            Holder = TypeHolder.InNamespace(namespaceKey dottedNs)
+            Holder = holder
             Name = name
-            Arity = arity
+            Arity = if isEscapedName name then 0 else arity
         }
+
+    /// `typeKeyOfHolder` for a type declared directly in a namespace, from the boundary
+    /// spelling `(dotted ns)`.
+    let typeKeyOfArity (dottedNs: string) (name: string) (arity: int) : TypeKey =
+        typeKeyOfHolder (TypeHolder.InNamespace(namespaceKey dottedNs)) name arity
 
     /// Supply an arity the compiled NAME did not spell, for the mints whose input is a
     /// metadata/contract name string plus a separately-known count. Applies to the

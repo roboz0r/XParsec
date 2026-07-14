@@ -22,6 +22,11 @@ module ExternalSymbolProviders =
     /// spelled once, here, instead of once per provider. Start from
     /// `NamedLeaf.empty` (all misses) and override the channels the leaf models;
     /// `ofNamedLeaf NamedLeaf.empty` is the null provider.
+    ///
+    /// For a leaf whose types sit in a `TypeHolder.InModule` chain the rendering is NOT
+    /// what the source writes, so a name cannot stand in for the identity: such a leaf
+    /// supplies a `KeyedLeaf` instead (`ofKeyedLeaf`) and answers the store face from a
+    /// real key index.
     type NamedLeaf =
         {
             TryLookup: string -> ExternalSymbol voption
@@ -52,38 +57,80 @@ module ExternalSymbolProviders =
                 IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
             }
 
-    /// Derive the two-faced provider from a by-name leaf — see `NamedLeaf`.
-    let ofNamedLeaf (leaf: NamedLeaf) : IExternalSymbolProvider =
+    /// A leaf that HOLDS its types' identities, and so indexes their shapes by
+    /// `SymbolKey` rather than by a rendering of one. `TypeShapeByKey` /
+    /// `TypeMemberByKey` / `TypeMembersByKey` answer the store face DIRECTLY: no name is
+    /// rendered, so a leaf whose types sit in a containment a name cannot express (a
+    /// `TypeHolder.InModule` chain — the `.fsi` contract extractor is the one producer)
+    /// stays addressable by the identity every other face mints.
+    ///
+    /// The `Named` face is the same leaf answering a WRITTEN name; a leaf that models
+    /// containment resolves that name into a key of its own and answers from the same
+    /// index, so the two faces cannot disagree.
+    type KeyedLeaf =
+        {
+            Named: NamedLeaf
+            TypeShapeByKey: SymbolKey -> ExternalTypeShape voption
+            TypeMemberByKey: SymbolKey * string -> ExternalMember voption
+            TypeMembersByKey: SymbolKey * string -> ExternalMember[]
+        }
+
+    module KeyedLeaf =
+
+        /// A leaf with NO key index answers a key by RENDERING it onto its name index
+        /// (`SymbolKeyOps.qualifiedName`). Sound exactly when the leaf's names ARE that
+        /// rendering — which holds for every leaf whose type keys are `InNamespace`
+        /// (a TS manifest, the JS natives, a bare-IL scrape): there, name and key say the
+        /// same thing. A leaf that mints an `InModule` holder must supply a real key index
+        /// instead, because no rendering of the module chain is what the SOURCE writes.
+        let ofNamed (leaf: NamedLeaf) : KeyedLeaf =
+            {
+                Named = leaf
+                TypeShapeByKey = fun key -> leaf.TryLookupType(SymbolKeyOps.qualifiedName key)
+                TypeMemberByKey = fun (key, m) -> leaf.TryLookupMember(SymbolKeyOps.qualifiedName key, m)
+                TypeMembersByKey = fun (key, m) -> leaf.TryLookupMembers(SymbolKeyOps.qualifiedName key, m)
+            }
+
+    /// Derive the two-faced provider from a leaf that answers the type channels BY KEY —
+    /// see `KeyedLeaf`. The one provider object expression; `ofNamedLeaf` is this over a
+    /// leaf whose key faces are the rendered projections of its name faces.
+    let ofKeyedLeaf (leaf: KeyedLeaf) : IExternalSymbolProvider =
+        let named = leaf.Named
+
         { new IExternalSymbolProvider
 
           interface IExternalSymbolResolver with
-              member _.TryLookup name = leaf.TryLookup name
-              member _.TryLookupType(name: string) = leaf.TryLookupType name
-              member _.TryLookupUnionCase caseName = leaf.TryLookupUnionCase caseName
-              member _.AmbientOpenPrefixes = leaf.AmbientOpenPrefixes
+              member _.TryLookup name = named.TryLookup name
+              member _.TryLookupType(name: string) = named.TryLookupType name
+              member _.TryLookupUnionCase caseName = named.TryLookupUnionCase caseName
+              member _.AmbientOpenPrefixes = named.AmbientOpenPrefixes
           interface IExternalSymbolStore with
-              member _.TryLookupType(key: SymbolKey) =
-                  leaf.TryLookupType(SymbolKeyOps.qualifiedName key)
+              member _.TryLookupType(key: SymbolKey) = leaf.TypeShapeByKey key
 
-              member _.TryLookupMember(key, memberName) =
-                  leaf.TryLookupMember(SymbolKeyOps.qualifiedName key, memberName)
+              member _.TryLookupMember(key, memberName) = leaf.TypeMemberByKey(key, memberName)
 
-              member _.TryLookupMembers(key, memberName) =
-                  leaf.TryLookupMembers(SymbolKeyOps.qualifiedName key, memberName)
+              member _.TryLookupMembers(key, memberName) = leaf.TypeMembersByKey(key, memberName)
 
+              // No leaf publishes an index signature under a key of its own (the TS manifest,
+              // the one producer, keys its types `InNamespace`), so this channel stays the
+              // rendered projection of the name index.
               member _.TryLookupIndexSignature key =
-                  leaf.TryLookupIndexSignature(SymbolKeyOps.qualifiedName key)
+                  named.TryLookupIndexSignature(SymbolKeyOps.qualifiedName key)
 
-              // A `BindingKey` is a real containment chain, so it RENDERS back to the
-              // qualified compiled name the leaf's index is keyed by — losslessly, and
-              // without re-cutting a dotted string. That is what makes the key-addressed
-              // symbol face constructible on a by-name leaf at all.
+              // A `BindingKey` is a real containment chain, and its rendering `.`-joins that
+              // chain — which is exactly how a binding is WRITTEN and how every leaf's symbol
+              // index is keyed. So the symbol face round-trips losslessly through the name,
+              // and needs no key index. (A TYPE's rendering does not have that property: a
+              // module-held type's metadata name `+`-nests where the source dots.)
               member _.TryLookupByKey key =
-                  leaf.TryLookup(SymbolKeyOps.qualifiedName key)
+                  named.TryLookup(SymbolKeyOps.qualifiedName key)
 
-              member _.IntrinsicReverseCanon = leaf.IntrinsicReverseCanon
-              member _.IntrinsicForwardRepr = leaf.IntrinsicForwardRepr
+              member _.IntrinsicReverseCanon = named.IntrinsicReverseCanon
+              member _.IntrinsicForwardRepr = named.IntrinsicForwardRepr
         }
+
+    /// Derive the two-faced provider from a by-name leaf — see `NamedLeaf`.
+    let ofNamedLeaf (leaf: NamedLeaf) : IExternalSymbolProvider = ofKeyedLeaf (KeyedLeaf.ofNamed leaf)
 
     /// For tests that want to isolate behavior from external-symbol noise.
     let nullProvider: IExternalSymbolProvider = ofNamedLeaf NamedLeaf.empty

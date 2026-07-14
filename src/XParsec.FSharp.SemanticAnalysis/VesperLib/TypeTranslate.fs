@@ -11,7 +11,7 @@ open VesperLibTyparCapture
 /// `CST → FrozenType` translation the contract-extraction finalize pass runs once
 /// the registry is complete; the `FrozenTypeBridge` realisers turn the resulting
 /// templates back into `SemType`s at use time (val instantiation, codegen). Calls
-/// thread an `ExtractCtx` (for type-name resolution against `ctx.QualifiedTypes` /
+/// thread an `ExtractCtx` (for type-name resolution against `ctx.TypeKeys` /
 /// `ctx.Types`) plus a `TyparCollector` (for typar interning) and a
 /// `ConstraintCollector` (for inline `when …` clauses).
 module VesperLibTypeTranslate =
@@ -195,18 +195,19 @@ module VesperLibTypeTranslate =
     /// can attach a per-file diagnostic and skip the val.
     ///
     /// Resolution order:
-    ///   1. Direct hit on the qualified name as written (own package, then a
-    ///      dependency's fully-qualified name via `ctx.AmbientShapes`).
+    ///   1. Direct hit on the qualified name as written, resolved to the type's key
+    ///      (own package, `ExtractCtx.tryTypeKey`), then a dependency's
+    ///      fully-qualified name via `ctx.AmbientShapes`.
     ///   2. Short-name lookup in `ctx.Types`. Arity mismatch still resolves
     ///      (cross-file disagreements shouldn't block extraction) but uses
     ///      the recorded compiled name.
     ///   3. For each open prefix in newest-first order, try
-    ///      `prefix + "." + name` against the qualified-name set, then the
+    ///      `prefix + "." + name` against the own-package resolution, then the
     ///      dependency shapes (`ctx.AmbientShapes`).
     ///
     /// Dependency packages contribute their type shapes through `ctx.AmbientShapes`,
     /// keyed by qualified compiled name —
-    /// not the per-package `ctx.Types` / `ctx.QualifiedTypes` index, which holds
+    /// not the per-package `ctx.Types` / `ctx.TypeKeys` index, which holds
     /// only this package's own declarations. A cross-package reference is written
     /// either fully-qualified or as a short name resolved through an open prefix
     /// (the package's own namespace is one such prefix), so each candidate is tried
@@ -236,8 +237,18 @@ module VesperLibTypeTranslate =
             else
                 [ n ]
 
+        // A written name resolves to the type's IDENTITY (`ExtractCtx.tryTypeKey`: the
+        // canonical rendering, or — for the dotted spelling a `.fsi` writes a module-held
+        // type with, `ByRefKinds.In` — the declared containment). What comes back out is
+        // that key's own canonical name, never the spelling that matched: the shape tables
+        // `mkNominal` re-resolves through are addressed by the canonical rendering.
         let inQualified (n: string) : string option =
-            forms n |> List.tryFind ctx.QualifiedTypes.Contains
+            forms n
+            |> List.tryPick (fun f ->
+                match ExtractCtx.tryTypeKey ctx f with
+                | ValueSome key -> Some(SymbolKeyOps.typeMetaName key)
+                | ValueNone -> None
+            )
 
         let inAmbient (n: string) : string option =
             forms n |> List.tryFind (fun k -> (ctx.AmbientShapes k).IsSome)

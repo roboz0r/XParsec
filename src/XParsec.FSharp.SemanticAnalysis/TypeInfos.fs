@@ -21,12 +21,13 @@ module internal LocalSymbolKey =
     /// the `` `N `` is a CLR metadata spelling, produced only when a metadata name is
     /// rendered (`SymbolKeyOps.typeSegmentName`), never carried in an identity. This key IS
     /// the registry key (`TypeRegistry` tables are `TypeKey`-keyed).
+    ///
+    /// `SymbolKeyOps.typeKeyOfHolder` is the mint — shared with the `.fsi` contract
+    /// extractor, so a type declared here and the same type met across a package boundary
+    /// agree on their identity, escaped names (`` ``[]`` ``, which can carry no arity)
+    /// included.
     let ofType (holder: TypeHolder) (name: string) (arity: int) : TypeKey =
-        {
-            Holder = holder
-            Name = name
-            Arity = arity
-        }
+        SymbolKeyOps.typeKeyOfHolder holder name arity
 
     /// The project-local `SymbolKey.MemberKey` for a member `name` of `kind` on the
     /// type identified by `declKey`, with `arity` value parameters. Project-local

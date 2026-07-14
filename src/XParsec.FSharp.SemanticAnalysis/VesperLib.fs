@@ -769,22 +769,22 @@ module VesperLib =
             else
                 let arity = typeNameTypars defns prefix
 
-                let qualifier = SymbolKeyOps.holderFullName decl
+                // The IDENTITY, built from the containment the walker descended — namespace
+                // at the root, one `InModule` per enclosing module. This is the whole point
+                // of taking `decl` as a `ModuleHolder` rather than a dotted string: a module
+                // is a holder, and the contract is the one metadata channel that KNOWS so.
+                // The store's index string is a RENDERING of this key, never the route back
+                // to one — a name re-cut into a key absorbs the module into the namespace
+                // path and mints a different identity than the local declaration does.
+                let key = SymbolKeyOps.typeKeyOfHolder (ModuleRules.typeHolderOf decl) short arity
 
-                let baseName =
-                    if qualifier.Length = 0 then
-                        short
-                    else
-                        qualifier + "." + short
-
-                // Arity-suffix generic types (`Vesper.Choice`2`) so an arity-
-                // overloaded type doesn't collapse onto its bare compiled name in
-                // `ctx.TypeShapes` / the reverse case index. This matches the emitted
-                // metadata name (`SymbolKeyOps.arityName`) and the arity-suffixed probe
-                // the consumer resolves a written head with
-                // (`NameResolutionTypeHeadStamp.arityProbes`). Non-generic types keep
-                // their bare name.
-                let compiled = SymbolKeyOps.arityName baseName arity
+                // THE renderer: the arity suffix (`Vesper.Choice`2`, so an arity-overloaded
+                // type doesn't collapse onto its bare name in `ctx.TypeShapes` / the reverse
+                // case index) and the `+`-nesting of a module-held type, both from the key.
+                // The same string the emitted `TypeDef` carries, the same one the consumer's
+                // arity-suffixed probe spells, and the same one `diagnoseExternalClaim`
+                // renders from a local key — so the store's key and a probe cannot drift.
+                let compiled = SymbolKeyOps.typeMetaName key
 
                 // First declaration wins on a *short-name* collision; arity-overloaded
                 // types share the short name, so only the first arity is reachable by
@@ -792,7 +792,9 @@ module VesperLib =
                 if not (ctx.Types.ContainsKey short) then
                     ctx.Types.[short] <- (arity, compiled)
 
-                ctx.QualifiedTypes.Add compiled |> ignore
+                // The identity, indexed by its own rendering — the one route a name has back
+                // to a key, and the one the store's key-addressed face is built from.
+                ctx.TypeKeys.[compiled] <- key
                 ValueSome(struct (compiled, arity))
 
     let private collectorForTypeName (lexed: Lexed) (input: string) (typeName: TypeName<SyntaxToken>) : TyparCollector =
@@ -1533,9 +1535,63 @@ module VesperLib =
         // Newest first: a later `open` shadows earlier ones.
         List.ofSeq (Seq.rev acc)
 
+    /// The short name of a type signature that declares a real NOMINAL type — the thing a
+    /// `module` of the same name collides with. Kind-for-kind the local face's
+    /// `noteNominalTypeNames`: an abbreviation, an `extern`, an enum, a delegate, a bare
+    /// `interface … end` and a type extension are NOT nominal there, so they must not be
+    /// here either, or the two faces would suffix one module's holder class and not the
+    /// other's.
+    let private nominalTypeSigName (lexed: Lexed) (input: string) (ts: TypeSignature<SyntaxToken>) : string voption =
+        let named (tn: TypeName<SyntaxToken>) =
+            match shortNameOfTypeName lexed input tn with
+            | "" -> ValueNone
+            | n -> ValueSome n
+
+        match ts with
+        | TypeSignature.Record(typeName = tn)
+        | TypeSignature.Union(typeName = tn)
+        | TypeSignature.Anon(typeName = tn)
+        | TypeSignature.Class(typeName = tn)
+        | TypeSignature.Struct(typeName = tn) -> named tn
+        | TypeSignature.Abbrev _
+        | TypeSignature.Interface _
+        | TypeSignature.Enum _
+        | TypeSignature.Delegate _
+        | TypeSignature.TypeExtension _
+        | TypeSignature.AbstractType _
+        | TypeSignature.Extern _ -> ValueNone
+
+    /// Sweep a signature file's whole element tree for its nominal type names. Runs BEFORE
+    /// extraction, because the `…Module` suffix rule reads the answer when it mints a
+    /// module's holder name and a `module Foo` may be written above the `type Foo` it
+    /// collides with. The unit is the FILE, matching the local face.
+    let rec private noteNominalTypeSigNames
+        (lexed: Lexed)
+        (input: string)
+        (names: System.Collections.Generic.HashSet<string>)
+        (elems: ModuleSignatureElements<SyntaxToken>)
+        : unit =
+        let note (ts: TypeSignature<SyntaxToken>) =
+            match nominalTypeSigName lexed input ts with
+            | ValueSome n -> names.Add n |> ignore
+            | ValueNone -> ()
+
+        for i in 0 .. elems.Length - 1 do
+            match elems.[i] with
+            | ModuleSignatureElement.Type(_, TypeSignatures(first, rest)) ->
+                note first
+
+                for j in 0 .. rest.Length - 1 do
+                    let (_, ts) = rest.[j]
+                    note ts
+            | ModuleSignatureElement.Module(ModuleSignature(body = ModuleSignatureBody(_, inner, _))) ->
+                noteNominalTypeSigNames lexed input names inner
+            | _ -> ()
+
     let rec private extractModuleSigElement
         (ctx: ExtractCtx)
         (file: LibFile)
+        (naming: ModuleNaming)
         (lexed: Lexed)
         (input: string)
         (opens: string list)
@@ -1566,15 +1622,15 @@ module VesperLib =
 
             if isAccessible access then
                 let name = nameOfTok lexed input identTok
+                let holderName = ModuleRules.holderNameOf naming attrs name
 
-                let suffixed =
-                    if hasModuleSuffix lexed input attrs then
-                        name + "Module"
-                    else
-                        name
-
-                let childDecl = ModuleHolder.InModule(SymbolKeyOps.moduleKeyOf decl suffixed)
+                let childDecl = ModuleHolder.InModule(SymbolKeyOps.moduleKeyOf decl holderName)
                 let childSourcePath = name :: sourcePath
+                // The containment a WRITTEN name is resolved against (`ByRefKinds.In`): the
+                // source path is what names the module, the holder carries its compiled
+                // (`…Module`-suffixed) chain. Recorded as the walker descends, so the only
+                // modules a name can resolve through are the ones this contract declared.
+                ctx.ModuleHolders.[String.concat "." (List.rev childSourcePath)] <- ModuleRules.typeHolderOf childDecl
                 let (ModuleSignatureBody(_, elems, _)) = body
                 // The module's own qualified path is itself an implicit open
                 // prefix, ahead of the inherited opens but behind the body's.
@@ -1588,13 +1644,14 @@ module VesperLib =
                 let childOpens = collectOpens lexed input elems @ (modulePath :: opens)
 
                 for i in 0 .. elems.Length - 1 do
-                    extractModuleSigElement ctx file lexed input childOpens childDecl childSourcePath elems.[i]
+                    extractModuleSigElement ctx file naming lexed input childOpens childDecl childSourcePath elems.[i]
 
         | _ -> ()
 
     let private extractNamespaceGroup
         (ctx: ExtractCtx)
         (file: LibFile)
+        (naming: ModuleNaming)
         (lexed: Lexed)
         (input: string)
         (fileOpens: string list)
@@ -1620,11 +1677,12 @@ module VesperLib =
 
         for i in 0 .. elems.Length - 1 do
             // A namespace path carries no `ModuleSuffix` rewrite, so source == compiled.
-            extractModuleSigElement ctx file lexed input opens decl (List.rev nsSegments) elems.[i]
+            extractModuleSigElement ctx file naming lexed input opens decl (List.rev nsSegments) elems.[i]
 
     let private extractNamedModuleSig
         (ctx: ExtractCtx)
         (file: LibFile)
+        (naming: ModuleNaming)
         (lexed: Lexed)
         (input: string)
         (fileOpens: string list)
@@ -1633,23 +1691,26 @@ module VesperLib =
         let (NamedModuleSignature(attrs, _, access, _, li, elems)) = nm
 
         if isAccessible access then
-            let suffix = hasModuleSuffix lexed input attrs
-
             let segments =
                 [ for i in 0 .. li.Idents.Length - 1 -> nameOfTok lexed input li.Idents.[i] ]
 
             // `module A.B.C` declares module `C` in namespace `A.B` — the leading segments
             // are the namespace, only the LAST is a module. That is the F# rule, stated by
             // the declaration itself, so the holder is built here rather than recovered
-            // from a dotted rendering downstream. `ModuleSuffix` applies to the module
+            // from a dotted rendering downstream. The `…Module` suffix applies to the module
             // segment only.
             let decl =
                 match List.rev segments with
                 | [] -> SymbolKeyOps.inNamespace ""
                 | last :: revNs ->
-                    let name = if suffix then last + "Module" else last
+                    let name = ModuleRules.holderNameOf naming attrs last
 
                     ModuleHolder.InModule(SymbolKeyOps.moduleInNamespace (String.concat "." (List.rev revNs)) name)
+
+            // `module A.B.C`'s source path is what a written `A.B.C.T` names it by; the
+            // holder is the compiled chain (see the `Module` arm above).
+            if not (List.isEmpty segments) then
+                ctx.ModuleHolders.[String.concat "." segments] <- ModuleRules.typeHolderOf decl
 
             let qualifiedSelf = SymbolKeyOps.holderFullName decl
 
@@ -1661,7 +1722,7 @@ module VesperLib =
             let sourcePathRev = List.rev segments
 
             for i in 0 .. elems.Length - 1 do
-                extractModuleSigElement ctx file lexed input opens decl sourcePathRev elems.[i]
+                extractModuleSigElement ctx file naming lexed input opens decl sourcePathRev elems.[i]
 
     let extractSymbols (ctx: ExtractCtx) (parsed: ParsedFile) : unit =
         // The dependency providers' ambient prefixes (`Vesper`, …) seed the file's
@@ -1674,20 +1735,42 @@ module VesperLib =
 
         match parsed.Ast with
         | FSharpAst.SignatureFile sf ->
+            // The file's nominal type names, swept before the first module holder is named:
+            // this face's `IsNominalTypeName`, and the half of the `…Module` suffix rule an
+            // attribute cannot state.
+            let nominals = System.Collections.Generic.HashSet<string>(StringComparer.Ordinal)
+
+            let naming: ModuleNaming =
+                {
+                    Lexed = parsed.Lexed
+                    Input = parsed.Input
+                    IsNominalTypeName = nominals.Contains
+                }
+
             match sf with
             | SignatureFile.Namespaces groups ->
                 for i in 0 .. groups.Length - 1 do
+                    match groups.[i] with
+                    | NamespaceDeclGroupSignature.Named(elements = els)
+                    | NamespaceDeclGroupSignature.Global(elements = els) ->
+                        noteNominalTypeSigNames parsed.Lexed parsed.Input nominals els
+
+                for i in 0 .. groups.Length - 1 do
                     // Each namespace decl group starts a fresh open scope.
-                    extractNamespaceGroup ctx parsed.File parsed.Lexed parsed.Input fileOpens groups.[i]
+                    extractNamespaceGroup ctx parsed.File naming parsed.Lexed parsed.Input fileOpens groups.[i]
             | SignatureFile.NamedModule nm ->
-                extractNamedModuleSig ctx parsed.File parsed.Lexed parsed.Input fileOpens nm
+                let (NamedModuleSignature(elements = els)) = nm
+                noteNominalTypeSigNames parsed.Lexed parsed.Input nominals els
+                extractNamedModuleSig ctx parsed.File naming parsed.Lexed parsed.Input fileOpens nm
             | SignatureFile.AnonymousModule elems ->
+                noteNominalTypeSigNames parsed.Lexed parsed.Input nominals elems
                 let opens = collectOpens parsed.Lexed parsed.Input elems @ fileOpens
 
                 for i in 0 .. elems.Length - 1 do
                     extractModuleSigElement
                         ctx
                         parsed.File
+                        naming
                         parsed.Lexed
                         parsed.Input
                         opens

@@ -184,10 +184,26 @@ module VesperLibTyparCapture =
         /// entries with the same short name are allowed; first declaration
         /// wins (warn-and-take-first per the plan).
         member val Types = Dictionary<string, int * string>(StringComparer.Ordinal) with get
-        /// Every registered qualified compiled name. Lets the resolver accept
-        /// fully-qualified references that disagree with the short-name index
-        /// (e.g. cross-bucket name clashes the first-wins rule otherwise hides).
-        member val QualifiedTypes = HashSet<string>(StringComparer.Ordinal) with get
+        /// The IDENTITY of every type this package declares, indexed by its canonical
+        /// metadata name — the key minted at `registerTypeDecl` off the containment the
+        /// walker descended, and the ONE place a name gets back to a key. The shape tables
+        /// below are addressed by that canonical name (`SymbolKeyOps.typeMetaName key`,
+        /// which is injective), so this is what lifts them to the key-addressed store face
+        /// `toProvider` publishes.
+        ///
+        /// The name is a RENDERING of the key, never a route back to one: nothing re-cuts a
+        /// metadata name into an identity (that absorbs a module into the namespace path).
+        /// A name that is not this rendering — the DOTTED spelling a `.fsi` writes for a
+        /// module-held type, `Microsoft.FSharp.Core.ByRefKinds.In` — is resolved through the
+        /// declared containment instead (`ExtractCtx.tryTypeKey` / `ModuleHolders`).
+        member val TypeKeys = Dictionary<string, TypeKey>(StringComparer.Ordinal) with get
+        /// Every `module` this package declares, indexed by the DOTTED path the source
+        /// writes it as (`Microsoft.FSharp.Core.ByRefKinds`) -> the `TypeHolder` a type
+        /// declared in it sits in. The containment the contract itself minted, so a written
+        /// name can be resolved against it: `A.B.C` with `A.B` a known module IS the type
+        /// `C` that module holds. Source spellings, because that is what a name index
+        /// resolves; the holder inside carries the COMPILED (`…Module`-suffixed) chain.
+        member val ModuleHolders = Dictionary<string, TypeHolder>(StringComparer.Ordinal) with get
         /// Type-shape index: qualified compiled name -> body shape. Only
         /// records, unions, and abbreviations are populated in v1; classes
         /// and other shapes land later.
@@ -324,6 +340,74 @@ module VesperLibTyparCapture =
             | true, s -> ValueSome s
             | _ -> ctx.AmbientShapes compiled
 
+        /// NAME RESOLUTION: the identity a written type name denotes in this package, or
+        /// `ValueNone` for a name it declares no type under. THE by-name entry point — every
+        /// face that must accept a name (the extraction-time resolver, the published
+        /// provider's resolver face) comes here, and what it gets back is a key.
+        ///
+        /// Two spellings reach it, and neither is re-cut into an identity:
+        ///   * the canonical metadata name (what `typeMetaName` renders, what a probe built
+        ///     from a key spells) — a direct hit on the identity index;
+        ///   * the DOTTED spelling the source WRITES for a module-held type
+        ///     (`byref<'T, ByRefKinds.In>`), which is not that rendering. It resolves through
+        ///     the CONTAINMENT: `A.B` is a module this contract declared, so `C` is the type
+        ///     that module holds — the same question F# name resolution asks. The candidate
+        ///     key it mints is then looked up in the identity index, so the key returned is
+        ///     always the REGISTERED one and a spelling that names nothing resolves to nothing.
+        let tryTypeKey (ctx: ExtractCtx) (probe: string) : TypeKey voption =
+            match ctx.TypeKeys.TryGetValue probe with
+            | true, key -> ValueSome key
+            | _ ->
+                let dot = probe.LastIndexOf '.'
+
+                if dot <= 0 || dot = probe.Length - 1 then
+                    ValueNone
+                else
+                    match ctx.ModuleHolders.TryGetValue(probe.Substring(0, dot)) with
+                    | true, holder ->
+                        let candidate = SymbolKeyOps.typeKeyOfSegment holder (probe.Substring(dot + 1))
+
+                        match ctx.TypeKeys.TryGetValue(SymbolKeyOps.typeMetaName candidate) with
+                        | true, key -> ValueSome key
+                        | _ -> ValueNone
+                    | _ -> ValueNone
+
+        /// The declaration-ordered members of a type named `memberName` — the overload set —
+        /// and the first of them. `ValueNone` for a type with no members extracted at all,
+        /// which is the same answer as "no member of that name": the type's member surface is
+        /// what the contract published, and nothing distinguishes an absent list from an
+        /// empty one.
+        let private membersNamed
+            (memberName: string)
+            (members: ResizeArray<ExternalMember> voption)
+            : ExternalMember[] =
+            match members with
+            | ValueNone -> [||]
+            | ValueSome members ->
+                [|
+                    for m in members do
+                        if m.Name = memberName then
+                            m
+                |]
+
+        let private firstMemberNamed
+            (memberName: string)
+            (members: ResizeArray<ExternalMember> voption)
+            : ExternalMember voption =
+            match members with
+            | ValueNone -> ValueNone
+            | ValueSome members ->
+                let mutable found = ValueNone
+                let mutable i = 0
+
+                while found.IsNone && i < members.Count do
+                    if members.[i].Name = memberName then
+                        found <- ValueSome members.[i]
+
+                    i <- i + 1
+
+                found
+
         /// Provider over the extracted symbol / type-shape tables, exposing
         /// `ctx.AutoOpenPrefixes` as its ambient. The pipeline seeds the
         /// ambient into the open scope and probes it BEHIND explicit
@@ -453,58 +537,78 @@ module VesperLibTyparCapture =
 
                 d :> System.Collections.Generic.IReadOnlyDictionary<_, _>
 
-            // The extractor's provider is a pure by-name leaf: every channel answers
-            // from an index keyed by the qualified compiled name. `ofNamedLeaf` derives
-            // the key-addressed store face from these SAME functions, so the two
-            // `TryLookupType` faces cannot drift apart.
-            ExternalSymbolProviders.ofNamedLeaf
-                { ExternalSymbolProviders.NamedLeaf.empty with
-                    TryLookup =
-                        fun name ->
-                            match ctx.Symbols.TryGetValue name with
-                            | true, sym -> ValueSome sym
-                            | _ -> ValueNone
-                    TryLookupType =
-                        fun name ->
-                            match ctx.TypeShapes.TryGetValue name with
-                            | true, shape -> ValueSome shape
-                            | _ -> ValueNone
-                    TryLookupUnionCase =
-                        fun caseName ->
-                            match unionCaseIndex.TryGetValue caseName with
-                            | true, hit -> ValueSome hit
-                            | _ -> ValueNone
-                    AmbientOpenPrefixes = List.ofSeq ctx.AutoOpenPrefixes
-                    TryLookupMember =
-                        fun (typeName, memberName) ->
-                            match ctx.TypeMembers.TryGetValue typeName with
-                            | true, members ->
-                                let mutable found = ValueNone
-                                let mutable i = 0
+            // The type channels' index, addressed by the IDENTITY the extractor minted for
+            // each type — not by a rendering of it. This is what lets the store answer a
+            // module-held type's `InModule` key, which no name the source writes spells. The
+            // shape/member tables are addressed by the key's canonical name (injective), so
+            // walking `ctx.TypeKeys` lifts them to the key without re-cutting any string.
+            let shapesByKey = Dictionary<SymbolKey, ExternalTypeShape>()
+            let membersByKey = Dictionary<SymbolKey, ResizeArray<ExternalMember>>()
 
-                                while found.IsNone && i < members.Count do
-                                    if members.[i].Name = memberName then
-                                        found <- ValueSome members.[i]
+            for KeyValue(compiled, typeKey) in ctx.TypeKeys do
+                let key = SymbolKey.Type typeKey
 
-                                    i <- i + 1
+                match ctx.TypeShapes.TryGetValue compiled with
+                | true, shape -> shapesByKey.[key] <- shape
+                | _ -> ()
 
-                                found
-                            | _ -> ValueNone
-                    TryLookupMembers =
-                        fun (typeName, memberName) ->
-                            match ctx.TypeMembers.TryGetValue typeName with
-                            | true, members ->
-                                [|
-                                    for m in members do
-                                        if m.Name = memberName then
-                                            m
-                                |]
-                            | _ -> [||]
-                    // A `.fsi` contract does not (yet) publish TS index signatures, and
-                    // the extractor exposes signatures rather than spliceable inline
-                    // bodies — those are collected separately and served by the codegen
-                    // contract-stack wrapper layered over this provider. Both channels
-                    // keep `NamedLeaf.empty`'s miss.
-                    IntrinsicReverseCanon = intrinsicReverse
-                    IntrinsicForwardRepr = intrinsicForward
+                match ctx.TypeMembers.TryGetValue compiled with
+                | true, members -> membersByKey.[key] <- members
+                | _ -> ()
+
+            let typeShapeByKey (key: SymbolKey) : ExternalTypeShape voption =
+                match shapesByKey.TryGetValue key with
+                | true, shape -> ValueSome shape
+                | _ -> ValueNone
+
+            let typeMembersByKey (key: SymbolKey) : ResizeArray<ExternalMember> voption =
+                match membersByKey.TryGetValue key with
+                | true, members -> ValueSome members
+                | _ -> ValueNone
+
+            // The by-NAME faces resolve the written name into a key (`tryTypeKey` — the
+            // canonical rendering, or the source's dotted containment) and then answer from
+            // the SAME key-addressed index the store face reads. One index, two ways in; a
+            // spelling can no longer be an identity of its own.
+            let typeKeyOfName (name: string) : SymbolKey voption =
+                tryTypeKey ctx name |> ValueOption.map SymbolKey.Type
+
+            // The extractor's leaf: the TYPE channels are key-addressed (its types carry a
+            // module chain a name cannot express), the symbol channel stays name-addressed —
+            // a binding's key renders `.`-joined, which is exactly how `ctx.Symbols` is keyed.
+            ExternalSymbolProviders.ofKeyedLeaf
+                { ExternalSymbolProviders.KeyedLeaf.ofNamed
+                      { ExternalSymbolProviders.NamedLeaf.empty with
+                          TryLookup =
+                              fun name ->
+                                  match ctx.Symbols.TryGetValue name with
+                                  | true, sym -> ValueSome sym
+                                  | _ -> ValueNone
+                          TryLookupType = fun name -> typeKeyOfName name |> ValueOption.bind typeShapeByKey
+                          TryLookupUnionCase =
+                              fun caseName ->
+                                  match unionCaseIndex.TryGetValue caseName with
+                                  | true, hit -> ValueSome hit
+                                  | _ -> ValueNone
+                          AmbientOpenPrefixes = List.ofSeq ctx.AutoOpenPrefixes
+                          TryLookupMember =
+                              fun (typeName, memberName) ->
+                                  typeKeyOfName typeName
+                                  |> ValueOption.bind (fun key -> firstMemberNamed memberName (typeMembersByKey key))
+                          TryLookupMembers =
+                              fun (typeName, memberName) ->
+                                  match typeKeyOfName typeName with
+                                  | ValueSome key -> membersNamed memberName (typeMembersByKey key)
+                                  | ValueNone -> [||]
+                          // A `.fsi` contract does not (yet) publish TS index signatures, and
+                          // the extractor exposes signatures rather than spliceable inline
+                          // bodies — those are collected separately and served by the codegen
+                          // contract-stack wrapper layered over this provider. Both channels
+                          // keep `NamedLeaf.empty`'s miss.
+                          IntrinsicReverseCanon = intrinsicReverse
+                          IntrinsicForwardRepr = intrinsicForward
+                      } with
+                    TypeShapeByKey = typeShapeByKey
+                    TypeMemberByKey = fun (key, memberName) -> firstMemberNamed memberName (typeMembersByKey key)
+                    TypeMembersByKey = fun (key, memberName) -> membersNamed memberName (typeMembersByKey key)
                 }

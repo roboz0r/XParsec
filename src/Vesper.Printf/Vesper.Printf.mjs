@@ -4,7 +4,7 @@ export class Doc {
     this.tag = tag;
   }
   get $type() {
-    return "Vesper.Doc";
+    return "Vesper.StructuralPrinter+Doc";
   }
   cases() {
     return ["Text", "Line", "Cat", "Nest", "Group"];

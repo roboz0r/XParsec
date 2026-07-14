@@ -292,9 +292,13 @@ let localTypeContainment =
                     [ "N" ]
                     "`TypeKey.Namespace` walks the chain to its root"
 
-                // The behaviour freeze: the module rides in the KEY, and nowhere else. The
-                // metadata name a module-held type renders (and emits) as is unchanged.
-                Expect.equal (SymbolKeyOps.typeMetaName k) "N.T" "the rendered metadata name does not move"
+                // A module compiles to a static class, so a type it holds is a class NESTED
+                // in it: the metadata name `+`-joins the holder, and the namespace column is
+                // the outermost holder's — exactly what the CLR does with a nested type.
+                Expect.equal
+                    (SymbolKeyOps.typeMetaName k)
+                    "N.M+T"
+                    "the module's holder class is the type's enclosing class"
             }
 
             test "a NESTED module produces a nested InModule chain" {
@@ -326,7 +330,10 @@ let localTypeContainment =
                     | other -> failtestf "expected B's holder to be module A, got %A" other
                 | other -> failtestf "expected InModule, got %A" other
 
-                Expect.equal (SymbolKeyOps.typeMetaName k) "N.T" "the rendered metadata name is still flat"
+                // EVERY module in the chain is a holder class, so the rendering nests as far
+                // as the source does. This is what makes the renderer INJECTIVE: `N.A.T` and
+                // `N.B.T` no longer collapse onto one name.
+                Expect.equal (SymbolKeyOps.typeMetaName k) "N.A+B+T" "the whole module chain nests, outermost first"
             }
 
             // `ModuleKey.Name` carries the COMPILED holder name — the static class the module

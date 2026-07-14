@@ -123,6 +123,29 @@ correct nested chain. The adjacent `failwithf` (`:492`) becomes
 `info.Origin` already in scope. Its comment claiming "no producer mints this holder yet" is
 false and goes with it.
 
+**NT11 — The contract store is keyed by `TypeKey`, not by a rendered name.** A `.fsi` writes
+a module-held type with dots (`byref<'T, ByRefKinds.In>`, `prim-types.fsi:1251`) while its
+metadata name nests it (`ByRefKinds+In`). That a *spelling* difference can break a *lookup*
+at all is the tell: the lookup is string-keyed, so two renderings of one identity miss each
+other, and the only repair available inside that design is a second string table
+reconciling them. **The spelling is not the problem; the keying is.**
+
+So the contract leaf — the one face that actually HOLDS the containment, having minted the
+`ModuleKey`s itself — is keyed by `TypeKey`. Its by-key store face hits that index directly;
+`qualifiedName` leaves the by-key lookup path entirely. Its by-name face does what name
+resolution means: resolves a written spelling against the containment it knows (`is A.B a
+module? then C is the type it holds`) into a **key**, and looks up by key. No spelling is
+reconciled with another spelling, because there is one identity reached from either face.
+
+Two leaves are correctly left alone. `TsManifestMembers` and `JsNativeSymbols` mint only
+`TypeHolder.InNamespace` keys, so their rendered name and their key agree by construction.
+And `MetadataSymbols` stays name-addressed *because it is right*: it answers by reflection
+(`asm.GetType`), reflection is name-addressed by nature, and in the bare-IL population — which
+has no modules — the name IS the identity.
+
+This is finding 1 of `docs/thermo-review-938dd9da34.md` ("the key is structured; every table
+that consumes it is still string-keyed") landing where that finding predicted it would.
+
 **NT9 — `layout.Types` becomes hierarchical, not merely legal.** Two shapes were available:
 keep the by-kind grouping and add an enclosing link, making the row order *legal* (nested
 after enclosing) while the `NestedClass` rows carry the containment; or make the row order
@@ -133,16 +156,72 @@ relationship is exactly the "invariant guarded by a check rather than a type" sh
 codebase has been moving away from. The cost is that Fields, Methods, `HolderPlan`'s
 holder-method block and `ModuleValueFieldOrder` must be reshuffled to match, all at once.
 
+**NT9a — The hierarchy is a `TypeNode` tree; the three lists are projections of it.** Every
+`…Parts` builder in `Layout.fs` already produces a `(slot, fields, methods)` triple — a
+`TypeNode` in all but name. Only the holder and `Program` slots index into shared row lists
+(`HolderPlan.MethodPlan`, `ModuleValueFieldOrder`), and that is the drift. So:
+
+```fsharp
+type internal TypeNode =
+    { Slot: TypeSlot                  // Key / Kind / Namespace / MetaName / Typars — no counts
+      Enclosing: TypeSlotKey voption  // ValueNone = root; ValueSome = a NestedClass row
+      Fields: FieldSlot list
+      Methods: MethodRow list
+      Nested: TypeNode list }
+```
+
+`FieldCount`/`MethodCount` are **deleted** from `TypeSlot`: they are the last hand-maintained
+agreement. The pre-order flattening of the roots *is* the `TypeDef` table, and Fields, Methods
+and every prefix sum are `List.collect`s over it — so their agreement becomes definitional
+rather than checked, and the "slots claim N method rows but the enumeration has M" guard
+becomes unrepresentable. `HolderPlan.MethodPlan` and `ModuleValueFieldOrder` lose their
+row-order meaning entirely.
+
+The one invariant that survives and can still be violated is **completeness**: every built
+slot placed exactly once, none dropped, none invented. That is a set-equality assertion over
+the flattening, and it is cheap. The likeliest way to get this wrong is holder discovery from
+types (NT6's third source) being incomplete, or a nominal landing in both the roots and a
+module's `Nested`.
+
+**NT9c — Sibling order within a holder stays by-kind.** Nothing constrains it: no consumer
+inspects a numeric row, and the value of the hierarchy is that it makes the *layout code*
+correct by construction, not that the byte order means anything to a reader. So today's
+by-kind grouping simply applies within each holder rather than globally. True
+source-declaration order is a free choice we are not taking — it would need `tast.Decls` to be
+verified order-preserving across module boundaries, for no observable gain. If row order is
+ever revisited it will be for load-time locality, which is not a concern today.
+
+**NT9b — Closures stay roots.** A closure has a natural lexical home (FSC lifts a lambda into
+a class nested in the enclosing *module*, which `Layout.fs:833-838` already records), but
+nesting one changes its `TypeDef` name, namespace and visibility, and forces a `NestedClass`
+row, for a type nothing names or resolves — `TypeSlotKey.Closure name` is its only address and
+the name is already globally unique. The hierarchy must admit non-holder roots anyway
+(`<Module>`, namespace-level types, `Program`), so leaving closures there costs nothing and
+emits identical bytes.
+
 **NT10 — The IL gets asserted directly, not through reflection.** `verifyTypeHandle` checks
 that emitted handles match the layout's predictions; it cannot say the resulting metadata is
 well-formed. With row order carrying structural meaning (NT9), that gap is the main risk in
 this plan, and it grows with every future emitter change. So this work builds a
-`MetadataReader`-based test instrumentation over the emitted PE, able to assert on rows and
-flags directly: `NestedClass` rows and their enclosing/nested pairs, `TypeDef` name and
-namespace columns, visibility flags, and the field/method range contiguity the prefix sums
-assume. Reflection (`TestHelpers.loadAssembly`) answers what the *runtime* makes of the
-assembly; this answers what we actually wrote. The nesting tests are its first consumer, not
-its only one.
+`MetadataReader`-based test instrumentation over the emitted PE. Reflection
+(`TestHelpers.loadAssembly`) answers what the *runtime* makes of the assembly; this answers
+what we actually wrote. What it must check, in priority order — the first is the one that
+catches a bad NT9, and is worth having even if nesting slipped:
+
+1. **Range partition.** Walk `TypeDefinition` rows in order and assert each one's field and
+   method ranges are consecutive, non-overlapping, gap-free, and together cover the whole
+   `Field`/`MethodDef` tables — and that each row's name is the one the layout put there. This
+   is a direct assertion of the prefix-sum assumption, and it is precisely what the existing
+   tautological checks cannot see.
+2. **Entry point in range** — `Main`'s `MethodDef` handle lies inside `Program`'s `MethodList`.
+3. **`<Module>` is row 1.**
+4. **`NestedClass` rows** — exactly one per module-held type, `(nested, enclosing)` matching the
+   key's holder chain, table ascending by the nested handle.
+5. **Pre-order contiguity** — for a holder at row `r` with subtree size `n`, rows `(r, r+n]` are
+   exactly its transitive nested set. This is what distinguishes *hierarchical* from merely
+   *legal*, and nothing else can assert it.
+6. **Flags** — a nested `TypeDef` has an empty namespace column, a dot-free name, and
+   `NestedPublic` visibility (NT8's no-regression pin).
 
 **NT8 — A nested type's visibility is capped by its holder's.** `internal` is
 assembly-scoped, so anything inside an assembly-scoped module is *at most* assembly-scoped:
@@ -254,10 +333,21 @@ Named because they are adjacent and will look like omissions:
 
 ## Risks
 
-- **The lockstep reorder is the whole risk.** Types, Fields and Methods are three lists whose
-  group order is an unstated contract, cross-checked only by `verifyTypeHandle` at emit time.
-  Getting it wrong fails loudly rather than silently, which is the one mercy — but it must be
-  got right in all three lists plus `HolderPlan` at once, not incrementally.
+- **The lockstep reorder is the whole risk, and nothing today would catch it.**
+  `verifyTypeHandle` is a *tautology*: it compares the handle `AddTypeDefinition` returned
+  against a prediction derived from the slot's position in `layout.Types`, and the writer
+  walks `layout.Types` in that order. It cannot fail unless a `TypeDef` is added out of band.
+  The method check is tautological for the same reason. The only real guards are **sums**
+  (total field count, total method count), so a mis-order that preserves the counts — Fields
+  hierarchical while Methods stay grouped — writes a `TypeDef` whose `FieldList`/`MethodList`
+  points at **another type's rows**, serialises cleanly, and fails at load/JIT or never. This
+  is why NT10 is a deliverable of this work and not a follow-up: the range-partition assertion
+  is the first thing in the tree that could catch it.
+- **`Main` is a live trap today.** It is appended to `layout.Methods` *globally last*
+  (`Layout.fs:1239-1245`) while the `Program` slot's `MethodCount` counts it
+  (`:1288-1291`) — so `Program` must be the final slot or `Main` silently falls outside its
+  `MethodList` range. The derivation (NT9) dissolves this by giving `Program` its own method
+  list, but any reorder that does *not* dissolve it must preserve Program-last.
 - **`registerTypeDecl` and `typeNestedName` must move together.** Changing the renderer alone
   is inert (no `InModule` key reaches a provider today). Changing the extractor's key mint
   without the renderer breaks contract lookups outright. Neither is independently shippable.
