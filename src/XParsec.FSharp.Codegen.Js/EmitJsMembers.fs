@@ -13,19 +13,22 @@ open EmitJsContext
 /// it takes `buildExpr` as a callback; `buildProgram` passes the walker in.
 module EmitJsMembers =
 
-    /// Re-bind a member's receiver source-name binder (`m.ThisKey`) to JS `this` via a
-    /// leading `const`, leaving the body's `TExpr.Var(thisKey)` references intact. Empty
-    /// when the binder already resolves to `this` (avoids a no-op `const this = this;`)
-    /// or the member is static.
+    /// Re-bind a receiver binder (a member's `ThisKey`, or the class-level one the
+    /// instance preamble reads its fields through) to JS `this` via a leading `const`,
+    /// leaving the body's `TExpr.Var(thisKey)` references intact. Empty when the binder
+    /// already resolves to `this` (avoids a no-op `const this = this;`).
+    let thisAlias (ctx: WalkCtx) (k: NodeKey) : JsStatement list =
+        let recvName = identName ctx.Source k
+
+        if recvName = "this" then
+            []
+        else
+            [ JsStatement.Const(recvName, JsExpr.Identifier("this", ValueNone)) ]
+
+    /// `thisAlias` for a member — empty when the member is static.
     let thisBinding (ctx: WalkCtx) (m: Frozen.TTypeMember) : JsStatement list =
         match m.ThisKey with
-        | ValueSome k ->
-            let recvName = identName ctx.Source k
-
-            if recvName = "this" then
-                []
-            else
-                [ JsStatement.Const(recvName, JsExpr.Identifier("this", ValueNone)) ]
+        | ValueSome k -> thisAlias ctx k
         | ValueNone -> []
 
     /// Emit a plain (non-generator) ATTACHED instance method: receiver bound to JS

@@ -924,27 +924,36 @@ module Unification =
                             fillBaseCtorCall ctx info
                             mintBaseTyVar ctx info
 
-                            // `static let` initialisers: infer each in
-                            // declaration order (an earlier static-let binder is
-                            // already seeded, so a later initialiser can reference
-                            // it), link the placeholder TyVar to the inferred type,
-                            // and seed `ctx.Bindings.TypeVar` so a `static let`-bound
-                            // name reference in a member body types through it.
-                            for sl in info.StaticLets do
-                                match sl.Type with
-                                | TyVar tv -> ctx.Bindings.TypeVar.Set(sl.DeclKey, tv)
-                                | _ -> ()
+                            // Preamble entries: infer each in declaration order (an earlier
+                            // binder is already seeded, so a later entry can reference it).
+                            // Seeding `ctx.Bindings.TypeVar` with the registered placeholder
+                            // first means `inferBinding`'s `tvOf` reuses it and its closing
+                            // `unify patTy rhsTy` LINKS it — so a preamble-bound name
+                            // reference elsewhere in the class types through the same cell.
+                            // Going through `inferBinding` (rather than inferring the bare
+                            // body) is what types `let f x = …` as the function it is.
+                            let inferPreamble (entries: ClassPreambleEntry[]) =
+                                for entry in entries do
+                                    match entry with
+                                    | ClassPreambleEntry.Let l ->
+                                        match l.Type with
+                                        | TyVar tv -> ctx.Bindings.TypeVar.Set(l.DeclKey, tv)
+                                        | _ -> ()
 
-                                enterLevel ctx
+                                        enterLevel ctx
 
-                                try
-                                    let initTy = infer ctx sl.Init
+                                        try
+                                            inferBinding ctx l.Binding
+                                        finally
+                                            exitLevel ctx
+                                    | ClassPreambleEntry.Do e -> infer ctx e |> ignore
 
-                                    match sl.Type with
-                                    | TyVar tv -> (UnionFind.find tv).Link <- ValueSome initTy
-                                    | _ -> ()
-                                finally
-                                    exitLevel ctx
+                            inferPreamble info.StaticPreamble
+
+                            // The instance sequence runs in the primary ctor, after the
+                            // base-ctor call — so it types after `fillBaseCtorCall`, with the
+                            // ctor params already seeded above.
+                            inferPreamble info.InstancePreamble
 
                         // Interface-impl types are resolved up front by
                         // `resolveInterfaceImplsForElem` (walkElems), before *any*

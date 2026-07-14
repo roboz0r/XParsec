@@ -796,6 +796,38 @@ module EmitJs =
 
         [ JsStatement.If(guard, [ JsStatement.Expression disposeCall ], []) ]
 
+    /// A class's instance preamble as the TAIL of its primary constructor, in declaration
+    /// order — which is load-bearing, and is why the entries emit as ctor statements
+    /// rather than as class-field initialisers.
+    ///
+    /// A preamble `let` is an instance FIELD (the same lowering a ctor param already gets,
+    /// with the value coming from an initialiser rather than an argument), so it emits as
+    /// `this.<name> = <init>;` — including a `let mutable` (a field, never a ref cell: a
+    /// closure over it must capture `this`, so every reader shares one storage) and a
+    /// function-valued `let` (a field holding an arrow closed over `this`; assigned before
+    /// any call can read it, so `let rec` needs nothing extra). A binder's field is named
+    /// by its SOURCE name — sound only because a preamble binder may not shadow a ctor
+    /// param or an earlier binder (the front-end rejects it); binder uniquification is a
+    /// separate, cross-cutting pass.
+    let private emitInstancePreamble (ctx: WalkCtx) (p: EmitJsTypes.ClassPreamble) : JsStatement list =
+        [
+            yield! EmitJsMembers.thisAlias ctx p.ThisKey
+
+            for entry in p.Entries do
+                match entry with
+                | TPreambleEntryG.Let l ->
+                    let field =
+                        JsExpr.Member(
+                            JsExpr.Identifier("this", ValueNone),
+                            JsExpr.Identifier(l.Name, ValueNone),
+                            false,
+                            ValueNone
+                        )
+
+                    yield JsStatement.Expression(JsExpr.Assign(field, buildExpr ctx l.Init, ValueNone))
+                | TPreambleEntryG.Do e -> yield! buildStatements ctx e
+        ]
+
     /// The whole frozen file → a `Program`. Type declarations become JS `class`es first
     /// (classes are not hoisted); remaining decls are lowered — `let inline` templates
     /// and `type` decls drop out, leaving module values and effectful expressions.
@@ -839,9 +871,15 @@ module EmitJs =
         let classDecls =
             [
                 for pc in collected.PendingClasses ->
+                    let ctorBody =
+                        match pc.Preamble with
+                        | ValueSome p -> emitInstancePreamble ctx p
+                        | ValueNone -> []
+
                     JsStatement.Class(
                         pc.Name,
                         pc.Fields,
+                        ctorBody,
                         EmitJsMembers.emitCapabilityMethods buildExpr ctx pc.Members,
                         ctx.ExportTopLevel
                     )

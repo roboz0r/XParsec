@@ -1,6 +1,7 @@
 # The backend conformance corpus.
 #
-# Every `.fs` under `ops/` is a self-contained program in OUR dialect — data, never
+# Every `.fs` under this directory (`ops/` — arithmetic; `classes/` — nominal types) is a
+# self-contained program in OUR dialect — data, never
 # a `<Compile>` item — read as text and compiled through this repo's own pipeline.
 # It PRINTS computed values and nothing else: the judgement lives in the `.expected`
 # golden beside it, which carries F# semantics rather than any backend's current
@@ -192,3 +193,45 @@ operators = ["+", "-", "*", "/", "%"]
 path = "ops/arith-decimal.fs"
 diagnose = { clr = "does not support the operator", js = "no representation on the target platform" }
 width = "decimal"
+
+# ---------------------------------------------------------------------------------------
+# THE CLASS PREAMBLE — instance `let` / `do` in a type definition.
+#
+# The two backends implemented it INDEPENDENTLY, from one spec, and nothing structural
+# makes them agree: the CLR gives each `let` a backing field written by the ctor; JS writes
+# a property on `this`. Every other assertion about the preamble is per-backend, and so
+# green in both suites at once even when the two answers differ. These programs are what
+# make the AGREEMENT a tested property — they carry no `width` and so contribute nothing to
+# the arithmetic matrix.
+#
+# Two preamble features are on NEITHER backend's `run` list, by design, and so have no
+# program here: `inherit` (a base-ctor call before the preamble) and `static let` / `static
+# do` — the JS backend has no `.cctor` analogue and no secondary ctors, and REJECTS both
+# rather than dropping them. A `run = ["clr", "js"]` program for either could not pass; a
+# `run = ["clr"]` one would be a per-backend test wearing the corpus's clothes, which is
+# what this file exists to stop. Their JS rejection is pinned in the JS suite, and their CLR
+# behaviour in the CLR suite.
+
+[[program]]
+path = "classes/preamble-let.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "classes/preamble-mutable.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "classes/preamble-do-order.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "classes/preamble-let-rec.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "classes/preamble-generic.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "classes/preamble-fn-value.fs"
+run = ["clr", "js"]

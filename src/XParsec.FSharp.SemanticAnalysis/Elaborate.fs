@@ -420,11 +420,15 @@ module Elaborate =
         // typed term), so the typar remap is a no-op.
         | TTypeKind.Enum cases -> TTypeKind.Enum cases
         | TTypeKind.Class c ->
-            let staticLet (sl: TStaticLet) =
-                { sl with
-                    Type = f sl.Type
-                    Init = mapExprTypes f sl.Init
-                }
+            let preambleEntry (entry: TPreambleEntry) =
+                match entry with
+                | TPreambleEntry.Let l ->
+                    TPreambleEntry.Let
+                        { l with
+                            Type = f l.Type
+                            Init = mapExprTypes f l.Init
+                        }
+                | TPreambleEntry.Do e -> TPreambleEntry.Do(mapExprTypes f e)
 
             let ctorLet (cl: TCtorLet) =
                 { cl with
@@ -462,7 +466,9 @@ module Elaborate =
                         c.Interfaces
                         |> EqArray.map (fun (ity, ms) -> f ity, ms |> EqArray.map (freezeMember f))
                     IsSealed = c.IsSealed
-                    StaticLets = c.StaticLets |> EqArray.map staticLet
+                    StaticPreamble = c.StaticPreamble |> EqArray.map preambleEntry
+                    InstancePreamble = c.InstancePreamble |> EqArray.map preambleEntry
+                    ThisKey = c.ThisKey
                     SecondaryCtors = c.SecondaryCtors |> EqArray.map secondary
                     BaseCtorCall = c.BaseCtorCall |> ValueOption.map baseCtor
                     ValueKind = c.ValueKind
@@ -736,38 +742,90 @@ module Elaborate =
 
         members, interfaces
 
-    /// Rewrite each `static let`-bound name reference (`TExpr.Var(staticLetKey)`)
-    /// in a member body or a `.cctor` initialiser to `TExpr.StaticFieldGet(class,
-    /// name)` — the static analogue of the
-    /// primary-ctor-param → `FieldGet` rewrite. Applies to instance and static
-    /// member bodies alike (a `static let` is in scope for both).
-    let private rewriteStaticLetRefs (staticLetByKey: Map<NodeKey, string>) (declKey: SymbolKey) (body: TExpr) : TExpr =
-        if Map.isEmpty staticLetByKey then
+    /// The class binders that are not locals but FIELDS: a primary-ctor param and an
+    /// instance-`let` binder (instance fields), a `static let` binder (a static field).
+    /// Every reference to one — in a member body, in a `.cctor` initialiser, in a later
+    /// preamble entry — must be rewritten to a field access, so codegen never sees the
+    /// binder's `NodeKey`. `MkSet` rewrites the WRITE side with the read side: a
+    /// `let mutable` binder IS the field, so a `c <- c + 1` must store to it (a `TExpr.Let`
+    /// binder would instead be promoted to a ref cell and fork the storage). `MkSet` is
+    /// `ValueNone` where the TAST has no store node for the target: there is no
+    /// `TExpr.StaticFieldSet`, which is exactly why `static let mutable` is rejected at
+    /// registration — nothing writable can reach the static rewrite.
+    [<NoEquality; NoComparison>]
+    type private FieldRewrite =
+        {
+            /// Field name, by binder `NodeKey`.
+            Names: Map<NodeKey, string>
+            MkGet: string -> SemType -> SyntaxToken -> TExpr
+            MkSet: (string -> TExpr -> SemType -> SyntaxToken -> TExpr) voption
+        }
+
+    let private rewriteFieldRefs (r: FieldRewrite) (body: TExpr) : TExpr =
+        if Map.isEmpty r.Names then
             body
         else
             TastWalk.mapExpr
                 { TastWalk.identityMapper with
                     OverrideExpr =
-                        fun _ e ->
+                        fun m e ->
                             match e with
+                            | TExpr.Assignment(TExpr.Var(k, _, _), rhs, ty, tok) ->
+                                match r.MkSet, Map.tryFind k r.Names with
+                                | ValueSome mkSet, Some name -> ValueSome(mkSet name (TastWalk.mapExpr m rhs) ty tok)
+                                | _ -> ValueNone
                             | TExpr.Var(k, ty, tok) ->
-                                match Map.tryFind k staticLetByKey with
-                                | Some name -> ValueSome(TExpr.StaticFieldGet(declKey, name, ty, tok))
+                                match Map.tryFind k r.Names with
+                                | Some name -> ValueSome(r.MkGet name ty tok)
                                 | None -> ValueNone
                             | _ -> ValueNone
                 }
                 body
 
+    /// `static let` binders → `TExpr.StaticFieldGet` on the declaring class.
+    let private staticFieldRewrite (info: ClassTypeInfo) : FieldRewrite =
+        {
+            Names =
+                ClassPreamble.lets info.StaticPreamble
+                |> Array.map (fun l -> l.DeclKey, l.Name)
+                |> Map.ofArray
+            MkGet = fun name ty tok -> TExpr.StaticFieldGet(info.Key, name, ty, tok)
+            MkSet = ValueNone
+        }
+
+    /// Primary-ctor params AND instance-`let` binders → `TExpr.FieldGet`/`FieldSet` on
+    /// `this`. ONE map, because they are one kind of thing: an instance `let` is a ctor
+    /// param whose value comes from an initialiser rather than an argument. The map is
+    /// keyed by `NodeKey`, so it stays exact even though the two families share a name
+    /// space — which `NameResolution` separately requires to be collision-free, since a
+    /// field is emitted under its SOURCE name.
+    let private instanceFieldRewrite (info: ClassTypeInfo) (classTy: SemType) : FieldRewrite =
+        let names =
+            (Map.empty, info.CtorParams)
+            ||> Array.fold (fun acc p -> Map.add p.DeclKey p.Name acc)
+
+        let names =
+            (names, ClassPreamble.lets info.InstancePreamble)
+            ||> Array.fold (fun acc l -> Map.add l.DeclKey l.Name acc)
+
+        {
+            Names = names
+            MkGet = fun name ty tok -> TExpr.FieldGet(TExpr.Var(info.ThisKey, classTy, tok), name, ty, tok)
+            MkSet =
+                ValueSome(fun name rhs ty tok ->
+                    TExpr.FieldSet(TExpr.Var(info.ThisKey, classTy, tok), name, rhs, ty, tok)
+                )
+        }
+
     /// Translate one class member element into a `TTypeMember`. Parallel to
     /// `translateUnionMember` — only differs in the `ThisTy` shape
-    /// (`TyClass(info.Name, …)` vs `TyUnion`) and in one extra rewrite step:
-    /// each `TExpr.Var(ctorParamKey)` in an *instance* member body becomes
-    /// `TExpr.FieldGet(this, paramName)`, so the back end resolves a primary-
-    /// ctor argument through the same field-access mechanism every other
-    /// nominal type uses (codegen never sees the ctor-param NodeKey). Static
-    /// members don't see ctor params (front-end's `staticScope` is empty), so
-    /// the rewrite is a no-op there. A later slice will extend the dispatch
-    /// path to consult `info.BaseType` for `base.M` resolution.
+    /// (`TyClass(info.Name, …)` vs `TyUnion`) and in the field rewrites: a
+    /// reference to a ctor param or an instance-`let` binder in an *instance* body becomes
+    /// a `FieldGet`/`FieldSet` on `this`, and one to a `static let` binder becomes a
+    /// `StaticFieldGet` — so the back end resolves them through the same field mechanism
+    /// every other nominal type uses (codegen never sees the binder's NodeKey). Static
+    /// members see neither `this` nor the instance binders (front-end's `staticScope`), so
+    /// only the static rewrite applies there.
     let private translateClassMember
         (ctx: PassContext)
         (info: ClassTypeInfo)
@@ -789,29 +847,8 @@ module Elaborate =
             else
                 ValueNone
 
-        let ctorParamByKey =
-            info.CtorParams |> Array.map (fun p -> p.DeclKey, p.Name) |> Map.ofArray
-
-        let staticLetByKey =
-            info.StaticLets |> Array.map (fun sl -> sl.DeclKey, sl.Name) |> Map.ofArray
-
-        let rewriteCtorParamRefs (body: TExpr) : TExpr =
-            if Map.isEmpty ctorParamByKey then
-                body
-            else
-                TastWalk.mapExpr
-                    { TastWalk.identityMapper with
-                        OverrideExpr =
-                            fun _ e ->
-                                match e with
-                                | TExpr.Var(k, ty, tok) ->
-                                    match Map.tryFind k ctorParamByKey with
-                                    | Some name ->
-                                        ValueSome(TExpr.FieldGet(TExpr.Var(info.ThisKey, classTy, tok), name, ty, tok))
-                                    | None -> ValueNone
-                                | _ -> ValueNone
-                    }
-                    body
+        let staticRewrite = staticFieldRewrite info
+        let instanceRewrite = instanceFieldRewrite info classTy
 
         match el with
         | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; keyword = kw; defn = d)) ->
@@ -819,8 +856,12 @@ module Elaborate =
             let isOverride = isOverrideKeyword kw
 
             let lowerBody (e: Expr<SyntaxToken>) : TExpr =
-                let body = translateExpr ctx e |> rewriteStaticLetRefs staticLetByKey info.Key
-                if isStatic then body else rewriteCtorParamRefs body
+                let body = translateExpr ctx e |> rewriteFieldRefs staticRewrite
+
+                if isStatic then
+                    body
+                else
+                    rewriteFieldRefs instanceRewrite body
 
             // The member's own generic parameters (B-12), recovered from the
             // registered `TypeMemberInfo`'s canonical `Generalized` order. The order
@@ -1451,23 +1492,43 @@ module Elaborate =
                     }
                 )
 
-            // `static let` fields + `.cctor` initialisers. The front-end
-            // rejects `static let` on a generic class, so `info.StaticLets` is
-            // only ever non-empty for a monomorphic class — no typar remap needed.
-            // A later static-let initialiser referencing an earlier one is rewritten
-            // through `rewriteStaticLetRefs`, matching the member-body lowering.
-            let staticLetByKey =
-                info.StaticLets |> Array.map (fun sl -> sl.DeclKey, sl.Name) |> Map.ofArray
+            // The preambles. `translateBinding` — not `translateExpr` on the initialiser —
+            // is what makes `let f x = …` the function value it is. A reference to an
+            // earlier binder is rewritten to the field it lowers to, exactly as in a member
+            // body; the instance sequence additionally sees the ctor params (it runs inside
+            // the primary ctor). Both sequences ride the class's declaring typars as `TyVar`
+            // roots, which the decl-wide `freezeTypars` cuts — so a generic class's
+            // preamble needs no special case.
+            let staticRewrite = staticFieldRewrite info
+            let instanceRewrite = instanceFieldRewrite info selfTy
 
-            let staticLets =
+            let translatePreambleEntry (rewrite: TExpr -> TExpr) (entry: ClassPreambleEntry) : TPreambleEntry =
+                match entry with
+                | ClassPreambleEntry.Let l ->
+                    TPreambleEntry.Let
+                        {
+                            Name = l.Name
+                            Type = Unification.zonk l.Type
+                            IsMutable = l.IsMutable
+                            Init = translateBinding ctx l.Binding |> rewrite
+                        }
+                | ClassPreambleEntry.Do e -> TPreambleEntry.Do(translateExpr ctx e |> rewrite)
+
+            let staticPreamble =
                 EqArray.ofSeq (
                     seq {
-                        for sl in info.StaticLets ->
-                            {
-                                Name = sl.Name
-                                Type = Unification.zonk sl.Type
-                                Init = translateExpr ctx sl.Init |> rewriteStaticLetRefs staticLetByKey info.Key
-                            }
+                        for entry in info.StaticPreamble ->
+                            translatePreambleEntry (rewriteFieldRefs staticRewrite) entry
+                    }
+                )
+
+            let instancePreamble =
+                EqArray.ofSeq (
+                    seq {
+                        for entry in info.InstancePreamble ->
+                            translatePreambleEntry
+                                (rewriteFieldRefs staticRewrite >> rewriteFieldRefs instanceRewrite)
+                                entry
                     }
                 )
 
@@ -1525,7 +1586,12 @@ module Elaborate =
                     let ctorParamKeys =
                         EqArray.ofSeq (seq { for p in info.CtorParams -> (p.DeclKey, Unification.zonk p.Type) })
 
-                    let args = peelOneArg (translateExpr ctx) argExpr
+                    // The base-ctor args run before `this` exists (they are `ldarg`-only), so the
+                    // INSTANCE rewrite must not apply — but the `.cctor` has already run, so a
+                    // `static let` is in scope here (NameResolution scopes it in) and is a FIELD:
+                    // without the static rewrite its binder `NodeKey` would survive as a bare
+                    // `TExpr.Var` into the base-ctor args, where codegen has no slot for it.
+                    let args = peelOneArg (translateExpr ctx >> rewriteFieldRefs staticRewrite) argExpr
 
                     ValueSome
                         {
@@ -1548,7 +1614,9 @@ module Elaborate =
                             BaseType = baseType
                             Interfaces = interfaces
                             IsSealed = info.IsSealed
-                            StaticLets = staticLets
+                            StaticPreamble = staticPreamble
+                            InstancePreamble = instancePreamble
+                            ThisKey = info.ThisKey
                             SecondaryCtors = secondaryCtors
                             BaseCtorCall = baseCtorCall
                             // The mutable `ClassTypeInfo` bool pair collapses into the
@@ -1609,7 +1677,9 @@ module Elaborate =
                     BaseType = ValueNone
                     Interfaces = EqArray.empty
                     IsSealed = false
-                    StaticLets = EqArray.empty
+                    StaticPreamble = EqArray.empty
+                    InstancePreamble = EqArray.empty
+                    ThisKey = info.ThisKey
                     SecondaryCtors = EqArray.empty
                     BaseCtorCall = ValueNone
                     ValueKind = ClassValueKind.RefType

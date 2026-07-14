@@ -270,93 +270,89 @@ but it still carries the typing dependency, so Step 6 must leave it alone.
 
 ---
 
-## Residual 2 — instance `let` / `do` in a class body are not modelled at all
+## Residual 2 — instance `let` / `do` in a class body — **LANDED**
 
-**Large enough to be its own body of work.** This section is written to be picked up cold.
+`MemberRegistration` admitted only `static let`; an instance `let`, and any `[static] do`,
+was silently skipped. Now modelled end to end — front end, CLR, JS — along with `static do`.
 
-`MemberRegistration.extractStaticLets` (`MemberRegistration.fs:446-481`) admits only
-`static let`. An **instance** `let`, and any `[static] do`, is silently skipped with no
-diagnostic. So this — which F# accepts and runs — is rejected with
-`Unresolved identifier: a`:
+**The lowering: every preamble binder is an instance field.** Not "`static let` minus the
+`static`". The template is the **primary-ctor param**, which was already an instance field
+with a `Var(paramKey) → FieldGet(this, name)` rewrite in every instance member body; an
+instance `let` is that, with the value coming from an initialiser instead of an `ldarg`.
+Ctor params and preamble binders are now ONE map feeding ONE rewrite (`Elaborate`'s
+`FieldRewrite`), which is what makes them provably the same thing. Generic classes then work
+for free — ctor-param fields already did.
 
-```fsharp
-type C() =
-    let b = 1
-    let a = b + 1
-    member _.A = a
-```
+**`let mutable` must never be a `TExpr.Let`.** It is a field, so `RefCellPromotion` never
+sees it. Lowering the preamble as a `TExpr.Let` chain inside a synthesised ctor body would
+hand a closure-captured mutable to `RefCellPromotion` and **silently miscompile** — member
+bodies reading the field while the closure read a ref cell. (`RefCellPromotion` in fact never
+enters a `TDecl.Type` at all, so this holds for a second, stronger reason.)
 
-It is a missing **feature**, not an ordering bug.
+**A function-valued `let` is a field holding a closure over `this`** — so `let rec` works
+(the field is assigned before any call can read it) and first-class use (`List.map bump`)
+works. F# instead emits a private *method*; see Residual 7. Closure discovery therefore has
+to root at preamble expressions, or a function-`let` finds no closure at its construction site.
 
-Note the rejection *direction* for `let a = b` (a later `b`) happens to agree with F#, but
-**for the wrong reason** — the error lands on `a` at its use site rather than on `b`,
-because the preamble RHS is never walked. Do not read that agreement as the rule working.
+**Backing storage is `FieldAttributes.Assembly`, not `Private`** — probed off FSC, which
+emits preamble lets, `let mutable`, and captured ctor params as internal fields. Private is
+*wrong*: a closure class is a sibling type (`Vesper.Fun\`2`-derived, not nested), so it
+cannot read another type's privates. This also fixed a live bug — the `static let` field was
+`Private`, so reading a `static let` from inside a lambda threw `FieldAccessException` at run
+time. `SymbolProviders.harvestMemberBody`'s ILIntrinsic-only restriction is what keeps this
+sound across the assembly seam; widening member inlining would need F#'s FS1113.
 
-### What F# actually does (probed, `dotnet fsi`)
+**Fixed in passing:** `static let f x = …` silently dropped its parameters — `extractStaticLets`
+read `Binding.headPat` and never `argumentPats`, so it registered a *value* whose initialiser
+was the bare body. Every `static let` test bound a value, so nothing caught it.
 
-```fsharp
-type C(n: int) =
-    let m = n + 1                                  // sees a ctor param
-    let mutable count = 0
-    let bump x = count <- count + x; count + m     // a let-bound FUNCTION, mutating a let-mutable
-    do printfn "ctor ran, m=%d" m                  // `do` runs in the ctor, sees `m`
-    member _.Bump v = bump v
-    member _.M = m
+Probed semantics, all pinned: preamble runs in the primary ctor after the base-ctor call, in
+declaration order (`let` and `do` interleaved); needs a primary ctor (FS0963); an instance
+`let` may read a `static let` but not vice versa; `let rec`; generic classes. Rejected by
+design: `as self` in a preamble (F# accepts it but throws at run time on initialisation
+soundness — resolving it without that analysis would read a default-valued field and silently
+return a wrong answer); instance `let`/`do` in a struct (FS0901 / FS0035); a preamble `let`
+colliding with a member name (FS0905); `static let mutable` (no `TExpr.StaticFieldSet` exists,
+so a write would elaborate to a node no backend can emit).
 
-type G<'T>(x: 'T) =                                // instance lets in a GENERIC class
-    let items = ResizeArray<'T>()
-    do items.Add x
-    member _.Items = items
-```
+Cross-backend behaviour is pinned in `test/Codegen.Conformance/classes/` — standalone `.fs`
+compiled through both backends and compared on stdout. The two backends implemented the ctor
+independently and **did** diverge (JS silently dropped `inherit`); per-backend tests could not
+catch that, and a conformance case is the only structural defence against a recurrence.
 
-Runs, printing `ctor ran, m=11` / `16 11` / `[42]`. Every one of those is a case to support.
+### Residual 2a — binder uniquification (a shared pass; NOT preamble-specific)
 
-### What genuinely reuses existing code
+Every preamble binder and ctor param emits a field under its **source name**, so two sharing a
+name mint two fields with one name. F# accepts this and **uniquifies by source position** —
+probed: `v@4` (instance let) beside `v` (static let); `x@10` (preamble let) beside `x` (`val`).
+Where there is no collision the name stays plain.
 
-**The scoping half.** A class preamble's `let`s and `do`s are ONE ordered sequence, each
-seeing the ones above it plus the ctor params — structurally the same rule as
-`NameResolution.walkModuleElem`'s scope accumulator, and the same position-based visibility
-Residual 1 built. Reuse it; do not invent a second ordering mechanism.
+We instead **reject** any duplicate field name across the four field-minting families (ctor
+params, `val` fields, static lets, instance lets) — a conservative rejection of valid F#, far
+better than two fields with one name (on CLR a `Field` row is identified by (Parent, Name,
+Signature) and static-ness lives in the *flags*, so it is a duplicate row, not two fields).
 
-**`Desugar` already walks the right positions.** `5f7daadd` fixed it to walk
-`.classPreamble` and `.inherits`, not just `ObjectModelBody.elements`. Before that, any
-**operator** in a `static let` initialiser, a `do` body, or a primary `inherit Base(a + 1)`
-argument reached Elaborate with no `DesugaredForm` entry and threw
-`failwithf "InfixApp … missing DesugaredForm entry"` — a hard crash. It survived only
-because every existing `static let` test used a *literal* initialiser. **A test with a
-literal-only initialiser will not catch this class of bug.** Every pass must walk all three
-positions.
+**This is not a preamble problem.** Ordinary local `let` shadowing already miscompiles on JS
+today: `let x = 1` / `let x = x + 1` in statement position emits `const x = …; const x = …;`
+into one block — a hard `SyntaxError`. (Inside a function body it survives only by accident:
+a pure `let` is substituted away and an impure one lowers to its own IIFE arrow, i.e. a fresh
+JS scope per binder. The break is confined to `JsStatement.Const` in a flat statement list.)
+CLR is safe — `EmitBindings` keys a local slot by `NodeKey` and IL locals are unnamed.
 
-### What does NOT reuse — and why the template is `static let`, not module `let`
+So the pass is owed generally. `NodeKey.Offset` already gives it what F# uses.
 
-Module `let` gives you the scope accumulator and nothing else. The *lowering* template is
-`static let`, which already has the whole pipeline: `ClassTypeInfo.StaticLets` →
-`Tast.TStaticLetG` → `TastConvert` → `Elaborate` → codegen emitting "one private static
-field each and a synthesised `.cctor` running the initialisers in declaration order"
-(`Tast.fs:672-674`). Instance `let` is that shape with the field non-static and the
-initialisers running in the **primary ctor**, after the base-ctor call.
+### Residual 2b — the JS backend's class emission is still partial
 
-But it is not static-let-minus-the-`static`. Three divergences, all probed:
+Now **loud** rather than silent: a `static let` / `static do` preamble, an `inherit`, and a
+secondary ctor alongside a primary all `failwith` instead of emitting a class with the feature
+missing. (`inherit` was the live one — JS emitted no `extends` and no `super(…)`, so base-ctor
+side effects vanished and inherited members read `undefined`.)
 
-1. **A let-bound function needs `this`.** `bump` above mutates an instance field and reads
-   another `let`. That is a private method (or a closure over the instance) — not a field
-   holding a value. `static let` has no such case, so there is no template to copy.
-2. **`let mutable` becomes a mutable instance field**, which interacts with
-   `RefCellPromotion` when a closure captures it.
-3. **Instance lets must work in GENERIC classes, and `StaticLets` deliberately does not.**
-   `ClassTypeInfo.StaticLets` (`TypeInfos.fs:613-615`) is populated only for monomorphic
-   classes — "generic classes reject `static let`, the per-instantiation cache lowering is
-   deferred". An instance `let` has no per-instantiation problem (each instance owns its
-   field), so it must work generically from the start. **You cannot inherit
-   `extractStaticLets`' arity gate; it has to be bypassed, not reused.**
-
-### Separately: F# does NOT forbid `static let` in a generic class
-
-Probed — `type G<'T>() = static let cache = ResizeArray<'T>()` compiles, and each
-instantiation gets its own static. So the restriction above is **ours**, a deferral, not
-F#'s rule. `TypeInfos.fs` says so; this doc previously did not, and a reader could easily
-have carried the restriction into instance lets, where it does not belong. Lifting it is a
-separate piece of work (per-instantiation statics), not a prerequisite for this one.
+Still **silently** wrong, and reported rather than guessed at: a `val`-form secondary ctor
+whose field initialisers are not the positional identity (`new(a) = { x = a + 1 }`, or a body
+with `let`s). The positional field ctor covers the identity case — which is why `Vesper.List`'s
+`ListEnumerator` works and why a blanket rejection of secondary ctors was wrong — but not this
+one. Distinguishing them needs each `TCtorFieldInit` checked against the ctor's params.
 
 ## Residual 3 — `[<Struct>]` records and unions emit as reference types
 
@@ -398,6 +394,38 @@ three sites must narrow and fail loud on the impossible arm
 
 Registration now routes every local type through one mint and one claim, so the "two keys
 for one type" hazard that made this risky is much reduced. Worth revisiting.
+
+---
+
+## Residual 6 — `static let mutable` has no store node
+
+`Tast` has `TExpr.StaticFieldGet` but no `StaticFieldSet`, so a write to a `static let mutable`
+elaborates to `Assignment(StaticFieldGet …, rhs)` — a node neither backend can emit. It is
+currently **diagnosed** at registration.
+
+Worth knowing how close this came to shipping as a crash: the old `extractStaticLets` hard-coded
+`IsMutable = false` for a `static let`, which made `Validation`'s "assignment to immutable
+binding" reject the write *by accident*. Reading `IsMutable` faithfully from the binding — which
+instance lets require — removed that accidental gate and turned a clean rejection into a codegen
+`failwith`. The shape appears three times in the FSharp.Core port
+(`XParsec.FSharp.Lib/Printf/printf.fs`, `Clr/prim-types.fs`), which is not analysed today but
+will be. Adding `StaticFieldSet` end to end is the real fix.
+
+---
+
+## Residual 7 — a function-valued class `let` should be a private method
+
+We lower it as an instance **field holding a closure over `this`**. F# emits an `Assembly`-visible
+instance **method** — and eta-expands even `let f = fun () -> …` into one (probed by reflection).
+
+The divergence is in **cost, not correctness**: our field reads sibling internal fields fine,
+`let rec` works, first-class use works. It costs one closure allocation per instance per
+function-`let`.
+
+The method lowering needs a "private instance method on a user class" concept, which exists in
+**neither** backend today — every user member is `Public`, and compiler-generated code is closure
+classes, not private methods — plus eta-expansion with correct currying at every first-class use
+site (`List.map bump`), in both backends. Hence deferred, deliberately.
 
 ---
 

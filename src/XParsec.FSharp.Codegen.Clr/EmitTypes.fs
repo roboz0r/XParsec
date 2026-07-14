@@ -120,6 +120,28 @@ module EmitTypes =
             MethodTyparCount: int
         }
 
+    /// One step of a class preamble, in declaration order — what the `.cctor` (static
+    /// sequence) or the primary `.ctor` (instance sequence) runs. `Store` names the
+    /// binder's already-resolved backing field: the enclosing builder knows whether that
+    /// is a `stsfld` or a `stfld` through `this`, so one step type serves both.
+    [<RequireQualifiedAccess>]
+    type PreambleStep =
+        /// A `[static] let`: evaluate the initialiser and store it into the backing field.
+        | Store of field: EntityHandle * init: Frozen.TExpr
+        /// A `[static] do`: run the body for effect (its `unit` result is drained).
+        | Run of body: Frozen.TExpr
+
+    /// A class primary `.ctor`'s base-constructor chain.
+    [<RequireQualifiedAccess>]
+    type CtorChain =
+        /// `inherit Base(args)`, an external base's `.ctor`, or — for an `inherit`-less
+        /// reference class — `System.Object::.ctor()`. The args are evaluated before
+        /// `this` is constructed, so they may only reference the ctor params (`ldarg`).
+        | Base of ctor: EntityHandle * args: Frozen.TExpr list
+        /// A value type: `System.ValueType` has no accessible ctor and value types do
+        /// not chain.
+        | None
+
     /// A union emitted into this assembly. `Typars` empty ⇒ a monomorphic union
     /// (single sealed class, `Def`-token member access); non-empty ⇒ a generic
     /// union whose members are reached via `ICodegenProvider.GenericUnionMemberRef`

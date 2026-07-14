@@ -1,0 +1,6 @@
+ctor a=2
+ctor b=6
+b=6
+ctor a=6
+ctor b=18
+b=18

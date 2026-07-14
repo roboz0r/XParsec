@@ -52,7 +52,7 @@ module internal NominalEmit =
     /// nominal carries. Classes, unions, and records all carry them.
     let private userInterfacesOf (input: NominalEmissionInput) : (FrozenType * Frozen.TTypeMember list) list =
         match input with
-        | NominalEmissionInput.Class(_, _, _, _, _, _, _, interfaces, _, _) -> interfaces
+        | NominalEmissionInput.Class cd -> cd.Interfaces
         | NominalEmissionInput.Union(_, interfaces) -> interfaces
         | NominalEmissionInput.Record(_, interfaces) -> interfaces
 
@@ -152,16 +152,14 @@ module internal NominalEmit =
                     Ctor = toEntity (asm.MethodDef(MethodKey.NominalCtor td.Key))
                 }
 
-        | NominalEmissionInput.Class(instanceFields,
-                                     ctorParams,
-                                     _,
-                                     _,
-                                     staticLets,
-                                     secondaryCtors,
-                                     _,
-                                     interfaces,
-                                     isStruct,
-                                     hasPrimaryCtor) ->
+        | NominalEmissionInput.Class cd ->
+            let instanceFields = cd.Fields
+            let ctorParams = cd.CtorParams
+            let staticLets = TPreambleEntryG.lets cd.StaticPreamble
+            let instanceLets = TPreambleEntryG.lets cd.InstancePreamble
+            let secondaryCtors = cd.SecondaryCtors
+            let isStruct = cd.ValueKind <> ClassValueKind.RefType
+
             // The handle every `ldsfld`/`stsfld` *references*. A generic class
             // reaches its own `static let` field through a `MemberRef` on the
             // open self-`TypeSpec` (`Set\`1<!0>::empty`), the static analogue of
@@ -199,7 +197,7 @@ module internal NominalEmit =
             // secondaries that read `Ctor`). Structs always keep their primary, as
             // does the no-secondary fallback — matching `Layout`'s `emitPrimaryCtor`.
             let emitPrimaryCtor =
-                isStruct || hasPrimaryCtor || List.isEmpty secondaryCtorHandles
+                isStruct || cd.HasPrimaryCtor || List.isEmpty secondaryCtorHandles
 
             let ctorHandle =
                 if emitPrimaryCtor then
@@ -217,10 +215,16 @@ module internal NominalEmit =
                             for p in ctorParams ->
                                 p.Name, toEntity (asm.FieldDef(FieldKey.ClassCtorParamField(td.Key, p.Name))), p.Type
                         ]
+                    // A declared `val` field and an instance-`let` backing field are one
+                    // thing at a use site: `this.x` resolves by NAME against this list
+                    // (`EmitResolve`), which is why they share it rather than the arity-
+                    // bearing `Fields`.
                     InstanceFields =
                         [
                             for f in instanceFields ->
                                 f.Name, toEntity (asm.FieldDef(FieldKey.ClassInstanceField(td.Key, f.Name))), f.Type
+                            for l in instanceLets ->
+                                l.Name, toEntity (asm.FieldDef(FieldKey.ClassLetField(td.Key, l.Name))), l.Type
                         ]
                     IsValueType = isStruct
                     Ctor = ctorHandle
@@ -232,7 +236,7 @@ module internal NominalEmit =
                     // typars (the `fst` of each impl pair — the member bodies are not
                     // needed for the witness walk). Same source the definition emission
                     // reads at `classInterfaces`.
-                    Interfaces = [ for (ifaceTy, _) in interfaces -> ifaceTy ]
+                    Interfaces = [ for (ifaceTy, _) in cd.Interfaces -> ifaceTy ]
                 }
 
     let prepare
@@ -370,16 +374,15 @@ module internal NominalEmit =
                 }
             )
 
-        | NominalEmissionInput.Class(instanceFields,
-                                     ctorParams,
-                                     baseType,
-                                     _isSealed,
-                                     staticLets,
-                                     secondaryCtors,
-                                     baseCtorCall,
-                                     _interfaces,
-                                     isStruct,
-                                     hasPrimaryCtor) ->
+        | NominalEmissionInput.Class cd ->
+            let instanceFields = cd.Fields
+            let ctorParams = cd.CtorParams
+            let baseType = cd.BaseType
+            let staticLets = TPreambleEntryG.lets cd.StaticPreamble
+            let secondaryCtors = cd.SecondaryCtors
+            let baseCtorCall = cd.BaseCtorCall
+            let isStruct = cd.ValueKind <> ClassValueKind.RefType
+
             // Classify the `inherit` parent once. A non-generic external base
             // (`inherit Attribute`) resolves to its raw external `TypeRef`; a
             // non-generic project-local base to its `TypeDefinition` token. External
@@ -421,7 +424,7 @@ module internal NominalEmit =
             // `.ctor` — its secondaries are the only ctors (matches `Layout`'s
             // `emitPrimaryCtor` and the `register` handle reservation). Structs and
             // the no-secondary fallback keep the synthesised primary.
-            let emitPrimaryCtor = isStruct || hasPrimaryCtor || List.isEmpty secondaryCtors
+            let emitPrimaryCtor = isStruct || cd.HasPrimaryCtor || List.isEmpty secondaryCtors
 
             // `classCtor` is the chain target for a secondary ctor that chains to the
             // primary; those occur only when a primary exists. For the suppressed
@@ -451,7 +454,7 @@ module internal NominalEmit =
                             (toEntity (asm.FieldDef(FieldKey.ClassCtorParamField(td.Key, p.Name))))
                 ]
 
-            // The primary `.ctor` body, one arm per base species:
+            // The primary `.ctor`'s base chain, one arm per base species:
             //  * `ExternalBase` with `inherit Base(args)` args (`inherit exn(msg)`): the
             //    base is external, so its `.ctor` overload is re-picked from the
             //    call-site arg types through the same external-ctor resolution a
@@ -467,19 +470,13 @@ module internal NominalEmit =
             //    `TypeSpec` (generic parent). Bind pre-fills every local class.
             //  * struct: store params and return — value types don't chain a base ctor.
             //  * otherwise: chain to `System.Object::.ctor` (the record/closure recipe).
-            let ctorBody =
+            let ctorChain =
                 match baseShape, baseCtorCall with
                 | BaseShape.ExternalBase(baseKey, _), ValueSome bcc when not bcc.Args.IsEmpty ->
                     let argTypes = [ for a in bcc.Args -> TastLower.typeOfExpr a ]
 
                     match icodegen.TryEmitCtor(baseKey, [], argTypes) with
-                    | ValueSome recipe ->
-                        Emit.buildClassBaseCtor
-                            emitCtx
-                            recipe.Handle
-                            (EqArray.toList bcc.Args)
-                            (EqArray.toList bcc.CtorParams)
-                            ctorFieldRefs
+                    | ValueSome recipe -> Emit.CtorChain.Base(recipe.Handle, EqArray.toList bcc.Args)
                     | ValueNone ->
                         failwithf
                             "Emit: class '%s' inherits external base %A but no '.ctor' overload matches its %d base-ctor argument(s)"
@@ -488,7 +485,7 @@ module internal NominalEmit =
                             bcc.Args.Length
                 | BaseShape.ExternalBase(baseKey, _), _ ->
                     match icodegen.ExternalParameterlessBaseCtor baseKey with
-                    | ValueSome extCtor -> Emit.buildClassBaseCtor emitCtx extCtor [] [] ctorFieldRefs
+                    | ValueSome extCtor -> Emit.CtorChain.Base(extCtor, [])
                     | ValueNone ->
                         failwithf
                             "Emit: class '%s' inherits external base %A but its parameterless '.ctor()' could not be minted"
@@ -516,14 +513,38 @@ module internal NominalEmit =
                                 baseKey
                                 td.Name
 
-                    Emit.buildClassBaseCtor
-                        emitCtx
-                        baseCtorHandle
-                        (EqArray.toList bcc.Args)
-                        (EqArray.toList bcc.CtorParams)
-                        ctorFieldRefs
-                | _, ValueNone when isStruct -> Emit.buildStructCtor ctorFieldRefs
-                | _, ValueNone -> Emit.buildRecordCtor provider.ObjectCtorRef ctorFieldRefs
+                    Emit.CtorChain.Base(baseCtorHandle, EqArray.toList bcc.Args)
+                | _, ValueNone when isStruct -> Emit.CtorChain.None
+                | _, ValueNone -> Emit.CtorChain.Base(provider.ObjectCtorRef, [])
+
+            // The base args are the ONLY ctor expressions that reference a primary-ctor
+            // param as an argument (`this` does not exist yet), so this map is empty for
+            // every other chain shape: an instance-preamble entry reaches a ctor param
+            // through its backing field instead.
+            let ctorParamArgs =
+                match baseCtorCall with
+                | ValueSome bcc -> EqArray.toList bcc.CtorParams
+                | ValueNone -> []
+
+            // The instance preamble, resolved against the same self-`MemberRef` shape as
+            // the ctor-param stores (a generic class must reach its own field through the
+            // open self-`TypeSpec`).
+            let instanceSteps =
+                [
+                    for entry in cd.InstancePreamble ->
+                        match entry with
+                        | TPreambleEntryG.Let l ->
+                            Emit.PreambleStep.Store(
+                                selfMemberRef
+                                    (UserMemberKind.ClassMember(ClassMember.Field l.Name))
+                                    (toEntity (asm.FieldDef(FieldKey.ClassLetField(td.Key, l.Name)))),
+                                l.Init
+                            )
+                        | TPreambleEntryG.Do e -> Emit.PreambleStep.Run e
+                ]
+
+            let ctorBody =
+                Emit.buildClassPrimaryCtor emitCtx ctorChain cd.ThisKey ctorParamArgs ctorFieldRefs instanceSteps
 
             if emitPrimaryCtor then
                 let ctorBodyOffset = Cil.buildBody encodeLocals bodyStream (IlIr.lower ctorBody)
@@ -538,17 +559,24 @@ module internal NominalEmit =
                     }
                 )
 
-            // The synthesised `.cctor` initialises the `static let` backing
-            // fields in declaration order. An initialiser referencing an earlier
-            // `static let` (lowered to `StaticFieldGet`) resolves through the
-            // registry `register` filled.
-            if not (List.isEmpty staticLets) then
+            // The synthesised `.cctor` runs the WHOLE static preamble — `static let`
+            // stores AND `static do` effects — in declaration order, which is
+            // load-bearing (`static let a = f()` / `static do g a` / `static let b = h()`).
+            // An initialiser referencing an earlier `static let` (lowered to
+            // `StaticFieldGet`) resolves through the registry `register` filled.
+            if not (List.isEmpty cd.StaticPreamble) then
                 let staticFields = classes.[td.Key].StaticFields
 
-                let cctorInits = [ for sl in staticLets -> staticFields.[sl.Name], sl.Init ]
+                let cctorSteps =
+                    [
+                        for entry in cd.StaticPreamble ->
+                            match entry with
+                            | TPreambleEntryG.Let sl -> Emit.PreambleStep.Store(staticFields.[sl.Name], sl.Init)
+                            | TPreambleEntryG.Do e -> Emit.PreambleStep.Run e
+                    ]
 
                 let cctorBody =
-                    Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStaticCctor emitCtx cctorInits))
+                    Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildStaticCctor emitCtx cctorSteps))
 
                 asm.AddPrepared(
                     MethodKey.NominalCctor td.Key,

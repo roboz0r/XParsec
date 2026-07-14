@@ -12,20 +12,6 @@ open XParsec.FSharp.SemanticAnalysis
 
 module Codegen =
 
-    let private classInput (cd: ClassDecl) : NominalEmissionInput =
-        NominalEmissionInput.Class(
-            cd.Fields,
-            cd.CtorParams,
-            cd.BaseType,
-            cd.IsSealed,
-            cd.StaticLets,
-            cd.SecondaryCtors,
-            cd.BaseCtorCall,
-            cd.Interfaces,
-            cd.ValueKind <> ClassValueKind.RefType,
-            cd.HasPrimaryCtor
-        )
-
     let private assemble
         (bclReferences: string list)
         (symbols: IExternalSymbolProvider)
@@ -44,7 +30,7 @@ module Codegen =
             NominalEmit.register asm (NominalEmissionInput.Record(rd.Fields, rd.Interfaces)) rd.Decl rd.Members
 
         for cd in asm.ClassDecls do
-            NominalEmit.register asm (classInput cd) cd.Decl cd.Members
+            NominalEmit.register asm (NominalEmissionInput.Class cd) cd.Decl cd.Members
 
         asm.BindClosures()
 
@@ -58,7 +44,7 @@ module Codegen =
             NominalEmit.prepare asm (NominalEmissionInput.Record(rd.Fields, rd.Interfaces)) rd.Decl rd.Members
 
         for cd in asm.ClassDecls do
-            NominalEmit.prepare asm (classInput cd) cd.Decl cd.Members
+            NominalEmit.prepare asm (NominalEmissionInput.Class cd) cd.Decl cd.Members
 
         asm.PrepareStructEnums()
         asm.PrepareClosures()

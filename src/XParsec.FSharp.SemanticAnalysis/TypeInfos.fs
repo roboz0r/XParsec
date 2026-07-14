@@ -534,19 +534,47 @@ type ClassFieldInfo(name: string, ty: SemType, isMutable: bool, declKey: NodeKey
     member val IsMutable = isMutable
     member val DeclKey = declKey
 
-/// A class-level `static let x = <init>`.
+/// One `[static] let [mutable] [rec] x = <init>` of a class preamble.
 /// `Type` starts as a placeholder TyVar stamped by `NameResolution` and is linked
-/// by Unification's `fillClassMembers` once the `Init` expression is inferred.
-/// `Init` is the CST initialiser, re-read by Unification (to infer) and Elaborate (to
-/// translate into the synthesised `.cctor`). `DeclKey` is the binder's `NodeKey`
-/// (the same one `bindingsOfPat` mints for the head pattern), so a `static let`-bound
+/// by Unification's `fillClassMembers` once the binding is inferred.
+/// `Binding` is the WHOLE CST binding, re-read by Unification (to infer) and Elaborate (to
+/// translate) — head pattern *and* `argumentPats`: `let f x = …` binds a FUNCTION value, so
+/// reading only the head pattern and taking `expr` as the initialiser would silently drop
+/// the parameters. `DeclKey` is the binder's `NodeKey`
+/// (the same one `bindingsOfPat` mints for the head pattern), so a preamble-bound
 /// name reference resolves to it and shares the placeholder TyVar.
 [<Sealed>]
-type ClassStaticLetInfo(name: string, ty: SemType, declKey: NodeKey, init: Expr<SyntaxToken>) =
+type ClassLetInfo(name: string, ty: SemType, declKey: NodeKey, binding: Binding<SyntaxToken>, isRec: bool) =
     member val Name = name
     member val Type = ty
     member val DeclKey = declKey
-    member val Init = init
+    member val Binding = binding
+    /// `let mutable`. An INSTANCE preamble binder is a mutable *field*, never a ref cell —
+    /// a closure over it captures `this`.
+    member val IsMutable = binding.mutableToken.IsSome
+    /// `let rec` — the binder is in scope of its OWN initialiser (and only then).
+    member val IsRec = isRec
+
+/// One entry of a class preamble, in declaration order. A preamble is one ordered
+/// sequence per side (static / instance) rather than parallel lists of lets and dos:
+/// `static let a = f()` / `static do g a` / `static let b = h()` runs in exactly that
+/// order, so the interleaving is load-bearing.
+[<RequireQualifiedAccess>]
+type ClassPreambleEntry =
+    | Let of ClassLetInfo
+    | Do of Expr<SyntaxToken>
+
+[<RequireQualifiedAccess>]
+module ClassPreamble =
+    /// The `let` binders of a preamble, in declaration order — every one of which becomes a
+    /// field, so this is the list the field-reference rewrites and the field layout read.
+    let lets (entries: ClassPreambleEntry[]) : ClassLetInfo[] =
+        entries
+        |> Array.choose (
+            function
+            | ClassPreambleEntry.Let l -> Some l
+            | ClassPreambleEntry.Do _ -> None
+        )
 
 /// A secondary constructor (`new(args) = SelfType(primaryArgs)`).
 /// `Params` are the secondary ctor's own parameters, resolved exactly like the primary
@@ -606,14 +634,19 @@ type ClassTypeInfo
     /// `Elaborate` projects it onto `TTypeKind.Class.isSealed` so codegen flips
     /// `TypeAttributes.Sealed` on the emitted `TypeDefinition`.
     member val IsSealed: bool = false with get, set
-    /// Class-level `static let` bindings in
-    /// declaration order. Stamped by `NameResolution.registerClassTypeDefn` from
-    /// the class's `classPreamble`; types are linked by Unification's
-    /// `fillClassMembers`; `Elaborate` projects each onto a `TStaticLet`. Empty unless
-    /// the class declares `static let`s. Generic classes reject `static let` (the
-    /// per-instantiation cache lowering is deferred), so this is only populated for
-    /// monomorphic classes.
-    member val StaticLets: ClassStaticLetInfo[] = [||] with get, set
+    /// `static let` / `static do` in declaration order — the `.cctor`'s body. Stamped by
+    /// `NameResolution.registerClassTypeDefn` from the class's `classPreamble`; `let` types
+    /// are linked by Unification's `fillClassMembers`; `Elaborate` projects each onto a
+    /// `TPreambleEntry`. Empty unless the class declares any. A GENERIC class may declare
+    /// `static let`: the field rides the open `TypeDefinition`, so each closed instantiation
+    /// gets its own.
+    member val StaticPreamble: ClassPreambleEntry[] = [||] with get, set
+    /// Instance `let` / `do` in declaration order — the tail of the primary ctor, running
+    /// after the base-ctor call. Each `let` binder is a private instance field: the same
+    /// lowering a primary-ctor parameter gets, with the value coming from an initialiser
+    /// rather than an argument. Empty unless the class declares any; a class with no
+    /// primary ctor cannot have one at all (registration diagnoses it, as F# does).
+    member val InstancePreamble: ClassPreambleEntry[] = [||] with get, set
     /// Secondary constructors in declaration
     /// order. Stamped by `NameResolution.registerClassTypeDefn`; param types are
     /// linked by Unification's `fillClassMembers`; `Elaborate` projects each onto a

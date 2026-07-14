@@ -97,13 +97,27 @@ module EmitJsTypes =
             Disposers: Frozen.TTypeMember list
         }
 
-    /// One locally-emitted class awaiting body emission: its name + ctor `fields` and
-    /// its partitioned members to ATTACH (bodies built later with the full `WalkCtx`,
+    /// A class's INSTANCE preamble (`let` / `do`) awaiting emission into the primary
+    /// ctor. `ThisKey` is the class-level `this` binder the entries read their siblings
+    /// through — a preamble reference to a ctor param or an earlier `let` is a
+    /// `FieldGet`/`FieldSet` on `TExpr.Var(ThisKey)`, so the ctor must bind that key to
+    /// JS `this`. `Entries` are in declaration order, which is load-bearing (`let a = f()`
+    /// / `do g a` / `let b = h()`).
+    type ClassPreamble =
+        {
+            ThisKey: NodeKey
+            Entries: Frozen.TPreambleEntry list
+        }
+
+    /// One locally-emitted class awaiting body emission: its name + ctor `fields`, its
+    /// instance `Preamble` (`ValueNone` for a record, which has none), and its
+    /// partitioned members to ATTACH (bodies built later with the full `WalkCtx`,
     /// since `collectTypes` runs before the ctx exists).
     type PendingClass =
         {
             Name: string
             Fields: string list
+            Preamble: ClassPreamble voption
             Members: PartitionedMembers
         }
 
@@ -305,7 +319,7 @@ module EmitJsTypes =
                         // No interface impls → a record is one plain class with no
                         // methods; emit directly (no ctx needed). Augmentation members
                         // ride as free receiver-first functions.
-                        ordered.Add(JsStatement.Class(info.Name, info.Fields, [], exportTypes))
+                        ordered.Add(JsStatement.Class(info.Name, info.Fields, [], [], exportTypes))
                         addMembers td.Name recMembers
                     else
                         // The record carries interface impls. A record is a single JS
@@ -321,6 +335,7 @@ module EmitJsTypes =
                             {
                                 Name = info.Name
                                 Fields = info.Fields
+                                Preamble = ValueNone
                                 Members = parts
                             }
                 | TTypeKindG.Union(cases, unionMembers, unionInterfaces) ->
@@ -364,6 +379,36 @@ module EmitJsTypes =
                 | TTypeKindG.Class cls ->
                     classes.[td.Key] <- td.Name
 
+                    // Class shapes this lowering does not model are REJECTED here, never dropped:
+                    // the emitter reads only `CtorParams` / `Fields` / `Members` /
+                    // `InstancePreamble`, so admitting one would compile to a program that
+                    // silently disagrees with the CLR backend on the same source.
+                    //  * `static let` / `static do` — no `.cctor` analogue is emitted, so the
+                    //    initialiser and any effect its `static do` performs would vanish.
+                    //  * `inherit` — no `extends` / `super(...)` is emitted, so the base ctor
+                    //    (and its `do`) never runs and the base's members are absent from the
+                    //    prototype.
+                    //  * a secondary `new(...)` on a class that ALSO has a primary ctor — the one
+                    //    JS constructor emitted is the primary's positional one, so a call at the
+                    //    secondary's arity would silently land there with the wrong arguments.
+                    //    (On the `val`-form class — no primary ctor — the positional field ctor
+                    //    below IS the lowering of its field-initialising `new(…) = { … }`, which
+                    //    is why that shape is admitted.)
+                    if not cls.StaticPreamble.IsEmpty then
+                        failwithf
+                            "EmitJs: class '%s' declares a `static let`/`static do` preamble; class static preambles are not yet supported on the JS target"
+                            td.Name
+
+                    if cls.BaseType.IsSome || cls.BaseCtorCall.IsSome then
+                        failwithf
+                            "EmitJs: class '%s' declares an `inherit` clause; class inheritance is not yet supported on the JS target"
+                            td.Name
+
+                    if cls.HasPrimaryCtor && not cls.SecondaryCtors.IsEmpty then
+                        failwithf
+                            "EmitJs: class '%s' declares a secondary constructor alongside its primary one; secondary constructor overloads are not yet supported on the JS target"
+                            td.Name
+
                     // The class's positional ctor stores each declared field. Use
                     // `CtorParams` when present (primary-ctor parameters that become
                     // fields); fall back to `Fields` (the `val`-field form).
@@ -380,10 +425,23 @@ module EmitJsTypes =
                     // / override / capability policy in `partitionClassMembers`).
                     let parts = deferPartition td.Name cls.Interfaces cls.Members
 
+                    // The instance preamble's initialiser bodies need the full `WalkCtx`,
+                    // so they are deferred alongside the member bodies.
+                    let preamble =
+                        if cls.InstancePreamble.IsEmpty then
+                            ValueNone
+                        else
+                            ValueSome
+                                {
+                                    ThisKey = cls.ThisKey
+                                    Entries = [ for entry in cls.InstancePreamble -> entry ]
+                                }
+
                     pendingClasses.Add
                         {
                             Name = td.Name
                             Fields = fieldNames
+                            Preamble = preamble
                             Members = parts
                         }
                 // JS enum repr: a module-scope frozen object map `const E =

@@ -188,17 +188,26 @@ module JsPrint =
         ++ Line
         ++ text "}"
 
-    /// The one constructor shape shared by records, union bases, and union
-    /// subclasses: `constructor(params) { <prologue> this.f = f; … }` — store each
-    /// declaration-order field into the like-named property. Records and union
-    /// bases pass no prologue; a union subclass passes `super(tag);`.
-    and private ctorDecl (paramNames: string list) (prologue: Doc list) (assigns: string list) : Doc =
+    /// The one constructor shape shared by records, union bases, union subclasses, and
+    /// classes: `constructor(params) { <prologue> this.f = f; … <epilogue> }` — store each
+    /// declaration-order field into the like-named property. Records and union bases pass
+    /// no prologue; a union subclass passes `super(tag);`. `epilogue` is the class
+    /// instance preamble, which runs AFTER the param stores because its initialisers read
+    /// the params through `this`.
+    and private ctorDecl
+        (paramNames: string list)
+        (prologue: Doc list)
+        (assigns: string list)
+        (epilogue: Doc list)
+        : Doc =
         let assignStmts =
             [
                 for f in assigns -> text "this." ++ text f ++ text " = " ++ text f ++ text ";"
             ]
 
-        memberDecl (text "constructor(" ++ commaList (List.map text paramNames) ++ text ")") (prologue @ assignStmts)
+        memberDecl
+            (text "constructor(" ++ commaList (List.map text paramNames) ++ text ")")
+            (prologue @ assignStmts @ epilogue)
 
     /// `[export ]class Name [extends Base] { member… }`. `export` is set in library
     /// mode so a consumer can import the type rather than re-emit it.
@@ -300,8 +309,13 @@ module JsPrint =
         | JsStatement.Yield e -> text "yield " ++ expr e ++ text ";"
         | JsStatement.TryFinally(tryBody, finallyBody) ->
             text "try " ++ block tryBody ++ text " finally " ++ block finallyBody
-        | JsStatement.Class(name, fields, methods, export) ->
-            classDecl export name None (ctorDecl fields [] fields :: [ for m in methods -> methodDecl m ])
+        | JsStatement.Class(name, fields, ctorBody, methods, export) ->
+            classDecl
+                export
+                name
+                None
+                (ctorDecl fields [] fields [ for s in ctorBody -> statement s ]
+                 :: [ for m in methods -> methodDecl m ])
         | JsStatement.Union(baseName, brand, cases, baseMethods, export) ->
             let baseClass =
                 classDecl
@@ -309,7 +323,7 @@ module JsPrint =
                     baseName
                     None
                     [
-                        yield ctorDecl [ "tag" ] [] [ "tag" ]
+                        yield ctorDecl [ "tag" ] [] [ "tag" ] []
                         // Non-enumerable type brand (prototype getter, so absent from
                         // own-keys): the structural runtime distinguishes types by it.
                         yield memberDecl (text "get $type()") [ text (sprintf "return %s;" (JsEscape.quoted brand)) ]
@@ -331,7 +345,7 @@ module JsPrint =
                     export
                     c.ClassName
                     (Some baseName)
-                    [ ctorDecl c.Fields [ text (sprintf "super(%d);" c.Tag) ] c.Fields ]
+                    [ ctorDecl c.Fields [ text (sprintf "super(%d);" c.Tag) ] c.Fields [] ]
 
             cat (baseClass :: [ for c in cases -> Line ++ subclass c ])
         | JsStatement.Enum(name, cases, export) ->

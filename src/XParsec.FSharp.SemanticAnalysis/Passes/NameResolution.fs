@@ -39,10 +39,25 @@ module NameResolution =
             /// classes without inheritance.
             BaseKey: NodeKey voption
             CtorParams: ClassCtorParamInfo[]
-            /// Class-level `static let` bindings (B-10). Their names enter both the
-            /// instance and static member scopes; their initialisers are walked
-            /// under the static scope (no `this` / ctor params). `[||]` for unions.
-            StaticLets: ClassStaticLetInfo[]
+            /// Declared `val [mutable] x: T` fields. Carried here — though nothing about them
+            /// enters lexical scope — because they are one of the four families that mint a
+            /// named field on the type, and so participate in the duplicate-field check below.
+            /// `[||]` for unions.
+            InstanceFields: ClassFieldInfo[]
+            /// The type's members. Not in lexical scope (a member reaches a sibling through
+            /// `this`), but their NAMES are needed here: F# forbids a class `let` binder sharing
+            /// a name with a member (FS0905).
+            Members: TypeMemberInfo[]
+            /// `static let` / `static do`, in declaration order. A `static let` name enters
+            /// both the instance and the static member scope; the sequence's own expressions
+            /// are walked under the static binders above them alone (no `this` / ctor params
+            /// / instance binders). `[||]` for unions.
+            StaticPreamble: ClassPreambleEntry[]
+            /// Instance `let` / `do`, in declaration order. Every binder enters the instance
+            /// member scope (members are a mutually-recursive group); the sequence's own
+            /// expressions see the ctor params and the instance binders ABOVE them only.
+            /// `[||]` for unions.
+            InstancePreamble: ClassPreambleEntry[]
             /// Secondary constructors (B-11). Each body is walked in a scope of
             /// the `static let`s plus its own params (no `this` / primary-ctor
             /// params). `[||]` for unions.
@@ -92,6 +107,44 @@ module NameResolution =
     /// member from registration onwards, so a call to a member declared below resolves with
     /// no ordering constraint to satisfy.
     let private walkTypeBodies (ctx: PassContext) (walker: CstWalk.ExprWalker<Scope list>) (w: TypeBodiesWalk) : unit =
+        // Four families mint a field on the type carrying its SOURCE name: primary-ctor params,
+        // declared `val` fields, `static let` binders and instance `let` binders. The invariant a
+        // backend needs is therefore one rule over their union — no two fields of one type may
+        // share a name — and NOT a per-family rule. On the CLR a Field row is identified by
+        // (Parent, Name, Signature) (ECMA-335 II.22.15) with static-ness in the flags, not the
+        // signature, so even `static let v` beside an instance `let v` is a duplicate ROW, not two
+        // fields. Accumulated in declaration order rather than re-scanned per family: this is
+        // where "already declared above" is a live fact, and it names the second declaration as
+        // the report site.
+        let mutable fieldNames: Set<string> = Set.empty
+
+        // F# ACCEPTS every collision this rejects — it uniquifies the BACKING field name by source
+        // position (`v@4`) and keeps the plain source name where nothing collides. That
+        // uniquification is deferred, not refused: local `let`s need it just as much (on JS
+        // `let x = 1` / `let x = x + 1` in statement position emits two `const x` into one block,
+        // a hard SyntaxError), so it is built once, upstream, rather than per backend. Until then
+        // rejecting is the only alternative to minting two fields of one name and silently
+        // miscompiling whichever one a backend picked. A LIMITATION, not invalid F#.
+        let declareField (name: string) (declKey: NodeKey) =
+            if fieldNames.Contains name then
+                ctx.Diagnostics.Add
+                    {
+                        Key = declKey
+                        Message =
+                            sprintf
+                                "Duplicate field name `%s`: a constructor parameter, a `val` field and a class `let` binding each mint a field carrying its source name, and no two fields of one type may share a name (on the CLR a field's static-ness is not part of its identity). F# permits this by uniquifying the backing-field names; that pass is not implemented yet, so rename one of them."
+                                name
+                        Code = ""
+                        Severity = Severity.Error
+                    }
+            else
+                fieldNames <- Set.add name fieldNames
+
+        // FS0905 — a REAL F# rule, unlike the duplicate-field limitation above, and one that
+        // binder uniquification would NOT lift: a member's name is its public surface, so a class
+        // `let` binder may not share it. Holds for either side being static (probed against fsc).
+        let memberNames = w.Members |> Array.map (fun m -> m.Name) |> Set.ofArray
+
         let mutable scopeMap: Scope = Map.empty
         scopeMap <- Map.add w.ThisName (w.ThisKey, false) scopeMap
 
@@ -124,6 +177,7 @@ module NameResolution =
 
         for p in w.CtorParams do
             scopeMap <- Map.add p.Name (p.DeclKey, false) scopeMap
+            declareField p.Name p.DeclKey
 
             ctx.Bindings.Binding.Set(
                 p.DeclKey,
@@ -134,52 +188,127 @@ module NameResolution =
                 }
             )
 
-        // `static let` names enter scope for every member body (instance and
-        // static alike — F# spec §8.7) and resolve to the static field's binder
-        // key. Each initialiser is walked under the static lets declared *before*
-        // it (no `this` / ctor params), so the binder map is built incrementally.
-        let mutable staticLetScope: Scope = Map.empty
-
-        for sl in w.StaticLets do
-            CstWalk.iterExpr walker [ staticLetScope ] sl.Init
-
-            staticLetScope <- Map.add sl.Name (sl.DeclKey, false) staticLetScope
-
-            ctx.Bindings.Binding.Set(
-                sl.DeclKey,
-                {
-                    BindingSite = sl.DeclKey
-                    IsInline = false
-                    IsMutable = false
-                }
-            )
-
-        let mergeStaticLets (m: Scope) =
-            (m, staticLetScope) ||> Map.fold (fun acc k v -> Map.add k v acc)
+        // `val` fields bind no name lexically, so they take part in nothing here but the
+        // duplicate-field rule — which is exactly why the rule cannot live in the preamble scopes.
+        for f in w.InstanceFields do
+            declareField f.Name f.DeclKey
 
         // G16: the enclosing module's value bindings are visible — unqualified — to
         // every member body of a type nested in that module (F# spec §8.7). They
         // enter as the *lowest-priority* tail layer so `this` / ctor params /
-        // static lets shadow on a name clash. Already scoped to the type's position by
+        // preamble binders shadow on a name clash. Already scoped to the type's position by
         // `enclosingModuleScope`; empty (no enclosing module, or nothing of it visible here)
         // leaves resolution unchanged.
         let moduleMemberScope: Scope = w.EnclosingModuleScope
 
-        let instanceScope = [ mergeStaticLets scopeMap; moduleMemberScope ]
+        /// Declare one preamble `let` binder: its binding site, its field, and the FS0905 check.
+        /// One entry point for all three so a preamble binder cannot be added to a scope without
+        /// its field being declared — which is what makes the ordered accumulation exhaustive.
+        let declarePreambleBinder (l: ClassLetInfo) =
+            ctx.Bindings.Binding.Set(
+                l.DeclKey,
+                {
+                    BindingSite = l.DeclKey
+                    IsInline = false
+                    // An instance `let mutable` is a mutable FIELD, so `c <- …` in a
+                    // member body (or in a closure the preamble builds) must type-check.
+                    IsMutable = l.IsMutable
+                }
+            )
+
+            declareField l.Name l.DeclKey
+
+            if memberNames.Contains l.Name then
+                ctx.Diagnostics.Add
+                    {
+                        Key = l.DeclKey
+                        Message = sprintf "A member and a local class binding both have the name '%s'" l.Name
+                        Code = "FS0905"
+                        Severity = Severity.Error
+                    }
+
+        // A preamble binding is an ordinary `let`: `let f x = …` binds a FUNCTION, so its
+        // `argumentPats` scope over the initialiser exactly as a member's do. Only `let rec` puts
+        // the binder in scope of its OWN initialiser — which is not shadowing, and stays legal.
+        let walkLetInit (outer: Scope list) (l: ClassLetInfo) =
+            let b = l.Binding
+
+            let inner =
+                if b.argumentPats.IsEmpty then
+                    outer
+                else
+                    extendScope ctx b.argumentPats Map.empty :: outer
+
+            CstWalk.iterExpr walker inner b.expr
+
+        // `static let` names enter scope for every member body (instance and
+        // static alike — F# spec §8.7) and resolve to the static field's binder
+        // key. The static sequence is walked under the static binders declared *before*
+        // each entry (no `this` / ctor params / instance binders), so the binder map is
+        // built incrementally — and a `static let` therefore cannot see an instance
+        // binder, matching F# (FS0039).
+        let mutable staticLetScope: Scope = Map.empty
+
+        for entry in w.StaticPreamble do
+            match entry with
+            | ClassPreambleEntry.Let l ->
+                declarePreambleBinder l
+
+                if l.IsRec then
+                    staticLetScope <- Map.add l.Name (l.DeclKey, l.IsMutable) staticLetScope
+
+                walkLetInit [ staticLetScope ] l
+                staticLetScope <- Map.add l.Name (l.DeclKey, l.IsMutable) staticLetScope
+            | ClassPreambleEntry.Do e -> CstWalk.iterExpr walker [ staticLetScope ] e
+
+        // The instance sequence runs inside the primary ctor, so it sees the ctor params
+        // and the static binders (the `.cctor` has already run), and — being strictly
+        // top-down — the instance binders above it. NOT `this` / `base` / the `as` alias:
+        // F# only makes the object nameable here through an explicit `as self`, and even
+        // then calling a member from a preamble `let` throws at run time (initialisation
+        // soundness). With no init-soundness analysis, leaving the alias unbound rejects
+        // that program rather than silently reading a not-yet-initialised field.
+        // A preamble binder's lambda still CAPTURES `this` — that is Elaborate's
+        // field rewrite, one layer below scoping, and must not widen this scope.
+        // The ctor params are their own layer, but nothing rides on its priority: `declareField`
+        // has already rejected any name a ctor param shares with a static binder.
+        let ctorParamScope =
+            (Map.empty, w.CtorParams)
+            ||> Array.fold (fun acc p -> Map.add p.Name (p.DeclKey, false) acc)
+
+        let instanceOuterScope = [ ctorParamScope; staticLetScope; moduleMemberScope ]
+
+        let mutable instanceLetScope: Scope = Map.empty
+
+        for entry in w.InstancePreamble do
+            match entry with
+            | ClassPreambleEntry.Let l ->
+                declarePreambleBinder l
+
+                if l.IsRec then
+                    instanceLetScope <- Map.add l.Name (l.DeclKey, l.IsMutable) instanceLetScope
+
+                walkLetInit (instanceLetScope :: instanceOuterScope) l
+                instanceLetScope <- Map.add l.Name (l.DeclKey, l.IsMutable) instanceLetScope
+            | ClassPreambleEntry.Do e -> CstWalk.iterExpr walker (instanceLetScope :: instanceOuterScope) e
+
+        // Member bodies see EVERY preamble binder (they are a mutually-recursive group, so
+        // there is no ordering rule left to enforce here). The merge cannot lose a binder to a
+        // same-named one: `declareField` has already rejected any class whose fields collide.
+        let mergePreamble (m: Scope) =
+            let m = (m, staticLetScope) ||> Map.fold (fun acc k v -> Map.add k v acc)
+            (m, instanceLetScope) ||> Map.fold (fun acc k v -> Map.add k v acc)
+
+        let instanceScope = [ mergePreamble scopeMap; moduleMemberScope ]
+        // Statics see neither `this` / ctor params nor any instance binder.
         let staticScope: Scope list = [ staticLetScope; moduleMemberScope ]
 
         // Primary `inherit Base(args)` expression (B-4): name-resolve under a
         // scope of `static let`s plus the primary-ctor params, but without
-        // `this` / `base` — the base ctor runs before the instance exists, so
-        // its args may only reference the constructor's own parameters.
+        // `this` / `base` — and without the instance binders, which are only
+        // assigned *after* the base ctor returns.
         match w.InheritsExpr with
-        | ValueSome e ->
-            let mutable ctorScope = staticLetScope
-
-            for p in w.CtorParams do
-                ctorScope <- Map.add p.Name (p.DeclKey, false) ctorScope
-
-            CstWalk.iterExpr walker [ ctorScope; moduleMemberScope ] e
+        | ValueSome e -> CstWalk.iterExpr walker instanceOuterScope e
         | ValueNone -> ()
 
         // Secondary constructors (B-11). The body is an `AdditionalConstrExpr`,
@@ -362,7 +491,10 @@ module NameResolution =
                                 | ValueSome _ -> ValueSome info.BaseKey
                                 | ValueNone -> ValueNone
                             CtorParams = info.CtorParams
-                            StaticLets = info.StaticLets
+                            InstanceFields = info.InstanceFields
+                            Members = info.Members
+                            StaticPreamble = info.StaticPreamble
+                            InstancePreamble = info.InstancePreamble
                             SecondaryCtors = info.SecondaryCtors
                             InheritsExpr =
                                 // Walk the primary base-ctor args only when
@@ -400,7 +532,10 @@ module NameResolution =
                     ThisKey = host.ThisKey
                     BaseKey = ValueNone
                     CtorParams = [||]
-                    StaticLets = [||]
+                    InstanceFields = [||]
+                    Members = host.Members
+                    StaticPreamble = [||]
+                    InstancePreamble = [||]
                     SecondaryCtors = [||]
                     InheritsExpr = ValueNone
                     EnclosingModuleScope = enclosingModuleScope ctx name host.DeclKey

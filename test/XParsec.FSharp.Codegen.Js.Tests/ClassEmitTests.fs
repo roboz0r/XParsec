@@ -267,4 +267,117 @@ let tests =
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
                     Expect.equal out "7" "(r :> IRank).Rank() dispatches to the attached method reading this.N (=7)"
             }
+
+            // ---- instance preamble (`let` / `do`) ----
+            //
+            // The RUNTIME semantics of the instance preamble (declaration order,
+            // `let mutable` sharing one storage location, `let rec`, generics, a
+            // function-`let` used first-class) are owned by the cross-backend
+            // conformance corpus (`test/Codegen.Conformance/classes/preamble-*.fs`, run
+            // on JS *and* CLR). What lives here is what the corpus cannot see: the
+            // EMITTED SHAPE, and the shapes the JS backend must reject loudly.
+
+            test "an instance `let` emits a ctor field store AFTER the ctor-param stores" {
+                let src =
+                    emitJs (
+                        lines
+                            [
+                                "type C(n: int) ="
+                                "    let m = n + 1"
+                                "    member _.M = m"
+                                "printfn \"%d\" (C(41).M)"
+                            ]
+                    )
+
+                // The initialiser reads the ctor param through `this`, so it can only run
+                // after the param store — the order is the semantics.
+                let paramStore = src.IndexOf "this.n = n;"
+                let letStore = src.IndexOf "this.m = "
+                Expect.isGreaterThan paramStore -1 "the ctor param field store emits"
+                Expect.isGreaterThan letStore paramStore "the instance-`let` store follows the ctor-param store"
+            }
+
+            // A JS `.cctor` analogue is not emitted yet, so a static preamble would be
+            // silently dropped — it must fail loudly instead.
+            test "a class with a `static let` preamble fails loudly on the JS target" {
+                let compile () =
+                    emitJs (
+                        lines
+                            [
+                                "type C(n: int) ="
+                                "    static let scale = 2 * 3"
+                                "    member _.N = n * scale"
+                                "printfn \"%d\" (C(2).N)"
+                            ]
+                    )
+                    |> ignore
+
+                Expect.throwsC
+                    compile
+                    (fun ex ->
+                        Expect.stringContains
+                            ex.Message
+                            "static preambles are not yet supported"
+                            "the failure names the unsupported feature rather than dropping it"
+                    )
+            }
+
+            // No `extends` / `super(...)` is emitted, so an admitted `inherit` would run neither
+            // the base ctor nor its `do`, and the base's members would be absent from the
+            // prototype — a program the CLR backend compiles correctly, silently mis-run here.
+            test "a class with an `inherit` clause fails loudly on the JS target" {
+                let compile () =
+                    emitJs (
+                        lines
+                            [
+                                "type Base(x: int) ="
+                                "    do printfn \"base %d\" x"
+                                "    member this.X () = x"
+                                "type Derived(y: int) ="
+                                "    inherit Base(y + 2)"
+                                "    let z = y + 5"
+                                "    do printfn \"derived z=%d\" z"
+                                "let d = Derived(3)"
+                                "printfn \"%d\" (d.X ())"
+                            ]
+                    )
+                    |> ignore
+
+                Expect.throwsC
+                    compile
+                    (fun ex ->
+                        Expect.stringContains
+                            ex.Message
+                            "class inheritance is not yet supported"
+                            "the failure names the unsupported feature rather than dropping it"
+                    )
+            }
+
+            // JS has ONE constructor per class. On the `val`-form class the positional field ctor
+            // IS the lowering of its field-initialising `new(…) = { … }` (and `Vesper.List`'s
+            // enumerator relies on that) — but where a PRIMARY ctor already owns the one JS
+            // constructor, a `new(…)` overload has nowhere to go: a call at its arity would land
+            // in the primary with the wrong arguments.
+            test "a secondary constructor alongside a primary one fails loudly on the JS target" {
+                let compile () =
+                    emitJs (
+                        lines
+                            [
+                                "type C(n: int) ="
+                                "    new () = C(1 + 1)"
+                                "    member _.N = n"
+                                "printfn \"%d\" (C().N)"
+                            ]
+                    )
+                    |> ignore
+
+                Expect.throwsC
+                    compile
+                    (fun ex ->
+                        Expect.stringContains
+                            ex.Message
+                            "secondary constructor overloads are not yet supported"
+                            "the failure names the unsupported feature rather than dropping it"
+                    )
+            }
         ]

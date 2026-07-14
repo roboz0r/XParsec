@@ -120,7 +120,18 @@ type internal ClassDecl =
         BaseType: FrozenType voption
         Interfaces: (FrozenType * Frozen.TTypeMember list) list
         IsSealed: bool
-        StaticLets: Frozen.TStaticLet list
+        /// `static let` / `static do` in declaration order: the body of the synthesised
+        /// `.cctor`. A `let` also takes a static backing field.
+        StaticPreamble: Frozen.TPreambleEntry list
+        /// Instance `let` / `do` in declaration order: the tail of the primary `.ctor`,
+        /// after the base-ctor call and the ctor-param field stores (so an initialiser
+        /// reads a ctor param through its already-stored field). A `let` also takes an
+        /// instance backing field.
+        InstancePreamble: Frozen.TPreambleEntry list
+        /// The class-level `this` binder. The instance preamble reads the class's fields
+        /// through it (`FieldGet(Var ThisKey, …)`), so the primary `.ctor` maps it to
+        /// `ldarg.0`.
+        ThisKey: NodeKey
         SecondaryCtors: Frozen.TSecondaryCtor list
         BaseCtorCall: Frozen.TBaseCtorCall voption
         ValueKind: ClassValueKind
@@ -185,30 +196,10 @@ type internal NominalEmissionInput =
     /// emits one `InterfaceImpl` row per entry and one virtual `MethodDefinition`
     /// per member.
     | Record of fields: Frozen.TRecordField list * interfaces: (FrozenType * Frozen.TTypeMember list) list
-    /// `ctorParams` become backing fields; `baseType` defaults to `Object`
-    /// (`ValueNone`) — or `System.ValueType` when `isStruct`. `fields` are the
-    /// explicit `val [mutable] x: T` instance fields (each a `FieldDefinition`).
-    /// `isSealed` reflects `[<Sealed>]` (a struct is always sealed). Each
-    /// `staticLets` entry becomes a private static field + an entry in the
-    /// synthesised `.cctor`. `interfaces` pairs each implemented
-    /// interface type with its already-typed member bodies: codegen emits one
-    /// `InterfaceImpl` row per entry and one virtual `MethodDefinition` per member
-    /// (implicit impl). `isStruct` ⇒ value-type emission.
-    | Class of
-        fields: Frozen.TRecordField list *
-        ctorParams: Frozen.TRecordField list *
-        baseType: FrozenType voption *
-        isSealed: bool *
-        staticLets: Frozen.TStaticLet list *
-        secondaryCtors: Frozen.TSecondaryCtor list *
-        baseCtorCall: Frozen.TBaseCtorCall voption *
-        interfaces: (FrozenType * Frozen.TTypeMember list) list *
-        isStruct: bool *
-        // `false` for the `val`-field form (`type T = val …; new(…) = …`): the
-        // secondaries are the only ctors, so `NominalEmit` skips the synthesised
-        // primary `.ctor` (it would collide with a parameterless `new()`) and
-        // `EmitConstruct.buildNew` resolves every construction to a secondary.
-        hasPrimaryCtor: bool
+    /// The partitioned declaration itself: the class arm needs so much of it
+    /// (fields, ctor params, base, preambles, secondaries, value kind) that a
+    /// re-projection would only be able to drift from it.
+    | Class of ClassDecl
 
 /// Shared index contract over a nominal type's method members.
 [<RequireQualifiedAccess>]

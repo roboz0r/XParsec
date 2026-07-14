@@ -137,6 +137,11 @@ type internal FieldKey =
     | ClassCtorParamField of SymbolKey * name: string
     /// An explicit `val [mutable] x: T` instance field.
     | ClassInstanceField of SymbolKey * name: string
+    /// An instance-`let` binder's backing field (a class-preamble `let`, stored by the
+    /// primary `.ctor`). Distinct from `ClassInstanceField` — the `val` form is the
+    /// user's own surface, this is compiler-generated storage — but both resolve by
+    /// name at a `this.x` use site.
+    | ClassLetField of SymbolKey * name: string
     /// A `static let` backing field.
     | ClassStaticField of SymbolKey * name: string
     /// A numeric enum's special-name `value__` instance field (its underlying
@@ -413,7 +418,9 @@ module internal Layout =
                             BaseType = c.BaseType
                             Interfaces = [ for (ifaceTy, ms) in c.Interfaces -> ifaceTy, EqArray.toList ms ]
                             IsSealed = c.IsSealed
-                            StaticLets = EqArray.toList c.StaticLets
+                            StaticPreamble = EqArray.toList c.StaticPreamble
+                            InstancePreamble = EqArray.toList c.InstancePreamble
+                            ThisKey = c.ThisKey
                             SecondaryCtors = EqArray.toList c.SecondaryCtors
                             BaseCtorCall = c.BaseCtorCall
                             ValueKind = c.ValueKind
@@ -625,31 +632,49 @@ module internal Layout =
             partitioned.Interfaces
             |> List.exists (fun (td, _) -> RuntimeNames.isStructuralFormattableKey td.Key)
 
-        // Closure-discovery roots from every (expanded) member body, each tagged
-        // with its declaring type's typar count (0 ⇒ monomorphic).
+        // Closure-discovery roots from every (expanded) member body and class-preamble
+        // expression, each tagged with its declaring type's typar count (0 ⇒
+        // monomorphic). A preamble initialiser or `do` body is emitted into the `.ctor` /
+        // `.cctor` from these very nodes, so a lambda in one (a function-valued `let`,
+        // `let bump x = …`) is a closure exactly as a member body's is — omit it and its
+        // construction site finds no discovered closure.
         let memberRoots =
             [
-                let root (td: Frozen.TTypeDecl) (m: Frozen.TTypeMember) : EmitClosures.MemberClosureRoot =
+                let root
+                    (td: Frozen.TTypeDecl)
+                    (methodTypars: int)
+                    (body: Frozen.TExpr)
+                    : EmitClosures.MemberClosureRoot =
                     {
                         DeclaringTypars = td.TypeParams.Length
-                        MethodTypars = GeneralizedTypars.count m.MethodTypeParams
-                        Body = m.Body
+                        MethodTypars = methodTypars
+                        Body = body
                     }
 
+                let memberRoot (td: Frozen.TTypeDecl) (m: Frozen.TTypeMember) =
+                    root td (GeneralizedTypars.count m.MethodTypeParams) m.Body
+
+                let preambleRoot (td: Frozen.TTypeDecl) (entry: Frozen.TPreambleEntry) =
+                    match entry with
+                    | TPreambleEntryG.Let l -> root td 0 l.Init
+                    | TPreambleEntryG.Do e -> root td 0 e
+
                 for ud in partitioned.Unions do
-                    for m in ud.Members -> root ud.Decl m
+                    for m in ud.Members -> memberRoot ud.Decl m
 
                     for (_, ms) in ud.Interfaces do
-                        for m in ms -> root ud.Decl m
+                        for m in ms -> memberRoot ud.Decl m
 
                 for rd in partitioned.Records do
-                    for m in rd.Members -> root rd.Decl m
+                    for m in rd.Members -> memberRoot rd.Decl m
 
                 for cd in partitioned.Classes do
-                    for m in cd.Members -> root cd.Decl m
+                    for m in cd.Members -> memberRoot cd.Decl m
 
                     for (_, ms) in cd.Interfaces do
-                        for m in ms -> root cd.Decl m
+                        for m in ms -> memberRoot cd.Decl m
+
+                    for entry in cd.StaticPreamble @ cd.InstancePreamble -> preambleRoot cd.Decl entry
             ]
 
         let closures, closureByNode =
@@ -801,9 +826,19 @@ module internal Layout =
 
         // Per class: ctor-param backing fields, then explicit `val [mutable]`
         // instance fields (mutable ⇒ plain writable; immutable ⇒ `initonly`),
-        // then `static let` backing fields. Methods: primary `.ctor`,
-        // [`.cctor` when static lets], [secondary `.ctor`s], own members,
-        // interface-impl members.
+        // then the instance-`let` and `static let` backing fields. Methods: primary
+        // `.ctor`, [`.cctor` when a static preamble exists], [secondary `.ctor`s], own
+        // members, interface-impl members.
+        //
+        // COMPILER-GENERATED backing storage (ctor-param, instance-`let` and `static let`
+        // fields) is `assembly`, matching FSC: a lambda in a member body — or in a
+        // preamble initialiser — is lifted into a closure class nested in the enclosing
+        // MODULE, not in the class, so it reads the class's storage as a *different
+        // type* — reachable only assembly-wide. `private` would make that read fault at
+        // JIT time with `FieldAccessException`, and `public` would leak non-API storage.
+        // A declared `val` field is the user's own surface and stays `public`.
+        let compilerGeneratedStorage = FieldAttributes.Assembly
+
         let classParts =
             [
                 for cd in partitioned.Classes ->
@@ -815,7 +850,7 @@ module internal Layout =
                                 {
                                     Key = FieldKey.ClassCtorParamField(td.Key, p.Name)
                                     Name = p.Name
-                                    Attrs = FieldAttributes.Public
+                                    Attrs = compilerGeneratedStorage
                                     Ty = p.Type
                                     ClosureScope = ValueNone
                                 }
@@ -831,11 +866,26 @@ module internal Layout =
                                     Ty = f.Type
                                     ClosureScope = ValueNone
                                 }
-                            for sl in cd.StaticLets ->
+                            // An immutable instance `let` is written exactly once, by the
+                            // primary `.ctor` — which is what `initonly` permits — so a
+                            // `let mutable` is the only preamble binder that stays writable.
+                            for l in TPreambleEntryG.lets cd.InstancePreamble ->
+                                {
+                                    Key = FieldKey.ClassLetField(td.Key, l.Name)
+                                    Name = l.Name
+                                    Attrs =
+                                        if l.IsMutable then
+                                            compilerGeneratedStorage
+                                        else
+                                            compilerGeneratedStorage ||| FieldAttributes.InitOnly
+                                    Ty = l.Type
+                                    ClosureScope = ValueNone
+                                }
+                            for sl in TPreambleEntryG.lets cd.StaticPreamble ->
                                 {
                                     Key = FieldKey.ClassStaticField(td.Key, sl.Name)
                                     Name = sl.Name
-                                    Attrs = FieldAttributes.Private ||| FieldAttributes.Static
+                                    Attrs = compilerGeneratedStorage ||| FieldAttributes.Static
                                     Ty = sl.Type
                                     ClosureScope = ValueNone
                                 }
@@ -864,7 +914,9 @@ module internal Layout =
                                         Attrs = ctorAttrs
                                     }
 
-                            if not (List.isEmpty cd.StaticLets) then
+                            // The `.cctor` runs the WHOLE static sequence, so a class whose
+                            // static preamble is only `static do` still needs one.
+                            if not (List.isEmpty cd.StaticPreamble) then
                                 yield
                                     {
                                         Key = MethodKey.NominalCctor td.Key

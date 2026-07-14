@@ -8,6 +8,23 @@ let private analyse (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyseSem realProvider.Value input lexed file
 
+/// The unit's single class declaration.
+let private soleClass (tast: TastFile) : TClass =
+    let found =
+        [
+            for d in tast.Decls do
+                match d with
+                | TDecl.Type td ->
+                    match td.Kind with
+                    | TTypeKind.Class c -> yield c
+                    | _ -> ()
+                | _ -> ()
+        ]
+
+    match found with
+    | [ c ] -> c
+    | other -> failwithf "expected exactly one class declaration, got %d" (List.length other)
+
 let private declType (tast: TastFile) : SemType =
     // A surfaced `TDecl.Type` (rung 2: unions) is ignored here — these tests
     // assert the *value* binding's inferred type.
@@ -736,7 +753,8 @@ let tests =
                 | TTypeKind.Class c ->
                     Expect.equal c.BaseCtorCall ValueNone "no inherit clause ⇒ no base-ctor call"
                     Expect.equal c.Fields.Length 0 "B-1 has no instance fields"
-                    Expect.equal c.StaticLets.Length 0 "no static lets on this class"
+                    Expect.equal c.StaticPreamble.Length 0 "no static preamble on this class"
+                    Expect.equal c.InstancePreamble.Length 0 "no instance preamble on this class"
                     Expect.equal c.SecondaryCtors.Length 0 "no secondary ctors on this class"
                     Expect.equal c.CtorParams.Length 2 "two ctor params"
                     Expect.equal (c.CtorParams.[0].Name) "x" "first param name"
@@ -789,9 +807,9 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // B-10: a `static let` surfaces in `TTypeKind.Class.staticLets` with its
+            // B-10: a `static let` surfaces in the class's static preamble with its
             // inferred type, and a member reference to it lowers to `TExpr.StaticFieldGet`.
-            test "TAST: `static let` surfaces in TTypeKind.Class.staticLets" {
+            test "TAST: `static let` surfaces in TTypeKind.Class.StaticPreamble" {
                 let tast = analyse "type C() =\n    static let x = 42\n    static member Get () = x"
 
                 let typeDecl =
@@ -806,9 +824,11 @@ let tests =
 
                 match typeDecl.Kind with
                 | TTypeKind.Class c ->
-                    Expect.equal c.StaticLets.Length 1 "one static let"
-                    Expect.equal (c.StaticLets.[0].Name) "x" "static-let name"
-                    Expect.equal (c.StaticLets.[0].Type) BuiltinTypes.tyInt "static-let type inferred to int"
+                    match TPreambleEntryG.lets (EqArray.toList c.StaticPreamble) with
+                    | [ sl ] ->
+                        Expect.equal sl.Name "x" "static-let name"
+                        Expect.equal sl.Type BuiltinTypes.tyInt "static-let type inferred to int"
+                    | other -> failtestf "expected one static let, got %A" other
 
                     // The `Get` member body reads the static field.
                     let getBody = c.Members.[0].Body
@@ -827,7 +847,7 @@ let tests =
             // supported — the field rides the open generic `TypeDefinition` (one per
             // closed instantiation, `.cctor`-initialised) and codegen mints the
             // read/store as a `MemberRef` on the self-`TypeSpec`. The front-end no
-            // longer rejects it; it surfaces in `staticLets` like the mono case.
+            // longer rejects it; it surfaces in the static preamble like the mono case.
             test "TAST: `static let` on a generic class surfaces with no diagnostic (G13)" {
                 let tast =
                     analyse "type Box<'a>() =\n    static let x = 42\n    static member Get () = x"
@@ -846,9 +866,84 @@ let tests =
 
                 match typeDecl.Kind with
                 | TTypeKind.Class c ->
-                    Expect.equal c.StaticLets.Length 1 "the generic class's `static let` surfaces in staticLets"
-                    Expect.equal c.StaticLets.[0].Name "x" "static-let name"
+                    match TPreambleEntryG.lets (EqArray.toList c.StaticPreamble) with
+                    | [ sl ] -> Expect.equal sl.Name "x" "the generic class's `static let` surfaces in the preamble"
+                    | other -> failtestf "expected one static let, got %A" other
                 | other -> failtestf "expected TTypeKind.Class, got %A" other
+            }
+
+            // A preamble binding carries `argumentPats`, so `let f x = …` binds a FUNCTION
+            // value — reading only the head pattern and taking the bare body as the
+            // initialiser would register `f` as an `int` whose value is `x + 1`.
+            test "TAST: a preamble `let f x = …` surfaces as a function value" {
+                let tast =
+                    analyse "type C() =\n    static let f x = x + 1\n    static member Get () = f 1"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                match soleClass tast with
+                | c ->
+                    match TPreambleEntryG.lets (EqArray.toList c.StaticPreamble) with
+                    | [ sl ] ->
+                        Expect.equal sl.Name "f" "static-let name"
+                        Expect.equal sl.Type (TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)) "int -> int"
+
+                        match sl.Init with
+                        | TExpr.Lambda _ -> ()
+                        | other -> failtestf "expected a Lambda initialiser, got %A" other
+                    | other -> failtestf "expected one static let, got %A" other
+            }
+
+            // An instance `let` is a private instance field: the same lowering a primary-ctor
+            // param gets. So its initialiser reads the ctor param through `this`, and a member
+            // reads the binder through `this` — codegen never sees either binder's NodeKey.
+            test "TAST: an instance `let` surfaces in InstancePreamble and lowers to a field" {
+                let tast = analyse "type C(x: int) =\n    let a = x + 1\n    member _.A = a"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let c = soleClass tast
+
+                match TPreambleEntryG.lets (EqArray.toList c.InstancePreamble) with
+                | [ l ] ->
+                    Expect.equal l.Name "a" "instance-let name"
+                    Expect.equal l.Type BuiltinTypes.tyInt "instance-let type inferred to int"
+                    Expect.isFalse l.IsMutable "not mutable"
+                | other -> failtestf "expected one instance let, got %A" other
+
+                match c.Members.[0].Body with
+                | TExpr.FieldGet(TExpr.Var(k, _, _), name, _, _) ->
+                    Expect.equal k c.ThisKey "the member reads the field off `this`"
+                    Expect.equal name "a" "field name"
+                | other -> failtestf "expected a FieldGet body, got %A" other
+            }
+
+            // A preamble `let mutable` IS the field, so a write to it must be a field STORE —
+            // never a `TExpr.Let` binder, which `RefCellPromotion` would promote to a ref cell
+            // and fork the storage away from the field every member reads.
+            test "TAST: a write to an instance `let mutable` lowers to a FieldSet" {
+                let tast =
+                    analyse "type C() =\n    let mutable c = 0\n    do c <- c + 1\n    member _.Bump () = c <- c + 1"
+
+                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" (List.ofSeq tast.Diagnostics))
+
+                let cls = soleClass tast
+
+                match TPreambleEntryG.lets (EqArray.toList cls.InstancePreamble) with
+                | [ l ] -> Expect.isTrue l.IsMutable "`let mutable` ⇒ a writable field"
+                | other -> failtestf "expected one instance let, got %A" other
+
+                Expect.equal cls.InstancePreamble.Length 2 "the `do` keeps its place in the sequence"
+
+                match cls.InstancePreamble.[1] with
+                | TPreambleEntry.Do _ -> ()
+                | other -> failtestf "expected a Do entry, got %A" other
+
+                match cls.Members.[0].Body with
+                | TExpr.FieldSet(TExpr.Var(k, _, _), name, _, _, _) ->
+                    Expect.equal k cls.ThisKey "the write stores through `this`"
+                    Expect.equal name "c" "field name"
+                | other -> failtestf "expected a FieldSet body, got %A" other
             }
 
             // B-11: a `new(...)` overload surfaces in `TTypeKind.Class.secondaryCtors`

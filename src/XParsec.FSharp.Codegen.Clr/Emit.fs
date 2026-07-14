@@ -31,6 +31,8 @@ module Emit =
     type ModuleValue = EmitTypes.ModuleValue
     type StaticMethodRef = EmitTypes.StaticMethodRef
     type EmitContext = EmitTypes.EmitContext
+    type PreambleStep = EmitTypes.PreambleStep
+    type CtorChain = EmitTypes.CtorChain
 
     let closureIsCached = EmitTypes.closureIsCached
 
@@ -300,32 +302,56 @@ module Emit =
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a class primary `.ctor` body that chains to a *base* constructor
-    /// (`inherit Base(args)`): `ldarg.0;
-    /// <baseArgs>; call instance void Base::.ctor(…)`, then store each ctor param
-    /// into its backing field. The base args reference the derived class's
-    /// primary-ctor params (`ctorParams` → `ldarg.1…`); `this` is unusable until
-    /// the base call returns, so the field stores follow it. Parallels
-    /// `buildClosureCtor`'s field-store tail and `buildSecondaryCtor`'s env, except
-    /// the chain target is the parent's `.ctor` rather than `Object`/the primary.
-    let buildClassBaseCtor
+    /// Run a preamble `do` body for effect: every Vesper expression yields a value, so
+    /// the `unit` it leaves must be drained before the next step. A body that
+    /// *terminates* (`raise`) reset the builder's depth to 0 and leaves nothing; any
+    /// deeper stack is a codegen bug.
+    let private buildForEffect (env: EmitEnv) (b: IlBuilder) (body: Frozen.TExpr) : unit =
+        buildExpr env b body
+
+        match b.Depth with
+        | 0 -> ()
+        | 1 -> b.Add ILInstr.Pop
+        | n -> failwithf "class-preamble `do` body left %d values on the stack (expected 0 or 1)" n
+
+    /// Build a class primary `.ctor` body: chain to the base ctor (`ldarg.0;
+    /// <baseArgs>; call instance void Base::.ctor(…)` — the parent's, an external base's,
+    /// or `Object`'s; a value type does not chain), store each ctor param into its
+    /// backing field, then run the instance preamble in declaration order.
+    ///
+    /// The order is the semantics (probed): `inherit Base(…)` runs first, then the
+    /// preamble top-to-bottom. The base args reference the derived class's primary-ctor
+    /// params (`ctorParams` → `ldarg.1…`) because `this` is unusable until the base call
+    /// returns; the preamble instead reads ctor params through their *fields*, which the
+    /// stores above have already filled (Elaborate rewrites a ctor-param reference in a
+    /// preamble entry to a `FieldGet` on `this`), so `thisKey` — mapped to `ldarg.0` — is
+    /// the only binder its expressions need.
+    let buildClassPrimaryCtor
         (ctx: EmitContext)
-        (baseCtor: EntityHandle)
-        (baseArgs: Frozen.TExpr list)
+        (chain: CtorChain)
+        (thisKey: NodeKey)
         (ctorParams: (NodeKey * FrozenType) list)
         (fields: EntityHandle list)
+        (preamble: PreambleStep list)
         : ILBody =
         let b = IlBuilder()
         let args = Dictionary<NodeKey, int>()
+        args.[thisKey] <- 0
         ctorParams |> List.iteri (fun i (k, _) -> args.[k] <- 1 + i)
-        let env = EmitEnv.ofContext ctx args
+        // `this` is the env's `SelfKey` as well as `Args.[thisKey] = 0` (as `buildMember`
+        // does): on a value type `ldarg.0` is the byref receiver, so a self-call must
+        // load it directly rather than spill a copy.
+        let env = EmitEnv.create ctx (ValueSome thisKey) (Dictionary()) args
 
-        b.Add(ILInstr.Ldarg 0)
+        match chain with
+        | CtorChain.None -> ()
+        | CtorChain.Base(baseCtor, baseArgs) ->
+            b.Add(ILInstr.Ldarg 0)
 
-        for a in baseArgs do
-            buildExpr env b a
+            for a in baseArgs do
+                buildExpr env b a
 
-        b.Add(ILInstr.Call(baseCtor, List.length baseArgs + 1, 0))
+            b.Add(ILInstr.Call(baseCtor, List.length baseArgs + 1, 0))
 
         fields
         |> List.iteri (fun i field ->
@@ -334,21 +360,32 @@ module Emit =
             b.Add(ILInstr.Stfld field)
         )
 
+        for step in preamble do
+            match step with
+            | PreambleStep.Store(field, init) ->
+                b.Add(ILInstr.Ldarg 0)
+                buildExpr env b init
+                b.Add(ILInstr.Stfld field)
+            | PreambleStep.Run body -> buildForEffect env b body
+
         b.Add ILInstr.Ret
         b.Body
 
-    /// Build a class `.cctor` body for its `static let`s: evaluate each
-    /// initialiser in declaration order and `stsfld`
-    /// it into its backing field, then `ret`. The body sees no `this` / params
-    /// (a `.cctor` is parameterless), so the env mirrors `buildMember`'s static
-    /// path with empty arg/slot maps.
-    let buildStaticCctor (ctx: EmitContext) (lets: (EntityHandle * Frozen.TExpr) list) : ILBody =
+    /// Build a `.cctor` body from a static preamble: run each step in declaration order
+    /// — a `let` initialiser `stsfld`ed into its backing field, a `static do` body run
+    /// for effect — then `ret`. The body sees no `this` / params (a `.cctor` is
+    /// parameterless), so the env mirrors `buildMember`'s static path with empty
+    /// arg/slot maps.
+    let buildStaticCctor (ctx: EmitContext) (steps: PreambleStep list) : ILBody =
         let b = IlBuilder()
         let env = EmitEnv.ofContext ctx (Dictionary())
 
-        for (field, init) in lets do
-            buildExpr env b init
-            b.Add(ILInstr.Stsfld field)
+        for step in steps do
+            match step with
+            | PreambleStep.Store(field, init) ->
+                buildExpr env b init
+                b.Add(ILInstr.Stsfld field)
+            | PreambleStep.Run body -> buildForEffect env b body
 
         b.Add ILInstr.Ret
         b.Body

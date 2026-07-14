@@ -36,9 +36,14 @@ let structTests =
                 Expect.isTrue ty.IsValueType "SPoint emits as a value type"
                 Expect.isTrue ty.IsSealed "a value type is sealed"
 
-                let fields = ty.GetFields(BindingFlags.Public ||| BindingFlags.Instance)
+                // Ctor-param backing fields are compiler-generated storage: `assembly`,
+                // as FSC emits them for a struct too.
+                let fields =
+                    ty.GetFields(BindingFlags.NonPublic ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
+
                 let names = fields |> Array.map (fun f -> f.Name) |> Set.ofArray
                 Expect.equal names (Set.ofList [ "x"; "y" ]) "both ctor-param backing fields are present"
+                Expect.isTrue (fields |> Array.forall (fun f -> f.IsAssembly)) "both are `assembly`-visible"
             }
 
             test "a struct ctor stores ctor params + a member reads one back (boxed dispatch)" {
@@ -242,7 +247,10 @@ let structTests =
 
                 let inst = ty.MakeGenericType [| typeof<int> |]
                 let boxed = Activator.CreateInstance(inst, [| box 42 |])
-                let valField = inst.GetField("value", BindingFlags.Public ||| BindingFlags.Instance)
+
+                let valField =
+                    inst.GetField("value", BindingFlags.NonPublic ||| BindingFlags.Instance)
+
                 Expect.equal (valField.GetValue boxed :?> int) 42 "the ctor-param field stores the generic value"
             }
 

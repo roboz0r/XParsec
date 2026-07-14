@@ -20,7 +20,9 @@ let monoTests =
     testList
         "ClassMono"
         [
-            test "an emitted class type has a public ctor + one public field per primary-ctor parameter" {
+            // Ctor-param backing fields are compiler-generated storage, not declared
+            // API: FSC emits them `assembly`, and so do we (see `Layout.classParts`).
+            test "an emitted class type has a public ctor + one assembly-visible field per primary-ctor parameter" {
                 let _, artifact =
                     compileSource
                         "ClsMeta"
@@ -40,9 +42,16 @@ let monoTests =
                 Expect.equal ctors.Length 1 "Point declares one public ctor"
                 Expect.equal (ctors.[0].GetParameters().Length) 2 "Point ctor takes the two ctor params"
 
-                let fields = ty.GetFields(BindingFlags.Public ||| BindingFlags.Instance)
+                Expect.isEmpty
+                    (ty.GetFields(BindingFlags.Public ||| BindingFlags.Instance))
+                    "no ctor-param backing field is public"
+
+                let fields =
+                    ty.GetFields(BindingFlags.NonPublic ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
+
                 let names = fields |> Array.map (fun f -> f.Name) |> Set.ofArray
-                Expect.equal names (Set.ofList [ "x"; "y" ]) "Point exposes both ctor-param backing fields publicly"
+                Expect.equal names (Set.ofList [ "x"; "y" ]) "Point holds both ctor-param backing fields"
+                Expect.isTrue (fields |> Array.forall (fun f -> f.IsAssembly)) "both are `assembly`, not `private`"
             }
 
             test "a class with `member this.M () = 1` emits an instance method that returns 1" {
@@ -611,6 +620,43 @@ let staticTests =
                     (readTag typeof<string> (box "x"))
                     99
                     "Box<string>().Tag() reads its own per-instantiation static-let field tag = 99"
+            }
+
+            // A class's compiler-generated backing storage (`static let` fields,
+            // ctor-param fields) is reached by lambdas lifted out of member bodies.
+            // Those lambdas become closure classes nested in the enclosing *module*,
+            // not in the class — so they are a DIFFERENT type reading the class's
+            // fields, and only `assembly` accessibility lets them through. `private`
+            // backing storage JIT-faults with `FieldAccessException`; these two cases
+            // are the only ones that exercise the cross-type read, since every other
+            // backing-field test reads from a member body of the declaring type.
+            test "a `static let` read from inside a lambda in a member body (Assembly-visible field)" {
+                runs
+                    "43"
+                    (String.concat
+                        "\n"
+                        [
+                            "type C() ="
+                            "    static let x = 42"
+                            "    member _.F () = fun () -> x + 1"
+                            "let c = C()"
+                            "let g = c.F()"
+                            "printfn \"%d\" (g ())"
+                        ])
+            }
+
+            test "a ctor-param backing field read from inside a lambda in a member body (Assembly-visible field)" {
+                runs
+                    "43"
+                    (String.concat
+                        "\n"
+                        [
+                            "type C(k: int) ="
+                            "    member _.F () = fun () -> k + 1"
+                            "let c = C(42)"
+                            "let g = c.F()"
+                            "printfn \"%d\" (g ())"
+                        ])
             }
 
             // A static *operator* member: the `(+)` body contains applications (the
@@ -1414,6 +1460,34 @@ let inheritanceTests =
                 // `Radius` is declared on Circle and reads Circle's own field.
                 let getRadius = circle.GetMethod("get_Radius", declaredInstance, null, [||], null)
                 Expect.equal (getRadius.Invoke(instance, [||]) :?> int) 5 "Circle.Radius reads its own field r = 5"
+            }
+
+            // The `inherit` args run BEFORE `this` exists, so no instance rewrite applies to
+            // them — but the `.cctor` has already run, so a `static let` named there IS in scope
+            // and is a static FIELD. Without the static field rewrite its binder key would reach
+            // codegen as a bare `TExpr.Var` with no slot to load it from.
+            test "a `static let` referenced in the `inherit` arguments loads from the static field" {
+                let _, artifact =
+                    compileSource
+                        "InhStaticLetArg"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Shape(x: int) ="
+                                "    member this.Raw = x"
+                                "type Circle() ="
+                                "    inherit Shape(k + 1)"
+                                "    static let k = 40"
+                                "    member this.Two = 2"
+                                "let c = Circle()"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let circle = asm.GetType "Circle"
+                let instance = Activator.CreateInstance(circle, [||])
+
+                let getRaw = circle.GetMethod("get_Raw", publicInstance, null, [||], null)
+                Expect.equal (getRaw.Invoke(instance, [||]) :?> int) 41 "the base ctor got `k + 1` off the static field"
             }
 
             test "a two-level chain (Loud : Shape : Object) constructs and the override is selected on the derived type" {
@@ -2275,5 +2349,161 @@ let coercionTests =
                     (asShape.Invoke(instance, [||]) :?> int)
                     7
                     "(this :> Shape).Raw reads the inherited field = 7"
+            }
+        ]
+
+[<Tests>]
+let classPreambleTests =
+    // The class preamble: instance `let` / `do` (the tail of the primary `.ctor`, after
+    // the base-ctor call and the ctor-param stores) and `static do` (part of the
+    // `.cctor`'s ordered static sequence).
+    //
+    // EVERY initialiser here contains an OPERATOR: a literal-only initialiser cannot
+    // catch an operator reaching Elaborate in a preamble position with no desugared
+    // form — a hard crash the `static let x = 42` shape hid for as long as it was the
+    // only preamble under test.
+    //
+    // The RUNTIME semantics of the instance preamble (declaration order, `let mutable`
+    // sharing one storage location, `let rec`, generics, a function-`let` used
+    // first-class) are owned by the cross-backend conformance corpus
+    // (`test/Codegen.Conformance/classes/preamble-*.fs`, run on CLR *and* JS). What
+    // lives here is what the corpus cannot see: IL/metadata facts (field visibility,
+    // `initonly`), and the CLR-only shapes JS rejects outright — `inherit` and the
+    // static preamble.
+    let declaredInstance =
+        BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly
+
+    let declaredStatic =
+        BindingFlags.Public ||| BindingFlags.Static ||| BindingFlags.DeclaredOnly
+
+    let backingField (ty: Type) (name: string) =
+        ty.GetField(name, BindingFlags.NonPublic ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
+
+    testList
+        "ClassPreamble"
+        [
+            test "an instance `let` reading a ctor param backs an assembly initonly field a member reads" {
+                let _, artifact =
+                    compileSource
+                        "PreambleLet"
+                        (String.concat
+                            "\n"
+                            [
+                                "type C(n: int) ="
+                                "    let m = n + 1"
+                                "    member this.M () = m * 10"
+                                "let c = C(1)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "C"
+
+                let field = backingField ty "m"
+                Expect.isNotNull field "the instance `let` m takes a backing field"
+                Expect.isTrue field.IsAssembly "m is `assembly` — a closure class is a sibling type, not a nested one"
+                Expect.isTrue field.IsInitOnly "a non-`mutable` let is written once, by the ctor"
+
+                let instance = Activator.CreateInstance(ty, [| box 4 |])
+                let m = ty.GetMethod("M", declaredInstance, null, [||], null)
+                Expect.equal (m.Invoke(instance, [||]) :?> int) 50 "C(4).M() reads m = n + 1 = 5"
+            }
+
+            // A `let mutable` is an ordinary mutable FIELD, never a ref cell: the
+            // function-`let` closure and every member body must see the same storage, so
+            // a mutation through the closure has to persist across calls.
+            test "a `let mutable` mutated through a function-`let` persists across calls" {
+                let _, artifact =
+                    compileSource
+                        "PreambleMutable"
+                        (String.concat
+                            "\n"
+                            [
+                                "type Counter(step: int) ="
+                                "    let mutable count = 0"
+                                "    let bump (k: int) = count <- count + k * step"
+                                "    member this.Bump (k: int) ="
+                                "        let _ = bump k"
+                                "        count"
+                                "let c = Counter(1)"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "Counter"
+
+                let count = backingField ty "count"
+                Expect.isNotNull count "the `let mutable` count takes a backing field"
+                Expect.isFalse count.IsInitOnly "a `let mutable` field stays writable"
+
+                let bump = backingField ty "bump"
+                Expect.isNotNull bump "the function-valued `let` bump takes a backing field (a closure over `this`)"
+
+                let instance = Activator.CreateInstance(ty, [| box 2 |])
+
+                let m = ty.GetMethod("Bump", declaredInstance, null, [| typeof<int> |], null)
+
+                Expect.equal (m.Invoke(instance, [| box 3 |]) :?> int) 6 "first Bump(3) sets count = 3 * 2"
+                Expect.equal (m.Invoke(instance, [| box 4 |]) :?> int) 14 "second Bump(4) accumulates onto the field"
+            }
+
+            // Probed: F# runs `inherit Base(…)` first, then the derived preamble
+            // top-to-bottom — so the base's `do` must print before the derived one's.
+            test "the base ctor runs before the derived class's preamble" {
+                runsLines
+                    [ "base 5"; "derived z=8" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "type Base(x: int) ="
+                            "    do printfn \"base %d\" x"
+                            "    member this.X () = x"
+                            "type Derived(y: int) ="
+                            "    inherit Base(y + 2)"
+                            "    let z = y + 5"
+                            "    do printfn \"derived z=%d\" z"
+                            "    member this.Z () = z"
+                            "let d = Derived(3)"
+                        ])
+            }
+
+            // The `.cctor` runs the WHOLE static sequence in declaration order, not just
+            // the `static let` stores: `static do` sees the lets above it and runs before
+            // the lets below it.
+            test "`static do` runs in the cctor, interleaved with `static let` in declaration order" {
+                runsLines
+                    [ "static a=2"; "static b=6"; "B=6" ]
+                    (String.concat
+                        "\n"
+                        [
+                            "type S() ="
+                            "    static let a = 1 + 1"
+                            "    static do printfn \"static a=%d\" a"
+                            "    static let b = a * 3"
+                            "    static do printfn \"static b=%d\" b"
+                            "    static member B () = b"
+                            "printfn \"B=%d\" (S.B ())"
+                        ])
+            }
+
+            test "a class whose static preamble is only `static do` still gets a cctor" {
+                let _, artifact =
+                    compileSource
+                        "PreambleStaticDoOnly"
+                        (String.concat
+                            "\n"
+                            [
+                                "type S() ="
+                                "    static do printfn \"%d\" (1 + 1)"
+                                "    static member Id (x: int) = x"
+                                "let s = S()"
+                            ])
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "S"
+
+                Expect.isNotNull (ty.TypeInitializer) "the `static do`-only class still emits a `.cctor`"
+
+                let m = ty.GetMethod("Id", declaredStatic, null, [| typeof<int> |], null)
+
+                Expect.equal (m.Invoke(null, [| box 3 |]) :?> int) 3 "the class is otherwise intact"
             }
         ]

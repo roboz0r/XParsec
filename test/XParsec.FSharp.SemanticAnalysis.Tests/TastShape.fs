@@ -753,7 +753,6 @@ type private Renderer() =
             | TTypeKind.Class c ->
                 let ctorParams = c.CtorParams
                 let members = c.Members
-                let staticLets = c.StaticLets
                 let secondaryCtors = c.SecondaryCtors
 
                 if c.IsSealed then
@@ -773,11 +772,25 @@ type private Renderer() =
 
                 push ") = class"
 
-                for sl in staticLets do
-                    push " static let "
-                    push sl.Name
-                    push " : "
-                    push (tyStr sl.Type)
+                let pushPreamble (prefix: string) (entries: EqArray<TPreambleEntry>) =
+                    for entry in entries do
+                        match entry with
+                        | TPreambleEntry.Let l ->
+                            push prefix
+                            push "let "
+
+                            if l.IsMutable then
+                                push "mutable "
+
+                            push l.Name
+                            push " : "
+                            push (tyStr l.Type)
+                        | TPreambleEntry.Do _ ->
+                            push prefix
+                            push "do"
+
+                pushPreamble " static " c.StaticPreamble
+                pushPreamble " " c.InstancePreamble
 
                 for m in members do
                     push (if m.IsStatic then " static member " else " member ")

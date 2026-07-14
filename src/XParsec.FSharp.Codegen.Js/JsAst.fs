@@ -115,13 +115,20 @@ and [<RequireQualifiedAccess>] JsStatement =
     /// `target = value;` — param-shadow mutation in a self-tail-call.
     | Assign of target: string * value: JsExpr
     /// A record's or class's emitted JS class: one positional constructor storing
-    /// each declaration-order field into the like-named property, plus any
-    /// `methods` attached as instance methods on the class (a record passes `[]`).
+    /// each declaration-order field into the like-named property, then running
+    /// `ctorBody` (a class's instance preamble — its `let` field stores and `do`
+    /// effects, in declaration order; a record passes `[]`), plus any `methods`
+    /// attached as instance methods on the class (a record passes `[]`).
     /// Attached methods carry the runtime dispatch slots of a custom-equality /
     /// custom-comparison class (`Equals`/`CompareTo`/`GetHashCode`), bodied with
     /// the receiver bound to JS `this`. `export` is set in library mode so a
     /// consumer can `import` the class rather than re-emit it.
-    | Class of name: string * fields: string list * methods: JsClassMethod list * export: bool
+    | Class of
+        name: string *
+        fields: string list *
+        ctorBody: JsStatement list *
+        methods: JsClassMethod list *
+        export: bool
     /// A union's emitted JS classes: a `baseName` base class (`tag` + `cases()` + a
     /// non-enumerable `$type` brand getter returning `brand`, the type's qualified name)
     /// plus one `extends`-subclass per case carrying its named fields after `super(tag)`.

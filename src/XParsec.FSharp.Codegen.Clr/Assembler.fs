@@ -161,11 +161,13 @@ type internal Assembler
 
             if not td.TypeParams.IsEmpty then
                 // The ctor-param backing fields, the explicit `val [mutable] x: T`
-                // instance fields, and the `static let` backing fields must all be in
-                // the generic-class registry: a generic struct's field-init ctor and
-                // member-body `ldfld`/`stfld` reference the `val` fields by name
-                // through a `MemberRef` on the open self-`TypeSpec`, and a generic
-                // `static let` read/store (`ldsfld`/`stsfld`) goes through the same
+                // instance fields, and the instance-`let` / `static let` backing fields
+                // must all be in the generic-class registry: a generic struct's
+                // field-init ctor and member-body `ldfld`/`stfld` reference the `val`
+                // fields by name through a `MemberRef` on the open self-`TypeSpec`, an
+                // instance-`let` field is stored by the primary ctor and read from every
+                // member body through that same `MemberRef`, and a generic `static let`
+                // read/store (`ldsfld`/`stsfld`) goes through the same
                 // `ClassMember.Field` `MemberRef` — an unregistered field fails
                 // resolution ("generic class … has no field").
                 let ctorParamFields = [ for p in cd.CtorParams -> p.Name, p.Type ]
@@ -173,7 +175,8 @@ type internal Assembler
                 let shape =
                     ctorParamFields
                     @ [ for f in cd.Fields -> f.Name, f.Type ]
-                    @ [ for sl in cd.StaticLets -> sl.Name, sl.Type ]
+                    @ [ for l in TPreambleEntryG.lets cd.InstancePreamble -> l.Name, l.Type ]
+                    @ [ for sl in TPreambleEntryG.lets cd.StaticPreamble -> sl.Name, sl.Type ]
 
                 provider.RegisterGenericClass(td.Key, EqArray.toList td.TypeParams, List.length ctorParamFields, shape)
         )
@@ -959,7 +962,8 @@ type internal Assembler
         let prepareHolderCctor (h: Emit.HolderKey) =
             let lets =
                 [
-                    for mv in HolderPlan.holderValues plan h -> moduleValueFields.[mv.Key], retypeBody mv.Init
+                    for mv in HolderPlan.holderValues plan h ->
+                        Emit.PreambleStep.Store(moduleValueFields.[mv.Key], retypeBody mv.Init)
                 ]
 
             let bodyOffset =
@@ -980,7 +984,8 @@ type internal Assembler
         let prepareProgramCctor () =
             let lets =
                 [
-                    for mv in plan.ProgramCctorValues -> moduleValueFields.[mv.Key], retypeBody mv.Init
+                    for mv in plan.ProgramCctorValues ->
+                        Emit.PreambleStep.Store(moduleValueFields.[mv.Key], retypeBody mv.Init)
                 ]
 
             let bodyOffset =

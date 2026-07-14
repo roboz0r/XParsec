@@ -44,6 +44,16 @@ module SymbolProviders =
     /// Only an inline-IL (`Frozen.TExpr.ILIntrinsic`) body is a splice template; any
     /// other member body is a real callable and yields `None`.
     ///
+    /// That restriction is load-bearing beyond inlining: a class's compiler-generated
+    /// backing storage (primary-ctor params, preamble `let`s, `static let`s) is emitted
+    /// `FieldAttributes.Assembly`, so a `FieldGet` on it CANNOT be read from a consumer
+    /// assembly. Nothing published here can carry such a read — an IL splice has no
+    /// `FieldGet` on class storage, and a module-level `let inline` cannot name a class's
+    /// ctor param or `let` binding at all (F# scoping forbids it). Widening this to
+    /// publish general member bodies would expose exactly that, and would first need the
+    /// accessibility check F# spells FS1113 ("marked inline but its implementation makes
+    /// use of an internal or private function which is not sufficiently accessible").
+    ///
     /// Harvested off the FROZEN member, so the published body is `FrozenType` like every
     /// other thing crossing the provider seam.
     let harvestMemberBody (m: Frozen.TTypeMember) : InlineBody option =

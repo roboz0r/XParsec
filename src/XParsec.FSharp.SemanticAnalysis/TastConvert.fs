@@ -196,12 +196,18 @@ module TastConvert =
             MethodTypeParams = m.MethodTypeParams
         }
 
-    let staticLet (f: 'a -> 'b) (sl: TStaticLetG<'a, 'tok>) : TStaticLetG<'b, 'tok> =
+    let classLet (f: 'a -> 'b) (l: TClassLetG<'a, 'tok>) : TClassLetG<'b, 'tok> =
         {
-            Name = sl.Name
-            Type = f sl.Type
-            Init = expr f sl.Init
+            Name = l.Name
+            Type = f l.Type
+            IsMutable = l.IsMutable
+            Init = expr f l.Init
         }
+
+    let preambleEntry (f: 'a -> 'b) (p: TPreambleEntryG<'a, 'tok>) : TPreambleEntryG<'b, 'tok> =
+        match p with
+        | TPreambleEntryG.Let l -> TPreambleEntryG.Let(classLet f l)
+        | TPreambleEntryG.Do e -> TPreambleEntryG.Do(expr f e)
 
     let ctorLet (f: 'a -> 'b) (cl: TCtorLetG<'a, 'tok>) : TCtorLetG<'b, 'tok> =
         {
@@ -265,7 +271,9 @@ module TastConvert =
                     BaseType = ValueOption.map f c.BaseType
                     Interfaces = EqArray.map (fun (ity, ms) -> f ity, EqArray.map (typeMember f) ms) c.Interfaces
                     IsSealed = c.IsSealed
-                    StaticLets = EqArray.map (staticLet f) c.StaticLets
+                    StaticPreamble = EqArray.map (preambleEntry f) c.StaticPreamble
+                    InstancePreamble = EqArray.map (preambleEntry f) c.InstancePreamble
+                    ThisKey = c.ThisKey
                     SecondaryCtors = EqArray.map (secondaryCtor f) c.SecondaryCtors
                     BaseCtorCall = ValueOption.map (baseCtorCall f) c.BaseCtorCall
                     ValueKind = c.ValueKind

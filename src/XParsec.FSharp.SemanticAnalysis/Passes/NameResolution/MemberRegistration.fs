@@ -443,42 +443,102 @@ module NameResolutionMemberRegistration =
 
         acc.ToArray()
 
-    /// `ClassStaticLetInfo` placeholders for a class body's `static let` preamble. Only simple `static let x = …` (single named binder) is supported.
-    /// A generic class's `static let` lowers to a per-instantiation static field
+    /// `ClassPreambleEntry` placeholders for a class body's `[static] let` / `[static] do`
+    /// preamble, split into the STATIC sequence (the `.cctor`'s body) and the INSTANCE
+    /// sequence (the tail of the primary ctor). Each is ONE ordered sequence: a `do` may
+    /// observe a `let` above it, so the interleaving cannot be flattened into parallel lists.
+    ///
     /// A generic class's `static let` lowers to a per-instantiation static field
     /// (one field on the open generic `TypeDefinition`, its `.cctor` running once
     /// per closed instantiation — codegen mints the read/store as a `MemberRef` on
-    /// the self-`TypeSpec`). Instance `let` and `[static] do` preamble entries
-    /// are not yet modelled (silently skipped).
-    let private extractStaticLets
+    /// the self-`TypeSpec`). An instance binder is a private instance field, so a generic
+    /// class carries those for free too.
+    ///
+    /// Only a simple binder head (`let x = …`, `let f x = …`) is supported.
+    let private extractPreamble
         (ctx: PassContext)
         (declKey: NodeKey)
+        (hasPrimaryCtor: bool)
+        (isValueType: bool)
         (preamble: ImmutableArray<ClassFunctionOrValueDefn<SyntaxToken>>)
-        : ClassStaticLetInfo[] =
-        let acc = ResizeArray<ClassStaticLetInfo>()
+        : struct (ClassPreambleEntry[] * ClassPreambleEntry[]) =
+        let statics = ResizeArray<ClassPreambleEntry>()
+        let instances = ResizeArray<ClassPreambleEntry>()
+
+        // Every rejection here is a property of the CLASS, not of the offending entry, and so
+        // is anchored at `declKey`: a class with three instance entries and no primary ctor
+        // would otherwise report one identical error per entry at a single site. One message,
+        // once.
+        let reported = HashSet<string>()
 
         let diagnose msg =
-            ctx.Diagnostics.Add
-                {
-                    Key = declKey
-                    Message = msg
-                    Code = ""
-                    Severity = Severity.Error
-                }
+            if reported.Add msg then
+                ctx.Diagnostics.Add
+                    {
+                        Key = declKey
+                        Message = msg
+                        Code = ""
+                        Severity = Severity.Error
+                    }
+
+        // An instance `let`/`do` runs in the PRIMARY ctor. Two shapes have no ctor that can run
+        // it, and F# rejects both:
+        //  * the `val`-field form (`type T = val …; new(…) = …`) declares no primary ctor at all
+        //    (FS0963 — F# does not pick a secondary);
+        //  * a STRUCT's zero-arg default ctor is not ours to write, so `Unchecked.defaultof<S>`
+        //    would leave the binder's field unset (FS0901 for a `let`, FS0035 for a `do`).
+        // Diagnose and drop: an accepted entry would mint a field no ctor ever initialises.
+        let instanceAllowed (isDo: bool) =
+            if not hasPrimaryCtor then
+                diagnose "An instance `let` or `do` binding may only be used in a type with a primary constructor"
+                false
+            elif isValueType then
+                if isDo then
+                    diagnose
+                        "Structs cannot contain `do` bindings because the default constructor for structs would not execute these bindings"
+                else
+                    diagnose
+                        "Structs cannot contain value definitions because the default constructor for structs will not execute these bindings"
+
+                false
+            else
+                true
 
         for d in preamble do
             match d with
-            | ClassFunctionOrValueDefn.LetBindings(staticToken = ValueSome _; bindings = bindings) ->
-                for b in bindings do
-                    match bindingsOfPat ctx b.headPat with
-                    | [ (name, key) ] ->
-                        let tv = TypeVar()
-                        tv.Level <- 0
-                        acc.Add(ClassStaticLetInfo(name, TyVar tv, key, b.expr))
-                    | _ -> diagnose "Only simple `static let x = …` bindings are supported"
-            | _ -> ()
+            | ClassFunctionOrValueDefn.LetBindings(staticToken = st; isRec = isRec; bindings = bindings) ->
+                let isStatic = st.IsSome
 
-        acc.ToArray()
+                let target =
+                    if isStatic then ValueSome statics
+                    elif instanceAllowed false then ValueSome instances
+                    else ValueNone
+
+                match target with
+                | ValueSome acc ->
+                    for b in bindings do
+                        match bindingsOfPat ctx b.headPat with
+                        // A `static let mutable` binder IS the static field, so `x <- e` must
+                        // store to it — but the TAST has no static-field STORE node (only
+                        // `TExpr.StaticFieldGet`), so the write would elaborate to an assignment
+                        // whose target is a `StaticFieldGet` and no backend could emit it.
+                        // Reject the declaration outright rather than crash in codegen; lifting
+                        // this means adding `TExpr.StaticFieldSet` end to end.
+                        | [ _ ] when isStatic && b.mutableToken.IsSome ->
+                            diagnose "`static let mutable` is not yet supported"
+                        | [ (name, key) ] ->
+                            let tv = TypeVar()
+                            tv.Level <- 0
+                            acc.Add(ClassPreambleEntry.Let(ClassLetInfo(name, TyVar tv, key, b, isRec.IsSome)))
+                        | _ -> diagnose "Only simple `let x = …` bindings are supported in a class preamble"
+                | ValueNone -> ()
+            | ClassFunctionOrValueDefn.Do(staticToken = st; expr = e) ->
+                if st.IsSome then
+                    statics.Add(ClassPreambleEntry.Do e)
+                elif instanceAllowed true then
+                    instances.Add(ClassPreambleEntry.Do e)
+
+        struct (statics.ToArray(), instances.ToArray())
 
     /// Stamp `ClassTypeInfo` for every `TypeDefn.Class` (or `TypeDefn.Anon` — the
     /// parser emits Anon for the bare `type C(...) = member ...` form without an
@@ -524,7 +584,27 @@ module NameResolutionMemberRegistration =
 
             let members = memberInfos.ToArray()
 
-            let staticLets = extractStaticLets ctx declKey body.classPreamble
+            // No `PrimaryConstrArgs` (`pc = ValueNone`) ⇒ the `val`-field form
+            // (`type T = val …; new(…) = …`): the secondaries are the only ctors, so
+            // codegen must not synthesise a colliding primary `.ctor` — and an instance
+            // `let`/`do` has no ctor to run in.
+            let hasPrimaryCtor = pc.IsSome
+
+            // `[<Sealed>]` flips TypeAttributes.Sealed on the emitted
+            // TypeDefinition; `[<AllowNullLiteral>]` lets Unification's
+            // Expr.Null arm unify against this class.
+            let classAttrs =
+                Attributes.decodeClassAttributes ctx (Attributes.attributesOfTypeName tn)
+
+            // `[<Struct>]` (or the `type X = struct … end` shape) ⇒ value
+            // type. A struct is implicitly sealed (no derivation), so the
+            // emitted `TypeAttributes.Sealed` rides `IsValueType` too. Known
+            // before the preamble is extracted: a struct may not carry an
+            // instance one.
+            let isValueType = classAttrs.IsValueType || TypeDefnPatterns.isStructShape td
+
+            let struct (staticPreamble, instancePreamble) =
+                extractPreamble ctx declKey hasPrimaryCtor isValueType body.classPreamble
 
             let info =
                 ClassTypeInfo(
@@ -539,18 +619,10 @@ module NameResolutionMemberRegistration =
                     id.Key
                 )
 
-            info.StaticLets <- staticLets
+            info.StaticPreamble <- staticPreamble
+            info.InstancePreamble <- instancePreamble
             info.SecondaryCtors <- structure.SecondaryCtors
-            // No `PrimaryConstrArgs` (`pc = ValueNone`) ⇒ the `val`-field form
-            // (`type T = val …; new(…) = …`): the secondaries are the only ctors,
-            // so codegen must not synthesise a colliding primary `.ctor`.
-            info.HasPrimaryCtor <- pc.IsSome
-
-            // `[<Sealed>]` flips TypeAttributes.Sealed on the emitted
-            // TypeDefinition; `[<AllowNullLiteral>]` lets Unification's
-            // Expr.Null arm unify against this class.
-            let classAttrs =
-                Attributes.decodeClassAttributes ctx (Attributes.attributesOfTypeName tn)
+            info.HasPrimaryCtor <- hasPrimaryCtor
 
             info.IsSealed <- classAttrs.IsSealed
             info.AllowNullLiteral <- classAttrs.AllowNullLiteral
@@ -560,10 +632,6 @@ module NameResolutionMemberRegistration =
             // a constrained class typar resolves through the interface.
             info.TyparConstraints <- NameResolutionTypeRegistration.typarConstraintsOfTypeName tn
 
-            // `[<Struct>]` (or the `type X = struct … end` shape) ⇒ value
-            // type. A struct is implicitly sealed (no derivation), so the
-            // emitted `TypeAttributes.Sealed` rides `IsValueType` too.
-            let isValueType = classAttrs.IsValueType || TypeDefnPatterns.isStructShape td
             info.IsValueType <- isValueType
             // A project-local interface (all-abstract body) — so
             // `resolveInterfaceImpls` / the subtype check recognise it without

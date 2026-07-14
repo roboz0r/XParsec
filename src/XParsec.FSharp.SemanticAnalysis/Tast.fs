@@ -669,9 +669,9 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok> =
     /// `TypeAttributes.Sealed` on the emitted `TypeDefinition` — derivation
     /// is rejected at use sites (`subsumes` already excludes
     /// `Sealed`).
-    /// `staticLets` are class-level `static let` bindings: codegen emits
-    /// one private static field each and a synthesised `.cctor` running the
-    /// initialisers in declaration order. Empty unless the class has `static let`s.
+    /// `staticPreamble` / `instancePreamble` are the class's `[static] let` / `[static] do`
+    /// entries: codegen emits one private field per `let` (static / instance respectively)
+    /// and runs each sequence, in declaration order, in the `.cctor` / the primary ctor.
     /// `secondaryCtors` are `new(args) = SelfType(primaryArgs)` overloads:
     /// codegen emits each as a `.ctor` overload whose body runs the let-preamble
     /// then chains to the primary `.ctor`. Empty unless the class declares any.
@@ -707,7 +707,21 @@ and TClassG<'ty, 'tok> =
         BaseType: 'ty voption
         Interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'tok>>>
         IsSealed: bool
-        StaticLets: EqArray<TStaticLetG<'ty, 'tok>>
+        /// `static let` / `static do`, in declaration order: the body of the
+        /// synthesised `.cctor`. Empty unless the class declares any.
+        StaticPreamble: EqArray<TPreambleEntryG<'ty, 'tok>>
+        /// Instance `let` / `do`, in declaration order: the tail of the primary ctor,
+        /// running after the base-ctor call and the ctor-param field stores. Empty
+        /// unless the class declares any; a class with NO primary ctor can never have
+        /// one (the front-end rejects it, F#'s FS0963).
+        InstancePreamble: EqArray<TPreambleEntryG<'ty, 'tok>>
+        /// The `this` binder every instance member body already carries
+        /// (`TTypeMemberG.ThisKey`), lifted onto the class because the INSTANCE
+        /// preamble's expressions read the class's fields through it too — a ctor-param
+        /// or instance-`let` reference in an initialiser or `do` body is a
+        /// `TExpr.FieldGet(TExpr.Var(ThisKey), …)`, so the backend must map this key to
+        /// the primary ctor's `this` argument.
+        ThisKey: NodeKey
         SecondaryCtors: EqArray<TSecondaryCtorG<'ty, 'tok>>
         BaseCtorCall: TBaseCtorCallG<'ty, 'tok> voption
         ValueKind: ClassValueKind
@@ -836,19 +850,36 @@ and TTypeMemberG<'ty, 'tok> =
         MethodTypeParams: GeneralizedTypars
     }
 
-/// A class-level `static let x = <init>`.
-/// Codegen emits one private static field per entry and concatenates the
-/// `Init` expressions into a synthesised `.cctor`; a `static let`-bound name
-/// referenced in a member body lowers to `TExpr.StaticFieldGet`. On a *generic*
-/// class the field rides the open `TypeDefinition` (one per closed instantiation,
-/// `.cctor`-initialised) and the read/store mint a `MemberRef` on the self-
-/// `TypeSpec` at the declaring typars.
-and TStaticLetG<'ty, 'tok> =
+/// One `[static] let [mutable] x = <init>` of a class preamble.
+///
+/// A STATIC entry is a private static field, initialised by the synthesised `.cctor`; a
+/// `static let`-bound name referenced anywhere in the class lowers to
+/// `TExpr.StaticFieldGet`. On a *generic* class the field rides the open `TypeDefinition`
+/// (one per closed instantiation, `.cctor`-initialised) and the read/store mint a
+/// `MemberRef` on the self-`TypeSpec` at the declaring typars.
+///
+/// An INSTANCE entry is a private instance field, initialised by the primary ctor — the
+/// same lowering a primary-ctor parameter already gets, with the value coming from `Init`
+/// instead of an argument. Its references (in a member body or in a later preamble entry)
+/// are therefore `TExpr.FieldGet`/`FieldSet` on `this`, never a `TExpr.Let` binder: an
+/// instance `let mutable` captured by a preamble closure must stay ONE field, so it must
+/// never reach `RefCellPromotion` (which would fork the storage between a promoted cell in
+/// the closure and the field every member reads).
+and TClassLetG<'ty, 'tok> =
     {
         Name: string
         Type: 'ty
+        /// `let mutable` ⇒ the field is writable.
+        IsMutable: bool
         Init: TExprG<'ty, 'tok>
     }
+
+/// One entry of a class preamble, in DECLARATION order. Interleaving is
+/// order-sensitive (`static let a = f()` / `static do g a` / `static let b = h()`), so a
+/// preamble is one ordered sequence — not parallel lists of lets and dos.
+and [<RequireQualifiedAccess>] TPreambleEntryG<'ty, 'tok> =
+    | Let of TClassLetG<'ty, 'tok>
+    | Do of TExprG<'ty, 'tok>
 
 /// One `let`-preamble binding inside a secondary constructor body
 /// (`new(args) = let x = e in SelfType(...)`). `Binder` is the local's
@@ -1038,11 +1069,13 @@ type TStaticOptClause = TStaticOptClauseG<SemType, SyntaxToken>
 type TDecl = TDeclG<SemType, SyntaxToken>
 type TTypeDecl = TTypeDeclG<SemType, SyntaxToken>
 type TTypeKind = TTypeKindG<SemType, SyntaxToken>
+type TClass = TClassG<SemType, SyntaxToken>
 type TUnionCase = TUnionCaseG<SemType>
 type TEnumCase = TEnumCaseG<SyntaxToken>
 type TRecordField = TRecordFieldG<SemType>
 type TTypeMember = TTypeMemberG<SemType, SyntaxToken>
-type TStaticLet = TStaticLetG<SemType, SyntaxToken>
+type TClassLet = TClassLetG<SemType, SyntaxToken>
+type TPreambleEntry = TPreambleEntryG<SemType, SyntaxToken>
 type TCtorLet = TCtorLetG<SemType, SyntaxToken>
 type TCtorFieldInit = TCtorFieldInitG<SemType, SyntaxToken>
 type TSecondaryCtor = TSecondaryCtorG<SemType, SyntaxToken>
@@ -1069,6 +1102,20 @@ module TTypeKindG =
         | TTypeKindG.Interface _
         | TTypeKindG.Enum _ -> EqArray.empty
 
+[<RequireQualifiedAccess>]
+module TPreambleEntryG =
+    /// The `let` binders of a class preamble, in declaration order — the entries that take a
+    /// backing field (a `do` has storage nowhere, only an effect). Generic in `'ty`/`'tok`, so
+    /// this ONE projection serves every consumer — inference-time TAST, frozen TAST, and both
+    /// backends — rather than one copy per stage.
+    let lets (entries: seq<TPreambleEntryG<'ty, 'tok>>) : TClassLetG<'ty, 'tok> list =
+        [
+            for e in entries do
+                match e with
+                | TPreambleEntryG.Let l -> yield l
+                | TPreambleEntryG.Do _ -> ()
+        ]
+
 // Parallel frozen aliases. Codegen and the freeze step speak these; the bare names
 // above STAY `SemType` (inference, Regions, tests, any non-codegen API).
 
@@ -1091,7 +1138,8 @@ module Frozen =
     type TEnumCase = TEnumCaseG<SyntaxToken>
     type TRecordField = TRecordFieldG<FrozenType>
     type TTypeMember = TTypeMemberG<FrozenType, SyntaxToken>
-    type TStaticLet = TStaticLetG<FrozenType, SyntaxToken>
+    type TClassLet = TClassLetG<FrozenType, SyntaxToken>
+    type TPreambleEntry = TPreambleEntryG<FrozenType, SyntaxToken>
     type TCtorLet = TCtorLetG<FrozenType, SyntaxToken>
     type TCtorFieldInit = TCtorFieldInitG<FrozenType, SyntaxToken>
     type TSecondaryCtor = TSecondaryCtorG<FrozenType, SyntaxToken>

@@ -74,6 +74,30 @@ let private classMemberParamType (source: string) (typeName: string) (memberName
     | [ ty ] -> ty
     | other -> failtestf "expected exactly one parameter on '%s.%s', got %A" typeName memberName other
 
+/// The RESOLVED return type of one class member, off the elaborated TAST. A preamble binder
+/// carries no name of its own once it is a field, so this is how a SHADOWING test pins which
+/// binder a name bound to: give the shadowing `let` a different type and read it back here.
+let private classMemberReturnType (source: string) (typeName: string) (memberName: string) : SemType =
+    let tast = analyse source
+
+    let found =
+        [
+            for d in tast.Decls do
+                match d with
+                | TDecl.Type td when td.Name = typeName ->
+                    match td.Kind with
+                    | TTypeKind.Class c ->
+                        for m in c.Members do
+                            if m.Name = memberName then
+                                yield m.ReturnTy
+                    | _ -> ()
+                | _ -> ()
+        ]
+
+    match found with
+    | [ ty ] -> ty
+    | other -> failtestf "expected exactly one member '%s.%s', got %A" typeName memberName other
+
 /// The RESOLVED type of the unit's ONE module-level `let`, off the elaborated TAST — the
 /// module-`let` counterpart of the two accessors above, so a scoping test can pin what a
 /// `let`'s annotation BOUND to rather than merely that it was accepted.
@@ -305,18 +329,229 @@ let tests =
                         "type B(n: int) =\n    member _.N = n\ntype D() =\n    inherit B(1 + 2)\n    member this.M = 3"
                 }
 
-            // The ordering rule above is enforced over the `static let`s, which are the only
-            // preamble bindings modelled: `extractStaticLets` admits `static let` and drops an
-            // instance `let` (it has no backing field / ctor-init lowering yet). So an instance
-            // `let` binds nothing and every reference to it is unresolved. F# ACCEPTS this
-            // program and prints 2 — the divergence is the missing FEATURE, not the ordering,
-            // and modelling instance lets flips this test to `expectClean`. Asserting the wrong
-            // current behaviour rather than inventing a skip, as the CLR suite's
-            // `LocalModuleTests` does.
+            // The instance preamble obeys the same two-tier rule: it is one top-down sequence
+            // (a later `let` sees an earlier one), and every binder is in scope for the
+            // mutually-recursive member group.
             yield
-                test "a member referencing an instance let is (wrongly) rejected" {
+                test "a member referencing an instance let is accepted" {
+                    expectClean "type C() =\n    let b = 1\n    let a = b + 1\n    member _.A = a"
+                }
+
+            // The `.cctor` has already run when the primary ctor does, so an instance entry
+            // may read a `static let` above it.
+            yield
+                test "an instance let referencing a static let is accepted" {
+                    expectClean "type C() =\n    static let k = 10\n    let a = k + 1\n    member _.A = a"
+                }
+
+            // …and not the other way round: the two sequences are separate ordered scopes, so
+            // a `static let` never sees an instance binder. F# reports FS0039 too.
+            yield
+                test "a static let referencing an instance let is rejected" {
                     expectError
                         "Unresolved identifier: a"
-                        "type C() =\n    let b = 1\n    let a = b + 1\n    member _.A = a"
+                        "type C() =\n    let a = 1\n    static let k = a + 1\n    member _.K = k"
+                }
+
+            // An instance `let`/`do` runs in the PRIMARY ctor. The `val`-field form has none,
+            // so there is nowhere for it to run — F# rejects it (FS0963) rather than picking a
+            // secondary ctor.
+            yield
+                test "an instance let in a class with no primary constructor is rejected" {
+                    expectError
+                        "primary constructor"
+                        "type C =\n    val x: int\n    let a = 1 + 1\n    new() = { x = 0 }"
+                }
+
+            yield
+                test "an instance do in a class with no primary constructor is rejected" {
+                    expectError
+                        "primary constructor"
+                        "type C =\n    val x: int\n    do ignore (1 + 1)\n    new() = { x = 0 }"
+                }
+
+            // That rejection is a property of the CLASS, and every preamble diagnostic anchors at
+            // the type's decl key — so it must be reported once, not once per offending entry.
+            yield
+                test "a class with no primary constructor reports its instance preamble once" {
+                    let es =
+                        errors (
+                            analyse
+                                "type C =\n    val x: int\n    let a = 1 + 1\n    do ignore 2\n    let b = 3\n    new() = { x = 0 }"
+                        )
+                        |> List.filter (fun m -> m.Contains "primary constructor")
+
+                    Expect.equal (List.length es) 1 (sprintf "one error for three offending entries, got %A" es)
+                }
+
+            // A struct's zero-arg default ctor is not ours to write, so an instance binder's field
+            // would be left unset by `Unchecked.defaultof<S>` — F# rejects both shapes (FS0901 /
+            // FS0035), and so must we: `buildClassPrimaryCtor` would otherwise happily run the
+            // preamble in the ctor we DO emit and leave the default-constructed value inconsistent.
+            yield
+                test "an instance let on a struct is rejected" {
+                    expectError
+                        "Structs cannot contain value definitions"
+                        "[<Struct>]\ntype S(x: int) =\n    let y = x + 1\n    member _.Y = y"
+                }
+
+            yield
+                test "an instance do on a struct is rejected" {
+                    expectError
+                        "Structs cannot contain `do` bindings"
+                        "[<Struct>]\ntype S(x: int) =\n    do ignore (x + 1)\n    member _.X = x"
+                }
+
+            // …and only the INSTANCE sequence: a struct's static preamble runs in the `.cctor`,
+            // which owes nothing to the default ctor. F# accepts it.
+            yield
+                test "a static let on a struct is accepted" {
+                    expectClean "[<Struct>]\ntype S(x: int) =\n    static let k = 41\n    member _.X = x + k"
+                }
+
+            // A `static let mutable` binder IS the static field, so a write must store to it —
+            // but there is no `TExpr.StaticFieldSet`, so the write would elaborate to an
+            // assignment whose target is a `StaticFieldGet` and crash codegen. Reject the
+            // declaration instead.
+            yield
+                test "a `static let mutable` is rejected" {
+                    expectError
+                        "`static let mutable` is not yet supported"
+                        "type C() =\n    static let mutable n = 0\n    member _.Bump () = n <- n + 1"
+                }
+
+            // The object is NOT nameable from the preamble: F# only exposes it through an
+            // explicit `as self`, and even then a member call from a `let` throws at run time
+            // (initialisation soundness). Absent that analysis, rejecting is the only
+            // alternative to silently reading a not-yet-initialised field.
+            yield
+                test "a preamble let calling a member through the `as` alias is rejected" {
+                    expectError
+                        "Unresolved qualified name: self"
+                        "type C(n: int) as self =\n    let m = self.Double n\n    member _.Double x = x * 2\n    member _.M = m"
+                }
+
+            // Ctor params, `val` fields, `static let`s and instance `let`s ALL mint a field
+            // carrying their source name, so any two of them sharing a name mint two fields of one
+            // name — and on the CLR that is one duplicate Field row, static-ness being in the
+            // flags rather than the identity. F# accepts every one of these (it uniquifies the
+            // backing-field names by source position); until that pass exists — local `let`s need
+            // it just as much — reject rather than miscompile. A LIMITATION, not invalid F#.
+            for form, source in
+                [
+                    "an instance let shadowing a ctor param", "type C(n: int) =\n    let n = n + 1\n    member _.N = n"
+                    "an instance let shadowing an earlier instance let",
+                    "type C() =\n    let v = 1\n    let v = v + 1\n    member _.V = v"
+                    "a static let shadowing an earlier static let",
+                    "type C() =\n    static let v = 1\n    static let v = v + 1\n    static member V = v"
+                    // Not shadowing at all — two DISTINCT storage locations in F#, one static and
+                    // one instance — yet still a single Field row on the CLR, so still rejected.
+                    "an instance let colliding with a static let",
+                    "type C() =\n    static let v = 1\n    let v = v + 1\n    member _.V = v\n    static member SV = v"
+                    "an instance let colliding with a val field",
+                    "type C(n: int) =\n    [<DefaultValue>]\n    val mutable x: int\n    let x = n + 1\n    member _.X = x"
+                    // Pre-existing hazard, not one the preamble introduced: a ctor param and a
+                    // `val` of one name were always two fields of one name.
+                    "a val field colliding with a ctor param",
+                    "type C(x: int) =\n    [<DefaultValue>]\n    val mutable x: int\n    member this.X = this.x + x"
+                ] -> test $"{form} is rejected" { expectError "Duplicate field name" source }
+
+            // FS0905 — unlike the collisions above this is a REAL F# rule, and one that binder
+            // uniquification would not lift: a member's name is its public surface, so a class
+            // `let` may not share it. Both sides being static makes no difference (probed).
+            for form, source in
+                [
+                    "an instance let colliding with a member name",
+                    "type C(n: int) =\n    let M = n + 1\n    member _.M = M * 10"
+                    "a static let colliding with a static member name",
+                    "type C() =\n    static let T = 1\n    static member T = T * 10"
+                ] ->
+                test $"{form} is rejected" {
+                    expectError "A member and a local class binding both have the name" source
+                }
+
+            // …and a ctor param may share a member's name (F# accepts it: a param is not a local
+            // class binding), so the FS0905 check must not over-reach into the ctor params.
+            yield
+                test "a ctor param sharing a member's name is accepted" {
+                    let ty = classMemberReturnType "type C(n: int) =\n    member _.n = n > 0" "C" "n"
+                    Expect.equal ty BuiltinTypes.tyBool "the member is typed from its own body, not the param"
+                }
+
+            // …and the non-shadowing neighbours of those programs still resolve, pinned by TYPE
+            // rather than by acceptance: the member reads the binder it names, not a same-shaped
+            // one — a blanket rejection of anything that merely LOOKS like a preamble let would
+            // pass an acceptance test.
+            yield
+                test "a distinctly-named instance let over a ctor param binds the let in a member" {
+                    let ty =
+                        classMemberReturnType "type C(n: int) =\n    let m = n + 1 > 0\n    member _.M = m" "C" "M"
+
+                    Expect.equal ty BuiltinTypes.tyBool "the member sees the `bool` let, not the `int` ctor param"
+                }
+
+            yield
+                test "a later instance let binds the earlier one in its initialiser" {
+                    let ty =
+                        classMemberReturnType
+                            "type C() =\n    let v = 1\n    let w = v + 1 > 0\n    member _.W = w"
+                            "C"
+                            "W"
+
+                    Expect.equal
+                        ty
+                        BuiltinTypes.tyBool
+                        "the member sees the second let, whose initialiser read the first"
+                }
+
+            // The static/instance neighbours of the cross-family rejections above: distinctly
+            // named, each member must read the binder it NAMES — a static field and an instance
+            // field of one class are not interchangeable.
+            yield
+                test "distinctly-named static and instance lets each bind their own member" {
+                    let source =
+                        "type C() =\n    static let s = 1\n    let i = s > 0\n    member _.I = i\n    static member S = s"
+
+                    Expect.equal (classMemberReturnType source "C" "I") BuiltinTypes.tyBool "`I` reads the `bool` let"
+                    Expect.equal (classMemberReturnType source "C" "S") BuiltinTypes.tyInt "`S` reads the `int` static"
+                }
+
+            yield
+                test "a distinctly-named val field alongside an instance let binds each in a member" {
+                    let source =
+                        "type C(n: int) =\n    [<DefaultValue>]\n    val mutable y: int\n    let m = n > 0\n    member _.M = m\n    member this.Y = this.y"
+
+                    Expect.equal (classMemberReturnType source "C" "M") BuiltinTypes.tyBool "`M` reads the `bool` let"
+
+                    Expect.equal
+                        (classMemberReturnType source "C" "Y")
+                        BuiltinTypes.tyInt
+                        "`Y` reads the `int` val field"
+                }
+
+            // An operator in a preamble initialiser / `do` body must carry a compiled name
+            // through to Elaborate (`InfixApp … missing DesugaredForm` is a hard crash), and a
+            // preamble `let` may capture a `let mutable` — which is a FIELD, so the closure and
+            // the member bodies read the same storage.
+            yield
+                test "an instance do body and a let-bound closure over a let mutable are accepted" {
+                    expectClean
+                        "type C() =\n    let mutable c = 0\n    let bump () = c <- c + 1\n    do bump ()\n    member _.C = c"
+                }
+
+            // `let rec` puts its binder in scope of its OWN initialiser: recursion, not shadowing,
+            // so the shadowing rejection above must not swallow it.
+            yield
+                test "a recursive instance let is accepted" {
+                    expectClean
+                        "type C() =\n    let rec fact k = if k <= 1 then 1 else k * fact (k - 1)\n    member _.F = fact 5"
+                }
+
+            // Instance lets in a GENERIC class: a preamble binder is an instance field, and
+            // those already work generically (a ctor param is one).
+            yield
+                test "instance lets in a generic class are accepted" {
+                    expectClean
+                        "type G<'T>(x: 'T) =\n    let count = 1 + 1\n    let stored = x\n    member _.Stored = stored\n    member _.Count = count"
                 }
         ]

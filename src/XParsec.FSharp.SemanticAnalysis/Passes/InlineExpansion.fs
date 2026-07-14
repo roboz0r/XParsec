@@ -820,8 +820,8 @@ module InlineExpansion =
             let walkExpr (e: TExpr) : TExpr = TastWalk.mapExpr mapper e
 
             // Expand the inlines embedded in every expression a type declaration
-            // carries: member bodies, `static let`
-            // initialisers, secondary-ctor `let`s + chain args, and the
+            // carries: member bodies, the class preambles (`[static] let` initialisers and
+            // `[static] do` bodies), secondary-ctor `let`s + chain args, and the
             // `inherit Base(args)` arguments. Mirrors `Elaborate.freezeKind`'s
             // expr-bearing coverage, relocating codegen's
             // `EmitLower.spliceExternalInlinesInExpr` splice (`NominalEmit`'s three
@@ -832,6 +832,11 @@ module InlineExpansion =
             // would-be error into a correct expansion; existing green corpora carry
             // none, so output is byte-identical.
             let walkMember (m: TTypeMember) : TTypeMember = { m with Body = walkExpr m.Body }
+
+            let walkPreambleEntry (entry: TPreambleEntry) : TPreambleEntry =
+                match entry with
+                | TPreambleEntry.Let l -> TPreambleEntry.Let { l with Init = walkExpr l.Init }
+                | TPreambleEntry.Do e -> TPreambleEntry.Do(walkExpr e)
 
             let walkKind (k: TTypeKind) : TTypeKind =
                 match k with
@@ -856,7 +861,8 @@ module InlineExpansion =
                             Members = c.Members |> EqArray.map walkMember
                             Interfaces =
                                 c.Interfaces |> EqArray.map (fun (ity, ms) -> ity, ms |> EqArray.map walkMember)
-                            StaticLets = c.StaticLets |> EqArray.map (fun sl -> { sl with Init = walkExpr sl.Init })
+                            StaticPreamble = c.StaticPreamble |> EqArray.map walkPreambleEntry
+                            InstancePreamble = c.InstancePreamble |> EqArray.map walkPreambleEntry
                             SecondaryCtors =
                                 c.SecondaryCtors
                                 |> EqArray.map (fun sc ->
