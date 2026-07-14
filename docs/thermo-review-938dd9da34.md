@@ -10,7 +10,7 @@ below are what remains after that work. Delete this file once they are closed.
 
 ## Status
 
-**Closed: 1, 2, 3, 5, 7, 9.** Four commits (`24455419`, `18679fb6`, `3ecc37c4`, `918d66c8`) closed
+**Closed: 1, 2, 3, 5, 6, 7, 9.** Four commits (`24455419`, `18679fb6`, `3ecc37c4`, `918d66c8`) closed
 finding 1 at its root rather than at the symptom the finding described. Finding 1's own
 prescription — key the provider stores by `SymbolKey` — is NOT what landed, and could not
 be: ten call sites mint a store key from a bare compiled name with no assembly in hand, and
@@ -93,10 +93,38 @@ KEYED (`ExternalMember.OfKey` / `ofBindingKey`) — its `Name` is derived from t
 than written beside it, so the two cannot disagree and no entry can be minted without an
 identity.
 
-**Open, unchanged: 4, 6, 8, 10** and the remaining test gap (an arity overload
+**Finding 6 is CLOSED** (`6cf19c0c`). The four published fields (`ExternalMember.Key`,
+`ExternalSymbol.Key`, the two `Canon`s) are narrowed to the kind they can only hold
+(`MemberKey` / `BindingKey` / `TypeKey`), and the ~23 hand-rolled destructures with them —
+along with 20 disagreeing fallback arms in eight flavours (not five), one of which
+(`JsExternalMembers.fs`'s `| _ -> key`) handed a member key back as its own declaring key.
+The finding's proposed `tryMember` / `memberParamCount` / `memberDeclKey` helpers were NOT
+needed: once the field is a `MemberKey` the consumer reads `m.Key.Decl` directly and the
+"what does a non-member key mean here" question stops existing. Two helpers survive
+(`asMemberKey` / `declTypeKeyOf`) only for the IR seam, which still carries a wide key. The
+review is wrong that `ClrExternalMembers` still has a `failwithf "declaring key is not a
+TypeKey"` — that check was `"key is not a MemberKey"`, a different question, and the comment
+it calls stale was already true. This finding paid for itself: `TestHelpers.mkMember`'s
+member-keyed-as-a-binding (the second hazard recorded under finding 5) stopped compiling.
+
+**The "REMAINING NARROWING" follow-up is DONE** (`6e24398e`), off the back of 6. The type
+IR's NOMINAL-HEAD payload (`SemType.TyClass/TyRecord/TyUnion/TyEnum` and the `FrozenType`
+twins) carried the wide `SymbolKey` where only a type can sit; it is now `TypeKey`. The note
+at `SemanticInfo.fs:357` claimed this was "~1300 sites" — a measurement spike put the real
+figure at **~295 sites across ~72 files** (the default `--maxerrors:100` truncation is the
+likely source of the inflated folklore), and the three sites the note called "the cost"
+turned out to be the PAYOFF: they were narrow-checks that DELETE under the change, not add.
+Seven such checks were removed in total. The registry's by-key faces and the nominal-head
+sinks now take a `TypeKey` outright; a `SymbolKey.Type` widening survives only where a sink
+genuinely serves every kind (the provider seam, the canon machinery), where it is now an
+explicit boundary rather than an over-wide field. Finding 10's complaint about that note
+being a design-essay-in-a-type is closed with it: the note is deleted, replaced by a
+one-line invariant.
+
+**Open, unchanged: 4, 8, 10** and the remaining test gap (an arity overload
 combined with `inherit` or an augmentation block).
 
-**Found while closing 5 — not in this review, both real:**
+**Found while closing 5/6 — not in this review, all real:**
 
 - **The PRODUCER side has the same overload collapse.** `SymbolProviders.collectInlineBodies`
   (`Codegen.Common/SymbolProviders.fs:138`) interns a harvested member body under a key it
@@ -105,10 +133,8 @@ combined with `inherit` or an augmentation block).
   silently overwrites the first. No correctness in the lookup can recover a body that was
   never stored. The honest fix is to select off `TryLookupMembers` by the harvested params'
   `argSigOfParameters` spelling.
-- **`TestHelpers.mkMember` keys an `ExternalMember` with a `SymbolKey.Binding`** — a VALUE
-  key on a member entry, an identity no provider could serve. Harmless today (its consumers,
-  `ExternalSignatureOracleTests`, only read `Signature`), which is why it is the one entry
-  that cannot go through the keyed zero. Re-key those three sites onto `memberKeyOf`.
+  (`TestHelpers.mkMember`'s member-keyed-as-a-binding, the other hazard once recorded here, is
+  RESOLVED — finding 6's narrowing forced it to a `memberKeyOf` re-key.)
 
 ## What is right
 
@@ -338,6 +364,9 @@ already exists reverts every one of those call-site edits and restores named fie
 ---
 
 ## 6. Missing member projections: 10+ hand-rolled destructures with five different fallbacks
+
+**CLOSED** (`6cf19c0c`, with the nominal-head follow-up in `6e24398e`). See the Status
+section. Kept for the record.
 
 `ExternalMember.Key`, `ExternalSymbol.Key`, `IntrinsicIdentity.Canon` and
 `IntrinsicInterfaceShape.Canon` are all still typed `SymbolKey`, so every consumer
