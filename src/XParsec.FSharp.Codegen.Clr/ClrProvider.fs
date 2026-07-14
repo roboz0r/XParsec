@@ -59,7 +59,7 @@ type ClrProvider
     /// Register a *generic* union's shape (typar names + cases) so member refs can be minted on its
     /// `TypeSpec`. A no-op for a monomorphic union (its `Def` tokens are used).
     member _.RegisterGenericUnion
-        (key: SymbolKey, typars: string list, cases: (string * (string * FrozenType) list) list)
+        (key: TypeKey, typars: string list, cases: (string * (string * FrozenType) list) list)
         : unit =
         env.GenericUnions.[key] <- (typars, cases)
 
@@ -82,7 +82,7 @@ type ClrProvider
 
     member _.CctorSignature() : BlobBuilder = enc.CctorSignature()
 
-    member _.GenericUnionSelfSpec(key: SymbolKey) : EntityHandle = generics.GenericUnionSelfSpec key
+    member _.GenericUnionSelfSpec(key: TypeKey) : EntityHandle = generics.GenericUnionSelfSpec key
 
     member _.GenericRecordSelfSpec(key: SymbolKey) : EntityHandle = generics.GenericRecordSelfSpec key
 
@@ -128,14 +128,14 @@ type ClrProvider
     member _.InterfaceHandleOf(ty: FrozenType) : EntityHandle =
         match ty with
         | FTClass(key, args) when args.IsEmpty ->
-            match env.ExternalClassRef key with
+            match env.ExternalClassRef(SymbolKey.Type key) with
             | ValueSome tref -> tref
             | ValueNone ->
                 // A *project-local* interface: its `TypeDef` was registered via
                 // `RegisterUserType`. A non-generic local type reference must be that
                 // `TypeDef`, not a `TypeSpec` (the runtime can't load a `TypeSpec` for
                 // a non-generic type — "Could not load TypeSpec").
-                match env.UserTypes.TryGetValue key with
+                match env.UserTypes.TryGetValue(SymbolKey.Type key) with
                 | true, h -> h
                 | false, _ -> enc.TypeSpecOf ty
         | _ -> enc.TypeSpecOf ty
@@ -190,14 +190,15 @@ type ClrProvider
     /// cannot collide with a real `userTypes` key; the guard below fails fast if
     /// that invariant is ever broken.
     member _.RegisterStackClosureValueType(name: string, defHandle: EntityHandle) : FrozenType =
-        let key = SymbolKeyOps.typeKey "<closure>" name
+        let typeKey = SymbolKeyOps.typeKeyOf "<closure>" name
+        let key = SymbolKey.Type typeKey
 
         if env.UserTypes.ContainsKey key then
             failwithf "Emit: synthetic value-struct closure key '%s' collides with a registered type" name
 
         env.UserTypes.[key] <- defHandle
         env.UserValueTypes.Add key |> ignore
-        FTClass(key, EqArray.empty)
+        FTClass(typeKey, EqArray.empty)
 
     member _.GenericClosureTypeSpec(name: string, args: FrozenType list) : EntityHandle =
         generics.GenericClosureTypeSpec(name, args)
@@ -363,7 +364,7 @@ type ClrProvider
                 // the instantiated `TypeSpec`. The fields are already on the stack
                 // in declaration order, so the
                 // recipe is a static `call` pushing the one union value back.
-                match ext.ExternalUnionFactory(key, caseName, tyArgs) with
+                match ext.ExternalUnionFactory(SymbolKey.Type key, caseName, tyArgs) with
                 | ValueSome(handle, argCount) ->
                     ValueSome
                         {
@@ -375,11 +376,14 @@ type ClrProvider
 
         member _.UserGenericMemberRef(key, args, kind) =
             let zonkedArgs = args
+            // The union table is `TypeKey`-keyed; the record / class / member tables are
+            // still part of the kind-blind emitted-symbol world, so they take the widened key.
+            let symKey = SymbolKey.Type key
 
             match kind with
             | UserMemberKind.UnionMember which -> generics.GenericUnionMemberRef(key, zonkedArgs, which)
-            | UserMemberKind.RecordMember which -> generics.GenericRecordMemberRef(key, zonkedArgs, which)
-            | UserMemberKind.ClassMember which -> generics.GenericClassMemberRef(key, zonkedArgs, which)
+            | UserMemberKind.RecordMember which -> generics.GenericRecordMemberRef(symKey, zonkedArgs, which)
+            | UserMemberKind.ClassMember which -> generics.GenericClassMemberRef(symKey, zonkedArgs, which)
             | UserMemberKind.Member(metaName, isStatic, methodTyparCount, paramTys, retTy) ->
                 generics.GenericMemberRef(key, zonkedArgs, metaName, isStatic, methodTyparCount, paramTys, retTy)
 
@@ -389,11 +393,11 @@ type ClrProvider
         member _.TryEmitRecordCons(key, tyArgs, _fieldNames) =
             let zonkedArgs = tyArgs
 
-            match ext.ExternalRecordCtor(key, zonkedArgs) with
+            match ext.ExternalRecordCtor(SymbolKey.Type key, zonkedArgs) with
             | ValueNone -> ValueNone
             | ValueSome handle ->
                 let argCount =
-                    match env.ExternalRecordShape(key, List.length zonkedArgs) with
+                    match env.ExternalRecordShape(SymbolKey.Type key, List.length zonkedArgs) with
                     | ValueSome(fields, _) -> fields.Length
                     | ValueNone -> 0
 
@@ -419,7 +423,7 @@ type ClrProvider
                 | "Cons" -> ValueSome(recipes.EmitVesperListTagField elem, 1)
                 | _ -> ValueNone
             else
-                ext.ExternalUnionTag(key, tyArgs, caseName)
+                ext.ExternalUnionTag(SymbolKey.Type key, tyArgs, caseName)
 
         member _.ExternalUnionCaseField(key, tyArgs, caseName, fieldIndex) =
             if RuntimeNames.isVesperListKey key then
@@ -436,7 +440,7 @@ type ClrProvider
                 | "Cons", 1 -> ValueSome(recipes.EmitVesperListConsField(elem, 1), FTUnion(key, EqArray.ofList tyArgs))
                 | _ -> ValueNone
             else
-                ext.ExternalUnionCaseField(key, tyArgs, caseName, fieldIndex)
+                ext.ExternalUnionCaseField(SymbolKey.Type key, tyArgs, caseName, fieldIndex)
 
         member _.StaticFnMethodSpec(handle, instTypes) =
             ext.StaticFnMethodSpec(handle, instTypes)

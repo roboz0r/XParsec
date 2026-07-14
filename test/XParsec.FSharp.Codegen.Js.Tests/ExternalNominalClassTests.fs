@@ -156,14 +156,14 @@ let tests =
                 match returnOf "makeBox" with
                 | FTClass(key, args) ->
                     Expect.equal
-                        (SymbolKeyOps.qualifiedName key)
+                        (SymbolKeyOps.typeMetaName key)
                         "Box"
                         "top-level key qualifiedName must equal the map key"
 
                     Expect.isEmpty (args |> EqArray.toList) "Box is non-generic"
 
                     Expect.isTrue
-                        (match boxProviderRaw.TryLookupMember(key, "get") with
+                        (match boxProviderRaw.TryLookupMember(SymbolKey.Type key, "get") with
                          | ValueSome _ -> true
                          | ValueNone -> false)
                         "the member must resolve by the frozen key (identity equation)"
@@ -174,12 +174,12 @@ let tests =
                 match returnOf "NS.makeInner" with
                 | FTClass(key, _) ->
                     Expect.equal
-                        (SymbolKeyOps.qualifiedName key)
+                        (SymbolKeyOps.typeMetaName key)
                         "NS.Inner"
                         "namespaced key qualifiedName must equal the dotted map key"
 
                     Expect.isTrue
-                        (match boxProviderRaw.TryLookupMember(key, "get") with
+                        (match boxProviderRaw.TryLookupMember(SymbolKey.Type key, "get") with
                          | ValueSome _ -> true
                          | ValueNone -> false)
                         "the namespaced member must resolve under the key's qualifiedName"
@@ -194,7 +194,7 @@ let tests =
                 match returnOf "makeIntWrap" with
                 | FTClass(key, args) ->
                     Expect.equal
-                        (SymbolKeyOps.qualifiedName key)
+                        (SymbolKeyOps.typeMetaName key)
                         "Wrap`1"
                         "generic key qualifiedName must be arity-suffixed"
 

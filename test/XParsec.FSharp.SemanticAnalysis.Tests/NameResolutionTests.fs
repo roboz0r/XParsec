@@ -662,12 +662,12 @@ let tests =
                 let hasValue key =
                     stamped |> Seq.exists (fun kv -> kv.Value = key)
 
-                Expect.isTrue (hasValue (SymbolKeyOps.typeKey "" ("Color"))) "Color decl site stamped"
-                Expect.isTrue (hasValue (SymbolKeyOps.typeKey "" ("Choice`2"))) "Choice`2 decl site stamped"
+                Expect.isTrue (hasValue (SymbolKeyOps.typeKeyOf "" ("Color"))) "Color decl site stamped"
+                Expect.isTrue (hasValue (SymbolKeyOps.typeKeyOf "" ("Choice`2"))) "Choice`2 decl site stamped"
 
                 // The stamped key round-trips back to the union through the same
                 // reader-side seam the emitter uses.
-                match TypeRegistry.tryUnionByKey ctx.Types (SymbolKeyOps.typeKey "" ("Choice`2")) with
+                match TypeRegistry.tryUnionByKey ctx.Types (SymbolKeyOps.typeKeyOf "" ("Choice`2")) with
                 | ValueSome info -> Expect.equal info.Name "Choice" "Choice`2 key resolves to the Choice union"
                 | ValueNone -> failtest "Choice`2 key did not resolve via tryUnionByKey"
             }
@@ -689,7 +689,7 @@ let tests =
                     ctx.Resolution.ResolvedType.AsDictionary()
                     |> Seq.exists (fun kv ->
                         kv.Key.Kind = NodeKind.TypeGeneric
-                        && kv.Value = SymbolKeyOps.typeKey "" ("Choice`2")
+                        && kv.Value = SymbolKeyOps.typeKeyOf "" ("Choice`2")
                     )
 
                 Expect.isTrue useStamp "Choice<int, string> annotation stamped at its TypeGeneric use site"

@@ -56,7 +56,7 @@ let private singleLet (tast: TastFile) : TExpr * SemType =
 let private enumTypeName (t: SemType) : string voption =
     match t with
     | TyEnum k ->
-        let (DisplayName name) = SymbolKeyOps.simpleName k
+        let (DisplayName name) = SymbolKeyOps.typeSimpleName k
         ValueSome name
     | _ -> ValueNone
 

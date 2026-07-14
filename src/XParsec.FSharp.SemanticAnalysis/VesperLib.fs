@@ -57,7 +57,7 @@ module VesperLib =
         match ft with
         | FTClass(k, args)
         | FTRecord(k, args)
-        | FTUnion(k, args) -> Some(SymbolKeyOps.qualifiedName k, args.AsSpan().ToArray())
+        | FTUnion(k, args) -> Some(SymbolKeyOps.typeMetaName k, args.AsSpan().ToArray())
         | _ -> None
 
     /// Freeze a list of `interface <ty>` impl CSTs into the `(compiled-name, args)`

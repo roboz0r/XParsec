@@ -61,12 +61,12 @@ module EmitLoops =
     /// arguments, so overload picking sees an empty arg-type list.
     let private constrainedSlot
         (env: EmitEnv)
-        (ifaceKey: SymbolKey)
+        (ifaceKey: TypeKey)
         (ifaceArgs: EqArray<FrozenType>)
         (memberName: string)
         : EntityHandle =
         let iface =
-            match env.Interfaces.TryGetValue ifaceKey with
+            match env.Interfaces.TryGetValue(SymbolKey.Type ifaceKey) with
             | true, i -> i
             | false, _ -> failwithf "EmitLoops: constrained for-in on unregistered interface '%A'" ifaceKey
 
@@ -388,7 +388,10 @@ module EmitLoops =
                 // IL-IR exception region is the same `Try` / `BeginFinally` /
                 // `EndFinally` shape as `TExprG.Use`'s disposal.
                 let enumTy =
-                    FTClass(SymbolKeyOps.typeKey "System.Collections.Generic" "IEnumerator`1", EqArray.singleton elemTy)
+                    FTClass(
+                        SymbolKeyOps.typeKeyOf "System.Collections.Generic" "IEnumerator`1",
+                        EqArray.singleton elemTy
+                    )
 
                 let geKey =
                     SymbolKeyOps.memberKey

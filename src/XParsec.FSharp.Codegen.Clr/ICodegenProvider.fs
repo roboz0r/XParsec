@@ -308,7 +308,7 @@ type ICodegenProvider =
     /// The receiver is identified by its nominal `SymbolKey`: the FSharp.Core
     /// `list` vs the Vesper cons-list are recognised by key identity
     /// (`RuntimeNames.isFsharpCoreListKey` / `isVesperListKey`), not by string name.
-    abstract TryEmitUnionCons: key: SymbolKey * caseName: string * tyArgs: FrozenType list -> CallRecipe voption
+    abstract TryEmitUnionCons: key: TypeKey * caseName: string * tyArgs: FrozenType list -> CallRecipe voption
 
     /// A `MemberRef` to one member of an emitted *generic* nominal user type
     /// (union / record / class) identified by its nominal `SymbolKey` `key`,
@@ -320,7 +320,7 @@ type ICodegenProvider =
     /// per-family helpers (was keyed by a
     /// string `name`; closures, which have no `SymbolKey`, split off onto
     /// `UserClosureMemberRef`).
-    abstract UserGenericMemberRef: key: SymbolKey * args: FrozenType list * kind: UserMemberKind -> EntityHandle
+    abstract UserGenericMemberRef: key: TypeKey * args: FrozenType list * kind: UserMemberKind -> EntityHandle
 
     /// A `MemberRef` to one member of an emitted *generic* closure `name`
     /// (a synthetic `<closure>$n` name — closures carry no `SymbolKey`, so they
@@ -342,7 +342,7 @@ type ICodegenProvider =
     /// the type's external field shape (today: the contract's field order is
     /// the declaration order, so the source-order initialiser drives a separate
     /// reorder if needed).
-    abstract TryEmitRecordCons: key: SymbolKey * tyArgs: FrozenType list * fieldNames: string list -> CtorRecipe voption
+    abstract TryEmitRecordCons: key: TypeKey * tyArgs: FrozenType list * fieldNames: string list -> CtorRecipe voption
 
     /// A `MemberRef` to one named field on a *referenced-assembly* record,
     /// instantiated at `tyArgs` — the sibling of `TryEmitRecordCons` for the
@@ -359,15 +359,14 @@ type ICodegenProvider =
     /// zero-based index in declaration order). The cross-package `match` arm reads
     /// `scrut._tag` and compares it against this value; the union emitter (`NominalEmit.fs`) fixes both the field name and
     /// the declaration-order tagging. `ValueNone` ⇒ unknown union / case.
-    abstract ExternalUnionTag:
-        key: SymbolKey * tyArgs: FrozenType list * caseName: string -> (EntityHandle * int) voption
+    abstract ExternalUnionTag: key: TypeKey * tyArgs: FrozenType list * caseName: string -> (EntityHandle * int) voption
 
     /// One `<caseName>_<fieldIndex>` field `MemberRef` on a referenced-package
     /// union, instantiated at `tyArgs`, plus that field's substituted declared
     /// type — the field-extract slot a `match … Some x` binds. The union sibling of
     /// `TryResolveExternalRecordField`. `ValueNone` ⇒ unknown union / case / field.
     abstract ExternalUnionCaseField:
-        key: SymbolKey * tyArgs: FrozenType list * caseName: string * fieldIndex: int ->
+        key: TypeKey * tyArgs: FrozenType list * caseName: string * fieldIndex: int ->
             (EntityHandle * FrozenType) voption
 
     /// A `MethodSpec` instantiating a *generic* module-static method (`fold`) at a

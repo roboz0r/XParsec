@@ -239,10 +239,8 @@ module EmitClosures =
     /// `(ns, name)` of a `TypeSlotKey` — used to match a value's type against the
     /// ref-struct set, keyed on `(ns, name)` because the use-site `FTClass` key and
     /// the decl key can carry different `asm` qualification.
-    let typeKeyNsName (k: SymbolKey) : (string * string) option =
-        match k with
-        | SymbolKey.Type t -> Some(t.Namespace.Dotted, SymbolKeyOps.typeNestedName t)
-        | _ -> None
+    let typeKeyNsName (t: TypeKey) : string * string =
+        t.Namespace.Dotted, SymbolKeyOps.typeNestedName t
 
     /// Classify the *generic* module-level values (`let empty : SetTree<'T> = …`)
     /// — a non-`inline`, non-`Lambda` `let` whose type carries an open typar
@@ -340,10 +338,7 @@ module EmitClosures =
         // local; a byref (`FTConst("byref", _)`) likewise.
         let isFieldEmittable (ty: FrozenType) =
             match ty with
-            | FTClass(key, _) ->
-                match typeKeyNsName key with
-                | Some nsName -> not (refStructNsNames.Contains nsName)
-                | None -> true
+            | FTClass(key, _) -> not (refStructNsNames.Contains(typeKeyNsName key))
             | FTByref _ -> false
             | _ -> true
 

@@ -144,7 +144,7 @@ module internal UnificationTranslate =
         : SemType =
         match ctx.IntrinsicReverseCanon.Value.TryGetValue compiled with
         | true, (canon :: _) -> TyConst(canon, args)
-        | _ -> TyClass(SymbolKeyOps.externalTypeKey info.Origin compiled arity, args)
+        | _ -> TyClass(SymbolKeyOps.externalTypeKeyOf info.Origin compiled arity, args)
 
     /// DEBUG-only witness for a DOTTED written head that neither the store face nor the
     /// project-local claim answered. It guards the premise `unresolvedHeadTy` rests on: that
@@ -188,16 +188,16 @@ module internal UnificationTranslate =
                         "NameResolution stamping gap: dotted type head '%s' (arity %d) resolves externally to %s but carries no ResolvedTypeHead stamp — a stamping walk missed this syntax position"
                         name
                         arity
-                        (SymbolKeyOps.qualifiedName key)
+                        (SymbolKeyOps.typeMetaName key)
                 | ValueNone -> ()
             | ValueSome stamped ->
-                match ctx.Provider.TryLookupType stamped with
+                match ctx.Provider.TryLookupType(SymbolKey.Type stamped) with
                 | ValueNone ->
                     failwithf
                         "External identity round-trip broken: dotted type head '%s' (arity %d) is stamped %s, but the store face cannot serve that key — NameResolution's mint and the store disagree"
                         name
                         arity
-                        (SymbolKeyOps.qualifiedName stamped)
+                        (SymbolKeyOps.typeMetaName stamped)
                 // Served, but the shape declined to build (an `Opaque` residue, or an
                 // arity the shape does not carry). The walk reached the node and the
                 // store answered — the `TyVar` fallback is by design.
@@ -444,7 +444,7 @@ module internal UnificationTranslate =
         (claim: TypeIdentity)
         (args: EqArray<SemType>)
         : SemType voption =
-        let key = SymbolKey.Type claim.Key
+        let key = claim.Key
 
         match claim.Kind with
         // Primitive binding (`type int = (# "System.Int32" #)`): a nominal intrinsic, NOT
@@ -519,18 +519,18 @@ module internal UnificationTranslate =
                     match TypeRegistry.tryRecord ctx.Types (ctx.UseSiteAt diagKey) name with
                     | ValueSome info ->
                         let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
-                        TyRecord(info.Key, args)
+                        TyRecord(info.TypeKey, args)
                     | ValueNone ->
                         match TypeRegistry.tryUnionBare ctx.Types (ctx.UseSiteAt diagKey) name with
                         | ValueSome info ->
                             let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
-                            ctx.Resolution.ResolvedType.Set(diagKey, info.Key)
-                            TyUnion(info.Key, args)
+                            ctx.Resolution.ResolvedType.Set(diagKey, info.TypeKey)
+                            TyUnion(info.TypeKey, args)
                         | ValueNone ->
                             match TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt diagKey) name with
                             | ValueSome info ->
                                 let args = EqArray.init (info.TypeParams.Length) (fun _ -> TyVar(freshTyVar ctx))
-                                TyClass(info.Key, args)
+                                TyClass(info.TypeKey, args)
                             | ValueNone ->
                                 match resolveExternal name with
                                 | ValueSome ty -> ty
@@ -675,21 +675,21 @@ module internal UnificationTranslate =
                         resolveLocalGeneric
                             (TypeRegistry.tryRecord ctx.Types (ctx.UseSiteAt diagKey))
                             (fun i -> i.TypeParams.Length)
-                            (fun info -> TyRecord(info.Key, translatedArgs))
+                            (fun info -> TyRecord(info.TypeKey, translatedArgs))
                         |> ValueOption.orElseWith (fun () ->
                             resolveLocalGeneric
                                 (TypeRegistry.tryUnionBare ctx.Types (ctx.UseSiteAt diagKey))
                                 (fun i -> i.TypeParams.Length)
                                 (fun info ->
-                                    ctx.Resolution.ResolvedType.Set(diagKey, info.Key)
-                                    TyUnion(info.Key, translatedArgs)
+                                    ctx.Resolution.ResolvedType.Set(diagKey, info.TypeKey)
+                                    TyUnion(info.TypeKey, translatedArgs)
                                 )
                         )
                         |> ValueOption.orElseWith (fun () ->
                             resolveLocalGeneric
                                 (TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt diagKey))
                                 (fun i -> i.TypeParams.Length)
-                                (fun info -> TyClass(info.Key, translatedArgs))
+                                (fun info -> TyClass(info.TypeKey, translatedArgs))
                         )
 
                     match local with
@@ -739,18 +739,18 @@ module internal UnificationTranslate =
         // map holds no interface canons, so `externalClassTy`'s reverse hit never
         // fires for it; this bypasses that check and mints the `TyClass` directly).
         | ExternalTypeShape.IntrinsicInterface iface ->
-            Some(TyClass(SymbolKeyOps.externalTypeKey iface.Origin compiled arity, translatedArgs))
+            Some(TyClass(SymbolKeyOps.externalTypeKeyOf iface.Origin compiled arity, translatedArgs))
         | ExternalTypeShape.Record(origin = origin) ->
-            Some(TyRecord(SymbolKeyOps.externalTypeKey origin compiled arity, translatedArgs))
+            Some(TyRecord(SymbolKeyOps.externalTypeKeyOf origin compiled arity, translatedArgs))
         | ExternalTypeShape.Union(origin = origin) ->
-            Some(TyUnion(SymbolKeyOps.externalTypeKey origin compiled arity, translatedArgs))
+            Some(TyUnion(SymbolKeyOps.externalTypeKeyOf origin compiled arity, translatedArgs))
         // An external enum type annotation `(x: E)` → the nominal
         // `TyEnum key` (no args — enums are never generic), keyed off
         // the same `externalTypeKey origin key 0` an `E.Ci` use site
         // mints, so the annotation and the case access unify. The
         // enum is a DISTINCT nominal (NOT its underlying int/string),
         // exactly like the authored `TyEnum`.
-        | ExternalTypeShape.Enum(origin = origin) -> Some(TyEnum(SymbolKeyOps.externalTypeKey origin compiled 0))
+        | ExternalTypeShape.Enum(origin = origin) -> Some(TyEnum(SymbolKeyOps.externalTypeKeyOf origin compiled 0))
         // A transparent abbreviation dealiases to its body: `int32 =
         // int` (`int = (# "System.Int32" #)`) resolves to `TyConst
         // "int"`, the form codegen actually encodes — without this an
@@ -781,16 +781,12 @@ module internal UnificationTranslate =
     /// arity-mismatched shape is rejected (a generic type referenced at the wrong
     /// arity isn't this type, and guards the abbrev/record builders against a
     /// wrong-length arg array).
-    and tryExternalTypeOfKey
-        (ctx: PassContext)
-        (symKey: SymbolKey)
-        (translatedArgs: EqArray<SemType>)
-        : SemType voption =
+    and tryExternalTypeOfKey (ctx: PassContext) (symKey: TypeKey) (translatedArgs: EqArray<SemType>) : SemType voption =
         let arity = translatedArgs.Length
 
-        match ctx.Provider.TryLookupType symKey with
+        match ctx.Provider.TryLookupType(SymbolKey.Type symKey) with
         | ValueSome shape when shape.Arity = arity ->
-            match buildExternalTy ctx (SymbolKeyOps.qualifiedName symKey) shape arity translatedArgs with
+            match buildExternalTy ctx (SymbolKeyOps.typeMetaName symKey) shape arity translatedArgs with
             | Some ty -> ValueSome ty
             | None -> ValueNone
         | _ -> ValueNone

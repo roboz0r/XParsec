@@ -85,7 +85,7 @@ module TastLower =
     /// `SymbolKeyOps.qualifiedName`. Returns `ValueNone` if the type isn't a
     /// user-defined or external nominal type (e.g. a `TyVar` that should have been
     /// zonked away by now).
-    let inline receiverShape (ty: FrozenType) : (SymbolKey * FrozenType list) voption =
+    let inline receiverShape (ty: FrozenType) : (TypeKey * FrozenType list) voption =
         match ty with
         | FTUnion(n, args)
         | FTRecord(n, args)
@@ -180,7 +180,7 @@ module TastLower =
     let solvePhantomTypars
         (typarCount: int)
         (constraints: FrozenConstraint list)
-        (tryWitness: FrozenType -> SymbolKey -> EqArray<FrozenType> voption)
+        (tryWitness: FrozenType -> TypeKey -> EqArray<FrozenType> voption)
         (instArr: FrozenType voption[])
         : unit =
         if not (List.isEmpty constraints) then

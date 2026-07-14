@@ -62,7 +62,7 @@ module internal UnificationInferResolve =
         match TypeRegistry.tryWrittenClass ctx.Types useSite written with
         | ValueSome info ->
             let args, subst = freshNamedInstance ctx info.TypeParams
-            let receiverTy = TyClass(info.Key, args)
+            let receiverTy = TyClass(info.TypeKey, args)
 
             let arg =
                 info.CtorParams
@@ -89,7 +89,7 @@ module internal UnificationInferResolve =
     let ctorType (ctx: PassContext) (info: UnionCaseInfo) : SemType =
         let unionInfo = TypeRegistry.unionOfCase ctx.Types info
         let args, subst = freshNamedInstance ctx unionInfo.TypeParams
-        let unionTy = TyUnion(unionInfo.Key, args)
+        let unionTy = TyUnion(unionInfo.TypeKey, args)
 
         let walkedFields = info.Fields |> Array.map (substituteWith subst)
 
@@ -109,7 +109,7 @@ module internal UnificationInferResolve =
         let freshArgs = Array.init uc.Arity (fun _ -> TyVar(freshTyVar ctx))
 
         let unionTy =
-            TyUnion(SymbolKeyOps.externalTypeKey uc.Origin uc.UnionName uc.Arity, EqArray.ofArray freshArgs)
+            TyUnion(SymbolKeyOps.externalTypeKeyOf uc.Origin uc.UnionName uc.Arity, EqArray.ofArray freshArgs)
 
         let fields = ExternalSymbols.instantiateCaseFieldTypes uc.Case freshArgs
         unionTy, fields

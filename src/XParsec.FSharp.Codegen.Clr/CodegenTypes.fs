@@ -59,7 +59,7 @@ module internal CapabilityCoSlots =
             for iface in interfaces do
                 match iface with
                 | FTClass(key, _) ->
-                    match CodegenSymbols.lookupTypeByKey symbols key with
+                    match CodegenSymbols.lookupTypeByKey symbols (SymbolKey.Type key) with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
                         for slot in ofPlatformFace platform -> iface, slot
                     | _ -> ()

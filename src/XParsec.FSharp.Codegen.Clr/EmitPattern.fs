@@ -127,9 +127,9 @@ module EmitPattern =
         // recognised the same way via the provider's external value-type flag —
         // the contract/metadata layer's `IsValueType`.
         | FTClass(key, _) ->
-            match env.Classes.TryGetValue key with
+            match env.Classes.TryGetValue(SymbolKey.Type key) with
             | true, c -> c.IsValueType
-            | false, _ -> env.Provider.IsExternalValueType key
+            | false, _ -> env.Provider.IsExternalValueType(SymbolKey.Type key)
         | _ -> false
 
     /// Test a pattern against the value already stored in local `scrutSlot`:
@@ -218,10 +218,10 @@ module EmitPattern =
 
             b.Add(ILInstr.BneUn nextLabel)
         | TPatG.Union(caseName, subPats, ty, _) ->
-            // Local union table keys by the nominal `SymbolKey`; the external union
+            // Local union table keys by the nominal `TypeKey`; the external union
             // provider lookups take the qualified compiled name derived from it.
             let key, tyArgs = nominalShape "union pattern" ty
-            let qualName = SymbolKeyOps.qualifiedName key
+            let qualName = SymbolKeyOps.typeMetaName key
 
             // The discriminator field + its value for this case, and a per-index
             // field-ref source, resolved from either the local emitted union or a
@@ -231,7 +231,7 @@ module EmitPattern =
             // refs minted off the external union shape, which keeps the field names +
             // declaration-order tagging in lockstep with the union emitter).
             let tagRef, tagValue, fieldRef =
-                match env.Unions.TryGetValue key with
+                match env.Unions.TryGetValue(SymbolKey.Type key) with
                 | true, u ->
                     let c = u.Cases.[caseName]
 
@@ -283,7 +283,7 @@ module EmitPattern =
             // like the union arm above.
             let key, tyArgs = nominalShape "record pattern" ty
 
-            match env.Records.TryGetValue key with
+            match env.Records.TryGetValue(SymbolKey.Type key) with
             | true, r ->
                 for (fieldName, subPat) in fields do
                     match subPat with

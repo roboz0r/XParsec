@@ -734,7 +734,7 @@ module NameResolutionTypeRegistration =
             // record by its arity-qualified `SymbolKey` (via `tryRecordByKey`),
             // not the bare name — an arity-overloaded record (`Point`2`/`Point`3`)
             // does not resolve by bare name. Mirrors the union/enum decl-site stamp.
-            ctx.Resolution.ResolvedType.Set(declKey, info.Key)
+            ctx.Resolution.ResolvedType.Set(declKey, info.TypeKey)
 
             for fi in fieldInfos do
                 match ctx.Types.FieldIndex.TryGetValue fi.Name with
@@ -882,7 +882,7 @@ module NameResolutionTypeRegistration =
             // is the arity-qualified `TypeKey(None, declNs, name\`arity)`; this
             // stamp is co-populated with `ctx.Types.Union`, so the emitter's key
             // lookup is exactly as total as a `(name, arity)` one.
-            ctx.Resolution.ResolvedType.Set(declKey, info.Key)
+            ctx.Resolution.ResolvedType.Set(declKey, info.TypeKey)
 
             for c in caseInfos do
                 match ctx.Types.CtorIndex.TryGetValue c.Name with
@@ -939,7 +939,7 @@ module NameResolutionTypeRegistration =
 
             // Record the decl-site identity so `Elaborate.tryEnumType`
             // recovers the SAME key the annotation path resolves to.
-            ctx.Resolution.ResolvedType.Set(declKey, info.Key)
+            ctx.Resolution.ResolvedType.Set(declKey, info.TypeKey)
         | _ -> ()
 
     /// Stitch the inline-IL string of a `Type.ILIntrinsic` RHS

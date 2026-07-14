@@ -638,11 +638,11 @@ module Unification =
     let private checkInterfaceConformance (ctx: PassContext) (impl: ClassInterfaceImplInfo) : unit =
         match impl.Resolved with
         | ValueSome(TyClass(ifaceKey, ifaceArgs)) ->
-            let ifaceName = SymbolKeyOps.qualifiedName ifaceKey
+            let ifaceName = SymbolKeyOps.typeMetaName ifaceKey
 
             // A capability interface (`disposable`) is an `IntrinsicInterface`, not a `Class`,
             // but conforms identically off its member surface.
-            match ctx.Provider.TryLookupType ifaceKey with
+            match ctx.Provider.TryLookupType(SymbolKey.Type ifaceKey) with
             | ValueSome(ExternalSymbols.ExternalMembers ifaceMembers) ->
                 let argArr = ifaceArgs.AsSpan().ToArray()
 
@@ -737,7 +737,7 @@ module Unification =
             [
                 for impl in info.InterfaceImpls do
                     match impl.Resolved with
-                    | ValueSome(TyClass(key, _)) -> impl, key, ctx.Provider.TryLookupType key
+                    | ValueSome(TyClass(key, _)) -> impl, key, ctx.Provider.TryLookupType(SymbolKey.Type key)
                     | _ -> ()
             ]
 
@@ -767,7 +767,7 @@ module Unification =
                 for (_, key, shape) in resolvedImpls do
                     match shape with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface cap) ->
-                        SymbolKeyOps.qualifiedName key, closeOver Set.empty cap.Platform
+                        SymbolKeyOps.typeMetaName key, closeOver Set.empty cap.Platform
                     | _ -> ()
             ]
 
@@ -778,7 +778,7 @@ module Unification =
                 // capability face (`enumerator` + `disposable`).
                 | ValueSome(ExternalTypeShape.IntrinsicInterface _) -> ()
                 | _ ->
-                    let qual = SymbolKeyOps.qualifiedName key
+                    let qual = SymbolKeyOps.typeMetaName key
                     let bare = SymbolKeyOps.bareName qual
 
                     for (capability, faces) in capabilityFaces do
@@ -820,7 +820,7 @@ module Unification =
             let isInterface =
                 match resolved with
                 | TyClass(ifaceKey, _) ->
-                    match ctx.Provider.TryLookupType ifaceKey with
+                    match ctx.Provider.TryLookupType(SymbolKey.Type ifaceKey) with
                     | ValueSome shape -> ExternalSymbols.isInterfaceShape shape
                     // A project-local interface has no external-provider entry — its
                     // interface-ness is on the registered `ClassTypeInfo`.
@@ -835,7 +835,7 @@ module Unification =
             else
                 let shown =
                     match zonk resolved with
-                    | TyClass(n, _) -> SymbolKeyOps.qualifiedName n
+                    | TyClass(n, _) -> SymbolKeyOps.typeMetaName n
                     | other -> sprintf "%A" other
 
                 ctx.Error(impl.DeclKey, sprintf "Type '%s' is not an interface" shown)
@@ -953,7 +953,7 @@ module Unification =
                                 TypeParams = info.TypeParams
                                 Members = info.Members
                                 ThisKey = info.ThisKey
-                                MkSelfType = fun args -> TyClass(info.Key, args)
+                                MkSelfType = fun args -> TyClass(info.TypeKey, args)
                                 PrelinkExtras = prelinkExtras
                                 Elements = body.elements
                                 AllowAbstractSig = true
@@ -1164,7 +1164,7 @@ module Unification =
             match zonk arg with
             | TyClass(k, _)
             | TyRecord(k, _)
-            | TyUnion(k, _) -> SymbolKeyOps.qualifiedName k = SymbolKeyOps.qualifiedName info.Key
+            | TyUnion(k, _) -> SymbolKeyOps.typeMetaName k = SymbolKeyOps.typeMetaName info.TypeKey
             | _ -> false
 
         // Does the type implement `cap<Self>` among its resolved interface impls?

@@ -29,20 +29,23 @@ let tests =
                 // External ref resolved from a `SymbolOrigin` (the consumer path:
                 // `mkNominal` / `Translate` / `InferResolve`).
                 let viaOrigin =
-                    SymbolKeyOps.externalTypeKey
+                    SymbolKeyOps.externalTypeKeyOf
                         (originIn "Vesper.List" "Vesper.Collections")
                         "Vesper.Collections.List"
                         1
 
                 // External ref minted from a qualified compiled name alone — no assembly
                 // in hand (the string-fed codegen / metadata path).
-                let viaQualified = SymbolKeyOps.qualifiedTypeKey "Vesper.Collections.List" 1
+                let viaQualified = SymbolKeyOps.qualifiedTypeKeyOfT "Vesper.Collections.List" 1
 
                 // The SAME type resolved from a shape homed in a DIFFERENT assembly. The
                 // home is not part of the identity, so this is the same key — the fact the
                 // deleted "asm is load-bearing" test asserted the negation of.
                 let viaOtherHome =
-                    SymbolKeyOps.externalTypeKey (originIn "Other.Asm" "Vesper.Collections") "Vesper.Collections.List" 1
+                    SymbolKeyOps.externalTypeKeyOf
+                        (originIn "Other.Asm" "Vesper.Collections")
+                        "Vesper.Collections.List"
+                        1
 
                 // The local-def path (`LocalSymbolKey.ofType` over the same containment —
                 // namespace `Vesper.Collections`) produces exactly this literal.
@@ -54,12 +57,12 @@ let tests =
 
             test "ref cell: every mint path yields the canonical key, whatever the home" {
                 let viaOrigin =
-                    SymbolKeyOps.externalTypeKey (originIn "Vesper.Core" "Vesper") "Vesper.Ref" 1
+                    SymbolKeyOps.externalTypeKeyOf (originIn "Vesper.Core" "Vesper") "Vesper.Ref" 1
 
-                let viaQualified = SymbolKeyOps.qualifiedTypeKey "Vesper.Ref" 1
+                let viaQualified = SymbolKeyOps.qualifiedTypeKeyOfT "Vesper.Ref" 1
 
                 let viaOtherHome =
-                    SymbolKeyOps.externalTypeKey (originIn "Other.Asm" "Vesper") "Vesper.Ref" 1
+                    SymbolKeyOps.externalTypeKeyOf (originIn "Other.Asm" "Vesper") "Vesper.Ref" 1
 
                 Expect.equal viaOrigin RuntimeNames.vesperRefKey "origin mint = canonical"
                 Expect.equal viaQualified RuntimeNames.vesperRefKey "qualified mint = canonical"

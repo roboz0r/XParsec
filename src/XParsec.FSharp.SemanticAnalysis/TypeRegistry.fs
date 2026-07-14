@@ -680,17 +680,13 @@ module TypeRegistry =
             | false, _ -> ValueNone
         | ValueNone -> ValueNone
 
-    /// Resolve a type by its project-local `SymbolKey` — a real key-addressed read: the
+    /// Resolve a type by its project-local `TypeKey` — a real key-addressed read: the
     /// `TypeKey` a consumer carries IS the table's key, containment and arity suffix
-    /// included, so a same-named type declared elsewhere cannot answer for it. A
-    /// non-`TypeKey` key never names a type, so it misses.
-    let private tryByTypeKey (table: Dictionary<TypeKey, 'T>) (key: SymbolKey) : 'T voption =
-        match key with
-        | SymbolKey.Type t ->
-            match table.TryGetValue t with
-            | true, info -> ValueSome info
-            | false, _ -> ValueNone
-        | _ -> ValueNone
+    /// included, so a same-named type declared elsewhere cannot answer for it.
+    let private tryByTypeKey (table: Dictionary<TypeKey, 'T>) (key: TypeKey) : 'T voption =
+        match table.TryGetValue key with
+        | true, info -> ValueSome info
+        | false, _ -> ValueNone
 
     // --- The name table -------------------------------------------------------------
     // THE rule: a declaration claims a NAME at an ARITY in the MODULE that holds it, and a
@@ -832,8 +828,7 @@ module TypeRegistry =
 
     /// Resolve a record by its project-local `SymbolKey` — the reader-side companion
     /// to `tryUnionByKey`/`tryClassByKey`. See `tryByTypeKey`.
-    let tryRecordByKey (types: PassContextTypes) (key: SymbolKey) : RecordTypeInfo voption =
-        tryByTypeKey types.Record key
+    let tryRecordByKey (types: PassContextTypes) (key: TypeKey) : RecordTypeInfo voption = tryByTypeKey types.Record key
 
     /// Register a class under its own `TypeKey`. See `registerRecord`.
     let registerClass (types: PassContextTypes) (info: ClassTypeInfo) : unit =
@@ -861,12 +856,12 @@ module TypeRegistry =
 
     /// Resolve a class by its project-local `SymbolKey` — the class analogue of
     /// `tryUnionByKey`. See `tryByTypeKey`.
-    let tryClassByKey (types: PassContextTypes) (key: SymbolKey) : ClassTypeInfo voption = tryByTypeKey types.Class key
+    let tryClassByKey (types: PassContextTypes) (key: TypeKey) : ClassTypeInfo voption = tryByTypeKey types.Class key
 
     /// True iff a class is registered under this `SymbolKey` — the key-based membership
     /// gate (the `tryClassByKey`-shaped mirror of `tryClassArity`). A caller holding a
     /// `TyClass` key uses this so a local class is never misclassified as external.
-    let containsClassKey (types: PassContextTypes) (key: SymbolKey) : bool = (tryByTypeKey types.Class key).IsSome
+    let containsClassKey (types: PassContextTypes) (key: TypeKey) : bool = (tryByTypeKey types.Class key).IsSome
 
     /// Resolve a nominal type that may carry `interface … with` impls — a class,
     /// union, *or* record — by its `SymbolKey`, surfaced as the shared
@@ -875,7 +870,7 @@ module TypeRegistry =
     /// class's. Class → union → record: a key can only be registered in one of the
     /// three (the duplicate-definition test forbids a name+arity claimed twice), so the
     /// order is a search order, not a precedence.
-    let tryInterfaceImplHostByKey (types: PassContextTypes) (key: SymbolKey) : IInterfaceImplHost voption =
+    let tryInterfaceImplHostByKey (types: PassContextTypes) (key: TypeKey) : IInterfaceImplHost voption =
         match tryByTypeKey types.Class key with
         | ValueSome info -> ValueSome(info :> IInterfaceImplHost)
         | ValueNone ->
@@ -889,10 +884,7 @@ module TypeRegistry =
     /// Register an enum under its own `TypeKey`. See `registerRecord` — an enum needs no
     /// short-name index of its own, because it is never generic: its claim in the name table
     /// is always `(holder, name, 0)`, and that claim carries the key.
-    let registerEnum (types: PassContextTypes) (info: EnumTypeInfo) : unit =
-        match info.Key with
-        | SymbolKey.Type k -> types.Enum.[k] <- info
-        | _ -> failwithf "Internal error: enum '%s' was minted a non-type SymbolKey" info.Name
+    let registerEnum (types: PassContextTypes) (info: EnumTypeInfo) : unit = types.Enum.[info.TypeKey] <- info
 
     /// Resolve an enum by bare short name AS SEEN FROM `useSite`; `ValueNone` if none. Used
     /// by `translateType` (`(x: E)` → `TyEnum`) and the `E.C1` qualified-access path.
@@ -904,7 +896,7 @@ module TypeRegistry =
         | ValueSome claim -> tryOfKey types.Enum (ValueSome claim.Key)
 
     /// Resolve an enum by its project-local `SymbolKey`. See `tryRecordByKey`.
-    let tryEnumByKey (types: PassContextTypes) (key: SymbolKey) : EnumTypeInfo voption = tryByTypeKey types.Enum key
+    let tryEnumByKey (types: PassContextTypes) (key: TypeKey) : EnumTypeInfo voption = tryByTypeKey types.Enum key
 
     /// Register an abbreviation under its own `TypeKey`. See `registerRecord`.
     let registerAbbrev (types: PassContextTypes) (info: AbbreviationInfo) : unit =
@@ -931,7 +923,7 @@ module TypeRegistry =
             (tryKeyOfArity types types.AbbreviationNames useSite (WrittenTypeName.bare name) arity)
 
     /// Resolve an abbreviation by its project-local `SymbolKey`. See `tryRecordByKey`.
-    let tryAbbrevByKey (types: PassContextTypes) (key: SymbolKey) : AbbreviationInfo voption =
+    let tryAbbrevByKey (types: PassContextTypes) (key: TypeKey) : AbbreviationInfo voption =
         tryByTypeKey types.Abbreviation key
 
     /// Register a union under its own `TypeKey`. See `registerRecord`.
@@ -953,7 +945,7 @@ module TypeRegistry =
     /// `UnionTypeInfo.Key` and stamped into `Resolution.ResolvedType`. A non-`TypeKey`
     /// key (a value / member) never names a union, so it misses. The reader-side seam
     /// for SymbolKey-first resolution.
-    let tryUnionByKey (types: PassContextTypes) (key: SymbolKey) : UnionTypeInfo voption = tryByTypeKey types.Union key
+    let tryUnionByKey (types: PassContextTypes) (key: TypeKey) : UnionTypeInfo voption = tryByTypeKey types.Union key
 
     /// Resolve a union, record, or inline intrinsic-abbrev host (NOT a class) by bare
     /// short name as the shared `IInterfaceImplHost`. The non-class analogue of the
@@ -989,7 +981,7 @@ module TypeRegistry =
     /// tables, because a primitive's name is its identity).
     let tryNonClassMemberHostByKey
         (types: PassContextTypes)
-        (key: SymbolKey)
+        (key: TypeKey)
         (name: string)
         : IInterfaceImplHost voption =
         match tryByTypeKey types.Union key with

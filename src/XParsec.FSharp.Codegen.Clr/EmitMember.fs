@@ -140,8 +140,7 @@ module EmitMember =
         let (DisplayName name) = SymbolKeyOps.simpleName key
         let argTys = [ for a in args -> typeOfExpr a ]
 
-        let ifaceKey =
-            SymbolKey.Type(SymbolKeyOps.declTypeKeyOf "EmitMember: CallVia.Interface member" key)
+        let ifaceKey = SymbolKeyOps.declTypeKeyOf "EmitMember: CallVia.Interface member" key
 
         // The abstract slot the `constrained. callvirt` targets. A *project-local*
         // interface (`'T :> IFace`, rung 3) is in `env.Interfaces`, so the slot is
@@ -150,7 +149,7 @@ module EmitMember =
         // via the provider against the interface's instantiated `TypeSpec`, exactly
         // as `EmitResolve.resolveExternalMember` does for a grounded receiver.
         let slotHandle =
-            match env.Interfaces.TryGetValue ifaceKey with
+            match env.Interfaces.TryGetValue(SymbolKey.Type ifaceKey) with
             | true, iface ->
                 let m =
                     match iface.Members.TryGetValue name with

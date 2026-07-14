@@ -1226,7 +1226,7 @@ module ExternalSymbols =
         // `bclFace` and VERIFIED (never blindly trusted) against the shim's forward abbreviation.
         let shimConfirms (bcl: string) (lookup: string) : bool =
             match provider.TryLookupType bcl with
-            | ValueSome(ExternalTypeShape.Abbrev(_, FTClass(head, _))) -> SymbolKeyOps.qualifiedName head = lookup
+            | ValueSome(ExternalTypeShape.Abbrev(_, FTClass(head, _))) -> SymbolKeyOps.typeMetaName head = lookup
             | _ -> false
 
         let resolveAnchor (lookup: string) (bclFace: string voption) : RuntimeNames.CapabilityIdentity voption =
@@ -1416,7 +1416,7 @@ module ExternalSymbols =
         | FTClass(key, _)
         | FTRecord(key, _)
         | FTUnion(key, _)
-        | FTEnum key -> SymbolKeyOps.qualifiedName key
+        | FTEnum key -> SymbolKeyOps.typeMetaName key
         | FTTuple items ->
             "("
             + (items |> EqArray.toList |> List.map argTypeName |> String.concat "*")

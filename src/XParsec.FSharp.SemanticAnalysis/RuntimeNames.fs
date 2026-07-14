@@ -46,47 +46,48 @@ module RuntimeNames =
     // reference.
 
     /// Canonical identity for the Vesper cons-list `List` union at arity 1, matching the
-    /// locally compiled `UnionTypeInfo.Key`. The producers' canonical key.
-    let vesperListKey: SymbolKey =
-        SymbolKeyOps.typeKeyArity "Vesper.Collections" "List" 1
+    /// locally compiled `UnionTypeInfo.TypeKey`. The producers' canonical key. A `TypeKey`,
+    /// not a `SymbolKey`, because the nominal heads it stamps (`TyUnion`/`FTUnion`) are.
+    let vesperListKey: TypeKey =
+        SymbolKeyOps.typeKeyOfArity "Vesper.Collections" "List" 1
 
     /// The cons-list's lowercase `list` abbreviation (`` and 'T list = List<'T> ``, arity 1)
     /// — the cons-list's *second* accepted nominal form, sharing the union's namespace.
     /// Recogniser-only (no producer mints the abbreviation; `isVesperListKey` matches it
     /// alongside `vesperListKey`), hence `private`.
-    let private vesperListAbbrevKey: SymbolKey =
-        SymbolKeyOps.typeKeyArity "Vesper.Collections" "list" 1
+    let private vesperListAbbrevKey: TypeKey =
+        SymbolKeyOps.typeKeyOfArity "Vesper.Collections" "list" 1
 
     /// Canonical identity for FSharp.Core's `list` — the non-retargeted default
     /// `ElaborateExpr` / `Unification` fall back to. Arity 1; never project-local.
-    let fsharpCoreListKey: SymbolKey =
-        SymbolKeyOps.typeKeyArity "Microsoft.FSharp.Collections" "list" 1
+    let fsharpCoreListKey: TypeKey =
+        SymbolKeyOps.typeKeyOfArity "Microsoft.FSharp.Collections" "list" 1
 
     /// Canonical identity for the heap ref-cell record (`Ref<'T>`, arity 1), matching the
-    /// locally compiled `Vesper.Core` `RecordTypeInfo.Key`.
-    let vesperRefKey: SymbolKey = SymbolKeyOps.typeKeyArity "Vesper" "Ref" 1
+    /// locally compiled `Vesper.Core` `RecordTypeInfo.TypeKey`.
+    let vesperRefKey: TypeKey = SymbolKeyOps.typeKeyOfArity "Vesper" "Ref" 1
 
     /// Canonical identity for the `%A` structural-format interface
     /// `Vesper.IStructuralFormattable` (non-generic). Recogniser-only —
     /// `isStructuralFormattableKey` gates whether *this* compilation is `Vesper.Core`
     /// itself (then the per-type `Format` synthesis is suppressed; see codegen `Layout` /
     /// `Assembler`), so `private`.
-    let private structuralFormattableKey: SymbolKey =
-        SymbolKeyOps.typeKey "Vesper" "IStructuralFormattable"
+    let private structuralFormattableKey: TypeKey =
+        SymbolKeyOps.typeKeyOf "Vesper" "IStructuralFormattable"
 
     /// Canonical identity for `PrintfFormat<'Printer,'State,'Residue,'Result>` (arity 4) —
     /// the type a format literal freezes to (`PrintfSpec.printfFormatName`). The FSharp.Core
     /// face of the format *type*.
-    let printfFormatKey: SymbolKey =
-        SymbolKeyOps.typeKeyArity "Microsoft.FSharp.Core" "PrintfFormat" 4
+    let printfFormatKey: TypeKey =
+        SymbolKeyOps.typeKeyOfArity "Microsoft.FSharp.Core" "PrintfFormat" 4
 
     /// The `Vesper` face of `PrintfFormat` at arity 4. Source-level format annotations
     /// (`Printf.StringFormat<_>` / `TextWriterFormat<_>`) resolve through the
     /// provider to THIS key, not the `Microsoft.FSharp.Core` one the format-literal
     /// machinery synthesises (`printfFormatName`). `isPrintfFormatKey` recognises both
     /// faces so a bound/ascribed format is seen as a `PrintfFormat` at every seam.
-    let vesperPrintfFormatKey: SymbolKey =
-        SymbolKeyOps.typeKeyArity "Vesper" "PrintfFormat" 4
+    let vesperPrintfFormatKey: TypeKey =
+        SymbolKeyOps.typeKeyOfArity "Vesper" "PrintfFormat" 4
 
     /// The user-facing abbreviation for the object root — `obj` — declared in
     /// `prim-types-object.fs` as `type obj = (# "System.Object" #)`. The front end
@@ -246,28 +247,36 @@ module RuntimeNames =
             CanonKey: TypeKey voption
         }
 
-        /// The platform face as a `SymbolKey` — for the `SemType`/`FrozenType`-facing
-        /// consumers, whose nominal payloads are still `SymbolKey`.
+        /// The platform face as a `SymbolKey` — for the key-kind-blind consumers (a
+        /// diagnostic's `qualifiedName`, a provider lookup that serves every key kind).
         member this.SymKey: SymbolKey = SymbolKey.Type this.Key
 
-        /// Key EQUALITY against EITHER face — the `SymbolKey`-keyed consumers. Both faces
-        /// and every key that reaches here carry their arity as an int field no mint can
-        /// omit (the platform face parsed from the BCL metadata name, the canonical from
-        /// the contract's compiled name), so identity is `=` and nothing is stripped.
-        member this.Matches(k: SymbolKey) : bool =
-            this.SymKey = k
+        /// Key EQUALITY against EITHER face. Both faces and every key that reaches here
+        /// carry their arity as an int field no mint can omit (the platform face parsed
+        /// from the BCL metadata name, the canonical from the contract's compiled name),
+        /// so identity is `=` and nothing is stripped.
+        member this.Matches(k: TypeKey) : bool =
+            this.Key = k
             || (
                 match this.CanonKey with
-                | ValueSome ck -> SymbolKey.Type ck = k
+                | ValueSome ck -> ck = k
                 | ValueNone -> false
             )
+
+        /// `Matches` for a KIND-BLIND consumer — one canonicalising keys of every kind
+        /// (`EngineCore.capabilityCanonKey`, whose domain includes a `TyConst` intrinsic's
+        /// key). A non-type key names no capability, so it simply does not match.
+        member this.Matches(k: SymbolKey) : bool =
+            match k with
+            | SymbolKey.Type t -> this.Matches t
+            | _ -> false
 
         /// Match a compiled qualified interface-name string (arity-suffixed, e.g.
         /// `System.Collections.Generic.IEnumerable\`1`) by minting its key and
         /// comparing. For consumers holding the rendered interface name from
-        /// `ExternalSymbols.instantiateInterfaces` rather than a `SymbolKey`.
+        /// `ExternalSymbols.instantiateInterfaces` rather than a `TypeKey`.
         member this.MatchesName(name: string) : bool =
-            this.Matches(SymbolKeyOps.qualifiedTypeKey name 0)
+            this.Matches(SymbolKeyOps.qualifiedTypeKeyOfT name 0)
 
     /// The five language-capability identities, resolved once per compilation
     /// (`PassContext`) THROUGH THE PROVIDER (`ExternalSymbols.resolveCapabilities`).
@@ -307,7 +316,7 @@ module RuntimeNames =
     /// `ValueNone ⇒ no-match` resolve-on-use convention so a recognizer site reads
     /// `RuntimeNames.matchesKey ctx.CapabilityIds.Enumerable nameKey` instead of
     /// spelling out the `match … ValueSome c -> c.Matches k | ValueNone -> false`.
-    let matchesKey (cap: CapabilityIdentity voption) (k: SymbolKey) : bool =
+    let matchesKey (cap: CapabilityIdentity voption) (k: TypeKey) : bool =
         cap |> ValueOption.exists (fun c -> c.Matches k)
 
     /// `matchesKey` for a consumer holding a compiled qualified interface-name string
@@ -318,10 +327,10 @@ module RuntimeNames =
     /// True iff `k` denotes the Vesper cons-list in either of its nominal forms —
     /// the `List` union or its lowercase `list` abbreviation (both in
     /// `Vesper.Collections`).
-    let isVesperListKey (k: SymbolKey) : bool =
+    let isVesperListKey (k: TypeKey) : bool =
         k = vesperListKey || k = vesperListAbbrevKey
 
-    let isFsharpCoreListKey (k: SymbolKey) : bool = k = fsharpCoreListKey
+    let isFsharpCoreListKey (k: TypeKey) : bool = k = fsharpCoreListKey
 
     /// True iff the *compiled qualified type-name string* (`Vesper.Collections.List`1`)
     /// denotes the Vesper cons-list `List` union — the string-keyed analogue of
@@ -330,7 +339,7 @@ module RuntimeNames =
     /// union-case index in `VesperLib.TyparCapture`, which excludes the cons-list's
     /// `Empty`/`Cons` cases from bare-ctor-name resolution.
     let isVesperListName (compiledName: string) : bool =
-        compiledName = SymbolKeyOps.qualifiedName vesperListKey
+        compiledName = SymbolKeyOps.typeMetaName vesperListKey
 
     /// True iff `k` denotes the `%A` structural-format interface
     /// `Vesper.IStructuralFormattable`. The single source the codegen `Layout` and
@@ -338,13 +347,13 @@ module RuntimeNames =
     /// (⇒ it is `Vesper.Core`, so suppress per-type `Format` synthesis); the two
     /// must agree, so they share this recogniser rather than each re-spelling the
     /// qualified name.
-    let isStructuralFormattableKey (k: SymbolKey) : bool = k = structuralFormattableKey
+    let isStructuralFormattableKey (k: TypeKey) : bool = k = structuralFormattableKey
 
     /// True iff `k` denotes `PrintfFormat<'Printer,'State,'Residue,'Result>` — the
     /// format type a `printf` / `sprintf` literal freezes to; replaces the inline
     /// `bareName (qualifiedName key) =
     /// PrintfSpec.printfFormatName` rebuild at the codegen / ElaborateExpr consumer sites.
-    let isPrintfFormatKey (k: SymbolKey) : bool =
+    let isPrintfFormatKey (k: TypeKey) : bool =
         k = printfFormatKey || k = vesperPrintfFormatKey
 
     // --- Built-in primitive type names -----------------------------------------------

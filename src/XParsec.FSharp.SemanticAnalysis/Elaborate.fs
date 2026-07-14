@@ -836,7 +836,7 @@ module Elaborate =
         // typar list for a monomorphic class; the declaring typars ride as
         // `TyVar` roots (not `TyTypar`), which `freezeTypars` cuts over the
         // whole member body.
-        let classTy = TyClass(info.Key, declTyparArgs info.TypeParams)
+        let classTy = TyClass(info.TypeKey, declTyparArgs info.TypeParams)
 
         // `base` is in scope only when the class has an `inherit` clause; an
         // instance member then carries the shared `BaseKey` so codegen maps a
@@ -923,7 +923,7 @@ module Elaborate =
                             IsOverride = isOverride
                             ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
                             BaseKey = (if isStatic then ValueNone else baseKey)
-                            ThisTy = TyClass(info.Key, EqArray.empty)
+                            ThisTy = TyClass(info.TypeKey, EqArray.empty)
                             Params = memberParams ctx b
                             Body = lowerBody b.expr
                             ReturnTy = typeOfKey ctx (CstKeys.ofExpr b.expr)
@@ -943,7 +943,7 @@ module Elaborate =
                         IsOverride = isOverride
                         ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
                         BaseKey = (if isStatic then ValueNone else baseKey)
-                        ThisTy = TyClass(info.Key, EqArray.empty)
+                        ThisTy = TyClass(info.TypeKey, EqArray.empty)
                         Params = EqArray.empty
                         Body = lowerBody e
                         ReturnTy = typeOfKey ctx (CstKeys.ofExpr e)
@@ -1042,7 +1042,7 @@ module Elaborate =
     /// `tryInterfaceMethods` projections both flow through here unchanged).
     let private mkTypeDecl
         (name: string)
-        (key: SymbolKey)
+        (key: TypeKey)
         (ns: string option)
         (typars: EqArray<string>)
         (kind: TTypeKind)
@@ -1052,7 +1052,7 @@ module Elaborate =
         TDecl.Type
             {
                 Name = name
-                Key = key
+                TypeKey = key
                 Namespace = ns
                 TypeParams = typars
                 Kind = kind
@@ -1122,7 +1122,7 @@ module Elaborate =
             // self-type untouched, so the path stays byte-identical.
             let declTypars = [ for (n, _) in info.TypeParams -> n ]
 
-            let selfTy = TyUnion(info.Key, declTyparArgs info.TypeParams)
+            let selfTy = TyUnion(info.TypeKey, declTyparArgs info.TypeParams)
             let elaborateOne = mkMemberElaborator selfTy declTypars env
 
             let members, interfaces =
@@ -1131,7 +1131,7 @@ module Elaborate =
             Some(
                 mkTypeDecl
                     name
-                    info.Key
+                    info.TypeKey
                     ns
                     (EqArray.ofList declTypars)
                     (TTypeKind.Union(cases, members, interfaces))
@@ -1382,7 +1382,7 @@ module Elaborate =
                 )
 
             let declTypars = [ for (n, _) in info.TypeParams -> n ]
-            let selfTy = TyRecord(info.Key, declTyparArgs info.TypeParams)
+            let selfTy = TyRecord(info.TypeKey, declTyparArgs info.TypeParams)
             let elaborateOne = mkMemberElaborator selfTy declTypars env
 
             let members, interfaces =
@@ -1391,7 +1391,7 @@ module Elaborate =
             Some(
                 mkTypeDecl
                     name
-                    info.Key
+                    info.TypeKey
                     ns
                     (EqArray.ofList declTypars)
                     (TTypeKind.Record(fields, members, interfaces))
@@ -1457,7 +1457,7 @@ module Elaborate =
 
             let declTypars = [ for (n, _) in info.TypeParams -> n ]
 
-            let selfTy = TyClass(info.Key, declTyparArgs info.TypeParams)
+            let selfTy = TyClass(info.TypeKey, declTyparArgs info.TypeParams)
 
             // Surface a member when the declaring type is generic (declaring axis)
             // *or* the member itself is generic (method axis): stamp its
@@ -1599,7 +1599,7 @@ module Elaborate =
             Some(
                 mkTypeDecl
                     name
-                    info.Key
+                    info.TypeKey
                     ns
                     (EqArray.ofList declTypars)
                     (TTypeKind.Class
@@ -1685,7 +1685,7 @@ module Elaborate =
             Some(
                 mkTypeDecl
                     name
-                    info.Key
+                    info.TypeKey
                     ns
                     (EqArray.ofList declTypars)
                     (TTypeKind.Class clsG)

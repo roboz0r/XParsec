@@ -61,12 +61,12 @@ module EmitJsCapabilities =
         /// `comparable<'T>`.
         | Comparison
 
-    /// Classify an interface's head `SymbolKey` against the resolved capability identities.
+    /// Classify an interface's head `TypeKey` against the resolved capability identities.
     /// The ONE place a key becomes a capability; every routing decision reads this verdict, so
     /// the implementer and consumer tables cannot disagree about what a key is. `ValueNone` for
     /// an ordinary interface — and for every key under a provider-less compile
     /// (`CapabilityIds.none` names nothing).
-    let capabilityOf (caps: RuntimeNames.CapabilityIds) (key: SymbolKey) : JsCapability voption =
+    let capabilityOf (caps: RuntimeNames.CapabilityIds) (key: TypeKey) : JsCapability voption =
         if RuntimeNames.matchesKey caps.Enumerable key then
             ValueSome JsCapability.Iteration
         elif RuntimeNames.matchesKey caps.Enumerator key then
@@ -141,7 +141,7 @@ module EmitJsCapabilities =
     let tryCapabilitySlot
         (caps: RuntimeNames.CapabilityIds)
         (imports: JsImports)
-        (declKey: SymbolKey)
+        (declKey: TypeKey)
         (memberName: string)
         : (JsExpr -> JsLoc voption -> JsExpr) voption =
         match capabilityOf caps declKey with

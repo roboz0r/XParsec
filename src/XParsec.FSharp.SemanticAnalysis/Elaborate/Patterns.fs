@@ -159,7 +159,7 @@ module internal ElaboratePatterns =
         // heads) or the local enum registry on the error path — exclusive with the
         // union / ctor heads below.
         | Pat.Named(longIdent = li & EnumCaseAccess ctx ty enumKey) ->
-            TPat.EnumCase(enumKey, ctx.NameOf li.Idents.[1], ty, tok)
+            TPat.EnumCase(SymbolKey.Type enumKey, ctx.NameOf li.Idents.[1], ty, tok)
         | Pat.Named(longIdent = li; argumentPats = args) when
             ctx.Resolution.ExternalUnionCaseStamp.ContainsKey key
             || (li.Idents.Length >= 1

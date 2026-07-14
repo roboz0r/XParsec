@@ -82,7 +82,7 @@ let private schemeOf (name: string) : FrozenType =
 /// so equality/inequality assertions read uniformly across both representations.
 let private identityOf (name: string) : string =
     match schemeOf name with
-    | FTClass(key, _) -> "class:" + SymbolKeyOps.qualifiedName key
+    | FTClass(key, _) -> "class:" + SymbolKeyOps.typeMetaName key
     | FTUnknown n -> "unknown:" + n
     | other -> failtestf "'%s' froze to an unexpected scheme %A" name other
 

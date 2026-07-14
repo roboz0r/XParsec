@@ -109,7 +109,7 @@ module EmitJsContext =
             /// lives only in the member's declaring key. CLR needs no such table (native
             /// interface dispatch handles both); JS, lacking it, recovers the fact here.
             /// Empty until `buildProgram` populates it from `tast.Decls`.
-            LocalInterfaces: HashSet<SymbolKey>
+            LocalInterfaces: HashSet<TypeKey>
             /// The language-capability identities behind both halves of the JS capability
             /// protocol (`EmitJsCapabilities`). Unlike the tables above, this depends only on
             /// the provider, not on the file — so `WalkCtx.create` resolves it up front and no
@@ -153,11 +153,12 @@ module EmitJsContext =
 
     // ---- Records -------------------------------------------------------------
 
-    /// The nominal `SymbolKey` of a record/union construct's receiver type.
+    /// The nominal key of a record/union construct's receiver type, widened for the
+    /// kind-blind emitted-type tables (`ctx.Records` / `ctx.Unions`).
     /// A non-nominal receiver is an invariant break.
     let nominalKey (what: string) (ty: FrozenType) : SymbolKey =
         match TastLower.receiverShape ty with
-        | ValueSome(key, _) -> key
+        | ValueSome(key, _) -> SymbolKey.Type key
         | ValueNone -> failwithf "EmitJs: %s on non-nominal type %A" what ty
 
     /// Resolve a `RecordCons` / `RecordClone` / `FieldGet` receiver to its `JsRecordInfo`.
@@ -228,15 +229,15 @@ module EmitJsContext =
     module Members =
 
         /// The emitted type name for mangling: local union/record `Name`, else the key's simple name.
-        let typeName (ctx: WalkCtx) (key: SymbolKey) : string =
-            match ctx.Unions.TryGetValue key with
+        let typeName (ctx: WalkCtx) (key: TypeKey) : string =
+            match ctx.Unions.TryGetValue(SymbolKey.Type key) with
             | true, info -> info.Name
             | _ ->
-                match ctx.Records.TryGetValue key with
+                match ctx.Records.TryGetValue(SymbolKey.Type key) with
                 | true, info -> info.Name
                 | _ ->
                     // Backend name emission: what the type is called in the emitted JS.
-                    let (DisplayName name) = SymbolKeyOps.simpleName key
+                    let (DisplayName name) = SymbolKeyOps.typeSimpleName key
                     name
 
         /// The callable identifier of a local member's emitted function.

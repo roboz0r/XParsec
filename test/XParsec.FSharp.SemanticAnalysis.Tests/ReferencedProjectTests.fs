@@ -270,7 +270,7 @@ let tests =
                     match provider.TryLookupType bcl with
                     | ValueSome(ExternalTypeShape.Abbrev(_, FTClass(key, _))) ->
                         Expect.equal
-                            (SymbolKeyOps.qualifiedName key)
+                            (SymbolKeyOps.typeMetaName key)
                             canonQualified
                             (sprintf "%s shim-abbreviates to the canonical %s" bcl canonQualified)
                     | other -> failtestf "expected %s as a compat-shim Abbrev to %s, got %A" bcl canonQualified other

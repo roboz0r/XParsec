@@ -436,7 +436,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
                 let retTy =
                     FTUnion(
-                        SymbolKeyOps.qualifiedTypeKey fullName arity,
+                        SymbolKeyOps.qualifiedTypeKeyOfT fullName arity,
                         EqArray.ofArray [| for i in 0 .. arity - 1 -> FTTypar(TyparAxis.Declaring, i) |]
                     )
 

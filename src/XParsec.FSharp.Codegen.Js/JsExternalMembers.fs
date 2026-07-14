@@ -17,14 +17,14 @@ open XParsec.FSharp.SemanticAnalysis
 /// (`classFlagsOf` × receiver); the lowering bodies live here.
 module JsExternalMembers =
 
-    /// The declaring type's `SymbolKey` from a member-call node's `key`. A member node's
+    /// The declaring type's `TypeKey` from a member-call node's `key`. A member node's
     /// key IS a `MemberKey` — the narrowing is the IR seam's, stated once in
     /// `SymbolKeyOps.asMemberKey`, not a per-site guess. (Handing the MEMBER key back as
     /// if it were the DECLARING key, as a lenient fallback here would, sends every
     /// downstream reader — `LocalInterfaces`, `classFlagsOf`, the import oracle — looking
     /// for a type under a member's identity and silently missing.)
-    let declKey (key: SymbolKey) : SymbolKey =
-        SymbolKey.Type(SymbolKeyOps.declTypeKeyOf "EmitJs: member node" key)
+    let declKey (key: SymbolKey) : TypeKey =
+        SymbolKeyOps.declTypeKeyOf "EmitJs: member node" key
 
     /// Instance method → `<Type>__<member>`; instance property getter →
     /// `<Type>__get_<Prop>`; static member → `<Type>_<member>`.
@@ -72,8 +72,8 @@ module JsExternalMembers =
     ///     object methods (`receiver.member(args)` / property reads) rather than
     ///     the receiver-first free-fn imports Vesper's own runtimes emit; stamped
     ///     by the provider on a real manifest Interface/Class.
-    let classFlagsOf (provider: IExternalSymbolProvider) (declKey: SymbolKey) : ExternalClassFlags voption =
-        match provider.TryLookupType declKey with
+    let classFlagsOf (provider: IExternalSymbolProvider) (declKey: TypeKey) : ExternalClassFlags voption =
+        match provider.TryLookupType(SymbolKey.Type declKey) with
         | ValueSome(ExternalTypeShape.Class shape) -> ValueSome shape.Flags
         | _ -> ValueNone
 
@@ -85,7 +85,7 @@ module JsExternalMembers =
             match ft with
             | FTClass(key, _)
             | FTUnion(key, _)
-            | FTRecord(key, _) -> provider.TryLookupType key
+            | FTRecord(key, _) -> provider.TryLookupType(SymbolKey.Type key)
             // An intrinsic's canon key is a nominal identity like any other — ask the store
             // by the KEY, exactly as the nominal arms above do.
             | FTConst(key, _) -> provider.TryLookupType key
@@ -253,7 +253,7 @@ module JsExternalMembers =
     let erasedGroupingRef
         (provider: IExternalSymbolProvider)
         (imports: JsImports)
-        (declKey: SymbolKey)
+        (declKey: TypeKey)
         (memberName: string)
         (form: ImportForm)
         (loc: JsLoc voption)
@@ -266,12 +266,10 @@ module JsExternalMembers =
         // so `addRef` imports the same bare export from the same home module the bare
         // free function would.
         let valueKey =
-            match declKey with
-            | SymbolKey.Type t -> SymbolKeyOps.valueKey (ModuleHolder.InNamespace t.Namespace) memberName
-            | _ -> failwithf "EmitJs: erased grouping member '%s' has a non-type declaring key %A" memberName declKey
+            SymbolKeyOps.valueKey (ModuleHolder.InNamespace declKey.Namespace) memberName
 
         let home =
-            assemblyOf provider declKey (sprintf "erased grouping member '%s'" memberName)
+            assemblyOf provider (SymbolKey.Type declKey) (sprintf "erased grouping member '%s'" memberName)
 
         // `form` is the group's import shape, stamped on the grouping type's flags by
         // `buildOverloadGroupingTypes`: `Named` → `import { format }`; `Default`/
@@ -294,7 +292,7 @@ module JsExternalMembers =
         (provider: IExternalSymbolProvider)
         (imports: JsImports)
         (build: Frozen.TExpr -> JsExpr)
-        (declKey: SymbolKey)
+        (declKey: TypeKey)
         (receiver: Frozen.TExpr voption)
         (memberName: string)
         (isProperty: bool)
@@ -304,10 +302,12 @@ module JsExternalMembers =
 
         // Backend name emission: the JS export identifier is mangled from the type's name,
         // which carries no arity on the target.
-        let (DisplayName declName) = SymbolKeyOps.simpleName declKey
+        let (DisplayName declName) = SymbolKeyOps.typeSimpleName declKey
         let exportName = mangledName declName isStatic isProperty memberName
 
-        let asm = assemblyOf provider declKey (sprintf "external member '%s'" memberName)
+        let asm =
+            assemblyOf provider (SymbolKey.Type declKey) (sprintf "external member '%s'" memberName)
+
         let local = JsImports.addMemberRef imports asm exportName
 
         match receiver with

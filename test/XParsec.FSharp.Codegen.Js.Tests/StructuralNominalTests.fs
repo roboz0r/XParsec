@@ -59,7 +59,7 @@ let private typeNameOf (varName: string) : string =
     match provider.TryLookup varName with
     | ValueSome sym ->
         match sym.Scheme with
-        | FTClass(key, _) -> SymbolKeyOps.qualifiedName key
+        | FTClass(key, _) -> SymbolKeyOps.typeMetaName key
         | other -> failtestf "'%s' should freeze to an FTClass, got %A" varName other
     | ValueNone -> failtestf "variable '%s' did not resolve" varName
 
@@ -113,7 +113,7 @@ let tests =
                     match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey outer 0, "pt") with
                     | ValueSome m ->
                         match m.Signature.Return with
-                        | FTClass(key, _) -> SymbolKeyOps.qualifiedName key
+                        | FTClass(key, _) -> SymbolKeyOps.typeMetaName key
                         | other -> failtestf "'.pt' should carry a structural FTClass, got %A" other
                     | ValueNone -> failtestf "'.pt' did not resolve on '%s'" outer
 

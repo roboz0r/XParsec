@@ -3,8 +3,8 @@ namespace XParsec.FSharp.SemanticAnalysis
 open System.Numerics
 
 // `SymbolOrigin` / `SymbolKey` / `MemberKind` live here (ahead of `SemType`)
-// because the nominal `SemType` cases (`TyUnion` / `TyRecord` / `TyClass`) carry
-// a `SymbolKey` as their identity — pure string/EqArray records with no `SemType`
+// because the nominal `SemType` cases (`TyUnion` / `TyRecord` / `TyClass` / `TyEnum`) carry
+// a `TypeKey` as their identity — pure string/EqArray records with no `SemType`
 // dependency. `ExternalSymbols.fs` (which mints/decomposes these) compiles after.
 
 /// A simple assembly name (the `ProjectInfo` reference-set key), wrapped so it can
@@ -354,17 +354,9 @@ and [<RequireQualifiedAccess>] MemberKind =
 /// There is deliberately NO `Module` case: a module appears only in HOLDER position.
 /// A standalone module symbol has no reader (`OpenScope` is kind-blind by design).
 ///
-/// REMAINING NARROWING: the type IR's nominal payloads (`SemType.TyClass/TyRecord/
-/// TyUnion`, `FrozenType.FTClass/…`) still carry a `SymbolKey`, not a `TypeKey` — a
-/// nominal head is ALWAYS a type, so those cases are wider than the truth. The cost is
-/// three sites that must narrow `SymbolKey -> TypeKey` and fail loud on the impossible
-/// arm (`Elaborate.Resolve.nominalDeclKey`, `Inline.nominalHeadKey`,
-/// `EmitResolve.nominalTypeKey`). They are not new failure modes (a non-nominal
-/// receiver was always an error), but they are three runtime checks the type system
-/// could delete outright — the same trade `MemberKey.Decl : TypeKey` already made,
-/// which retired the `failwithf "declaring key is not a TypeKey"` arms in
-/// `ClrExternalMembers`. Widening the IR to `TypeKey` is a mechanical follow-up gated
-/// only on its size (~1300 sites).
+/// The type IR's NOMINAL heads (`SemType.TyClass/TyRecord/TyUnion/TyEnum` and their
+/// `FrozenType` mirrors) do NOT carry a `SymbolKey` — a nominal head is ALWAYS a type, so
+/// they carry the narrow `TypeKey` and no consumer re-narrows at run time.
 [<RequireQualifiedAccess>]
 type SymbolKey =
     | Type of TypeKey
@@ -715,14 +707,14 @@ type FrozenType =
     | FTFun of arg: FrozenType * result: FrozenType
     /// Flat n-ary tuple — mirrors `SemType.TyTuple`.
     | FTTuple of items: EqArray<FrozenType>
-    | FTRecord of key: SymbolKey * args: EqArray<FrozenType>
-    | FTUnion of key: SymbolKey * args: EqArray<FrozenType>
-    | FTClass of key: SymbolKey * args: EqArray<FrozenType>
+    | FTRecord of key: TypeKey * args: EqArray<FrozenType>
+    | FTUnion of key: TypeKey * args: EqArray<FrozenType>
+    | FTClass of key: TypeKey * args: EqArray<FrozenType>
     /// A nominal enum reference — the frozen mirror of `SemType.TyEnum`; see it for
     /// the full rationale. Niladic (no `args` — enums are never generic), a distinct
     /// nominal NOT its underlying `int`; the case→literal table rides the frozen
     /// `TDecl` node by `key`, and the per-variant repr is a backend decision.
-    | FTEnum of key: SymbolKey
+    | FTEnum of key: TypeKey
     /// Frozen anonymous (structural) union — mirror of `SemType.TyOr`. Members
     /// live in an `EqSet` (insertion-ordered storage so the declared `.d.ts` order
     /// survives into diagnostics, SET-semantic equality/hash so `A | B ≡ B | A`),
@@ -881,21 +873,22 @@ type SemType =
     /// Field types are not stored inline — look up the record's shape via its
     /// `key` (and the declared `TypeParams` used to substitute `args` into each
     /// field). Two TyRecords unify iff their `key`s are equal AND their args
-    /// unify pairwise. Identity is the resolved `SymbolKey` (minted once in
-    /// NameResolution / Translate), not a bare string. The `key`'s `ns` distinguishes same-named records in different
-    /// namespaces; its `name` carries the arity suffix.
-    | TyRecord of key: SymbolKey * args: EqArray<SemType>
+    /// unify pairwise. Identity is the resolved `TypeKey` (minted once in
+    /// NameResolution / Translate), not a bare string — a nominal head is ALWAYS a type,
+    /// so the payload is the narrow key, never the wider `SymbolKey`. The `key`'s holder
+    /// distinguishes same-named records in different namespaces; its `Arity` is part of it.
+    | TyRecord of key: TypeKey * args: EqArray<SemType>
     /// Same shape as TyRecord. Cases / TypeParams live in the union registry,
     /// reachable by `key` (`TypeRegistry.tryUnionByKey`).
-    | TyUnion of key: SymbolKey * args: EqArray<SemType>
+    | TyUnion of key: TypeKey * args: EqArray<SemType>
     /// Same shape as `TyRecord` / `TyUnion`; member lookup is a side-channel on
     /// the class registry. Two `TyClass` unify iff their `key`s are equal AND
     /// their args unify pairwise.
-    | TyClass of key: SymbolKey * args: EqArray<SemType>
+    | TyClass of key: TypeKey * args: EqArray<SemType>
     /// A nominal enum reference (`type E = | C1 = v1 | …`). Enums are never
     /// generic, so — unlike `TyUnion` / `TyRecord` / `TyClass` — there is NO
     /// `args` field (illegal states unrepresentable): an enum is a niladic
-    /// nominal identified solely by its `SymbolKey`. The ordered case→literal
+    /// nominal identified solely by its `TypeKey`. The ordered case→literal
     /// table is reached off the frozen `TDecl` node by `key` (it already rides
     /// the node, like union cases — no new carrier). `E` is a DISTINCT nominal
     /// type, NOT structurally its underlying `int`, which is what a faithful
@@ -903,7 +896,7 @@ type SemType =
     /// per-variant representation (numeric→`System.Enum`, string→struct-wrapper,
     /// mixed→`obj`-box, JS→object map) stays a backend decision read off the case
     /// table + `TEnumCases.classify`. Two `TyEnum` unify iff their `key`s match.
-    | TyEnum of key: SymbolKey
+    | TyEnum of key: TypeKey
     /// An anonymous (structural) union — TypeScript-style `X | Y | null`. Distinct
     /// from the nominal `TyUnion` (a declared `type Foo = A | B`): it has no key,
     /// no nominal identity, and its members are an order-insensitive, deduped,

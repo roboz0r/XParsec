@@ -17,21 +17,23 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
     let userValueTypes = env.UserValueTypes
     let encodeType te t = enc.EncodeType(te, t)
 
-    // Unions are keyed by their nominal `SymbolKey` (which embeds the arity, so
-    // same-named overloads `Choice\`2`…`Choice\`7` don't collide) in `genericUnions`
-    // / `userTypes`.
-    let genericUnionTypeSpec (key: SymbolKey) (args: FrozenType list) : EntityHandle =
+    // Unions are keyed by their nominal `TypeKey` (which embeds the arity, so
+    // same-named overloads `Choice\`2`…`Choice\`7` don't collide) in `genericUnions`;
+    // `userTypes` is the kind-blind emitted-type table, so it takes the widened key.
+    let genericUnionTypeSpec (key: TypeKey) (args: FrozenType list) : EntityHandle =
         let typars, _ = genericUnions.[key]
         let tsB = BlobBuilder()
         let te = BlobEncoder(tsB).TypeSpecificationSignature()
-        let g = te.GenericInstantiation(userTypes.[key], List.length typars, false)
+
+        let g =
+            te.GenericInstantiation(userTypes.[SymbolKey.Type key], List.length typars, false)
 
         for a in args do
             encodeType (g.AddArgument()) a
 
         toEntity (ctx.TypeSpec tsB)
 
-    let genericUnionMemberRef (key: SymbolKey) (args: FrozenType list) (which: UnionMember) : EntityHandle =
+    let genericUnionMemberRef (key: TypeKey) (args: FrozenType list) (which: UnionMember) : EntityHandle =
         let typars, cases = genericUnions.[key]
         let parent = genericUnionTypeSpec key args
 
@@ -188,18 +190,20 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
             | None -> failwithf "ClrProvider: generic class '%A' has no field '%s'" key fieldName
 
     /// The parent `TypeSpec` of a generic user type, whichever family declares it. Every
-    /// family's registry is keyed by the nominal `SymbolKey`, so the key alone picks the
+    /// family's registry is keyed by the nominal `TypeKey` (unions) / `SymbolKey` (records, classes), so the key alone picks the
     /// arm — the caller never has to say which family it is. (The arms are NOT one shared
     /// encoder: only the class arm tags a `[<Struct>]` value type's instantiation
     /// `VALUETYPE`, and collapsing them would silently change how a struct record or a
     /// struct-declared union encodes.)
-    let genericTypeSpec (key: SymbolKey) (args: FrozenType list) : EntityHandle =
+    let genericTypeSpec (key: TypeKey) (args: FrozenType list) : EntityHandle =
+        let symKey = SymbolKey.Type key
+
         if genericUnions.ContainsKey key then
             genericUnionTypeSpec key args
-        elif genericRecords.ContainsKey key then
-            genericRecordTypeSpec key args
-        elif genericClasses.ContainsKey key then
-            genericClassTypeSpec key args
+        elif genericRecords.ContainsKey symKey then
+            genericRecordTypeSpec symKey args
+        elif genericClasses.ContainsKey symKey then
+            genericClassTypeSpec symKey args
         else
             failwithf "ClrProvider: '%A' is not a registered generic union / record / class" key
 
@@ -207,7 +211,7 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
     /// encoding, because the member ref does not depend on what declares the member: the
     /// `key` picks the parent `TypeSpec`, and the rest is the member's own signature.
     let genericMemberRef
-        (key: SymbolKey)
+        (key: TypeKey)
         (args: FrozenType list)
         (metaName: string)
         (isStatic: bool)
@@ -322,9 +326,9 @@ type internal ClrGenerics(env: ClrEnv, enc: ClrEncoder) =
 
     /// A generic union's own instantiation `TypeSpec` over its declaring typars (`List`1<!0>`) — the
     /// `isinst` target / `other`-local / typed-`Equals` self for its synthesised equality triple.
-    /// Keyed by the union's nominal `SymbolKey` (which embeds the arity, disambiguating
+    /// Keyed by the union's nominal `TypeKey` (which embeds the arity, disambiguating
     /// same-named overloads `Choice\`2`…`Choice\`7`) in `genericUnions`.
-    member _.GenericUnionSelfSpec(key: SymbolKey) : EntityHandle =
+    member _.GenericUnionSelfSpec(key: TypeKey) : EntityHandle =
         let typars, _ = genericUnions.[key]
         genericUnionTypeSpec key [ for i in 0 .. List.length typars - 1 -> FTTypar(TyparAxis.Declaring, i) ]
 

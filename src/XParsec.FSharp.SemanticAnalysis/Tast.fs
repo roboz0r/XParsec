@@ -596,11 +596,11 @@ and TTypeDeclG<'ty, 'tok> =
         /// the arity suffix (`` Fun`2 ``) from `TypeParams.Length`.
         Name: string
         /// The type's stable nominal identity:
-        /// the registry `info.Key` (`TypeKey(Some homeAsm, declNs, name\`arity)`),
+        /// the registry `info.TypeKey` (`TypeKey(Some homeAsm, declNs, name\`arity)`),
         /// carried into the backend so the emitted-type tables key off it directly
         /// instead of re-deriving a string. Codegen branches local-vs-external on
         /// its home `asm` (= the assembly being emitted).
-        Key: SymbolKey
+        TypeKey: TypeKey
         /// `None` for a module-level type.
         Namespace: string option
         /// Declared type parameters in source order (e.g. `["'A"; "'B"]`).
@@ -619,6 +619,10 @@ and TTypeDeclG<'ty, 'tok> =
         /// unannotated record / union skips the pair.
         ComparisonSupport: ComparisonVerdict
     }
+
+    /// The nominal identity widened for the key-kind-blind sinks a declaration still feeds
+    /// (`MethodKey`/`FieldKey`/`TypeSlotKey` minting, `provider.RegisterUserType`).
+    member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
 
 and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok> =
     /// A nominal type whose members are all abstract and which has no base type /

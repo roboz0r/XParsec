@@ -38,7 +38,7 @@ module UnificationEngine =
                         // by type-arg count (arity = length - 1, for 2..5 args); anything
                         // else is not a recognised `Fun` slot. `funSlotArityOfArgs` is the
                         // single source of that rule (shared with `subsumes`/the drain).
-                        funSlotArityOfArgs (SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tk)) targs.Length
+                        funSlotArityOfArgs (SymbolKeyOps.bareName (SymbolKeyOps.typeMetaName tk)) targs.Length
                     | _ -> None
                 | _ -> None
             )
@@ -77,9 +77,9 @@ module UnificationEngine =
         /// it can't be expressed as the single `subst` + `lookup` pair the
         /// `Resolved` shape carries. The drain defers to `tryClassChainMember`,
         /// which threads the substitution up the chain per parent. Carries the
-        /// class's `SymbolKey` (arity included) so the walk keys per-arity; a bare
+        /// class's `TypeKey` (arity included) so the walk keys per-arity; a bare
         /// name is derived only for the not-found diagnostic.
-        | ClassChain of key: SymbolKey * args: EqArray<SemType>
+        | ClassChain of key: TypeKey * args: EqArray<SemType>
         /// An *external* class/interface (not in `ctx.Types.Class`): a deferred
         /// dot-access whose receiver TyVar resolved to a BCL/contract nominal
         /// (`System.Collections.IEqualityComparer`). The drain resolves the
@@ -91,7 +91,7 @@ module UnificationEngine =
         match tryResolveNominal linkTarget with
         | ValueNone -> DotSource.NotNominal
         | ValueSome(NominalKind.Record, key, args) ->
-            let (DisplayName name) = SymbolKeyOps.simpleName key
+            let (DisplayName name) = SymbolKeyOps.typeSimpleName key
 
             // Resolve by the arity-qualified key: an arity-overloaded record
             // (`Point`2`/`Point`3`) does not resolve by bare name. `name` still labels the DotSource.
@@ -108,13 +108,13 @@ module UnificationEngine =
             else
                 // Not project-local — an external (BCL/contract) class or interface
                 // whose member resolves through the provider by its resolved key.
-                DotSource.ExternalClass(key, args)
+                DotSource.ExternalClass(SymbolKey.Type key, args)
         | ValueSome(NominalKind.Union, key, args) ->
             // Resolve by the arity-qualified key (mirror the record arm): an
             // arity-overloaded union (`Choice`2`/`Choice`3`) does not resolve by bare name.
             // `name` is display-only — the `Resolved` label and the `UnknownType`
             // diagnostic.
-            let (DisplayName name) = SymbolKeyOps.simpleName key
+            let (DisplayName name) = SymbolKeyOps.typeSimpleName key
 
             match TypeRegistry.tryUnionByKey ctx.Types key with
             | ValueSome info ->
@@ -240,7 +240,7 @@ module UnificationEngine =
     let private tryStructuralWiden (ctx: PassContext) (actual: SemType) (expected: SemType) : bool =
         match resolveStep expected with
         | TyClass(ikey, iargs) ->
-            match ctx.Provider.TryLookupType ikey with
+            match ctx.Provider.TryLookupType(SymbolKey.Type ikey) with
             // Only an interface is a record-widen target (a capability `IntrinsicInterface` or
             // an interface-flagged `Class`); a non-interface class is excluded off its member
             // surface.
@@ -322,7 +322,10 @@ module UnificationEngine =
         // no-op for every non-capability key (the common `n1 = n2` short-circuits first),
         // which is why capabilities need no entry in the resolution-time reverse-canon map.
         // This is the RETURN / plain-`unify` mirror of the argument-coercion reconciliation.
-        | TyClass(n1, a1), TyClass(n2, a2) when sameNominalKey ctx n1 n2 && a1.Length = a2.Length ->
+        | TyClass(n1, a1), TyClass(n2, a2) when
+            sameNominalKey ctx (SymbolKey.Type n1) (SymbolKey.Type n2)
+            && a1.Length = a2.Length
+            ->
             unifyArgs ctx key a1 a2
         // Two enums unify iff their nominal keys match (enums are niladic — no
         // args to recurse). A `TyEnum` against any other head (e.g. its underlying
@@ -513,7 +516,7 @@ module UnificationEngine =
                 let pending = root.PendingDotAccess
                 root.PendingDotAccess <- []
 
-                let (DisplayName shown) = SymbolKeyOps.simpleName key
+                let (DisplayName shown) = SymbolKeyOps.typeSimpleName key
 
                 for d in pending do
                     match tryClassChainMember ctx key args d.MemberName with
@@ -1031,7 +1034,7 @@ module UnificationEngine =
                                 b.Resolved <- true
                                 unifySrtpAgainst ctx key candTy b
                             | None ->
-                                let (DisplayName shown) = SymbolKeyOps.simpleName classKey
+                                let (DisplayName shown) = SymbolKeyOps.typeSimpleName classKey
 
                                 ctx.Error(key, sprintf "Type '%s' has no static member '%s'" shown b.MemberName)
 
@@ -1048,7 +1051,7 @@ module UnificationEngine =
                             // unresolved TyVar. `openSignature` substitutes the static
                             // member's declaring typars from `classArgs`, yielding the
                             // same `^T * ^T -> ^T` candidate shape the local arm builds.
-                            match ctx.Provider.TryLookupMember(classKey, b.MemberName) with
+                            match ctx.Provider.TryLookupMember(SymbolKey.Type classKey, b.MemberName) with
                             | ValueSome m when m.IsStatic ->
                                 let candTy =
                                     ExternalSymbols.openSignature m (EqArray.toList classArgs |> List.toArray)

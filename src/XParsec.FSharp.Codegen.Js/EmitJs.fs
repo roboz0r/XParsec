@@ -249,7 +249,7 @@ module EmitJs =
             let localClassName =
                 match TastLower.receiverShape ty with
                 | ValueSome(key, _) ->
-                    match ctx.Classes.TryGetValue key with
+                    match ctx.Classes.TryGetValue(SymbolKey.Type key) with
                     | true, name -> ValueSome name
                     | _ -> ValueNone
                 | ValueNone -> ValueNone
@@ -269,7 +269,7 @@ module EmitJs =
                     // Backend name emission: the global class is `new`d under the name the
                     // runtime knows it by.
                     |> ValueOption.map (fun _ ->
-                        let (DisplayName name) = SymbolKeyOps.simpleName key
+                        let (DisplayName name) = SymbolKeyOps.typeSimpleName key
                         name
                     )
                 | ValueNone -> ValueNone
@@ -855,11 +855,11 @@ module EmitJs =
 
         // The file's locally-declared interface keys — drives the attached-method
         // dispatch of a `(r :> ILocal).M()` / `.Prop` access (see `WalkCtx.LocalInterfaces`).
-        let localInterfaces = System.Collections.Generic.HashSet<SymbolKey>()
+        let localInterfaces = System.Collections.Generic.HashSet<TypeKey>()
 
         for decl in tast.Decls do
             match decl with
-            | TDeclG.Type({ Kind = TTypeKindG.Interface _ } as td) -> localInterfaces.Add td.Key |> ignore
+            | TDeclG.Type({ Kind = TTypeKindG.Interface _ } as td) -> localInterfaces.Add td.TypeKey |> ignore
             | _ -> ()
 
         let ctx =

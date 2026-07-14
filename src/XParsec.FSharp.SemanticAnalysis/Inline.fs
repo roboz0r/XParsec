@@ -191,16 +191,16 @@ module Inline =
             | _ -> false
         | _ -> false
 
-    /// The declaring `SymbolKey` of a nominal (class / union / record) — the operand
+    /// The declaring `TypeKey` of a nominal (class / union / record) — the operand
     /// shape that can carry a static operator member, and so the ONLY shape an SRTP
     /// trait call can dispatch to. The single definition of "is a nominal operand";
     /// `resolveTraitCall` alone consults it, and a receiver it declines becomes an
     /// `UnresolvedTrait` — "this type does not support this operator".
     let private nominalHeadKey (t: SemType) : TypeKey voption =
         match UnionFind.headZonk t with
-        | TyClass(SymbolKey.Type k, _)
-        | TyUnion(SymbolKey.Type k, _)
-        | TyRecord(SymbolKey.Type k, _) -> ValueSome k
+        | TyClass(k, _)
+        | TyUnion(k, _)
+        | TyRecord(k, _) -> ValueSome k
         | _ -> ValueNone
 
     /// Build the typar-substituting mapper for one inline expansion. The

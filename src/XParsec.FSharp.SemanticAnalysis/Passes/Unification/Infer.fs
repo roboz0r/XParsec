@@ -161,7 +161,7 @@ module UnificationInfer =
     /// survives only for a *non-`IDisposable`* ref struct (it can't be boxed to the
     /// interface, so its own pattern `Dispose()` is called directly). `ValueNone` ⇒ not
     /// disposable.
-    and private tryExternalDispose (ctx: PassContext) (declKey: SymbolKey) (args: EqArray<SemType>) : Disposal voption =
+    and private tryExternalDispose (ctx: PassContext) (declKey: TypeKey) (args: EqArray<SemType>) : Disposal voption =
         // The directly-implemented interface set an external nominal carries today: a
         // class's `FrozenInterfaces` or a union's `interface <ty>` impls (the union
         // analogue, the cons-list's `interface seq<'T>` channel). Scanned kind-agnostically
@@ -172,7 +172,7 @@ module UnificationInfer =
         // its own `Dispose` below; that boundary moves the day records gain a contract
         // interface channel.)
         let externalInterfaces () : (string * SemType[])[] =
-            match ctx.Provider.TryLookupType declKey with
+            match ctx.Provider.TryLookupType(SymbolKey.Type declKey) with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
             | ValueSome(ExternalTypeShape.Union(_, _, ifaces, _)) ->
@@ -199,7 +199,7 @@ module UnificationInfer =
         | ValueNone ->
             // `declKey` is the binder's already-resolved external type identity, so the
             // own-`Dispose` fallback is a key-addressed store-face lookup.
-            match ctx.Provider.TryLookupMember(declKey, "Dispose") with
+            match ctx.Provider.TryLookupMember(SymbolKey.Type declKey, "Dispose") with
             | ValueSome m when not m.IsStatic && not m.IsValueMember ->
                 ValueSome(Disposal.ViaOwnMember(SymbolKey.Member m.Key))
             | _ -> ValueNone
@@ -228,7 +228,7 @@ module UnificationInfer =
     /// own method directly — recorded as `Disposal.ViaOwnMember` (each backend then calls
     /// the binder's own method, NOT the capability slot). Returns the own-`Dispose` member
     /// key when the class is byref-like and exposes such a member; `ValueNone` otherwise.
-    and private tryRefStructOwnDispose (ctx: PassContext) (clsKey: SymbolKey) : SymbolKey voption =
+    and private tryRefStructOwnDispose (ctx: PassContext) (clsKey: TypeKey) : SymbolKey voption =
         match TypeRegistry.tryClassByKey ctx.Types clsKey with
         | ValueSome info when info.IsByRefLike ->
             let hasDispose =
@@ -270,7 +270,7 @@ module UnificationInfer =
             // A project-local nominal binder (class / union / record). It qualifies for
             // `use` iff it implements the `disposable` capability interface; else the
             // ref-struct carve-out; else an error.
-            let resolveLocal (host: IInterfaceImplHost) (headKey: SymbolKey) (simple: string) (args: EqArray<SemType>) =
+            let resolveLocal (host: IInterfaceImplHost) (headKey: TypeKey) (simple: string) (args: EqArray<SemType>) =
                 match
                     (if localImplementsDisposable ctx host args then
                          capabilityDisposeSlot ctx |> ValueOption.map Disposal.ViaCapability
@@ -294,14 +294,14 @@ module UnificationInfer =
                 // Resolve the local host by the arity-qualified key, not the bare
                 // name: an arity-overloaded host (`Foo`2`/`Foo`3`) does not resolve by bare name.
                 // `simple` is kept only for the diagnostic text.
-                let (DisplayName simple) = SymbolKeyOps.simpleName headKey
+                let (DisplayName simple) = SymbolKeyOps.typeSimpleName headKey
 
                 match TypeRegistry.tryInterfaceImplHostByKey ctx.Types headKey with
                 | ValueSome host -> resolveLocal host headKey simple args
                 | ValueNone ->
                     match tryExternalDispose ctx headKey args with
                     | ValueSome disposal -> ctx.Resolution.UseDispose.Set(patKey, disposal)
-                    | ValueNone -> notDisposable (SymbolKeyOps.qualifiedName headKey)
+                    | ValueNone -> notDisposable (SymbolKeyOps.typeMetaName headKey)
             | _ -> ()
         | _ -> ()
 

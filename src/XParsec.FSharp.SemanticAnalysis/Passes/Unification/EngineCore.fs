@@ -316,7 +316,7 @@ module UnificationEngineCore =
     /// `inherit` chain. `ValueNone` when no class in the chain declares the
     /// member, or a parent name isn't a project-local class.
     /// The chain walk's full result: the *declaring* class's instantiated nominal
-    /// type (`TyClass(info.Key, args)` at the level the member was found) plus the
+    /// type (`TyClass(info.TypeKey, args)` at the level the member was found) plus the
     /// member's type instantiated against that level's args. `ElaborateExpr` reads the
     /// declaring type to upcast the receiver onto the class that emits `get_<seg>`;
     /// `tryClassChainMember` keeps only the member type for inference's field-step.
@@ -329,20 +329,20 @@ module UnificationEngineCore =
 
     let tryClassChainMemberDecl
         (ctx: PassContext)
-        (clsKey: SymbolKey)
+        (clsKey: TypeKey)
         (args: EqArray<SemType>)
         (memberName: string)
         : ChainMember voption =
-        // Cycle guard keyed on the type's `SymbolKey` identity (arity included), not a
+        // Cycle guard keyed on the type's `TypeKey` identity (arity included), not a
         // reconstructed `name\`arity` string, so a self-inheriting arity overload
         // (`Foo\`2` : `Foo\`3`) can't collide.
-        let seen = HashSet<SymbolKey>()
+        let seen = HashSet<TypeKey>()
 
-        // Resolve by the `SymbolKey` the receiver carries, never a bare-name strip:
+        // Resolve by the `TypeKey` the receiver carries, never a bare-name strip:
         // an arity-overloaded class (`Fun\`2` vs `Fun\`3`, which does not resolve by
         // bare name) walks the correct chain, and the base-type recursion passes the
         // parent's key straight through with no arity round-trip.
-        let rec walk (clsKey: SymbolKey) (args: EqArray<SemType>) : ChainMember voption =
+        let rec walk (clsKey: TypeKey) (args: EqArray<SemType>) : ChainMember voption =
             if not (seen.Add clsKey) then
                 ValueNone
             else
@@ -352,7 +352,7 @@ module UnificationEngineCore =
                     | Some m ->
                         ValueSome
                             {
-                                DeclaringTy = TyClass(info.Key, args)
+                                DeclaringTy = TyClass(info.TypeKey, args)
                                 MemberTy =
                                     instantiateMemberCall ctx (info.TypeParams, args) m.EffectiveMethodTypars m.Type
                             }
@@ -369,7 +369,7 @@ module UnificationEngineCore =
 
     let tryClassChainMember
         (ctx: PassContext)
-        (clsKey: SymbolKey)
+        (clsKey: TypeKey)
         (args: EqArray<SemType>)
         (memberName: string)
         : SemType voption =
@@ -550,7 +550,7 @@ module UnificationEngineCore =
     let tryExternalReceiver (ctx: PassContext) (ty: SemType) : struct (SymbolKey * EqArray<SemType>) voption =
         match resolveStep ty with
         | TyClass(clsKey, typeArgs) when (TypeRegistry.tryClassByKey ctx.Types clsKey).IsNone ->
-            ValueSome(struct (clsKey, typeArgs))
+            ValueSome(struct (SymbolKey.Type clsKey, typeArgs))
         // A structural constructor (`'T []`/`byref`) is a generic intrinsic whose
         // `platform` repr (`"!0[]"`) is an IL/codegen artefact, NOT a nominal receiver
         // key — its members ride dedicated backend paths, so honour the documented
@@ -575,16 +575,16 @@ module UnificationEngineCore =
     // via `SymbolKeyOps.qualifiedName` at the boundary — the genuine string seam.
     let subtypeNominalOf (ctx: PassContext) (ty: SemType) : struct (SymbolKey * EqArray<SemType>) voption =
         match resolveStep ty with
-        | TyClass(n, args) -> ValueSome(struct (canonKey ctx n, args))
+        | TyClass(n, args) -> ValueSome(struct (canonKey ctx (SymbolKey.Type n), args))
         // A named DU enters the nominal subtype walk too, so its declared
         // `interface … with` impls (surfaced by `subtypeInterfacesOf` via
         // `tryInterfaceImplHostByKey`) admit `(u :> ISomeIface)` exactly like a class's.
         // (Anonymous `TyOr` unions resolve structurally in `subsumes`, never here.)
-        | TyUnion(n, args) -> ValueSome(struct (canonKey ctx n, args))
+        | TyUnion(n, args) -> ValueSome(struct (canonKey ctx (SymbolKey.Type n), args))
         // A named record enters the nominal subtype walk too, so its declared
         // `interface … with` impls (surfaced by `subtypeInterfacesOf` via
         // `tryInterfaceImplHostByKey`) admit `(r :> ISomeIface)` exactly like a class's.
-        | TyRecord(n, args) -> ValueSome(struct (canonKey ctx n, args))
+        | TyRecord(n, args) -> ValueSome(struct (canonKey ctx (SymbolKey.Type n), args))
         | TyConst(key, args) -> ValueSome(struct (canonKey ctx key, args))
         | _ -> ValueNone
 
@@ -595,7 +595,7 @@ module UnificationEngineCore =
     // local type (`Box`1`/`Box`2`) does not resolve by bare name, so a `shortName`
     // lookup would miss it and mis-route to the provider (mirrors `tryExternalReceiver`,
     // whose external test is likewise `(tryClassByKey key).IsNone`).
-    let private nominalKeyOf (ty: SemType) : SymbolKey voption =
+    let private nominalKeyOf (ty: SemType) : TypeKey voption =
         match resolveStep ty with
         | TyClass(k, _)
         | TyUnion(k, _)
@@ -615,7 +615,7 @@ module UnificationEngineCore =
     // rely on (no undo trace).
     let private subtypeParentOf
         (ctx: PassContext)
-        (localKey: SymbolKey voption)
+        (localKey: TypeKey voption)
         (key: SymbolKey)
         (args: EqArray<SemType>)
         : SemType voption =
@@ -658,7 +658,7 @@ module UnificationEngineCore =
     // provider by the canon key). Same purity contract as `subtypeParentOf`.
     let private subtypeInterfacesOf
         (ctx: PassContext)
-        (localKey: SymbolKey voption)
+        (localKey: TypeKey voption)
         (key: SymbolKey)
         (args: EqArray<SemType>)
         : SemType list =
@@ -695,7 +695,7 @@ module UnificationEngineCore =
                 // qualified name is this same mint).
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
                 |> Array.toList
-                |> List.map (fun (n, ta) -> TyClass(SymbolKeyOps.qualifiedTypeKey n ta.Length, EqArray.ofArray ta))
+                |> List.map (fun (n, ta) -> TyClass(SymbolKeyOps.qualifiedTypeKeyOfT n ta.Length, EqArray.ofArray ta))
             | _ -> []
 
     /// Find the instantiation of `src` (or one of its bases / interfaces) whose
@@ -817,7 +817,7 @@ module UnificationEngineCore =
     /// (`TyRecord` / `TyClass` / `TyUnion`) and report which kind it is. The
     /// arg list rides along so `drainPendingDotAccess` can substitute the
     /// type's typars when resolving deferred field / member accesses.
-    let rec tryResolveNominal (t: SemType) : (NominalKind * SymbolKey * EqArray<SemType>) voption =
+    let rec tryResolveNominal (t: SemType) : (NominalKind * TypeKey * EqArray<SemType>) voption =
         match t with
         // The full key rides along so `resolveDotSource` can both project the simple
         // name (project-local table lookups: `ctx.Types.Record` bare, `tryUnion`

@@ -28,7 +28,7 @@ module DynamicEscape =
         | TyConst(key, _) ->
             let (DisplayName name) = SymbolKeyOps.simpleName key
             name
-        | TyClass(n, _) -> SymbolKeyOps.qualifiedName n
+        | TyClass(n, _) -> SymbolKeyOps.typeMetaName n
         | other -> sprintf "%A" other
 
     let run (ctx: PassContext) : unit =

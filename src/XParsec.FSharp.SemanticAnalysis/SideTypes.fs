@@ -128,7 +128,7 @@ type ForInGetEnumG<'ty> =
     /// source receiver and emits `constrained. <Source> callvirt iface::GetEnumerator`,
     /// so a struct source dispatches by address (no box) and a class source by
     /// reference. The slot is resolved off the `EmittedInterface` registry by name.
-    | ConstrainedInterface of iface: SymbolKey * ifaceArgs: EqArray<'ty>
+    | ConstrainedInterface of iface: TypeKey * ifaceArgs: EqArray<'ty>
 
 /// How codegen resolves the `MoveNext` / `Current` handles of a `Pattern`
 /// enumerator `E` — the second independent axis of a duck-typed walk. The element
@@ -148,7 +148,7 @@ type ForInEnumMembersG<'ty> =
     /// Codegen emits `constrained. <E> callvirt iface::MoveNext / iface::get_Current`,
     /// dispatching a struct enumerator typar by address (no box). The slots are
     /// resolved off the `EmittedInterface` registry by name.
-    | ConstrainedInterface of iface: SymbolKey * ifaceArgs: EqArray<'ty>
+    | ConstrainedInterface of iface: TypeKey * ifaceArgs: EqArray<'ty>
 
 [<RequireQualifiedAccess>]
 type ForInEnumeratorG<'ty> =

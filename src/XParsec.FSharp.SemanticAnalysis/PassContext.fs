@@ -281,7 +281,7 @@ type PassContextResolution =
         /// `ctx.Types.Enum` arm, or an unrelated qualified name). The enum-case sibling
         /// of `ExternalUnionCaseStamp`, but a bare `SymbolKey` suffices rather than a
         /// payload: an enum case is a named constant on a closed set, not a ctor arrow.
-        ExternalEnumCaseStamp: SideTable<SymbolKey>
+        ExternalEnumCaseStamp: SideTable<TypeKey>
         /// Keyed by an expression Elaborate lowers to a desugared
         /// `TExpr.External(<intrinsicName>, …)` head that splices a cross-package
         /// `let inline` body — an arithmetic/comparison/custom operator
@@ -338,7 +338,7 @@ type PassContextResolution =
         /// type-inference seam: the static type prefix is resolved here, opens-aware,
         /// while the post-dot member name stays a string — a non-opens-sensitive
         /// post-selector.
-        ResolvedType: SideTable<SymbolKey>
+        ResolvedType: SideTable<TypeKey>
         /// Keyed by a written **type-annotation head** (`CstKeys.ofTypeHead` — a
         /// `NamedType`/`GenericType`/`SuffixedType` anchored on `li.Idents.[0]`): the
         /// external `SymbolKey` that head resolves to, minted by NameResolution's
@@ -353,7 +353,7 @@ type PassContextResolution =
         /// name — Translate takes its local-registry / opaque / `TyVar` paths. (The
         /// `float<m>` measure carrier is synthesized during inference with no `Type`
         /// node to stamp, and keeps the one sanctioned resolver-face reach.)
-        ResolvedTypeHead: SideTable<SymbolKey>
+        ResolvedTypeHead: SideTable<TypeKey>
         /// A static-access receiver's resolved external CLASS key — the writer
         /// guarantees the Class shape, so readers dispatch with no shape re-query.
         /// Two minting forms, each keyed by its own node: a folded static-member
@@ -906,7 +906,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
         | ValueSome h -> h
         | ValueNone -> ModuleHolder.InNamespace NamespaceKey.Global
 
-    /// The `SymbolKey` a type DECLARED where the walk currently stands would be minted with
+    /// The `TypeKey` a type DECLARED where the walk currently stands would be minted with
     /// — `CurrentHolder` plus the declared name and arity.
     ///
     /// THE way a pass recovers the registered detail of a declaration it is WALKING, as
@@ -914,8 +914,8 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// not go looking for itself by name — two sibling modules may each declare `T`, and a
     /// by-name read would answer with whichever one it found. Mints the identical key
     /// `NameResolutionTypeRegistration.claimTypeIdentity` stamped, from the identical chain.
-    member this.DeclaredTypeKey(name: string, arity: int) : SymbolKey =
-        SymbolKey.Type(LocalSymbolKey.ofType (ModuleRules.typeHolderOf this.CurrentHolder) name arity)
+    member this.DeclaredTypeKey(name: string, arity: int) : TypeKey =
+        LocalSymbolKey.ofType (ModuleRules.typeHolderOf this.CurrentHolder) name arity
 
     /// Source text of `token`. Empty for virtual (synthesised) tokens.
     member this.NameOf(token: SyntaxToken) : string =

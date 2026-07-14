@@ -453,10 +453,10 @@ module VesperLibTypeTranslate =
         // A name that resolves through the ambient shapes instead (a dependency's type,
         // a raw BCL nominal) has no key here. Those are the bare-IL population — no
         // modules, so the name IS the identity — and `qualifiedTypeKey` is exact for them.
-        let key (arity: int) : SymbolKey =
+        let key (arity: int) : TypeKey =
             match ExtractCtx.tryTypeKey ctx compiled with
-            | ValueSome k -> SymbolKey.Type k
-            | ValueNone -> SymbolKeyOps.qualifiedTypeKey compiled arity
+            | ValueSome k -> k
+            | ValueNone -> SymbolKeyOps.qualifiedTypeKeyOfT compiled arity
 
         match ExtractCtx.shapeOf ctx compiled with
         | ValueSome(ExternalTypeShape.Union _) -> FTUnion(key args.Length, args)

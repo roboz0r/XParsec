@@ -321,7 +321,7 @@ module internal UnificationInferApp =
                             // (`Console.Out`) exactly: the qualified name IS the identity.
                             match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKey name 0) with
                             | ValueSome(ExternalTypeShape.Class info) when info.Arity = 0 ->
-                                ValueSome(TyClass(SymbolKeyOps.qualifiedTypeKey name 0, EqArray.empty))
+                                ValueSome(TyClass(SymbolKeyOps.qualifiedTypeKeyOfT name 0, EqArray.empty))
                             | _ -> ValueNone
                         )
 
@@ -485,13 +485,13 @@ module internal UnificationInferApp =
                                     if hasCallbackHole && PrintfSpec.familyNeedsScratch fam then
                                         match fam.ScratchSink with
                                         | TyClass(scratchKey, _) as scratchTy ->
-                                            let scratchName = SymbolKeyOps.qualifiedName scratchKey
+                                            let scratchName = SymbolKeyOps.typeMetaName scratchKey
 
                                             // `ToString` is overloaded (`StringBuilder.ToString(int,
                                             // int)`); pick the parameterless override, not the
                                             // most-params one `TryLookupMember` would return.
                                             let toString =
-                                                ctx.Provider.TryLookupMembers(scratchKey, "ToString")
+                                                ctx.Provider.TryLookupMembers(SymbolKey.Type scratchKey, "ToString")
                                                 |> Array.tryFind (fun m -> m.Key.ArgSig.Length = 0)
 
                                             match toString with

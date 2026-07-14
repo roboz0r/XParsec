@@ -78,13 +78,16 @@ let tests =
                     match sym.Scheme with
                     | FTClass(key, args) ->
                         Expect.equal
-                            (SymbolKeyOps.qualifiedName key)
+                            (SymbolKeyOps.typeMetaName key)
                             "Box`1"
                             "the minted key must be the arity-suffixed foreign name (the arity law)"
 
                         Expect.equal (args |> EqArray.toList |> List.length) 1 "Box<string> applies one type arg"
 
-                        match (stackTsMany [ manifestB; manifestA ] :> IExternalSymbolStore).TryLookupType key with
+                        match
+                            (stackTsMany [ manifestB; manifestA ] :> IExternalSymbolStore)
+                                .TryLookupType(SymbolKey.Type key)
+                        with
                         | ValueSome(ExternalTypeShape.Class info) ->
                             Expect.equal
                                 info.Origin.Assembly

@@ -60,7 +60,7 @@ module internal ElaborateExpr =
         // registry on the error path — exclusive with the local-binding / class /
         // union heads handled elsewhere.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(li & EnumCaseAccess ctx ty enumKey)) ->
-            TExpr.StaticFieldGet(enumKey, ctx.NameOf li.Idents.[1], ty, tok)
+            TExpr.StaticFieldGet(SymbolKey.Type enumKey, ctx.NameOf li.Idents.[1], ty, tok)
         | Expr.New(typ = t; expr = argExpr) -> translateNew ctx t argExpr ty tok
         // Class-name-as-function application: `Point(3, 4)` parses as
         // `Expr.App (Ident Point, [EnclosedBlock(Tuple)])`.
@@ -363,7 +363,7 @@ module internal ElaborateExpr =
             // Qualified so the backend's external-ctor recipe (`new
             // System.Exception(...)`) resolves; the backend strips to the bare
             // simple name for the project-local class lookup.
-            | TyClass(n, _) -> SymbolKeyOps.qualifiedName n
+            | TyClass(n, _) -> SymbolKeyOps.typeMetaName n
             | _ ->
                 let rec nameOf t =
                     match t with

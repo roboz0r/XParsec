@@ -74,6 +74,11 @@ let shownName (key: SymbolKey) : string =
     let (DisplayName name) = SymbolKeyOps.simpleName key
     name
 
+/// `shownName` for a nominal head, which carries the narrow `TypeKey`.
+let shownTypeName (key: TypeKey) : string =
+    let (DisplayName name) = SymbolKeyOps.typeSimpleName key
+    name
+
 /// The declaring type's simple name for a member key — `StaticMethodCall` /
 /// `StaticPropertyGet` carry a `SymbolKey.MemberKey` (Phase 4), whose `decl` is
 /// the class. Falls back to the key's own simple name for any other shape.
@@ -93,7 +98,7 @@ let rec private tyName (t: SemType) : string =
     | TyRecord(n, _)
     | TyUnion(n, _)
     | TyClass(n, _)
-    | TyEnum n -> shownName n
+    | TyEnum n -> shownTypeName n
     | TyOr members -> [ for m in members.Members -> tyName m ] |> String.concat " | "
     | TyLiteral(LiteralConst.String s) -> "\"" + s + "\""
     | TyLiteral(LiteralConst.Int n) -> string n
@@ -674,7 +679,7 @@ type private Renderer() =
                 | TyRecord(n, _)
                 | TyUnion(n, _)
                 | TyClass(n, _)
-                | TyEnum n -> shownName n
+                | TyEnum n -> shownTypeName n
                 | TyOr members -> [ for m in members.Members -> tyStr m ] |> String.concat " | "
                 | TyLiteral(LiteralConst.String s) -> "\"" + s + "\""
                 | TyLiteral(LiteralConst.Int n) -> string n

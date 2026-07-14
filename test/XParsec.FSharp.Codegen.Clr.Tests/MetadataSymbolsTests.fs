@@ -81,7 +81,7 @@ let tests =
                 | ValueSome(ExternalTypeShape.Class info) ->
                     match ExternalSymbols.instantiateBaseType info [||] with
                     | ValueSome(TyClass(k, args)) when
-                        SymbolKeyOps.qualifiedName k = "System.IO.TextWriter" && args.IsEmpty
+                        SymbolKeyOps.typeMetaName k = "System.IO.TextWriter" && args.IsEmpty
                         ->
                         ()
                     | ValueSome other -> failtestf "expected StringWriter base = TextWriter, got %A" other
@@ -133,7 +133,7 @@ let tests =
                             | _ -> false
                         )
                         ->
-                        Expect.equal (SymbolKeyOps.qualifiedName key) eqComparer "Default : EqualityComparer<int>"
+                        Expect.equal (SymbolKeyOps.typeMetaName key) eqComparer "Default : EqualityComparer<int>"
                     | other -> failtestf "unexpected Default signature %A" other
                 | ValueNone -> failtest "Default did not resolve"
             }

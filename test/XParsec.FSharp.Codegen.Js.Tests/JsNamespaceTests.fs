@@ -178,11 +178,11 @@ let tests =
                     match sym.Scheme with
                     | FTClass(key, _) ->
                         Expect.equal
-                            (SymbolKeyOps.qualifiedName key)
+                            (SymbolKeyOps.typeMetaName key)
                             "Js.Widget"
                             "the homed ref must mint under the Js namespace (globalLibHomes), not bare Widget"
 
-                        match (es2015Provider :> IExternalSymbolStore).TryLookupType key with
+                        match (es2015Provider :> IExternalSymbolStore).TryLookupType(SymbolKey.Type key) with
                         | ValueSome(ExternalTypeShape.Class info) ->
                             Expect.equal
                                 info.Origin.Assembly

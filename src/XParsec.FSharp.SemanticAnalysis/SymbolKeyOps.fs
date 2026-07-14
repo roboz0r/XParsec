@@ -361,8 +361,8 @@ module SymbolKeyOps =
     /// the IR seam: the provider's own entries (`ExternalMember.Key`) are `MemberKey` by
     /// construction, so a consumer holding one reads its fields directly and never comes
     /// here. The IR's `TExpr.ExternalMember` / `MethodCall` / `Disposal` payloads are still
-    /// `SymbolKey` (see `SemanticInfo`'s REMAINING NARROWING note), so the narrowing is a
-    /// real — if unreachable — runtime check; it is stated ONCE here rather than at each
+    /// `SymbolKey` (member positions, not nominal heads — those now carry a `TypeKey`), so
+    /// the narrowing is a real — if unreachable — runtime check; it is stated ONCE here rather than at each
     /// backend, which is what keeps the answer to "a non-member key in a member position"
     /// from differing per site.
     let asMemberKey (what: string) (k: SymbolKey) : MemberKey =
@@ -413,6 +413,10 @@ module SymbolKeyOps =
     /// a string — a compiled-name-addressed store, a platform-repr map — take
     /// `intrinsicName`, which stays non-lossy.
     let simpleName (k: SymbolKey) : DisplayName = DisplayName(intrinsicName k)
+
+    /// `simpleName` for a caller already holding the narrow `TypeKey` a nominal head
+    /// carries — same projection, no widening detour.
+    let typeSimpleName (t: TypeKey) : DisplayName = DisplayName t.Name
 
     /// The fully-qualified compiled name for an EXTERNAL nominal lookup
     /// (`externalUnionRef` / `externalRecordRef` / `externalClassRef`): the full

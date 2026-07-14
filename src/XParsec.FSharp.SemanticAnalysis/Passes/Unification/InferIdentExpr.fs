@@ -78,7 +78,7 @@ module internal UnificationInferIdentExpr =
             let caseName = ctx.NameOf li.Idents.[1]
 
             if einfo.HasCase caseName then
-                TyEnum einfo.Key
+                TyEnum einfo.TypeKey
             else
                 errorTy ctx key (sprintf "Enum '%s' has no case '%s'" einfo.Name caseName)
         // Two-segment qualified reference whose head is *not* a local binding:

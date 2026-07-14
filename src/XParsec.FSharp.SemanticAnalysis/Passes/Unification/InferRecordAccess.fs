@@ -106,7 +106,7 @@ module internal UnificationInferRecordAccess =
                 | Some field -> unify ctx (CstKeys.ofExpr e) eTy (substituteWith subst field.Type)
                 | None -> ctx.Error(CstKeys.ofExpr e, sprintf "Type '%s' has no field '%s'" info.Name fieldName)
 
-            TyRecord(info.Key, args)
+            TyRecord(info.TypeKey, args)
 
     and inferRecordClone
         (infer: Infer)
@@ -135,7 +135,7 @@ module internal UnificationInferRecordAccess =
 
                 TyRecord(recKey, srcArgs)
             | ValueNone ->
-                let (DisplayName shown) = SymbolKeyOps.simpleName recKey
+                let (DisplayName shown) = SymbolKeyOps.typeSimpleName recKey
                 ctx.Error(key, sprintf "Unknown record type '%s'" shown)
 
                 for FieldInitializer(expr = e) in inits do
@@ -206,13 +206,13 @@ module internal UnificationInferRecordAccess =
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target ->
                     match resolveStep target with
-                    | TyClass(SymbolKey.Type ifaceKey, ifaceArgs) ->
+                    | TyClass(ifaceKey, ifaceArgs) ->
                         // Resolve by the interface's key, not a bare name: an
                         // arity-overloaded interface (`Fun`2`/`Fun`3`) does not resolve by bare name, so a
                         // bare read would miss a `'T :> Fun<…>` bound's local interface.
-                        match TypeRegistry.tryClassByKey ctx.Types (SymbolKey.Type ifaceKey) with
+                        match TypeRegistry.tryClassByKey ctx.Types ifaceKey with
                         | ValueSome info when info.IsInterface ->
-                            match tryClassChainMember ctx (SymbolKey.Type ifaceKey) ifaceArgs memberName with
+                            match tryClassChainMember ctx ifaceKey ifaceArgs memberName with
                             | ValueSome mty ->
                                 ctx.Resolution.TyparInterfaceCall.Set(diagKey, (ifaceKey, ifaceArgs))
                                 ValueSome mty
@@ -244,13 +244,13 @@ module internal UnificationInferRecordAccess =
                 | Some field -> instantiateMember (info.TypeParams, args) field.Type
                 | None -> errorTy ctx diagKey (sprintf "Type '%s' has no field '%s'" info.Name memberName)
             | ValueNone ->
-                let (DisplayName shown) = SymbolKeyOps.simpleName recKey
+                let (DisplayName shown) = SymbolKeyOps.typeSimpleName recKey
                 errorTy ctx diagKey (sprintf "Unknown record type '%s'" shown)
         | TyClass(clsKey, args) ->
             // Resolve by the (arity-qualified) key, not the bare name: an
             // arity-overloaded receiver (`Fun\`2`/`Fun\`3`) does not resolve by bare name, so a
             // bare read would miss. `clsSimple` survives only for the diagnostic path.
-            let (DisplayName clsSimple) = SymbolKeyOps.simpleName clsKey
+            let (DisplayName clsSimple) = SymbolKeyOps.typeSimpleName clsKey
 
             match TypeRegistry.tryClassByKey ctx.Types clsKey with
             | ValueSome info ->
@@ -273,7 +273,7 @@ module internal UnificationInferRecordAccess =
                 // `TyClass("…EqualityComparer`1", [int])` produced by a prior static
                 // access). Resolve the instance member through the provider and
                 // record it for Elaborate.
-                let clsQual = SymbolKeyOps.qualifiedName clsKey
+                let clsQual = SymbolKeyOps.typeMetaName clsKey
 
                 // Commit a resolved external instance member `m` whose signature is written
                 // over ITS declaring type's typars, instantiated with `memberArgs`: the
@@ -303,7 +303,7 @@ module internal UnificationInferRecordAccess =
 
                     memberSig
 
-                match ctx.Provider.TryLookupMember(clsKey, memberName) with
+                match ctx.Provider.TryLookupMember(SymbolKey.Type clsKey, memberName) with
                 | ValueSome m when not m.IsStatic -> commitExternalMember m args
                 | _ ->
 
@@ -326,12 +326,9 @@ module internal UnificationInferRecordAccess =
                         // The owning PACKAGE cannot be named here: a key is a nominal identity
                         // and the assembly is a physical fact carried on the resolved shape —
                         // and this is precisely the branch where no shape resolved.
-                        let clsNs =
-                            match clsKey with
-                            | SymbolKey.Type t -> t.Namespace.Dotted
-                            | _ -> ""
+                        let clsNs = clsKey.Namespace.Dotted
 
-                        match ctx.Provider.TryLookupType clsKey, clsNs with
+                        match ctx.Provider.TryLookupType(SymbolKey.Type clsKey), clsNs with
                         | ValueNone, ns when ns <> "" ->
                             errorTy
                                 ctx
@@ -346,7 +343,7 @@ module internal UnificationInferRecordAccess =
             // against the union's augmentation members.
             match TypeRegistry.tryUnionByKey ctx.Types unionKey with
             | ValueSome info ->
-                let (DisplayName shown) = SymbolKeyOps.simpleName unionKey
+                let (DisplayName shown) = SymbolKeyOps.typeSimpleName unionKey
 
                 resolveLocalInstanceMember ctx diagKey shown info.TypeParams args info.Members memberName
             | ValueNone ->
@@ -355,9 +352,9 @@ module internal UnificationInferRecordAccess =
                 // members the contract provider publishes). Resolve through the
                 // provider and record it for Elaborate, exactly as the external
                 // `TyClass` arm does.
-                let unionQual = SymbolKeyOps.qualifiedName unionKey
+                let unionQual = SymbolKeyOps.typeMetaName unionKey
 
-                match ctx.Provider.TryLookupMember(unionKey, memberName) with
+                match ctx.Provider.TryLookupMember(SymbolKey.Type unionKey, memberName) with
                 | ValueSome m when not m.IsStatic ->
                     // Single-candidate commit — freshen method typars per use site, as the
                     // external-`TyClass` arm above (shared defect: `openSignature` leaves an
@@ -380,7 +377,7 @@ module internal UnificationInferRecordAccess =
                 | _ ->
                     // The provider knows the union but not this member → a real
                     // member miss; otherwise the type itself is unknown.
-                    match ctx.Provider.TryLookupType unionKey with
+                    match ctx.Provider.TryLookupType(SymbolKey.Type unionKey) with
                     | ValueSome(ExternalTypeShape.Union _) ->
                         errorTy ctx diagKey (sprintf "Type '%s' has no instance member '%s'" unionQual memberName)
                     | _ -> errorTy ctx diagKey (sprintf "Unknown union type '%s'" unionQual)
@@ -650,10 +647,10 @@ module internal UnificationInferRecordAccess =
         | TyClass(clsKey, clsArgs) when (TypeRegistry.tryClassByKey ctx.Types clsKey).IsNone ->
             let clsArgsArr = clsArgs.AsSpan().ToArray()
 
-            match tryIndexSignature clsKey clsArgsArr with
+            match tryIndexSignature (SymbolKey.Type clsKey) clsArgsArr with
             | ValueSome resultTy -> resultTy
             | ValueNone ->
-                match resolveExternalIndexer clsKey clsArgsArr "get_Item" with
+                match resolveExternalIndexer (SymbolKey.Type clsKey) clsArgsArr "get_Item" with
                 | ValueSome resultTy -> resultTy
                 | ValueNone -> getArrayIndex ()
         // A rank-1 array `'T[]` (a bare `TyConst("[]", [elem])`, NOT a `TyClass`) reads

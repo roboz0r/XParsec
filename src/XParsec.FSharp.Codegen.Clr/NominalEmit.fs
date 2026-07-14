@@ -42,7 +42,7 @@ module internal NominalEmit =
         /// resolved `extends` token.
         | ExternalBase of key: SymbolKey * tref: EntityHandle
         /// A non-generic project-local base: `extends` its `TypeDefinition` token.
-        | LocalMono of key: SymbolKey
+        | LocalMono of key: TypeKey
         /// A generic parent (`Box<int>`) — or any non-`FTClass` base type:
         /// `extends` a `GENERICINST` `TypeSpec`, encoded with this class's typars
         /// ambient so an open parent arg resolves to `!i`.
@@ -171,7 +171,7 @@ module internal NominalEmit =
                 staticFieldsDict.[sl.Name] <-
                     if isGeneric then
                         icodegen.UserGenericMemberRef(
-                            td.Key,
+                            td.TypeKey,
                             typarMarkers,
                             UserMemberKind.ClassMember(ClassMember.Field sl.Name)
                         )
@@ -266,7 +266,7 @@ module internal NominalEmit =
         // is free.
         let selfMemberRef (kind: UserMemberKind) (monoHandle: EntityHandle) : EntityHandle =
             if isGeneric then
-                icodegen.UserGenericMemberRef(td.Key, typarMarkers, kind)
+                icodegen.UserGenericMemberRef(td.TypeKey, typarMarkers, kind)
             else
                 monoHandle
 
@@ -327,7 +327,7 @@ module internal NominalEmit =
                 // A mono union's `typarMarkers` is empty, so the self return type is
                 // `FTUnion(td.Key, [])` — one path covers both.
                 let factorySig =
-                    provider.StaticMethodSignature(paramTys, FTUnion(td.Key, EqArray.ofList typarMarkers))
+                    provider.StaticMethodSignature(paramTys, FTUnion(td.TypeKey, EqArray.ofList typarMarkers))
 
                 asm.AddPrepared(
                     MethodKey.UnionFactory(td.Key, c.Name),
@@ -392,8 +392,8 @@ module internal NominalEmit =
                 match baseType with
                 | ValueNone -> BaseShape.NoBase
                 | ValueSome(FTClass(baseKey, baseArgs)) when baseArgs.IsEmpty ->
-                    match icodegen.ExternalClassTypeRef baseKey with
-                    | ValueSome tref -> BaseShape.ExternalBase(baseKey, tref)
+                    match icodegen.ExternalClassTypeRef(SymbolKey.Type baseKey) with
+                    | ValueSome tref -> BaseShape.ExternalBase(SymbolKey.Type baseKey, tref)
                     | ValueNone -> BaseShape.LocalMono baseKey
                 // An intrinsic-class parent (`inherit exn`) arrives as the canon
                 // `FTConst`, not an `FTClass` — resolve it to its platform external
@@ -417,7 +417,7 @@ module internal NominalEmit =
                 if isStruct then
                     baseTypeHandle <- provider.ValueTypeBase
             | BaseShape.ExternalBase(_, tref) -> baseTypeHandle <- tref
-            | BaseShape.LocalMono baseKey -> baseTypeHandle <- provider.UserTypeHandle baseKey
+            | BaseShape.LocalMono baseKey -> baseTypeHandle <- provider.UserTypeHandle(SymbolKey.Type baseKey)
             | BaseShape.Generic bt -> baseTypeHandle <- icodegen.TypeToken bt
 
             // The val-field *reference* form (no primary ctor) emits no primary
@@ -499,7 +499,7 @@ module internal NominalEmit =
                         | _ -> failwithf "Emit: class '%s' has a base-ctor call but no class base type" td.Name
 
                     let baseCtorHandle =
-                        match classes.TryGetValue baseKey with
+                        match classes.TryGetValue(SymbolKey.Type baseKey) with
                         | true, bc when List.isEmpty bc.Typars -> bc.Ctor
                         | true, _ ->
                             icodegen.UserGenericMemberRef(
@@ -617,7 +617,7 @@ module internal NominalEmit =
                             let fieldHandleOf name =
                                 if isGeneric then
                                     icodegen.UserGenericMemberRef(
-                                        td.Key,
+                                        td.TypeKey,
                                         typarMarkers,
                                         UserMemberKind.ClassMember(ClassMember.Field name)
                                     )
@@ -776,9 +776,9 @@ module internal NominalEmit =
         // triple, the comparison pair, and the synthesised interface specs.
         let selfTy (ts: FrozenType list) : FrozenType =
             match input with
-            | NominalEmissionInput.Union _ -> FTUnion(td.Key, EqArray.ofList ts)
-            | NominalEmissionInput.Record _ -> FTRecord(td.Key, EqArray.ofList ts)
-            | NominalEmissionInput.Class _ -> FTClass(td.Key, EqArray.ofList ts)
+            | NominalEmissionInput.Union _ -> FTUnion(td.TypeKey, EqArray.ofList ts)
+            | NominalEmissionInput.Record _ -> FTRecord(td.TypeKey, EqArray.ofList ts)
+            | NominalEmissionInput.Class _ -> FTClass(td.TypeKey, EqArray.ofList ts)
 
         let selfTyMarkers = selfTy typarMarkers
 
@@ -790,7 +790,7 @@ module internal NominalEmit =
                 provider.UserTypeHandle td.Key
             else
                 match input with
-                | NominalEmissionInput.Union _ -> provider.GenericUnionSelfSpec td.Key
+                | NominalEmissionInput.Union _ -> provider.GenericUnionSelfSpec td.TypeKey
                 | NominalEmissionInput.Record _ -> provider.GenericRecordSelfSpec td.Key
                 | NominalEmissionInput.Class _ -> provider.UserTypeHandle td.Key
 
@@ -1095,7 +1095,7 @@ module internal NominalEmit =
 
                     provider.InstanceMethodSignature(
                         [],
-                        FTClass(SymbolKeyOps.typeKey "System.Collections" "IEnumerator", EqArray.empty)
+                        FTClass(SymbolKeyOps.typeKeyOf "System.Collections" "IEnumerator", EqArray.empty)
                     ),
                     Emit.buildEnumerableGetEnumeratorCoSlot getEnumerator
                 | CoSlot.EnumeratorCurrent ->

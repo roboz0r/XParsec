@@ -136,7 +136,7 @@ type internal Assembler
                             ]
                     ]
 
-                provider.RegisterGenericUnion(td.Key, EqArray.toList td.TypeParams, shape)
+                provider.RegisterGenericUnion(td.TypeKey, EqArray.toList td.TypeParams, shape)
         )
 
     do
@@ -288,7 +288,7 @@ type internal Assembler
     let enumeratorOf (seqTy: FrozenType) : FrozenType voption =
         match seqTy with
         | FTClass(key, args) ->
-            match enumeratorTemplateByClass.TryGetValue key with
+            match enumeratorTemplateByClass.TryGetValue(SymbolKey.Type key) with
             | true, template -> ValueSome(substituteDeclaring (args.AsSpan().ToArray()) template)
             | false, _ -> ValueNone
         | _ -> ValueNone

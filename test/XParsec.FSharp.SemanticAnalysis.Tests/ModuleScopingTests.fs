@@ -96,7 +96,7 @@ let private nominalKey (ty: SemType) : SymbolKey =
     match ty with
     | SemType.TyClass(k, _)
     | SemType.TyRecord(k, _)
-    | SemType.TyUnion(k, _) -> k
+    | SemType.TyUnion(k, _) -> SymbolKey.Type k
     | other -> failtestf "expected a nominal type, got %A" other
 
 /// The ARGUMENT type of the unit's sole module-level `let` — for `let f (v: T) = v`, what
@@ -535,8 +535,7 @@ let qualifiedTests =
                 // `open N` must OUTRANK it (it is written deeper, and later), or the name
                 // would mean M's.
                 match soleLetArg tast with
-                | SemType.TyRecord(SymbolKey.Type k, _) ->
-                    Expect.equal k.Namespace.Dotted "N" "the `open N` qualifies A.T to N.A.T"
+                | SemType.TyRecord(k, _) -> Expect.equal k.Namespace.Dotted "N" "the `open N` qualifies A.T to N.A.T"
                 | other -> failtestf "expected a record, got %A" other
             }
 

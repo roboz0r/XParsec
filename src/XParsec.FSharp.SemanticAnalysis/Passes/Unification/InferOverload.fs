@@ -91,7 +91,7 @@ module UnificationInferOverload =
         | TyRecord(n1, xs), TyRecord(n2, ys)
         | TyUnion(n1, xs), TyUnion(n2, ys)
         | TyClass(n1, xs), TyClass(n2, ys) ->
-            (n1 = n2 || canon n1 = canon n2)
+            (n1 = n2 || canon (SymbolKey.Type n1) = canon (SymbolKey.Type n2))
             && EqArray.forall2 (applicabilityMatches canon) xs ys
         | _ -> false
 

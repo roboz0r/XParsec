@@ -67,7 +67,7 @@ module private MetadataMapping =
             else
                 let frozen = args |> Array.map Option.get
 
-                let key = SymbolKeyOps.qualifiedTypeKey name frozen.Length
+                let key = SymbolKeyOps.qualifiedTypeKeyOfT name frozen.Length
 
                 Some(FTClass(key, EqArray.ofArray frozen))
         else
@@ -87,7 +87,7 @@ module private MetadataMapping =
             // the general `FTClass` arm below.
             | fullName when reverseCanon |> Map.tryFind fullName |> Option.exists (List.isEmpty >> not) ->
                 Some(FTConst(reverseCanon.[fullName] |> List.head, EqArray.empty))
-            | fullName -> Some(FTClass(SymbolKeyOps.qualifiedTypeKey fullName 0, EqArray.empty))
+            | fullName -> Some(FTClass(SymbolKeyOps.qualifiedTypeKeyOfT fullName 0, EqArray.empty))
 
     /// The tupled parameter template: 0 → `unit`, 1 → bare param, N≥2 → `FTTuple`
     /// (.NET calling convention — not curried).

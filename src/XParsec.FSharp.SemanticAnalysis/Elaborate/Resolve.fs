@@ -20,13 +20,13 @@ module internal ElaborateResolve =
         | ValueSome tv -> Unification.zonk (TyVar tv)
         | ValueNone -> TyVar(TypeVar())
 
-    /// The enum `SymbolKey` a node's type carries, if it is an enum. Both the
+    /// The enum `TypeKey` a node's type carries, if it is an enum. Both the
     /// project-local and the external (TS-manifest) `E.C1` arms type their node
     /// `TyEnum key`, so this is the single signal the expression / pattern freeze
     /// arms read to reuse the same `StaticFieldGet` / `TPat.EnumCase` carrier — the
     /// key is the enum's identity whether the cases are emitted locally (object map)
     /// or imported from a TS module.
-    let enumKeyOfTy (ty: SemType) : SymbolKey voption =
+    let enumKeyOfTy (ty: SemType) : TypeKey voption =
         match Unification.zonk ty with
         | TyEnum key -> ValueSome key
         | _ -> ValueNone
@@ -59,7 +59,7 @@ module internal ElaborateResolve =
     /// upstream) left the node's type un-pinned. This preserves the prior arms'
     /// behaviour exactly while removing the duplicate arm and the guard re-lookups.
     [<return: Struct>]
-    let (|EnumCaseAccess|_|) (ctx: PassContext) (ty: SemType) (li: LongIdent<SyntaxToken>) : SymbolKey voption =
+    let (|EnumCaseAccess|_|) (ctx: PassContext) (ty: SemType) (li: LongIdent<SyntaxToken>) : TypeKey voption =
         if li.Idents.Length <> 2 then
             ValueNone
         else
@@ -73,7 +73,7 @@ module internal ElaborateResolve =
                     ctx.UseSiteAt(NodeKey.ofToken (CstKeys.firstTokenOfLongIdent li) NodeKind.ExprIdent)
 
                 match TypeRegistry.tryEnum ctx.Types useSite (ctx.NameOf li.Idents.[0]) with
-                | ValueSome info -> ValueSome info.Key
+                | ValueSome info -> ValueSome info.TypeKey
                 | ValueNone -> ValueNone
 
     /// Class-name reference only when there's no local `Binding` entry — i.e. it
@@ -106,7 +106,7 @@ module internal ElaborateResolve =
         else
             let stampedExternal () =
                 match ctx.Resolution.ResolvedType.TryGetValue key with
-                | ValueSome k -> ValueSome(SymbolKeyOps.qualifiedName k)
+                | ValueSome k -> ValueSome(SymbolKeyOps.typeMetaName k)
                 | ValueNone -> ValueNone
 
             // Scoped by the head's own position, exactly as Unification's ctor-as-function
@@ -131,14 +131,11 @@ module internal ElaborateResolve =
     /// slot of the `MemberKey` minted for an instance member access. Only called
     /// where the receiver is already known to be nominal (the active patterns /
     /// `InstanceMethodCall` guard on `TyClass`/`TyUnion`), so a non-nominal type is an
-    /// Elaborate invariant break. The `SymbolKey.Type` narrowing rides the SAME arm:
-    /// the nominal `SemType` cases still carry a `SymbolKey` (widening the type IR to
-    /// carry a `TypeKey` is a separate change), but every producer of one mints
-    /// `SymbolKey.Type`, so a non-type key here is the same invariant break.
+    /// Elaborate invariant break.
     let nominalDeclKey (ty: SemType) : TypeKey =
         match Unification.zonk ty with
-        | TyClass(SymbolKey.Type key, _)
-        | TyUnion(SymbolKey.Type key, _) -> key
+        | TyClass(key, _)
+        | TyUnion(key, _) -> key
         | other -> failwithf "Elaborate: expected a class/union receiver for a member access, got %A" other
 
     /// Look up `memberName` on `typeName` — a class or (P3d.3) a union
@@ -176,7 +173,7 @@ module internal ElaborateResolve =
     /// `TyClass`/`TyUnion` key must route through here.
     let private tryClassMemberByKey
         (ctx: PassContext)
-        (typeKey: SymbolKey)
+        (typeKey: TypeKey)
         (memberName: string)
         : (TypeKey * TypeMemberInfo) voption =
         let pick (key: TypeKey) (members: TypeMemberInfo[]) =
@@ -304,7 +301,7 @@ module internal ElaborateResolve =
     /// `declKey.memberName`; empty when the member is unresolved (the call still
     /// emits — just unwrapped, exactly as before this plan).
     let memberParamTys (ctx: PassContext) (declKey: TypeKey) (memberName: string) : SemType list =
-        match tryClassMemberByKey ctx (SymbolKey.Type declKey) memberName with
+        match tryClassMemberByKey ctx declKey memberName with
         | ValueSome(_, m) -> flatMemberParams m.Type
         | ValueNone -> []
 

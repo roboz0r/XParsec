@@ -19,11 +19,11 @@ open XParsec.FSharp.SemanticAnalysis
 /// every constructor, including nesting and the two `TyparAxis`es. No RNG (no
 /// FsCheck dependency); the set is small but exhaustive over the constructors.
 let private sampleFrozenTypes: FrozenType list =
-    let kRec = SymbolKeyOps.qualifiedTypeKey "Test.Box" 1
-    let kUnion = SymbolKeyOps.qualifiedTypeKey "Test.Option" 1
-    let kClass = SymbolKeyOps.qualifiedTypeKey "Test.Widget" 2
+    let kRec = SymbolKeyOps.qualifiedTypeKeyOfT "Test.Box" 1
+    let kUnion = SymbolKeyOps.qualifiedTypeKeyOfT "Test.Option" 1
+    let kClass = SymbolKeyOps.qualifiedTypeKeyOfT "Test.Widget" 2
     // An enum is niladic (arity 0) — a leaf nominal carrying only its key.
-    let kEnum = SymbolKeyOps.qualifiedTypeKey "Test.Colour" 0
+    let kEnum = SymbolKeyOps.qualifiedTypeKeyOfT "Test.Colour" 0
 
     // Leaves: every nullary / typar / unknown form.
     let leaves =
@@ -286,7 +286,7 @@ let mapVariantTests =
             }
 
             test "invariance dominates a contravariant enclosing position" {
-                let kBox = SymbolKeyOps.qualifiedTypeKey "Test.Box" 1
+                let kBox = SymbolKeyOps.qualifiedTypeKeyOfT "Test.Box" 1
                 // `Box<M> -> M` under Co: the domain is contra, but `Box`'s ARG is a
                 // generic slot → inv wins over the contra it sits inside; the result `M`
                 // stays co.
@@ -299,7 +299,7 @@ let mapVariantTests =
             }
 
             test "FTClass / FTRecord / FTUnion arguments are invariant" {
-                let k = SymbolKeyOps.qualifiedTypeKey "Test.T" 1
+                let k = SymbolKeyOps.qualifiedTypeKeyOfT "Test.T" 1
 
                 for mk in
                     [
@@ -366,7 +366,7 @@ let mapVariantTests =
                         FTTypar(TyparAxis.Method, 0)
                         FTLiteral(LiteralConst.String "GET")
                         FTUnknown "X"
-                        FTEnum(SymbolKeyOps.qualifiedTypeKey "Test.Colour" 0)
+                        FTEnum(SymbolKeyOps.qualifiedTypeKeyOfT "Test.Colour" 0)
                     ] do
                     Expect.equal (run Variance.Co leaf) leaf (sprintf "leaf unchanged: %A" leaf)
             }
@@ -412,7 +412,7 @@ let iterChildren2FTOrTests =
         "FrozenType.iterChildren2 FTOr pairing"
         [
             test "recovers a typar buried under a REORDERED FTOr member by head key, not position" {
-                let kBox = SymbolKeyOps.qualifiedTypeKey "Test.Box" 1
+                let kBox = SymbolKeyOps.qualifiedTypeKeyOfT "Test.Box" 1
                 // open template `Box<!!0> | int`; instantiated view `int | Box<string>`.
                 // `EqSet` preserves insertion order, so the two are stored REORDERED —
                 // a positional pairing would match `Box<!!0>` against `int` and lose the
@@ -442,7 +442,7 @@ let iterChildren2FTOrTests =
             }
 
             test "fails loudly when an open FTOr member's head matches TWO instantiated members" {
-                let kBox = SymbolKeyOps.qualifiedTypeKey "Test.Box" 1
+                let kBox = SymbolKeyOps.qualifiedTypeKeyOfT "Test.Box" 1
                 // open `int | Box<!!0>`; instantiated `Box<string> | Box<float>`. Positional
                 // heads mismatch (int vs Box) so the fallback runs; the concrete `int` open
                 // member has no partner, and `Box<!!0>` matches BOTH instantiated members —

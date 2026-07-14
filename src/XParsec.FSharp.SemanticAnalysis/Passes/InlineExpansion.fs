@@ -294,10 +294,10 @@ module InlineExpansion =
         | TyConst(key, _) ->
             let (DisplayName shown) = SymbolKeyOps.simpleName key
             shown
-        | TyEnum key -> SymbolKeyOps.qualifiedName key
+        | TyEnum key -> SymbolKeyOps.typeMetaName key
         | TyClass(k, _)
         | TyUnion(k, _)
-        | TyRecord(k, _) -> SymbolKeyOps.qualifiedName k
+        | TyRecord(k, _) -> SymbolKeyOps.typeMetaName k
         | TyVar _
         | TyTypar _ -> "'a"
         | TyFun _ -> "function"

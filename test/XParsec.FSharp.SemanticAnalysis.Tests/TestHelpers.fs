@@ -45,18 +45,18 @@ let realProvider: Lazy<IExternalSymbolProvider> =
 // construction *and* `| TyUnion("X", args)` match sites compile unchanged. A file
 // gets these only when it `open`s `TestHelpers` after `open …SemanticAnalysis`.
 let TyUnion (name: string, args: EqArray<SemType>) =
-    SemType.TyUnion(SymbolKeyOps.qualifiedTypeKey name args.Length, args)
+    SemType.TyUnion(SymbolKeyOps.qualifiedTypeKeyOfT name args.Length, args)
 
 let TyRecord (name: string, args: EqArray<SemType>) =
-    SemType.TyRecord(SymbolKeyOps.qualifiedTypeKey name args.Length, args)
+    SemType.TyRecord(SymbolKeyOps.qualifiedTypeKeyOfT name args.Length, args)
 
 let TyClass (name: string, args: EqArray<SemType>) =
-    SemType.TyClass(SymbolKeyOps.qualifiedTypeKey name args.Length, args)
+    SemType.TyClass(SymbolKeyOps.qualifiedTypeKeyOfT name args.Length, args)
 
 // The arity-qualified qualified name (`Microsoft.FSharp.Core.Result`2`,
 // `Choice`2`) — the new canonical convention. Assertions that pinned the old
 // non-suffixed / bare form were updated to match (the doc's "convention ripple").
-let private nominalDisplayName (k: SymbolKey) : string = SymbolKeyOps.qualifiedName k
+let private nominalDisplayName (k: TypeKey) : string = SymbolKeyOps.typeMetaName k
 
 let (|TyUnion|_|) (t: SemType) =
     match t with

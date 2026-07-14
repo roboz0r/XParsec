@@ -35,7 +35,7 @@ module EmitConstruct =
             let localClass =
                 match ty with
                 | FTClass(k, _) ->
-                    match env.Classes.TryGetValue k with
+                    match env.Classes.TryGetValue(SymbolKey.Type k) with
                     | true, c -> ValueSome(k, c)
                     | _ -> ValueNone
                 | _ -> ValueNone
@@ -124,7 +124,7 @@ module EmitConstruct =
                         fun () ->
                             match ty with
                             | FTClass(ctorKey, _) ->
-                                match env.Provider.TryEmitCtor(ctorKey, tyArgs, argTypes) with
+                                match env.Provider.TryEmitCtor(SymbolKey.Type ctorKey, tyArgs, argTypes) with
                                 | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
                                 | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
                             // A constructed heritable primitive (`new exn "boom"` /
@@ -163,7 +163,7 @@ module EmitConstruct =
             // factory.
             let key, tyArgs = nominalShape "RecordCons" ty
 
-            match env.Records.TryGetValue key with
+            match env.Records.TryGetValue(SymbolKey.Type key) with
             | true, r ->
                 let srcMap = Map.ofSeq srcFields.Underlying
 
@@ -181,7 +181,7 @@ module EmitConstruct =
 
                 b.Add(ILInstr.Newobj(ctor, List.length r.Fields))
             | false, _ ->
-                let qualName = SymbolKeyOps.qualifiedName key
+                let qualName = SymbolKeyOps.typeMetaName key
                 // The record lives in a referenced assembly. The provider mints a
                 // `MemberRef` on its instantiated `TypeSpec`; field arguments are
                 // pushed in source order (the contract layer's field order is also
@@ -209,7 +209,7 @@ module EmitConstruct =
             // it BCL-only and works identically for a generic record.
             let key, tyArgs = nominalShape "RecordClone" ty
 
-            match env.Records.TryGetValue key with
+            match env.Records.TryGetValue(SymbolKey.Type key) with
             | true, r ->
                 let overrideMap = Map.ofSeq overrides.Underlying
                 let srcSlot = b.Local ty
@@ -242,10 +242,10 @@ module EmitConstruct =
     let buildUnionCons (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
         | TExprG.UnionCons(caseName, args, ty, _) ->
-            // Local union table keys by the nominal `SymbolKey`; the provider's
+            // Local union table keys by the nominal `TypeKey`; the provider's
             // cons recipe (FSharp.Core / Vesper list) selects on the same key.
             let key, tyArgs = nominalShape "UnionCons" ty
-            let qualName = SymbolKeyOps.qualifiedName key
+            let qualName = SymbolKeyOps.typeMetaName key
 
             // A value-type arg flowing into a case field typed `obj` is boxed by an
             // explicit `Upcast` node synthesised at Elaborate (which has the case field
@@ -254,7 +254,7 @@ module EmitConstruct =
             for a in args do
                 recur env b a
 
-            match env.Unions.TryGetValue key with
+            match env.Unions.TryGetValue(SymbolKey.Type key) with
             | true, u ->
                 // Our own emitted union: `call` the case's static factory (the
                 // fields are already on the stack in declaration order). A

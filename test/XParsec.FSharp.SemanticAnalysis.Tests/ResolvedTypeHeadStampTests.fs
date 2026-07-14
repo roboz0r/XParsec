@@ -278,7 +278,7 @@ let tests =
                 // `SemType.TyClass`, not TestHelpers' string-keyed `TyClass` shim: the
                 // whole point is to pin the KEY the resolver minted, not a name.
                 let expected =
-                    SemType.TyClass(SymbolKeyOps.externalTypeKey SymbolOrigin.Empty "Tests.Widget" 0, EqArray.empty)
+                    SemType.TyClass(SymbolKeyOps.externalTypeKeyOf SymbolOrigin.Empty "Tests.Widget" 0, EqArray.empty)
 
                 Expect.equal
                     (typeOf ctx patKey)

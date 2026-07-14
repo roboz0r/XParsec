@@ -31,7 +31,7 @@ module JsNativeSymbols =
 
     let private errorKey: SymbolKey = SymbolKey.Type errorTypeKey
 
-    let private errorTy: FrozenType = FTClass(errorKey, EqArray.empty)
+    let private errorTy: FrozenType = FTClass(errorTypeKey, EqArray.empty)
 
     let private stringTy: FrozenType = FTConst(RuntimeNames.stringKey, EqArray.empty)
 
@@ -184,7 +184,7 @@ module JsNativeSymbols =
                     "GetEnumerator"
                     false
                     unitTy
-                    (FTClass(ienumeratorKey, EqArray.ofSeq [ selfTypar ]))
+                    (FTClass(ienumeratorTypeKey, EqArray.ofSeq [ selfTypar ]))
             |]
 
     /// The JS-native type table. `Error` is keyed by its bare global name; the

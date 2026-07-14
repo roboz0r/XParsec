@@ -140,8 +140,9 @@ module EmitBindings =
             // `ExternalMemberRef` would fault on a project-local handle (mirrors
             // `EmitMember`'s `env.Unions`/`env.Classes` test), so a local type is always
             // disposed through the `CallVia.Self` path on its OWN `Dispose` method.
-            let isLocalType (key: SymbolKey) =
-                env.Classes.ContainsKey key || env.Unions.ContainsKey key
+            let isLocalType (key: TypeKey) =
+                env.Classes.ContainsKey(SymbolKey.Type key)
+                || env.Unions.ContainsKey(SymbolKey.Type key)
 
             let isLocalBinder =
                 match TastLower.receiverShape varTy with
@@ -152,7 +153,7 @@ module EmitBindings =
             // the external own-`Dispose` probe and the ref-struct carve-out — mint one), so
             // the question is only WHERE that member's type lives, never what kind of key it is.
             let isLocalDisposeKey (key: SymbolKey) =
-                isLocalType (SymbolKey.Type(SymbolKeyOps.declTypeKeyOf "Emit: use-dispose member" key))
+                isLocalType (SymbolKeyOps.declTypeKeyOf "Emit: use-dispose member" key)
 
             match dispose with
             // The binder implements the disposal capability. A LOCAL impl disposes through

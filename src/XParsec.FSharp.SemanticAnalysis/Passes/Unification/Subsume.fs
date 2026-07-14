@@ -34,7 +34,7 @@ module UnificationSubsume =
     /// union with no literal members covering every value — driving the `subsumes`
     /// arm to fall through to `Unrelated` (the honest rejection for a non-matching
     /// enum). Non-literal union members are simply ignored (they can't cover a value).
-    let private enumAdmitsIntoLiteralUnion (ctx: PassContext) (enumKey: SymbolKey) (members: EqSet<SemType>) : bool =
+    let private enumAdmitsIntoLiteralUnion (ctx: PassContext) (enumKey: TypeKey) (members: EqSet<SemType>) : bool =
         let litValues = HashSet<string>()
 
         for m in members do
@@ -42,13 +42,11 @@ module UnificationSubsume =
             | TyLiteral(LiteralConst.String s) -> litValues.Add s |> ignore
             | _ -> ()
 
-        let enumName = SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName enumKey)
-
-        match TypeRegistry.tryEnum ctx.Types UseSite.unbounded enumName with
-        // The registry is keyed by bare name but `enumKey` is the full identity axis
-        // (home assembly + namespace) — require them to agree, so a same-named enum
-        // from another namespace/package never admits against this one's value set.
-        | ValueSome info when info.Key = enumKey ->
+        // Key-addressed: the enum's full identity (home assembly + namespace + arity), so a
+        // same-named enum from another namespace/package never admits against this one's
+        // value set.
+        match TypeRegistry.tryEnumByKey ctx.Types enumKey with
+        | ValueSome info ->
             match info.CaseStringValues with
             | ValueSome vals when vals.Length > 0 -> vals |> Array.forall litValues.Contains
             | _ -> false
@@ -77,7 +75,7 @@ module UnificationSubsume =
             | ValueSome info -> ValueSome [ for f in info.Fields -> f.Name ]
             | ValueNone -> ValueNone
         | TyClass(key, _) when (TypeRegistry.tryClassByKey ctx.Types key).IsNone ->
-            match ctx.Provider.TryLookupType key with
+            match ctx.Provider.TryLookupType(SymbolKey.Type key) with
             // `keyof` reads any external nominal's members — a plain `.d.ts` class as well as
             // an interface / capability `IntrinsicInterface` — so it takes the un-guarded surface.
             | ValueSome(ExternalSymbols.ExternalMembers members) ->
@@ -111,7 +109,7 @@ module UnificationSubsume =
                 | None -> ValueNone
             | ValueNone -> ValueNone
         | TyClass(key, args) when (TypeRegistry.tryClassByKey ctx.Types key).IsNone ->
-            match ctx.Provider.TryLookupMember(key, name) with
+            match ctx.Provider.TryLookupMember(SymbolKey.Type key, name) with
             | ValueSome m when m.IsValueMember && not m.IsStatic ->
                 ValueSome(ExternalSymbols.openSignature m (args |> EqArray.toList |> List.toArray))
             | _ -> ValueNone
@@ -293,7 +291,7 @@ module UnificationSubsume =
         // domains does not match ⇒ `Unrelated`. The caller records the arity-`k` verdict
         // for the lambda node (`inferApp`), keyed for the value-struct flat-`Invoke`.
         | TyFun(a, b), (TyClass(tk, targs)) when
-            funSlotArityOfArgs (SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tk)) targs.Length
+            funSlotArityOfArgs (SymbolKeyOps.bareName (SymbolKeyOps.typeMetaName tk)) targs.Length
             |> Option.isSome
             ->
             let k = targs.Length - 1

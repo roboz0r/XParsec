@@ -283,7 +283,7 @@ module TastConvert =
     let typeDecl (f: 'a -> 'b) (td: TTypeDeclG<'a, 'tok>) : TTypeDeclG<'b, 'tok> =
         {
             Name = td.Name
-            Key = td.Key
+            TypeKey = td.TypeKey
             Namespace = td.Namespace
             TypeParams = td.TypeParams
             Kind = kind f td.Kind

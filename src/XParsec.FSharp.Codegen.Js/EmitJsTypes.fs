@@ -160,7 +160,7 @@ module EmitJsTypes =
     // or `Attached` (a plain named method) — and the bucket IS the table.
 
     /// The head nominal key of a frozen interface type (`FTClass(key, _)`).
-    let ifaceHeadKey (ty: FrozenType) : SymbolKey voption =
+    let ifaceHeadKey (ty: FrozenType) : TypeKey voption =
         match ty with
         | FTClass(key, _) -> ValueSome key
         | _ -> ValueNone
@@ -208,7 +208,7 @@ module EmitJsTypes =
         for (iface, ifaceMembers) in interfaces do
             let isNonGenericEnumerable =
                 match ifaceHeadKey iface with
-                | ValueSome key -> SymbolKeyOps.qualifiedName key = nonGenericEnumerableName
+                | ValueSome key -> SymbolKeyOps.typeMetaName key = nonGenericEnumerableName
                 | ValueNone -> false
 
             let capability = ifaceHeadKey iface |> ValueOption.bind (capabilityOf caps)

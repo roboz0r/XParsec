@@ -98,11 +98,11 @@ module internal UnificationInferCtor =
                 // owns the ctor catalogue (`MetadataSymbols.extractMembers` /
                 // `computeMembers` surfaces them under `.ctor`). `clsKey` came from the
                 // already-resolved receiver `TyClass`, so construct by key directly.
-                match ctx.Provider.TryLookupType clsKey with
+                match ctx.Provider.TryLookupType(SymbolKey.Type clsKey) with
                 | ValueSome(ExternalTypeShape.Class _) ->
-                    inferExternalCtorOn infer ctx key clsKey args receiverTy argExpr
+                    inferExternalCtorOn infer ctx key (SymbolKey.Type clsKey) args receiverTy argExpr
                 | _ ->
-                    ctx.Error(key, sprintf "Unknown class type '%s'" (SymbolKeyOps.qualifiedName clsKey))
+                    ctx.Error(key, sprintf "Unknown class type '%s'" (SymbolKeyOps.typeMetaName clsKey))
                     infer ctx argExpr |> ignore
                     TyVar(freshTyVar ctx)
         // A heritable primitive typed by its canon (`new exn "boom"`). The
@@ -133,14 +133,15 @@ module internal UnificationInferCtor =
                 | ValueSome head ->
                     match ctx.Resolution.ResolvedTypeHead.TryGetValue head.Key with
                     | ValueSome symKey ->
-                        match ctx.Provider.TryLookupType symKey with
+                        match ctx.Provider.TryLookupType(SymbolKey.Type symKey) with
                         | ValueSome(ExternalTypeShape.Class _) -> ValueSome symKey
                         | _ -> ValueNone
                     | ValueNone -> ValueNone
                 | ValueNone -> ValueNone
 
             match stampedClassKey with
-            | ValueSome declTypeKey -> inferExternalCtorOn infer ctx key declTypeKey tyArgs receiverTy argExpr
+            | ValueSome declTypeKey ->
+                inferExternalCtorOn infer ctx key (SymbolKey.Type declTypeKey) tyArgs receiverTy argExpr
             | ValueNone ->
                 match ExternalSymbols.tryIntrinsicClass ctx.Provider canonKey with
                 | ValueSome(struct (_, surface)) ->
@@ -261,15 +262,17 @@ module internal UnificationInferCtor =
             // fallback rather than erroring.
             match ctx.Resolution.ResolvedType.TryGetValue(CstKeys.ofExpr fn) with
             | ValueSome declTypeKey ->
-                match ctx.Provider.TryLookupType declTypeKey with
+                match ctx.Provider.TryLookupType(SymbolKey.Type declTypeKey) with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     // Mint the ctor's result with the resolved type's identity via
                     // `externalClassTy` (canon `TyConst` for a platform repr, else the
                     // external `TyClass`); the `.ctor` lookup is key-addressed.
                     let receiverTy =
-                        externalClassTy ctx (SymbolKeyOps.qualifiedName declTypeKey) info 0 EqArray.empty
+                        externalClassTy ctx (SymbolKeyOps.typeMetaName declTypeKey) info 0 EqArray.empty
 
-                    ValueSome(inferExternalCtorOn infer ctx key declTypeKey EqArray.empty receiverTy args.[0])
+                    ValueSome(
+                        inferExternalCtorOn infer ctx key (SymbolKey.Type declTypeKey) EqArray.empty receiverTy args.[0]
+                    )
                 | _ -> ValueNone
             | ValueNone -> ValueNone
 
@@ -322,7 +325,7 @@ module internal UnificationInferCtor =
 
                     match tryExternalTypeOfKey ctx symKey explicit with
                     | ValueSome(TyClass(clsKey, args) as receiverTy) ->
-                        ValueSome(inferExternalCtorOn infer ctx key clsKey args receiverTy argExpr)
+                        ValueSome(inferExternalCtorOn infer ctx key (SymbolKey.Type clsKey) args receiverTy argExpr)
                     | _ -> ValueNone
                 | ValueNone -> ValueNone
         | _ -> ValueNone
@@ -381,7 +384,7 @@ module internal UnificationInferCtor =
                     | None -> ValueNone
                     | Some sc ->
                         let args, subst = freshNamedInstance ctx info.TypeParams
-                        let receiverTy = TyClass(info.Key, args)
+                        let receiverTy = TyClass(info.TypeKey, args)
 
                         // Explicit type args (`SetIterator<'T>(s)`) pin the
                         // instantiation up front, mirroring `inferTypeApp`.

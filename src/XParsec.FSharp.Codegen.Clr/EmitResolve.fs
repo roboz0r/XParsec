@@ -28,7 +28,7 @@ module EmitResolve =
     let memberRef
         (env: EmitEnv)
         (typars: 'a list)
-        (key: SymbolKey)
+        (key: TypeKey)
         (tyArgs: FrozenType list)
         (kind: UserMemberKind)
         (monoHandle: EntityHandle)
@@ -38,23 +38,19 @@ module EmitResolve =
         else
             env.Provider.UserGenericMemberRef(key, tyArgs, kind)
 
-    /// Destructure a nominal receiver type into its `(SymbolKey, tyArgs)`, failing
+    /// Destructure a nominal receiver type into its `(TypeKey, tyArgs)`, failing
     /// with a `what`-tagged diagnostic for a non-nominal one. `what` names the
     /// construct being emitted (`"RecordCons"`, `"field 'X' access"`, …).
-    let nominalShape (what: string) (ty: FrozenType) : SymbolKey * FrozenType list =
+    /// A nominal head IS a type, so there is no key-kind narrowing left here — the
+    /// only failure is a non-nominal receiver.
+    let nominalShape (what: string) (ty: FrozenType) : TypeKey * FrozenType list =
         match receiverShape ty with
         | ValueSome(k, xs) -> k, xs
         | ValueNone -> failwithf "Emit: %s on non-nominal type %A" what ty
 
-    /// The nominal receiver's declaring `TypeKey` — what a `MemberKey.Decl` slot takes.
-    /// The `SymbolKey.Type` narrowing rides `nominalShape`'s EXISTING invariant check: a
-    /// nominal `FrozenType` always carries a type key (the type IR still carries a
-    /// `SymbolKey` — the reshape stopped at the key itself), so a non-type key here is the
-    /// same "non-nominal receiver" break, not a new failure mode.
-    let nominalTypeKey (what: string) (ty: FrozenType) : TypeKey =
-        match receiverShape ty with
-        | ValueSome(SymbolKey.Type t, _) -> t
-        | _ -> failwithf "Emit: %s on non-nominal type %A" what ty
+    /// `nominalShape` when only the declaring key is wanted — what a `MemberKey.Decl`
+    /// slot takes.
+    let nominalTypeKey (what: string) (ty: FrozenType) : TypeKey = fst (nominalShape what ty)
 
     /// Recover a generic member's instantiation by structurally matching its
     /// declared *open* curried signature (`ParamTys -> RetTy`, in declaring-/method-axis
@@ -92,10 +88,10 @@ module EmitResolve =
     /// classes / transitive interfaces — deferred until a consumer needs it. Read by
     /// the call-site phantom-typar solve (`EmitCall`) to
     /// recover a phantom enumerator typar from the constrained source's seq impl.
-    let tryInterfaceWitness (env: EmitEnv) (nominal: FrozenType) (ifaceKey: SymbolKey) : EqArray<FrozenType> voption =
+    let tryInterfaceWitness (env: EmitEnv) (nominal: FrozenType) (ifaceKey: TypeKey) : EqArray<FrozenType> voption =
         match nominal with
         | FTClass(classKey, classArgs) ->
-            match env.Classes.TryGetValue classKey with
+            match env.Classes.TryGetValue(SymbolKey.Type classKey) with
             | true, cls ->
                 let ifaces =
                     cls.Interfaces
@@ -103,11 +99,11 @@ module EmitResolve =
                         match ifaceTmpl with
                         | FTClass(k, ifaceArgs)
                         | FTRecord(k, ifaceArgs)
-                        | FTUnion(k, ifaceArgs) -> Some(SymbolKeyOps.qualifiedName k, ifaceArgs.AsSpan().ToArray())
+                        | FTUnion(k, ifaceArgs) -> Some(SymbolKeyOps.typeMetaName k, ifaceArgs.AsSpan().ToArray())
                         | _ -> None
                     )
 
-                pickInterfaceWitness (SymbolKeyOps.qualifiedName ifaceKey) (classArgs.AsSpan().ToArray()) ifaces
+                pickInterfaceWitness (SymbolKeyOps.typeMetaName ifaceKey) (classArgs.AsSpan().ToArray()) ifaces
             | false, _ -> ValueNone
         | _ -> ValueNone
 
@@ -118,11 +114,11 @@ module EmitResolve =
     /// parameter accepts any argument — so it has no head here.
     let private headOf (t: FrozenType) : string =
         match t with
-        | FTConst(k, _)
+        | FTConst(k, _) -> SymbolKeyOps.qualifiedName k
         | FTClass(k, _)
         | FTUnion(k, _)
         | FTRecord(k, _)
-        | FTEnum k -> SymbolKeyOps.qualifiedName k
+        | FTEnum k -> SymbolKeyOps.typeMetaName k
         | FTFun _ -> "->"
         | FTTuple _ -> "tuple"
         | FTOr _ -> "obj"
@@ -195,10 +191,10 @@ module EmitResolve =
         : EntityHandle * EmittedMember =
         // This resolver only serves project-local receivers (external instance
         // members route through `externalInstanceMemberRef`), so the table key is
-        // the receiver's nominal `SymbolKey` directly
+        // the receiver's nominal `TypeKey` directly
         let key, tyArgs = nominalShape (sprintf "member '%s' access" name) receiverTy
 
-        match env.Unions.TryGetValue key with
+        match env.Unions.TryGetValue(SymbolKey.Type key) with
         | true, u ->
             match u.Members.TryGetValue name with
             | true, candidates ->
@@ -214,7 +210,7 @@ module EmitResolve =
                 m
             | false, _ -> failwithf "Emit: union '%A' has no emitted member '%s'" key name
         | false, _ ->
-            match env.Classes.TryGetValue key with
+            match env.Classes.TryGetValue(SymbolKey.Type key) with
             | true, c ->
                 match c.Members.TryGetValue name with
                 | true, candidates ->
@@ -234,7 +230,7 @@ module EmitResolve =
                 // interface-constrained typar): resolve the abstract slot and let
                 // `emitInstanceMember` `callvirt` it (interface ⇒ not a value type, so
                 // it takes the `Callvirt` arm). Same member-table shape as a class.
-                match env.Interfaces.TryGetValue key with
+                match env.Interfaces.TryGetValue(SymbolKey.Type key) with
                 | true, iface ->
                     match iface.Members.TryGetValue name with
                     | true, candidates ->
@@ -299,7 +295,7 @@ module EmitResolve =
         // 0). Gate on declaring-key == receiver-key.
         | FTClass(rKey, args) when
             args.Length > 0
-            && SymbolKeyOps.typeMetaName declKey = SymbolKeyOps.qualifiedName rKey
+            && SymbolKeyOps.typeMetaName declKey = SymbolKeyOps.typeMetaName rKey
             ->
             env.Provider.ExternalMemberRefOn(key, receiverTy, isProperty, false, memberTy)
         | _ -> env.Provider.ExternalMemberRef(key, isProperty, false, memberTy)
@@ -327,7 +323,7 @@ module EmitResolve =
         // directly, so no class-name reverse index is needed.
         let key, name =
             let mk = SymbolKeyOps.asMemberKey "Emit: static member call" memberKey
-            SymbolKey.Type mk.Decl, mk.Name
+            mk.Decl, mk.Name
 
         // The declaring type's instantiation at *this* call site. A static member
         // on a generic class compiles to a `MemberRef` on the class `TypeSpec`, so
@@ -366,7 +362,7 @@ module EmitResolve =
                 with _ ->
                     declaringTypars
 
-        match env.Unions.TryGetValue key with
+        match env.Unions.TryGetValue(SymbolKey.Type key) with
         | true, u ->
             match u.Members.TryGetValue name with
             | true, candidates ->
@@ -378,7 +374,7 @@ module EmitResolve =
                     failwithf "Emit: generic-union static augmentation member '%A.%s' is out of scope (R2)" key name
             | false, _ -> failwithf "Emit: union '%A' has no emitted static member '%s'" key name
         | false, _ ->
-            match env.Classes.TryGetValue key with
+            match env.Classes.TryGetValue(SymbolKey.Type key) with
             | true, c ->
                 match c.Members.TryGetValue name with
                 | true, candidates ->
@@ -470,18 +466,18 @@ module EmitResolve =
     /// here for primary-ctor parameter accesses rewritten to `FieldGet(this,
     /// name)` by `Elaborate.translateClassMember`.
     let resolveRecordField (env: EmitEnv) (receiverTy: FrozenType) (fieldName: string) : EntityHandle =
-        // Project-local tables key by the receiver's nominal `SymbolKey`; the
+        // Project-local tables key by the receiver's nominal `TypeKey`; the
         // external record-field lookup derives the qualified compiled name from it
         let key, tyArgs = nominalShape (sprintf "field '%s' access" fieldName) receiverTy
 
-        match env.Records.TryGetValue key with
+        match env.Records.TryGetValue(SymbolKey.Type key) with
         | true, r ->
             match r.Fields |> List.tryFind (fun (n, _, _) -> n = fieldName) with
             | Some(_, h, _) ->
                 memberRef env r.Typars key tyArgs (UserMemberKind.RecordMember(RecordMember.Field fieldName)) h
             | None -> failwithf "Emit: record '%A' has no field '%s'" key fieldName
         | false, _ ->
-            match env.Classes.TryGetValue key with
+            match env.Classes.TryGetValue(SymbolKey.Type key) with
             | true, c ->
                 // Primary-ctor backing fields first, then explicit `val` instance
                 // fields — both resolve identically through the `ClassMember.Field`
@@ -491,8 +487,8 @@ module EmitResolve =
                     memberRef env c.Typars key tyArgs (UserMemberKind.ClassMember(ClassMember.Field fieldName)) h
                 | None -> failwithf "Emit: class '%A' has no field '%s'" key fieldName
             | false, _ ->
-                let qualName = SymbolKeyOps.qualifiedName key
+                let qualName = SymbolKeyOps.typeMetaName key
 
-                match env.Provider.TryResolveExternalRecordField(key, tyArgs, fieldName) with
+                match env.Provider.TryResolveExternalRecordField(SymbolKey.Type key, tyArgs, fieldName) with
                 | ValueSome(handle, _) -> handle
                 | ValueNone -> failwithf "Emit: no emitted type for field access on '%s'" qualName

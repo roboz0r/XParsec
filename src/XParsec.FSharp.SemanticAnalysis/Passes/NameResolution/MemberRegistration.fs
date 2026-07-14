@@ -782,13 +782,13 @@ module NameResolutionMemberRegistration =
             // Nominal heads carry their resolved `SymbolKey`; take it
             // off the registry `info` rather than re-stringing the name.
             match TypeRegistry.tryRecord ctx.Types useSite name with
-            | ValueSome info -> TyRecord(info.Key, args)
+            | ValueSome info -> TyRecord(info.TypeKey, args)
             | ValueNone ->
                 match TypeRegistry.tryUnionBare ctx.Types useSite name with
-                | ValueSome info -> TyUnion(info.Key, args)
+                | ValueSome info -> TyUnion(info.TypeKey, args)
                 | ValueNone ->
                     match TypeRegistry.tryClass ctx.Types useSite name with
-                    | ValueSome info -> TyClass(info.Key, args)
+                    | ValueSome info -> TyClass(info.TypeKey, args)
                     | ValueNone -> TyConst(RuntimeNames.opaqueKey name, EqArray.empty)
 
     /// Resolve an `inherit` clause's parent type to a `TyClass` under the derived
@@ -843,7 +843,7 @@ module NameResolutionMemberRegistration =
                 let name = ctx.NameOf nameTok
 
                 match TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt diagKey) name with
-                | ValueSome info -> ValueSome(TyClass(info.Key, EqArray.ofList targs))
+                | ValueSome info -> ValueSome(TyClass(info.TypeKey, EqArray.ofList targs))
                 | ValueNone when ctx.Types.HeritableExternBases.Contains name ->
                     // A heritable external base (`inherit Attribute`, where `Attribute`
                     // is `(# class "System.Attribute" #)`): resolve to the EXTERNAL type
@@ -924,7 +924,7 @@ module NameResolutionMemberRegistration =
             match d.Body.inherits with
             | ValueNone -> ()
             | ValueSome(ClassInheritsDecl(typ = parentTyp; expr = exprOpt)) ->
-                match TypeRegistry.tryClassByKey ctx.Types (SymbolKey.Type id.Key) with
+                match TypeRegistry.tryClassByKey ctx.Types id.Key with
                 | ValueSome info ->
                     let typarScope =
                         (Map.empty, info.TypeParams)
@@ -947,16 +947,16 @@ module NameResolutionMemberRegistration =
     /// can only run between members of one `type … and …` group.
     let private checkGroupInheritanceCycles (ctx: PassContext) (classes: ClassTypeInfo seq) : unit =
         for start in classes do
-            // Compare on the class's `SymbolKey` (arity included), not its bare name,
+            // Compare on the class's `TypeKey` (arity included), not its bare name,
             // so an arity-overloaded self-reference (`Foo\`2` : `Foo\`3`) isn't falsely
             // flagged as a cycle.
-            let visited = System.Collections.Generic.HashSet<SymbolKey>()
-            visited.Add start.Key |> ignore
+            let visited = System.Collections.Generic.HashSet<TypeKey>()
+            visited.Add start.TypeKey |> ignore
 
             let rec walk (info: ClassTypeInfo) =
                 match info.BaseType with
                 | ValueSome(TyClass(parentKey, _)) ->
-                    if parentKey = start.Key then
+                    if parentKey = start.TypeKey then
                         ctx.Diagnostics.Add
                             {
                                 Key = start.DeclKey
@@ -1000,7 +1000,7 @@ module NameResolutionMemberRegistration =
 
         match td with
         | TypeDefn.Union(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
-            match TypeRegistry.tryUnionByKey ctx.Types (SymbolKey.Type id.Key) with
+            match TypeRegistry.tryUnionByKey ctx.Types id.Key with
             | ValueSome info ->
                 let x = extract info.DeclKey info.TypeParams elems
                 info.Members <- x.Members
@@ -1008,7 +1008,7 @@ module NameResolutionMemberRegistration =
                 info.ThisKey <- x.ThisKey
             | ValueNone -> ()
         | TypeDefn.Record(extensions = ValueSome(TypeExtensionElements(elements = elems))) ->
-            match TypeRegistry.tryRecordByKey ctx.Types (SymbolKey.Type id.Key) with
+            match TypeRegistry.tryRecordByKey ctx.Types id.Key with
             | ValueSome info ->
                 let x = extract info.DeclKey info.TypeParams elems
                 info.Members <- x.Members
@@ -1036,7 +1036,7 @@ module NameResolutionMemberRegistration =
     /// The nominal a `SemType` names DIRECTLY, if any. A type argument is NOT direct: a
     /// `B option` field stores a reference to a `B`, so it is an indirection, and only the
     /// head of a field's type is an immediate containment edge.
-    let private directNominal (t: SemType) : SymbolKey voption =
+    let private directNominal (t: SemType) : TypeKey voption =
         match zonk t with
         | TyRecord(key, _)
         | TyUnion(key, _)
@@ -1050,7 +1050,7 @@ module NameResolutionMemberRegistration =
     /// type (`isValueTypeDefn`), because a reference type stores a POINTER to each field and
     /// so contains none of them immediately.
     let private inlineFieldTypes (ctx: PassContext) (id: TypeIdentity) : SemType seq =
-        let key = SymbolKey.Type id.Key
+        let key = id.Key
 
         match id.Kind with
         | TypeDeclKind.Record ->
@@ -1089,13 +1089,13 @@ module NameResolutionMemberRegistration =
     /// only what is declared above it or joined to it by `and`, so the back-edge a cycle
     /// needs can only run between members of one group.
     let private checkGroupStructFieldCycles (ctx: PassContext) (structs: ClaimedTypeDefn seq) : unit =
-        let members = Dictionary<SymbolKey, TypeIdentity>()
+        let members = Dictionary<TypeKey, TypeIdentity>()
 
         for claimed in structs do
-            members.[SymbolKey.Type claimed.Identity.Key] <- claimed.Identity
+            members.[claimed.Identity.Key] <- claimed.Identity
 
         for KeyValue(startKey, startId) in members do
-            let visited = HashSet<SymbolKey>()
+            let visited = HashSet<TypeKey>()
             visited.Add startKey |> ignore
             let mutable cyclic = false
 
@@ -1214,7 +1214,7 @@ module NameResolutionMemberRegistration =
         // aliases nothing referenced (including a cyclic pair, which diagnoses here).
         for claimed in claims do
             if claimed.Identity.Kind = TypeDeclKind.Abbreviation then
-                match TypeRegistry.tryAbbrevByKey ctx.Types (SymbolKey.Type claimed.Identity.Key) with
+                match TypeRegistry.tryAbbrevByKey ctx.Types claimed.Identity.Key with
                 | ValueSome info -> forceFill ctx info
                 | ValueNone -> ()
 
@@ -1224,7 +1224,7 @@ module NameResolutionMemberRegistration =
             if claimed.Identity.Kind = TypeDeclKind.Class then
                 registerInheritedSlot ctx claimed.Identity claimed.Defn
 
-                match TypeRegistry.tryClassByKey ctx.Types (SymbolKey.Type claimed.Identity.Key) with
+                match TypeRegistry.tryClassByKey ctx.Types claimed.Identity.Key with
                 | ValueSome info -> classes.Add info
                 | ValueNone -> ()
 

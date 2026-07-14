@@ -164,7 +164,7 @@ module NameResolutionScope =
                         | ExternalTypeShape.Class info when info.Arity = 0 ->
                             ctx.Resolution.ResolvedType.Set(
                                 useKey,
-                                SymbolKeyOps.externalTypeKey info.Origin hit.Compiled 0
+                                SymbolKeyOps.externalTypeKeyOf info.Origin hit.Compiled 0
                             )
                         | _ -> ()
                     | ValueNone -> ()
@@ -634,7 +634,7 @@ module NameResolutionScope =
                                 ->
                                 ctx.Resolution.ExternalEnumCaseStamp.Set(
                                     CstKeys.ofExpr e,
-                                    SymbolKeyOps.externalTypeKey origin compiled 0
+                                    SymbolKeyOps.externalTypeKeyOf origin compiled 0
                                 )
                             | _ -> ()
 
@@ -659,7 +659,7 @@ module NameResolutionScope =
                                         } when info.Arity = 0 ->
                                 ctx.Resolution.ResolvedType.Set(
                                     CstKeys.ofExpr e,
-                                    SymbolKeyOps.externalTypeKey info.Origin compiled 0
+                                    SymbolKeyOps.externalTypeKeyOf info.Origin compiled 0
                                 )
                             | _ ->
                                 match prefixHit with
@@ -800,7 +800,7 @@ module NameResolutionScope =
 
                     match hit.Shape with
                     | ExternalTypeShape.Class _ ->
-                        ctx.Resolution.ExternalStaticReceiver.Set(CstKeys.ofExpr receiver, key)
+                        ctx.Resolution.ExternalStaticReceiver.Set(CstKeys.ofExpr receiver, SymbolKey.Type key)
                     | _ -> ()
                 | _ -> ()
             | ValueNone -> ()

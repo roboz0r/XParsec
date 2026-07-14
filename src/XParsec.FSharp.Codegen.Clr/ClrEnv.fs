@@ -376,12 +376,13 @@ type internal ClrEnv
     /// rather than `ELEMENT_TYPE_CLASS` in every signature.
     let userValueTypes = System.Collections.Generic.HashSet<SymbolKey>()
 
-    /// Generic user unions by `SymbolKey` → (typar names, cases); a case is
+    /// Generic user unions by `TypeKey` — the narrow key the `UserGenericMemberRef` seam
+    /// carries, because a nominal head IS a type → (typar names, cases); a case is
     /// `(caseName, [(fieldMetaName, declTy)])` with `declTy` carrying declaring-typar markers
     /// (`TyConst "'T"`). Holds the shape needed to mint `MemberRef`s on the type's `TypeSpec`.
     /// Monomorphic unions are not registered (their `Def` tokens suffice).
     let genericUnions =
-        Dictionary<SymbolKey, string list * (string * (string * FrozenType) list) list>()
+        Dictionary<TypeKey, string list * (string * (string * FrozenType) list) list>()
 
     let genericRecords =
         Dictionary<SymbolKey, string list * (string * FrozenType) list>()

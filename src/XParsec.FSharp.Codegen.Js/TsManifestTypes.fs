@@ -108,14 +108,7 @@ module internal TsManifestTranslate =
     /// The identity minted for one declared `Interface`/`Class` export. `IsInterface`
     /// disambiguates a heritage entry's slot (interface list vs base class) in
     /// `classifyHeritage`; only these two export kinds enter the table at all.
-    type TypeIdentity =
-        {
-            Key: TypeKey
-            IsInterface: bool
-        }
-
-        /// The `SymbolKey` face — what `Resolve` hands the front end.
-        member this.SymKey: SymbolKey = SymbolKey.Type this.Key
+    type TypeIdentity = { Key: TypeKey; IsInterface: bool }
 
     /// THE LAW — the ONE spelling site of a declared type's identity. `(name, arity)` pairs
     /// are DISTINCT nominal types, so both faces of the identity are minted HERE from the
@@ -181,8 +174,8 @@ module internal TsManifestTranslate =
         /// `resolveFieldStep`'s external-`TyClass` arm admits `.member` access via the
         /// provider. `SymbolKeyOps.qualifiedName` of the returned key equals the table
         /// key (`mint`) — the exact string the front end hands to `TryLookupMember`.
-        member ctx.Resolve(name: string) : SymbolKey option =
-            ctx.Types |> Map.tryFind name |> Option.map (fun id -> id.SymKey)
+        member ctx.Resolve(name: string) : TypeKey option =
+            ctx.Types |> Map.tryFind name |> Option.map (fun id -> id.Key)
 
         /// The full declared identity (key + interface-vs-class kind); `None` for a
         /// name not declared in this package (cross-package / unknown).
@@ -508,7 +501,7 @@ module internal TsManifestTranslate =
                         // so a ref's key cannot drift from the declaration's.
                         let key = snd (mint ns name entry.Arity)
 
-                        FTClass(SymbolKey.Type key, EqArray.ofSeq args)
+                        FTClass(key, EqArray.ofSeq args)
                     | Schema.RefKind.Alias
                     | Schema.RefKind.Enum -> intrinsicOrOpaque name
                 | None -> intrinsicOrOpaque name
@@ -562,7 +555,7 @@ module internal TsManifestTranslate =
         | Schema.TypeRef.Structural(printed, fields, index) ->
             match fields, index with
             | [], [] -> FTUnknown("structural:" + structuralHash printed fields)
-            | _ -> FTClass(SymbolKey.Type(structuralKey (structuralHash printed fields) |> snd), EqArray.empty)
+            | _ -> FTClass(structuralKey (structuralHash printed fields) |> snd, EqArray.empty)
 
     let unitFrozen: FrozenType = FTConst(RuntimeNames.unitKey, EqArray.empty)
 

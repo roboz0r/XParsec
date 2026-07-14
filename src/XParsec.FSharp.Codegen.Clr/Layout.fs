@@ -644,7 +644,8 @@ module internal Layout =
                 match d with
                 | TDeclG.Type td ->
                     match td.Kind with
-                    | TTypeKindG.Class c when c.ValueKind = ClassValueKind.RefStruct -> Emit.typeKeyNsName td.Key
+                    | TTypeKindG.Class c when c.ValueKind = ClassValueKind.RefStruct ->
+                        Some(Emit.typeKeyNsName td.TypeKey)
                     | _ -> None
                 | _ -> None
             )
@@ -683,7 +684,7 @@ module internal Layout =
         // `Format` row can never go un-prepared (the failure mode if the two drifted).
         let definesStructuralFormatInterfaces =
             partitioned.Interfaces
-            |> List.exists (fun (td, _) -> RuntimeNames.isStructuralFormattableKey td.Key)
+            |> List.exists (fun (td, _) -> RuntimeNames.isStructuralFormattableKey td.TypeKey)
 
         // Closure-discovery roots from every (expanded) member body and class-preamble
         // expression, each tagged with its declaring type's typar count (0 ⇒
@@ -1032,7 +1033,7 @@ module internal Layout =
                                         ||| FieldAttributes.Static
                                         ||| FieldAttributes.Literal
                                         ||| FieldAttributes.HasDefault
-                                    Ty = FTEnum td.Key
+                                    Ty = FTEnum td.TypeKey
                                     ClosureScope = ValueNone
                                 }
                         ]
@@ -1091,7 +1092,7 @@ module internal Layout =
                                     // consumer needs the encapsulated closed set.
                                     Attrs =
                                         FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
-                                    Ty = FTEnum td.Key
+                                    Ty = FTEnum td.TypeKey
                                     ClosureScope = ValueNone
                                 }
                         ]

@@ -296,15 +296,15 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     /// witness's depth. Names compare on `qualifiedName` (arity suffix retained on both
     /// sides — `FrozenInterfaces` from `nominalInterface`, `ifaceKey` from the frozen
     /// constraint target).
-    let tryExternalInterfaceWitness (receiver: FrozenType) (ifaceKey: SymbolKey) : EqArray<FrozenType> voption =
+    let tryExternalInterfaceWitness (receiver: FrozenType) (ifaceKey: TypeKey) : EqArray<FrozenType> voption =
         match receiver with
         | FTClass(rKey, rArgs)
         | FTUnion(rKey, rArgs)
         | FTRecord(rKey, rArgs) ->
-            match symbols.TryLookupType(SymbolKeyOps.qualifiedName rKey) with
+            match symbols.TryLookupType(SymbolKeyOps.typeMetaName rKey) with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 pickInterfaceWitness
-                    (SymbolKeyOps.qualifiedName ifaceKey)
+                    (SymbolKeyOps.typeMetaName ifaceKey)
                     (rArgs.AsSpan().ToArray())
                     shape.FrozenInterfaces
             | _ -> ValueNone

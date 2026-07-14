@@ -57,33 +57,33 @@ module NameResolutionTypeHeadStamp =
                 struct (candidate, arity)
             ]
 
-    /// Mint the use-site `SymbolKey` from the matched shape's origin + compiled name.
+    /// Mint the use-site `TypeKey` from the matched shape's origin + compiled name.
     /// Class/Union/Record/Enum carry the home assembly + namespace; the origin-less
     /// shapes fall back to splitting the qualified compiled name. Mirrors
     /// `Translate`'s nominal mint, so the stamped key round-trips through the
     /// key-addressed store face.
-    let useSiteTypeKey (compiled: string) (arity: int) (shape: ExternalTypeShape) : SymbolKey =
+    let useSiteTypeKey (compiled: string) (arity: int) (shape: ExternalTypeShape) : TypeKey =
         match shape with
-        | ExternalTypeShape.Class info -> SymbolKeyOps.externalTypeKey info.Origin compiled arity
+        | ExternalTypeShape.Class info -> SymbolKeyOps.externalTypeKeyOf info.Origin compiled arity
         // A capability interface's VALUE identity key is origin-homed exactly as a
         // `Class`'s: the origin supplies the namespace for a BARE compiled name.
-        | ExternalTypeShape.IntrinsicInterface s -> SymbolKeyOps.externalTypeKey s.Origin compiled arity
+        | ExternalTypeShape.IntrinsicInterface s -> SymbolKeyOps.externalTypeKeyOf s.Origin compiled arity
         | ExternalTypeShape.Record(origin = o)
         | ExternalTypeShape.Union(origin = o)
-        | ExternalTypeShape.Enum(origin = o) -> SymbolKeyOps.externalTypeKey o compiled arity
+        | ExternalTypeShape.Enum(origin = o) -> SymbolKeyOps.externalTypeKeyOf o compiled arity
         | ExternalTypeShape.Abbrev _
         // An intrinsic's identity is the canon, keyed off the compiled name — the optional
         // base/ctor surface does not change the key. Identical by construction to the canon
         // the extractor stamped on the shape (`SymbolKeyOps.intrinsicCanonKey`, the same
         // mint off the same arity-suffixed compiled name), so the stamp and the shape agree.
         | ExternalTypeShape.Intrinsic _
-        | ExternalTypeShape.Opaque _ -> SymbolKeyOps.qualifiedTypeKey compiled arity
+        | ExternalTypeShape.Opaque _ -> SymbolKeyOps.qualifiedTypeKeyOfT compiled arity
 
     /// Resolve `name` (possibly dotted) as an external *type* at exactly `arity` —
     /// the receiver's type-arg count, supplied by the enclosing `Expr.TypeApp`
     /// (0 for a non-generic static-access receiver like `System.Console`). Any
-    /// shape at the matching arity; returns the use-site `SymbolKey`.
-    let tryResolveExternalTypeKey (ctx: PassContext) (name: string) (arity: int) : SymbolKey voption =
+    /// shape at the matching arity; returns the use-site `TypeKey`.
+    let tryResolveExternalTypeKey (ctx: PassContext) (name: string) (arity: int) : TypeKey voption =
         tryPickExternalType
             ctx
             (arityProbes arity)
@@ -154,7 +154,7 @@ module NameResolutionTypeHeadStamp =
     /// resolve-once layer — recognises the case HERE and stamps the key
     /// (`ExternalEnumCaseStamp`); Unification's `InferIdentExpr` / `InferPat` enum arms READ
     /// the stamp rather than re-recognising the spelling through the resolver face.
-    let tryExternalEnumCaseKey (ctx: PassContext) (headName: string) (caseName: string) : SymbolKey voption =
+    let tryExternalEnumCaseKey (ctx: PassContext) (headName: string) (caseName: string) : TypeKey voption =
         tryPickExternalType
             ctx
             (arityProbes 0)
@@ -163,7 +163,7 @@ module NameResolutionTypeHeadStamp =
                 | ExternalTypeShape.Enum(cases, origin) when
                     cases |> Array.exists (fun (c: ExternalEnumCaseShape) -> c.Name = caseName)
                     ->
-                    ValueSome(SymbolKeyOps.externalTypeKey origin key 0)
+                    ValueSome(SymbolKeyOps.externalTypeKeyOf origin key 0)
                 | _ -> ValueNone
             )
             headName

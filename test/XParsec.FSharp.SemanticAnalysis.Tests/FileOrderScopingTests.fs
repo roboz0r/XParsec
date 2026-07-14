@@ -44,12 +44,12 @@ let private soleModuleLetType (tast: TastFile) : SemType =
 /// that name must resolve to. Taken off the TAST rather than reconstructed, so a
 /// resolution assertion compares the use site against the DECLARATION, not against a
 /// hand-spelled key that could agree with neither.
-let private typeDeclKey (tast: TastFile) (typeName: string) : SymbolKey =
+let private typeDeclKey (tast: TastFile) (typeName: string) : TypeKey =
     let found =
         [
             for d in tast.Decls do
                 match d with
-                | TDecl.Type td when td.Name = typeName -> yield td.Key
+                | TDecl.Type td when td.Name = typeName -> yield td.TypeKey
                 | _ -> ()
         ]
 
@@ -59,7 +59,7 @@ let private typeDeclKey (tast: TastFile) (typeName: string) : SymbolKey =
 
 /// The nominal identity a `SemType` names — the whole point of a positive control: a
 /// program that merely COMPILES proves nothing about what its names bound to.
-let private nominalKey (ty: SemType) : SymbolKey =
+let private nominalKey (ty: SemType) : TypeKey =
     match ty with
     | SemType.TyClass(k, _)
     | SemType.TyRecord(k, _)

@@ -182,12 +182,12 @@ type ClassInterfaceImplInfo
 /// piece: a class yields `TyClass(Key, args)`, a union `TyUnion(Key, args)`, a record
 /// `TyRecord(Key, args)`, so the `this`-type seeding inside an impl body is exact.
 type IInterfaceImplHost =
-    /// The nominal identity as a `SymbolKey` — what the `SemType`/`FrozenType` nominal
-    /// cases carry.
+    /// The nominal identity widened for the kind-blind sinks (the external-symbol store
+    /// face, a diagnostic's `qualifiedName`).
     abstract member Key: SymbolKey
-    /// The SAME identity as a `TypeKey`. A nominal type's key can only ever be a type
-    /// key, and the declaring slot of a `MemberKey` / a `TypeHolder` demands one — so
-    /// this is the face those consumers take, with no narrowing check anywhere.
+    /// The SAME identity as a `TypeKey` — what the `SemType`/`FrozenType` nominal cases
+    /// carry, and what the declaring slot of a `MemberKey` / a `TypeHolder` demands. A
+    /// nominal type's key can only ever be a type key, so no consumer narrows.
     abstract member TypeKey: TypeKey
     abstract member DeclKey: NodeKey
     abstract member TypeParams: EqArray<string * TypeVar>
@@ -285,7 +285,7 @@ type RecordTypeInfo
         member this.Members = this.Members
         member this.EqualitySupport = this.EqualitySupport
         member this.ComparisonSupport = this.ComparisonSupport
-        member this.MkSelfType args = TyRecord(this.Key, args)
+        member this.MkSelfType args = TyRecord(this.TypeKey, args)
 
 /// `TypeParams` mirrors `RecordTypeInfo.TypeParams`. Case field types may
 /// reference these TyVars directly.
@@ -362,7 +362,7 @@ type UnionTypeInfo
         member this.Members = this.Members
         member this.EqualitySupport = this.EqualitySupport
         member this.ComparisonSupport = this.ComparisonSupport
-        member this.MkSelfType args = TyUnion(this.Key, args)
+        member this.MkSelfType args = TyUnion(this.TypeKey, args)
 
 /// Host side-table for an inline intrinsic-abbrev augmented with concrete
 /// `(# … #)`-bodied members (`type widget = (# "object" #) with member …`).
@@ -730,7 +730,7 @@ type ClassTypeInfo
         member this.Members = this.Members
         member this.EqualitySupport = this.EqualitySupport
         member this.ComparisonSupport = this.ComparisonSupport
-        member this.MkSelfType args = TyClass(this.Key, args)
+        member this.MkSelfType args = TyClass(this.TypeKey, args)
 
 /// One entry in `PassContextTypes.ClassMemberIndex` — the declaring class
 /// paired with the matching `TypeMemberInfo`. A record rather than a 2-tuple so
