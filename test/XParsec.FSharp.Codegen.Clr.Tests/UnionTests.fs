@@ -399,10 +399,26 @@ let tests =
                             "    | (::): Head: 'T * Tail: List<'T> -> List<'T>"
                         ]
 
-                let tast = analyse src
+                // This unit IS `Vesper.List`: it declares `Vesper.Collections.List`, the very
+                // type Vesper.List's contract (mounted by `defaultManifests`) publishes. A unit
+                // may declare the types its OWN contract publishes — that is what compiling it
+                // MEANS — so it must be analysed under that package's assembly name. Under any
+                // other name it is a project declaring a type a REFERENCED assembly already
+                // claims, which is the CS0433 analogue `claimTypeIdentity` diagnoses.
+                let project = ProjectInfo.library "Vesper.List"
+
+                let lexed, file = parseFile src
+
+                let tast =
+                    Pipeline.analyseSemFor
+                        project.AssemblyName
+                        (ClrSymbolProviders.buildContract defaultManifests)
+                        src
+                        lexed
+                        file
+
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
 
-                let project = ProjectInfo.library "Vesper.Collections"
                 let artifact = compileSourceTo project src
 
                 Expect.isEmpty

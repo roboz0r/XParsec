@@ -8,6 +8,20 @@ let private analyse (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyseSem realProvider.Value input lexed file
 
+/// `analyse`, naming the unit being compiled. The assembly name is not part of any
+/// `SymbolKey`; it identifies the UNIT, which is what the "a unit may declare the types
+/// its own contract publishes" exemption is a statement about.
+let private analyseAs (assemblyName: string) (input: string) =
+    let lexed, file = parseFile input
+    Pipeline.analyseSemFor assemblyName realProvider.Value input lexed file
+
+let private errors (tast: TastFile) =
+    [
+        for d in tast.Diagnostics do
+            if d.Severity = Severity.Error then
+                yield d.Message
+    ]
+
 let private has (tast: TastFile) (s: string) =
     tast.Diagnostics |> Seq.exists (fun d -> d.Message.Contains s)
 
@@ -134,5 +148,70 @@ let tests =
                     Expect.isEmpty
                         (tast.Diagnostics |> Seq.filter (fun d -> d.Severity = Severity.Error))
                         "bare `Foo` is the record, so `v.X` types"
+                }
+
+            // THE PREMISE, ENFORCED — the CS0433 analogue. A `SymbolKey` carries no home
+            // assembly, which is licensed by exactly one fact: within one compilation a
+            // fully-qualified name names at most one type. So a declaration whose key a
+            // REFERENCED assembly already answers for is an error, not a silent shadow —
+            // without it, codegen would still be right (the local table is checked first)
+            // but the unifier would unify two genuinely different types under one key.
+            //
+            // `Vesper.Collections.List<'T>` is Vesper.List's; `realProvider` references it.
+            yield
+                test "a type a referenced assembly already claims is an error naming both" {
+                    let src =
+                        "namespace Vesper.Collections\n\ntype List<'T> =\n    | Nil\n    | Cons of 'T * List<'T>"
+
+                    let msgs = errors (analyseAs "MyApp" src)
+
+                    let collision =
+                        msgs
+                        |> List.tryFind (fun m -> m.Contains "Vesper.Collections.List`1" && m.Contains "Vesper.List")
+
+                    Expect.isSome
+                        collision
+                        (sprintf "the collision is diagnosed, naming type and assembly; got %A" msgs)
+                }
+
+            // A unit's OWN contract is not a "referenced assembly": compiling `Vesper.List`
+            // against a stack that mounts `Vesper.List`'s own `.fsi` (which is what
+            // `SymbolProviders.inlineBodies` does for every package's impl, and what the
+            // self-host suites drive) means the unit declares the very types its contract
+            // publishes — that is what compiling it MEANS. Same source, same provider, same
+            // key: only the identity of the unit differs, and that is what decides.
+            yield
+                test "the unit that OWNS the contract may declare the types it publishes" {
+                    let src =
+                        "namespace Vesper.Collections\n\ntype List<'T> =\n    | Nil\n    | Cons of 'T * List<'T>"
+
+                    let msgs = errors (analyseAs "Vesper.List" src)
+
+                    Expect.isFalse
+                        (msgs
+                         |> List.exists (fun m -> m.Contains "already exists in the referenced assembly"))
+                        (sprintf "no collision against its own contract; got %A" msgs)
+                }
+
+            // PINS CURRENT (wrong) BEHAVIOUR, so a future fix has something to flip. The
+            // claim table is `(name, arity)` — namespace- AND module-BLIND — while the key
+            // is fully qualified, so two SIBLING modules declaring the same type name contest
+            // ONE claim and the second is rejected as a duplicate, even though `N.A.T` and
+            // `N.B.T` are two distinct keys and two distinct types (see `TypeHolder.InModule`).
+            //
+            // Not fixed here: a holder-aware claim needs module-scoped name resolution first
+            // (today `tryKeyOfBareName` would see two visible candidates both named `T` and
+            // silently take the last), and CLR nested-type emission (the backend writes every
+            // `TypeDef` flat, so two claims would collide on one metadata name).
+            yield
+                test "sibling modules declaring the same type name contest ONE claim (module-blind)" {
+                    let src =
+                        "namespace N\n\nmodule A =\n    type T = { X: int }\n\nmodule B =\n    type T = { Y: int }"
+
+                    let msgs = errors (analyseAs "MyApp" src)
+
+                    Expect.isTrue
+                        (msgs |> List.exists (fun m -> m.Contains "Duplicate type definition: T"))
+                        (sprintf "`N.B.T` is rejected as a duplicate of `N.A.T`; got %A" msgs)
                 }
         ]

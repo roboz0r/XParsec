@@ -330,8 +330,16 @@ let interfaceTests =
         "InterfaceFreeze"
         [
             test "`Fun` interface freezes to TDecl.Type with the resolved Invoke signature" {
-                let tast =
-                    analyse "namespace Vesper\n\ntype Fun<'A, 'B> =\n    abstract member Invoke: arg: 'A -> 'B"
+                // `Vesper.Fun` is Vesper.Core's OWN type, and the provider mounts Vesper.Core's
+                // contract — so this unit must be compiled AS Vesper.Core. A unit is allowed to
+                // declare the types its own contract publishes (that is what compiling it means);
+                // any other assembly name here is the CS0433 analogue
+                // (`claimTypeIdentity`'s external-claim diagnostic).
+                let src =
+                    "namespace Vesper\n\ntype Fun<'A, 'B> =\n    abstract member Invoke: arg: 'A -> 'B"
+
+                let lexed, file = parseFile src
+                let tast = Pipeline.analyseSemFor "Vesper.Core" realProvider.Value src lexed file
 
                 // Registering the abstract member (rather than rejecting it) means
                 // a clean analysis — the G1-era "member kind not supported" error

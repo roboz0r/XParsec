@@ -203,6 +203,70 @@ module NameResolutionTypeRegistration =
 
         key
 
+    /// The assembly whose already-declared type a resolved external shape WITNESSES —
+    /// the `key -> assembly` oracle the collision test below reads. `None` means "this
+    /// shape is not a competing claim", and the match is EXHAUSTIVE so a new
+    /// `ExternalTypeShape` case must decide rather than silently default to it:
+    ///
+    ///   * `Intrinsic` / `IntrinsicInterface` — a primitive's identity IS its canon, and
+    ///     every package's `int` is THE `int`. `claimTypeIdentity` mints a local
+    ///     `IntrinsicRepr` key deliberately EQUAL to the contract's `intrinsicCanonKey`
+    ///     (see its `IntrinsicKeys` arm), so agreement there is the design, not a clash —
+    ///     the same exclusion `ReferencedProject.composeOrdered`'s cross-package sweep
+    ///     makes, for the same reason.
+    ///   * `Abbrev` / `Opaque` — carry no `SymbolOrigin` at all
+    ///     (`ExternalSymbolProviders.stack`'s `stampType` homes only the shapes a backend
+    ///     must emit a reference TO), so neither can be attributed to an assembly. Neither
+    ///     contributes a nominal key the unifier could conflate either: an abbreviation is
+    ///     TRANSPARENT (it expands to its body at the use site and names no type of its
+    ///     own), and an `Opaque` refuses to become a `SemType` at all. If `Abbrev` ever
+    ///     learns its origin, it becomes a competing claim here.
+    let private externalClaimant (shape: ExternalTypeShape) : string option =
+        match shape with
+        | ExternalTypeShape.Class info -> info.Origin.Assembly
+        | ExternalTypeShape.Record(origin = o)
+        | ExternalTypeShape.Union(origin = o)
+        | ExternalTypeShape.Enum(origin = o) -> o.Assembly
+        | ExternalTypeShape.Intrinsic _
+        | ExternalTypeShape.IntrinsicInterface _
+        | ExternalTypeShape.Abbrev _
+        | ExternalTypeShape.Opaque _ -> None
+
+    /// THE premise, enforced — the CS0433 analogue. A `SymbolKey` is a nominal identity
+    /// with NO home assembly in it, which is licensed by exactly one fact: within one
+    /// compilation a fully-qualified name names at most one type. So a declaration whose
+    /// minted key a REFERENCED assembly already answers for is refused here, at the
+    /// declaration. Codegen would survive it (the local table is checked first, so local
+    /// wins) but the UNIFIER would not: the two keys are equal, so it would happily unify
+    /// two genuinely different types. Diagnosed, that state is unreachable.
+    ///
+    /// A unit's OWN contract is NOT a referenced assembly. Compiling `Vesper.List` against
+    /// a provider stack that mounts `Vesper.List`'s own `.fsi` — which is precisely what
+    /// `SymbolProviders.inlineBodies` does for every package's impl — the unit declares the
+    /// very types its contract publishes. That is what compiling it MEANS. The shape's
+    /// `SymbolOrigin` names its home assembly and `PassContext.AssemblyName` names the unit
+    /// being compiled, so the two are distinguishable by construction: a shape homed HERE
+    /// is the unit seeing itself.
+    ///
+    /// (This is the one front-end reader of `AssemblyName` that survives the assembly's
+    /// removal from `SymbolKey` — it does not identify a *type*, it identifies the *unit*,
+    /// which is what "own contract" is a statement about.)
+    let private diagnoseExternalClaim (ctx: PassContext) (declKey: NodeKey) (key: TypeKey) : unit =
+        match ctx.Provider.TryLookupType(SymbolKey.Type key) with
+        | ValueNone -> ()
+        | ValueSome shape ->
+            match externalClaimant shape with
+            | Some asm when asm <> ctx.AssemblyName ->
+                ctx.Error(
+                    declKey,
+                    sprintf
+                        "The type '%s' is declared by this project and already exists in the referenced assembly '%s'. A fully-qualified name names at most one type in a compilation — rename the type, or drop the reference to '%s'."
+                        (SymbolKeyOps.typeMetaName key)
+                        asm
+                        asm
+                )
+            | _ -> ()
+
     /// The name a type declaration CLAIMS, and the kind it claims it for. The one
     /// enumeration of "what kinds of `TypeDefn` declare a type": exactly the shapes a
     /// per-kind registrar goes on to file (`TypeDefn.Interface`, `Delegate`,
@@ -383,6 +447,23 @@ module NameResolutionTypeRegistration =
 
                     ValueNone
                 else
+                    // ORDER. The LOCAL duplicate test above still runs FIRST and still gates
+                    // the mint, so a rejected duplicate mints no key — the first claimant
+                    // keeps the name, and a second declaration of it never reaches a
+                    // registrar. The EXTERNAL claim test cannot run there: it must ask the
+                    // provider, and the provider is addressed BY the key. So the mint sits
+                    // between them.
+                    //
+                    // An externally-claimed name is diagnosed but still CLAIMED locally: the
+                    // error already refuses the compilation, and keeping the claim keeps
+                    // local-wins resolution intact, so every use of the type resolves to the
+                    // one the source declared instead of cascading into either an "undefined
+                    // type" storm or — worse — a silent bind to the external namesake this
+                    // diagnostic exists to separate it from.
+                    let key = stampLocalTypeKey ctx declKey c name arity
+
+                    diagnoseExternalClaim ctx declKey key
+
                     let claimed =
                         {
                             Identity =
@@ -391,7 +472,7 @@ module NameResolutionTypeRegistration =
                                     Arity = arity
                                     Kind = kind
                                     DeclKey = declKey
-                                    Key = stampLocalTypeKey ctx declKey c name arity
+                                    Key = key
                                     VisibleFrom = visibleFrom
                                 }
                             Defn = td
