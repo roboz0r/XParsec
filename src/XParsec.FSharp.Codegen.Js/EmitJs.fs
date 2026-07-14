@@ -62,7 +62,7 @@ module EmitJs =
         // adapter (its producer emits flat); a saturated call flattens at the `App` arm.
         | TExprG.External(compiledName, key, _, _) ->
             let alias =
-                JsExpr.Identifier(JsImports.addRef ctx.Imports compiledName key (importFormOf ctx.Provider key), loc)
+                JsExpr.Identifier(JsImports.addRef ctx.Imports compiledName (externalValueRef ctx.Provider key), loc)
 
             match JsFlatFns.externalGroups ctx.Provider key with
             | ValueSome groups when JsFlatFns.needsAdapter groups ->
@@ -149,7 +149,7 @@ module EmitJs =
                     | TExprG.External(compiledName, key, _, _) ->
                         JsFlatFns.externalGroups ctx.Provider key
                         |> ValueOption.map (fun groups ->
-                            identAt (JsImports.addRef ctx.Imports compiledName key (importFormOf ctx.Provider key)),
+                            identAt (JsImports.addRef ctx.Imports compiledName (externalValueRef ctx.Provider key)),
                             groups
                         )
                     | _ -> ValueNone
@@ -371,7 +371,7 @@ module EmitJs =
                             MemberLowering = MemberLowering.ErasedBare
                             ImportForm = form
                         },
-              ValueNone -> JsExternalMembers.erasedGroupingRef ctx.Imports declKey memberName form loc
+              ValueNone -> JsExternalMembers.erasedGroupingRef ctx.Provider ctx.Imports declKey memberName form loc
             | ValueSome {
                             MemberLowering = MemberLowering.AttachedNative
                         },

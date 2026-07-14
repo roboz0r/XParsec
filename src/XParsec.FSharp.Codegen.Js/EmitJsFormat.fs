@@ -121,10 +121,7 @@ module EmitJsFormat =
         // The `float32ToString` runtime export a `%O` on a float32 renders through — a
         // NAMED import from the same `Vesper.Printf.mjs` `%A` rides (`structuralFmtRef`).
         let float32FmtRef () =
-            JsExpr.Identifier(
-                JsImports.addRef ctx.Imports "float32ToString" float32ToStringKey ImportForm.Named,
-                ValueNone
-            )
+            JsExpr.Identifier(JsImports.addRef ctx.Imports "float32ToString" float32ToStringRef, ValueNone)
 
         // `emitField` builds the value string then applies the field-width `wrap` (a
         // static `padStart`/`padEnd` or a dynamic `%*d` pad). `wrap = None` means no
@@ -350,10 +347,7 @@ module EmitJsFormat =
         // The `structuralFormat` runtime export a `%A` hole renders through — always
         // a NAMED import (`Vesper.Printf.mjs`).
         let structuralFmtRef () =
-            JsExpr.Identifier(
-                JsImports.addRef ctx.Imports "structuralFormat" structuralFormatKey ImportForm.Named,
-                ValueNone
-            )
+            JsExpr.Identifier(JsImports.addRef ctx.Imports "structuralFormat" structuralFormatRef, ValueNone)
 
         // Bind the runtime star width to `w`, evaluated *before* the value: the arrow
         // argument (`widthExpr`) evaluates first in JS call order, mirroring F#'s

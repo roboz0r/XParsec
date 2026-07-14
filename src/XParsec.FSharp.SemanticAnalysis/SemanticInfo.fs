@@ -15,11 +15,13 @@ type AssemblyName =
 
     member this.Name = let (AssemblyName n) = this in n
 
-/// The ROOT of every key's containment chain. `Local` is the old `asm = None`: the
-/// compilation being analysed, plus the front-end-only / contract-scrape paths that
-/// have no home assembly at all. Because `Origin` sits ONLY on `NamespaceKey` and
-/// everything else reaches it through its holder chain, a module-in-assembly-A that
-/// holds a type-in-assembly-B is unrepresentable rather than merely unlikely.
+/// Where a symbol PHYSICALLY lives. This is not part of any key: nominal identity is
+/// the containment chain + namespace + name, and within one compilation a fully
+/// qualified name names at most one type. The assembly is a *function of* the identity,
+/// carried on the resolved SHAPE (`SymbolOrigin`) and consulted only where a backend
+/// needs a physical location (a CLR `AssemblyRef` scope, a JS import path).
+/// `Local` is the compilation being analysed, plus the front-end-only / contract-scrape
+/// paths that have no home assembly at all.
 [<RequireQualifiedAccess>]
 type Origin =
     | Local
@@ -46,7 +48,6 @@ type Origin =
 /// sentinel. This is what retires `ns = ""`.
 type NamespaceKey =
     {
-        Origin: Origin
         Path: EqArray<string>
     }
 
@@ -55,12 +56,8 @@ type NamespaceKey =
     /// keys and diagnostics. Identity comparisons use the segmented `Path`.
     member this.Dotted: string = System.String.Join(".", this.Path.Underlying)
 
-    /// The global namespace of the compilation being analysed.
-    static member Global =
-        {
-            Origin = Origin.Local
-            Path = EqArray.empty
-        }
+    /// The global namespace.
+    static member Global = { Path = EqArray.empty }
 
 /// What holds a module: a namespace, or an enclosing module (modules nest).
 ///
@@ -69,8 +66,7 @@ type NamespaceKey =
 /// produce one (a namespace cannot hold a value), but the EXTERNAL vocabulary does:
 /// a TS package's top-level export (`TsManifestProvider`, `nsPath = ""`) and a
 /// flat-package contract extern (`ExternalSymbols.monoFrozen "printfn"`) are both
-/// exactly that, and they still carry a home assembly — which is why the holder, not
-/// an `option`, is the right shape: the `Origin` stays reachable.
+/// exactly that.
 [<RequireQualifiedAccess>]
 type ModuleHolder =
     | InNamespace of ns: NamespaceKey
@@ -81,9 +77,6 @@ type ModuleHolder =
         match this with
         | ModuleHolder.InNamespace ns -> ns
         | ModuleHolder.InModule parent -> parent.Namespace
-
-    /// The assembly this holder lives in.
-    member this.Origin: Origin = this.Namespace.Origin
 
 /// A module. NO arity — modules are not generic. That asymmetry with `TypeKey` is
 /// the point: a module is simpler (no generics, no overloading) and richer in
@@ -96,9 +89,6 @@ and ModuleKey =
 
     /// Walk the holder chain to the namespace at its root.
     member this.Namespace: NamespaceKey = this.Holder.Namespace
-
-    /// The assembly this module lives in, reached through the holder chain.
-    member this.Origin: Origin = this.Namespace.Origin
 
 /// What holds a type.
 [<RequireQualifiedAccess>]
@@ -125,13 +115,24 @@ type TypeHolder =
     /// `TypeRef` must chain through its enclosing type's `TypeRef` as ResolutionScope.
     | InType of outer: TypeKey
 
-/// A type definition. `Name` keeps the arity suffix (`` IEnumerable`1 ``) — see
-/// `SymbolKeyOps.arityName`, which must remain the ONE definition of that rule (the
-/// emitted metadata name and the stamped name must not drift). A project-local type's
-/// `TypeKey` is also its `TypeRegistry` key. For a
-/// NESTED type `Name` is the bare innermost segment (`Enumerator`); the `+`-mangled
-/// reflection spelling is produced on demand by `SymbolKeyOps.typeMetaName`, the one
-/// renderer, and parsed back by `SymbolKeyOps.typeKeyOf`, the one parser.
+/// A type definition — a nominal identity, and for a project-local type its
+/// `TypeRegistry` key. Identity is the containment chain + the plain name + the generic
+/// ARITY, and nothing else: F# overloads a type name on arity alone, so that int is the
+/// whole of the discriminator a name needs. (NOT the typars themselves — a typar's name
+/// and constraints are not identity-bearing, and a key minted from a contract, which has
+/// no constraint detail, must still compare equal to one minted from source. The typar
+/// DETAIL lives on `RecordTypeInfo` / `ClassTypeInfo` / …, the type ARGUMENTS on the
+/// `SemType` — `TyUnion(key, args)`.)
+///
+/// `Name` is the PLAIN source name (`List`, `seq`, `[]`) — never the CLR `` `N ``-mangled
+/// metadata spelling, which is a *rendering* of `(Name, Arity)` and lives only at the
+/// metadata boundary (`SymbolKeyOps.typeMetaName`, the one renderer; `typeKeyOf`, the one
+/// parser — they are inverses). Because the arity is a FIELD, a producer cannot forget to
+/// state it, and no consumer can be arity-blind by accident.
+///
+/// For a NESTED type `Name`/`Arity` are the innermost segment's own (`Enumerator`, 0); the
+/// `+`-mangled reflection spelling is produced on demand, each segment rendering its OWN
+/// count (`` List`1+Enumerator ``), which is the CLR rule.
 ///
 /// CAUTION for type-identity comparisons in the unifier: structural `=` on two
 /// `TypeKey`s does NOT reconcile a language capability's two nominal faces (its BCL
@@ -153,30 +154,19 @@ and TypeKey =
         | TypeHolder.InModule parent -> parent.Namespace
         | TypeHolder.InType outer -> outer.Namespace
 
-    /// The assembly this type lives in, reached through the holder chain.
-    member this.Origin: Origin = this.Namespace.Origin
-
 /// Was `SymbolKey.ValueKey`: a module-level binding / operator. No `ArgSig`: modules
 /// do not overload.
 ///
 /// `Decl` is a `ModuleHolder`, so the two states are distinguished BY CASE, not by an
 /// empty string: `InModule m` is the ordinary module-qualified binding
 /// (`Vesper.Unchecked.defaultof`), and `InNamespace ns` is the UNQUALIFIED one — a flat
-/// package's export, which has no declaring module but DOES have a home assembly.
+/// package's export, which has no declaring module.
 /// `ClrProvider`'s hand-rolled `when ns <> ""` guard is now that case match.
 ///
 /// A namespace holding a value is not F# — but this key names the EXTERNAL vocabulary
 /// too, where a TS module's top-level export and a flat-package contract extern are
-/// exactly that. Making it `ModuleKey voption` instead would sever those bindings from
-/// their `Origin` (which is reached through the holder chain).
-type BindingKey =
-    {
-        Decl: ModuleHolder
-        Name: string
-    }
-
-    /// The assembly this binding lives in, reached through its holder chain.
-    member this.Origin: Origin = this.Decl.Origin
+/// exactly that.
+type BindingKey = { Decl: ModuleHolder; Name: string }
 
 /// A member on a type. `Decl` is a `TypeKey` — the whole point of the reshape: the
 /// three `failwithf "declaring key is not a TypeKey"` runtime checks
@@ -216,9 +206,6 @@ type MemberKey =
         Kind: MemberKind
     }
 
-    /// The assembly the declaring type lives in, reached through its holder chain.
-    member this.Origin: Origin = this.Decl.Origin
-
 /// What kind of member a `MemberKey` denotes. `Method` and `Property` are the
 /// today-resolvable shapes; `InterfaceMethod` and `ExplicitInterfaceImpl` land their
 /// consumers with interface conformance + `(this :> iface).M()` syntax.
@@ -239,11 +226,19 @@ and [<RequireQualifiedAccess>] MemberKind =
 
 /// Platform-agnostic, scope-unambiguous symbol identity. Strings + containment —
 /// never a CLR `EntityHandle` or `System.Type` (those are per-context and
-/// target-specific). The discriminator is the *containment chain* (assembly →
-/// namespace → module* → type → member), not the bare name, so a project-local
+/// target-specific). The discriminator is the *containment chain* (namespace →
+/// module* → type → member), not the bare name, so a project-local
 /// `List` and `System.Collections.Generic.List`1` get different keys by
 /// construction. Keyed on the open generic *definition* (a `TypeKey`'s `Name`
 /// includes the `` `arity `` suffix); instantiation is the cheap per-use substitution.
+///
+/// The home ASSEMBLY is deliberately NOT here. Identity is nominal; the assembly is a
+/// physical location. Within one compilation a fully-qualified name names at most one
+/// type, and no lookup anywhere disambiguates on the assembly — so a key minted from a
+/// bare compiled name (which is all ten of the string-fed mint sites have) compares
+/// equal to one minted from a fully resolved shape, by construction rather than by
+/// assertion. Where a backend genuinely needs the physical home (an `AssemblyRef`
+/// scope, a JS import path) it reads `SymbolOrigin.Assembly` off the resolved shape.
 ///
 /// There is deliberately NO `Module` case: a module appears only in HOLDER position.
 /// A standalone module symbol has no reader (`OpenScope` is kind-blind by design).
@@ -265,33 +260,31 @@ type SymbolKey =
     | Binding of BindingKey
     | Member of MemberKey
 
-    /// The assembly this symbol lives in, reached through its holder chain.
-    member this.Origin: Origin =
-        match this with
-        | SymbolKey.Type t -> t.Origin
-        | SymbolKey.Binding b -> b.Origin
-        | SymbolKey.Member m -> m.Origin
-
 /// Where a resolved symbol physically lives — enough for codegen to mint a ref
-/// without re-resolving. `Namespace` carries the home assembly at its root
-/// (`Origin`), so an origin cannot disagree with itself about which assembly it
-/// names.
+/// without re-resolving. It is the `key -> home` ORACLE: a `SymbolKey` names *what* a
+/// symbol is, and the shape a provider resolves for that key carries, here, *where* it
+/// is. Nothing else in the pipeline knows a symbol's assembly.
 ///
 /// A symbol's DECLARING TYPE is not here: it is `MemberKey.Decl : TypeKey`, on the
 /// key itself. An origin names a *place* (assembly + namespace); containment is the
 /// key's job.
 type SymbolOrigin =
     {
+        Home: Origin
         Namespace: NamespaceKey
     }
 
     /// The home-assembly simple name keyed into a `ProjectInfo`'s resolved reference
     /// set; `None` ⇒ defined in the project being compiled.
-    member this.Assembly: string option = this.Namespace.Origin.AsmOption
+    member this.Assembly: string option = this.Home.AsmOption
 
     /// The default carried by symbols that don't (yet) record an origin —
     /// project-local, global namespace.
-    static member Empty = { Namespace = NamespaceKey.Global }
+    static member Empty =
+        {
+            Home = Origin.Local
+            Namespace = NamespaceKey.Global
+        }
 
 /// How an external member is STORED/accessed — the storage-and-shape axis,
 /// orthogonal to the key-identity `MemberKind` above (which interns vtable slots).

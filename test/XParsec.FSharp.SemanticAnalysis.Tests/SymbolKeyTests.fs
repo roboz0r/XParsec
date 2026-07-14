@@ -4,80 +4,67 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// Guards the "asm agrees across every mint path" invariant. Unification compares
-// nominal `SemType`s by *full* `SymbolKey` equality,
-// including the home assembly `asm` — so if one producer mints `asm = None` and
-// another `asm = Some "X"` for the same type they stop unifying with no diagnostic.
-// Every external-type producer routes through `SymbolKeyOps.externalTypeKey`
-// (origin in hand) or `qualifiedTypeKeyOf` (explicit asm + qualified name); the
-// local-def path is `LocalSymbolKey.ofType`, whose output for a well-known type IS
-// the canonical `RuntimeNames.*Key` literal. These assert all three agree, asm and
-// all, for the well-known singletons whose key the rest of the pipeline matches on.
+/// The home assembly is a physical LOCATION, not part of a nominal identity: it lives
+/// on a resolved shape's `SymbolOrigin`, never in the key. So the same type minted via
+/// ANY path — from a resolved external origin (`mkNominal` / `Translate` /
+/// `InferResolve`), from a bare fully-qualified compiled name (the ten string-fed sites
+/// that have no assembly in hand at all), or by local definition (`LocalSymbolKey.ofType`,
+/// whose output for a well-known type IS the `RuntimeNames.*Key` literal) — must compare
+/// EQUAL, by construction rather than by assertion. Unification compares nominal
+/// `SemType`s by full `SymbolKey` equality, so a mint path that disagreed would silently
+/// fail to unify with no diagnostic. These pin the agreement for the well-known
+/// singletons the rest of the pipeline matches on, INCLUDING across differing homes.
+let private originIn (asm: string) (ns: string) : SymbolOrigin =
+    {
+        Home = Origin.InAssembly(AssemblyName asm)
+        Namespace = SymbolKeyOps.namespaceKey ns
+    }
+
 [<Tests>]
 let tests =
     testList
-        "SymbolKey asm invariant"
+        "SymbolKey mint-path invariant"
         [
-            test "cons-list: external-ref mint paths equal the local-def canonical key" {
+            test "cons-list: every mint path yields the canonical key, whatever the home" {
                 // External ref resolved from a `SymbolOrigin` (the consumer path:
                 // `mkNominal` / `Translate` / `InferResolve`).
                 let viaOrigin =
                     SymbolKeyOps.externalTypeKey
-                        {
-                            Namespace = SymbolKeyOps.namespaceKey (Some "Vesper.List") "Vesper.Collections"
-                        }
+                        (originIn "Vesper.List" "Vesper.Collections")
                         "Vesper.Collections.List"
                         1
 
-                // External ref minted from an explicit home assembly + qualified name
-                // (the asm-aware codegen / metadata path).
-                let viaQualified =
-                    SymbolKeyOps.qualifiedTypeKeyOf (Some "Vesper.List") "Vesper.Collections.List" 1
+                // External ref minted from a qualified compiled name alone — no assembly
+                // in hand (the string-fed codegen / metadata path).
+                let viaQualified = SymbolKeyOps.qualifiedTypeKey "Vesper.Collections.List" 1
+
+                // The SAME type resolved from a shape homed in a DIFFERENT assembly. The
+                // home is not part of the identity, so this is the same key — the fact the
+                // deleted "asm is load-bearing" test asserted the negation of.
+                let viaOtherHome =
+                    SymbolKeyOps.externalTypeKey (originIn "Other.Asm" "Vesper.Collections") "Vesper.Collections.List" 1
 
                 // The local-def path (`LocalSymbolKey.ofType` over the same containment —
-                // namespace `Vesper.Collections`, home `Vesper.List`) produces exactly
-                // this literal.
-                Expect.equal viaOrigin RuntimeNames.vesperListKey "origin mint = canonical (incl. asm)"
-                Expect.equal viaQualified RuntimeNames.vesperListKey "qualified mint = canonical (incl. asm)"
+                // namespace `Vesper.Collections`) produces exactly this literal.
+                Expect.equal viaOrigin RuntimeNames.vesperListKey "origin mint = canonical"
+                Expect.equal viaQualified RuntimeNames.vesperListKey "qualified mint = canonical"
                 Expect.equal viaOrigin viaQualified "both external mint paths agree"
+                Expect.equal viaOtherHome viaOrigin "a differing home assembly does NOT change the identity"
             }
 
-            test "ref cell: external-ref mint paths equal the local-def canonical key" {
+            test "ref cell: every mint path yields the canonical key, whatever the home" {
                 let viaOrigin =
-                    SymbolKeyOps.externalTypeKey
-                        {
-                            Namespace = SymbolKeyOps.namespaceKey (Some "Vesper.Core") "Vesper"
-                        }
-                        "Vesper.Ref"
-                        1
+                    SymbolKeyOps.externalTypeKey (originIn "Vesper.Core" "Vesper") "Vesper.Ref" 1
 
-                let viaQualified =
-                    SymbolKeyOps.qualifiedTypeKeyOf (Some "Vesper.Core") "Vesper.Ref" 1
+                let viaQualified = SymbolKeyOps.qualifiedTypeKey "Vesper.Ref" 1
 
-                Expect.equal viaOrigin RuntimeNames.vesperRefKey "origin mint = canonical (incl. asm)"
-                Expect.equal viaQualified RuntimeNames.vesperRefKey "qualified mint = canonical (incl. asm)"
+                let viaOtherHome =
+                    SymbolKeyOps.externalTypeKey (originIn "Other.Asm" "Vesper") "Vesper.Ref" 1
+
+                Expect.equal viaOrigin RuntimeNames.vesperRefKey "origin mint = canonical"
+                Expect.equal viaQualified RuntimeNames.vesperRefKey "qualified mint = canonical"
                 Expect.equal viaOrigin viaQualified "both external mint paths agree"
-            }
-
-            test "asm is load-bearing: same (ns, name, arity) but differing home assembly are distinct keys" {
-                // The failure mode the unify guard catches: two mints that agree on
-                // everything but `asm` must NOT compare equal (else a drifting mint
-                // path silently unifies / fails to unify with no diagnostic).
-                let homeA =
-                    SymbolKeyOps.qualifiedTypeKeyOf (Some "Vesper.List") "Vesper.Collections.List" 1
-
-                let homeB =
-                    SymbolKeyOps.qualifiedTypeKeyOf (Some "Other.Asm") "Vesper.Collections.List" 1
-
-                let asmless = SymbolKeyOps.qualifiedTypeKey "Vesper.Collections.List" 1
-
-                Expect.notEqual homeA homeB "differing home assembly ⇒ distinct key"
-                Expect.notEqual homeA asmless "asm = None ⇒ distinct from asm = Some home"
-
-                Expect.equal
-                    (SymbolKeyOps.qualifiedName homeA)
-                    (SymbolKeyOps.qualifiedName homeB)
-                    "yet they project to the same qualified name — exactly the silent-mismatch shape"
+                Expect.equal viaOtherHome viaOrigin "a differing home assembly does NOT change the identity"
             }
 
             // A package origin is a BLANKET fact (`Vesper`), but a type in that package can
@@ -86,15 +73,11 @@ let tests =
             // name=`Collections.seq`, which then fails to match the capability's canonical
             // key. The namespace must come from the name the type belongs to.
             test "blanket package origin does not mis-cut a deeper compiled name" {
-                let blanket =
-                    {
-                        Namespace = SymbolKeyOps.namespaceKey (Some "Vesper.Core") "Vesper"
-                    }
+                let blanket = originIn "Vesper.Core" "Vesper"
 
                 let viaOrigin = SymbolKeyOps.externalTypeKeyOf blanket "Vesper.Collections.seq" 1
 
-                let viaQualified =
-                    SymbolKeyOps.qualifiedTypeKeyOfT (Some "Vesper.Core") "Vesper.Collections.seq" 1
+                let viaQualified = SymbolKeyOps.qualifiedTypeKeyOfT "Vesper.Collections.seq" 1
 
                 Expect.equal viaOrigin viaQualified "both external mint paths agree"
 
@@ -110,11 +93,7 @@ let tests =
             // reflection display name of a CLR nested type. They must invert each other, and
             // the nesting must land in the holder chain — not survive inside a key's `Name`.
             test "nested type: the `+` chain becomes holders, and renders back unchanged" {
-                let k =
-                    SymbolKeyOps.typeKeyOf
-                        (Some "System.Private.CoreLib")
-                        "System.Collections.Generic"
-                        "List`1+Enumerator"
+                let k = SymbolKeyOps.typeKeyOf "System.Collections.Generic" "List`1+Enumerator"
 
                 match k.Holder with
                 | TypeHolder.InType outer ->
@@ -135,7 +114,7 @@ let tests =
                 // A nested type's arity is carried by its OUTER, so requesting arity 1 must not
                 // re-suffix the inner segment.
                 Expect.equal
-                    (SymbolKeyOps.qualifiedTypeKeyOfT (Some "A") "N.List`1+Enumerator" 1
+                    (SymbolKeyOps.qualifiedTypeKeyOfT "N.List`1+Enumerator" 1
                      |> SymbolKeyOps.typeMetaName)
                     "N.List`1+Enumerator"
                     "the arity is already spelled by the outer; it is not re-appended to the inner"
@@ -145,12 +124,12 @@ let tests =
             // it back, so its correctness argument is that it renders each holder shape whole.
             test "module full name renders the holder chain" {
                 Expect.equal
-                    (SymbolKeyOps.moduleFullName (SymbolKeyOps.moduleInNamespace (Some "A") "Vesper" "Unchecked"))
+                    (SymbolKeyOps.moduleFullName (SymbolKeyOps.moduleInNamespace "Vesper" "Unchecked"))
                     "Vesper.Unchecked"
                     "namespace-qualified module"
 
                 Expect.equal
-                    (SymbolKeyOps.moduleFullName (SymbolKeyOps.moduleInNamespace (Some "A") "" "Util"))
+                    (SymbolKeyOps.moduleFullName (SymbolKeyOps.moduleInNamespace "" "Util"))
                     "Util"
                     "a module in the global namespace"
             }
@@ -160,7 +139,7 @@ let tests =
             // namespace, so `Inner` and `Outer` both flattened into the namespace path).
             // `Outer` must be a MODULE here, not a namespace segment.
             test "nested module: the chain nests, and the namespace stops where it stops" {
-                let outer = SymbolKeyOps.moduleInNamespace (Some "A") "Vesper" "Outer"
+                let outer = SymbolKeyOps.moduleInNamespace "Vesper" "Outer"
 
                 let inner = SymbolKeyOps.moduleKeyOf (ModuleHolder.InModule outer) "Inner"
 
@@ -171,11 +150,6 @@ let tests =
                     [ "Vesper" ]
                     "the namespace is `Vesper` alone — `Outer` is a module, not a namespace segment"
 
-                Expect.equal
-                    inner.Origin
-                    (Origin.InAssembly(AssemblyName "A"))
-                    "the home assembly is reachable through the nested chain"
-
                 let b = SymbolKeyOps.bindingKeyOf (ModuleHolder.InModule inner) "f"
 
                 Expect.equal
@@ -185,19 +159,14 @@ let tests =
             }
 
             // The UNQUALIFIED binding — a flat package's export / a global extern. Its holder
-            // is the global namespace, NOT an absent one: it still carries the home assembly,
-            // which is what a `ModuleKey voption` could not have done.
-            test "unqualified binding: holder is the global namespace, home assembly survives" {
-                let b = SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace (Some "pkg") "") "f"
+            // is the GLOBAL NAMESPACE, not an absent one: the empty path is a real value, so
+            // every holder shape is inhabited and no site has to model "no holder".
+            test "unqualified binding: the holder is the global namespace, not a sentinel" {
+                let b = SymbolKeyOps.bindingKeyOf (SymbolKeyOps.inNamespace "") "f"
 
                 match b.Decl with
                 | ModuleHolder.InNamespace ns ->
                     Expect.isTrue ns.Path.IsEmpty "the global namespace is an EMPTY path, not a sentinel"
-
-                    Expect.equal
-                        ns.Origin
-                        (Origin.InAssembly(AssemblyName "pkg"))
-                        "the home assembly is reachable through the holder chain"
                 | other -> failtestf "expected InNamespace, got %A" other
 
                 Expect.equal (SymbolKeyOps.holderFullName b.Decl) "" "an empty holder renders empty"
@@ -206,32 +175,6 @@ let tests =
                     (SymbolKeyOps.qualifiedName (SymbolKey.Binding b))
                     "f"
                     "qualifiedName drops the empty holder rather than emitting a leading dot"
-            }
-
-            // `reroot` is how a provider stack re-homes the keys its inner leaf minted before
-            // the package's assembly was known. It rewrites the `Origin` at the ROOT of the
-            // chain and nothing else — in particular it does not re-derive the chain from a
-            // rendered name, which is what used to flatten a nested module away.
-            test "reroot rewrites the home assembly and preserves the containment chain" {
-                let inner =
-                    SymbolKeyOps.moduleKeyOf
-                        (ModuleHolder.InModule(SymbolKeyOps.moduleInNamespace None "Vesper" "Outer"))
-                        "Inner"
-
-                let k =
-                    SymbolKey.Binding(SymbolKeyOps.bindingKeyOf (ModuleHolder.InModule inner) "f")
-
-                let homed = SymbolKeyOps.reroot (Origin.InAssembly(AssemblyName "Vesper.Core")) k
-
-                Expect.equal
-                    homed.Origin
-                    (Origin.InAssembly(AssemblyName "Vesper.Core"))
-                    "the root carries the new home"
-
-                Expect.equal
-                    (SymbolKeyOps.qualifiedName homed)
-                    (SymbolKeyOps.qualifiedName k)
-                    "the containment chain is untouched"
             }
         ]
 

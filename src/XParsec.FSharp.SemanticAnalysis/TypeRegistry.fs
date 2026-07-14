@@ -149,13 +149,26 @@ type PassContextTypes =
         /// resolving to the same target repr is an identity/origin question, not a
         /// name-table one.
         IntrinsicReprTypes: Dictionary<string, string>
+        /// The same bindings as `IntrinsicReprTypes`, addressed by the intrinsic's
+        /// contract-sourced `SymbolKey` (`IntrinsicKeys`) instead of its declared name —
+        /// the LOCAL half of the forward `{ canon -> platform repr }` axis whose external
+        /// half is `IExternalSymbolProvider.IntrinsicForwardRepr` (also key-addressed).
+        /// A consumer holding a resolved key asks HERE; it must never recover the declared
+        /// name from the key to ask `IntrinsicReprTypes` (`SymbolKeyOps.simpleName` is a
+        /// lossy display projection — it would drop the `` `N `` a generic intrinsic's key
+        /// carries and false-match any same-named type). Written with `IntrinsicReprTypes`
+        /// at the one registration site, so the two cannot disagree.
+        IntrinsicReprKeys: Dictionary<SymbolKey, string>
         /// The name → qualified `SymbolKey` index for this unit's own intrinsics,
         /// populated at registration from the declaring `namespace` (`Vesper`). The
         /// intrinsic's identity is CONTRACT-SOURCED: `Translate` reads the resolved key
-        /// here instead of re-deriving the namespace from a hardcoded name set. The key
-        /// keeps the VERBATIM intrinsic name (`"int"`, `"[]"`) with NO arity suffix — the
-        /// name field IS the identity string, arity rides in the `TyConst` args. Mirror of
-        /// the arity-suffixed `SymbolKey` a record/union stamps, minus the suffix.
+        /// here instead of re-deriving the namespace from a hardcoded name set. The key is
+        /// ARITY-SUFFIXED exactly like a record's/union's (`` Vesper.Collections.seq`1 ``,
+        /// `Vesper.int`), so a self-compiled intrinsic's key EQUALS the one its own
+        /// contract publishes (`SymbolKeyOps.intrinsicCanonKey`) and the one a use site
+        /// stamps (`TypeHeadStamp.useSiteTypeKey`) — the arity is part of the identity, not
+        /// something a recogniser must strip. The TABLE is keyed by the bare declared name
+        /// (as every use site spells it); the arity rides in the VALUE.
         /// `IntrinsicReprTypes` stays a pure name → target-repr side-table; this carries
         /// identity.
         IntrinsicKeys: Dictionary<string, SymbolKey>
@@ -253,6 +266,7 @@ module PassContextTypes =
             FieldIndex = Dictionary<_, _>()
             ClassMemberIndex = Dictionary<_, _>()
             IntrinsicReprTypes = Dictionary<_, _>()
+            IntrinsicReprKeys = Dictionary<_, _>()
             IntrinsicKeys = Dictionary<_, _>()
             HeritableExternBases = HashSet<_>()
             IntrinsicAbbrevHost = Dictionary<_, _>()

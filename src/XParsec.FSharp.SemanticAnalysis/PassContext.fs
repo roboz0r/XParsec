@@ -558,13 +558,11 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
 
     member val Input = input
     member val Lexed = lexed
-    /// The simple name of the assembly this compilation unit emits into — the
-    /// **home assembly** stamped onto every locally-minted nominal `SymbolKey`
-    /// (`LocalSymbolKey.ofType`), so a project-local type's key equals the key a
-    /// *consumer* mints for the same type from its `SymbolOrigin` (asm = the
-    /// declaring assembly, invariant per type).
-    /// `""` for the front-end-only / contract-scrape paths that never emit and so
-    /// have no home assembly to stamp; set by `Pipeline.analyse*For`.
+    /// The simple name of the assembly this compilation unit emits into. NOT part of any
+    /// `SymbolKey` — nominal identity is the containment chain, so a locally-minted key
+    /// and a consumer's cross-package reference to the same type are equal without either
+    /// side naming an assembly. `""` for the front-end-only / contract-scrape paths that
+    /// never emit; set by `Pipeline.analyse*For`.
     member val AssemblyName = "" with get, set
     // Fully qualified: this file `open`s `XParsec.FSharp.Parser`, which also
     // defines a `Diagnostic`; with our `Diagnostic` now declared in `SideTypes.fs`

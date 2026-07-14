@@ -747,7 +747,7 @@ module Unification =
         // A face arrives as a compiled NAME (`IntrinsicInterfaceShape.Platform`,
         // `ExternalClassShape.FrozenInterfaces`); it is minted straight back to a key, so the
         // probe stays on the key-addressed store face — no spelling resolution is needed
-        // (`qualifiedTypeKeyOf` is the same mint `ClrEnv`'s face redirect uses).
+        // (`qualifiedTypeKey` is the same mint `ClrEnv`'s face redirect uses).
         let rec closeOver (seen: Set<string>) (name: string) : Set<string> =
             let bare = SymbolKeyOps.bareName name
 
@@ -756,7 +756,7 @@ module Unification =
             else
                 let seen = Set.add bare seen
 
-                match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKeyOf None name 0) with
+                match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKey name 0) with
                 | ValueSome(ExternalTypeShape.Class shape) ->
                     (seen, shape.FrozenInterfaces)
                     ||> Array.fold (fun acc (baseName, _) -> closeOver acc baseName)

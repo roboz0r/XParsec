@@ -302,18 +302,6 @@ module VesperLibTyparCapture =
         /// prelude (a `'TFunc :> Fun<_,_>` coercion target) froze as `FTUnknown`.
         /// The default `[]` is the dependency-free / isolated-context case.
         member val DependencyAmbientPrefixes: string list = [] with get, set
-        /// This package's own **home assembly** simple name (`Some "Vesper.Option"`),
-        /// set by the wrapped builder (`ReferencedProject.buildProviderWith`) from
-        /// `manifest.Name`. During extraction a
-        /// package's own type shapes carry an *Empty* origin (the wrap layer fills
-        /// it only for the consumer-facing provider), so `mkNominal` — which runs
-        /// against this extraction context, including inside captured abbreviation
-        /// `build` closures — falls back to this when a shape's `origin.Assembly` is
-        /// `None`, so a baked own-type key carries the same home assembly the
-        /// consumer's direct resolution mints. `None` on the unwrapped path
-        /// (`VesperLib.buildProvider`), whose shapes stay Empty-origin for the
-        /// consumer too, so both sides agree at `asm = None`.
-        member val HomeAssembly: string option = None with get, set
 
     module ExtractCtx =
         let empty () = ExtractCtx()

@@ -35,14 +35,15 @@ module CodegenSymbols =
         { new ICodegenSymbols with
             member _.TryLookupType name = provider.TryLookupType name
 
-            // `ICodegenSymbols` is string-addressed; the store face is key-addressed,
-            // so bridge by minting the lookup key from the compiled name
-            // (`lookupKeyOfCompiledName` owns the losslessness/asm-blindness invariants).
+            // `ICodegenSymbols` is string-addressed; the store face is key-addressed, so
+            // bridge by minting the lookup key from the compiled name. Arity 0 is lossless
+            // for an already-suffixed generic name (`arityName` is a no-op on it), and the
+            // key needs no home: identity is the qualified name alone.
             member _.TryLookupMember(typeName, memberName) =
-                provider.TryLookupMember(SymbolKeyOps.lookupKeyOfCompiledName typeName, memberName)
+                provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey typeName 0, memberName)
 
             member _.TryLookupMembers(typeName, memberName) =
-                provider.TryLookupMembers(SymbolKeyOps.lookupKeyOfCompiledName typeName, memberName)
+                provider.TryLookupMembers(SymbolKeyOps.qualifiedTypeKey typeName 0, memberName)
 
             member _.TryLookupOpenSignature name =
                 match provider.TryLookup name with

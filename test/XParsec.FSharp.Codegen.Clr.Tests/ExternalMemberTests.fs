@@ -25,6 +25,20 @@ let private analyseWith (provider: IExternalSymbolProvider) (input: string) : Ta
 let private errors (tast: TastFile) : Diagnostic list =
     tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
+/// The home assembly of the type `decl` names, read off the SHAPE the provider resolves
+/// for it. A `SymbolKey` is a NOMINAL identity and carries no home; the physical location
+/// rides the resolved shape's `SymbolOrigin`, which is exactly where `ClrEnv.externalClassRef`
+/// reads it to scope the emitted `TypeRef` with an `AssemblyRef`. So the fact "this member's
+/// declaring type is defined in a referenced assembly" is asserted by resolving the decl key
+/// back through the provider that answered it.
+let private declAssembly (provider: IExternalSymbolProvider) (decl: TypeKey) : string option =
+    match (provider :> IExternalSymbolStore).TryLookupType(SymbolKey.Type decl) with
+    | ValueSome(ExternalTypeShape.Class info) -> info.Origin.Assembly
+    | ValueSome other ->
+        failtestf "expected %s to resolve to a Class shape, got %A" (SymbolKeyOps.typeMetaName decl) other
+    | ValueNone ->
+        failtestf "the declaring type %s did not resolve through the provider" (SymbolKeyOps.typeMetaName decl)
+
 [<Tests>]
 let tests =
     testList
@@ -76,9 +90,9 @@ let tests =
                                            ArgSig = argSig
                                            Kind = MemberKind.Method
                                        } ->
-                        Expect.isTrue
-                            (SymbolKeyOps.typeAsm decl).IsSome
-                            "GetHashCode decl carries the defining assembly"
+                        Expect.isSome
+                            (declAssembly provider decl)
+                            "GetHashCode's declaring type is homed in the defining assembly"
 
                         Expect.equal
                             (SymbolKeyOps.typeNs decl)
@@ -208,9 +222,9 @@ let tests =
                                            ArgSig = argSig
                                            Kind = MemberKind.Method
                                        } ->
-                        Expect.isTrue
-                            (SymbolKeyOps.typeAsm decl).IsSome
-                            "GetHashCode decl carries the defining assembly"
+                        Expect.isSome
+                            (declAssembly provider decl)
+                            "GetHashCode's declaring type is homed in the defining assembly"
 
                         Expect.equal
                             (SymbolKeyOps.typeNs decl)
@@ -421,7 +435,10 @@ let tests =
                                            ArgSig = argSig
                                            Kind = MemberKind.Property
                                        } ->
-                        Expect.isTrue (SymbolKeyOps.typeAsm decl).IsSome "Out decl carries the defining assembly"
+                        Expect.isSome
+                            (declAssembly provider decl)
+                            "Out's declaring type is homed in the defining assembly"
+
                         Expect.equal (SymbolKeyOps.typeNs decl) "System" "Out decl namespace"
                         Expect.equal decl.Name "Console" "Out decl type name (non-generic, no arity suffix)"
                         Expect.isTrue argSig.IsEmpty "Out is a property: empty argSig"

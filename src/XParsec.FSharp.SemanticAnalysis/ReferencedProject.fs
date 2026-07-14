@@ -482,7 +482,7 @@ module ReferencedProject =
     /// duplicate sweep reads. `DeclaredTypeNames` are the qualified compiled names of the
     /// NOMINAL types this package OWNS (Class/Record/Union/Enum — the shapes that mint a
     /// lookup key and would silently first-hit-shadow a peer package's same-named type).
-    /// Intrinsics and capability faces are asm-blind by design (`sameTypeAsmBlind`) and so
+    /// Intrinsics and capability faces share one canon across packages by design, and so
     /// are deliberately excluded — a shared canon there is not a collision.
     type BuiltPackage =
         {
@@ -508,10 +508,6 @@ module ReferencedProject =
             // package's own extraction resolves a dependency's ambiently-available
             // type by bare name (`Fun`2` / `Fun`3`), the way the consumer front end does.
             ctx.DependencyAmbientPrefixes <- dependencyAmbientPrefixes
-            // The package's own home assembly, so `mkNominal` stamps it onto own-type
-            // keys whose extraction-time origin is still Empty — matching
-            // the `Some manifest.Name` origin the `wrap` below stamps for consumers.
-            ctx.HomeAssembly <- Some manifest.Name
 
             // Pair `.fsi` extern + `.fs` `(# … #)`: harvest the intrinsic reprs
             // from each contract's sibling `.fs` companion FIRST, so the `extern`
@@ -598,9 +594,10 @@ module ReferencedProject =
                 | Error e -> ctx.Diagnostics.Add(file, e)
                 | Ok parsed -> VesperLib.extractSymbols ctx parsed
 
-            let origin =
+            let origin: SymbolOrigin =
                 {
-                    Namespace = SymbolKeyOps.namespaceKey (Some manifest.Name) manifest.Namespace
+                    Home = Origin.InAssembly(AssemblyName manifest.Name)
+                    Namespace = SymbolKeyOps.namespaceKey manifest.Namespace
                 }
 
             // The contract's implicit prelude: its `[<AutoOpen>]` modules (most
@@ -618,7 +615,7 @@ module ReferencedProject =
             // consults dependency `AmbientShapes` as a fallback but never inserts them
             // into `TypeShapes`), for the composition-time duplicate sweep. EXHAUSTIVE
             // over the shape cases so a NEW shape forces an include/exclude decision
-            // here: intrinsics and capability interfaces are asm-blind by design (every
+            // here: intrinsics and capability interfaces share one canon by design (every
             // package's `int` is THE `int`, so cross-package repetition is the norm,
             // not a collision); an `Abbrev` shadow silently re-points an alias and an
             // `Opaque` shadow hides a residue, so both ARE swept.

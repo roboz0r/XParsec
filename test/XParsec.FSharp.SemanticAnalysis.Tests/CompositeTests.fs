@@ -12,7 +12,7 @@ open XParsec.FSharp.SemanticAnalysis
 let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
     let origin =
         { SymbolOrigin.Empty with
-            Namespace = SymbolKeyOps.namespaceKey None tag
+            Namespace = SymbolKeyOps.namespaceKey tag
         }
 
     { new IExternalSymbolProvider
@@ -22,7 +22,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
               if n = name then
                   ValueSome
                       { ExternalSymbols.monoFrozen
-                            (SymbolKeyOps.inNamespace None "")
+                            (SymbolKeyOps.inNamespace "")
                             name
                             (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty)) with
                           Origin = origin
@@ -62,7 +62,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
                           Origin = origin
                           Key =
                               SymbolKeyOps.memberKey
-                                  (SymbolKeyOps.typeKeyOf origin.Assembly origin.Namespace.Dotted name)
+                                  (SymbolKeyOps.typeKeyOf origin.Namespace.Dotted name)
                                   name
                                   EqArray.empty
                                   MemberKind.Method

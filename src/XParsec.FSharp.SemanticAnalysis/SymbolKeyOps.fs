@@ -12,7 +12,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 /// surface and `ExternalSymbol` builders consume these projections). Keeping the
 /// algebra below the `IExternalSymbolProvider` interface is what lets that
 /// interface be compiled *after* `Tast`, so it can name `TDecl` directly (the
-/// pre-freeze inline-body channel) without a sibling interface + runtime cast.
+/// inline-body channel) without a sibling interface + runtime cast.
 [<RequireQualifiedAccess>]
 module SymbolKeyOps =
 
@@ -21,7 +21,7 @@ module SymbolKeyOps =
     // One definition each of the string rules identity minting / decomposition repeats:
     // strip the `` `N `` arity suffix, arity-qualify a simple name, segment a dotted
     // namespace. Everything below routes through these; `LocalSymbolKey` (internal,
-    // compiles later) delegates its `arityName` / `asmOf` here so the rules can't drift.
+    // compiles later) delegates its `arityName` here so the rules can't drift.
 
     /// Strip a trailing `` `N `` generic-arity suffix, returning the bare compiled
     /// name (namespace kept). The contract layer arity-suffixes generic compiled
@@ -57,13 +57,6 @@ module SymbolKeyOps =
         else
             compiled.Substring(0, i), compiled.Substring(i + 1)
 
-    /// The home-assembly `option` from an assembly *name* (`PassContext.AssemblyName`):
-    /// `""` (the front-end-only / contract-scrape default) ⇒ `None`; a real name ⇒
-    /// `Some`. The single home for the rule — `LocalSymbolKey.ofType` and the
-    /// registration sites call it directly.
-    let asmOf (assemblyName: string) : string option =
-        if assemblyName = "" then None else Some assemblyName
-
     /// The last `.`-separated segment of a compiled name (`Vesper.Option` ⇒
     /// `Option`), arity suffix stripped (`Choice`2` ⇒ `Choice`). Used to test a
     /// union's declaring type against a written qualifier (`Option.Some` /
@@ -80,13 +73,8 @@ module SymbolKeyOps =
         else
             EqArray.ofArray (dotted.Split '.')
 
-    /// A `NamespaceKey` from the boundary spelling: a home-assembly `option` (as the
-    /// providers and `PassContext` carry it) + a dotted namespace.
-    let namespaceKey (asm: string option) (dottedNs: string) : NamespaceKey =
-        {
-            Origin = Origin.OfOption asm
-            Path = nsPath dottedNs
-        }
+    /// A `NamespaceKey` from the boundary spelling: a dotted namespace.
+    let namespaceKey (dottedNs: string) : NamespaceKey = { Path = nsPath dottedNs }
 
     // --- The ONE `TypeKey` ↔ metadata-name renderer / parser --------------------------
     //
@@ -111,9 +99,6 @@ module SymbolKeyOps =
     /// namespace — which is what the CLR does.
     let typeNs (t: TypeKey) : string = t.Namespace.Dotted
 
-    /// The home assembly of a type, reached through its holder chain.
-    let typeAsm (t: TypeKey) : string option = t.Origin.AsmOption
-
     /// The full metadata/reflection name of a type — the string
     /// `MetadataSymbols.resolveTypeLocked` hands to `asm.GetType`, and the key every
     /// provider store face is addressed by. `Ns.Outer`2+Inner` for a nested type.
@@ -123,13 +108,13 @@ module SymbolKeyOps =
         let simple = typeNestedName t
         if ns = "" then simple else ns + "." + simple
 
-    /// Mint a `TypeKey` from the boundary spelling `(asm, dotted ns, simple name)`,
-    /// where `name` may carry the `+`-mangled nested chain a reflection display name
+    /// Mint a `TypeKey` from the boundary spelling `(dotted ns, simple name)`, where
+    /// `name` may carry the `+`-mangled nested chain a reflection display name
     /// produces. THE parser; there is exactly one. A module-held type is minted by
-    /// `moduleTypeKey` (the parser cannot produce one: a `+` chain is CLR nesting, and
-    /// a `.` prefix is the namespace).
-    let typeKeyOf (asm: string option) (dottedNs: string) (name: string) : TypeKey =
-        let ns = namespaceKey asm dottedNs
+    /// `TypeRegistration.localTypeHolder` (the parser cannot produce one: a `+` chain is
+    /// CLR nesting, and a `.` prefix is the namespace).
+    let typeKeyOf (dottedNs: string) (name: string) : TypeKey =
+        let ns = namespaceKey dottedNs
 
         if name.IndexOf '+' < 0 then
             {
@@ -159,8 +144,7 @@ module SymbolKeyOps =
     /// carried by its OUTER (`` List`1+Enumerator `` — the enumerator inherits `List`'s
     /// typar and has no `` `n `` of its own), so an outer that already carries a backtick
     /// means the requested arity is already spelled and must NOT be re-appended to the
-    /// inner name. This is exactly what the old `arityName simple arity` did when `simple`
-    /// was the `+`-mangled string.
+    /// inner name.
     let private withArity (arity: int) (t: TypeKey) : TypeKey =
         if arity > 0 && not ((typeNestedName t).Contains '`') then
             { t with Name = arityName t.Name arity }
@@ -188,23 +172,20 @@ module SymbolKeyOps =
     let moduleKeyOf (holder: ModuleHolder) (name: string) : ModuleKey = { Holder = holder; Name = name }
 
     /// The holder for something declared DIRECTLY in a namespace, from the boundary
-    /// spelling `(asm, dotted ns)`. In binding position it is the UNQUALIFIED binding
-    /// (no declaring module) — a real holder, not a sentinel: it still carries the home
-    /// assembly, which `ModuleKey voption` could not.
-    let inNamespace (asm: string option) (dottedNs: string) : ModuleHolder =
-        ModuleHolder.InNamespace(namespaceKey asm dottedNs)
+    /// spelling `(dotted ns)`. In binding position it is the UNQUALIFIED binding
+    /// (no declaring module) — a real holder, not a sentinel.
+    let inNamespace (dottedNs: string) : ModuleHolder =
+        ModuleHolder.InNamespace(namespaceKey dottedNs)
 
     /// A module declared directly in a namespace (`namespace Vesper` + `module
-    /// Collections`), from the boundary spelling `(asm, dotted ns, module name)`. The
+    /// Collections`), from the boundary spelling `(dotted ns, module name)`. The
     /// namespace and the module are named SEPARATELY — there is no dotted string to cut.
-    let moduleInNamespace (asm: string option) (dottedNs: string) (name: string) : ModuleKey =
-        moduleKeyOf (inNamespace asm dottedNs) name
+    let moduleInNamespace (dottedNs: string) (name: string) : ModuleKey = moduleKeyOf (inNamespace dottedNs) name
 
-    // --- Smart constructors mirroring the old tuple shapes ---------------------------
+    // --- Smart constructors -----------------------------------------------------------
 
-    /// `SymbolKey.Type` from the boundary triple — the mechanical successor to the old
-    /// `SymbolKey.TypeKey(asm, ns, name)`.
-    let typeKey (asm: string option) (ns: string) (name: string) : SymbolKey = SymbolKey.Type(typeKeyOf asm ns name)
+    /// `SymbolKey.Type` from the boundary spelling `(dotted ns, name)`.
+    let typeKey (ns: string) (name: string) : SymbolKey = SymbolKey.Type(typeKeyOf ns name)
 
     /// The full dotted name of whatever holds a binding: the namespace for an
     /// unqualified one, the module's full name otherwise. The inverse of `bindingKeyOf`'s
@@ -224,10 +205,10 @@ module SymbolKeyOps =
         SymbolKey.Binding(bindingKeyOf decl name)
 
     /// `SymbolKey.Binding` for a value in a module that sits directly in a namespace —
-    /// the well-known-symbol spelling `(asm, dotted ns, module, name)`, where the caller
+    /// the well-known-symbol spelling `(dotted ns, module, name)`, where the caller
     /// names the namespace and the module separately.
-    let moduleValueKey (asm: string option) (dottedNs: string) (declModule: string) (name: string) : SymbolKey =
-        valueKey (ModuleHolder.InModule(moduleInNamespace asm dottedNs declModule)) name
+    let moduleValueKey (dottedNs: string) (declModule: string) (name: string) : SymbolKey =
+        valueKey (ModuleHolder.InModule(moduleInNamespace dottedNs declModule)) name
 
     /// A `MemberKey` over a declaring `TypeKey`. The declaring slot is a `TypeKey` by
     /// construction, so the `failwithf "declaring key is not a TypeKey"` checks
@@ -251,12 +232,6 @@ module SymbolKeyOps =
     // with the well-known runtime singletons, so they live here next to the mints.
     // `RuntimeNames` (which compiles after this file) keeps only the singleton
     // constants + recognisers and routes its `bareName` / `qualifiedName` needs here.
-
-    /// The home assembly `option` carried by a key, reached through its holder chain.
-    /// For a nominal type this is the type's declaring assembly — invariant per type.
-    /// Codegen branches local-vs-external on whether it equals the assembly being
-    /// emitted.
-    let keyAsm (k: SymbolKey) : string option = k.Origin.AsmOption
 
     /// The key's `name` component with the containment dropped but the `` `N `` arity
     /// suffix PRESERVED — the non-lossy, IDENTITY counterpart to `simpleName` (which
@@ -301,123 +276,53 @@ module SymbolKeyOps =
             | h -> h + "." + b.Name
         | SymbolKey.Member m -> m.Name
 
-    // --- Re-rooting a key's home assembly --------------------------------------------
-
-    let rec private rerootModuleHolder (o: Origin) (h: ModuleHolder) : ModuleHolder =
-        match h with
-        | ModuleHolder.InNamespace ns -> ModuleHolder.InNamespace { ns with Origin = o }
-        | ModuleHolder.InModule m -> ModuleHolder.InModule(rerootModule o m)
-
-    and private rerootModule (o: Origin) (m: ModuleKey) : ModuleKey =
-        { m with
-            Holder = rerootModuleHolder o m.Holder
-        }
-
-    let rec private rerootTypeHolder (o: Origin) (h: TypeHolder) : TypeHolder =
-        match h with
-        | TypeHolder.InNamespace ns -> TypeHolder.InNamespace { ns with Origin = o }
-        | TypeHolder.InModule m -> TypeHolder.InModule(rerootModule o m)
-        | TypeHolder.InType outer -> TypeHolder.InType(rerootType o outer)
-
-    and private rerootType (o: Origin) (t: TypeKey) : TypeKey =
-        { t with
-            Holder = rerootTypeHolder o t.Holder
-        }
-
-    /// Rewrite the `Origin` at the ROOT of a key's containment chain, leaving the chain
-    /// itself intact. The home assembly sits ONLY on the `NamespaceKey` every holder
-    /// chain bottoms out in, so re-homing a key is this one structural walk — total over
-    /// all three kinds, and lossless where re-deriving the chain from a rendered name
-    /// (the old `ExternalSymbolProviders.restampKey`) flattened it.
-    ///
-    /// A `MemberKind`'s interface `TypeKey` is deliberately NOT rerooted: an explicitly
-    /// implemented interface may live in a different assembly than the type implementing
-    /// it, so it is not part of THIS key's containment chain.
-    ///
-    /// The producer is a provider stack that mints its symbols before it knows the
-    /// wrapping package's assembly (`ExternalSymbolProviders.stack`): the inner leaf
-    /// builds the containment, the wrapper supplies the home.
-    let reroot (o: Origin) (k: SymbolKey) : SymbolKey =
-        match k with
-        | SymbolKey.Type t -> SymbolKey.Type(rerootType o t)
-        | SymbolKey.Binding b ->
-            SymbolKey.Binding
-                { b with
-                    Decl = rerootModuleHolder o b.Decl
-                }
-        | SymbolKey.Member m -> SymbolKey.Member { m with Decl = rerootType o m.Decl }
-
     // A nominal `SemType`'s `SymbolKey` participates in unification equality, so the
     // SAME type minted via different paths (use-site resolution, VesperLib contract
     // extraction, the `*Key` runtime constants, local registration) must compare
-    // EQUAL. Identity is the containment chain rooted at the type's **home assembly** —
-    // invariant per type, so an external type's `origin.Assembly` and a self-host local
-    // key's `PassContext.AssemblyName` agree. The codegen local/external branch reads
-    // the root `Origin` to decide `TypeDef` vs `TypeRef`.
+    // EQUAL. Identity is the containment chain — namespace + module* + name — and
+    // nothing else, so a key minted from a bare compiled name and one minted from a
+    // fully resolved external shape agree by construction. Codegen decides local vs
+    // external by asking its own type table, not the key.
 
-    /// Mint a nominal type key from a fully-qualified compiled name with an explicit
-    /// home assembly (`asm`) but no `SymbolOrigin` in hand: the last `.` segment is the
-    /// simple name. Produces the same containment `externalTypeKey` does, so a type
-    /// minted either way compares equal.
-    let qualifiedTypeKeyOfT (asm: string option) (compiled: string) (arity: int) : TypeKey =
+    /// Mint a nominal type key from a fully-qualified compiled name: the last `.`
+    /// segment is the simple name, the prefix the namespace.
+    let qualifiedTypeKeyOfT (compiled: string) (arity: int) : TypeKey =
         let ns, simple = splitLastDot compiled
-        withArity arity (typeKeyOf asm ns simple)
+        withArity arity (typeKeyOf ns simple)
 
-    let qualifiedTypeKeyOf (asm: string option) (compiled: string) (arity: int) : SymbolKey =
-        SymbolKey.Type(qualifiedTypeKeyOfT asm compiled arity)
+    /// `qualifiedTypeKeyOfT` as a `SymbolKey`. THE mint for a fully-qualified compiled
+    /// name held as a string — a platform repr, a fixed printf-sink name, a codegen
+    /// bridge name, a metadata/contract scrape. Passing arity 0 for an already-suffixed
+    /// generic name is lossless (`arityName` is a no-op on a suffixed name).
+    let qualifiedTypeKey (compiled: string) (arity: int) : SymbolKey =
+        SymbolKey.Type(qualifiedTypeKeyOfT compiled arity)
 
-    /// Mint a nominal type key for an external type from its resolved shape's
-    /// `origin` (home assembly + namespace) + the matched compiled name + arity. EVERY
-    /// external-type producer (`Translate`, `InferResolve`, the VesperLib extractor's
-    /// `mkNominal`) routes through this so the same type carries the same home assembly
-    /// across all of them.
+    /// Mint a nominal type key for an external type from its resolved shape's `origin`
+    /// + the matched compiled name + arity. EVERY external-type producer (`Translate`,
+    /// `InferResolve`, the VesperLib extractor's `mkNominal`) routes through this.
     ///
     /// The namespace comes from `compiled` itself whenever `compiled` is qualified; the
-    /// `origin` supplies the HOME ASSEMBLY and (only for a bare `compiled`) the
-    /// namespace. This is the same convention `VesperLib.TypeTranslate` already mints
-    /// under (`qualifiedTypeKeyOf (homeOf origin.Assembly) compiled …`), so the two
-    /// producers now agree by construction.
-    ///
-    /// It is also what retires `ExternalSymbolProviders.originNsFor`: that helper existed
-    /// SOLELY because the old mint took the namespace from a package-BLANKET origin
-    /// (`Vesper`) and stripped it off the compiled name, which mis-cut
-    /// `Vesper.Collections.seq` into `ns = "Vesper"` / `name = "Collections.seq"` and broke
-    /// capability-key matching. Taking the namespace from the name it belongs to cannot
-    /// mis-cut.
+    /// `origin` supplies it only for a BARE `compiled`. Taking the namespace from the
+    /// name it belongs to cannot mis-cut — a package-BLANKET origin (`Vesper`) stripped
+    /// off the compiled name mis-cut `Vesper.Collections.seq` into `ns = "Vesper"` /
+    /// `name = "Collections.seq"` and broke capability-key matching.
     let externalTypeKeyOf (origin: SymbolOrigin) (compiled: string) (arity: int) : TypeKey =
         if compiled.IndexOf '.' >= 0 then
-            qualifiedTypeKeyOfT origin.Assembly compiled arity
+            qualifiedTypeKeyOfT compiled arity
         else
-            withArity arity (typeKeyOf origin.Assembly origin.Namespace.Dotted compiled)
+            withArity arity (typeKeyOf origin.Namespace.Dotted compiled)
 
     let externalTypeKey (origin: SymbolOrigin) (compiled: string) (arity: int) : SymbolKey =
         SymbolKey.Type(externalTypeKeyOf origin compiled arity)
 
     /// The contract-sourced canon key for an intrinsic the VesperLib extractor
-    /// publishes: `asm = None` (an intrinsic's home is target-dependent, so its identity
-    /// is asm-blind — the `sameTypeAsmBlind` convention), the namespace taken from the
-    /// qualified `compiled` name (a `namespace Vesper` prim-type ⇒ `"Vesper"`; a
-    /// `global`/flat-package extern ⇒ the global namespace), and the VERBATIM short name
-    /// kept intact — NO arity suffix, so the array keeps its backtick `` ``[]`` ``
-    /// spelling and `simpleName` recovers the bare codegen/repr key unchanged. Pairs the
-    /// contract's own namespace with the identity name, replacing the deleted front-end
-    /// name-set classifier (`RuntimeNames.intrinsicKey`) at the producer mint.
-    let intrinsicCanonKey (compiled: string) (shortName: string) : SymbolKey =
-        typeKey None (fst (splitLastDot compiled)) shortName
-
-    /// `qualifiedTypeKeyOf` with no home assembly — the asm-blind paths (codegen
-    /// self-type signatures projected by name; test-helper constructors; the
-    /// MetadataSymbols/contract scrapes that have only a compiled name).
-    let qualifiedTypeKey (compiled: string) (arity: int) : SymbolKey = qualifiedTypeKeyOf None compiled arity
-
-    /// The store-face LOOKUP key for a fully-qualified COMPILED name held as a
-    /// string (a platform repr, a fixed printf-sink name, a codegen bridge name).
-    /// The single home for the mint's two invariants: arity 0 is lossless because
-    /// a compiled generic name already carries its `` `N `` suffix (`arityName` is
-    /// a no-op on a suffixed name), and the key is asm-blind BY DESIGN — store
-    /// lookup is addressed by `(ns, arity-name)` and never consults the origin at all
-    /// (`qualifiedName`, which every store face projects through, discards it), so
-    /// an asm-blind key answers exactly the entries an asm-carrying one does. Use
-    /// this, not `qualifiedTypeKey <name> 0`, wherever a bare compiled-name string
-    /// must reach the key-addressed store face.
-    let lookupKeyOfCompiledName (compiled: string) : SymbolKey = qualifiedTypeKeyOf None compiled 0
+    /// publishes. An intrinsic is a nominal like any other, so its canon key is simply
+    /// the key of its COMPILED name — which `registerTypeDecl` already arity-suffixed
+    /// (`` Vesper.Collections.seq`1 ``), so the arity is IN the key and key equality is
+    /// the whole identity test. Deliberately the same mint the use-site stamp takes
+    /// (`TypeHeadStamp.useSiteTypeKey`'s `Intrinsic` arm) and the same one
+    /// `TypeRegistry.IntrinsicKeys` stamps for a self-compiled intrinsic, so all three
+    /// compare EQUAL by construction — no arity-blind matcher stands between them.
+    /// (Arity 0: `compiled` carries the suffix already, and `arityName` is a no-op on a
+    /// name that does — including the array's backtick-escaped `` ``[]`` ``.)
+    let intrinsicCanonKey (compiled: string) : SymbolKey = qualifiedTypeKey compiled 0

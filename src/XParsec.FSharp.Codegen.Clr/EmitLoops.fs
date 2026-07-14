@@ -90,7 +90,7 @@ module EmitLoops =
     let private mintDisposeHandle (env: EmitEnv) : EntityHandle =
         env.Provider.ExternalMemberRef(
             SymbolKeyOps.memberKey
-                (SymbolKeyOps.typeKeyOf None "System" "IDisposable")
+                (SymbolKeyOps.typeKeyOf "System" "IDisposable")
                 "Dispose"
                 EqArray.empty
                 MemberKind.Method,
@@ -388,14 +388,11 @@ module EmitLoops =
                 // IL-IR exception region is the same `Try` / `BeginFinally` /
                 // `EndFinally` shape as `TExprG.Use`'s disposal.
                 let enumTy =
-                    FTClass(
-                        SymbolKeyOps.typeKey None "System.Collections.Generic" "IEnumerator`1",
-                        EqArray.singleton elemTy
-                    )
+                    FTClass(SymbolKeyOps.typeKey "System.Collections.Generic" "IEnumerator`1", EqArray.singleton elemTy)
 
                 let geKey =
                     SymbolKeyOps.memberKey
-                        (SymbolKeyOps.typeKeyOf None "System.Collections.Generic" "IEnumerable`1")
+                        (SymbolKeyOps.typeKeyOf "System.Collections.Generic" "IEnumerable`1")
                         "GetEnumerator"
                         EqArray.empty
                         MemberKind.Method
@@ -410,7 +407,7 @@ module EmitLoops =
 
                 let mnKey =
                     SymbolKeyOps.memberKey
-                        (SymbolKeyOps.typeKeyOf None "System.Collections" "IEnumerator")
+                        (SymbolKeyOps.typeKeyOf "System.Collections" "IEnumerator")
                         "MoveNext"
                         EqArray.empty
                         MemberKind.Method
@@ -428,7 +425,7 @@ module EmitLoops =
 
                 let curKey =
                     SymbolKeyOps.memberKey
-                        (SymbolKeyOps.typeKeyOf None "System.Collections.Generic" "IEnumerator`1")
+                        (SymbolKeyOps.typeKeyOf "System.Collections.Generic" "IEnumerator`1")
                         "Current"
                         EqArray.empty
                         MemberKind.Property

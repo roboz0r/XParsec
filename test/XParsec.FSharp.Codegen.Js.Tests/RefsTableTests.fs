@@ -64,27 +64,34 @@ let tests =
     testList
         "RefsTable"
         [
-            test "B's provider mints a HOMED FTClass for the foreign Box reference (identity only)" {
-                // Fact (a): `theBox`'s frozen scheme is `FTClass` keyed to A's home under the
-                // arity-suffixed name `Box`1` — NOT an opaque `FTConst` — even though B's own
-                // registry never saw `Box`. The `qualifiedName` equals what A's provider
-                // registers `Box` under (`mint` at nsPath ""), so the stack can resolve it.
+            test "B's provider mints the foreign Box reference's FTClass identity, which A's shape homes" {
+                // Fact (a): `theBox`'s frozen scheme is `FTClass` keyed to the foreign `Box`1` —
+                // NOT an opaque `FTConst` — even though B's own registry never saw `Box`. The key
+                // is a NOMINAL identity and carries no home: it is exactly what A's provider
+                // registers `Box` under (`mint` at nsPath ""), which is what lets the stack resolve
+                // it. The package `Box` LIVES in is a physical location, and rides the SHAPE — so
+                // the very key B minted, resolved through the stack, answers with A's shape homed
+                // in A. That round-trip is the refs-table contract, and it is what the JS backend
+                // reads to mint the import path.
                 match bProviderRaw.TryLookup "theBox" with
                 | ValueSome sym ->
                     match sym.Scheme with
                     | FTClass(key, args) ->
-                        Expect.equal
-                            (SymbolKeyOps.keyAsm key)
-                            (Some "A")
-                            "the minted key must carry A as its home assembly"
-
                         Expect.equal
                             (SymbolKeyOps.qualifiedName key)
                             "Box`1"
                             "the minted key must be the arity-suffixed foreign name (the arity law)"
 
                         Expect.equal (args |> EqArray.toList |> List.length) 1 "Box<string> applies one type arg"
-                    | other -> failtestf "theBox scheme should be a homed FTClass, got %A" other
+
+                        match (stackTsMany [ manifestB; manifestA ] :> IExternalSymbolStore).TryLookupType key with
+                        | ValueSome(ExternalTypeShape.Class info) ->
+                            Expect.equal
+                                info.Origin.Assembly
+                                (Some "A")
+                                "the key B minted resolves, through the stack, to a shape homed in package A"
+                        | other -> failtestf "the minted key must resolve to A's Box class shape, got %A" other
+                    | other -> failtestf "theBox scheme should be an FTClass, got %A" other
                 | ValueNone -> failtest "theBox did not resolve as a value symbol"
             }
 
@@ -99,10 +106,15 @@ let tests =
                     (sprintf "cross-package member access should type-check, got:\n%A" (errorText errors))
             }
 
-            test "with A ABSENT, member access fails naming the un-referenced package" {
-                // Fact (c): with only B stacked, the homed `Box` identity has no shape in the
-                // stack — the front end names the missing package rather than emitting a
-                // generic no-such-member.
+            test "with A ABSENT, member access fails naming the type that has no shape" {
+                // Fact (c): with only B stacked, the `Box` identity B minted has no shape
+                // ANYWHERE in the stack — the refs table is identity-only — so member access
+                // errors rather than silently type-checking. It names the TYPE, not the missing
+                // package: a `SymbolKey` is a nominal identity carrying no home, and this is
+                // precisely the branch where no shape resolved, so there is nothing left to ask
+                // where `Box` lives. (`InferRecordAccess` falls back to naming the type's
+                // NAMESPACE where it has one; a flat TS package's namespace is `""`, so this
+                // fixture gets the bare form.)
                 let errors = analyseWith (stackTs manifestB) program
                 let text = errorText errors
 
@@ -110,7 +122,7 @@ let tests =
 
                 Expect.stringContains
                     text
-                    "referenced from package 'A' but that package is not part of the compilation"
-                    (sprintf "the diagnostic must name the missing package, got:\n%s" text)
+                    "Unknown class type 'Box`1'"
+                    (sprintf "the diagnostic must name the unresolvable type, got:\n%s" text)
             }
         ]

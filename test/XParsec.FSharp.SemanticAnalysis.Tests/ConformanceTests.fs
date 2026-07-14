@@ -508,10 +508,7 @@ let typarConformanceTests =
                 // inferred scheme is `'a -> 'b -> 'b` = `M1 -> M0 -> M0`, the REVERSE
                 // positional skeleton of the `.fsi`'s `'a -> 'b -> 'b` = `D0 -> D1 -> D1`.
                 let contract =
-                    contractProvider
-                        [
-                            "f", ExternalSymbols.scheme (SymbolKeyOps.inNamespace None "") "f" fScheme 2 []
-                        ]
+                    contractProvider [ "f", ExternalSymbols.scheme (SymbolKeyOps.inNamespace "") "f" fScheme 2 [] ]
 
                 let tast = frozenOf "let f<'b,'a> (x: 'a) (y: 'b) : 'b = y"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -525,10 +522,7 @@ let typarConformanceTests =
                 // No explicit `<…>`: the canonical order IS appearance order, matching the
                 // `.fsi`. The very same binding+contract that fails above now conforms.
                 let contract =
-                    contractProvider
-                        [
-                            "f", ExternalSymbols.scheme (SymbolKeyOps.inNamespace None "") "f" fScheme 2 []
-                        ]
+                    contractProvider [ "f", ExternalSymbols.scheme (SymbolKeyOps.inNamespace "") "f" fScheme 2 [] ]
 
                 let tast = frozenOf "let f (x: 'a) (y: 'b) : 'b = y"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
@@ -574,7 +568,7 @@ let private mkMember (name: string) (methodArity: int) (parameters: FrozenType) 
         Signature = mkSignature 0 methodArity parameters ret
         MethodArity = methodArity
         Origin = SymbolOrigin.Empty
-        Key = SymbolKeyOps.memberKey (SymbolKeyOps.qualifiedTypeKeyOfT None "C" 0) name EqArray.empty MemberKind.Method
+        Key = SymbolKeyOps.memberKey (SymbolKeyOps.qualifiedTypeKeyOfT "C" 0) name EqArray.empty MemberKind.Method
         OptionalDefaults = []
         IsOptional = false
         InlineBody = ValueNone

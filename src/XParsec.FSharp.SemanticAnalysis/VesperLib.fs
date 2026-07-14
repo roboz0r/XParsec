@@ -490,7 +490,7 @@ module VesperLib =
                     | true, ExternalTypeShape.Class shape -> shape.Arity
                     | _ -> 0
 
-                let declKey = SymbolKeyOps.qualifiedTypeKeyOfT None k arity
+                let declKey = SymbolKeyOps.qualifiedTypeKeyOfT k arity
 
                 let ctorMembers =
                     [
@@ -1049,12 +1049,11 @@ module VesperLib =
             ()
         else
             // Split the qualified compiled name into the declaring `TypeKey`
-            // (ns, simple name) so each member carries a best-effort identity;
-            // the asm slot is stamped later by the wrapping source. The same split
+            // (ns, simple name) so each member carries its identity. The same split
             // the finalize-pass ctor loop applies — both route through the shared
-            // `qualifiedTypeKeyOf` so the `.ctor` and ordinary members of a type
+            // `qualifiedTypeKeyOfT` so the `.ctor` and ordinary members of a type
             // carry the identical declaring key.
-            let declKey = SymbolKeyOps.qualifiedTypeKeyOfT None compiled arity
+            let declKey = SymbolKeyOps.qualifiedTypeKeyOfT compiled arity
 
             let members = ResizeArray<ExternalMember>()
             // The per-member signature CSTs, index-aligned with `members`;
@@ -1382,7 +1381,7 @@ module VesperLib =
 
                     ctx.TypeShapes.[compiled] <-
                         ExternalTypeShape.Intrinsic(
-                            IntrinsicShape.Scalar(SymbolKeyOps.intrinsicCanonKey compiled short, arity, platform)
+                            IntrinsicShape.Scalar(SymbolKeyOps.intrinsicCanonKey compiled, arity, platform)
                         )
 
                 match members with
@@ -1424,13 +1423,13 @@ module VesperLib =
                             // `extern class with …` (obj/exn): a heritable PRIMITIVE.
                             | ValueSome(ExternKind.Class _) ->
                                 ctx.PendingIntrinsicClasses.[compiled] <-
-                                    struct (SymbolKeyOps.intrinsicCanonKey compiled short, platform)
+                                    struct (SymbolKeyOps.intrinsicCanonKey compiled, platform)
                             // `extern interface with …` (`disposable`/`equatable`/`comparable`):
                             // republishes to an `IntrinsicInterface` (a `TyClass` constraint
                             // reconciling to its BCL spelling via the platform face).
                             | ValueSome(ExternKind.Interface _) ->
                                 ctx.PendingCapabilityInterfaces.[compiled] <-
-                                    struct (SymbolKeyOps.intrinsicCanonKey compiled short, platform)
+                                    struct (SymbolKeyOps.intrinsicCanonKey compiled, platform)
                             // An untagged `extern with member …`: a CONCRETE `(# … #)`-bound
                             // member surface on an intrinsic (a general platform-binding
                             // capability, NOT an interface). Stays the plain member-bearing
@@ -1617,9 +1616,7 @@ module VesperLib =
             else
                 ownOpens @ (nsName :: fileOpens)
 
-        // The home assembly is unknown at extraction — the package that WRAPS this
-        // provider stamps it (`ExternalSymbolProviders.stack`, via `SymbolKeyOps.reroot`).
-        let decl = SymbolKeyOps.inNamespace None nsName
+        let decl = SymbolKeyOps.inNamespace nsName
 
         for i in 0 .. elems.Length - 1 do
             // A namespace path carries no `ModuleSuffix` rewrite, so source == compiled.
@@ -1648,11 +1645,11 @@ module VesperLib =
             // segment only.
             let decl =
                 match List.rev segments with
-                | [] -> SymbolKeyOps.inNamespace None ""
+                | [] -> SymbolKeyOps.inNamespace ""
                 | last :: revNs ->
                     let name = if suffix then last + "Module" else last
 
-                    ModuleHolder.InModule(SymbolKeyOps.moduleInNamespace None (String.concat "." (List.rev revNs)) name)
+                    ModuleHolder.InModule(SymbolKeyOps.moduleInNamespace (String.concat "." (List.rev revNs)) name)
 
             let qualifiedSelf = SymbolKeyOps.holderFullName decl
 
@@ -1694,7 +1691,7 @@ module VesperLib =
                         parsed.Lexed
                         parsed.Input
                         opens
-                        (SymbolKeyOps.inNamespace None "")
+                        (SymbolKeyOps.inNamespace "")
                         []
                         elems.[i]
         | _ -> ctx.Diagnostics.Add(parsed.File, "Skipped: not a signature file")

@@ -40,7 +40,7 @@ let private markerMember: ExternalMember =
         Origin = origin
         Key =
             SymbolKeyOps.memberKey
-                (SymbolKeyOps.typeKeyOf origin.Assembly origin.Namespace.Dotted "Cls")
+                (SymbolKeyOps.typeKeyOf origin.Namespace.Dotted "Cls")
                 "m"
                 EqArray.empty
                 MemberKind.Method
@@ -103,7 +103,7 @@ let private fake: IExternalSymbolProvider =
       interface IExternalSymbolResolver with
           member _.TryLookup name =
               if name = "sym" then
-                  ValueSome(ExternalSymbols.monoFrozen (SymbolKeyOps.inNamespace None "") "sym" marker)
+                  ValueSome(ExternalSymbols.monoFrozen (SymbolKeyOps.inNamespace "") "sym" marker)
               else
                   ValueNone
 

@@ -30,22 +30,25 @@ module JsExternalMembers =
         elif isProperty then typeName + "__get_" + memberName
         else typeName + "__" + memberName
 
-    /// The home assembly of an external type, for selecting its runtime-js module.
-    /// Falls back to the provider's type-shape `origin` when the key has no assembly.
+    /// THE `key -> home assembly` oracle for an external type — the module its exports are
+    /// imported from. A `SymbolKey` is a nominal identity and carries no home, so the only
+    /// answer is the one the provider stamped on the type's RESOLVED SHAPE
+    /// (`SymbolOrigin.Assembly`). Consulted strictly PAST the local/external verdict (which
+    /// the emitted-type tables make, not the key): a type that is external but whose shape
+    /// names no home cannot be imported at all, so it fails loudly rather than emitting a
+    /// dangling reference.
     let assemblyOf (provider: IExternalSymbolProvider) (key: SymbolKey) (what: string) : string =
-        match SymbolKeyOps.keyAsm key with
-        | Some a -> a
-        | None ->
-            let origin =
-                match provider.TryLookupType key with
-                | ValueSome(ExternalTypeShape.Union(_, _, _, o))
-                | ValueSome(ExternalTypeShape.Record(_, _, o)) -> o.Assembly
-                | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Assembly
-                | _ -> None
+        let home =
+            match provider.TryLookupType key with
+            | ValueSome(ExternalTypeShape.Union(_, _, _, o))
+            | ValueSome(ExternalTypeShape.Record(_, _, o))
+            | ValueSome(ExternalTypeShape.Enum(_, o)) -> o.Assembly
+            | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Assembly
+            | _ -> None
 
-            match origin with
-            | Some a -> a
-            | None -> failwithf "EmitJs (Step 7): %s has no resolvable home assembly (key %A)" what key
+        match home with
+        | Some a -> a
+        | None -> failwithf "EmitJs: %s has no resolvable home assembly (key %A)" what key
 
     /// The declaring type's `ExternalClassFlags`, resolved through the provider
     /// (`TryLookupType` → `Class` shape → `Flags`) in ONE lookup — the
@@ -245,6 +248,7 @@ module JsExternalMembers =
     /// + `format(x)`, NOT the mangled `Util_format` an ordinary external static
     /// member would import (no such export exists).
     let erasedGroupingRef
+        (provider: IExternalSymbolProvider)
         (imports: JsImports)
         (declKey: SymbolKey)
         (memberName: string)
@@ -254,22 +258,29 @@ module JsExternalMembers =
         // A free function is a binding held DIRECTLY by the namespace its export sits in
         // (`TsManifestProvider`); the grouping type is a synthetic type in that same
         // namespace. So the sibling binding is built from the grouping type's own
-        // `NamespaceKey` — home assembly included, since the origin lives at the chain's
-        // root — and `addRef` imports the same bare export from the same home module the
-        // bare free function would.
+        // `NamespaceKey`, and its home is the grouping type's home (`assemblyOf` — the
+        // grouping type and the functions it groups share one module by construction) —
+        // so `addRef` imports the same bare export from the same home module the bare
+        // free function would.
         let valueKey =
             match declKey with
             | SymbolKey.Type t -> SymbolKeyOps.valueKey (ModuleHolder.InNamespace t.Namespace) memberName
-            | _ ->
-                failwithf
-                    "EmitJs (Step 9b): erased grouping member '%s' has a non-type declaring key %A"
-                    memberName
-                    declKey
+            | _ -> failwithf "EmitJs: erased grouping member '%s' has a non-type declaring key %A" memberName declKey
+
+        let home =
+            assemblyOf provider declKey (sprintf "erased grouping member '%s'" memberName)
 
         // `form` is the group's import shape, stamped on the grouping type's flags by
         // `buildOverloadGroupingTypes`: `Named` → `import { format }`; `Default`/
         // `CommonJs` → `import format`; `Namespace` → `import * as util; util.format`.
-        JsExpr.Identifier(JsImports.addRef imports memberName (ValueSome valueKey) form, loc)
+        let valueRef =
+            {
+                Key = ValueSome valueKey
+                Home = Origin.InAssembly(AssemblyName home)
+                Form = form
+            }
+
+        JsExpr.Identifier(JsImports.addRef imports memberName valueRef, loc)
 
     /// The mangled receiver-first import: `<Type>__<member>` / `<Type>_<member>`
     /// aliased from the declaring type's runtime-js module, applied to the receiver

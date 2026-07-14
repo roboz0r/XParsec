@@ -147,11 +147,7 @@ module NameResolutionTypeRegistration =
     /// one suffix rule (`moduleHolderName`) over one input set (`NominalTypeNames` + the
     /// module's attributes), fixed before the first key is minted.
     let localTypeHolder (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : TypeHolder =
-        // The home assembly is this compilation's target (`ctx.AssemblyName`); `None` on
-        // the front-end-only paths that pass no assembly name. Invariant per type, so this
-        // local key equals the key a consumer mints for the same type from its
-        // `SymbolOrigin.Assembly`.
-        let ns = SymbolKeyOps.namespaceKey (SymbolKeyOps.asmOf ctx.AssemblyName) c.Namespace
+        let ns = SymbolKeyOps.namespaceKey c.Namespace
 
         let mutable holder = ModuleHolder.InNamespace ns
         let mutable declModule = ValueNone
@@ -403,22 +399,25 @@ module NameResolutionTypeRegistration =
 
                     TypeRegistry.claimType ctx.Types claimed
 
-                    // Contract-source an intrinsic binding's identity: mint its qualified key
-                    // from the declaring namespace (VERBATIM name, no arity suffix — the name
-                    // field IS the identity string, arity rides in the `TyConst` args), so
-                    // `Translate` resolves `int` to `Vesper.int` from the contract rather than
-                    // re-deriving the namespace by name. Identity, so it is minted here; the
-                    // target-representation string is detail and stays in the abbreviation
-                    // registrar.
+                    // Contract-source an intrinsic binding's identity: mint its qualified,
+                    // ARITY-SUFFIXED key from the declaring namespace, so `Translate` resolves
+                    // `int` to `Vesper.int` (and `seq<'T>` to `` Vesper.Collections.seq`1 ``)
+                    // from the contract rather than re-deriving the namespace by name. Identity,
+                    // so it is minted here; the target-representation string is detail and stays
+                    // in the abbreviation registrar.
                     //
-                    // NAMESPACE-only (not the containment): an intrinsic's canon key is asm-blind
-                    // and must equal the CONTRACT's `SymbolKeyOps.intrinsicCanonKey`, which
-                    // recovers the namespace from the dotted compiled name. An intrinsic is a
-                    // primitive binding declared at namespace level (`namespace Vesper` +
-                    // `type int = (# … #)`); a module-held one has no contract face to agree
-                    // with.
+                    // The arity is part of the identity, exactly as for a record/union key — it
+                    // is what makes this key EQUAL to the CONTRACT's
+                    // `SymbolKeyOps.intrinsicCanonKey` (minted off the arity-suffixed compiled
+                    // name) when a unit compiles the very types its own contract publishes. Key
+                    // equality is then the whole identity test; no arity-blind matcher.
+                    //
+                    // NAMESPACE-only (not the containment): an intrinsic is a primitive binding
+                    // declared at namespace level (`namespace Vesper` + `type int = (# … #)`);
+                    // a module-held one has no contract face to agree with.
                     if kind = TypeDeclKind.IntrinsicRepr then
-                        ctx.Types.IntrinsicKeys.[name] <- SymbolKeyOps.typeKey None c.Namespace name
+                        ctx.Types.IntrinsicKeys.[name] <-
+                            SymbolKeyOps.typeKey c.Namespace (SymbolKeyOps.arityName name arity)
 
                     ValueSome claimed
 
@@ -943,7 +942,12 @@ module NameResolutionTypeRegistration =
 
             match rhs with
             | Type.ILIntrinsic(kindTag = tag; instrParts = parts) ->
-                ctx.Types.IntrinsicReprTypes.[name] <- ilIntrinsicString ctx parts
+                let repr = ilIntrinsicString ctx parts
+                ctx.Types.IntrinsicReprTypes.[name] <- repr
+                // The same binding on the KEY axis (`intrinsicKeyOf` — the identity the
+                // pass above stamped), so a consumer holding a resolved intrinsic key reads
+                // its repr by key and never has to project the key back to a name.
+                ctx.Types.IntrinsicReprKeys.[TypeRegistry.intrinsicKeyOf ctx.Types name] <- repr
                 registerMemberHostIfAny ()
 
                 match tag with

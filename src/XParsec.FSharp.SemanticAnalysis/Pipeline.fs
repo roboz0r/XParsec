@@ -9,9 +9,8 @@ module Pipeline =
     /// Runs every pass through the `SemType` domain and returns the populated
     /// `PassContext` plus the **`SemType`** `TastFile` — the pre-freeze tree. This is
     /// the accessor for front-end consumers that assert on `SemType` shapes (tests,
-    /// side-table inspection). `assemblyName` is the home assembly stamped onto
-    /// locally-minted nominal keys (`PassContext.AssemblyName`); `""` for the
-    /// front-end-only paths that never emit.
+    /// side-table inspection). `assemblyName` is the assembly this unit emits into
+    /// (`PassContext.AssemblyName`); `""` for the front-end-only paths that never emit.
     let analyseSemWithContextForCore
         (selfHostList: bool)
         (assemblyName: string)

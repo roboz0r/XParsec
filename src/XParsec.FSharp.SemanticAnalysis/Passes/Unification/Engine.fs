@@ -149,42 +149,6 @@ module UnificationEngine =
         | SemanticConstraintKind.NotNull -> "not null"
         | SemanticConstraintKind.Coercion target -> sprintf "subtype of %A" target
 
-    /// Decompose a nominal `SemType` into its `(kind, key, arity)` — the
-    /// key-preserving companion to `tryResolveNominal` (which projects to a simple
-    /// string). Used by the DEBUG asm-invariant guard, which needs the full
-    /// `SymbolKey` (incl. home assembly) the unify arms compare on.
-    let private nominalKey (t: SemType) : struct (NominalKind * SymbolKey * int) voption =
-        match t with
-        | TyRecord(k, a) -> ValueSome(struct (NominalKind.Record, k, a.Length))
-        | TyUnion(k, a) -> ValueSome(struct (NominalKind.Union, k, a.Length))
-        | TyClass(k, a) -> ValueSome(struct (NominalKind.Class, k, a.Length))
-        | _ -> ValueNone
-
-#if DEBUG
-    /// Invariant guard. The nominal arms in `unify`
-    /// compare the *full* `SymbolKey` (incl. `asm`, the home assembly), so two
-    /// nominals of the same kind / namespace / name / arity that still fail to unify
-    /// can only differ in `asm` — the silent failure mode where one mint path stamped
-    /// `asm = None`/`Some "X"` and another `Some "Y"` for the same type.
-    /// `recordKeyOrigin` polices local uniqueness but not cross-producer asm
-    /// agreement, so surface a drifting mint path loudly in DEBUG rather than letting
-    /// it read as a bare "type mismatch". Compiled out of release builds.
-    let private checkAsmInvariant (a: SemType) (b: SemType) : unit =
-        match nominalKey a, nominalKey b with
-        | ValueSome(struct (kind1, k1, ar1)), ValueSome(struct (kind2, k2, ar2)) when
-            kind1 = kind2
-            && ar1 = ar2
-            && k1 <> k2
-            && SymbolKeyOps.qualifiedName k1 = SymbolKeyOps.qualifiedName k2
-            ->
-            failwithf
-                "SymbolKey asm-invariant violated: %A and %A name the same type (%s) but carry different home assemblies — a mint path disagrees on the home assembly."
-                k1
-                k2
-                (SymbolKeyOps.qualifiedName k1)
-        | _ -> ()
-#endif
-
     /// The canon `obj` intrinsic (`TyConst "obj"`) — the ONLY form the root takes
     /// past resolution: `translateType` produces it for source, and metadata
     /// surfacing (`tryBuildType`) eagerly canonicalizes a BCL `System.Object` to it,
@@ -436,11 +400,7 @@ module UnificationEngine =
 
                 root.Link <- ValueSome other
                 drainAll ctx key root other
-        | _ ->
-#if DEBUG
-            checkAsmInvariant a b
-#endif
-            ctx.Error(key, sprintf "Type mismatch: %A vs %A" (zonk a) (zonk b))
+        | _ -> ctx.Error(key, sprintf "Type mismatch: %A vs %A" (zonk a) (zonk b))
 
     /// Unify two same-length type-argument vectors positionally — the shared body
     /// of the `TyConst` / `TyRecord` / `TyUnion` / `TyClass` / `TyTuple` arms (each

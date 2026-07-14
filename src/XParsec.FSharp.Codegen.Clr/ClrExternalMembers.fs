@@ -676,7 +676,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                                                     Id = { Platform = Some repr }
                                                     Class = ValueSome _
                                                 }) ->
-            let platformKey = SymbolKeyOps.qualifiedTypeKeyOf None repr 0
+            let platformKey = SymbolKeyOps.qualifiedTypeKey repr 0
 
             match externalClassRef platformKey with
             | ValueSome tref -> ValueSome(struct (platformKey, tref))

@@ -1808,17 +1808,13 @@ module Elaborate =
                                 | ValueSome cn -> cn
                                 | ValueNone -> nm
 
-                            // The holder is built from the three facts this site
-                            // already knows — home assembly, namespace, module — so the
-                            // binding's `SymbolKey` is a direct construction downstream
-                            // (`ModuleMemberInfo.Key`), never a dotted-string re-parse.
+                            // The holder is built from the two facts this site already
+                            // knows — namespace and module — so the binding's `SymbolKey`
+                            // is a direct construction downstream (`ModuleMemberInfo.Key`),
+                            // never a dotted-string re-parse.
                             ctx.Bindings.ModuleMembers.[CstKeys.ofBinding b] <-
                                 {
-                                    Holder =
-                                        SymbolKeyOps.moduleInNamespace
-                                            (SymbolKeyOps.asmOf ctx.AssemblyName)
-                                            (defaultArg ns "")
-                                            h
+                                    Holder = SymbolKeyOps.moduleInNamespace (defaultArg ns "") h
                                     Name = compiledNm
                                 }
                         | ValueNone -> ()

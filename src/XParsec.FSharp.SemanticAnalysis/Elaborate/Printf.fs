@@ -29,14 +29,14 @@ module internal ElaboratePrintf =
     /// (external vocabulary that a real `%A` hole never carries). A hole the engine
     /// can't take forces the *whole* format cold (`translatePrintfFormat` returns
     /// `ValueNone`) — additive, no regression.
-    let rec private structuredArgFaithful (ctx: PassContext) (localAsm: string option) (t: SemType) : bool =
+    let rec private structuredArgFaithful (t: SemType) : bool =
         match t with
         | TyConst(key, args) ->
             let name = SymbolKeyOps.intrinsicName key
             // The array intrinsic (`'T[]` ≡ `TyConst("[]", [elem])`) renders via
             // the `IEnumerable` arm — faithful iff its element type is.
             if name = "[]" then
-                EqArray.forall (structuredArgFaithful ctx localAsm) args
+                EqArray.forall structuredArgFaithful args
             // Numeric primitives carry the F# literal suffixes the engine reproduces
             // (`5L`, `1.5M`); `string` / `char` / `bool` are special-cased atoms. All
             // are leaf scalars, so any type argument means it isn't really one.
@@ -49,7 +49,7 @@ module internal ElaboratePrintf =
                 args.Length = 0
             else
                 false
-        | TyTuple items -> EqArray.forall (structuredArgFaithful ctx localAsm) items
+        | TyTuple items -> EqArray.forall structuredArgFaithful items
         // The cons-list still renders via the `IEnumerable` arm (it carries no
         // synthesised `Format`), so it stays faithful-iff-its-element-is. It
         // surfaces as a `TyUnion` in the self-host (the Vesper cons-list DU) but as a
@@ -57,7 +57,7 @@ module internal ElaboratePrintf =
         // shapes of the list keys.
         | TyUnion(key, args)
         | TyRecord(key, args) when RuntimeNames.isVesperListKey key || RuntimeNames.isFsharpCoreListKey key ->
-            EqArray.forall (structuredArgFaithful ctx localAsm) args
+            EqArray.forall structuredArgFaithful args
         // Every nominal record / DU / class renders on the engine — a Vesper-compiled
         // type via its synthesised `IStructuralFormattable.Format` (step-3
         // `NominalEmit`), an `FSharpOption` / arbitrary BCL type via the dispatcher's
@@ -68,8 +68,8 @@ module internal ElaboratePrintf =
         // backend authors `AppendStructured<T>` for any of these — a project-local
         // nominal off its emitted `TypeDef`, an external one off its `TypeRef` — so the
         // only reason to decline is a hole type the encoder can't author, handled by
-        // the final arm. (`ctx` / `localAsm` are still threaded through the recursive
-        // array / tuple / cons-list arms above.)
+        // the final arm. Notably the home ASSEMBLY plays no part: a nominal is faithful
+        // wherever it lives.
         | TyUnion _
         | TyRecord _
         | TyClass _ -> true
@@ -118,12 +118,6 @@ module internal ElaboratePrintf =
             | PrintfSpec.PrintfSink.Writer _
             | PrintfSpec.PrintfSink.Builder -> 1
             | _ -> 0
-
-        // This compilation's target assembly as a home-assembly `option` — a
-        // project-local nominal key's home (so a `%A` of a locally-declared record /
-        // DU lowers on the engine; an external one stays cold). `None` (front-end /
-        // contract-scrape, `AssemblyName = ""`) ⇒ no type is treated as local.
-        let localAsm = SymbolKeyOps.asmOf ctx.AssemblyName
 
         // E1(b): the format slot may hold an `Ident` bound to a literal; recover it
         // (via the same `PrintfFormatLiterals` table the gate consulted) so the parts
@@ -283,10 +277,7 @@ module internal ElaboratePrintf =
             // structural engine, so the hole stays off the `Format` path and the
             // generic printf call stands; every Vesper-compiled record / DU (local
             // or external) is faithful now that step-3 synthesises their `Format`.
-            if
-                placeholder.Type = FormatType.Structured
-                && not (structuredArgFaithful ctx localAsm holeTy)
-            then
+            if placeholder.Type = FormatType.Structured && not (structuredArgFaithful holeTy) then
                 cold <- true
 
             let spec =

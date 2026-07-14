@@ -46,7 +46,7 @@ type internal Assembler
         // Own-unit intrinsics only; every other primitive's repr is read through the
         // provider (`ClrEnv.TryPrimitiveRepr`), the single source of truth harvested
         // from the dependency closure's `.fs`. No codegen-local repr table backs this up.
-        ClrProvider(ctx, tast.IntrinsicReprTypes, references, symbols, project.AssemblyName)
+        ClrProvider(ctx, tast.IntrinsicReprTypes, references, symbols)
 
     let icodegen = provider :> ICodegenProvider
     let encodeLocals (locals: FrozenType list) = icodegen.EncodeLocalSignature locals

@@ -20,7 +20,7 @@ let private provider: IExternalSymbolProvider =
               let mono name =
                   ValueSome(
                       ExternalSymbols.monoFrozen
-                          (SymbolKeyOps.inNamespace None "")
+                          (SymbolKeyOps.inNamespace "")
                           name
                           (FTConst(RuntimeNames.intKey, EqArray.empty))
                   )

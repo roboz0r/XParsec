@@ -16,14 +16,18 @@ module JsNativeSymbols =
     [<Literal>]
     let private RuntimeAssembly = "Vesper.Js.Runtime"
 
+    /// The home every stub shape reports. It rides the SHAPE's `SymbolOrigin`, never the
+    /// key: a key is a nominal identity and carries no assembly.
+    let private runtimeHome: Origin = Origin.InAssembly(AssemblyName RuntimeAssembly)
+
     let private errorOrigin: SymbolOrigin =
         {
-            Namespace = SymbolKeyOps.namespaceKey (Some RuntimeAssembly) ""
+            Home = runtimeHome
+            Namespace = SymbolKeyOps.namespaceKey ""
         }
 
     /// `Error` is global, so its compiled / lookup name is the bare `Error`.
-    let private errorTypeKey: TypeKey =
-        SymbolKeyOps.typeKeyOf (Some RuntimeAssembly) "" "Error"
+    let private errorTypeKey: TypeKey = SymbolKeyOps.typeKeyOf "" "Error"
 
     let private errorKey: SymbolKey = SymbolKey.Type errorTypeKey
 
@@ -105,14 +109,15 @@ module JsNativeSymbols =
 
     let private collectionsGenericOrigin: SymbolOrigin =
         {
-            Namespace = SymbolKeyOps.namespaceKey (Some RuntimeAssembly) collectionsGenericNs
+            Home = runtimeHome
+            Namespace = SymbolKeyOps.namespaceKey collectionsGenericNs
         }
 
     let private ienumeratorTypeKey: TypeKey =
-        SymbolKeyOps.typeKeyOf (Some RuntimeAssembly) collectionsGenericNs "IEnumerator`1"
+        SymbolKeyOps.typeKeyOf collectionsGenericNs "IEnumerator`1"
 
     let private ienumerableTypeKey: TypeKey =
-        SymbolKeyOps.typeKeyOf (Some RuntimeAssembly) collectionsGenericNs "IEnumerable`1"
+        SymbolKeyOps.typeKeyOf collectionsGenericNs "IEnumerable`1"
 
     let private ienumeratorKey: SymbolKey = SymbolKey.Type ienumeratorTypeKey
 

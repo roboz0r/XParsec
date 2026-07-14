@@ -67,8 +67,7 @@ module private MetadataMapping =
             else
                 let frozen = args |> Array.map Option.get
 
-                let key =
-                    SymbolKeyOps.qualifiedTypeKeyOf (Some(t.Assembly.GetName().Name)) name frozen.Length
+                let key = SymbolKeyOps.qualifiedTypeKey name frozen.Length
 
                 Some(FTClass(key, EqArray.ofArray frozen))
         else
@@ -88,10 +87,7 @@ module private MetadataMapping =
             // the general `FTClass` arm below.
             | fullName when reverseCanon |> Map.tryFind fullName |> Option.exists (List.isEmpty >> not) ->
                 Some(FTConst(reverseCanon.[fullName] |> List.head, EqArray.empty))
-            | fullName ->
-                Some(
-                    FTClass(SymbolKeyOps.qualifiedTypeKeyOf (Some(t.Assembly.GetName().Name)) fullName 0, EqArray.empty)
-                )
+            | fullName -> Some(FTClass(SymbolKeyOps.qualifiedTypeKey fullName 0, EqArray.empty))
 
     /// The tupled parameter template: 0 → `unit`, 1 → bare param, N≥2 → `FTTuple`
     /// (.NET calling convention — not curried).
@@ -277,9 +273,8 @@ module private MetadataMapping =
             if t.IsNested then
                 TypeHolder.InType(declTypeKey t.DeclaringType)
             else
-                let asm = t.Assembly.GetName().Name |> Option.ofObj
                 let ns = if isNull t.Namespace then "" else t.Namespace
-                TypeHolder.InNamespace(SymbolKeyOps.namespaceKey asm ns)
+                TypeHolder.InNamespace(SymbolKeyOps.namespaceKey ns)
 
         { Holder = holder; Name = t.Name }
 
@@ -354,14 +349,19 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
             resolveCache.[name] <- found
             found
 
+    /// The physical home of a reflected metadata type: the assembly it was loaded from
+    /// plus its namespace. This is the `key -> assembly` oracle for every shape this
+    /// provider publishes — the backend's `TypeRef` scope comes from HERE, never from
+    /// the key.
     let originOf (t: Type) : SymbolOrigin =
         {
+            Home = Origin.OfOption(t.Assembly.GetName().Name |> Option.ofObj)
             Namespace =
-                SymbolKeyOps.namespaceKey
-                    (t.Assembly.GetName().Name |> Option.ofObj)
-                    (match t.Namespace with
-                     | null -> ""
-                     | ns -> ns)
+                SymbolKeyOps.namespaceKey (
+                    match t.Namespace with
+                    | null -> ""
+                    | ns -> ns
+                )
         }
 
     /// A genuine public FIELD (`String.Empty`, `Vector3.X`, `ValueTuple.Item1`) as an

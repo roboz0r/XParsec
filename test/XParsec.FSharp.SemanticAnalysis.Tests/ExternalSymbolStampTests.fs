@@ -25,10 +25,7 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 let private provider: IExternalSymbolProvider =
     let mono name =
         ValueSome(
-            ExternalSymbols.monoFrozen
-                (SymbolKeyOps.inNamespace None "")
-                name
-                (FTConst(RuntimeNames.intKey, EqArray.empty))
+            ExternalSymbols.monoFrozen (SymbolKeyOps.inNamespace "") name (FTConst(RuntimeNames.intKey, EqArray.empty))
         )
 
     ExternalSymbolProviders.ofNamedLeaf

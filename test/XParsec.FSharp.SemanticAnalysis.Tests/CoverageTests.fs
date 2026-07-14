@@ -1020,7 +1020,7 @@ let tests =
                               if name = "Math.pi" then
                                   ValueSome(
                                       ExternalSymbols.monoFrozen
-                                          (SymbolKeyOps.inNamespace None "")
+                                          (SymbolKeyOps.inNamespace "")
                                           name
                                           (FrozenTypeBridge.toFrozen BuiltinTypes.tyFloat)
                                   )

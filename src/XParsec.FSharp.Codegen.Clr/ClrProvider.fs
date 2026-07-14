@@ -22,12 +22,10 @@ type ClrProvider
         ctx: MetadataContext,
         reprs: Map<string, string>,
         references: Map<string, System.Reflection.AssemblyName>,
-        symbols: IExternalSymbolProvider,
-        assemblyName: string
+        symbols: IExternalSymbolProvider
     ) =
 
-    let env =
-        ClrEnv(ctx, reprs, references, CodegenSymbols.ofProvider symbols, assemblyName)
+    let env = ClrEnv(ctx, reprs, references, CodegenSymbols.ofProvider symbols)
 
     let enc = ClrEncoder(env)
     let generics = ClrGenerics(env, enc)
@@ -179,17 +177,19 @@ type ClrProvider
     /// names it. A closure has no `FrozenType` of its own (it is keyed by
     /// `TypeSlotKey.Closure name`, codegen-only), but a value-struct closure must be
     /// *encodable* — its by-value local, its `initobj`, and the constrained-slot
-    /// `MethodSpec` type-argument all reference it. Minting an `FTClass(synthKey, [])`
-    /// keyed at the emitted assembly and registering `synthKey → defHandle` in
-    /// `userTypes` + `userValueTypes` makes the SHARED `encodeType` value-type arm
-    /// (`ELEMENT_TYPE_VALUETYPE`) emit it — no new encoder/MethodSpec path needed.
+    /// `MethodSpec` type-argument all reference it. Minting an `FTClass(synthKey, [])` and
+    /// registering `synthKey → defHandle` in `userTypes` + `userValueTypes` makes the SHARED
+    /// `encodeType` value-type arm (`ELEMENT_TYPE_VALUETYPE`) emit it — no new
+    /// encoder/MethodSpec path needed. The registration is ALSO what makes the key local:
+    /// `encodeType`'s project-local arms are `userTypes` membership, so the synthetic type
+    /// encodes as a `TypeDef` exactly because it is in the table.
     /// The synthetic key's `name` is never used for emission (only the handle is),
     /// so the closure name suffices. The key is placed in the reserved `<closure>`
     /// namespace — a sigil no source-declared type can produce — so it provably
     /// cannot collide with a real `userTypes` key; the guard below fails fast if
     /// that invariant is ever broken.
     member _.RegisterStackClosureValueType(name: string, defHandle: EntityHandle) : FrozenType =
-        let key = SymbolKeyOps.typeKey env.EnvAsm "<closure>" name
+        let key = SymbolKeyOps.typeKey "<closure>" name
 
         if env.UserTypes.ContainsKey key then
             failwithf "Emit: synthetic value-struct closure key '%s' collides with a registered type" name

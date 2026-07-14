@@ -432,28 +432,20 @@ module VesperLibTypeTranslate =
     ///   genuine *unresolved name* never reaches here — `resolveTypeName` fails
     ///   first and that arm bakes the `FTUnknown` leaf.
     let mkNominal (ctx: ExtractCtx) (compiled: string) (args: EqArray<FrozenType>) : FrozenType =
-        let homeOf (originAsm: string option) =
-            match originAsm with
-            | Some _ -> originAsm
-            | None -> ctx.HomeAssembly
-
         match ExtractCtx.shapeOf ctx compiled with
-        | ValueSome(ExternalTypeShape.Union(_, _, _, origin)) ->
-            FTUnion(SymbolKeyOps.qualifiedTypeKeyOf (homeOf origin.Assembly) compiled args.Length, args)
-        | ValueSome(ExternalTypeShape.Class info) ->
-            FTClass(SymbolKeyOps.qualifiedTypeKeyOf (homeOf info.Origin.Assembly) compiled args.Length, args)
+        | ValueSome(ExternalTypeShape.Union _) -> FTUnion(SymbolKeyOps.qualifiedTypeKey compiled args.Length, args)
+        | ValueSome(ExternalTypeShape.Class _) -> FTClass(SymbolKeyOps.qualifiedTypeKey compiled args.Length, args)
         // A capability interface resolves to a `TyClass` constraint, so its frozen mirror is
-        // an `FTClass` keyed off its origin — identical to the `Class` arm above.
-        | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
-            FTClass(SymbolKeyOps.qualifiedTypeKeyOf (homeOf iface.Origin.Assembly) compiled args.Length, args)
-        | ValueSome(ExternalTypeShape.Record(_, _, origin)) ->
-            FTRecord(SymbolKeyOps.qualifiedTypeKeyOf (homeOf origin.Assembly) compiled args.Length, args)
-        | ValueSome(ExternalTypeShape.Enum(_, origin)) ->
+        // an `FTClass` — identical to the `Class` arm above.
+        | ValueSome(ExternalTypeShape.IntrinsicInterface _) ->
+            FTClass(SymbolKeyOps.qualifiedTypeKey compiled args.Length, args)
+        | ValueSome(ExternalTypeShape.Record _) -> FTRecord(SymbolKeyOps.qualifiedTypeKey compiled args.Length, args)
+        | ValueSome(ExternalTypeShape.Enum _) ->
             // The enum nominal — no args (enums are never generic). The `.fsi`
             // contract extractor never produces an `Enum` shape (it is a TS-manifest
             // arm), so this is unreached today, but the mirror keeps the match total
             // and faithful should a contract enum ever flow through here.
-            FTEnum(SymbolKeyOps.qualifiedTypeKeyOf (homeOf origin.Assembly) compiled 0)
+            FTEnum(SymbolKeyOps.qualifiedTypeKey compiled 0)
         | ValueSome(ExternalTypeShape.Abbrev(_, frozen)) ->
             // Expand the abbreviation by substituting `args` for its declaring
             // placeholders. A still-`deferredTemplate` abbrev (one not yet

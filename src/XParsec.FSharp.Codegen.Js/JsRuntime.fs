@@ -35,6 +35,22 @@ type private ImportEntry =
         mutable Namespace: string option
     }
 
+/// An external VALUE reference, as the import machinery needs it: WHAT is referenced
+/// (the key — a nominal identity, which is all a key is), WHERE it lives, and HOW its
+/// home module exports it. The home and the form are facts of the RESOLVED SHAPE, never
+/// of the key, so a provider-resolved value pairs its key with the `SymbolOrigin.Home`
+/// the provider stamped (`EmitJsContext.externalValueRef`), and a codegen-synthesised
+/// runtime entry — no front-end symbol resolves to it — names its own runtime module.
+type JsValueRef =
+    {
+        /// `ValueNone` for a node the front end left unkeyed: `addRef` has nothing to
+        /// import and fails loudly.
+        Key: SymbolKey voption
+        /// The home module the export is imported from. `Origin.Local` is unimportable.
+        Home: Origin
+        Form: ImportForm
+    }
+
 /// Per-compilation accumulator for the runtime-module imports a program needs.
 /// `addRef` / `addMemberRef` are called by the expression walker; each home assembly's
 /// module is recorded once, on first reference. `importStatements` yields the leading
@@ -77,7 +93,7 @@ module JsImports =
             | None -> failwithf "JS codegen: %s from assembly '%s' has no JS runtime module" what assembly
 
     /// Resolve an `External` value node to its local import identifier, recording the
-    /// import. `form` is the resolved symbol's `ExternalSymbol.ImportForm` (read off
+    /// import. `ref.Form` is the resolved symbol's `ExternalSymbol.ImportForm` (read off
     /// the provider seam by the caller), selecting the import-statement shape:
     ///   • `Named`            → a named specifier `{ name as $<ns>_<name> }`, returns
     ///     the alias;
@@ -90,25 +106,25 @@ module JsImports =
     ///     object).
     /// The alias/namespace-local is `$`-prefixed (`$` is illegal in F#, so
     /// collision-free). Fails loudly for a package with no authored runtime module.
-    let addRef (imports: JsImports) (compiledName: string) (key: SymbolKey voption) (form: ImportForm) : string =
-        // An external value is a BINDING with a home assembly. A project-local binding
-        // (`Origin.Local`) has no module to import from, so it is unsupported here —
-        // the same error a non-binding key gets, stated once.
+    let addRef (imports: JsImports) (compiledName: string) (ref: JsValueRef) : string =
+        // An external value is a BINDING whose resolved shape names a home module. A
+        // project-local binding (`Origin.Local`) has no module to import from, so it is
+        // unsupported here — the same error a non-binding key gets, stated once.
         let unsupported () =
-            failwithf "JS codegen (Step 5b): unsupported external value '%s' (key %A)" compiledName key
+            failwithf "JS codegen: unsupported external value '%s' (key %A)" compiledName ref.Key
 
         let b =
-            match key with
+            match ref.Key with
             | ValueSome(SymbolKey.Binding b) -> b
             | _ -> unsupported ()
 
-        match b.Origin with
+        match ref.Home with
         | Origin.Local -> unsupported ()
         // A GLOBAL pack's export (its home is a `TsGlobalHomes.isGlobalHome`) is
         // provided by the JS runtime intrinsically: emit its BARE export name, record
-        // NO import. Global rides the HOME, so this is decided by the key's home
-        // assembly — the SAME single-source fact the provider mounted the pack under
-        // `Js` by. (A Global class's construction bypasses `addRef` entirely via the
+        // NO import. Global rides the HOME, so this is decided by the resolved shape's
+        // home — the SAME single-source fact the provider mounted the pack under `Js` by.
+        // (A Global class's construction bypasses `addRef` entirely via the
         // external-new arm; this covers a Global pack's free-function / variable
         // exports.) A node module MOUNTS under a namespace too (`node/fs → Node.Fs`)
         // but is NOT a global home, so it falls through to a real import below.
@@ -141,7 +157,7 @@ module JsImports =
                         local
                 | _ -> set local
 
-            match form with
+            match ref.Form with
             | ImportForm.Default
             | ImportForm.CommonJs ->
                 bindOnce entry.Default (fun v -> entry.Default <- Some v) "default export" alias

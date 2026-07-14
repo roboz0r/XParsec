@@ -220,9 +220,8 @@ module TypeDefnPatterns =
 /// the namespace path is exactly the lie the segmented `NamespaceKey` exists to retire.
 ///
 /// SYNTAX, not identity. This file compiles before `SemanticInfo`, so it cannot name
-/// `ModuleHolder` — and it could not fill one anyway: a holder chain needs the home
-/// assembly (`PassContext.AssemblyName`) at its root and a module's COMPILED holder name
-/// at each link, neither of which is a syntactic fact.
+/// `ModuleHolder` — and it could not fill one anyway: a holder chain needs a module's
+/// COMPILED holder name at each link, which is not a syntactic fact.
 /// `NameResolutionTypeRegistration.localTypeHolder` is the one place that turns this into
 /// a `TypeHolder`.
 type DeclContainment<'T> =

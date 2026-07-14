@@ -134,9 +134,13 @@ module internal TsManifestTranslate =
     /// reference applies ALL its type args (TS has no partial application and no arity
     /// overloading), so the applied count IS the declared arity for an in-package
     /// resolution.
-    let mint (moduleSpec: string) (nsPath: string) (name: string) (arity: int) : string * TypeKey =
+    /// The module spec is NOT part of the minted identity: a key is nominal, and the home
+    /// module is a physical location carried on the resolved shape's `SymbolOrigin`
+    /// (`originFor`). That is what lets a cross-package `Refs` entry (`toFrozen`'s `nominal`)
+    /// mint the SAME key the home manifest registers its own declaration under.
+    let mint (nsPath: string) (name: string) (arity: int) : string * TypeKey =
         let simple = SymbolKeyOps.arityName name arity
-        qualify nsPath simple, SymbolKeyOps.typeKeyOf (Some moduleSpec) nsPath simple
+        qualify nsPath simple, SymbolKeyOps.typeKeyOf nsPath simple
 
     /// The per-manifest translation context, threaded as ONE argument through every
     /// walk rather than positional parameters: a new per-manifest fact (a refs table
@@ -201,10 +205,10 @@ module internal TsManifestTranslate =
             |> List.choose (fun (nsPath, ex) ->
                 match ex with
                 | Schema.Export.Interface(name, tp, _, _, _) ->
-                    let qn, key = mint moduleSpec nsPath name tp
+                    let qn, key = mint nsPath name tp
                     Some(qn, { Key = key; IsInterface = true })
                 | Schema.Export.Class(name, tp, _, _, _, _) ->
-                    let qn, key = mint moduleSpec nsPath name tp
+                    let qn, key = mint nsPath name tp
                     Some(qn, { Key = key; IsInterface = false })
                 | _ -> None
             )
@@ -223,12 +227,15 @@ module internal TsManifestTranslate =
     /// manifest the ctx was built from; a miss means the table builder and the export
     /// walker disagree on the export list (a bug, not a data condition).
     let declaredIdentity (ctx: TranslateCtx) (nsPath: string) (name: string) (arity: int) : string * TypeKey =
-        let qn = fst (mint ctx.ModuleSpec nsPath name arity)
+        let qn = fst (mint nsPath name arity)
 
         match Map.tryFind qn ctx.Types with
         | Some id -> qn, id.Key
         | None -> failwithf "declared type '%s' is missing from the identity table" qn
 
+    /// The physical home of a manifest symbol — the ONE place a TS package's module spec
+    /// enters the symbol world. Keys are nominal and carry no home; codegen reads this
+    /// origin off the resolved shape when it needs an import path.
     let originFor (ctx: TranslateCtx) (nsPath: string) : SymbolOrigin =
         // The home label is the symbol's MODULE SPECIFIER (the import path), not the
         // package name. For a flat single-file package the module spec and package
@@ -236,7 +243,8 @@ module internal TsManifestTranslate =
         // "" for a top-level export, `NS`/`NS.Inner` for a member nested in one (or
         // more) `export namespace`s — the JS analog of a .NET `Type.Namespace`.
         {
-            Namespace = SymbolKeyOps.namespaceKey (Some ctx.ModuleSpec) nsPath
+            Home = Origin.InAssembly(AssemblyName ctx.ModuleSpec)
+            Namespace = SymbolKeyOps.namespaceKey nsPath
         }
 
     // ─── Structural shape-hash ─────────────────────────────────────────────
@@ -322,8 +330,7 @@ module internal TsManifestTranslate =
     /// OWN exports. A structural value flowing across manifests and accessed only where a
     /// DIFFERENT manifest registered the members is a known gap, not exercised by current
     /// fixtures — cross-manifest structural member resolution is deliberately not built here.
-    let structuralKey (hash: string) : string * TypeKey =
-        mint structuralHome structuralHome hash 0
+    let structuralKey (hash: string) : string * TypeKey = mint structuralHome hash 0
 
     /// Every anonymous OBJECT shape (`Structural` with fields) reachable from a `TypeRef`,
     /// as `(printed, fields)` pairs — RECURSING into each shape's field types so a nested
@@ -475,23 +482,24 @@ module internal TsManifestTranslate =
             | None ->
                 // Own-registry miss: consult the FOREIGN refs table (keyed by the BARE
                 // name — a `RefEntry` carries its own declared `Arity`). A
-                // class/interface-kind ref mints a HOMED `FTClass` IDENTITY — the
-                // ECMA-335 `TypeRef` analog — whose `qualifiedName` equals what the home
+                // class/interface-kind ref mints the foreign type's `FTClass` IDENTITY —
+                // the ECMA-335 `TypeRef` analog — whose `qualifiedName` equals what the home
                 // manifest's provider registers its own type under (`mint` at nsPath "":
                 // just the arity-suffixed simple name), so member access resolves through
                 // the ordinary provider stack once the home is stacked (`resolveFieldStep`
-                // → `TryLookupMember`). Alias/Enum-kind refs stay a carried `FTConst` for
-                // v1: a homed alias must resolve through its home manifest's `Abbrev`
-                // (deferred), and there is no home-independent identity to mint. A name
-                // that misses BOTH the own registry and the refs table stays `FTConst` (a
-                // true primitive / genuinely-unknown name).
+                // → `TryLookupMember`). The ref names the type, not its module: the home
+                // module comes off the shape the home manifest resolves. Alias/Enum-kind
+                // refs stay a carried `FTConst` for v1: an alias must resolve through its
+                // home manifest's `Abbrev` (deferred), and there is no shape to expand
+                // here. A name that misses BOTH the own registry and the refs table stays
+                // `FTConst` (a true primitive / genuinely-unknown name).
                 match Map.tryFind name ctx.Refs with
                 | Some entry ->
                     match entry.Kind with
                     | Schema.RefKind.Class
                     | Schema.RefKind.Interface ->
                         // A MOUNTED home mints its ref under the Vesper-facing namespace
-                        // (`es2015` → `Js`, `node/fs → Node.Fs`) so this homed identity's
+                        // (`es2015` → `Js`, `node/fs → Node.Fs`) so this identity's
                         // `qualifiedName` (`Js.Map\`2`) equals what the MOUNTED home
                         // provider registers its own type under (`providerOfManifest`
                         // starts its flatten at the same mount prefix). A real flat-package
@@ -501,7 +509,7 @@ module internal TsManifestTranslate =
 
                         // Through `mint` — THE one spelling site of a declared type's identity —
                         // so a ref's key cannot drift from the declaration's.
-                        let key = snd (mint entry.Home ns name entry.Arity)
+                        let key = snd (mint ns name entry.Arity)
 
                         FTClass(SymbolKey.Type key, EqArray.ofSeq args)
                     | Schema.RefKind.Alias

@@ -415,7 +415,9 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
                 s
 
-            let parent = env.ExternalModuleRef declModule
+            // The declaring module's holder `TypeRef` is scoped by the home the resolved
+            // symbol carries (`openSig.Origin`) — the key alone names no assembly.
+            let parent = env.ExternalModuleRef(openSig.Origin, declModule)
             let memberRef = toEntity (ctx.MemberRef(parent, name, msig))
 
             let callHandle =

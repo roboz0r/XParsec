@@ -13,16 +13,16 @@ namespace XParsec.FSharp.SemanticAnalysis
 /// canonical key (the cons-list additionally has its lowercase abbreviation key —
 /// the abbreviation name is load-bearing for contract extraction
 /// — so it's the one type with two accepted nominal
-/// forms). Recognition is asm-blind structural field comparison against those keys
-/// (`sameTypeAsmBlind`): same namespace + same bare simple name, home assembly
-/// ignored, no qualified-string rebuild. The former parallel fully-qualified string
-/// constants + the `isVesperList` string recogniser are gone — the key constants are
-/// now the sole representation.
+/// forms). Recognition is KEY EQUALITY against those constants — every producer of a
+/// nominal key, intrinsics included, arity-suffixes it (`SymbolKeyOps.arityName`), so
+/// the arity is part of the identity and there is nothing left for a matcher to strip.
+/// The former parallel fully-qualified string constants + the `isVesperList` string
+/// recogniser are gone — the key constants are now the sole representation.
 ///
 /// Scope: this module owns ONLY the well-known
 /// singleton key constants + the recognisers built over them. The generic
 /// `SymbolKey` ↔ string projection / minting helpers (`bareName`, `simpleName`,
-/// `qualifiedName`, `keyAsm`, `externalTypeKey`, …) are NOT runtime-name-specific,
+/// `qualifiedName`, `externalTypeKey`, …) are NOT runtime-name-specific,
 /// so they live in `module SymbolKeyOps`.
 [<RequireQualifiedAccess>]
 module RuntimeNames =
@@ -39,69 +39,55 @@ module RuntimeNames =
     // them yet; sub-step 4 wires the producers/consumers onto them.
     //
     // Shape conventions (so a key here equals the key the rest of the pipeline
-    // mints for the same type):
-    //   * `asm = Some <home>` — the type's **home assembly** (Phase 6), invariant
-    //     per type. When the cons-list / ref cell are compiled *locally*
-    //     (self-hosting `Vesper.List` / `Vesper.Core`) the stamped `info.Key`
-    //     carries the same home (`PassContext.AssemblyName`), and a *consumer*
-    //     resolves the cross-package reference to the same home via its
-    //     `SymbolOrigin.Assembly` — so this one key recognises the local
-    //     definition and the cross-package reference alike. The home is the
-    //     assembly's *simple name* as referenced (`Vesper.List`, not the
-    //     namespace `Vesper.Collections`).
-    //   * `name` is the **arity-qualified** simple name (`` List`1 ``), following
-    //     `SymbolKeyOps.arityName`.
+    // mints for the same type): `name` is the **arity-qualified** simple name
+    // (`` List`1 ``), following `SymbolKeyOps.arityName`, and the namespace is the
+    // type's declaring namespace — the whole of its nominal identity. These keys
+    // therefore recognise the type whether it is compiled locally (self-hosting
+    // `Vesper.List` / `Vesper.Core`) or resolved through a package reference.
 
-    /// Canonical identity for the Vesper cons-list `List` union. Home assembly
-    /// `Vesper.List` (the simple name the cons-list is referenced by — `ProjectInfo`
-    /// `Vesper.List` owns `Vesper.Collections.List\`1`), arity-qualified `List`1` to
-    /// match the locally compiled `UnionTypeInfo.Key` (`TypeKey(Some "Vesper.List",
-    /// "Vesper.Collections", "List`1")`). The producers' canonical key.
-    let vesperListKey: SymbolKey =
-        SymbolKeyOps.typeKey (Some "Vesper.List") "Vesper.Collections" "List`1"
+    /// Canonical identity for the Vesper cons-list `List` union, arity-qualified
+    /// `` List`1 `` to match the locally compiled `UnionTypeInfo.Key`. The producers'
+    /// canonical key.
+    let vesperListKey: SymbolKey = SymbolKeyOps.typeKey "Vesper.Collections" "List`1"
 
-    /// The cons-list's lowercase `list` abbreviation (the `'T list` convention) —
-    /// the cons-list's *second* accepted nominal form, sharing the union's namespace.
-    /// Recogniser-only (no producer mints the abbreviation; `isVesperListKey` matches
-    /// it alongside `vesperListKey`), hence `private`.
+    /// The cons-list's lowercase `list` abbreviation (`` and 'T list = List<'T> ``, arity 1
+    /// ⇒ `` list`1 ``) — the cons-list's *second* accepted nominal form, sharing the union's
+    /// namespace. Recogniser-only (no producer mints the abbreviation; `isVesperListKey`
+    /// matches it alongside `vesperListKey`), hence `private`.
     let private vesperListAbbrevKey: SymbolKey =
-        SymbolKeyOps.typeKey (Some "Vesper.List") "Vesper.Collections" "list"
+        SymbolKeyOps.typeKey "Vesper.Collections" "list`1"
 
     /// Canonical identity for FSharp.Core's `list` — the non-retargeted default
-    /// `ElaborateExpr` / `Unification` fall back to. Home `FSharp.Core`, arity 1
-    /// (`` list`1 ``); never project-local.
+    /// `ElaborateExpr` / `Unification` fall back to. Arity 1 (`` list`1 ``); never
+    /// project-local.
     let fsharpCoreListKey: SymbolKey =
-        SymbolKeyOps.typeKey (Some "FSharp.Core") "Microsoft.FSharp.Collections" "list`1"
+        SymbolKeyOps.typeKey "Microsoft.FSharp.Collections" "list`1"
 
     /// Canonical identity for the heap ref-cell record (`Ref<'T>`, arity 1 ⇒
-    /// `` Ref`1 ``). Home `Vesper.Core`, matching the locally compiled
-    /// `Vesper.Core` `RecordTypeInfo.Key`.
-    let vesperRefKey: SymbolKey =
-        SymbolKeyOps.typeKey (Some "Vesper.Core") "Vesper" "Ref`1"
+    /// `` Ref`1 ``), matching the locally compiled `Vesper.Core` `RecordTypeInfo.Key`.
+    let vesperRefKey: SymbolKey = SymbolKeyOps.typeKey "Vesper" "Ref`1"
 
     /// Canonical identity for the `%A` structural-format interface
-    /// `Vesper.IStructuralFormattable` (P3, non-generic). Home `Vesper.Core` (which
-    /// owns it). Recogniser-only — `isStructuralFormattableKey`
-    /// gates whether *this* compilation is `Vesper.Core` itself (then the per-type
-    /// `Format` synthesis is suppressed; see codegen `Layout` / `Assembler`), so
-    /// `private`.
+    /// `Vesper.IStructuralFormattable` (non-generic). Recogniser-only —
+    /// `isStructuralFormattableKey` gates whether *this* compilation is `Vesper.Core`
+    /// itself (then the per-type `Format` synthesis is suppressed; see codegen `Layout` /
+    /// `Assembler`), so `private`.
     let private structuralFormattableKey: SymbolKey =
-        SymbolKeyOps.typeKey (Some "Vesper.Core") "Vesper" "IStructuralFormattable"
+        SymbolKeyOps.typeKey "Vesper" "IStructuralFormattable"
 
     /// Canonical identity for `PrintfFormat<'Printer,'State,'Residue,'Result>`
     /// (arity 4 ⇒ `` PrintfFormat`4 ``) — the type a format literal freezes to
-    /// (`PrintfSpec.printfFormatName`). Home `FSharp.Core`; this is the format
-    /// *type* identity.
+    /// (`PrintfSpec.printfFormatName`). The FSharp.Core face of the format *type*.
     let printfFormatKey: SymbolKey =
-        SymbolKeyOps.typeKey (Some "FSharp.Core") "Microsoft.FSharp.Core" "PrintfFormat`4"
+        SymbolKeyOps.typeKey "Microsoft.FSharp.Core" "PrintfFormat`4"
 
-    /// The Vesper.Printf face of `PrintfFormat`4`. Source-level format annotations
+    /// The `Vesper` face of `` PrintfFormat`4 ``. Source-level format annotations
     /// (`Printf.StringFormat<_>` / `TextWriterFormat<_>`) resolve through the
-    /// provider to THIS key, not the `FSharp.Core` one the format-literal machinery
-    /// synthesises (`printfFormatName`). `isPrintfFormatKey` recognises both faces so
-    /// a bound/ascribed format (E1) is seen as a `PrintfFormat` at every seam.
+    /// provider to THIS key, not the `Microsoft.FSharp.Core` one the format-literal
+    /// machinery synthesises (`printfFormatName`). `isPrintfFormatKey` recognises both
+    /// faces so a bound/ascribed format is seen as a `PrintfFormat` at every seam.
     let vesperPrintfFormatKey: SymbolKey =
-        SymbolKeyOps.typeKey (Some "Vesper.Printf") "Vesper" "PrintfFormat`4"
+        SymbolKeyOps.typeKey "Vesper" "PrintfFormat`4"
 
     /// The user-facing abbreviation for the object root — `obj` — declared in
     /// `prim-types-object.fs` as `type obj = (# "System.Object" #)`. The front end
@@ -236,33 +222,17 @@ module RuntimeNames =
     /// The `undefined` literal type — the reserved member of `T | undefined`.
     let undefinedTypeName: string = "undefined"
 
-    // --- Well-known-singleton recognition by key (Phase 5.4) ---
+    // --- Well-known-singleton recognition by key ---
     //
-    // Recognition is asm-blind structural field comparison against the canonical
-    // `*Key` constants above: same namespace + same bare (arity-stripped) simple
-    // name, home assembly ignored. Asm-blind because a bare-named / origin-less mint
-    // (a test helper, an asm-blind codegen path) carries no home assembly but still
-    // denotes the singleton; allocation-free (no qualified-string rebuild) so it's
-    // cheap on the hot unify / codegen paths. The canonical keys are the single
-    // identity source — the former parallel FQ string constants + `isVesperList`
-    // string recogniser are gone. (Where a *local* definition of
-    // the same type must win — codegen's self-host cons-list — the caller checks the
-    // project-local table first, then falls to these.)
+    // Recognition is `=` against the canonical `*Key` constants above; allocation-free
+    // (no qualified-string rebuild, no arity strip) so it's cheap on the hot unify /
+    // codegen paths. The canonical keys are the single identity source — the former
+    // parallel FQ string constants + `isVesperList` string recogniser are gone. (Where a
+    // *local* definition of the same type must win — codegen's self-host cons-list — the
+    // caller checks the project-local table first, then falls to these.)
 
-    /// Asm-blind field match against a canonical `TypeKey`: same namespace PATH and same
-    /// bare (arity-stripped) simple name, home assembly (the namespace's `Origin`)
-    /// ignored. Keys are always well-formed — the namespace is a segmented `Path`, so the
-    /// `Name` segment never carries dots and one `bareName` strip suffices.
-    let private sameTypeAsmBlind (canonical: SymbolKey) (k: SymbolKey) : bool =
-        match canonical, k with
-        | SymbolKey.Type c, SymbolKey.Type t ->
-            c.Namespace.Path = t.Namespace.Path
-            && SymbolKeyOps.bareName c.Name = SymbolKeyOps.bareName t.Name
-        | _ -> false
-
-    /// One resolved capability identity, recognised by asm-blind structural match
-    /// (`sameTypeAsmBlind`), against EITHER of up to two faces so both spellings an
-    /// interface impl can take dispatch:
+    /// One resolved capability identity, recognised by KEY EQUALITY against EITHER of up
+    /// to two faces so both spellings an interface impl can take dispatch:
     ///   * `Key` — the PLATFORM / BCL face (`System.IDisposable`): what a metadata or
     ///     BCL-spelled impl freezes to.
     ///   * `CanonKey` — the BCL-FREE canonical face (`Vesper.disposable`): what a
@@ -280,22 +250,24 @@ module RuntimeNames =
         /// consumers, whose nominal payloads are still `SymbolKey`.
         member this.SymKey: SymbolKey = SymbolKey.Type this.Key
 
-        /// Asm-blind key match (same namespace + bare name) against EITHER face — the
-        /// `SymbolKey`-keyed consumers.
+        /// Key EQUALITY against EITHER face — the `SymbolKey`-keyed consumers. Both faces
+        /// and every key that reaches here are arity-suffixed (the platform face from the
+        /// BCL metadata name, the canonical from the contract's compiled name), so identity
+        /// is `=` and nothing is stripped.
         member this.Matches(k: SymbolKey) : bool =
-            sameTypeAsmBlind this.SymKey k
+            this.SymKey = k
             || (
                 match this.CanonKey with
-                | ValueSome ck -> sameTypeAsmBlind (SymbolKey.Type ck) k
+                | ValueSome ck -> SymbolKey.Type ck = k
                 | ValueNone -> false
             )
 
         /// Match a compiled qualified interface-name string (arity-suffixed, e.g.
         /// `System.Collections.Generic.IEnumerable\`1`) by minting its key and
-        /// comparing asm-blind. For consumers holding the rendered interface name from
+        /// comparing. For consumers holding the rendered interface name from
         /// `ExternalSymbols.instantiateInterfaces` rather than a `SymbolKey`.
         member this.MatchesName(name: string) : bool =
-            this.Matches(SymbolKeyOps.qualifiedTypeKeyOf None name 0)
+            this.Matches(SymbolKeyOps.qualifiedTypeKey name 0)
 
     /// The five language-capability identities, resolved once per compilation
     /// (`PassContext`) THROUGH THE PROVIDER (`ExternalSymbols.resolveCapabilities`).
@@ -331,7 +303,7 @@ module RuntimeNames =
                 Comparable = ValueNone
             }
 
-    /// True iff `cap` is named and `k` denotes it (asm-blind). Flattens the
+    /// True iff `cap` is named and `k` denotes it. Flattens the
     /// `ValueNone ⇒ no-match` resolve-on-use convention so a recognizer site reads
     /// `RuntimeNames.matchesKey ctx.CapabilityIds.Enumerable nameKey` instead of
     /// spelling out the `match … ValueSome c -> c.Matches k | ValueNone -> false`.
@@ -347,9 +319,9 @@ module RuntimeNames =
     /// the `List` union or its lowercase `list` abbreviation (both in
     /// `Vesper.Collections`).
     let isVesperListKey (k: SymbolKey) : bool =
-        sameTypeAsmBlind vesperListKey k || sameTypeAsmBlind vesperListAbbrevKey k
+        k = vesperListKey || k = vesperListAbbrevKey
 
-    let isFsharpCoreListKey (k: SymbolKey) : bool = sameTypeAsmBlind fsharpCoreListKey k
+    let isFsharpCoreListKey (k: SymbolKey) : bool = k = fsharpCoreListKey
 
     /// True iff the *compiled qualified type-name string* (`Vesper.Collections.List`1`)
     /// denotes the Vesper cons-list `List` union — the string-keyed analogue of
@@ -365,16 +337,15 @@ module RuntimeNames =
     /// `Assembler` both consult to detect *this* compilation defining the interface
     /// (⇒ it is `Vesper.Core`, so suppress per-type `Format` synthesis); the two
     /// must agree, so they share this recogniser rather than each re-spelling the
-    /// qualified name. Asm-blind, matching the list/object recognisers.
-    let isStructuralFormattableKey (k: SymbolKey) : bool =
-        sameTypeAsmBlind structuralFormattableKey k
+    /// qualified name.
+    let isStructuralFormattableKey (k: SymbolKey) : bool = k = structuralFormattableKey
 
     /// True iff `k` denotes `PrintfFormat<'Printer,'State,'Residue,'Result>` — the
-    /// format type a `printf` / `sprintf` literal freezes to. Asm-blind, matching the
-    /// list/object recognisers; replaces the inline `bareName (qualifiedName key) =
+    /// format type a `printf` / `sprintf` literal freezes to; replaces the inline
+    /// `bareName (qualifiedName key) =
     /// PrintfSpec.printfFormatName` rebuild at the codegen / ElaborateExpr consumer sites.
     let isPrintfFormatKey (k: SymbolKey) : bool =
-        sameTypeAsmBlind printfFormatKey k || sameTypeAsmBlind vesperPrintfFormatKey k
+        k = printfFormatKey || k = vesperPrintfFormatKey
 
     // --- Built-in primitive type names -----------------------------------------------
 
@@ -450,22 +421,30 @@ module RuntimeNames =
     /// numeric-family member, an enum's underlying type). Carries the `Vesper` contract
     /// namespace by construction: there is NO name-set classification (the former
     /// front-end shadow set is gone), the caller guarantees `name` denotes a primitive.
-    /// `asm = None` — an intrinsic's home assembly is target-dependent, so its identity
-    /// is asm-blind (the `sameTypeAsmBlind` convention). The `name` is kept VERBATIM (no
-    /// arity suffix), so `SymbolKeyOps.simpleName` recovers the bare codegen/repr key
-    /// unchanged. Prefer the cached `*Key` constants; this by-name form is for the
+    /// The `name` is taken VERBATIM. Every caller but the structural constructors names an
+    /// arity-0 scalar (`int`, an `IntWidth`, a literal's base type, an enum's underlying
+    /// type), for which the arity-suffixed identity IS the bare name; a CONTRACT-declared
+    /// generic intrinsic (`` seq`1 ``) is arity-suffixed like any other nominal and is
+    /// minted from the contract instead (`TypeRegistry.intrinsicKeyOf` /
+    /// `SymbolKeyOps.intrinsicCanonKey`), never here. The structural constructors
+    /// (`arrayKey`/`byrefKey`, arity 1) are the exception: they name no contract face —
+    /// the array's contract spelling is the backtick-escaped `` ``[]`` ``
+    /// (`arrayContractName`), a different string — so their producers and recognisers meet
+    /// only on these constants, and their identity name is the one
+    /// `isStructuralConstructorName` reads.
+    /// Prefer the cached `*Key` constants; this by-name form is for the
     /// runtime-primitive-name sites that can't name a fixed constant.
     let primitiveKey (name: string) : SymbolKey =
-        SymbolKeyOps.typeKey None intrinsicNamespace name
+        SymbolKeyOps.typeKey intrinsicNamespace name
 
-    /// Mint an ORIGIN-LESS opaque type identity (`ns = ""`) — a name that is NOT a
+    /// Mint an opaque type identity in the GLOBAL namespace — a name that is NOT a
     /// registered intrinsic and resolved to nothing: an unknown bare user type, a
     /// bare-carried BCL sink name (a printf `TextWriter`/`StringBuilder`, `System.HashCode`),
     /// the `null` literal member, a synthesised TS grouping name, a TS `number` token.
     /// Distinct from `primitiveKey` so the two intents — a real `Vesper` intrinsic vs. an
-    /// unclassified origin-less name — are legible at each call site rather than decided
-    /// by a shared name-set lookup.
-    let opaqueKey (name: string) : SymbolKey = SymbolKeyOps.typeKey None "" name
+    /// unclassified global-namespace name — are legible at each call site rather than
+    /// decided by a shared name-set lookup.
+    let opaqueKey (name: string) : SymbolKey = SymbolKeyOps.typeKey "" name
 
     // --- Canonical intrinsic key identities ------------------------------------------
     //

@@ -411,34 +411,28 @@ let tests =
                     | ValueSome info -> info.Key
                     | ValueNone -> failtestf "abbreviation %s not registered" n
 
-                Expect.equal (recordKey "R") (SymbolKeyOps.typeKey None "" ("R")) "non-generic record → bare key"
+                Expect.equal (recordKey "R") (SymbolKeyOps.typeKey "" ("R")) "non-generic record → bare key"
 
-                Expect.equal
-                    (recordKey "Box")
-                    (SymbolKeyOps.typeKey None "" ("Box`1"))
-                    "generic record → arity-suffixed key"
+                Expect.equal (recordKey "Box") (SymbolKeyOps.typeKey "" ("Box`1")) "generic record → arity-suffixed key"
 
-                Expect.equal (unionKey "Color") (SymbolKeyOps.typeKey None "" ("Color")) "non-generic union → bare key"
+                Expect.equal (unionKey "Color") (SymbolKeyOps.typeKey "" ("Color")) "non-generic union → bare key"
 
                 Expect.equal
                     (unionKey "Choice")
-                    (SymbolKeyOps.typeKey None "" ("Choice`2"))
+                    (SymbolKeyOps.typeKey "" ("Choice`2"))
                     "generic union → arity-suffixed key"
 
                 Expect.equal
                     (abbrevKey "Pair" 2)
-                    (SymbolKeyOps.typeKey None "" ("Pair`2"))
+                    (SymbolKeyOps.typeKey "" ("Pair`2"))
                     "generic abbrev → arity-suffixed key"
 
-                Expect.equal
-                    (abbrevKey "Name" 0)
-                    (SymbolKeyOps.typeKey None "" ("Name"))
-                    "non-generic abbrev → bare key"
+                Expect.equal (abbrevKey "Name" 0) (SymbolKeyOps.typeKey "" ("Name")) "non-generic abbrev → bare key"
 
                 // The key's name component is exactly what codegen keys `userTypes` on.
                 Expect.equal
                     (unionKey "Choice")
-                    (SymbolKeyOps.typeKey None "" (SymbolKeyOps.arityName "Choice" 2))
+                    (SymbolKeyOps.typeKey "" (SymbolKeyOps.arityName "Choice" 2))
                     "union key name matches SymbolKeyOps.arityName"
             }
 
@@ -447,7 +441,7 @@ let tests =
 
                 match TypeRegistry.tryClass ctx.Types SourcePos.unbounded "C" with
                 | ValueSome info ->
-                    Expect.equal info.Key (SymbolKeyOps.typeKey None "" ("C`1")) "generic class → arity-suffixed key"
+                    Expect.equal info.Key (SymbolKeyOps.typeKey "" ("C`1")) "generic class → arity-suffixed key"
                 | ValueNone -> failtest "class C not registered"
             }
 
@@ -673,12 +667,12 @@ let tests =
                 let hasValue key =
                     stamped |> Seq.exists (fun kv -> kv.Value = key)
 
-                Expect.isTrue (hasValue (SymbolKeyOps.typeKey None "" ("Color"))) "Color decl site stamped"
-                Expect.isTrue (hasValue (SymbolKeyOps.typeKey None "" ("Choice`2"))) "Choice`2 decl site stamped"
+                Expect.isTrue (hasValue (SymbolKeyOps.typeKey "" ("Color"))) "Color decl site stamped"
+                Expect.isTrue (hasValue (SymbolKeyOps.typeKey "" ("Choice`2"))) "Choice`2 decl site stamped"
 
                 // The stamped key round-trips back to the union through the same
                 // reader-side seam the emitter uses.
-                match TypeRegistry.tryUnionByKey ctx.Types (SymbolKeyOps.typeKey None "" ("Choice`2")) with
+                match TypeRegistry.tryUnionByKey ctx.Types (SymbolKeyOps.typeKey "" ("Choice`2")) with
                 | ValueSome info -> Expect.equal info.Name "Choice" "Choice`2 key resolves to the Choice union"
                 | ValueNone -> failtest "Choice`2 key did not resolve via tryUnionByKey"
             }
@@ -700,14 +694,14 @@ let tests =
                     ctx.Resolution.ResolvedType.AsDictionary()
                     |> Seq.exists (fun kv ->
                         kv.Key.Kind = NodeKind.TypeGeneric
-                        && kv.Value = SymbolKeyOps.typeKey None "" ("Choice`2")
+                        && kv.Value = SymbolKeyOps.typeKey "" ("Choice`2")
                     )
 
                 Expect.isTrue useStamp "Choice<int, string> annotation stamped at its TypeGeneric use site"
             }
 
             test "Declaring namespace is threaded into the minted SymbolKey" {
-                // A type under `namespace Foo.Bar` mints `TypeKey(None, "Foo.Bar", name\`arity)`
+                // A type under `namespace Foo.Bar` mints `TypeKey("Foo.Bar", name\`arity)`
                 // — the identity it emits as (`TDecl.Namespace` + arity-suffixed metadata
                 // name) — not the ns="" construction-time placeholder. Proves the
                 // declaring path actually survives the module-tree flatten (which used to
@@ -717,14 +711,14 @@ let tests =
 
                 match TypeRegistry.tryRecord ctx.Types SourcePos.unbounded "Rec" with
                 | ValueSome info ->
-                    Expect.equal info.Key (SymbolKeyOps.typeKey None "Foo.Bar" ("Rec")) "record key carries namespace"
+                    Expect.equal info.Key (SymbolKeyOps.typeKey "Foo.Bar" ("Rec")) "record key carries namespace"
                 | ValueNone -> failtest "Rec not registered"
 
                 match TypeRegistry.tryUnion ctx.Types SourcePos.unbounded "Choice" 2 with
                 | ValueSome info ->
                     Expect.equal
                         info.Key
-                        (SymbolKeyOps.typeKey None "Foo.Bar" ("Choice`2"))
+                        (SymbolKeyOps.typeKey "Foo.Bar" ("Choice`2"))
                         "union key carries namespace + arity"
                 | ValueNone -> failtest "Choice`2 not registered"
             }

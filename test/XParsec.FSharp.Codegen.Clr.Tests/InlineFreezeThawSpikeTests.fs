@@ -290,7 +290,7 @@ let tests =
                 // against. It is the identity a use-site `TExpr.External` carries.
                 Expect.equal
                     published.Key
-                    (SymbolKeyOps.moduleValueKey None "Lib" "Kinds" "kindOf")
+                    (SymbolKeyOps.moduleValueKey "Lib" "Kinds" "kindOf")
                     "the published identity is the binding's own containment chain"
             }
 

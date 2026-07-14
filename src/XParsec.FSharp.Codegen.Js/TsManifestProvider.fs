@@ -40,10 +40,11 @@ module TsManifestProvider =
         | [] -> failwithf "symbol '%s' has no call signature" name
         | _ -> failwithf "symbol '%s' has %d overloads; overload sets not yet supported" name (List.length sigs)
 
-    /// The module-spec stamp shared by free-function and variable symbols: both resolve
-    /// their `import … from '<moduleSpec>'` through `JsImports.addRef`, which needs the
-    /// symbol's home (`Origin.InAssembly moduleSpec`) on its key — without it the symbol
-    /// carries no home and emit fails.
+    /// The origin + declaring holder shared by free-function and variable symbols: both
+    /// resolve their `import … from '<moduleSpec>'` through `JsImports.addRef`, which reads
+    /// the home off the symbol's `SymbolOrigin` (`Origin.InAssembly moduleSpec` — for a TS
+    /// package the "assembly" IS the module specifier). A symbol whose origin has no home
+    /// cannot be imported and emit fails loudly.
     ///
     /// One namespace fact serves both slots: the symbol's `SymbolOrigin` and its key's
     /// declaring holder are the SAME `NamespaceKey`, so they cannot disagree about where

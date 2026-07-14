@@ -127,18 +127,15 @@ module SymbolProviders =
                     // is skipped by `harvestMemberBody`, so a union/record augmentation
                     // with an ordinary member is unaffected.
                     | TDeclG.Type tdecl ->
-                        // Address the type by its QUALIFIED compiled name: the provider
-                        // index matches on `SymbolKeyOps.qualifiedName`, not the simple
-                        // `tdecl.Name`, so a namespaced intrinsic (`Vesper.string`,
-                        // `Widgets.widget`) would otherwise miss and fall back to a
-                        // (non-existent) real method call.
-                        let typeKey =
-                            SymbolKeyOps.lookupKeyOfCompiledName (SymbolKeyOps.qualifiedName tdecl.Key)
-
                         for m in TTypeKindG.members tdecl.Kind do
                             match harvestMemberBody m with
                             | Some body ->
-                                match ctx.Provider.TryLookupMember(typeKey, m.Name) with
+                                // The store is addressed by the key the decl already carries.
+                                // Re-deriving one from the rendered name would flatten the
+                                // holder chain (a module-held type comes back namespace-held),
+                                // and buys nothing: the provider projects the key to its own
+                                // index spelling internally.
+                                match ctx.Provider.TryLookupMember(tdecl.Key, m.Name) with
                                 | ValueSome mem -> yield { Key = mem.Key; Body = body }
                                 | ValueNone -> ()
                             | None -> ()

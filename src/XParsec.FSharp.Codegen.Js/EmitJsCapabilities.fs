@@ -113,14 +113,17 @@ module EmitJsCapabilities =
 
     /// The runtime entry behind `seq<'T>.GetEnumerator()`: the `Vesper.Core.mjs` adapter that
     /// wraps a source's native `Symbol.iterator` in the split `MoveNext`/`Current` cursor.
-    /// Synthesised by the backend (like `EmitJsContext.structuralFormatKey`) — the protocol is
-    /// a codegen concern, so no front-end symbol resolves to it.
+    /// Synthesised by the backend (like `EmitJsContext.structuralFormatRef`) — the protocol is
+    /// a codegen concern, so no front-end symbol resolves to it, and no provider shape carries
+    /// its home either: codegen names the key AND the module.
     /// `Vesper.Collections` is a NAMESPACE (`capabilities.fsi`) and the adapter a bare
     /// export of `Vesper.Core.mjs`, so the binding is held by the namespace itself.
-    let private enumeratorOfKey: SymbolKey voption =
-        ValueSome(
-            SymbolKeyOps.valueKey (SymbolKeyOps.inNamespace (Some "Vesper.Core") "Vesper.Collections") "enumeratorOf"
-        )
+    let private enumeratorOfRef: JsValueRef =
+        {
+            Key = ValueSome(SymbolKeyOps.valueKey (SymbolKeyOps.inNamespace "Vesper.Collections") "enumeratorOf")
+            Home = Origin.InAssembly(AssemblyName "Vesper.Core")
+            Form = ImportForm.Named
+        }
 
     // ---- The CONSUMER table --------------------------------------------------
 
@@ -145,10 +148,7 @@ module EmitJsCapabilities =
         | ValueSome JsCapability.Iteration ->
             ValueSome(fun recv loc ->
                 let adapter =
-                    JsExpr.Identifier(
-                        JsImports.addRef imports "enumeratorOf" enumeratorOfKey ImportForm.Named,
-                        ValueNone
-                    )
+                    JsExpr.Identifier(JsImports.addRef imports "enumeratorOf" enumeratorOfRef, ValueNone)
 
                 JsExpr.Call(adapter, [ recv ], loc)
             )

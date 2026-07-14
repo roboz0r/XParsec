@@ -665,10 +665,9 @@ type IntrinsicShape =
 /// keeps the `Some`-unwraps at `resolveAnchor` / `externalClassRef` / `ClrExternalMembers`
 /// total and removes the two-polarity hazard of sharing the scalar's optional field.
 ///
-/// - `Canon` — the platform-INVARIANT `.fsi` short-name identity (`Vesper.disposable`),
-///   asm-blind: the reconciliation / capability-matching face (`resolveAnchor`'s
-///   `CanonKey`) and the pre-split namespace `stampType` homes the `Origin` on. NOT the
-///   value-resolution key.
+/// - `Canon` — the platform-INVARIANT `.fsi` short-name identity (`Vesper.disposable`):
+///   the reconciliation / capability-matching face (`resolveAnchor`'s `CanonKey`) and the
+///   pre-split namespace `stampType` homes the `Origin` on. NOT the value-resolution key.
 /// - `Platform` — the `.fs` `(# … #)` BCL repr (`"System.IDisposable"`), driving CLR
 ///   reconciliation + the `ClrEnv` InterfaceImpl redirect.
 /// - `Arity` — the type's generic parameter count (`equatable<'T>` = 1).
@@ -677,9 +676,8 @@ type IntrinsicShape =
 ///   deferred member loop) via the `PendingCapabilityInterfaces` republish.
 /// - `Origin` — the manifest home (assembly + namespace), stamped by
 ///   `ExternalSymbolProviders.stack`'s `stampType` exactly as a `Class`'s is. The VALUE
-///   resolution key uses THIS (`externalTypeKey Origin`, asm-qualified), keeping the
-///   `TyClass` identity byte-identical to the pre-`IntrinsicInterface` faced `Class`;
-///   `Canon` (asm-blind) is the reconciliation/capability-matching face only.
+///   resolution key uses THIS (`externalTypeKey Origin`) for its namespace; `Canon` is the
+///   reconciliation/capability-matching face only.
 type IntrinsicInterfaceShape =
     {
         Canon: SymbolKey
@@ -849,16 +847,12 @@ type IExternalSymbolResolver =
 /// identity is). Implementations may satisfy the key-addressed methods by
 /// projecting `SymbolKeyOps.qualifiedName` INTERNALLY — the string round-trip is an
 /// implementation detail, never a call-site idiom. **Lookup is addressed by
-/// `(ns, arity-qualified name)` and NOTHING ELSE**: every store projects the key
-/// through `SymbolKeyOps.qualifiedName`, which DISCARDS `asm` entirely — it is not
-/// a tiebreaker, it is simply not consulted. Two same-named types in different
-/// assemblies are therefore indistinguishable to the store face today (the CS0433
-/// sweep in `ReferencedProject.fs` exists to make that collision impossible
-/// upstream rather than to resolve it here). The practical consequence, which a
-/// real keyed index MUST preserve: the asm-blind keys
-/// `SymbolKeyOps.lookupKeyOfCompiledName` mints for a string-held compiled name (a
-/// platform repr, a codegen bridge name) answer exactly the same entries an
-/// asm-carrying resolved key does.
+/// `(ns, arity-qualified name)` and NOTHING ELSE** — which is the whole of a key's
+/// nominal identity, so a key minted from a bare compiled-name string
+/// (`SymbolKeyOps.qualifiedTypeKey`) answers exactly the entries a fully resolved one
+/// does. Two same-named types in different assemblies are therefore indistinguishable
+/// to the store face (the CS0433 sweep in `ReferencedProject.fs` exists to make that
+/// collision impossible upstream rather than to resolve it here).
 type IExternalSymbolStore =
     /// Look up a `type` declaration's body by the resolved `SymbolKey` a consumer
     /// already holds — the key-addressed twin of
@@ -1149,8 +1143,9 @@ module ExternalSymbols =
     ///
     /// All five are dedicated `extern interface` anchors (`capabilities.fsi`) — see
     /// `resolveAnchor` for the dual/single-faced cases. The key is minted with arity 0
-    /// because the fqn already carries the metadata backtick-arity suffix, which `bareName`
-    /// strips for asm-blind recognition. `seq`/`enumerator` live in `Vesper.Core` (not
+    /// because the fqn ALREADY carries the metadata backtick-arity suffix (`arityName` is
+    /// a no-op on it): the arity is in the key, which is what lets `CapabilityIdentity`
+    /// recognise by `=`. `seq`/`enumerator` live in `Vesper.Core` (not
     /// `Vesper.List`) so resolving them isn't circular when building `Vesper.List`, whose
     /// `List` union implements `seq`. `for-in` resolution stays structural-primary, so a
     /// `ValueNone` Enumerable/Enumerator here is harmless (§5.1).
@@ -1188,16 +1183,15 @@ module ExternalSymbols =
         let resolveAnchor (lookup: string) (bclFace: string voption) : RuntimeNames.CapabilityIdentity voption =
             match provider.TryLookupType lookup with
             | ValueSome(ExternalTypeShape.Intrinsic { Id = { Platform = Some fqn } }) ->
-                ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOfT None fqn 0))
+                ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOfT fqn 0))
             | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
                 ValueSome
                     {
-                        RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOfT None platform 0
-                        RuntimeNames.CapabilityIdentity.CanonKey =
-                            ValueSome(SymbolKeyOps.qualifiedTypeKeyOfT None lookup 0)
+                        RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOfT platform 0
+                        RuntimeNames.CapabilityIdentity.CanonKey = ValueSome(SymbolKeyOps.qualifiedTypeKeyOfT lookup 0)
                     }
             | ValueSome(ExternalTypeShape.Class _) ->
-                let canonKey = SymbolKeyOps.qualifiedTypeKeyOfT None lookup 0
+                let canonKey = SymbolKeyOps.qualifiedTypeKeyOfT lookup 0
 
                 match bclFace with
                 | ValueSome bcl when shimConfirms bcl lookup ->
@@ -1206,7 +1200,7 @@ module ExternalSymbols =
                     // `CanonKey` = canonical). `capabilityCanonKey` then folds either spelling → canon.
                     ValueSome
                         {
-                            RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOfT None bcl 0
+                            RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOfT bcl 0
                             RuntimeNames.CapabilityIdentity.CanonKey = ValueSome canonKey
                         }
                 | _ -> ValueSome(ofKey canonKey)
@@ -1529,7 +1523,7 @@ module ExternalSymbols =
 
     /// A monomorphic value/free-function symbol from a closed `FrozenType` scheme
     /// (no typars). `decl` is the declaring holder — a module chain, or the namespace
-    /// itself for an unqualified binding (`SymbolKeyOps.inNamespace None ""` for a
+    /// itself for an unqualified binding (`SymbolKeyOps.inNamespace ""` for a
     /// flat-package extern such as `printfn`).
     let monoFrozen (decl: ModuleHolder) (name: string) (scheme: FrozenType) : ExternalSymbol =
         let key = SymbolKeyOps.bindingKeyOf decl name

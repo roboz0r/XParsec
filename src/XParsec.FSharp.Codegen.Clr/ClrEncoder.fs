@@ -15,7 +15,6 @@ type internal ClrEncoder(env: ClrEnv) =
     let markFSharpCoreDep c = env.MarkFSharpCoreDep c
     let userTypes = env.UserTypes
     let userValueTypes = env.UserValueTypes
-    let envAsm = env.EnvAsm
 
     let externalClassRef key = env.ExternalClassRef key
     let externalIsValueType key = env.ExternalIsValueType key
@@ -132,7 +131,7 @@ type internal ClrEncoder(env: ClrEnv) =
                 // GUARDED to reference classes: a VALUE-type repr with no dedicated arm above
                 // must fail loudly here — encoded as `class X` it would only die at JIT time
                 // with a signature mismatch, far from the cause (no silent mis-emit).
-                let platformKey = SymbolKeyOps.qualifiedTypeKeyOf None repr 0
+                let platformKey = SymbolKeyOps.qualifiedTypeKey repr 0
 
                 match externalClassRef platformKey with
                 | ValueSome tref when not (externalIsValueType platformKey) -> te.Type(tref, false)
@@ -154,13 +153,13 @@ type internal ClrEncoder(env: ClrEnv) =
         | FTRecord(key, args) when RuntimeNames.isFsharpCoreListKey key && args.Length = 1 ->
             let elem = args.[0]
             encodeListOf te (fun arg -> encodeType arg elem)
-        // A nominal is project-local iff its home `asm` is the assembly being
-        // emitted (asm-discrimination). This
-        // arm precedes the cons-list arm so a *self-host*
-        // `Vesper.Collections.List` (asm = the emitted `Vesper.List`) resolves
-        // to its emitted `TypeDef`, while a *referenced* cons-list (same key,
-        // asm ≠ emitted) falls through to the cached external `eVesperList1`.
-        | FTUnion(key, args) when SymbolKeyOps.keyAsm key = envAsm ->
+        // A nominal is project-local iff THIS emission's type table answers for it:
+        // `userTypes` holds exactly the types being emitted into this assembly, and it
+        // is authoritative. This arm precedes the cons-list arm so a *self-host*
+        // `Vesper.Collections.List` (a `userTypes` member) resolves to its emitted
+        // `TypeDef`, while a *referenced* cons-list (same key, not emitted here) falls
+        // through to the cached external `eVesperList1`.
+        | FTUnion(key, args) when userTypes.ContainsKey key ->
             let handle = userTypes.[key]
 
             if args.IsEmpty then
@@ -177,7 +176,7 @@ type internal ClrEncoder(env: ClrEnv) =
             let elem = args.[0]
             let g = te.GenericInstantiation(eVesperList1.Value, 1, false)
             encodeType (g.AddArgument()) elem
-        | FTRecord(key, args) when SymbolKeyOps.keyAsm key = envAsm ->
+        | FTRecord(key, args) when userTypes.ContainsKey key ->
             let handle = userTypes.[key]
 
             if args.IsEmpty then
@@ -187,9 +186,10 @@ type internal ClrEncoder(env: ClrEnv) =
 
                 for a in args do
                     encodeType (g.AddArgument()) a
-        | FTClass(key, args) when SymbolKeyOps.keyAsm key = envAsm ->
-            // Checked *before* the external-class arm so a project-local class wins over an
-            // accidental same-named external one (asm-discrimination).
+        | FTClass(key, args) when userTypes.ContainsKey key ->
+            // INVARIANT: the local type table is authoritative and is checked *before* the
+            // external-class arm, so a project-local class wins over an accidental
+            // same-named external one.
             let handle = userTypes.[key]
             // A `[<Struct>]` value type must encode as `ELEMENT_TYPE_VALUETYPE`
             // so a signature referencing it matches the value-type `TypeDefinition`;
@@ -313,8 +313,7 @@ type internal ClrEncoder(env: ClrEnv) =
         // (enums are never generic). All three variants register into `userTypes`
         // (`Layout` partitions numeric → `Enums`, string/mixed → `StructEnums`); an
         // external enum is absent and falls to the loud arm below.
-        | FTEnum key when SymbolKeyOps.keyAsm key = envAsm && userTypes.ContainsKey key ->
-            te.Type(userTypes.[key], true)
+        | FTEnum key when userTypes.ContainsKey key -> te.Type(userTypes.[key], true)
         | FTEnum _ ->
             failwithf
                 "ClrProvider: cannot encode enum type reference %A — project-local enums only; external (TS-manifest) enums are a JS-target concern, unsupported on CLR"

@@ -276,7 +276,7 @@ module internal TsManifestMembers =
             // use site — `arityName "Pair" 2` at lookup — hits this key; a no-op at
             // arity 0), but an alias never enters the ctx table: the resolver must MISS
             // it so it stays `FTConst` and expands through this `Abbrev`.
-            Some(fst (mint ctx.ModuleSpec nsPath name tp), ExternalTypeShape.Abbrev(tp, toFrozen ctx target))
+            Some(fst (mint nsPath name tp), ExternalTypeShape.Abbrev(tp, toFrozen ctx target))
         | Schema.Export.Enum(name, members) ->
             // A TS enum → `ExternalTypeShape.Enum`: the closed name→value case table
             // the front end resolves `(x: E)` / `E.Ci` against (the enum's nominal
@@ -335,7 +335,8 @@ module internal TsManifestMembers =
 
             let origin: SymbolOrigin =
                 {
-                    Namespace = SymbolKeyOps.namespaceKey (Some structuralHome) structuralHome
+                    Home = Origin.InAssembly(AssemblyName structuralHome)
+                    Namespace = SymbolKeyOps.namespaceKey structuralHome
                 }
 
             // One Property member per field, through the SAME `toExternalMembers`
@@ -475,7 +476,7 @@ module internal TsManifestMembers =
             // (arity 0 — the grouping type is never generic) even though it never
             // enters the ctx table: it resolves via `TryLookupType`/`TryLookupMembers`
             // by qualified name, never through `ctx.Resolve`.
-            let qn, declKey = mint moduleSpec nsPath simpleName 0
+            let qn, declKey = mint nsPath simpleName 0
             let origin = originFor ctx nsPath
 
             let members =

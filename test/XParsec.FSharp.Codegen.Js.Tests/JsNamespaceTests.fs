@@ -166,24 +166,30 @@ let tests =
             }
 
             test "(d) a refs entry homed to es2015 mints an FTClass under the Js namespace (Js.Widget)" {
-                // The consumer ref-minting (`toFrozen`'s `nominal`) homes a `Widget` ref with
-                // `home = es2015` under `Js` (from `globalLibHomes`), so its `qualifiedName`
-                // equals what the mounted es2015 provider registers — `Js.Widget` — not the bare
-                // `Widget`. This is what lets a homed ref resolve against the mounted pack.
+                // The consumer ref-minting (`toFrozen`'s `nominal`) mints a `Widget` ref whose
+                // `home = es2015` selects the `Js` namespace (from `globalLibHomes`), so its
+                // `qualifiedName` equals what the mounted es2015 provider registers — `Js.Widget`
+                // — not the bare `Widget`. The home does NOT ride the key (identity is nominal);
+                // it rides the SHAPE, so the proof that the ref and the mounted declaration are
+                // ONE type is that B's minted key resolves against the mounted pack to a shape
+                // homed in es2015.
                 match bProviderRaw.TryLookup "theWidget" with
                 | ValueSome sym ->
                     match sym.Scheme with
                     | FTClass(key, _) ->
                         Expect.equal
-                            (SymbolKeyOps.keyAsm key)
-                            (Some "es2015")
-                            "the homed key must carry es2015 as its home assembly"
-
-                        Expect.equal
                             (SymbolKeyOps.qualifiedName key)
                             "Js.Widget"
                             "the homed ref must mint under the Js namespace (globalLibHomes), not bare Widget"
-                    | other -> failtestf "theWidget scheme should be a homed FTClass, got %A" other
+
+                        match (es2015Provider :> IExternalSymbolStore).TryLookupType key with
+                        | ValueSome(ExternalTypeShape.Class info) ->
+                            Expect.equal
+                                info.Origin.Assembly
+                                (Some "es2015")
+                                "the key B minted resolves against the mounted pack to a shape homed in es2015"
+                        | other -> failtestf "the homed ref must resolve to es2015's Widget class shape, got %A" other
+                    | other -> failtestf "theWidget scheme should be an FTClass, got %A" other
                 | ValueNone -> failtest "theWidget did not resolve as a value symbol"
             }
 

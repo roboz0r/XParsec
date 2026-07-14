@@ -36,7 +36,7 @@ type private CountingProvider(name: string) =
             if n = name then
                 ValueSome(
                     ExternalSymbols.monoFrozen
-                        (SymbolKeyOps.inNamespace None "")
+                        (SymbolKeyOps.inNamespace "")
                         n
                         (FTConst(RuntimeNames.opaqueKey "tag", EqArray.empty))
                 )

@@ -1095,7 +1095,7 @@ module internal NominalEmit =
 
                     provider.InstanceMethodSignature(
                         [],
-                        FTClass(SymbolKeyOps.typeKey None "System.Collections" "IEnumerator", EqArray.empty)
+                        FTClass(SymbolKeyOps.typeKey "System.Collections" "IEnumerator", EqArray.empty)
                     ),
                     Emit.buildEnumerableGetEnumeratorCoSlot getEnumerator
                 | CoSlot.EnumeratorCurrent ->

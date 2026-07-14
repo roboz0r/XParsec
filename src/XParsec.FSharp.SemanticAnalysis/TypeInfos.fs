@@ -7,13 +7,11 @@ open XParsec.FSharp.Parser
 
 // Side tables hold all in-flight semantic information. CST is never mutated.
 
-/// Project-local nominal identity for a type definition. The home assembly sits at the
-/// root of the `holder` chain — `Some <thisAsm>` when the compilation knows its target
-/// assembly (`PassContext.AssemblyName`), `None` only on the front-end-only /
-/// contract-scrape paths that never emit. It is invariant per type: a consumer mints the
-/// SAME key for this type from its `SymbolOrigin.Assembly`, so a project-local key equals
-/// the cross-package reference key (the property the codegen local/external branch reads).
-/// `name` is the .NET arity-qualified simple name (`Choice\`2`).
+/// Project-local nominal identity for a type definition: the containment chain the
+/// declaration sits in plus the .NET arity-qualified simple name (`Choice\`2`). It carries
+/// no home assembly — a key is nominal identity, and a consumer resolving the same type
+/// across a package boundary therefore mints an EQUAL key without having to agree with
+/// this compilation about what its own assembly is called.
 module internal LocalSymbolKey =
 
     /// The project-local `TypeKey` for `name` at `arity`, declared in `holder` — the
@@ -382,10 +380,11 @@ type IntrinsicAbbrevInfo
     /// registration to match a use-site key. Never emitted (the abbrev is intrinsic).
     member val TypeKey: TypeKey = key
     member this.Key: SymbolKey = SymbolKey.Type this.TypeKey
-    /// The abbrev's INTRINSIC identity key (verbatim name, contract namespace,
-    /// asm-blind), resolved through `TypeRegistry.intrinsicKeyOf` at registration —
+    /// The abbrev's INTRINSIC identity key (contract namespace, arity-suffixed),
+    /// resolved through `TypeRegistry.intrinsicKeyOf` at registration —
     /// the SAME key a use-site (`Translate`) resolves the abbrev name to. Distinct
-    /// from `Key` (arity-suffixed local nominal, for the member-harvest host path):
+    /// from `Key` (the local nominal claim, for the member-harvest host path — it is
+    /// holder-homed, where this is namespace-homed):
     /// this is the `TyConst` key `MkSelfType` seeds onto each member's `ThisTy`, so
     /// a non-`Vesper` user intrinsic-abbrev's self-type cannot diverge from its
     /// use-site identity (`primitiveKey name` hardcoded `Vesper`, the latent split-brain).

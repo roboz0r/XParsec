@@ -160,22 +160,14 @@ module ExternalSymbolProviders =
 
             result
 
+        // Stamping is SHAPE-only: a key is a nominal identity the inner leaf already
+        // built in full, and the package's home assembly is not part of it. The wrapper
+        // supplies the home on the resolved shape's `Origin` — the one channel by which
+        // an assembly reaches a backend.
         let stampSymbol =
             match stampOrigin with
             | ValueNone -> id
-            | ValueSome o ->
-                // Re-home the existing key: the inner provider builds the containment
-                // chain but has no assembly for it yet (`Origin.Local`); the wrapper
-                // knows the asm from the package manifest, and `reroot` rewrites the
-                // `Origin` at the chain's root, leaving the chain itself untouched. A
-                // source/compiled alias pair (e.g. `List.fold` + `ListModule.fold`)
-                // carries the SAME key, so this home-only rewrite keeps the aliases
-                // pointing at one identity.
-                fun (s: ExternalSymbol) ->
-                    { s with
-                        Origin = o
-                        Key = SymbolKeyOps.reroot o.Namespace.Origin s.Key
-                    }
+            | ValueSome o -> fun (s: ExternalSymbol) -> { s with Origin = o }
 
         let stampMember =
             match stampOrigin with
@@ -188,7 +180,7 @@ module ExternalSymbolProviders =
         // this match — not three call sites — when a new case learns origin.
         //
         // The origin is a PACKAGE fact (home assembly + manifest namespace); a type's own
-        // namespace lives in its key, so no per-type namespace repair happens here.
+        // identity lives in its key, which this never rewrites.
         let stampType (shape: ExternalTypeShape) : ExternalTypeShape =
             match stampOrigin with
             | ValueNone -> shape
@@ -198,28 +190,23 @@ module ExternalSymbolProviders =
                 | ExternalTypeShape.Record(arity, fields, _) -> ExternalTypeShape.Record(arity, fields, o)
                 | ExternalTypeShape.Union(arity, cases, ifaces, _) -> ExternalTypeShape.Union(arity, cases, ifaces, o)
                 | ExternalTypeShape.Enum(cases, _) -> ExternalTypeShape.Enum(cases, o)
-                // Origin-stamped like a `Class` (its value resolution key is asm-qualified via
-                // `Origin`; the extractor left it `Empty`), but its namespace comes from its
-                // authoritative canonical key (`Vesper.Collections` for `seq`; `disposable` et al.
-                // already sit directly in `Vesper`), which is where the capability's identity is.
+                // Origin-stamped like a `Class` (the extractor left it `Empty`), but its
+                // namespace comes from its authoritative canonical key (`Vesper.Collections`
+                // for `seq`; `disposable` et al. already sit directly in `Vesper`), which is
+                // where the capability's identity is; the home stays the package's.
                 | ExternalTypeShape.IntrinsicInterface s ->
-                    // The canon key is asm-blind by convention, so only its PATH is taken;
-                    // the home assembly stays the package's.
-                    let canonPath =
+                    let canonNs =
                         match s.Canon with
-                        | SymbolKey.Type t -> t.Namespace.Path
-                        | _ -> o.Namespace.Path
+                        | SymbolKey.Type t -> t.Namespace
+                        | _ -> o.Namespace
 
                     ExternalTypeShape.IntrinsicInterface
                         { s with
-                            Origin =
-                                {
-                                    Namespace = { o.Namespace with Path = canonPath }
-                                }
+                            Origin = { o with Namespace = canonNs }
                         }
                 | ExternalTypeShape.Abbrev _
-                // An intrinsic carries no `Origin` (its identity is the canon,
-                // asm-blind), so origin stamping leaves it unchanged.
+                // An intrinsic carries no `Origin` (its identity is the canon, and its
+                // representation is target-dependent), so origin stamping leaves it unchanged.
                 | ExternalTypeShape.Intrinsic _
                 | ExternalTypeShape.Opaque _ -> shape
 

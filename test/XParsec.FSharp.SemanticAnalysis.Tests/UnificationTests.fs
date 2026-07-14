@@ -110,7 +110,7 @@ let tests =
                               if name = "broken" then
                                   ValueSome(
                                       ExternalSymbols.monoFrozen
-                                          (SymbolKeyOps.inNamespace None "")
+                                          (SymbolKeyOps.inNamespace "")
                                           "broken"
                                           (FTUnknown "Missing.Thing")
                                   )

@@ -432,7 +432,8 @@ module UnificationEngineCore =
     /// absent from that map — a `TyClass`-resolving interface there would force `IsInterface`
     /// guards into the reverse-map readers — so both faces reach the unify / subsume /
     /// overload seams un-normalized and this is the one place that reconciles them, driven by
-    /// the resolved `CapabilityIds` (asm-blind `Matches`), never a hardcoded string.
+    /// the resolved `CapabilityIds` (`Matches` — key equality against either face), never a
+    /// hardcoded string.
     ///
     /// Not memoized: every caller gates behind a raw `=` first, so this runs only on a
     /// genuine mismatch (a bounded ≤5-way probe), and it can't share `IntrinsicCanonCache` —
@@ -527,26 +528,23 @@ module UnificationEngineCore =
     /// The **platform** face of an intrinsic: the runtime/BCL repr its `(# "…" #)`
     /// binding records (`"string"` ⇒ `"System.String"` on CLR, `prim-types-*.fs`).
     /// Keyed by the intrinsic's already-resolved canon `SymbolKey` — the
-    /// opens-discharged identity the receiver `TyConst` carries — so the store answers
-    /// by key and no OpenScope short→qualified re-resolution is needed: the
-    /// self-compiling unit's own intrinsics from the local short-name `IntrinsicReprTypes`
-    /// table, a referenced package's from the store's forward axis
-    /// (`IntrinsicForwardRepr : canon SymbolKey → repr`). Returns the bare short name
-    /// for a non-intrinsic key (a project-local / already-qualified name passes
-    /// through) or an intrinsic with no repr on the compiling target (`decimal` on JS,
-    /// absent from the forward map). Lets the dot-access resolvers (`resolveFieldStep`,
-    /// the external instance-method probe) route an intrinsic *receiver*'s instance
-    /// members through the provider keyed on the platform type name — distinct from
-    /// `canonKey`'s identity axis (which stays on the `.fsi` `SymbolKey`).
+    /// opens-discharged identity the receiver `TyConst` carries — so BOTH halves of the
+    /// forward axis answer by key and no name is ever projected back out of one: the
+    /// self-compiling unit's own intrinsics from `IntrinsicReprKeys`, a referenced
+    /// package's from the store's `IntrinsicForwardRepr`. Returns the key's identity name
+    /// for a non-intrinsic key (a project-local / already-qualified name passes through)
+    /// or an intrinsic with no repr on the compiling target (`decimal` on JS, absent from
+    /// the forward map). Lets the dot-access resolvers (`resolveFieldStep`, the external
+    /// instance-method probe) route an intrinsic *receiver*'s instance members through the
+    /// provider keyed on the platform type name — distinct from `canonKey`'s identity axis
+    /// (which stays on the `.fsi` `SymbolKey`).
     let intrinsicPlatformName (ctx: PassContext) (key: SymbolKey) : string =
-        let n = SymbolKeyOps.intrinsicName key
-
-        match ctx.Types.IntrinsicReprTypes.TryGetValue n with
+        match ctx.Types.IntrinsicReprKeys.TryGetValue key with
         | true, platform -> platform
         | _ ->
             match ctx.Provider.IntrinsicForwardRepr.TryGetValue key with
             | true, platform -> platform
-            | _ -> n
+            | _ -> SymbolKeyOps.intrinsicName key
 
     /// Resolve a *receiver* type to the external `(SymbolKey, typeArgs)` a provider
     /// member lookup keys on: a non-project-local `TyClass` (a BCL / contract
@@ -573,7 +571,7 @@ module UnificationEngineCore =
             let platformQual = intrinsicPlatformName ctx key
 
             if platformQual <> name then
-                ValueSome(struct (SymbolKeyOps.lookupKeyOfCompiledName platformQual, typeArgs))
+                ValueSome(struct (SymbolKeyOps.qualifiedTypeKey platformQual 0, typeArgs))
             else
                 ValueNone
         | _ -> ValueNone
@@ -699,32 +697,14 @@ module UnificationEngineCore =
                 // `TyClass`, exactly as they appear as a value's static type everywhere
                 // else (an interface is an `ExternalTypeShape.Class` with `IsInterface`)
                 // and exactly as the local branch above yields via `instantiateMember`.
-                // Mint each interface's key through the SAME `externalTypeKey origin` path
-                // every external-type producer uses (a written `A<int>` annotation
-                // included), so the surfaced supertype key compares EXACTLY EQUAL — home
-                // assembly and all — now that the walk's identity is a `SymbolKey` `=`, not
-                // an asm-agnostic string. The interface's home is re-resolved off its OWN
-                // provider shape (it may live in a different package than the implementing
-                // class, so the class's origin won't do); a name the provider does not
-                // surface as a class (an intrinsic / opaque) keeps the asm-blind mint.
+                // `n` is an already-qualified interface compiled name harvested off the
+                // resolved shape — not a source spelling — so the mint from the name is the
+                // whole identity, and the surfaced supertype key compares EXACTLY EQUAL to
+                // the one a written `A<int>` annotation resolves to (`externalTypeKey` on a
+                // qualified name is this same mint).
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
                 |> Array.toList
-                |> List.map (fun (n, ta) ->
-                    let key =
-                        // `n` is an already-qualified interface compiled name harvested off
-                        // the resolved shape — not a source spelling — so the store face
-                        // answers it by key directly (opens don't apply).
-                        match ctx.Provider.TryLookupType(SymbolKeyOps.lookupKeyOfCompiledName n) with
-                        | ValueSome(ExternalTypeShape.Class ifaceShape) ->
-                            SymbolKeyOps.externalTypeKey ifaceShape.Origin n ta.Length
-                        // A surfaced capability interface is origin-homed exactly as a `Class`,
-                        // so its key compares equal to the resolution-time `TyClass`.
-                        | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
-                            SymbolKeyOps.externalTypeKey iface.Origin n ta.Length
-                        | _ -> SymbolKeyOps.lookupKeyOfCompiledName n
-
-                    TyClass(key, EqArray.ofArray ta)
-                )
+                |> List.map (fun (n, ta) -> TyClass(SymbolKeyOps.qualifiedTypeKey n ta.Length, EqArray.ofArray ta))
             | _ -> []
 
     /// Find the instantiation of `src` (or one of its bases / interfaces) whose

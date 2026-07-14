@@ -318,11 +318,10 @@ module internal UnificationInferApp =
                             // FIXED and fully qualified, so the declaring type resolves by
                             // KEY on the store face — no opens-aware resolver call. The
                             // minted `TyClass` key matches a real sink argument's
-                            // (`Console.Out`) exactly: both origin-home the class the same
-                            // way (`externalTypeKey`).
-                            match ctx.Provider.TryLookupType(SymbolKeyOps.lookupKeyOfCompiledName name) with
+                            // (`Console.Out`) exactly: the qualified name IS the identity.
+                            match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKey name 0) with
                             | ValueSome(ExternalTypeShape.Class info) when info.Arity = 0 ->
-                                ValueSome(TyClass(SymbolKeyOps.externalTypeKey info.Origin name 0, EqArray.empty))
+                                ValueSome(TyClass(SymbolKeyOps.qualifiedTypeKey name 0, EqArray.empty))
                             | _ -> ValueNone
                         )
 

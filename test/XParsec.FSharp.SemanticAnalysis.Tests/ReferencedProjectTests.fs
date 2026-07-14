@@ -171,11 +171,14 @@ let tests =
                 // `disposable`/`equatable`/`comparable` as `extern with abstract member …`,
                 // paired with their `capabilities.fs` `(# "<BCL interface>" #)` reprs. Each
                 // surfaces as ONE dual-faced `IntrinsicInterface`: the member surface plus an
-                // `Id { Canon; Platform }` — `Canon` is the `.fsi` short name, `Platform` is the
-                // CLR interface name. The generic ones (`equatable`/`comparable`) carry the
-                // metadata backtick-arity suffix in BOTH the lookup name (`Vesper.equatable`1`)
-                // and the `Platform` repr (``System.IEquatable`1``) — exactly the string a
-                // metadata interface name reconciles against for `disposable === System.IDisposable`.
+                // `Id { Canon; Platform }` — `Canon` is the identity of the `.fsi`-declared type,
+                // `Platform` is the CLR interface name. The generic ones (`equatable`/`comparable`)
+                // carry the metadata backtick-arity suffix in the lookup name (`Vesper.equatable`1`),
+                // in the `Canon` KEY (the arity is part of a nominal identity, so the canon a
+                // contract publishes equals the key a use site stamps — no arity-blind matcher
+                // stands between them), and in the `Platform` repr (``System.IEquatable`1``) —
+                // exactly the string a metadata interface name reconciles against for
+                // `disposable === System.IDisposable`.
                 // UNLIKE `exn`, reconciliation rides the `Id` platform face / `CapabilityIdentity`,
                 // NOT a reverse-canon entry (asserted absent below). Iteration is anchored the
                 // same way — the `seq` / `enumerator` cluster (`Vesper.Collections`), whose canon
@@ -186,7 +189,10 @@ let tests =
                 let expectCapability (lookup: string) (canonKey: SymbolKey) (platformExpected: string) =
                     match provider.TryLookupType lookup with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
-                        Expect.equal iface.Canon canonKey (sprintf "%s canon is its `.fsi` short name" lookup)
+                        Expect.equal
+                            iface.Canon
+                            canonKey
+                            (sprintf "%s canon is the identity of its `.fsi` type, arity included" lookup)
 
                         Expect.equal
                             iface.Platform
@@ -207,17 +213,19 @@ let tests =
                     | other -> failtestf "expected %s as an IntrinsicInterface shape, got %A" lookup other
 
                 expectCapability "Vesper.disposable" (RuntimeNames.primitiveKey "disposable") "System.IDisposable"
-                expectCapability "Vesper.equatable`1" (RuntimeNames.primitiveKey "equatable") "System.IEquatable`1"
-                expectCapability "Vesper.comparable`1" (RuntimeNames.primitiveKey "comparable") "System.IComparable`1"
+
+                expectCapability "Vesper.equatable`1" (RuntimeNames.primitiveKey "equatable`1") "System.IEquatable`1"
+
+                expectCapability "Vesper.comparable`1" (RuntimeNames.primitiveKey "comparable`1") "System.IComparable`1"
 
                 expectCapability
                     "Vesper.Collections.enumerator`1"
-                    (SymbolKeyOps.typeKey None "Vesper.Collections" ("enumerator"))
+                    (SymbolKeyOps.typeKey "Vesper.Collections" ("enumerator`1"))
                     "System.Collections.Generic.IEnumerator`1"
 
                 expectCapability
                     "Vesper.Collections.seq`1"
-                    (SymbolKeyOps.typeKey None "Vesper.Collections" ("seq"))
+                    (SymbolKeyOps.typeKey "Vesper.Collections" ("seq`1"))
                     "System.Collections.Generic.IEnumerable`1"
 
                 // `enumerator` inherits `disposable` (BCL parity), so its capability shape must

@@ -65,15 +65,17 @@ module NameResolutionTypeHeadStamp =
     let useSiteTypeKey (compiled: string) (arity: int) (shape: ExternalTypeShape) : SymbolKey =
         match shape with
         | ExternalTypeShape.Class info -> SymbolKeyOps.externalTypeKey info.Origin compiled arity
-        // A capability interface's VALUE identity key is origin-homed (asm-qualified),
-        // exactly as a `Class`'s — NOT the asm-blind canon the `Intrinsic` arm uses.
+        // A capability interface's VALUE identity key is origin-homed exactly as a
+        // `Class`'s: the origin supplies the namespace for a BARE compiled name.
         | ExternalTypeShape.IntrinsicInterface s -> SymbolKeyOps.externalTypeKey s.Origin compiled arity
         | ExternalTypeShape.Record(origin = o)
         | ExternalTypeShape.Union(origin = o)
         | ExternalTypeShape.Enum(origin = o) -> SymbolKeyOps.externalTypeKey o compiled arity
         | ExternalTypeShape.Abbrev _
-        // An intrinsic's identity is the canon (asm-blind), keyed off the compiled
-        // name — the optional base/ctor surface does not change the key.
+        // An intrinsic's identity is the canon, keyed off the compiled name — the optional
+        // base/ctor surface does not change the key. Identical by construction to the canon
+        // the extractor stamped on the shape (`SymbolKeyOps.intrinsicCanonKey`, the same
+        // mint off the same arity-suffixed compiled name), so the stamp and the shape agree.
         | ExternalTypeShape.Intrinsic _
         | ExternalTypeShape.Opaque _ -> SymbolKeyOps.qualifiedTypeKey compiled arity
 

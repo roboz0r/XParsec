@@ -313,23 +313,30 @@ module internal UnificationInferRecordAccess =
                     match tryExternalInheritedMember ctx rTy memberName with
                     | ValueSome(struct (m, memberArgs)) -> commitExternalMember m memberArgs
                     | ValueNone ->
-                        // A homed external `TyClass` whose home is ABSENT from the
-                        // compilation: the provider stack has NO shape for it at all
-                        // (`TryLookupType` also misses) and the key carries a home assembly
-                        // — the fingerprint of a refs-table identity minted by one package's
-                        // provider whose HOME manifest was never stacked. Name the missing
-                        // package rather than emit a generic no-such-member (the plain
-                        // "Unknown class type" is for an in-stack type genuinely lacking the
-                        // member).
-                        match ctx.Provider.TryLookupType clsKey, SymbolKeyOps.keyAsm clsKey with
-                        | ValueNone, Some home ->
+                        // A namespace-qualified external `TyClass` for which the provider
+                        // stack has NO shape at all (`TryLookupType` also misses): the
+                        // fingerprint of an identity minted by one package's provider whose
+                        // HOME manifest was never stacked. Name the missing type's NAMESPACE
+                        // rather than emit a generic no-such-member (the plain "Unknown class
+                        // type" is for an in-stack type genuinely lacking the member).
+                        //
+                        // The owning PACKAGE cannot be named here: a key is a nominal identity
+                        // and the assembly is a physical fact carried on the resolved shape —
+                        // and this is precisely the branch where no shape resolved.
+                        let clsNs =
+                            match clsKey with
+                            | SymbolKey.Type t -> t.Namespace.Dotted
+                            | _ -> ""
+
+                        match ctx.Provider.TryLookupType clsKey, clsNs with
+                        | ValueNone, ns when ns <> "" ->
                             errorTy
                                 ctx
                                 diagKey
                                 (sprintf
-                                    "type '%s' is referenced from package '%s' but that package is not part of the compilation"
+                                    "type '%s' is referenced from namespace '%s' but no package in the compilation declares it"
                                     clsSimple
-                                    home)
+                                    ns)
                         | _ -> errorTy ctx diagKey (sprintf "Unknown class type '%s'" clsQual)
         | TyUnion(unionKey, args) ->
             // Union instance member access — mirrors the `TyClass` arm
@@ -665,7 +672,7 @@ module internal UnificationInferRecordAccess =
         | TyArray elem ->
             match
                 resolveExternalIndexer
-                    (SymbolKeyOps.lookupKeyOfCompiledName RuntimeNames.arrayContractName)
+                    (SymbolKeyOps.qualifiedTypeKey RuntimeNames.arrayContractName 0)
                     [| elem |]
                     "get_Item"
             with

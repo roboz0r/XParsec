@@ -180,11 +180,13 @@ module EmitJsContext =
         | true, info -> ValueSome info
         | _ ->
             match ctx.Provider.TryLookupType key with
-            | ValueSome(ExternalTypeShape.Union(_, cases, _, _)) ->
+            | ValueSome(ExternalTypeShape.Union(_, cases, _, origin)) ->
                 let baseName = SymbolKeyOps.simpleName key
 
+                // The shape the provider resolved is what knows WHERE the union lives —
+                // the key names only WHAT it is.
                 let home =
-                    match SymbolKeyOps.keyAsm key with
+                    match origin.Assembly with
                     | Some asm -> ValueSome asm
                     | None -> failwithf "EmitJs: external union '%s' has no home assembly (key %A)" baseName key
 
@@ -309,46 +311,65 @@ module EmitJsContext =
             // object (`import { E } from './<asm>.mjs'`) and read the case (`E.Ci`),
             // mirroring the external-union case-class import (`addTypeRef`). The
             // `import { E } + E.Ci` shape is exactly what `tsc` emits for the enum, so
-            // no object map is re-emitted. The key's home assembly selects the module.
-            match SymbolKeyOps.keyAsm enumKey with
-            | Some asm ->
-                let local = JsImports.addTypeRef ctx.Imports asm (SymbolKeyOps.simpleName enumKey)
-                JsExpr.Member(JsExpr.Identifier(local, loc), JsExpr.Identifier(caseName, ValueNone), false, loc)
-            | None ->
-                failwithf
-                    "EmitJs: enum case '%s' on a type with no emitted enum object and no home assembly (key %A)"
-                    caseName
-                    enumKey
+            // no object map is re-emitted. The enum's resolved SHAPE names the module.
+            let asm =
+                JsExternalMembers.assemblyOf ctx.Provider enumKey (sprintf "enum case '%s'" caseName)
 
-    /// The import FORM of an external value's home-module export, read off the
-    /// resolved `ExternalSymbol.ImportForm` (the provider seam that also carries
-    /// `AttachMembers`): `Default` only for a TS `export default` (mitt's factory),
-    /// which `JsImports.addRef` must lower to `import x from '<spec>'`. Key-based
-    /// lookup exactly as `JsFlatFns.externalGroups` — codegen reads what the front
-    /// end already resolved. A miss (no key / a symbol the provider doesn't model)
-    /// is `Named`: every Vesper-emitted runtime export is named.
-    let importFormOf (provider: IExternalSymbolProvider) (key: SymbolKey voption) : ImportForm =
-        match key with
-        | ValueSome key ->
-            match provider.TryLookup(SymbolKeyOps.qualifiedName key) with
-            | ValueSome sym -> sym.ImportForm
-            | ValueNone -> ImportForm.Named
-        | ValueNone -> ImportForm.Named
+            let local = JsImports.addTypeRef ctx.Imports asm (SymbolKeyOps.simpleName enumKey)
+            JsExpr.Member(JsExpr.Identifier(local, loc), JsExpr.Identifier(caseName, ValueNone), false, loc)
+
+    /// The import reference for an external VALUE: its home and the FORM its home module
+    /// exports it under, BOTH read off the one `ExternalSymbol` the provider resolved for
+    /// the key — the shape is the `key -> home` oracle (`Home`), and the same seam carries
+    /// `ImportForm` (`Default` only for a TS `export default` — mitt's factory — which
+    /// `JsImports.addRef` must lower to `import x from '<spec>'`). Key-based lookup exactly
+    /// as `JsFlatFns.externalGroups`: codegen reads what the front end already resolved.
+    ///
+    /// A miss (no key / a symbol the provider doesn't model) leaves the home `Local` and
+    /// the form `Named`: nothing names a module to import from, so `addRef` fails loudly
+    /// rather than emitting a dangling import — and every Vesper-emitted runtime export is
+    /// named anyway.
+    let externalValueRef (provider: IExternalSymbolProvider) (key: SymbolKey voption) : JsValueRef =
+        let resolved =
+            match key with
+            | ValueSome k -> provider.TryLookup(SymbolKeyOps.qualifiedName k)
+            | ValueNone -> ValueNone
+
+        match resolved with
+        | ValueSome sym ->
+            {
+                Key = key
+                Home = sym.Origin.Home
+                Form = sym.ImportForm
+            }
+        | ValueNone ->
+            {
+                Key = key
+                Home = Origin.Local
+                Form = ImportForm.Named
+            }
+
+    /// A `Vesper.Printf.mjs` runtime entry the BACKEND synthesises: no front-end symbol
+    /// resolves to it (the specifiers it serves are front-end special-cased), so no
+    /// provider shape carries its home either — codegen names both the key and the module,
+    /// here, in one place.
+    let private printfRuntimeRef (name: string) : JsValueRef =
+        {
+            Key = ValueSome(SymbolKeyOps.moduleValueKey "Vesper" "StructuralPrinter" name)
+            Home = Origin.InAssembly(AssemblyName "Vesper.Printf")
+            Form = ImportForm.Named
+        }
 
     /// The runtime entry for a `%A` (`Structured`) hole: the shape-keyed structural
     /// formatter in `Vesper.Printf.mjs` (Printf owns `%A`; the JS analogue of the
     /// Vesper.Printf CLR DLL), imported + `$`-aliased through the ordinary external-call
-    /// path (like `structuralEquals`). No front-end symbol resolves to it — `%A` is
-    /// front-end special-cased — so the backend synthesises its key, the codegen-owned
-    /// analogue of the CLR backend's `AppendStructured<T>` member ref.
-    let structuralFormatKey: SymbolKey voption =
-        ValueSome(SymbolKeyOps.moduleValueKey (Some "Vesper.Printf") "Vesper" "StructuralPrinter" "structuralFormat")
+    /// path (like `structuralEquals`) — the codegen-owned analogue of the CLR backend's
+    /// `AppendStructured<T>` member ref.
+    let structuralFormatRef: JsValueRef = printfRuntimeRef "structuralFormat"
 
     /// The runtime entry a `%O` on a `float32` renders through — `float32ToString` in the
-    /// same `Vesper.Printf.mjs`, synthesised exactly like `structuralFormatKey` (no
-    /// front-end symbol resolves to it; the specifier is front-end special-cased).
-    let float32ToStringKey: SymbolKey voption =
-        ValueSome(SymbolKeyOps.moduleValueKey (Some "Vesper.Printf") "Vesper" "StructuralPrinter" "float32ToString")
+    /// same `Vesper.Printf.mjs`.
+    let float32ToStringRef: JsValueRef = printfRuntimeRef "float32ToString"
 
     /// The JS repr `int64` / `uint64` bind to (`prim-types-int.js.fs`).
     [<Literal>]
