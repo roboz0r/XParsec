@@ -14,8 +14,9 @@ open XParsec.FSharp.Codegen.Clr.Tests.MetadataStructure
 // the emitter's own handle checks cannot see what these do.
 
 /// A program that exercises every slot GROUP the layout orders by: a union, a
-/// record, a class, a closure (`adder`'s lambda captures `k`), a module holder, the
-/// anonymous `Program` holder's top-level value fields, and `Main`.
+/// record, a class, a closure (`adder`'s lambda captures `k`), a module holder with a
+/// type NESTED in it, the anonymous `Program` holder's top-level value fields, and
+/// `Main`.
 let private representative =
     String.concat
         "\n"
@@ -28,13 +29,15 @@ let private representative =
             "    member c.Start = start"
             "    member c.Next() = c.Start + 1"
             "module M ="
+            "    type Tally = { Hits: int }"
             "    let twice (x: int) = x + x"
             "    let adder (k: int) = fun (x: int) -> x + k"
             "let bump = M.adder 3"
             "let p = { X = 1; Y = 2 }"
             "let c = Counter(4)"
             "let s = Line 5"
-            "let n = M.twice (bump (p.X + p.Y + c.Next()))"
+            "let t = { Hits = 7 }"
+            "let n = M.twice (bump (p.X + p.Y + c.Next() + t.Hits))"
             "printfn \"%d\" n"
             "printfn \"%b\" (s = Line 5)"
         ]
@@ -156,9 +159,9 @@ let tests =
                 assertNoEntryPoint "library" libraryBytes.Value
             }
 
-            // `Main` is appended GLOBALLY LAST to `layout.Methods` while the `Program`
-            // slot's `MethodCount` counts it — so this fails the moment `Program` stops
-            // being the final type slot.
+            // `Main`'s row comes from the `Program` node's method list while the range that
+            // must contain it is prefix-summed over the whole `TypeDef` flattening — so
+            // this fails the moment the two fall out of step.
             test "the entry point lies inside the Program type's method range" {
                 assertEntryPointOwner "representative" representativeBytes.Value "Program" "Main"
             }
@@ -205,17 +208,23 @@ let tests =
                             Fields = [ "instance" ]
                             Methods = [ ".ctor"; "Invoke"; ".cctor" ]
                         }
-                        // The module's compiled holder class: static methods, no fields.
+                        // The module's compiled holder class: static methods, no fields —
+                        // immediately followed (pre-order) by the type it holds.
                         {
                             Type = "M"
                             Fields = []
                             Methods = [ "twice"; "adder" ]
                         }
-                        // The anonymous holder, last, so that `Main` — appended globally
-                        // last to `layout.Methods` — falls inside its method range.
+                        {
+                            Type = "M+Tally"
+                            Fields = [ "Hits" ]
+                            Methods = [ ".ctor"; "GetHashCode"; "Equals"; "Equals"; "Format" ]
+                        }
+                        // The anonymous holder, last, so that `Main` — the final row of the
+                        // final node — falls inside its method range.
                         {
                             Type = "Program"
-                            Fields = [ "p"; "c"; "s"; "n" ]
+                            Fields = [ "p"; "c"; "s"; "t"; "n" ]
                             Methods = [ "Main" ]
                         }
                     ]

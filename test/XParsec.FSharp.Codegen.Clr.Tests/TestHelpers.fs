@@ -1289,26 +1289,6 @@ open System.Reflection.PortableExecutable
 let openPe (bytes: byte[]) : PEReader =
     new PEReader(System.Collections.Immutable.ImmutableArray.Create<byte>(bytes))
 
-/// List every type-def's full name (`Namespace.TypeName`) in the PE. Anonymous
-/// `<Module>` is excluded so a "no user type" assertion can be punctual.
-let peTypeDefNames (bytes: byte[]) : string list =
-    use peReader = openPe bytes
-    let md = peReader.GetMetadataReader()
-
-    [
-        for h in md.TypeDefinitions do
-            let td = md.GetTypeDefinition h
-            let name = md.GetString td.Name
-
-            if name <> "<Module>" then
-                let ns = md.GetString td.Namespace
-
-                if System.String.IsNullOrEmpty ns then
-                    name
-                else
-                    sprintf "%s.%s" ns name
-    ]
-
 /// The base-type full name (`Namespace.Name`) of the first type-def whose simple
 /// name satisfies `nameMatches` — resolving the `BaseType` handle through either a
 /// `TypeReference` (BCL, e.g. `System.ValueType` / `System.Object`) or a sibling
@@ -1373,8 +1353,9 @@ let peClosureBaseTypeNames (bytes: byte[]) : string list =
     )
     |> Seq.toList
 
-/// List every method-def's `(declaringType, methodName)` in the PE. The
-/// declaring type's name comes through `peTypeDefNames`'s formatting.
+/// List every method-def's `(declaringType, methodName)` in the PE, the declaring type
+/// named `Namespace.Name`. For the full CLR spelling of a NESTED type (`Ns.Outer+Inner`)
+/// and the rows each type's range claims, use `MetadataStructure.emittedTypes`.
 let peMethodNames (bytes: byte[]) : (string * string) list =
     use peReader = openPe bytes
     let md = peReader.GetMetadataReader()

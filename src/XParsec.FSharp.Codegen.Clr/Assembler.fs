@@ -304,7 +304,7 @@ type internal Assembler
             closureValueTypeByNode
             tast.FunVerdicts
             enumeratorOf
-            [ for mv in plan.ModuleValueFieldOrder -> mv.Key, mv.Ty, mv.Init ]
+            [ for mv in plan.AllModuleValues -> mv.Key, mv.Ty, mv.Init ]
 
     let retypeBody = verdict.RetypeBody
     let retypeDecl = verdict.RetypeDecl
@@ -459,7 +459,7 @@ type internal Assembler
     let moduleValueFields = Dictionary<NodeKey, EntityHandle>()
 
     do
-        plan.ModuleValueFieldOrder
+        plan.AllModuleValues
         |> List.iter (fun mv -> moduleValueFields.[mv.Key] <- toEntity fieldDefHandles.[FieldKey.ModuleValue mv.Key])
 
     // The trailing top-level values: their `public static` field is written in
@@ -528,6 +528,42 @@ type internal Assembler
         ||| TypeAttributes.Sealed
         ||| TypeAttributes.SequentialLayout
         ||| TypeAttributes.AnsiClass
+
+    // An interface: `abstract`, no base, no fields.
+    let interfaceAttrs =
+        TypeAttributes.Interface ||| TypeAttributes.Abstract ||| TypeAttributes.Public
+
+    // A module holder / the anonymous "Program" holder: an `abstract sealed` static
+    // class. A holder owning module-value fields has a side-effecting `.cctor`; drop
+    // `BeforeFieldInit` so it runs before first member access. This is *first-access*
+    // (lazy, per-holder) initialisation — real F# runs file-scope bindings eagerly in
+    // file order via startup code, so a side-effecting initialiser could observe a
+    // different order; the pure values in this slice's scope can't tell the difference.
+    let holderAttrsOf (hasCctor: bool) =
+        let baseAttrs =
+            TypeAttributes.Class
+            ||| TypeAttributes.Public
+            ||| TypeAttributes.Abstract
+            ||| TypeAttributes.Sealed
+            ||| TypeAttributes.AutoLayout
+
+        if hasCctor then
+            baseAttrs
+        else
+            baseAttrs ||| TypeAttributes.BeforeFieldInit
+
+    // Nested visibility REPLACES the 3-bit visibility field rather than adding to it, so
+    // a nested type's `Public` becomes `NestedPublic`. Uniformly `NestedPublic`: nothing
+    // models `internal` in emission today (every attribute set above hard-codes
+    // `Public`), so a narrower nested visibility would REGRESS a `module internal` from
+    // the public class it emits today, not fix it. The rule to honour when accessibility
+    // lands is that a nested type's visibility is the MINIMUM of its own and its holder
+    // chain's — `internal` is assembly-scoped, so anything inside an assembly-scoped
+    // module is at most assembly-scoped.
+    let nestedAttrsOf (enclosing: TypeSlotKey voption) (attrs: TypeAttributes) =
+        match enclosing with
+        | ValueNone -> attrs
+        | ValueSome _ -> (attrs &&& ~~~TypeAttributes.VisibilityMask) ||| TypeAttributes.NestedPublic
 
     // A user class opts in to `Sealed` via `[<Sealed>]`; without it the
     // class is open. Unions / records reuse this with `isSealed = true`.
@@ -1073,11 +1109,23 @@ type internal Assembler
                     (rowOf (toEntity predicted))
                     (rowOf (toEntity actual))
 
+        // The `NestedClass` row of a type the layout nests. Written HERE — while the
+        // NESTED type is being written, not its enclosing one — so the table comes out
+        // sorted by the nested handle (which is what SRM validates), the `TypeDef` walk
+        // being ascending. The enclosing handle is already minted: a node's enclosing
+        // type precedes it in the pre-order flattening.
+        let addNesting (node: TypeNode) (typeHandle: TypeDefinitionHandle) =
+            match node.Enclosing with
+            | ValueNone -> ()
+            | ValueSome encl -> ctx.AddNestedType(typeHandle, layoutHandles.TypeDefOf encl)
+
         // Union, record, class, and closure `TypeDefinition` rows share one
         // recipe, with the Prepare-minted `InterfaceImpl` / `BaseType` handles.
         // Walking the layout in order keeps the `InterfaceImpl` /
         // `GenericParam` rows ascending (sorted by `Class` / `TypeOrMethodDef`).
-        let addNominalRow (slot: TypeSlot) (attrs: TypeAttributes) (isByRefLike: bool) =
+        let addNominalRow (node: TypeNode) (attrs: TypeAttributes) (isByRefLike: bool) =
+            let slot = node.Slot
+
             let extras =
                 match typeRowExtras.TryGetValue slot.Key with
                 | true, e -> e
@@ -1085,7 +1133,7 @@ type internal Assembler
 
             let typeHandle =
                 ctx.AddClass(
-                    attrs,
+                    nestedAttrsOf node.Enclosing attrs,
                     slot.Namespace,
                     slot.MetaName,
                     extras.BaseType,
@@ -1094,6 +1142,7 @@ type internal Assembler
                 )
 
             verifyTypeHandle slot typeHandle
+            addNesting node typeHandle
 
             // A `[<IsByRefLike>]` value type carries the `IsByRefLikeAttribute`
             // marker — a parameterless custom attribute (blob = prolog `0x0001`
@@ -1113,7 +1162,9 @@ type internal Assembler
             slot.Typars
             |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n))
 
-        for slot in layout.Types do
+        for node in layout.Types do
+            let slot = node.Slot
+
             match slot.Kind with
             | TypeSlotKind.ModulePseudo ->
                 // `<Module>` points at method row 1 — the first real method, or
@@ -1126,6 +1177,7 @@ type internal Assembler
                 // prefix sum — row 1, every field-bearing kind follows).
                 let typeHandle =
                     ctx.AddInterfaceType(
+                        nestedAttrsOf node.Enclosing interfaceAttrs,
                         slot.Namespace,
                         slot.MetaName,
                         layoutHandles.FirstFieldOf slot.Key,
@@ -1133,6 +1185,7 @@ type internal Assembler
                     )
 
                 verifyTypeHandle slot typeHandle
+                addNesting node typeHandle
 
                 slot.Typars
                 |> List.iteri (fun i n -> genericParams.Add(toEntity typeHandle, i, n))
@@ -1140,12 +1193,12 @@ type internal Assembler
             // Unions and records are always sealed (subclassing /
             // inheritance forbidden); a class opts in via `[<Sealed>]` / `[<Struct>]`.
             | TypeSlotKind.Union
-            | TypeSlotKind.Record -> addNominalRow slot (classAttrsOf true false) false
+            | TypeSlotKind.Record -> addNominalRow node (classAttrsOf true false) false
 
             | TypeSlotKind.Class(isSealed, valueKind) ->
                 let isValueType = valueKind <> ClassValueKind.RefType
                 let isByRefLike = valueKind = ClassValueKind.RefStruct
-                addNominalRow slot (classAttrsOf isSealed isValueType) isByRefLike
+                addNominalRow node (classAttrsOf isSealed isValueType) isByRefLike
 
             // A numeric enum: base = `System.Enum`, no interfaces, no
             // methods. It needs no `TypeRowExtras` (no synthesised eq/comp/format
@@ -1154,7 +1207,7 @@ type internal Assembler
             | TypeSlotKind.Enum ->
                 let typeHandle =
                     ctx.AddClass(
-                        enumAttrs,
+                        nestedAttrsOf node.Enclosing enumAttrs,
                         slot.Namespace,
                         slot.MetaName,
                         provider.EnumBase,
@@ -1163,12 +1216,13 @@ type internal Assembler
                     )
 
                 verifyTypeHandle slot typeHandle
+                addNesting node typeHandle
 
             // A string/mixed enum: a `[<Struct>]` value type over
             // `System.ValueType` with a `.ctor` + `.cctor`. Routed through
             // `addNominalRow` (it carries `TypeRowExtras` — the `ValueType` base set
             // in `PrepareStructEnums`); never byref-like.
-            | TypeSlotKind.StructEnum _ -> addNominalRow slot structEnumAttrs false
+            | TypeSlotKind.StructEnum _ -> addNominalRow node structEnumAttrs false
 
             // Each closure derives from `System.Object` and implements its
             // `Vesper.Fun\`2<param, result>` interface. Its `GenericParam` rows
@@ -1204,23 +1258,24 @@ type internal Assembler
                 for iface in extras.Interfaces do
                     ctx.AddInterfaceImplementation(closureHandle, iface)
 
-            // Named-module holders: one static class per `module Foo`. A holder
-            // owning module values takes its own `FieldList` and drops
-            // `BeforeFieldInit` (its `.cctor` runs before first access); a
-            // value-less holder's empty field range points past the previous
-            // owner's range (the prefix sum).
+            // Named-module holders: one static class per `module Foo`, nested in its
+            // parent module's holder when the module nests. A holder owning module
+            // values takes its own `FieldList` and drops `BeforeFieldInit` (its
+            // `.cctor` runs before first access); a value-less holder's empty field
+            // range points past the previous owner's range (the prefix sum).
             | TypeSlotKind.Holder hasCctor ->
                 let typeHandle =
                     ctx.AddProgramType(
+                        nestedAttrsOf node.Enclosing (holderAttrsOf hasCctor),
                         slot.Namespace,
                         slot.MetaName,
                         provider.ObjectType,
                         layoutHandles.FirstFieldOf slot.Key,
-                        layoutHandles.FirstMethodOf slot.Key,
-                        not hasCctor
+                        layoutHandles.FirstMethodOf slot.Key
                     )
 
                 verifyTypeHandle slot typeHandle
+                addNesting node typeHandle
 
             // The anonymous "Program" holder owns the holder-less static methods
             // (and `Main`, when an executable) and the top-level value fields.
@@ -1230,12 +1285,12 @@ type internal Assembler
             | TypeSlotKind.Program hasCctor ->
                 let typeHandle =
                     ctx.AddProgramType(
+                        holderAttrsOf hasCctor,
                         slot.Namespace,
                         slot.MetaName,
                         provider.ObjectType,
                         layoutHandles.FirstFieldOf slot.Key,
-                        layoutHandles.FirstMethodOf slot.Key,
-                        not hasCctor
+                        layoutHandles.FirstMethodOf slot.Key
                     )
 
                 verifyTypeHandle slot typeHandle

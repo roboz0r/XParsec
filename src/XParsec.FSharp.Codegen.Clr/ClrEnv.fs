@@ -491,14 +491,10 @@ type internal ClrEnv
                         toEntity (ctx.TypeRef(asm, ns.Dotted, SymbolKeyOps.typeSegmentName t))
                     | TypeHolder.InModule m ->
                         // A module-held type compiles to a type NESTED in the module's holder
-                        // type, so its `TypeRef` must chain through `externalModuleRef` — not
-                        // fall back to the namespace, which would silently drop `m` and emit a
-                        // ref that does not bind. No producer mints this holder yet; when one
-                        // does, this is the site that must be wired, so it fails loud.
-                        failwithf
-                            "ClrEnv: module-held external type has no TypeRef encoding yet: %s in %s"
-                            t.Name
-                            m.Name
+                        // type, so its `TypeRef` chains through `externalModuleRef` — a bare
+                        // namespace-scoped ref would drop `m` and not bind. `info.Origin` is
+                        // the shape's home, the only place a physical location lives.
+                        toEntity (ctx.TypeRef(externalModuleRef info.Origin m, "", SymbolKeyOps.typeSegmentName t))
 
                 ValueSome(typeRefOf t)
             | _ -> ValueNone

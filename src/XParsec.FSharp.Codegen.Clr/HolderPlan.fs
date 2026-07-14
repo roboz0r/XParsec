@@ -53,30 +53,38 @@ type HolderPlan =
         /// Functions on the anonymous "Program" holder: they follow the named
         /// holders' methods (and `Main` follows them), unchanged.
         HolderlessFns: Emit.StaticFn list
-        /// Holder emission order: fn-bearing holders in first-appearance order,
-        /// then any value-only holder.
+        /// The holders this plan gives METHODS or VALUES to, fn-bearing ones in
+        /// first-appearance order then any value-only holder. NOT the emitted holder set:
+        /// a module that holds only TYPES gets a holder class too, and so does an
+        /// ancestor of a nested holder — both are discovered from the type decls in
+        /// `Layout.build`, which is the one place the holder TREE is built.
         OrderedNamedHolders: Emit.HolderKey list
-        /// A holder's module values in declaration order (`holderValues`).
-        ValuesByHolder: Map<Emit.HolderKey, Emit.ModuleValue list>
-        /// Method emission plan: per named holder (in `OrderedNamedHolders`
-        /// order) a `.cctor` slot when it has values then its fns, then the
-        /// holder-less fns — so every holder's methods form a contiguous
-        /// `MethodDef` range. A slot's position is its predicted row offset
-        /// past the type/closure methods; `Main` is appended after.
+        /// A holder's module values in declaration order (`holderValues`). A
+        /// `Dictionary` because a `ModuleKey` is equatable but not ORDERED (its
+        /// namespace path is an `EqArray`, which has no comparison).
+        ValuesByHolder: Dictionary<Emit.HolderKey, Emit.ModuleValue list>
+        /// Which methods a holder owns and in what order *within* that holder: a
+        /// `.cctor` when it has values, then its fns; then the Program holder's
+        /// `.cctor` and its holder-less fns. The `Assembler`'s Prepare pass walks it to
+        /// bind every holder-owned method body.
+        ///
+        /// NOT a row order: `MethodDef` rows are the pre-order flattening of
+        /// `Layout`'s `TypeNode` tree, so a holder's methods are contiguous because they
+        /// hang off its node — not because a side list happened to list them together.
         MethodPlan: MethodSlot list
-        /// Module-value field rows in emission order — holder order, each
-        /// holder's values in declaration order. These are the *trailing* field
-        /// rows (holders emit after every type and closure field).
-        ModuleValueFieldOrder: Emit.ModuleValue list
+        /// Every module-level value that gets a static FIELD — named-holder values in
+        /// holder order, then the Program holder's. The `Assembler` maps each to its
+        /// written field handle; the field ROW order is the layout tree's, not this.
+        AllModuleValues: Emit.ModuleValue list
     }
 
 module HolderPlan =
 
     /// A holder's module values in declaration order; `[]` for a value-less holder.
     let holderValues (plan: HolderPlan) (holder: Emit.HolderKey) : Emit.ModuleValue list =
-        match Map.tryFind holder plan.ValuesByHolder with
-        | Some vs -> vs
-        | None -> []
+        match plan.ValuesByHolder.TryGetValue holder with
+        | true, vs -> vs
+        | _ -> []
 
     /// Classify the lowered top-level decls into module values and static-method
     /// functions, validate the values' initialisers, and fix the holder /
@@ -260,21 +268,27 @@ module HolderPlan =
 
             fnHolders @ valueOnly
 
-        let valuesOf =
-            let m = Map.ofList valuesByHolder
+        // `Dictionary`, not `Map`: a `ModuleKey` is equatable but not ordered.
+        let valuesByHolderIndex = Dictionary<Emit.HolderKey, Emit.ModuleValue list>()
 
-            fun h ->
-                match Map.tryFind h m with
-                | Some vs -> vs
-                | None -> []
+        for (h, vs) in valuesByHolder do
+            valuesByHolderIndex.[h] <- vs
+
+        let valuesOf h =
+            match valuesByHolderIndex.TryGetValue h with
+            | true, vs -> vs
+            | _ -> []
 
         let fnsOf =
-            let m = Map.ofList namedHolderGroups
+            let m = Dictionary<Emit.HolderKey, Emit.StaticFn list>()
+
+            for (h, fns) in namedHolderGroups do
+                m.[h] <- fns
 
             fun h ->
-                match Map.tryFind h m with
-                | Some fns -> fns
-                | None -> []
+                match m.TryGetValue h with
+                | true, fns -> fns
+                | _ -> []
 
         let methodPlan =
             [
@@ -284,9 +298,8 @@ module HolderPlan =
 
                     yield! fnsOf h |> List.map HolderFn
 
-                // The Program holder's `.cctor` sits immediately before its
-                // holder-less fns, so the holder's methods (cctor, fns, then `Main`)
-                // form a contiguous `MethodDef` range.
+                // The Program holder's `.cctor` runs before its holder-less fns and
+                // before `Main`.
                 if not (List.isEmpty programCctorValues) then
                     yield ProgramCctor
 
@@ -304,16 +317,15 @@ module HolderPlan =
             StaticFnTypars = staticFnTypars
             HolderlessFns = holderlessFns
             OrderedNamedHolders = orderedNamedHolders
-            ValuesByHolder = Map.ofList valuesByHolder
+            ValuesByHolder = valuesByHolderIndex
             MethodPlan = methodPlan
-            ModuleValueFieldOrder =
+            AllModuleValues =
                 [
                     for h in orderedNamedHolders do
                         yield! valuesOf h
-                    // Program-holder value fields are the trailing field rows — the
-                    // Program slot is the last type. `initonly` (cctor) ones
-                    // first, then the `Main`-written mutable ones; both resolve to an
-                    // `ldsfld` via `moduleValueFields`.
+                    // The Program holder's: `initonly` (cctor) ones first, then the
+                    // `Main`-written mutable ones; both resolve to an `ldsfld` via
+                    // `moduleValueFields`.
                     yield! programCctorValues
                     yield! programMainValues
                 ]

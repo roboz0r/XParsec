@@ -10,7 +10,7 @@ below are what remains after that work. Delete this file once they are closed.
 
 ## Status
 
-**Closed: 1, 7, 9.** Four commits (`24455419`, `18679fb6`, `3ecc37c4`, `918d66c8`) closed
+**Closed: 1, 2, 7, 9.** Four commits (`24455419`, `18679fb6`, `3ecc37c4`, `918d66c8`) closed
 finding 1 at its root rather than at the symptom the finding described. Finding 1's own
 prescription — key the provider stores by `SymbolKey` — is NOT what landed, and could not
 be: ten call sites mint a store key from a bare compiled name with no assembly in hand, and
@@ -28,21 +28,23 @@ complaint is void: it is no longer a one-field wrapper — it carries the home a
 directly and is the `key -> assembly` oracle a backend consults for an `AssemblyRef` scope
 or a JS import path.
 
-**Finding 2 is SUPERSEDED by
-`src/XParsec.FSharp.SemanticAnalysis/docs/nested-type-emission-plan.md`.** The finding is
-real and its diagnosis holds — `typeNestedName`'s wildcard swallows `TypeHolder.InModule`, so
-a module-held type's `qualifiedName` drops its module, and that flattening sits underneath
-the premise the whole reshape rests on. But its prescription ("make the match exhaustive;
-site the WHY on the new arm") is not a fix that can be taken on its own terms. The flat
-rendering is load-bearing against a backend that writes every `TypeDef` flat, and the
-contract extractor independently loses the module by round-tripping it through a dotted
-string. The renderer, the emitter and the extractor are one change, not three, and the plan
-scopes it. Finding 2's own "one of these two sites is wrong, and it is not the loud one" is
-the correct read: `ClrEnv`'s `failwithf` knew the answer all along.
+**Finding 2 is CLOSED.** Its diagnosis held — `typeNestedName`'s wildcard swallowed
+`TypeHolder.InModule`, so a module-held type's `qualifiedName` dropped its module — but its
+prescription ("make the match exhaustive; site the WHY on the new arm") was not a fix that
+could be taken on its own terms: the flat rendering was load-bearing against a backend that
+wrote every `TypeDef` flat, and the contract extractor independently lost the module by
+round-tripping it through a dotted string. The renderer, the emitter and the extractor were
+one change, and they landed as one: the renderer is exhaustive, the contract mints an
+`InModule` chain, and the CLR backend emits a module-held type as a class NESTED in its
+module's holder (`Layout`'s `TypeNode` tree + `NestedClass` rows). Finding 2's own "one of
+these two sites is wrong, and it is not the loud one" was the correct read: `ClrEnv`'s
+`failwithf` knew the answer all along, and is now the `TypeRef` that chains through the
+module's holder.
 
 **Open, unchanged: 3, 4, 5, 6, 8, 10** and the test gaps — except that the module-blind
-claim collision named under "Test gaps" is now PINNED (`DuplicateTypeNameTests`), so the
-eventual fix has something to flip.
+claim collision named under "Test gaps" is now PINNED (`DuplicateTypeNameTests`,
+`LocalModuleTests`), so the eventual fix has something to flip, and its emission
+precondition is met.
 
 ## What is right
 
@@ -80,8 +82,10 @@ containment a name cannot express — the contract extractor, the sole producer 
 
 **STILL OPEN — the registry half.** `TypeRegistry.TypeClaims` remains
 `Dictionary<string, ResizeArray<TypeIdentity>>`, keyed by a bare short name with a linear
-arity scan. That is the module-blind duplicate-claim collision, and it is gated on
-`nested-type-emission-plan.md` landing first.
+arity scan. That is the module-blind duplicate-claim collision. Its precondition — two
+sibling modules' same-named types must be distinguishable in emitted metadata — is now met
+(they nest in their holders), so the pin in `LocalModuleTests` / `DuplicateTypeNameTests` is
+free to be flipped.
 
 Every provider store takes a `SymbolKey` and immediately renders it back to a flat
 string. From the shared leaf derivation, so this is the shape of the layer rather than

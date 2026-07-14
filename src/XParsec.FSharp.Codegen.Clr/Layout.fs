@@ -254,21 +254,40 @@ type internal TypeRowExtras =
         BaseType: EntityHandle
     }
 
-/// One `TypeDefinition` row. The i-th entry of `AssemblyLayout.Types` is table
-/// row i+1 (index 0 = `<Module>` = row 1). `FieldCount`/`MethodCount` are this
-/// type's contiguous ranged-table rows; first-field/first-method handles are
-/// prefix sums over the list (see `Layout.deriveHandles`).
+/// One `TypeDefinition` row. It carries NO row counts: a type's field / method rows
+/// are the lists on its `TypeNode`, and every prefix sum is taken over those — so
+/// there is nothing here that could disagree with them.
 type internal TypeSlot =
     {
         Key: TypeSlotKey
         Kind: TypeSlotKind
+        /// The `TypeDef` namespace column. EMPTY for a nested type — a nested type's
+        /// namespace is its enclosing type's, which is the CLR rule.
         Namespace: string
-        /// Metadata name, already arity-suffixed (`SymbolKeyOps.arityName`).
+        /// Metadata name, already arity-suffixed (`SymbolKeyOps.arityName`). ONE
+        /// segment: the holder chain lives in `TypeNode.Enclosing` (a `NestedClass`
+        /// row), never in the name.
         MetaName: string
         /// Metadata-layer typar names (leading F# quote dropped).
         Typars: string list
-        FieldCount: int
-        MethodCount: int
+    }
+
+/// One node of the emitted type HIERARCHY: a `TypeDefinition` row together with the
+/// ranged-table rows it owns and the types nested inside it. The `TypeDef` table IS
+/// the pre-order flattening of the roots, and `AssemblyLayout`'s `Types` / `Fields` /
+/// `Methods` are `List.collect`s over that flattening — so a type's range and the rows
+/// in it agree BY DERIVATION, not by a count kept in step by hand.
+///
+/// `Enclosing` is `ValueNone` for a root (`<Module>`, a namespace-level type, a
+/// closure, a root module's holder, `Program`) and `ValueSome` for a type the CLR
+/// nests — exactly the types that get a `NestedClass` row and nested visibility.
+type internal TypeNode =
+    {
+        Slot: TypeSlot
+        Enclosing: TypeSlotKey voption
+        Fields: FieldSlot list
+        Methods: MethodRow list
+        Nested: TypeNode list
     }
 
 /// The planned assembly: the ranged-table rows as data, plus the lowering
@@ -277,17 +296,15 @@ type internal TypeSlot =
 /// `feedback_walkelems_order_ctor_params`).
 type internal AssemblyLayout =
     {
-        /// Index 0 = `<Module>`; the i-th entry is TypeDef row i+1.
-        Types: TypeSlot list
-        /// The full `Field` table in row order: union `_tag` + case
-        /// fields → record fields → class ctor-param / `val` / static-let
-        /// fields → closure captures → module-value fields (holder order).
+        /// The `TypeDef` table: the PRE-ORDER flattening of the type hierarchy, so each
+        /// holder is immediately followed by the types it holds. Index 0 = `<Module>`;
+        /// the i-th entry is TypeDef row i+1.
+        Types: TypeNode list
+        /// The full `Field` table in row order — the fields of `Types`, in `Types`
+        /// order. Derived, never assembled a second time.
         Fields: FieldSlot list
-        /// The full `MethodDef` table in row order: interface abstract
-        /// methods → per union/record/class: ctor(s) + factories + members +
-        /// [equality triple] + [comparison pair] → per closure: `.ctor` +
-        /// `Invoke` → holder `.cctor`s + static fns (`HolderPlan.MethodPlan`
-        /// order) → [`Main`].
+        /// The full `MethodDef` table in row order — the methods of `Types`, in `Types`
+        /// order. Derived, never assembled a second time.
         Methods: MethodRow list
         Lowered: Frozen.TDecl list
         Plan: HolderPlan
@@ -554,32 +571,68 @@ module internal Layout =
                 }
         ]
 
-    let private nominalSlot
+    /// The module a declaration's key says holds it, or `ValueNone` for one declared
+    /// straight in a namespace. The key is the ONE place the containment lives —
+    /// `ModuleRules` builds it — so nothing here re-derives it from a name.
+    let private declaringModule (td: Frozen.TTypeDecl) : ModuleKey voption =
+        match td.Key with
+        | SymbolKey.Type t ->
+            match t.Holder with
+            | TypeHolder.InModule m -> ValueSome m
+            | TypeHolder.InNamespace _ -> ValueNone
+            // `InType` is the EXTERNAL nesting of a bare-IL type. Vesper source cannot
+            // declare a nested type, so a project-local decl never carries one; if one
+            // ever arrives it needs an enclosing SLOT, which this backend has no way to
+            // name — fail rather than emit it as a root under a truncated name.
+            | TypeHolder.InType outer ->
+                failwithf "Layout: local type '%s' claims a CLR-nested holder '%s'" td.Name outer.Name
+        | k -> failwithf "Layout: type declaration '%s' carries a non-type key %A" td.Name k
+
+    /// A nominal type's node. Its `TypeDef` sits in its declaring module's holder class
+    /// when it has one — empty namespace column, a `NestedClass` row — and at the root
+    /// of its namespace otherwise.
+    let private nominalNode
         (kind: TypeSlotKind)
         (td: Frozen.TTypeDecl)
-        (fieldCount: int)
-        (methodCount: int)
-        : TypeSlot =
+        (fields: FieldSlot list)
+        (methods: MethodRow list)
+        : TypeNode =
+        let ns, enclosing =
+            match declaringModule td with
+            | ValueSome m -> "", ValueSome(TypeSlotKey.Holder m)
+            | ValueNone -> defaultArg td.Namespace "", ValueNone
+
         {
-            Key = TypeSlotKey.Nominal td.Key
-            Kind = kind
-            Namespace = defaultArg td.Namespace ""
-            MetaName = SymbolKeyOps.arityName td.Name td.TypeParams.Length
-            Typars = typarNames td.TypeParams
-            FieldCount = fieldCount
-            MethodCount = methodCount
+            Slot =
+                {
+                    Key = TypeSlotKey.Nominal td.Key
+                    Kind = kind
+                    Namespace = ns
+                    MetaName = SymbolKeyOps.arityName td.Name td.TypeParams.Length
+                    Typars = typarNames td.TypeParams
+                }
+            Enclosing = enclosing
+            Fields = fields
+            Methods = methods
+            Nested = []
         }
 
-    /// Enumerate the `TypeDefinition` rows in the canonical order:
-    /// `<Module>` → interfaces → unions → records → classes → closures →
-    /// named holders → the anonymous "Program" holder (present only when an
-    /// exe or holder-less fns exist). Reuses the existing lowering/discovery
-    /// passes unchanged and carries their products.
+    /// Build the emitted type HIERARCHY, and project the three ranged tables out of it.
+    /// Roots, by kind: `<Module>` → namespace-level interfaces / unions / records /
+    /// classes / enums → closures → the root modules' holders → the anonymous "Program"
+    /// holder (present only when an exe or holder-less fns exist). A module's holder is
+    /// immediately followed by the types it holds — in that same by-kind order — and by
+    /// its nested modules' holders. Reuses the existing lowering/discovery passes
+    /// unchanged and carries their products.
     let build (symbols: ICodegenSymbols) (project: ProjectInfo) (tast: Frozen.TastFile) : AssemblyLayout =
         let lowered0 = Emit.lower tast.Decls
-        // The anonymous "Program" holder's key — `(None, project.ModuleName)` — owns
-        // the holder-less fns + `Main` + the top-level value fields / `.cctor`.
-        let programHolder = None, project.ModuleName
+        // The anonymous "Program" holder's key — a module of that name in the global
+        // namespace. It owns the holder-less fns + `Main` + the top-level value fields /
+        // `.cctor`. Its type slot is `TypeSlotKey.Program`, not `TypeSlotKey.Holder`, so
+        // this key never names a holder class: it exists only to tag those values'
+        // `Holder` field.
+        let programHolder =
+            SymbolKeyOps.moduleKeyOf (ModuleHolder.InNamespace NamespaceKey.Global) project.ModuleName
 
         // `(ns, name)` of every `[<Struct; IsByRefLike>]` type — a top-level value of
         // such a type can't be a static field; computed from `tast.Decls` since
@@ -696,23 +749,27 @@ module internal Layout =
             | Exe -> true
             | Library -> false
 
-        let moduleSlot =
+        let moduleNode =
             {
-                Key = TypeSlotKey.ModulePseudo
-                Kind = TypeSlotKind.ModulePseudo
-                Namespace = ""
-                MetaName = "<Module>"
-                Typars = []
-                FieldCount = 0
-                MethodCount = 0
+                Slot =
+                    {
+                        Key = TypeSlotKey.ModulePseudo
+                        Kind = TypeSlotKind.ModulePseudo
+                        Namespace = ""
+                        MetaName = "<Module>"
+                        Typars = []
+                    }
+                Enclosing = ValueNone
+                Fields = []
+                Methods = []
+                Nested = []
             }
 
-        // Each type's slot, its field rows, and its method rows are built
-        // together so `FieldCount` / `MethodCount` can never drift from the
-        // enumerations that define the rows: the slot's counts are the lengths
-        // of the very lists the writer walks.
+        // Each type's node carries its own field and method rows: the rows the writer
+        // walks ARE the rows its range claims, since both are `List.collect`s over the
+        // same flattening.
 
-        let interfaceParts =
+        let interfaceNodes =
             [
                 for (td, methods) in partitioned.Interfaces ->
                     let methodRows =
@@ -728,12 +785,12 @@ module internal Layout =
                             }
                         )
 
-                    nominalSlot TypeSlotKind.Interface td 0 (List.length methodRows), ([]: FieldSlot list), methodRows
+                    nominalNode TypeSlotKind.Interface td [] methodRows
             ]
 
         // Per union: `_tag` + every case's payload fields; nullary `.ctor`,
         // case factories, members, [equality triple], [comparison pair].
-        let unionParts =
+        let unionNodes =
             [
                 for ud in partitioned.Unions ->
                     let td = ud.Decl
@@ -784,10 +841,10 @@ module internal Layout =
                             yield! coSlotRows symbols td ud.Interfaces
                         ]
 
-                    nominalSlot TypeSlotKind.Union td (List.length fields) (List.length methodRows), fields, methodRows
+                    nominalNode TypeSlotKind.Union td fields methodRows
             ]
 
-        let recordParts =
+        let recordNodes =
             [
                 for rd in partitioned.Records ->
                     let td = rd.Decl
@@ -821,7 +878,7 @@ module internal Layout =
                             yield! coSlotRows symbols td rd.Interfaces
                         ]
 
-                    nominalSlot TypeSlotKind.Record td (List.length fields) (List.length methodRows), fields, methodRows
+                    nominalNode TypeSlotKind.Record td fields methodRows
             ]
 
         // Per class: ctor-param backing fields, then explicit `val [mutable]`
@@ -839,7 +896,7 @@ module internal Layout =
         // A declared `val` field is the user's own surface and stays `public`.
         let compilerGeneratedStorage = FieldAttributes.Assembly
 
-        let classParts =
+        let classNodes =
             [
                 for cd in partitioned.Classes ->
                     let td = cd.Decl
@@ -938,13 +995,7 @@ module internal Layout =
                             yield! coSlotRows symbols td cd.Interfaces
                         ]
 
-                    nominalSlot
-                        (TypeSlotKind.Class(cd.IsSealed, cd.ValueKind))
-                        td
-                        (List.length fields)
-                        (List.length methodRows),
-                    fields,
-                    methodRows
+                    nominalNode (TypeSlotKind.Class(cd.IsSealed, cd.ValueKind)) td fields methodRows
             ]
 
         // Per numeric enum: the special-name `value__` instance field
@@ -952,7 +1003,7 @@ module internal Layout =
         // then one `public static literal` field per case (its constant integer is
         // attached as a `Constant` row in the writer's field pass). No methods —
         // equality/hashing/compare all come from the `System.Enum` base.
-        let enumParts =
+        let enumNodes =
             [
                 for ed in partitioned.Enums ->
                     let td = ed.Decl
@@ -986,17 +1037,16 @@ module internal Layout =
                                 }
                         ]
 
-                    nominalSlot TypeSlotKind.Enum td (List.length fields) 0, fields
+                    nominalNode TypeSlotKind.Enum td fields []
             ]
 
         // Per string/mixed enum: a `[<Struct>]` wrapper. One instance
         // backing field (`string`, or `obj` when mixed) holding the case value, then
         // one `public static initonly` field per case (the constructed singleton, set
         // in the `.cctor`). Two methods: the `.ctor(field)` that stores the backing
-        // field, and the `.cctor` that constructs each case. The fields ride the same
-        // `(slot, fields)` shape as the numeric enum; methods are bound in
+        // field, and the `.cctor` that constructs each case. Methods are bound in
         // `Assembler.PrepareStructEnums`.
-        let structEnumParts =
+        let structEnumNodes =
             [
                 for sed in partitioned.StructEnums ->
                     let td = sed.Decl
@@ -1060,14 +1110,17 @@ module internal Layout =
                             }
                         ]
 
-                    nominalSlot (TypeSlotKind.StructEnum sed.IsMixed) td (List.length fields) (List.length methodRows),
-                    fields,
-                    methodRows
+                    nominalNode (TypeSlotKind.StructEnum sed.IsMixed) td fields methodRows
             ]
 
         // Per closure: capture fields; `.ctor` + `Invoke`. Closures synthesise
         // their typar names (`T0`, …) — only the count survives to codegen.
-        let closureParts =
+        //
+        // A closure stays a ROOT even though it was lifted out of a module: its
+        // `TypeSlotKey.Closure name` is its ONLY address and that name is already
+        // globally unique, so nesting it would change its name / namespace / visibility
+        // and add a `NestedClass` row for a type nothing resolves.
+        let closureNodes =
             [
                 for c in closures ->
                     let isGeneric = c.Typars > 0
@@ -1124,131 +1177,159 @@ module internal Layout =
                                 }
                         ]
 
-                    let slot =
-                        {
-                            Key = TypeSlotKey.Closure c.Name
-                            Kind = TypeSlotKind.Closure
-                            Namespace = ""
-                            MetaName = SymbolKeyOps.arityName c.Name c.Typars
-                            Typars = [ for i in 0 .. c.Typars - 1 -> sprintf "T%d" i ]
-                            FieldCount = List.length fields
-                            MethodCount = List.length methodRows
-                        }
-
-                    slot, fields, methodRows
-            ]
-
-        // Named holders in plan order: module-value fields (immutable ⇒
-        // `initonly`, set only in the holder `.cctor`); [`.cctor` when it has
-        // values] + its fns (`HolderPlan.MethodPlan` slot order).
-        let holderParts =
-            [
-                for h in plan.OrderedNamedHolders ->
-                    let ns, holderName = h
-                    let values = HolderPlan.holderValues plan h
-
-                    let fields =
-                        [
-                            for mv in values ->
-                                {
-                                    Key = FieldKey.ModuleValue mv.Key
-                                    Name = mv.Name
-                                    Attrs =
-                                        FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
-                                    Ty = mv.Ty
-                                    ClosureScope = ValueNone
-                                }
-                        ]
-
-                    let fnCount =
-                        plan.StaticFns |> List.filter (fun fn -> fn.Holder = Some h) |> List.length
-
-                    let hasCctor = not (List.isEmpty values)
-
-                    let slot =
-                        {
-                            Key = TypeSlotKey.Holder h
-                            Kind = TypeSlotKind.Holder hasCctor
-                            Namespace = defaultArg ns ""
-                            MetaName = holderName
-                            Typars = []
-                            FieldCount = List.length fields
-                            MethodCount = (if hasCctor then 1 else 0) + fnCount
-                        }
-
-                    slot, fields
-            ]
-
-        let slotOf (slot, _, _) = slot
-        let fieldsOf (_, fields, _) = fields
-        let methodsOf (_, _, methods) = methods
-
-        let interfaceSlots = List.map slotOf interfaceParts
-        let unionSlots = List.map slotOf unionParts
-        let recordSlots = List.map slotOf recordParts
-        let classSlots = List.map slotOf classParts
-        // Enum parts are `(slot, fields)` pairs (no methods), so `fst`/`snd`.
-        let enumSlots = List.map fst enumParts
-        // Struct (string/mixed) enum parts are `(slot, fields, methods)` triples.
-        let structEnumSlots = List.map slotOf structEnumParts
-        let closureSlots = List.map slotOf closureParts
-        let holderSlots = List.map fst holderParts
-
-        // The full `MethodDef` table in row order. Each nominal type's rows
-        // are the very list its slot's `MethodCount` counted, so the two can't
-        // disagree; the holder `.cctor`s + static fns follow in
-        // `HolderPlan.MethodPlan` order, then `Main`. `Assembler.WriteMethods`
-        // walks this list once, asserting each actual `MethodDef` handle matches
-        // the prefix-sum prediction in `LayoutHandles`.
-        let methods =
-            [
-                yield! interfaceParts |> List.collect methodsOf
-                yield! unionParts |> List.collect methodsOf
-                yield! recordParts |> List.collect methodsOf
-                yield! classParts |> List.collect methodsOf
-                // String/mixed enums sit between classes and closures in the type
-                // order (after the method-less numeric enums), so their `.ctor` /
-                // `.cctor` rows follow the class rows here to keep prefix sums aligned.
-                yield! structEnumParts |> List.collect methodsOf
-                yield! closureParts |> List.collect methodsOf
-
-                for slot in plan.MethodPlan do
-                    match slot with
-                    | HolderCctor h ->
-                        yield
+                    {
+                        Slot =
                             {
-                                Key = MethodKey.HolderCctor h
-                                Name = ".cctor"
-                                Attrs = cctorAttrs
+                                Key = TypeSlotKey.Closure c.Name
+                                Kind = TypeSlotKind.Closure
+                                Namespace = ""
+                                MetaName = SymbolKeyOps.arityName c.Name c.Typars
+                                Typars = [ for i in 0 .. c.Typars - 1 -> sprintf "T%d" i ]
                             }
-                    | HolderFn fn ->
+                        Enclosing = ValueNone
+                        Fields = fields
+                        Methods = methodRows
+                        Nested = []
+                    }
+            ]
+
+        // Every nominal type, in the by-kind order the `TypeDef` table has always used.
+        // That order now applies *within* each holder (and among the roots) rather than
+        // globally: filtering this list by holder preserves it.
+        let nominalNodes =
+            interfaceNodes
+            @ unionNodes
+            @ recordNodes
+            @ classNodes
+            @ enumNodes
+            @ structEnumNodes
+
+        // ---- Holder discovery ------------------------------------------------------
+        //
+        // A holder class is needed for every module that HOLDS something emitted, and
+        // for every module on the way down to it — a `NestedClass` row needs its
+        // enclosing `TypeDef` to exist. Three sources, and all three are necessary:
+        //
+        //   * the plan's holders — modules with static fns / module values;
+        //   * every module named in an emitted TYPE's holder chain — a module that holds
+        //     only types has no binding, so the plan never names it;
+        //   * their ANCESTORS — a nested module `A.B` is a class nested in `A`'s holder,
+        //     which must exist even when `A` itself holds nothing directly.
+        //
+        // Ancestors-first, first-appearance order, deduplicated: a parent is therefore
+        // always discovered before its children.
+        let orderedHolders =
+            let seen = HashSet<ModuleKey>()
+            let acc = ResizeArray<ModuleKey>()
+
+            let rec add (m: ModuleKey) =
+                match m.Holder with
+                | ModuleHolder.InModule parent -> add parent
+                | ModuleHolder.InNamespace _ -> ()
+
+                if seen.Add m then
+                    acc.Add m
+
+            for h in plan.OrderedNamedHolders do
+                add h
+
+            for node in nominalNodes do
+                match node.Enclosing with
+                | ValueSome(TypeSlotKey.Holder m) -> add m
+                | _ -> ()
+
+            List.ofSeq acc
+
+        let holderMethodRows (h: Emit.HolderKey) : MethodRow list =
+            [
+                // The `.cctor` initialises the holder's module values; it precedes the
+                // fns exactly as `HolderPlan.MethodPlan` prepares them.
+                if not (List.isEmpty (HolderPlan.holderValues plan h)) then
+                    yield
+                        {
+                            Key = MethodKey.HolderCctor h
+                            Name = ".cctor"
+                            Attrs = cctorAttrs
+                        }
+
+                for fn in plan.StaticFns do
+                    if fn.Holder = Some h then
                         yield
                             {
                                 Key = MethodKey.StaticFn fn.Key
                                 Name = fn.Name
                                 Attrs = staticMethodAttrs
                             }
-                    | ProgramCctor ->
-                        yield
-                            {
-                                Key = MethodKey.ProgramCctor
-                                Name = ".cctor"
-                                Attrs = cctorAttrs
-                            }
-
-                if emitEntryPoint then
-                    yield
-                        {
-                            Key = MethodKey.Main
-                            Name = "Main"
-                            Attrs = staticMethodAttrs
-                        }
             ]
 
-        // The Program holder's top-level value fields — leading-prefix values
-        // are `initonly` (written by the Program `.cctor`), values after a top-level
-        // `do` are plain mutable `static` (written by `Main`). These are the trailing
-        // field rows (the Program slot is the last type).
+        // A holder node: its module-value fields (immutable ⇒ `initonly`, set only in
+        // the holder `.cctor`), its methods, and — nested inside it — the types it
+        // holds followed by its child holders.
+        let rec holderNode (h: Emit.HolderKey) : TypeNode =
+            let values = HolderPlan.holderValues plan h
+
+            let fields =
+                [
+                    for mv in values ->
+                        {
+                            Key = FieldKey.ModuleValue mv.Key
+                            Name = mv.Name
+                            Attrs = FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
+                            Ty = mv.Ty
+                            ClosureScope = ValueNone
+                        }
+                ]
+
+            let held =
+                nominalNodes
+                |> List.filter (fun n -> n.Enclosing = ValueSome(TypeSlotKey.Holder h))
+
+            let children =
+                orderedHolders
+                |> List.filter (fun m -> m.Holder = ModuleHolder.InModule h)
+                |> List.map holderNode
+
+            {
+                Slot =
+                    {
+                        Key = TypeSlotKey.Holder h
+                        Kind = TypeSlotKind.Holder(not (List.isEmpty values))
+                        // A nested module's holder is a class nested in its parent's
+                        // holder, so its namespace column is empty; a root module's
+                        // carries the declaring namespace.
+                        Namespace =
+                            match h.Holder with
+                            | ModuleHolder.InNamespace ns -> ns.Dotted
+                            | ModuleHolder.InModule _ -> ""
+                        MetaName = h.Name
+                        Typars = []
+                    }
+                Enclosing =
+                    match h.Holder with
+                    | ModuleHolder.InModule parent -> ValueSome(TypeSlotKey.Holder parent)
+                    | ModuleHolder.InNamespace _ -> ValueNone
+                Fields = fields
+                Methods = holderMethodRows h
+                Nested = held @ children
+            }
+
+        let rootHolderNodes =
+            orderedHolders
+            |> List.filter (fun m ->
+                match m.Holder with
+                | ModuleHolder.InNamespace _ -> true
+                | ModuleHolder.InModule _ -> false
+            )
+            |> List.map holderNode
+
+        // The Program holder: its top-level value fields — leading-prefix values are
+        // `initonly` (written by the Program `.cctor`), values after a top-level `do`
+        // are plain mutable `static` (written by `Main`) — its `.cctor`, its
+        // holder-less fns, and `Main`.
+        //
+        // `Main` belongs to this node's method list, which is what puts it inside the
+        // Program type's `MethodList` range: the row and the range that claims it are
+        // now the same list, so no ordering convention is left to preserve.
         let programFields =
             [
                 for mv in plan.ProgramCctorValues ->
@@ -1271,7 +1352,7 @@ module internal Layout =
 
         let hasProgramCctor = not (List.isEmpty plan.ProgramCctorValues)
 
-        let programSlots =
+        let programNodes =
             if
                 emitEntryPoint
                 || not (List.isEmpty plan.HolderlessFns)
@@ -1279,57 +1360,92 @@ module internal Layout =
             then
                 [
                     {
-                        Key = TypeSlotKey.Program
-                        Kind = TypeSlotKind.Program hasProgramCctor
-                        Namespace = ""
-                        MetaName = project.ModuleName
-                        Typars = []
-                        FieldCount = List.length programFields
-                        MethodCount =
-                            List.length plan.HolderlessFns
-                            + (if hasProgramCctor then 1 else 0)
-                            + (if emitEntryPoint then 1 else 0)
+                        Slot =
+                            {
+                                Key = TypeSlotKey.Program
+                                Kind = TypeSlotKind.Program hasProgramCctor
+                                Namespace = ""
+                                MetaName = project.ModuleName
+                                Typars = []
+                            }
+                        Enclosing = ValueNone
+                        Fields = programFields
+                        Methods =
+                            [
+                                if hasProgramCctor then
+                                    yield
+                                        {
+                                            Key = MethodKey.ProgramCctor
+                                            Name = ".cctor"
+                                            Attrs = cctorAttrs
+                                        }
+
+                                for fn in plan.HolderlessFns ->
+                                    {
+                                        Key = MethodKey.StaticFn fn.Key
+                                        Name = fn.Name
+                                        Attrs = staticMethodAttrs
+                                    }
+
+                                if emitEntryPoint then
+                                    yield
+                                        {
+                                            Key = MethodKey.Main
+                                            Name = "Main"
+                                            Attrs = staticMethodAttrs
+                                        }
+                            ]
+                        Nested = []
                     }
                 ]
             else
                 []
 
-        let types =
-            moduleSlot :: interfaceSlots
-            @ unionSlots
-            @ recordSlots
-            @ classSlots
-            @ enumSlots
-            @ structEnumSlots
-            @ closureSlots
-            @ holderSlots
-            @ programSlots
+        // The roots, by kind: `<Module>` first (it must be TypeDef row 1), then the
+        // namespace-level types, the closures, the root holders (each carrying its own
+        // subtree) and the Program holder.
+        let roots =
+            moduleNode :: (nominalNodes |> List.filter (fun n -> n.Enclosing.IsNone))
+            @ closureNodes
+            @ rootHolderNodes
+            @ programNodes
 
-        // Every nominal slot's `MethodCount` is the length of the very row list
-        // it contributes, so they can't drift. This guard still earns its keep
-        // over the holder / Program tail, whose counts come from `MethodPlan`
-        // arithmetic rather than the rows: a mismatch there means a missed
-        // conditional row — fail here, not at serialize.
-        let slotMethodTotal = types |> List.sumBy (fun s -> s.MethodCount)
+        // The `TypeDef` table: the pre-order flattening. Every table the writer walks is
+        // a projection of it, so a type's row range and the rows in that range cannot
+        // disagree — there is no second enumeration to fall out of step.
+        let rec flatten (n: TypeNode) : TypeNode list = n :: List.collect flatten n.Nested
 
-        if slotMethodTotal <> List.length methods then
+        let types = List.collect flatten roots
+
+        // The ONE invariant the derivation cannot make true by construction:
+        // COMPLETENESS. Every node built above must be placed in the tree exactly once —
+        // none dropped (a holder whose discovery missed it), none duplicated (a nominal
+        // landing in both the roots and a module's `Nested`). Both are set questions, so
+        // ask them as such.
+        let builtKeys =
+            [
+                yield moduleNode.Slot.Key
+                for n in nominalNodes -> n.Slot.Key
+                for n in closureNodes -> n.Slot.Key
+                for h in orderedHolders -> TypeSlotKey.Holder h
+                for n in programNodes -> n.Slot.Key
+            ]
+
+        let placedKeys = types |> List.map (fun n -> n.Slot.Key)
+
+        if
+            List.length placedKeys <> List.length builtKeys
+            || not (HashSet(placedKeys).SetEquals(HashSet builtKeys))
+        then
             failwithf
-                "Layout: type slots claim %d method rows but the method enumeration has %d"
-                slotMethodTotal
-                (List.length methods)
+                "Layout: the type hierarchy places %d slots but %d were built — a slot is dropped, duplicated or invented"
+                (List.length placedKeys)
+                (List.length builtKeys)
 
         {
             Types = types
-            Fields =
-                List.collect fieldsOf unionParts
-                @ List.collect fieldsOf recordParts
-                @ List.collect fieldsOf classParts
-                @ List.collect snd enumParts
-                @ List.collect fieldsOf structEnumParts
-                @ List.collect fieldsOf closureParts
-                @ List.collect snd holderParts
-                @ programFields
-            Methods = methods
+            Fields = types |> List.collect (fun n -> n.Fields)
+            Methods = types |> List.collect (fun n -> n.Methods)
             Lowered = lowered
             Plan = plan
             Closures = closures
@@ -1339,10 +1455,11 @@ module internal Layout =
             DefinesStructuralFormatInterfaces = definesStructuralFormatInterfaces
         }
 
-    /// Derive every handle from the layout once: TypeDef handle = list position
-    /// + 1; first-field / first-method handles by prefix-summing the slots'
-    /// `FieldCount` / `MethodCount` (an empty range naturally points past the
-    /// end of the previous owner's range).
+    /// Derive every handle from the layout once: TypeDef handle = position in the
+    /// pre-order flattening + 1; first-field / first-method handles by prefix-summing
+    /// each node's OWN row lists — the very lists `AssemblyLayout.Fields` / `.Methods`
+    /// are collected from, so the prediction and the rows are the same data (an empty
+    /// range naturally points past the end of the previous owner's range).
     let deriveHandles (layout: AssemblyLayout) : LayoutHandles =
         let typeDefs = Dictionary<TypeSlotKey, TypeDefinitionHandle>()
         let firstFields = Dictionary<TypeSlotKey, FieldDefinitionHandle>()
@@ -1352,12 +1469,12 @@ module internal Layout =
         let mutable methodCursor = 0
 
         layout.Types
-        |> List.iteri (fun i slot ->
-            typeDefs.Add(slot.Key, MetadataTokens.TypeDefinitionHandle(i + 1))
-            firstFields.Add(slot.Key, MetadataTokens.FieldDefinitionHandle(fieldCursor + 1))
-            firstMethods.Add(slot.Key, MetadataTokens.MethodDefinitionHandle(methodCursor + 1))
-            fieldCursor <- fieldCursor + slot.FieldCount
-            methodCursor <- methodCursor + slot.MethodCount
+        |> List.iteri (fun i node ->
+            typeDefs.Add(node.Slot.Key, MetadataTokens.TypeDefinitionHandle(i + 1))
+            firstFields.Add(node.Slot.Key, MetadataTokens.FieldDefinitionHandle(fieldCursor + 1))
+            firstMethods.Add(node.Slot.Key, MetadataTokens.MethodDefinitionHandle(methodCursor + 1))
+            fieldCursor <- fieldCursor + List.length node.Fields
+            methodCursor <- methodCursor + List.length node.Methods
         )
 
         layout.Methods

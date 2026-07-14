@@ -99,26 +99,128 @@ let tests =
             }
         ]
 
+// ---- A module-held type is a NESTED class -----------------------------------
+//
+// The type's key says a module holds it (`TypeHolder.InModule`), the renderer spells that
+// `N.MModule+T`, and the emitter writes exactly that: a `TypeDef` with an empty namespace
+// column and a `NestedClass` row into the module's compiled holder class. These pin the
+// two faces MEETING — the name the key renders is the name the runtime binds.
+
+/// `namespace N` + `module M` (whose name collides with `type M`, so its holder takes the
+/// `Module` suffix) + a `type T` the module holds. `M` holds ONLY types — no `let` — so
+/// its holder class exists solely because a type needs it.
+let private moduleHeldType =
+    String.concat
+        "\n"
+        [
+            "namespace N"
+            ""
+            "type M = { tag: int }"
+            ""
+            "module M ="
+            "    type T = { x: int }"
+        ]
+
+[<Tests>]
+let nestedEmission =
+    testList
+        "LocalModule nested emission"
+        [
+            test "a module-held type binds by its nested metadata name" {
+                let artifact = compileSourceTo (ProjectInfo.library "ModuleHeldType") moduleHeldType
+                let bytes = Codegen.toBytes artifact
+                MetadataStructure.assertWellFormed "ModuleHeldType" bytes
+
+                let asm = loadAssembly bytes
+
+                // The name `SymbolKeyOps.typeMetaName` renders for this type's key. That
+                // the RUNTIME binds it is the whole point of the nesting: the flat `N.T`
+                // and the dotted `N.M.T` both bind nothing.
+                Expect.isNotNull (asm.GetType "N.MModule+T") "expected N.MModule+T to bind"
+                Expect.isNull (asm.GetType "N.T") "expected no flat N.T"
+            }
+
+            // A module with no `let` at all still gets its holder class — holder discovery
+            // reads the emitted TYPES' holder chains, not just the bindings'.
+            test "a module holding only types still gets its holder class" {
+                let artifact = compileSourceTo (ProjectInfo.library "TypeOnlyModule") moduleHeldType
+                let bytes = Codegen.toBytes artifact
+
+                let ts = MetadataStructure.emittedTypes bytes |> List.map (fun t -> t.Name)
+
+                Expect.contains ts "N.MModule" "expected the type-only module's holder class"
+                Expect.contains ts "N.MModule+T" "expected the held type nested in it"
+            }
+
+            // A nested module's holder is itself nested — in its PARENT's holder. The
+            // parent must therefore be emitted even when it holds nothing of its own,
+            // which is the ancestor half of holder discovery.
+            test "a nested module's holder nests in its parent's, ancestors included" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "namespace N"
+                            ""
+                            "module Outer ="
+                            "    module Inner ="
+                            "        type T = { x: int }"
+                            "        let twice (n: int) = n + n"
+                        ]
+
+                let artifact = compileSourceTo (ProjectInfo.library "NestedModuleHolder") src
+                let bytes = Codegen.toBytes artifact
+                MetadataStructure.assertWellFormed "NestedModuleHolder" bytes
+
+                MetadataStructure.assertTypeMembers
+                    "NestedModuleHolder"
+                    bytes
+                    [
+                        // `Outer` holds nothing directly; it exists so `Inner` has an
+                        // enclosing type.
+                        {
+                            Type = "N.Outer"
+                            Fields = []
+                            Methods = []
+                        }
+                        {
+                            Type = "N.Outer+Inner"
+                            Fields = []
+                            Methods = [ "twice" ]
+                        }
+                        {
+                            Type = "N.Outer+Inner+T"
+                            Fields = [ "x" ]
+                            Methods = [ ".ctor"; "GetHashCode"; "Equals"; "Equals"; "Format" ]
+                        }
+                    ]
+
+                let asm = loadAssembly bytes
+                Expect.isNotNull (asm.GetType "N.Outer+Inner+T") "expected N.Outer+Inner+T to bind"
+            }
+        ]
+
 // ---- A module is not yet part of a type's CLAIM (pinned defect) --------------
 //
-// The type's KEY now names its module — `stampLocalTypeKey` mints
-// `TypeKey(Holder = InModule M)` for `namespace N` + `module M` + `type T`
-// (`SymbolKeyTests`, "SymbolKey local type containment"). What has NOT moved is the
-// `(name, arity)` CLAIM: `TypeRegistry.TypeClaims` is module- AND namespace-blind, so two
-// sibling modules declaring `type T` still contest ONE claim. Nor has the emitted
-// metadata: the CLR backend writes `T` as a TOP-LEVEL TypeDef with Namespace `N` — the
-// NestedClass table is never written.
+// The type's KEY names its module — `stampLocalTypeKey` mints `TypeKey(Holder = InModule
+// M)` for `namespace N` + `module M` + `type T` (`SymbolKeyTests`, "SymbolKey local type
+// containment") — and the emitter now honours it: `T` is a TypeDef nested in `M`'s
+// compiled holder class, with a `NestedClass` row (asserted below and in
+// `MetadataStructureTests`).
+//
+// What has NOT moved is the `(name, arity)` CLAIM: `TypeRegistry.TypeClaims` is module-
+// AND namespace-blind, so two sibling modules declaring `type T` still contest ONE claim.
 //
 // CORRECT behaviour (what F# does, and what these tests must be flipped to assert once
-// the CLAIM is holder-aware and the emitter nests the TypeDef — one commit, since a
-// holder-aware claim admits two `T`s that a flat emitter would collide): the program
-// below is LEGAL. `N.A.T` and `N.B.T` are two distinct types and must both compile, each
-// emitting its own TypeDef nested in its module's holder class.
+// the CLAIM is holder-aware): the program below is LEGAL. `N.A.T` and `N.B.T` are two
+// distinct types and must both compile, each emitting its own TypeDef nested in its
+// module's holder class. Nested emission is the PRECONDITION for that flip — two claims
+// need two distinguishable metadata names — and it has landed; the claim itself has not.
 //
-// CURRENT behaviour, pinned below: the two are indistinguishable. The front end rejects
-// the second as `Duplicate type definition: T`, the second type is never registered, and
-// the PE carries a single `N.T`. Where a *body* then uses the dropped type, the failure
-// is worse than a diagnostic — codegen crashes outright.
+// CURRENT behaviour, pinned below: the front end rejects the second as `Duplicate type
+// definition: T`, the second type is never registered, and the PE carries only `A`'s.
+// Where a *body* then uses the dropped type, the failure is worse than a diagnostic —
+// codegen crashes outright.
 //
 // There is no known-failing-test convention in this suite (`ptest` marks debug probes,
 // `skiptest` marks unavailable-environment rows), so these assert the WRONG current
@@ -154,16 +256,21 @@ let moduleIsNotPartOfTypeIdentity =
                 }
 
             yield
-                test "only ONE N.T TypeDef is emitted — the sibling module's type is dropped" {
+                test "only A's T is emitted, nested in A's holder — the sibling module's type is dropped" {
                     let _, artifact = compileSource "SiblingModuleTypeIdentity" recordPair
+                    let bytes = Codegen.toBytes artifact
 
                     let ts =
-                        peTypeDefNames (Codegen.toBytes artifact) |> List.filter (fun n -> n = "N.T")
+                        MetadataStructure.emittedTypes bytes
+                        |> List.map (fun t -> t.Name)
+                        |> List.filter (fun n -> n.EndsWith "+T")
 
-                    // Correct: TWO distinct type-defs (`N.A/T` and `N.B/T`, nested in their
-                    // module holders). Current: one `N.T` — the module is not in the key, so
-                    // `B`'s `T` is never registered and never emitted.
-                    Expect.equal ts [ "N.T" ] "expected the single flattened N.T the module-blind key mints"
+                    // Correct: BOTH `N.A+T` and `N.B+T`. Current: only `A`'s — the claim is
+                    // module-blind, so `B`'s `T` is never registered and never emitted. The
+                    // *nesting* is right either way, which is what makes the flip possible.
+                    Expect.equal ts [ "N.A+T" ] "expected A's T nested in A's holder, and B's dropped"
+
+                    MetadataStructure.assertWellFormed "SiblingModuleTypeIdentity" bytes
                 }
 
             // The dropped registration is not merely cosmetic. `B`'s `{ y = 2 }` finds no

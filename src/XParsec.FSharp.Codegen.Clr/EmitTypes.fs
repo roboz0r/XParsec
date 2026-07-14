@@ -275,9 +275,15 @@ module EmitTypes =
             Members: Dictionary<string, EmittedMember list>
         }
 
-    /// A named module holder's identity: `(namespace, holderName)` as recorded in
+    /// A named module holder's identity — the `ModuleKey` itself, as recorded in
     /// `TastFile.ModuleMembers`. One static holder class per `module Foo = …`.
-    type HolderKey = string option * string
+    ///
+    /// A `ModuleKey`, not a `(namespace, name)` pair: modules NEST, and a pair can only
+    /// express the nesting by flattening the enclosing modules into the namespace column
+    /// — which is precisely the emission this backend no longer performs (a nested
+    /// module's holder is a class nested in its parent's holder). The key carries the
+    /// chain, so the holder tree and the `NestedClass` rows read straight off it.
+    type HolderKey = ModuleKey
 
     /// One flattened parameter of a `StaticFn`. A simple binder's `Slot` key is
     /// referenced directly by the body (it resolves to the parameter's `ldarg`

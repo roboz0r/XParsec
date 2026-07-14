@@ -237,37 +237,20 @@ type MetadataContext() =
 
     /// The `abstract sealed` (static) holder for top-level members. `firstField`
     /// points past any preceding closure fields (the holder owns none), so its
-    /// field range stays empty. `ns` is empty for the anonymous "Program" holder
-    /// and `Some "Vesper.Collections"` for a compiled F# module (`ListModule`) — both are the same `abstract sealed` static-class shape.
+    /// field range stays empty. `ns` is empty for the anonymous "Program" holder and for
+    /// a NESTED module's holder (its namespace is its enclosing holder's), and
+    /// `"Vesper.Collections"` for a root compiled F# module (`ListModule`) — all the same
+    /// `abstract sealed` static-class shape. `attrs` is the caller's (it owns the
+    /// `BeforeFieldInit` and nested-visibility decisions).
     member _.AddProgramType
         (
+            attrs: TypeAttributes,
             ns: string,
             name: string,
             baseType: EntityHandle,
             firstField: FieldDefinitionHandle,
-            firstMethod: MethodDefinitionHandle,
-            beforeFieldInit: bool
+            firstMethod: MethodDefinitionHandle
         ) : TypeDefinitionHandle =
-        // A holder owning module-value fields has a side-effecting `.cctor`; drop
-        // `BeforeFieldInit` so it runs before first member access
-        // This is *first-access* (lazy,
-        // per-holder) initialisation — real F# runs file-scope bindings eagerly
-        // in file order via startup code, so a side-effecting initialiser could
-        // observe a different order; the pure values in this slice's scope can't
-        // tell the difference.
-        let baseAttrs =
-            TypeAttributes.Class
-            ||| TypeAttributes.Public
-            ||| TypeAttributes.Abstract
-            ||| TypeAttributes.Sealed
-            ||| TypeAttributes.AutoLayout
-
-        let attrs =
-            if beforeFieldInit then
-                baseAttrs ||| TypeAttributes.BeforeFieldInit
-            else
-                baseAttrs
-
         mb.AddTypeDefinition(
             attrs,
             (if String.IsNullOrEmpty ns then
@@ -285,10 +268,15 @@ type MetadataContext() =
     /// any preceding rows. Generic-parameter rows are added separately via
     /// `AddGenericParameter`.
     member _.AddInterfaceType
-        (ns: string, name: string, firstField: FieldDefinitionHandle, firstMethod: MethodDefinitionHandle)
-        : TypeDefinitionHandle =
+        (
+            attrs: TypeAttributes,
+            ns: string,
+            name: string,
+            firstField: FieldDefinitionHandle,
+            firstMethod: MethodDefinitionHandle
+        ) : TypeDefinitionHandle =
         mb.AddTypeDefinition(
-            TypeAttributes.Interface ||| TypeAttributes.Abstract ||| TypeAttributes.Public,
+            attrs,
             (if String.IsNullOrEmpty ns then
                  Unchecked.defaultof<StringHandle>
              else
@@ -298,6 +286,17 @@ type MetadataContext() =
             firstField,
             firstMethod
         )
+
+    /// `nested` is a class nested in `enclosing` — the `NestedClass` row that carries an
+    /// F# module's containment of the types it declares. The row is the ONLY place the
+    /// nesting lives: a nested `TypeDef` spells one bare name segment and an empty
+    /// namespace column (the `+` of `Ns.Outer+Inner` is a reflection DISPLAY convention).
+    ///
+    /// SRM validates on serialize that the table is sorted by the NESTED handle, so
+    /// callers must add each row while writing the nested type — the `TypeDef` walk is
+    /// ascending, so that ordering is free.
+    member _.AddNestedType(nested: TypeDefinitionHandle, enclosing: TypeDefinitionHandle) : unit =
+        mb.AddNestedType(nested, enclosing)
 
     /// `typeDef` declares that it implements `interfaceType` (a `TypeDef` /
     /// `TypeRef` / `TypeSpec` — a closure's instantiated `Vesper.Fun\`2<a,b>`).

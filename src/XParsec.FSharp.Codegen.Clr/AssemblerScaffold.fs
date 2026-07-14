@@ -131,13 +131,19 @@ module internal AssemblerScaffold =
 
         ctx.AddModuleType(mainDef)
 
+        // The scaffold's Program holder owns no values, so it keeps `BeforeFieldInit`.
         ctx.AddProgramType(
+            TypeAttributes.Class
+            ||| TypeAttributes.Public
+            ||| TypeAttributes.Abstract
+            ||| TypeAttributes.Sealed
+            ||| TypeAttributes.AutoLayout
+            ||| TypeAttributes.BeforeFieldInit,
             "",
             project.ModuleName,
             provider.ObjectType,
             MetadataTokens.FieldDefinitionHandle(1),
-            mainDef,
-            true
+            mainDef
         )
         |> ignore
 

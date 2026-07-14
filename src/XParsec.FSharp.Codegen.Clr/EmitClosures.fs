@@ -203,7 +203,7 @@ module EmitClosures =
                         Name = info.Name
                         Ty = ty
                         Init = value
-                        Holder = info.Namespace, info.HolderName
+                        Holder = info.Holder
                     }
                 )
             )
@@ -291,7 +291,7 @@ module EmitClosures =
             (fun k ty value info ->
                 let name, holder =
                     match info with
-                    | Some info -> info.Name, Some(info.Namespace, info.HolderName)
+                    | Some info -> info.Name, Some info.Holder
                     // A top-level generic value: `None` holder ⇒ the Program holder.
                     | None -> topLevelName topLevelNames k, None
 
@@ -593,7 +593,7 @@ module EmitClosures =
                     // `fn$<offset>` name on the "Program" holder (`Holder = None`).
                     let name, holder =
                         match Map.tryFind c.Key moduleMembers with
-                        | Some info -> info.Name, Some(info.Namespace, info.HolderName)
+                        | Some info -> info.Name, Some info.Holder
                         | None -> sprintf "fn$%d" c.Key.Offset, None
 
                     let constraints =
