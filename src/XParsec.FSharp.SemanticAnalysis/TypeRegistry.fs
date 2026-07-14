@@ -775,6 +775,10 @@ module TypeRegistry =
         : TypeIdentity voption =
         tryWinner types useSite written (fun _ -> true)
 
+    /// `tryWrittenTypeClaimAnyArity` for a name written with no qualifier.
+    let tryTypeClaimAnyArity (types: PassContextTypes) (useSite: UseSite) (name: string) : TypeIdentity voption =
+        tryWrittenTypeClaimAnyArity types useSite (WrittenTypeName.bare name)
+
     /// Does the written name reach a project-local type at `useSite`, at any arity? See
     /// `tryWrittenTypeClaimAnyArity`.
     let isWrittenTypeNameInScope (types: PassContextTypes) (useSite: UseSite) (written: WrittenTypeName) : bool =

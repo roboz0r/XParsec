@@ -392,6 +392,66 @@ let tests =
                 Expect.isTrue hasArity "arity-mismatch diagnostic emitted"
             }
 
+            test "generic type named bare back-fills fresh typars" {
+                // `Box` is arity 1; naming it with NO arguments is the lenient tail — the
+                // any-arity claim answers and its single typar is back-filled with a fresh
+                // TyVar, which the record literal then pins to int. No arity diagnostic.
+                let ctx = analyse "type Box<'a> = { Value: 'a }\nlet b : Box = { Value = 1 }"
+                // pat b at 33: 28-char type decl + "\n" + "let ".
+                let patKey = NodeKey.ofSource 33 NodeKind.PatIdent
+
+                Expect.equal
+                    (typeOf ctx patKey)
+                    (TyRecord("Box", EqArray.singleton BuiltinTypes.tyInt))
+                    "b : Box<int> — bare name back-filled and pinned"
+
+                Expect.isEmpty ctx.Diagnostics "no diagnostics — a bare generic name is lenient"
+            }
+
+            test "generic intrinsic named bare back-fills an element arg, not empty" {
+                // A GENERIC intrinsic (`Vec<'a>`) written with NO args must still carry one
+                // back-filled TyVar so its `TyConst` has the arity the type declares. A niladic
+                // `TyConst(k, [])` is malformed: it fails every arg-count-matched unification
+                // (`Engine`) and the downstream array-element guard. The bare tail resolves it
+                // through the SAME back-fill as every other kind — no intrinsic special case.
+                let ctx = analyse "type Vec<'a> = (# \"System.Int32\" #)\nlet f (v : Vec) = v"
+                // pat f at 40: 35-char type decl + "\n" + "let ".
+                let patKey = NodeKey.ofSource 40 NodeKind.PatIdent
+
+                match typeOf ctx patKey with
+                | TyFun(TyConst(_, args), _) ->
+                    Expect.equal args.Length 1 "bare generic intrinsic carries one back-filled arg, not []"
+                | other -> failtestf "expected TyFun over a TyConst, got %A" other
+            }
+
+            test "arity-0 type given a type argument diagnoses yet still names the local type" {
+                // `Color<int>` — a niladic union written with a stray type argument. The
+                // any-arity claim reaches the local `Color`, blames the arity ("expects 0 …")
+                // and still resolves to it, never falling through to an undefined-type verdict.
+                let ctx = analyse "type Color = | Red | Green\nlet f (c : Color<int>) = c"
+
+                let hasArity =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "expects 0 type argument")
+
+                Expect.isTrue hasArity "arity-0-with-args diagnostic emitted and blames the local type"
+            }
+
+            test "arity-0 enum given a type argument is blamed, not left an unresolved head" {
+                // An enum is the kind the OLD cascade had no arm for: `E<int>` fell straight
+                // through to the undefined-head verdict, silently NOT blaming the arity of a
+                // type that plainly exists. Routed through the same any-arity claim as every
+                // other kind, it now blames the arity. The "expects 0 type argument" text is
+                // itself the proof: the old path could not emit it for an enum.
+                let ctx = analyse "type Dir = | Up = 0 | Down = 1\nlet f (d : Dir<int>) = d"
+
+                let hasArity =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "expects 0 type argument")
+
+                Expect.isTrue hasArity "an enum at the wrong arity is blamed like every other kind"
+            }
+
             test "field access on generic record substitutes typar" {
                 let ctx = analyse "type Box<'a> = { Value: 'a }\nlet f (b : Box<int>) = b.Value"
                 // pat f at offset 33.
