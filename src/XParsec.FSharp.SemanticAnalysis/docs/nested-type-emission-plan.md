@@ -123,6 +123,27 @@ correct nested chain. The adjacent `failwithf` (`:492`) becomes
 `info.Origin` already in scope. Its comment claiming "no producer mints this holder yet" is
 false and goes with it.
 
+**NT9 — `layout.Types` becomes hierarchical, not merely legal.** Two shapes were available:
+keep the by-kind grouping and add an enclosing link, making the row order *legal* (nested
+after enclosing) while the `NestedClass` rows carry the containment; or make the row order
+*express* the containment — each holder immediately followed by the types it holds. The
+second is chosen. Row order is already load-bearing (`layout.Types` position **is** the table
+row); a grouping that no longer means anything structural while a side table carries the real
+relationship is exactly the "invariant guarded by a check rather than a type" shape this
+codebase has been moving away from. The cost is that Fields, Methods, `HolderPlan`'s
+holder-method block and `ModuleValueFieldOrder` must be reshuffled to match, all at once.
+
+**NT10 — The IL gets asserted directly, not through reflection.** `verifyTypeHandle` checks
+that emitted handles match the layout's predictions; it cannot say the resulting metadata is
+well-formed. With row order carrying structural meaning (NT9), that gap is the main risk in
+this plan, and it grows with every future emitter change. So this work builds a
+`MetadataReader`-based test instrumentation over the emitted PE, able to assert on rows and
+flags directly: `NestedClass` rows and their enclosing/nested pairs, `TypeDef` name and
+namespace columns, visibility flags, and the field/method range contiguity the prefix sums
+assume. Reflection (`TestHelpers.loadAssembly`) answers what the *runtime* makes of the
+assembly; this answers what we actually wrote. The nesting tests are its first consumer, not
+its only one.
+
 **NT8 — A nested type's visibility is capped by its holder's.** `internal` is
 assembly-scoped, so anything inside an assembly-scoped module is *at most* assembly-scoped:
 the emitted visibility is the **minimum** of the type's own and its holder chain's. This is
@@ -168,8 +189,10 @@ their enclosing type, so:
 - `TypeSlot` gains an enclosing link (`Enclosing: TypeSlotKey voption`); `nominalSlot`
   (`Layout.fs:557`) reads the module chain off `td.Key` instead of discarding it, forcing
   `Namespace = ""` for a nested slot.
-- **Types, Fields and Methods must be reordered in lockstep**, along with `HolderPlan`'s
-  contiguous holder-method block and `ModuleValueFieldOrder`. This is the crux of the work.
+- **Types, Fields and Methods must be reordered in lockstep** into the hierarchical order
+  (NT9) — each holder immediately followed by the types it holds — along with `HolderPlan`'s
+  contiguous holder-method block and `ModuleValueFieldOrder`. This is the crux of the work,
+  and NT10's instrumentation is what makes it reviewable.
 - **Holder discovery gains a third source.** Today holders come only from `TDeclG.Let`
   (`HolderPlan.fs:239-261`); `TDeclG.Type` is skipped. A module that holds *only* types gets
   no holder class at all today and must get one.

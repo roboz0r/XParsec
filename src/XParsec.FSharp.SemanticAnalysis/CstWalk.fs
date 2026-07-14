@@ -221,9 +221,8 @@ module TypeDefnPatterns =
 ///
 /// SYNTAX, not identity. This file compiles before `SemanticInfo`, so it cannot name
 /// `ModuleHolder` — and it could not fill one anyway: a holder chain needs a module's
-/// COMPILED holder name at each link, which is not a syntactic fact.
-/// `NameResolutionTypeRegistration.localTypeHolder` is the one place that turns this into
-/// a `TypeHolder`.
+/// COMPILED holder name at each link, which is not a syntactic fact. `ModuleRules` is the
+/// one place that turns this into a holder chain.
 type DeclContainment<'T> =
     {
         Namespace: string

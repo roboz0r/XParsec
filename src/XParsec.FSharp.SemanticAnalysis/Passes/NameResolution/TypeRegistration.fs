@@ -112,54 +112,26 @@ module NameResolutionTypeRegistration =
             }
         )
 
-    /// The COMPILED holder-type name of a module: `Foo`, or `FooModule` when the module
-    /// would otherwise collide with a same-named nominal type in this unit, or when
-    /// `[<CompilationRepresentation(ModuleSuffix)>]` pins the suffix. A module compiles to
-    /// a static class, and this is that class's name.
-    ///
-    /// THE one implementation of the rule. Both readers call it: the local type-key mint
-    /// (`localTypeHolder`, below) and the emitter's holder-name site
-    /// (`Elaborate.translateModuleElem`) — which used to compute it independently, from a
-    /// registry that does not yet exist when the key is minted.
+    /// This pass's face of `ModuleNaming` — the unit's nominal type names come from the
+    /// registry `noteNominalTypeNames` filled, and the attributes from the source text.
+    /// The predicate is read at CALL time, so it sees every name the pre-scan noted,
+    /// including one declared textually below the module it collides with.
+    let moduleNaming (ctx: PassContext) : ModuleNaming =
+        {
+            Lexed = ctx.Lexed
+            Input = ctx.Input
+            IsNominalTypeName = TypeRegistry.isNominalTypeName ctx.Types
+        }
+
+    /// `ModuleRules.holderName` under this pass's `ModuleNaming`. The rule itself lives in
+    /// `ModuleRules` because the contract extractor — which is upstream of every pass and
+    /// has no `PassContext` — is its third reader.
     let moduleHolderName (ctx: PassContext) (md: ModuleDefn<SyntaxToken>) : string =
-        let (ModuleDefn.ModuleDefn(attributes = attrs; ident = ident)) = md
-        let name = ctx.NameOf ident
+        ModuleRules.holderName (moduleNaming ctx) md
 
-        if
-            TypeRegistry.isNominalTypeName ctx.Types name
-            || VesperLibTypeTranslate.hasModuleSuffix ctx.Lexed ctx.Input attrs
-        then
-            name + "Module"
-        else
-            name
-
-    /// The `TypeHolder` a declaration in `c` sits in: the declaring namespace, or — for a
-    /// type declared inside a `module` — the enclosing module chain rooted in that
-    /// namespace. THE sole producer of `TypeHolder.InModule`.
-    ///
-    /// SOURCE vs COMPILED module name, decided here: `ModuleKey.Name` carries the
-    /// COMPILED holder name (`ListModule`, not `List`). That is what a `ModuleKey` means
-    /// at every other mint — `SymbolKeyOps.moduleFullName` renders it as a *type* name,
-    /// `ClrEnv.externalModuleRef` emits a `TypeRef` for it, and the contract face already
-    /// bakes the suffix in at `ModuleKey` mint time (`VesperLib.extractModuleSigElement`)
-    /// — so a source-named local `ModuleKey` would make one type mean two things depending
-    /// on which producer minted it. The two faces agree by construction because there is
-    /// one suffix rule (`moduleHolderName`) over one input set (`NominalTypeNames` + the
-    /// module's attributes), fixed before the first key is minted.
+    /// `ModuleRules.typeHolder` under this pass's `ModuleNaming`.
     let localTypeHolder (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : TypeHolder =
-        let ns = SymbolKeyOps.namespaceKey c.Namespace
-
-        let mutable holder = ModuleHolder.InNamespace ns
-        let mutable declModule = ValueNone
-
-        for md in c.Modules do
-            let m = SymbolKeyOps.moduleKeyOf holder (moduleHolderName ctx md)
-            holder <- ModuleHolder.InModule m
-            declModule <- ValueSome m
-
-        match declModule with
-        | ValueNone -> TypeHolder.InNamespace ns
-        | ValueSome m -> TypeHolder.InModule m
+        ModuleRules.typeHolder (moduleNaming ctx) c
 
     /// Mint a project-local `SymbolKey` for a type declaration and assert it is unique
     /// across the compilation. The key's holder chain is the declaring containment

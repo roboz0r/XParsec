@@ -32,6 +32,7 @@
     <Compile Include="VesperLib\Manifest.fs" />
     <Compile Include="VesperLib\TyparCapture.fs" />
     <Compile Include="VesperLib\TypeTranslate.fs" />
+    <Compile Include="ModuleRules.fs" />
     <Compile Include="VesperLib.fs" />
     <Compile Include="ReferencedProject.fs" />
     <Compile Include="ConformancePass.fs" />
