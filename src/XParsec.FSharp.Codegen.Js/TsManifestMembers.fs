@@ -66,17 +66,13 @@ module internal TsManifestMembers =
         : ExternalMember list =
         overloadArgSigs ctx mem
         |> List.map (fun (argSig, sg) ->
-            {
-                Name = mem.Name
+            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey mem.Name (EqArray.ofList argSig) kind) with
                 IsStatic = mem.Static
-                Storage = MemberStorage.Method
                 Signature = signatureOf ctx declArity sg
                 MethodArity = sg.TypeParams
                 Origin = origin
-                Key = SymbolKeyOps.memberKey declKey mem.Name (EqArray.ofList argSig) kind
                 OptionalDefaults = List.replicate (trailingOptionalCount sg.Params) TConstValue.Unit
                 IsOptional = mem.Optional
-                InlineBody = ValueNone
             }
         )
 
@@ -97,17 +93,12 @@ module internal TsManifestMembers =
                 | None -> unitFrozen
 
             [
-                {
-                    Name = mem.Name
+                { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey mem.Name EqArray.empty MemberKind.Property) with
                     IsStatic = mem.Static
                     Storage = MemberStorage.Property
                     Signature = ExternalSignature.make (declArity, 0, unitFrozen, ret)
-                    MethodArity = 0
                     Origin = origin
-                    Key = SymbolKeyOps.memberKey declKey mem.Name EqArray.empty MemberKind.Property
-                    OptionalDefaults = []
                     IsOptional = mem.Optional
-                    InlineBody = ValueNone
                 }
             ]
         | Schema.MemberKind.Method ->

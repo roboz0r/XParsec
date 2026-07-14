@@ -31,17 +31,16 @@ open XParsec.FSharp.Codegen.Js
 let private dummyTok: SyntaxToken =
     SyntaxToken.virtualToken (PositionedToken.Create(Token.EOF, 0))
 
-/// A provider carrying the `widget` `.fsi` contract (a concrete member
-/// `Poke: int -> int` on an `extern` intrinsic) — the member-bearing `Class` a concrete
-/// (non-interface) member surface registers. Returns the provider and the resolved shape key.
-let private widgetContract () : IExternalSymbolProvider * string =
+/// A provider carrying a `widget` `.fsi` contract whose `extern` intrinsic declares
+/// `members` — the member-bearing `Class` a concrete (non-interface) member surface
+/// registers. Returns the provider and the resolved shape key.
+let private widgetContractOf (members: string) : IExternalSymbolProvider * string =
     let ctx = VesperLib.ExtractCtx.empty ()
     // The BASE repr marks `widget` intrinsic; the platform repr is its `.fs` face.
     ctx.IntrinsicBaseReprs.["widget"] <- "object"
     ctx.IntrinsicReprs.["widget"] <- "object"
 
-    let input =
-        "namespace Widgets\n\ntype widget = extern with\n    member Poke : int -> int\n"
+    let input = "namespace Widgets\n\ntype widget = extern with\n" + members
 
     let lexed =
         match Lexing.lexString input with
@@ -78,23 +77,29 @@ let private widgetContract () : IExternalSymbolProvider * string =
 
     VesperLib.ExtractCtx.toProvider ctx, key
 
+/// The single-member contract: `member Poke : int -> int`.
+let private widgetContract () : IExternalSymbolProvider * string =
+    widgetContractOf "    member Poke : int -> int\n"
+
 let private ftInt: FrozenType = toFrozen BuiltinTypes.tyInt
+
+let private ftString: FrozenType = toFrozen BuiltinTypes.tyString
 
 let private ftWidget: FrozenType =
     FTConst(RuntimeNames.opaqueKey "widget", EqArray.empty)
 
-/// A hand-built FROZEN `widget.Poke` member:
-/// `member _.Poke (x: int) : int = (# "$0 + 1" x : int #)`. Frozen because that is what
-/// the harvest reads — a published inline body never carries a live inference cell.
-let private pokeMember () : Frozen.TTypeMember =
+/// A hand-built FROZEN `widget.Poke` member over one value parameter:
+/// `member _.Poke (x: 'paramTy) : int = (# template x : int #)`. Frozen because that is
+/// what the harvest reads — a published inline body never carries a live inference cell.
+let private pokeMemberOf (template: string) (paramTy: FrozenType) : Frozen.TTypeMember =
     let xKey = NodeKey.ofSynthetic 2 NodeKind.SynthLambdaBody
     let thisKey = NodeKey.ofSynthetic 1 NodeKind.SynthLambdaBody
 
     let body =
         TExprG.ILIntrinsic(
-            "$0 + 1",
-            ValueSome ftInt,
-            EqArray.ofList [ TExprG.Var(xKey, ftInt, dummyTok) ],
+            template,
+            ValueSome paramTy,
+            EqArray.ofList [ TExprG.Var(xKey, paramTy, dummyTok) ],
             ftInt,
             dummyTok
         )
@@ -107,11 +112,14 @@ let private pokeMember () : Frozen.TTypeMember =
         ThisKey = ValueSome thisKey
         BaseKey = ValueNone
         ThisTy = ftWidget
-        Params = EqArray.ofList [ (xKey, ftInt) ]
+        Params = EqArray.ofList [ (xKey, paramTy) ]
         Body = body
         ReturnTy = ftInt
         MethodTypeParams = GeneralizedTypars.empty
     }
+
+/// `member _.Poke (x: int) : int = (# "$0 + 1" x : int #)`.
+let private pokeMember () : Frozen.TTypeMember = pokeMemberOf "$0 + 1" ftInt
 
 // ─── Stage 1c: end-to-end SPLICE proof over the loadable `widget` fixture ────
 //
@@ -258,6 +266,89 @@ let tests =
                 | ValueSome m ->
                     Expect.isTrue m.InlineBody.IsSome "the member entry carries its inline body — the key AGREES"
                 | ValueNone -> failtest "TryLookupMember(widget, Poke) missed through the inline-body fold"
+            }
+
+            // The OVERLOAD hazard, pinned: two `Poke` overloads carry DIFFERENT bodies, and
+            // a splice site holding one overload's `MemberKey` must get THAT overload's
+            // body. Only the by-key channel can answer it — `TryLookupMember`'s
+            // best-by-arity collapse serves one entry for the whole name, so a name lookup
+            // would splice the `int` body into a `string` call.
+            test "an OVERLOADED member's body is selected by the use site's exact MemberKey" {
+                let provider, key =
+                    widgetContractOf "    member Poke : int -> int\n    member Poke : string -> int\n"
+
+                let declKey = SymbolKeyOps.qualifiedTypeKey key 0
+
+                let overloads = provider.TryLookupMembers(declKey, "Poke")
+                Expect.equal overloads.Length 2 "both `Poke` overloads are published"
+
+                // The finalized keys DISAGREE (the `argSig` axis is what separates them);
+                // never hand-rolled here — the store minted them.
+                let keyOf (paramTy: string) =
+                    match
+                        overloads
+                        |> Array.tryFind (fun m ->
+                            match m.Key with
+                            | SymbolKey.Member mk -> mk.ArgSig |> EqArray.toList |> List.exists (fun s -> s = paramTy)
+                            | _ -> false
+                        )
+                    with
+                    | Some m -> m.Key
+                    | None ->
+                        failtestf
+                            "no `Poke` overload over `%s`; argSigs: %A"
+                            paramTy
+                            (overloads |> Array.map (fun m -> m.Key))
+
+                let intKey = keyOf "int"
+                let stringKey = keyOf "string"
+                Expect.notEqual intKey stringKey "the two overloads intern under distinct keys"
+
+                // Each overload's OWN body, stored under its OWN key.
+                let bodyOf (template: string) (paramTy: FrozenType) =
+                    match SymbolProviders.harvestMemberBody (pokeMemberOf template paramTy) with
+                    | Some b -> b
+                    | None -> failtest "harvestMemberBody returned None"
+
+                let byKey =
+                    System.Collections.Generic.Dictionary<SymbolKey, InlineBody>(HashIdentity.Structural)
+
+                byKey.[intKey] <- bodyOf "$0 + 1" ftInt
+                byKey.[stringKey] <- bodyOf "$0.length" ftString
+
+                let served =
+                    provider
+                    |> ExternalSymbolProviders.withInlineBodies (fun k ->
+                        match byKey.TryGetValue k with
+                        | true, v -> ValueSome v
+                        | _ -> ValueNone
+                    )
+
+                // The IL template a body splices — the observable that tells the two apart.
+                let templateOf (body: InlineBody) : string =
+                    match body.Decl with
+                    | TDeclG.Let(_,
+                                 TExprG.Lambda(_, TExprG.Lambda(_, TExprG.ILIntrinsic(t, _, _, _, _), _, _), _, _),
+                                 _,
+                                 _) -> t
+                    | other -> failtestf "not a `this`-first single-param inline body: %A" other
+
+                let splice (k: SymbolKey) =
+                    match ExternalSymbolProviders.tryInlineBody served k with
+                    | ValueSome b -> templateOf b
+                    | ValueNone -> failtestf "no inline body served for %A" k
+
+                Expect.equal (splice intKey) "$0 + 1" "the `int` overload splices ITS body"
+                Expect.equal (splice stringKey) "$0.length" "the `string` overload splices ITS body"
+
+                // And the name channel genuinely CANNOT serve this: it collapses the pair
+                // to one entry, so one of the two keys would splice the other's body.
+                match served.TryLookupMember(declKey, "Poke") with
+                | ValueSome collapsed ->
+                    Expect.isTrue
+                        (collapsed.Key = intKey || collapsed.Key = stringKey)
+                        "the collapse picks ONE overload for the whole name"
+                | ValueNone -> failtest "TryLookupMember(widget, Poke) missed"
             }
 
             // THE end-to-end assertion: front-end the impl `.fs` spelling and run the

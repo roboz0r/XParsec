@@ -48,27 +48,21 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
           member _.TryLookupMember(key, m) =
               if SymbolKeyOps.qualifiedName key = name && m = name then
                   ValueSome
-                      {
-                          Name = name
+                      { ExternalMember.OfKey(
+                            SymbolKeyOps.memberKeyOf
+                                (SymbolKeyOps.typeKeyOf origin.Namespace.Dotted name)
+                                name
+                                EqArray.empty
+                                MemberKind.Method
+                        ) with
                           IsStatic = true
-                          Storage = MemberStorage.Method
                           Signature =
                               TestHelpers.mkSignature
                                   0
                                   0
                                   (FTConst(RuntimeNames.unitKey, EqArray.empty))
                                   (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty))
-                          MethodArity = 0
                           Origin = origin
-                          Key =
-                              SymbolKeyOps.memberKey
-                                  (SymbolKeyOps.typeKeyOf origin.Namespace.Dotted name)
-                                  name
-                                  EqArray.empty
-                                  MemberKind.Method
-                          OptionalDefaults = []
-                          IsOptional = false
-                          InlineBody = ValueNone
                       }
               else
                   ValueNone
@@ -77,6 +71,10 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
               match this.TryLookupMember(key, m) with
               | ValueSome mem -> [| mem |]
               | ValueNone -> [||]
+
+          member this.TryLookupMemberByKey(key: MemberKey) =
+              this.TryLookupMembers(SymbolKey.Type key.Decl, key.Name)
+              |> ExternalSymbols.memberByKey key
 
           member _.TryLookupIndexSignature _ = []
           member _.TryLookupByKey _ = ValueNone

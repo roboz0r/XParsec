@@ -16,8 +16,10 @@ let private origin = SymbolOrigin.Empty
 type private CountingProvider(name: string) =
     let mutable lookupHits = 0
     let mutable typeHits = 0
+    let mutable memberKeyHits = 0
     member _.LookupHits = lookupHits
     member _.TypeHits = typeHits
+    member _.MemberKeyHits = memberKeyHits
 
     member private _.TypeByName(n: string) =
         typeHits <- typeHits + 1
@@ -53,6 +55,13 @@ type private CountingProvider(name: string) =
 
         member _.TryLookupMember(_, _) = ValueNone
         member _.TryLookupMembers(_, _) = [||]
+
+        // Models no members — but the MISS is counted, so the cache's at-most-once
+        // contract is observable on this channel too.
+        member _.TryLookupMemberByKey(_: MemberKey) =
+            memberKeyHits <- memberKeyHits + 1
+            ValueNone
+
         member _.TryLookupIndexSignature _ = []
         member _.TryLookupByKey _ = ValueNone
         member _.IntrinsicReverseCanon = Map.empty
@@ -111,5 +120,22 @@ let tests =
 
                 Expect.equal inner.LookupHits 1 "value channel hit once"
                 Expect.equal inner.TypeHits 1 "type channel hit once"
+            }
+
+            test "the by-key MEMBER channel caches like its siblings" {
+                let inner = CountingProvider "known"
+                let cached = ExternalSymbolProviders.memoize inner
+
+                let key =
+                    SymbolKeyOps.memberKeyOf
+                        (SymbolKeyOps.typeKeyOf "Tests" "Widget")
+                        "Poke"
+                        EqArray.empty
+                        MemberKind.Method
+
+                cached.TryLookupMemberByKey key |> ignore
+                cached.TryLookupMemberByKey key |> ignore
+
+                Expect.equal inner.MemberKeyHits 1 "member-by-key channel hit once"
             }
         ]

@@ -460,6 +460,7 @@ let private contractProvider (entries: (string * ExternalSymbol) list) : IExtern
           member _.TryLookupType(_: SymbolKey) = ValueNone
           member _.TryLookupMember(_, _) = ValueNone
           member _.TryLookupMembers(_, _) = [||]
+          member _.TryLookupMemberByKey(_: MemberKey) = ValueNone
           member _.TryLookupIndexSignature _ = []
           member _.TryLookupByKey _ = ValueNone
           member _.IntrinsicReverseCanon = Map.empty
@@ -561,17 +562,11 @@ let private mAxis (i: int) : FrozenType = FTTypar(TyparAxis.Method, i)
 /// typars and the given (already method-axised) tupled `parameters` / `ret` — the
 /// `.fsi`-published overload the stub serves.
 let private mkMember (name: string) (methodArity: int) (parameters: FrozenType) (ret: FrozenType) : ExternalMember =
-    {
-        Name = name
-        IsStatic = false
-        Storage = MemberStorage.Method
+    { ExternalMember.OfKey(
+          SymbolKeyOps.memberKeyOf (SymbolKeyOps.qualifiedTypeKeyOfT "C" 0) name EqArray.empty MemberKind.Method
+      ) with
         Signature = mkSignature 0 methodArity parameters ret
         MethodArity = methodArity
-        Origin = SymbolOrigin.Empty
-        Key = SymbolKeyOps.memberKey (SymbolKeyOps.qualifiedTypeKeyOfT "C" 0) name EqArray.empty MemberKind.Method
-        OptionalDefaults = []
-        IsOptional = false
-        InlineBody = ValueNone
     }
 
 /// A contract provider publishing exactly `overloads` as the member set of every
@@ -595,6 +590,9 @@ let private memberContractProvider (overloads: ExternalMember list) : IExternalS
 
           member _.TryLookupMembers(_, name) =
               overloads |> List.filter (fun m -> m.Name = name) |> List.toArray
+
+          member _.TryLookupMemberByKey(key: MemberKey) =
+              overloads |> List.toArray |> ExternalSymbols.memberByKey key
 
           member _.TryLookupIndexSignature _ = []
           member _.TryLookupByKey _ = ValueNone

@@ -48,17 +48,10 @@ module JsNativeSymbols =
 
     /// `Error.prototype.message : string`.
     let private errorMessage: ExternalMember =
-        {
-            Name = "message"
-            IsStatic = false
+        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf errorTypeKey "message" EqArray.empty MemberKind.Property) with
             Storage = MemberStorage.Property
             Signature = ExternalSignature.make (0, 0, unitTy, stringTy)
-            MethodArity = 0
             Origin = errorOrigin
-            Key = SymbolKeyOps.memberKey errorTypeKey "message" EqArray.empty MemberKind.Property
-            OptionalDefaults = []
-            IsOptional = false
-            InlineBody = ValueNone
         }
 
     let private errorShape: ExternalTypeShape =
@@ -140,21 +133,14 @@ module JsNativeSymbols =
         (parameters: FrozenType)
         (ret: FrozenType)
         : ExternalMember =
-        {
-            Name = name
-            IsStatic = false
+        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey name EqArray.empty (MemberKind.InterfaceMethod declKey)) with
             Storage =
                 if isProperty then
                     MemberStorage.Property
                 else
                     MemberStorage.Method
             Signature = ExternalSignature.make (declaringArity, 0, parameters, ret)
-            MethodArity = 0
             Origin = origin
-            Key = SymbolKeyOps.memberKey declKey name EqArray.empty (MemberKind.InterfaceMethod declKey)
-            OptionalDefaults = []
-            IsOptional = false
-            InlineBody = ValueNone
         }
 
     /// Pair an erased class-interface shape with the map key DERIVED from its head

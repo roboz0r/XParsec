@@ -61,6 +61,7 @@ let private provider: IExternalSymbolProvider =
           member _.TryLookupType(_: SymbolKey) = ValueNone
           member _.TryLookupMember(_, _) = ValueNone
           member _.TryLookupMembers(_, _) = [||]
+          member _.TryLookupMemberByKey(_: MemberKey) = ValueNone
           member _.TryLookupIndexSignature _ = []
           member _.TryLookupByKey _ = ValueNone
           member _.IntrinsicReverseCanon = Map.empty

@@ -1118,8 +1118,7 @@ module VesperLib =
                                     MemberKind.Method
 
                             members.Add
-                                {
-                                    Name = memberName
+                                { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey memberName EqArray.empty kind) with
                                     IsStatic = isStatic
                                     Storage =
                                         if isProperty then
@@ -1130,20 +1129,15 @@ module VesperLib =
                                     // `ctx.DeferredMembers` and frozen by the `toProvider`
                                     // finalize pass once the registry is complete (a sig may
                                     // forward-reference a type declared later). `deferred`
-                                    // records the arities the finalize pass needs.
+                                    // records the arities the finalize pass needs — and the
+                                    // zero's own `deferred (0, 0)` would carry the wrong
+                                    // declaring arity, so this one is written.
                                     Signature = ExternalSignature.deferred (arity, 0)
-                                    // Placeholder: the real method-typar count is only
-                                    // known once the signature is walked, so the finalize
-                                    // pass (`freezeMemberSig`) overwrites this off the
-                                    // frozen signature's `MethodArity`.
-                                    MethodArity = 0
-                                    Origin = SymbolOrigin.Empty
-                                    Key = SymbolKeyOps.memberKey declKey memberName EqArray.empty kind
-                                    // The `.fsi` contract layer doesn't publish optional-parameter
-                                    // defaults yet.
-                                    OptionalDefaults = []
-                                    IsOptional = false
-                                    InlineBody = ValueNone
+                                // `MethodArity` keeps the zero's `0` until the finalize pass
+                                // (`freezeMemberSig`) overwrites it off the frozen signature:
+                                // the real method-typar count is only known once the signature
+                                // is walked. The `.fsi` contract layer publishes no
+                                // optional-parameter defaults, so those keep the zero too.
                                 }
 
                             memberCsts.Add

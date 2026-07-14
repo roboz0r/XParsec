@@ -31,22 +31,15 @@ let private witness (v: Variance) : FrozenType =
 let private resolveMarker (v: Variance) (t: FrozenType) : FrozenType = if t = marker then witness v else t
 
 let private markerMember: ExternalMember =
-    {
-        Name = "m"
-        IsStatic = false
-        Storage = MemberStorage.Method
+    { ExternalMember.OfKey(
+          SymbolKeyOps.memberKeyOf
+              (SymbolKeyOps.typeKeyOf origin.Namespace.Dotted "Cls")
+              "m"
+              EqArray.empty
+              MemberKind.Method
+      ) with
         Signature = TestHelpers.mkSignature 0 0 marker marker
-        MethodArity = 0
         Origin = origin
-        Key =
-            SymbolKeyOps.memberKey
-                (SymbolKeyOps.typeKeyOf origin.Namespace.Dotted "Cls")
-                "m"
-                EqArray.empty
-                MemberKind.Method
-        OptionalDefaults = []
-        IsOptional = false
-        InlineBody = ValueNone
     }
 
 let private markerCase: ExternalCaseShape =
@@ -134,6 +127,11 @@ let private fake: IExternalSymbolProvider =
               match memberByName (SymbolKeyOps.qualifiedName key) m with
               | ValueSome mem -> [| mem |]
               | ValueNone -> [||]
+
+          member _.TryLookupMemberByKey(key: MemberKey) =
+              match memberByName (SymbolKeyOps.qualifiedName (SymbolKey.Type key.Decl)) key.Name with
+              | ValueSome mem -> ExternalSymbols.memberByKey key [| mem |]
+              | ValueNone -> ValueNone
 
           member _.TryLookupIndexSignature _ = []
           member _.TryLookupByKey _ = ValueNone

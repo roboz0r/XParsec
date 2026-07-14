@@ -391,12 +391,36 @@ type ExternalMember =
         /// splices through the same path a `let inline` value does. `ValueNone` for a
         /// real callable. See `ExternalSymbol.InlineBody` for why it is folded here.
         ///
-        /// A splice site must select the member by EXACT `Key`, never by a name lookup:
+        /// A splice site must select the member by EXACT `Key`
+        /// (`IExternalSymbolStore.TryLookupMemberByKey`), never by a name lookup:
         /// `TryLookupMember` collapses an overload set to a single best-by-arity pick, so
         /// a name re-lookup can hand back a DIFFERENT overload's body than the one the
         /// use-site node's `MemberKey` names.
         InlineBody: InlineBody voption
     }
+
+    /// The KEYED zero every member literal is copied from
+    /// (`{ ExternalMember.OfKey key with … }`): identity is an ARGUMENT, so no producer
+    /// can mint a member without one, and `Name` is DERIVED from the key rather than
+    /// written beside it — the two cannot disagree. Everything a producer has no opinion
+    /// on (the inline body, the optional defaults, the optional-member flag, the origin a
+    /// stacking wrapper stamps) defaults here, so a future field is a one-site addition
+    /// rather than an edit at every construction site. `Signature` is the `deferred`
+    /// sentinel: a copy that does not fill it publishes no signature, which is exactly what
+    /// the contract layer wants between extraction and its finalize pass.
+    static member OfKey(key: MemberKey) : ExternalMember =
+        {
+            Name = key.Name
+            IsStatic = false
+            Storage = MemberStorage.Method
+            Signature = ExternalSignature.deferred (0, 0)
+            MethodArity = 0
+            Origin = SymbolOrigin.Empty
+            Key = SymbolKey.Member key
+            OptionalDefaults = []
+            IsOptional = false
+            InlineBody = ValueNone
+        }
 
     /// A value member (field or property) — no parameters, the value in `Return` —
     /// as opposed to an arrow `Method`. The single predicate the inference/freeze
@@ -418,17 +442,10 @@ type ExternalMember =
         (origin: SymbolOrigin)
         (optionalDefaults: TConstValue list)
         : ExternalMember =
-        {
-            Name = ".ctor"
-            IsStatic = false
-            Storage = MemberStorage.Method
+        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey ".ctor" argSig MemberKind.Method) with
             Signature = signature
-            MethodArity = 0
             Origin = origin
-            Key = SymbolKeyOps.memberKey declKey ".ctor" argSig MemberKind.Method
             OptionalDefaults = optionalDefaults
-            IsOptional = false
-            InlineBody = ValueNone
         }
 
 /// HOW an external type's instance-member CALLS lower on the JS backend — a single
@@ -877,6 +894,18 @@ type IExternalSymbolStore =
     /// single-pick collapse).
     abstract TryLookupMembers: key: SymbolKey * memberName: string -> ExternalMember[]
 
+    /// Look up a member by the resolved `MemberKey` a consumer already holds — the
+    /// key-addressed twin of `TryLookupMember`, and the channel a MEMBER splice site
+    /// reaches an `InlineBody` through (`ExternalSymbolProviders.tryInlineBody`).
+    ///
+    /// It must be BY KEY, not by name: `TryLookupMember` collapses an overload set to a
+    /// single best-by-arity pick, so a name lookup can hand back a DIFFERENT overload's
+    /// entry — and hence a different overload's body — than the one the use site's
+    /// `MemberKey` names. A member's key is its whole nominal identity (declaring type +
+    /// name + `argSig` + kind), so this channel names exactly one entry.
+    /// Providers that model no members return `ValueNone`.
+    abstract TryLookupMemberByKey: key: MemberKey -> ExternalMember voption
+
     /// The TS index signature(s) `{ [k: K]: V }` on an external type, by the type's
     /// resolved `SymbolKey` — the seam `x.[k]` / `x.[k] <- v` reads/writes through (each
     /// entry a `(keyTemplate, valueTemplate)` pair of `FrozenType`s over the type's
@@ -890,8 +919,9 @@ type IExternalSymbolStore =
 
     /// Look up a value/free-function symbol by the resolved `SymbolKey` a consumer
     /// already holds — the key-addressed twin of `IExternalSymbolResolver.TryLookup`,
-    /// and the channel a splice site reaches an `InlineBody` through
-    /// (`TryLookupByKey key |> ValueOption.bind (fun s -> s.InlineBody)`).
+    /// and the channel a VALUE splice site reaches an `InlineBody` through (the
+    /// `SymbolKey.Binding` arm of `ExternalSymbolProviders.tryInlineBody`; a member's
+    /// body rides `TryLookupMemberByKey`).
     ///
     /// It must be BY KEY, not by name. A splice site holds an identity, not a
     /// resolvable spelling: an inline body's intra-body reference to a SIBLING template
@@ -1037,6 +1067,18 @@ module ExternalSymbols =
     /// canonical empty value.
     let emptyForwardRepr: IReadOnlyDictionary<SymbolKey, string> =
         Dictionary<SymbolKey, string>() :> IReadOnlyDictionary<_, _>
+
+    /// Select the ONE entry of a by-NAME overload set whose identity is `key` — how a
+    /// store whose member index is name-keyed answers `TryLookupMemberByKey`. Spelled
+    /// once, here, so no consumer of the store face ever re-implements "find my overload"
+    /// over `TryLookupMembers` (a consumer holds an identity and must be answered under
+    /// it, not handed a candidate set to sift).
+    let memberByKey (key: MemberKey) (candidates: ExternalMember[]) : ExternalMember voption =
+        let target = SymbolKey.Member key
+
+        match candidates |> Array.tryFind (fun m -> m.Key = target) with
+        | Some m -> ValueSome m
+        | None -> ValueNone
 
     /// The member surface an external nominal publishes — a `Class` or a capability
     /// `IntrinsicInterface` both carry `ExternalMember[]`, so a consumer reading "the
@@ -1521,16 +1563,18 @@ module ExternalSymbols =
     let private valueSymbolName (key: BindingKey) : string =
         SymbolKeyOps.qualifiedName (SymbolKey.Binding key)
 
-    /// A monomorphic value/free-function symbol from a closed `FrozenType` scheme
-    /// (no typars). `decl` is the declaring holder — a module chain, or the namespace
-    /// itself for an unqualified binding (`SymbolKeyOps.inNamespace ""` for a
-    /// flat-package extern such as `printfn`).
-    let monoFrozen (decl: ModuleHolder) (name: string) (scheme: FrozenType) : ExternalSymbol =
-        let key = SymbolKeyOps.bindingKeyOf decl name
-
+    /// The KEYED zero the two symbol builders below copy from: identity is an ARGUMENT, so
+    /// no `ExternalSymbol` can exist without a real binding key, and `Name` is DERIVED from
+    /// it (`valueSymbolName`) rather than written beside it — the two cannot disagree.
+    /// Everything a producer has no opinion on (the inline body, the source `ValRepr`, the
+    /// export `ImportForm`, the origin a stacking wrapper stamps, and the `Scheme` its
+    /// caller always fills) defaults here, so a future field is a one-site addition rather
+    /// than an edit at both builders. A module-level `let`, not a static member on the
+    /// type: `valueSymbolName` lives here.
+    let private ofBindingKey (key: BindingKey) : ExternalSymbol =
         {
             Name = valueSymbolName key
-            Scheme = scheme
+            Scheme = deferredTemplate
             TyparArity = 0
             Constraints = []
             Origin = SymbolOrigin.Empty
@@ -1538,6 +1582,15 @@ module ExternalSymbols =
             ValRepr = ValueNone
             ImportForm = ImportForm.Named
             InlineBody = ValueNone
+        }
+
+    /// A monomorphic value/free-function symbol from a closed `FrozenType` scheme
+    /// (no typars). `decl` is the declaring holder — a module chain, or the namespace
+    /// itself for an unqualified binding (`SymbolKeyOps.inNamespace ""` for a
+    /// flat-package extern such as `printfn`).
+    let monoFrozen (decl: ModuleHolder) (name: string) (scheme: FrozenType) : ExternalSymbol =
+        { ofBindingKey (SymbolKeyOps.bindingKeyOf decl name) with
+            Scheme = scheme
         }
 
     /// A value/free-function symbol from a `FrozenType` scheme over `arity` declaring
@@ -1550,16 +1603,8 @@ module ExternalSymbols =
         (arity: int)
         (constraints: ExternalConstraint list)
         : ExternalSymbol =
-        let key = SymbolKeyOps.bindingKeyOf decl name
-
-        {
-            Name = valueSymbolName key
+        { ofBindingKey (SymbolKeyOps.bindingKeyOf decl name) with
             Scheme = frozen
             TyparArity = arity
             Constraints = constraints
-            Origin = SymbolOrigin.Empty
-            Key = SymbolKey.Binding key
-            ValRepr = ValueNone
-            ImportForm = ImportForm.Named
-            InlineBody = ValueNone
         }

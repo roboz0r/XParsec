@@ -94,9 +94,13 @@ let mkSignature
         MethodTyparBounds = [||]
     }
 
-/// A default `ExternalMember` skeleton — a static nullary `unit -> unit` method with an
-/// empty origin and a bare value key. Layer over it (`{ mkMember with Name = …;
-/// Signature = …; Key = … }`) so an `ExternalMember` field addition is a one-site change.
+/// A skeleton `ExternalMember` for the signature-INSTANTIATION oracle tests — a static
+/// nullary `unit -> unit` method. It deliberately does NOT go through
+/// `ExternalMember.OfKey`: its `Key` is a `SymbolKey.Binding` (a VALUE key on a member
+/// entry), which no `MemberKey` can express, and the consumers that layer over it
+/// (`ExternalSignatureOracleTests`) keep that shape. Nothing here reads the key —
+/// `instantiateSignature` only walks `Signature` — but a member keyed as a binding is not
+/// an identity any provider could serve, so this skeleton must not be copied into one.
 let mkMember: ExternalMember =
     {
         Name = ""

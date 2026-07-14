@@ -111,6 +111,14 @@ module ExternalSymbolProviders =
 
               member _.TryLookupMembers(key, memberName) = leaf.TypeMembersByKey(key, memberName)
 
+              // A leaf indexes its members by (declaring type, member NAME), so the
+              // by-key channel is the exact-identity selection out of that name's overload
+              // set — never `TypeMemberByKey`, whose best-by-arity collapse would answer a
+              // key with a SIBLING overload's entry.
+              member _.TryLookupMemberByKey(key: MemberKey) =
+                  leaf.TypeMembersByKey(SymbolKey.Type key.Decl, key.Name)
+                  |> ExternalSymbols.memberByKey key
+
               // No leaf publishes an index signature under a key of its own (the TS manifest,
               // the one producer, keys its types `InNamespace`), so this channel stays the
               // rendered projection of the name index.
@@ -309,6 +317,11 @@ module ExternalSymbolProviders =
                   | ValueNone -> result
                   | ValueSome _ -> result |> Array.map stampMember
 
+              // The key-addressed member face shadows and re-homes exactly like its
+              // by-name twin — same `firstHit`, same `stampMember`.
+              member _.TryLookupMemberByKey(key: MemberKey) =
+                  firstHit (fun s -> s.TryLookupMemberByKey key) |> ValueOption.map stampMember
+
               // First source with a non-empty index signature wins (a type's index sig
               // lives in one home, like its members). The `(key, value)` templates are
               // origin-independent, so no re-stamp — a plain first-hit-wins fall-through.
@@ -473,6 +486,9 @@ module ExternalSymbolProviders =
               member _.TryLookupMembers(key, memberName) =
                   inner.TryLookupMembers(key, memberName) |> Array.map mapMember
 
+              member _.TryLookupMemberByKey(key: MemberKey) =
+                  inner.TryLookupMemberByKey key |> ValueOption.map mapMember
+
               // An index KEY is a contravariant position (the supplied index), the VALUE a
               // covariant read — the same variance split as a member's `Parameters`/`Return`.
               member _.TryLookupIndexSignature(key: SymbolKey) =
@@ -494,7 +510,7 @@ module ExternalSymbolProviders =
     /// one — the symbol/member itself comes from `inner`, and its `Key` is what the body
     /// is fetched by, so the two cannot disagree. The member channels are stamped as well
     /// as the value one: a concrete `(# … #)`-bodied member is a splice template too, and
-    /// the member splice site selects by exact key off `TryLookupMembers`.
+    /// the member splice site reaches it through `TryLookupMemberByKey`.
     let withInlineBodies
         (bodies: SymbolKey -> InlineBody voption)
         (inner: IExternalSymbolProvider)
@@ -519,6 +535,9 @@ module ExternalSymbolProviders =
 
               member _.TryLookupMembers(key, memberName) =
                   inner.TryLookupMembers(key, memberName) |> Array.map stampMember
+
+              member _.TryLookupMemberByKey(key: MemberKey) =
+                  inner.TryLookupMemberByKey key |> ValueOption.map stampMember
 
               member _.TryLookupIndexSignature(key: SymbolKey) = inner.TryLookupIndexSignature key
 
@@ -550,6 +569,8 @@ module ExternalSymbolProviders =
         let memberSets =
             ConcurrentDictionary<struct (SymbolKey * string), ExternalMember[]>()
 
+        let membersByKey = ConcurrentDictionary<MemberKey, ExternalMember voption>()
+
         let indexSigs = ConcurrentDictionary<SymbolKey, (FrozenType * FrozenType) list>()
         let unionCases = ConcurrentDictionary<string, ExternalUnionCase voption>()
         let symbolsByKey = ConcurrentDictionary<SymbolKey, ExternalSymbol voption>()
@@ -577,6 +598,9 @@ module ExternalSymbolProviders =
               member _.TryLookupMembers(key, memberName) =
                   memberSets.GetOrAdd(struct (key, memberName), (fun (struct (k, m)) -> inner.TryLookupMembers(k, m)))
 
+              member _.TryLookupMemberByKey(key: MemberKey) =
+                  membersByKey.GetOrAdd(key, (fun k -> inner.TryLookupMemberByKey k))
+
               member _.TryLookupIndexSignature(key: SymbolKey) =
                   indexSigs.GetOrAdd(key, (fun k -> inner.TryLookupIndexSignature k))
 
@@ -586,3 +610,27 @@ module ExternalSymbolProviders =
               member _.IntrinsicReverseCanon = inner.IntrinsicReverseCanon
               member _.IntrinsicForwardRepr = inner.IntrinsicForwardRepr
         }
+
+    /// The published splice TEMPLATE `key` names, or `ValueNone` when it names none —
+    /// the ONE channel a splice site (`Passes.InlineExpansion`) asks for a cross-unit
+    /// inline body through.
+    ///
+    /// It exists because the two body-bearing kinds of key route to different ENTRY types:
+    /// a module-level `let inline` is a `SymbolKey.Binding` and rides `ExternalSymbol`, a
+    /// concrete `(# … #)`-bodied member is a `SymbolKey.Member` and rides `ExternalMember`.
+    /// This is the one place that knows that, so no call site has to. Both arms go through
+    /// the entry that CARRIES the key, so the body and the identity cannot disagree —
+    /// in particular the member arm is by EXACT key, never a name lookup whose best-by-arity
+    /// collapse could serve a sibling overload's body.
+    ///
+    /// The match is EXHAUSTIVE on the key kind so a new kind must decide here rather than
+    /// silently yield "no body": a `Type` key names a declaration, not a callable, and no
+    /// body is ever interned under one.
+    /// Over the STORE face: a splice site holds a resolved identity, never a spelling, so
+    /// the resolver face has nothing to offer it (an `IExternalSymbolProvider` upcasts
+    /// here for free).
+    let tryInlineBody (p: IExternalSymbolStore) (key: SymbolKey) : InlineBody voption =
+        match key with
+        | SymbolKey.Member m -> p.TryLookupMemberByKey m |> ValueOption.bind (fun em -> em.InlineBody)
+        | SymbolKey.Binding _ -> p.TryLookupByKey key |> ValueOption.bind (fun s -> s.InlineBody)
+        | SymbolKey.Type _ -> ValueNone

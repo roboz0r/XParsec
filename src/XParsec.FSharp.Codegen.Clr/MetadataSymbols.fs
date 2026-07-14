@@ -381,17 +381,11 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
             match MetadataMapping.tryBuildType reverseCanon f.FieldType with
             | Some valueTy ->
                 Some
-                    {
-                        Name = f.Name
+                    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey f.Name EqArray.empty MemberKind.Property) with
                         IsStatic = f.IsStatic
                         Storage = MemberStorage.Field
                         Signature = MetadataMapping.propertySignature arity valueTy
-                        MethodArity = 0
                         Origin = origin
-                        Key = SymbolKeyOps.memberKey declKey f.Name EqArray.empty MemberKind.Property
-                        OptionalDefaults = []
-                        IsOptional = false
-                        InlineBody = ValueNone
                     }
             | None -> None
 
@@ -409,17 +403,12 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
             let methodArity = MetadataMapping.methodArityOf m
 
-            {
-                Name = m.Name
+            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name argSig MemberKind.Method) with
                 IsStatic = m.IsStatic
-                Storage = MemberStorage.Method
                 Signature = MetadataMapping.methodSignature arity methodArity (ps, ret)
                 MethodArity = methodArity
                 Origin = origin
-                Key = SymbolKeyOps.memberKey declKey m.Name argSig MemberKind.Method
                 OptionalDefaults = MetadataMapping.optionalDefaults (m.GetParameters())
-                IsOptional = false
-                InlineBody = ValueNone
             }
         )
 
@@ -433,17 +422,11 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
         : ExternalMember option =
         MetadataMapping.tryPropertySignature reverseCanon p
         |> Option.map (fun valueTy ->
-            {
-                Name = p.Name
+            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey p.Name EqArray.empty MemberKind.Property) with
                 IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
                 Storage = MemberStorage.Property
                 Signature = MetadataMapping.propertySignature arity valueTy
-                MethodArity = 0
                 Origin = origin
-                Key = SymbolKeyOps.memberKey declKey p.Name EqArray.empty MemberKind.Property
-                OptionalDefaults = []
-                IsOptional = false
-                InlineBody = ValueNone
             }
         )
 
@@ -486,17 +469,10 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                         |> Array.map (fun ip -> MetadataMapping.openTyparSig ip.ParameterType)
                         |> EqArray.ofArray
 
-                    {
-                        Name = "get_Item"
+                    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey "get_Item" argSig MemberKind.Method) with
                         IsStatic = getter.IsStatic
-                        Storage = MemberStorage.Method
                         Signature = MetadataMapping.methodSignature arity 0 (ps, ret)
-                        MethodArity = 0
                         Origin = origin
-                        Key = SymbolKeyOps.memberKey declKey "get_Item" argSig MemberKind.Method
-                        OptionalDefaults = []
-                        IsOptional = false
-                        InlineBody = ValueNone
                     }
                 )
             )
@@ -821,6 +797,14 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
         member this.TryLookupMembers(key, memberName) =
             this.LookupMembersByName(SymbolKeyOps.qualifiedName key, memberName)
+
+        // The metadata index is keyed by (declaring name, member NAME), so a key is
+        // answered by the exact-identity selection out of that name's overload set — never
+        // by `LookupMemberByName`, whose best-by-arity collapse would answer a key with a
+        // SIBLING overload's entry.
+        member this.TryLookupMemberByKey(key: MemberKey) =
+            this.LookupMembersByName(SymbolKeyOps.qualifiedName (SymbolKey.Type key.Decl), key.Name)
+            |> ExternalSymbols.memberByKey key
 
         // .NET metadata has no TS index-signature concept — an indexer is a `get_Item`
         // member, served through `TryLookupMember`.
