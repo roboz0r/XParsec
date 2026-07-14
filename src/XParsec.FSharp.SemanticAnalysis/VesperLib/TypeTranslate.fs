@@ -482,7 +482,7 @@ module VesperLibTypeTranslate =
         // rather than re-deriving it by name — re-minting would hardcode the `Vesper`
         // namespace and silently diverge from the stored key for any non-Vesper-homed
         // intrinsic.
-        | ValueSome(ExternalTypeShape.Intrinsic ishape) -> FTConst(ishape.Id.Canon, EqArray.empty)
+        | ValueSome(ExternalTypeShape.Intrinsic ishape) -> FTConst(SymbolKey.Type ishape.Id.Canon, EqArray.empty)
         | ValueSome(ExternalTypeShape.Opaque _) -> raise (BodylessExternalShape compiled)
         | ValueNone ->
             failwithf

@@ -431,18 +431,12 @@ module VesperLib =
                                     MethodArity = sign.MethodArity
                                 }
                             else
-                                let key' =
-                                    match m.Key with
-                                    | SymbolKey.Member mk ->
-                                        SymbolKey.Member
-                                            { mk with
-                                                ArgSig = ExternalSymbols.argSigOfParameters sign.Parameters
-                                            }
-                                    | other -> other
-
                                 { m with
                                     Signature = sign
-                                    Key = key'
+                                    Key =
+                                        { m.Key with
+                                            ArgSig = ExternalSymbols.argSigOfParameters sign.Parameters
+                                        }
                                     MethodArity = sign.MethodArity
                                 }
 

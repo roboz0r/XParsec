@@ -84,7 +84,7 @@ module NameResolutionScope =
     let private tryStampExternalValue (ctx: PassContext) (key: NodeKey) (name: string) : bool =
         match OpenScope.tryResolve ctx.Resolution.OpenScope ctx.Resolver.TryLookup name with
         | ValueSome sym ->
-            ctx.Resolution.ExternalValue.Set(key, sym.Key)
+            ctx.Resolution.ExternalValue.Set(key, SymbolKey.Binding sym.Key)
             ctx.Resolution.ExternalSymbolStamp.Set(key, sym)
             true
         | ValueNone -> false

@@ -23,7 +23,7 @@ module internal IntrinsicResolve =
 
     let private intrinsicCanon (shape: ExternalTypeShape) : SymbolKey voption =
         match shape with
-        | ExternalTypeShape.Intrinsic { Id = { Canon = c } } -> ValueSome c
+        | ExternalTypeShape.Intrinsic { Id = { Canon = c } } -> ValueSome(SymbolKey.Type c)
         | _ -> ValueNone
 
     let tryResolveIntrinsicKey

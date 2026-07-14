@@ -70,8 +70,8 @@ module internal UnificationInferControlFlow =
                 ValueSome
                     {
                         ElemTy = ExternalSymbols.openSignature cur enumArgs
-                        MoveNext = mn.Key
-                        Current = cur.Key
+                        MoveNext = SymbolKey.Member mn.Key
+                        Current = SymbolKey.Member cur.Key
                         IsValueType = enumShape.Flags.IsValueType
                         Disposable = disposable
                     }
@@ -388,7 +388,7 @@ module internal UnificationInferControlFlow =
                             probe.ElemTy,
                             ForInEnumeratorG.Pattern(
                                 enumTy,
-                                ForInGetEnum.External ge.Key,
+                                ForInGetEnum.External(SymbolKey.Member ge.Key),
                                 ForInEnumMembers.External(probe.MoveNext, probe.Current),
                                 probe.IsValueType,
                                 probe.Disposable
@@ -865,7 +865,7 @@ module internal UnificationInferControlFlow =
                 | _ -> ctx.CoreAccess.Value.SetArray
 
             match setSym with
-            | ValueSome sym -> ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
+            | ValueSome sym -> ctx.Resolution.IntrinsicKey.Set(key, SymbolKey.Binding sym.Key)
             | ValueNone -> ()
         | _ -> ()
 

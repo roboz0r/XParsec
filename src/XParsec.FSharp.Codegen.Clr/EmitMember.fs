@@ -141,9 +141,7 @@ module EmitMember =
         let argTys = [ for a in args -> typeOfExpr a ]
 
         let ifaceKey =
-            match key with
-            | SymbolKey.Member mk -> SymbolKey.Type mk.Decl
-            | _ -> failwithf "EmitMember: CallVia.Interface member key is not a MemberKey: %A" key
+            SymbolKey.Type(SymbolKeyOps.declTypeKeyOf "EmitMember: CallVia.Interface member" key)
 
         // The abstract slot the `constrained. callvirt` targets. A *project-local*
         // interface (`'T :> IFace`, rung 3) is in `env.Interfaces`, so the slot is
@@ -351,11 +349,10 @@ module EmitMember =
             // `StaticMethodCall`; route the external case through the external
             // member-ref path instead of failing in `resolveStaticMember`.
             let isLocal =
-                match key with
-                | SymbolKey.Member mk ->
-                    let declKey = SymbolKey.Type mk.Decl
-                    env.Unions.ContainsKey declKey || env.Classes.ContainsKey declKey
-                | _ -> true
+                let declKey =
+                    SymbolKey.Type(SymbolKeyOps.declTypeKeyOf "EmitMember: static member call" key)
+
+                env.Unions.ContainsKey declKey || env.Classes.ContainsKey declKey
 
             let handle =
                 if isLocal then

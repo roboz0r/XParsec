@@ -888,7 +888,7 @@ module NameResolutionMemberRegistration =
                         | _ -> ValueNone
 
                     match ExternalSymbols.tryPickRuntimeType ctx.Resolver intrinsicClassCanon name with
-                    | ValueSome canon -> ValueSome(TyConst(canon, EqArray.ofList targs))
+                    | ValueSome canon -> ValueSome(TyConst(SymbolKey.Type canon, EqArray.ofList targs))
                     | ValueNone ->
                         // The class arms above have already missed, so a name the NAME TABLE
                         // knows at any arity is a project-local type of some other kind. One

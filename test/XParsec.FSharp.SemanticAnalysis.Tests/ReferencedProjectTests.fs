@@ -131,7 +131,7 @@ let tests =
                                                                      Platform = Some platform
                                                                  }
                                                         }) ->
-                    Expect.equal canon (RuntimeNames.intKey) "int's canon identity is the `.fsi` name"
+                    Expect.equal (SymbolKey.Type canon) (RuntimeNames.intKey) "int's canon identity is the `.fsi` name"
 
                     Expect.equal
                         platform
@@ -190,7 +190,7 @@ let tests =
                     match provider.TryLookupType lookup with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
                         Expect.equal
-                            iface.Canon
+                            (SymbolKey.Type iface.Canon)
                             canonKey
                             (sprintf "%s canon is the identity of its `.fsi` type, arity included" lookup)
 

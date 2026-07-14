@@ -539,7 +539,7 @@ module UnificationEngine =
                         ctx.Resolution.ExternalAccess.Set(
                             d.UseKey,
                             {
-                                Key = m.Key
+                                Key = SymbolKey.Member m.Key
                                 IsStatic = false
                                 Storage = m.Storage
                                 Signature = memberSig

@@ -17,11 +17,14 @@ open XParsec.FSharp.SemanticAnalysis
 /// (`classFlagsOf` × receiver); the lowering bodies live here.
 module JsExternalMembers =
 
-    /// The declaring type's `SymbolKey` from a member-call node's `key`.
+    /// The declaring type's `SymbolKey` from a member-call node's `key`. A member node's
+    /// key IS a `MemberKey` — the narrowing is the IR seam's, stated once in
+    /// `SymbolKeyOps.asMemberKey`, not a per-site guess. (Handing the MEMBER key back as
+    /// if it were the DECLARING key, as a lenient fallback here would, sends every
+    /// downstream reader — `LocalInterfaces`, `classFlagsOf`, the import oracle — looking
+    /// for a type under a member's identity and silently missing.)
     let declKey (key: SymbolKey) : SymbolKey =
-        match key with
-        | SymbolKey.Member mk -> SymbolKey.Type mk.Decl
-        | _ -> key
+        SymbolKey.Type(SymbolKeyOps.declTypeKeyOf "EmitJs: member node" key)
 
     /// Instance method → `<Type>__<member>`; instance property getter →
     /// `<Type>__get_<Prop>`; static member → `<Type>_<member>`.
@@ -116,9 +119,7 @@ module JsExternalMembers =
     /// `(int * int)` parameter is `argCount = 1`, not a flattened 2-param call (the same
     /// reason the CLR `ExternalMember` arm reads `argSig`, not `memberTy`).
     let memberArgCount (key: SymbolKey) (memberName: string) : int =
-        match key with
-        | SymbolKey.Member mk -> mk.ArgSig.Length
-        | other -> failwithf "EmitJs: attached member '%s' key is not a MemberKey: %A" memberName other
+        (SymbolKeyOps.asMemberKey (sprintf "EmitJs: attached member '%s'" memberName) key).ArgSig.Length
 
     /// `recv.<member>` — the shared attached-member access shape. A manifest
     /// Property read IS this bare Member node (a JS DATA property, not a zero-arg

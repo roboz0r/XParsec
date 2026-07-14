@@ -145,14 +145,14 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// (its key, incl. `argSig`, matches), NOT a singular re-pick (which would re-collapse a resolved
     /// overload to the most-params one and disagree with the node's `memberTy`). The singular
     /// `TryLookupMember` is the fallback for providers exposing only that surface.
-    let lookupChosen (declFullName: string) (memberName: string) (key: SymbolKey) : ExternalMember =
+    let lookupChosen (declFullName: string) (memberName: string) (key: MemberKey) : ExternalMember =
         let chosen =
             match
                 symbols.TryLookupMembers(declFullName, memberName)
-                |> Array.tryFind (fun m -> m.Key = key)
+                |> ExternalSymbols.memberByKey key
             with
-            | Some m -> ValueSome m
-            | None -> symbols.TryLookupMember(declFullName, memberName)
+            | ValueSome m -> ValueSome m
+            | ValueNone -> symbols.TryLookupMember(declFullName, memberName)
 
         match chosen with
         | ValueSome m -> m
@@ -176,14 +176,12 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// Both axes' use-site instantiations are recovered by matching that open form against `memberTy`:
     /// the declaring args parameterise the parent `TypeSpec`; the method args (if any) the `MethodSpec`.
     let externalMemberRef (key: SymbolKey) (isProperty: bool) (isStatic: bool) (memberTy: FrozenType) : EntityHandle =
-        // `MemberKey.Decl` IS a `TypeKey`, so the declaring type needs no runtime re-check
-        // (the `failwithf "declaring key is not a TypeKey"` this used to carry is deleted,
-        // not ported). `name` is the type's simple metadata name — `+`-joined for a CLR
-        // nested type, produced by the ONE renderer.
-        let declKey, memberName, argSig =
-            match key with
-            | SymbolKey.Member mk -> mk.Decl, mk.Name, mk.ArgSig
-            | other -> failwithf "ClrProvider: ExternalMember key is not a MemberKey: %A" other
+        // The IR still carries the wide `SymbolKey` in member position, so the narrowing is
+        // stated once (`asMemberKey`) rather than re-matched here. `MemberKey.Decl` IS a
+        // `TypeKey`, so the declaring type needs no further check; `name` is its simple
+        // metadata name — `+`-joined for a CLR nested type, produced by the ONE renderer.
+        let mk = SymbolKeyOps.asMemberKey "ClrProvider: external member ref" key
+        let declKey, memberName, argSig = mk.Decl, mk.Name, mk.ArgSig
 
         let name = SymbolKeyOps.typeNestedName declKey
 
@@ -196,7 +194,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
             let declArity = arityOfMetaName name
 
-            let chosen = lookupChosen declFullName memberName key
+            let chosen = lookupChosen declFullName memberName mk
             let methodArity = chosen.MethodArity
             let sig_ = chosen.Signature
 
@@ -254,10 +252,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
                 let members = symbols.TryLookupMembers(platform, memberName)
 
-                let declaredOn (m: ExternalMember) =
-                    match m.Key with
-                    | SymbolKey.Member mk -> SymbolKeyOps.typeMetaName mk.Decl
-                    | _ -> ""
+                let declaredOn (m: ExternalMember) = SymbolKeyOps.typeMetaName m.Key.Decl
 
                 // Declared on the platform face itself → the existing face-parented
                 // member-ref already binds; no rebase.
@@ -270,15 +265,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     // parent. No such base member ⇒ decline (`ValueNone`), leaving the original
                     // face-parented key: rebasing onto an arbitrary same-named member would mint
                     // a wrong ref, no safer than the un-rebased key the caller falls back to.
-                    match
-                        members
-                        |> Array.tryFind (fun m ->
-                            match m.Key with
-                            | SymbolKey.Member mk -> mk.Kind = kind
-                            | _ -> false
-                        )
-                    with
-                    | Some m -> ValueSome m.Key
+                    match members |> Array.tryFind (fun m -> m.Key.Kind = kind) with
+                    | Some m -> ValueSome(SymbolKey.Member m.Key)
                     | None -> ValueNone
             | _ -> ValueNone
         | _ -> ValueNone
@@ -297,12 +285,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         (isStatic: bool)
         (memberTy: FrozenType)
         : EntityHandle =
-        let declKey, memberName, argSig =
-            match key with
-            | SymbolKey.Member mk -> mk.Decl, mk.Name, mk.ArgSig
-            | other -> failwithf "ClrProvider: ExternalMember key is not a MemberKey: %A" other
-
-        let name = SymbolKeyOps.typeNestedName declKey
+        let mk = SymbolKeyOps.asMemberKey "ClrProvider: external member ref" key
+        let declKey, memberName, argSig = mk.Decl, mk.Name, mk.ArgSig
 
         let memoKey = ExternalMemberCacheKey.On(key, declTy, isProperty, isStatic, memberTy)
 
@@ -311,7 +295,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         | _ ->
             let declFullName = SymbolKeyOps.typeMetaName declKey
 
-            let chosen = lookupChosen declFullName memberName key
+            let chosen = lookupChosen declFullName memberName mk
             let methodArity = chosen.MethodArity
             let sig_ = chosen.Signature
 
@@ -352,10 +336,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// type alone under-determines them), else (a static field) it is recovered by
     /// matching the open field type against the use-site `memberTy`. No `MethodSpec`.
     let externalFieldRef (key: SymbolKey) (declTy: FrozenType voption) (memberTy: FrozenType) : EntityHandle =
-        let declKey, fieldName =
-            match key with
-            | SymbolKey.Member mk -> mk.Decl, mk.Name
-            | other -> failwithf "ClrProvider: ExternalField key is not a MemberKey: %A" other
+        let mk = SymbolKeyOps.asMemberKey "ClrProvider: external field ref" key
+        let declKey, fieldName = mk.Decl, mk.Name
 
         let name = SymbolKeyOps.typeNestedName declKey
 
@@ -366,7 +348,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         | _ ->
             let declFullName = SymbolKeyOps.typeMetaName declKey
 
-            let chosen = lookupChosen declFullName fieldName key
+            let chosen = lookupChosen declFullName fieldName mk
             let openFieldTy = chosen.Signature.Return
 
             let parent =
@@ -546,13 +528,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         let candidates = symbols.TryLookupMembers(fullName, ".ctor")
         let arity = List.length argTypes
 
-        let applicable =
-            candidates
-            |> Array.filter (fun m ->
-                match m.Key with
-                | SymbolKey.Member mk -> mk.ArgSig.Length = arity
-                | _ -> false
-            )
+        let applicable = candidates |> Array.filter (fun m -> m.Key.ArgSig.Length = arity)
 
         match applicable with
         | [||] -> ValueNone
@@ -565,10 +541,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 | ValueSome m -> m
                 | ValueNone -> applicable.[0]
 
-            let argSigLen =
-                match chosen.Key with
-                | SymbolKey.Member mk -> mk.ArgSig.Length
-                | _ -> 0
+            let argSigLen = chosen.Key.ArgSig.Length
 
             match externalClassRef key with
             | ValueNone -> ValueNone

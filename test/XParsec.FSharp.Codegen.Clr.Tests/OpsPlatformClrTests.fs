@@ -53,13 +53,10 @@ let tests =
                                                                      Platform = Some platform
                                                                  }
                                                         }) ->
-                    Expect.equal canon (RuntimeNames.intKey) "int canon on CLR is the `.fsi` name"
+                    Expect.equal (SymbolKey.Type canon) (RuntimeNames.intKey) "int canon on CLR is the `.fsi` name"
                     Expect.equal platform "System.Int32" "int platform face on CLR is the BCL repr"
 
-                    Expect.notEqual
-                        (SymbolKeyOps.intrinsicName canon)
-                        platform
-                        "the two faces diverge on CLR too (identity ≠ runtime repr)"
+                    Expect.notEqual canon.Name platform "the two faces diverge on CLR too (identity ≠ runtime repr)"
                 | other -> failtestf "expected Vesper.int as an Intrinsic shape, got %A" other
             }
         ]

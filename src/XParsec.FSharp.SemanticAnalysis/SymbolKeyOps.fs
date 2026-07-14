@@ -342,8 +342,8 @@ module SymbolKeyOps =
         valueKey (ModuleHolder.InModule(moduleInNamespace dottedNs declModule)) name
 
     /// A `MemberKey` over a declaring `TypeKey`. The declaring slot is a `TypeKey` by
-    /// construction, so the `failwithf "declaring key is not a TypeKey"` checks
-    /// `ClrExternalMembers` used to carry are gone.
+    /// construction: no consumer may re-check that a member's declarer is a type, because
+    /// the type system already says so.
     let memberKeyOf (decl: TypeKey) (name: string) (argSig: EqArray<string>) (kind: MemberKind) : MemberKey =
         {
             Decl = decl
@@ -352,10 +352,27 @@ module SymbolKeyOps =
             Kind = kind
         }
 
-    /// `SymbolKey.Member` — the mechanical successor to the old
-    /// `SymbolKey.MemberKey(decl, name, argSig, kind)`.
+    /// `SymbolKey.Member` over a declaring `TypeKey` — the widened `memberKeyOf`, for the
+    /// IR positions that still carry the wide key.
     let memberKey (decl: TypeKey) (name: string) (argSig: EqArray<string>) (kind: MemberKind) : SymbolKey =
         SymbolKey.Member(memberKeyOf decl name argSig kind)
+
+    /// Narrow a wide `SymbolKey` to the `MemberKey` a member position REQUIRES. Only for
+    /// the IR seam: the provider's own entries (`ExternalMember.Key`) are `MemberKey` by
+    /// construction, so a consumer holding one reads its fields directly and never comes
+    /// here. The IR's `TExpr.ExternalMember` / `MethodCall` / `Disposal` payloads are still
+    /// `SymbolKey` (see `SemanticInfo`'s REMAINING NARROWING note), so the narrowing is a
+    /// real — if unreachable — runtime check; it is stated ONCE here rather than at each
+    /// backend, which is what keeps the answer to "a non-member key in a member position"
+    /// from differing per site.
+    let asMemberKey (what: string) (k: SymbolKey) : MemberKey =
+        match k with
+        | SymbolKey.Member m -> m
+        | other -> failwithf "%s: expected a MemberKey, got %A" what other
+
+    /// The declaring TYPE of a member position's key — `asMemberKey` + `.Decl`, the shape
+    /// every backend's "which type declares this member?" read takes.
+    let declTypeKeyOf (what: string) (k: SymbolKey) : TypeKey = (asMemberKey what k).Decl
 
     // --- Generic `SymbolKey` projection ----------------------------------------------
     //
@@ -461,5 +478,5 @@ module SymbolKeyOps =
     /// (`TypeHeadStamp.useSiteTypeKey`'s `Intrinsic` arm) and the same one
     /// `TypeRegistry.IntrinsicKeys` stamps for a self-compiled intrinsic, so all three
     /// compare EQUAL by construction — no arity-blind matcher stands between them.
-    /// (Arity 0 to `qualifiedTypeKey`: the count is already spelled in `compiled`.)
-    let intrinsicCanonKey (compiled: string) : SymbolKey = qualifiedTypeKey compiled 0
+    /// (Arity 0 to `qualifiedTypeKeyOfT`: the count is already spelled in `compiled`.)
+    let intrinsicCanonKey (compiled: string) : TypeKey = qualifiedTypeKeyOfT compiled 0

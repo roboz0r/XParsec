@@ -184,7 +184,7 @@ module internal UnificationInferExternalCall =
         ctx.Resolution.ExternalAccess.Set(
             fnKey,
             {
-                Key = chosen.Key
+                Key = SymbolKey.Member chosen.Key
                 IsStatic = chosen.IsStatic
                 Storage = chosen.Storage
                 Signature = memberSig

@@ -136,7 +136,12 @@ module SymbolProviders =
                                 // and buys nothing: the provider projects the key to its own
                                 // index spelling internally.
                                 match ctx.Provider.TryLookupMember(tdecl.Key, m.Name) with
-                                | ValueSome mem -> yield { Key = mem.Key; Body = body }
+                                | ValueSome mem ->
+                                    yield
+                                        {
+                                            Key = SymbolKey.Member mem.Key
+                                            Body = body
+                                        }
                                 | ValueNone -> ()
                             | None -> ()
                     | _ -> ()

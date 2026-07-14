@@ -280,6 +280,8 @@ module EmitResolve =
             | ValueSome baseKey -> baseKey
             | ValueNone -> key
 
+        let declKey = SymbolKeyOps.declTypeKeyOf "Emit: external instance member" key
+
         match receiverTy with
         | FTUnion _
         | FTRecord _ -> env.Provider.ExternalMemberRefOn(key, receiverTy, isProperty, false, memberTy)
@@ -297,11 +299,7 @@ module EmitResolve =
         // 0). Gate on declaring-key == receiver-key.
         | FTClass(rKey, args) when
             args.Length > 0
-            && (
-                match key with
-                | SymbolKey.Member mk -> SymbolKeyOps.typeMetaName mk.Decl = SymbolKeyOps.qualifiedName rKey
-                | _ -> false
-            )
+            && SymbolKeyOps.typeMetaName declKey = SymbolKeyOps.qualifiedName rKey
             ->
             env.Provider.ExternalMemberRefOn(key, receiverTy, isProperty, false, memberTy)
         | _ -> env.Provider.ExternalMemberRef(key, isProperty, false, memberTy)
@@ -328,9 +326,8 @@ module EmitResolve =
         // member name is `memberName` — the emitted tables are keyed by `SymbolKey`
         // directly, so no class-name reverse index is needed.
         let key, name =
-            match memberKey with
-            | SymbolKey.Member mk -> SymbolKey.Type mk.Decl, mk.Name
-            | _ -> failwithf "Emit: expected a MemberKey for a static member call, got %A" memberKey
+            let mk = SymbolKeyOps.asMemberKey "Emit: static member call" memberKey
+            SymbolKey.Type mk.Decl, mk.Name
 
         // The declaring type's instantiation at *this* call site. A static member
         // on a generic class compiles to a `MemberRef` on the class `TypeSpec`, so

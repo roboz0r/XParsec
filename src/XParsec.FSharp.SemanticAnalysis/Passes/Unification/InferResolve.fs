@@ -270,7 +270,7 @@ module internal UnificationInferResolve =
             ctx.Resolution.ExternalAccess.Set(
                 key,
                 {
-                    Key = m.Key
+                    Key = SymbolKey.Member m.Key
                     IsStatic = m.IsStatic
                     Storage = m.Storage
                     Signature = memberSig

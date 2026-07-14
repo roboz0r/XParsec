@@ -510,7 +510,7 @@ module UnificationEngineCore =
                     key
                 else
                     match ctx.Provider.TryLookupType key with
-                    | ValueSome(ExternalTypeShape.Intrinsic { Id = { Canon = canon } }) -> canon
+                    | ValueSome(ExternalTypeShape.Intrinsic { Id = { Canon = canon } }) -> SymbolKey.Type canon
                     | _ -> key
 
             ctx.IntrinsicCanonCache.[key] <- canon

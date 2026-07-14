@@ -111,13 +111,15 @@ type ExternalSymbol =
         /// Where the symbol lives — the bridge to codegen. `SymbolOrigin.Empty`
         /// until a resolving source fills it.
         Origin: SymbolOrigin
-        /// Interned identity: a `SymbolKey.ValueKey` over the symbol's resolved
-        /// origin + simple name. Front-end
+        /// Interned identity — a `BindingKey`, the ONE kind a value symbol can have:
+        /// the symbol's declaring holder + simple name. Front-end
         /// passes write it into `Resolution.ExternalValue`; Elaborate stamps it
         /// onto `TExpr.External` so codegen can do robust identity checks
         /// (e.g. "is this exactly `Vesper.Printf.printfn`?") instead of
-        /// suffix-matching the source-written name.
-        Key: SymbolKey
+        /// suffix-matching the source-written name. A consumer that needs the wide
+        /// `SymbolKey` the IR carries widens at the boundary (`SymbolKey.Binding`);
+        /// nothing narrows back, so "what if it isn't a binding?" cannot be asked.
+        Key: BindingKey
         /// The SOURCE arity (`ValRepr`) of a module-level FUNCTION, carried across the
         /// assembly boundary so a caller reconciles its application spine against the
         /// producer's
@@ -365,11 +367,13 @@ type ExternalMember =
         /// count.
         MethodArity: int
         Origin: SymbolOrigin
-        /// The interned identity: a
-        /// `SymbolKey.MemberKey` over the *open* declaring type (its `argSig` in
-        /// `!0`-typars), minted by the resolving source. Elaborate stamps it into
-        /// `TExpr.ExternalMember` so codegen reads the binding off the node.
-        Key: SymbolKey
+        /// The interned identity — a `MemberKey`, the ONE kind a member entry can have:
+        /// the *open* declaring type (its `argSig` in `!0`-typars) + name + kind, minted
+        /// by the resolving source. Elaborate WIDENS it (`SymbolKey.Member`) into
+        /// `TExpr.ExternalMember`, where the IR's nominal payloads are still `SymbolKey`;
+        /// a consumer holding the entry reads `Key.Decl` / `Key.ArgSig` / `Key.Kind`
+        /// directly, so "what if it isn't a member?" cannot be asked here.
+        Key: MemberKey
         /// The compile-time-constant default values of this member's *trailing*
         /// optional parameters (`ArrayPool<'T>.Return(array, [<Optional>] clearArray =
         /// false)` ⇒ `[Bool false]`), in declaration order. A call may omit any
@@ -416,7 +420,7 @@ type ExternalMember =
             Signature = ExternalSignature.deferred (0, 0)
             MethodArity = 0
             Origin = SymbolOrigin.Empty
-            Key = SymbolKey.Member key
+            Key = key
             OptionalDefaults = []
             IsOptional = false
             InlineBody = ValueNone
@@ -612,7 +616,10 @@ type ExternalClassShape =
 /// is unrepresentable (see `Platform` above).
 type IntrinsicIdentity =
     {
-        Canon: SymbolKey
+        /// A `TypeKey` — an intrinsic is a nominal TYPE, so the identity axis admits no
+        /// other kind. The `SemType`/`FrozenType`-facing consumers widen at the boundary
+        /// (`SymbolKey.Type`), which is where the IR still speaks the wide key.
+        Canon: TypeKey
         Arity: int
         Platform: string option
     }
@@ -657,7 +664,7 @@ type IntrinsicShape =
     }
 
     /// A scalar (non-heritable) intrinsic — the common mint.
-    static member Scalar(canon: SymbolKey, arity: int, platform: string option) : IntrinsicShape =
+    static member Scalar(canon: TypeKey, arity: int, platform: string option) : IntrinsicShape =
         {
             Id =
                 {
@@ -697,7 +704,9 @@ type IntrinsicShape =
 ///   reconciliation/capability-matching face only.
 type IntrinsicInterfaceShape =
     {
-        Canon: SymbolKey
+        /// A `TypeKey` — a capability is a nominal INTERFACE type; no other kind can name
+        /// it, so `Canon.Namespace` is a field read rather than a match with a fallback.
+        Canon: TypeKey
         Arity: int
         Platform: string
         Members: ExternalMember[]
@@ -1074,9 +1083,7 @@ module ExternalSymbols =
     /// over `TryLookupMembers` (a consumer holds an identity and must be answered under
     /// it, not handed a candidate set to sift).
     let memberByKey (key: MemberKey) (candidates: ExternalMember[]) : ExternalMember voption =
-        let target = SymbolKey.Member key
-
-        match candidates |> Array.tryFind (fun m -> m.Key = target) with
+        match candidates |> Array.tryFind (fun m -> m.Key = key) with
         | Some m -> ValueSome m
         | None -> ValueNone
 
@@ -1578,7 +1585,7 @@ module ExternalSymbols =
             TyparArity = 0
             Constraints = []
             Origin = SymbolOrigin.Empty
-            Key = SymbolKey.Binding key
+            Key = key
             ValRepr = ValueNone
             ImportForm = ImportForm.Named
             InlineBody = ValueNone

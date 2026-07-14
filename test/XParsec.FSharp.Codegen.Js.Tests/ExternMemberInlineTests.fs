@@ -252,7 +252,7 @@ let tests =
                 let byKey =
                     System.Collections.Generic.Dictionary<SymbolKey, InlineBody>(HashIdentity.Structural)
 
-                byKey.[mem.Key] <- body
+                byKey.[SymbolKey.Member mem.Key] <- body
 
                 let served =
                     provider
@@ -287,13 +287,9 @@ let tests =
                 let keyOf (paramTy: string) =
                     match
                         overloads
-                        |> Array.tryFind (fun m ->
-                            match m.Key with
-                            | SymbolKey.Member mk -> mk.ArgSig |> EqArray.toList |> List.exists (fun s -> s = paramTy)
-                            | _ -> false
-                        )
+                        |> Array.tryFind (fun m -> m.Key.ArgSig |> EqArray.toList |> List.exists (fun s -> s = paramTy))
                     with
-                    | Some m -> m.Key
+                    | Some m -> SymbolKey.Member m.Key
                     | None ->
                         failtestf
                             "no `Poke` overload over `%s`; argSigs: %A"
@@ -345,8 +341,10 @@ let tests =
                 // to one entry, so one of the two keys would splice the other's body.
                 match served.TryLookupMember(declKey, "Poke") with
                 | ValueSome collapsed ->
+                    let collapsedKey = SymbolKey.Member collapsed.Key
+
                     Expect.isTrue
-                        (collapsed.Key = intKey || collapsed.Key = stringKey)
+                        (collapsedKey = intKey || collapsedKey = stringKey)
                         "the collapse picks ONE overload for the whole name"
                 | ValueNone -> failtest "TryLookupMember(widget, Poke) missed"
             }

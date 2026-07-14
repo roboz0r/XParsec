@@ -250,14 +250,9 @@ module ExternalSymbolProviders =
                 // for `seq`; `disposable` et al. already sit directly in `Vesper`), which is
                 // where the capability's identity is; the home stays the package's.
                 | ExternalTypeShape.IntrinsicInterface s ->
-                    let canonNs =
-                        match s.Canon with
-                        | SymbolKey.Type t -> t.Namespace
-                        | _ -> o.Namespace
-
                     ExternalTypeShape.IntrinsicInterface
                         { s with
-                            Origin = { o with Namespace = canonNs }
+                            Origin = { o with Namespace = s.Canon.Namespace }
                         }
                 | ExternalTypeShape.Abbrev _
                 // An intrinsic carries no `Origin` (its identity is the canon, and its
@@ -515,8 +510,15 @@ module ExternalSymbolProviders =
         (bodies: SymbolKey -> InlineBody voption)
         (inner: IExternalSymbolProvider)
         : IExternalSymbolProvider =
-        let stampSymbol (s: ExternalSymbol) : ExternalSymbol = { s with InlineBody = bodies s.Key }
-        let stampMember (m: ExternalMember) : ExternalMember = { m with InlineBody = bodies m.Key }
+        let stampSymbol (s: ExternalSymbol) : ExternalSymbol =
+            { s with
+                InlineBody = bodies (SymbolKey.Binding s.Key)
+            }
+
+        let stampMember (m: ExternalMember) : ExternalMember =
+            { m with
+                InlineBody = bodies (SymbolKey.Member m.Key)
+            }
 
         { new IExternalSymbolProvider
 

@@ -158,7 +158,7 @@ let tests =
 
                 let expected =
                     match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey eqComparer 0, "GetHashCode") with
-                    | ValueSome m -> m.Key
+                    | ValueSome m -> SymbolKey.Member m.Key
                     | ValueNone -> failtest "provider did not resolve GetHashCode"
 
                 let tast =
@@ -265,7 +265,7 @@ let tests =
 
                 let expected =
                     match provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey eqComparer 0, "GetHashCode") with
-                    | ValueSome m -> m.Key
+                    | ValueSome m -> SymbolKey.Member m.Key
                     | ValueNone -> failtest "provider did not resolve GetHashCode"
 
                 let tast =

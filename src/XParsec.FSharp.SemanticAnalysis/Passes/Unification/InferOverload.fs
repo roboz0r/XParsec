@@ -108,16 +108,11 @@ module UnificationInferOverload =
     and asSpecificOrEq (canon: SymbolKey -> SymbolKey) (aTy: SemType) (bTy: SemType) : bool =
         applicabilityMatches canon aTy bTy || isObjectTy bTy
 
-    /// `argSig` length distinguishes a flattened N-param method from a genuine
-    /// single tuple param.
-    and memberParamCount (m: ExternalMember) : int =
-        match m.Key with
-        | SymbolKey.Member mk -> mk.ArgSig.Length
-        | _ -> 0
-
-    /// Flattens the tupled signature back to N parameters.
+    /// Flattens the tupled signature back to N parameters. The `argSig` length — the
+    /// member's own identity — distinguishes a flattened N-param method from a genuine
+    /// single tuple param; the signature alone cannot.
     and memberParamTypes (typeArgs: SemType[]) (m: ExternalMember) : SemType list =
-        let n = memberParamCount m
+        let n = m.Key.ArgSig.Length
 
         match zonk (ExternalSymbols.openSignature m typeArgs) with
         | TyFun(TyTuple elems, _) when n >= 2 && elems.Length = n -> EqArray.toList elems
@@ -139,7 +134,7 @@ module UnificationInferOverload =
         let applicable =
             candidates
             |> Array.filter (fun m ->
-                memberParamCount m = arity
+                m.Key.ArgSig.Length = arity
                 && (let ps = memberParamTypes typeArgs m
                     List.length ps = arity && List.forall2 (argAssignable canon) argElems ps)
             )

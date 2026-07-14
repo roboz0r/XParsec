@@ -1467,7 +1467,7 @@ let tests =
                 match ctx.TypeShapes.[key] with
                 | ExternalTypeShape.IntrinsicInterface iface ->
                     Expect.equal
-                        iface.Canon
+                        (SymbolKey.Type iface.Canon)
                         (RuntimeNames.primitiveKey "disposable")
                         "IntrinsicInterface canon is the contract-sourced qualified identity (`namespace Vesper`)"
 

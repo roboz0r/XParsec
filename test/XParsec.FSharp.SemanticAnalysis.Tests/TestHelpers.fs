@@ -94,30 +94,21 @@ let mkSignature
         MethodTyparBounds = [||]
     }
 
-/// A skeleton `ExternalMember` for the signature-INSTANTIATION oracle tests — a static
-/// nullary `unit -> unit` method. It deliberately does NOT go through
-/// `ExternalMember.OfKey`: its `Key` is a `SymbolKey.Binding` (a VALUE key on a member
-/// entry), which no `MemberKey` can express, and the consumers that layer over it
-/// (`ExternalSignatureOracleTests`) keep that shape. Nothing here reads the key —
-/// `instantiateSignature` only walks `Signature` — but a member keyed as a binding is not
-/// an identity any provider could serve, so this skeleton must not be copied into one.
-let mkMember: ExternalMember =
-    {
-        Name = ""
+/// A skeleton `ExternalMember` named `name` for the signature-INSTANTIATION oracle tests —
+/// a static `unit -> unit` method on a stub declaring type `C`. The oracle under test reads
+/// only `Signature`, but the entry is KEYED as the member it is: a member's identity is a
+/// `MemberKey`, so `Name` is derived from the key and the two cannot disagree.
+let mkMember (name: string) : ExternalMember =
+    { ExternalMember.OfKey(
+          SymbolKeyOps.memberKeyOf (SymbolKeyOps.qualifiedTypeKeyOfT "C" 0) name EqArray.empty MemberKind.Method
+      ) with
         IsStatic = true
-        Storage = MemberStorage.Method
         Signature =
             mkSignature
                 0
                 0
                 (FTConst(RuntimeNames.unitKey, EqArray.empty))
                 (FTConst(RuntimeNames.unitKey, EqArray.empty))
-        MethodArity = 0
-        Origin = SymbolOrigin.Empty
-        Key = SymbolKeyOps.valueKey (SymbolKeyOps.inNamespace "") ""
-        OptionalDefaults = []
-        IsOptional = false
-        InlineBody = ValueNone
     }
 
 /// A throwaway source token for hand-built TAST construction in tests. The

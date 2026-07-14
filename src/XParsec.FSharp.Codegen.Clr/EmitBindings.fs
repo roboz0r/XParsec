@@ -148,10 +148,11 @@ module EmitBindings =
                 | ValueSome(headKey, _) -> isLocalType headKey
                 | ValueNone -> false
 
+            // `Disposal.ViaOwnMember` carries a member key by construction (both producers —
+            // the external own-`Dispose` probe and the ref-struct carve-out — mint one), so
+            // the question is only WHERE that member's type lives, never what kind of key it is.
             let isLocalDisposeKey (key: SymbolKey) =
-                match key with
-                | SymbolKey.Member mk -> isLocalType (SymbolKey.Type mk.Decl)
-                | _ -> false
+                isLocalType (SymbolKey.Type(SymbolKeyOps.declTypeKeyOf "Emit: use-dispose member" key))
 
             match dispose with
             // The binder implements the disposal capability. A LOCAL impl disposes through

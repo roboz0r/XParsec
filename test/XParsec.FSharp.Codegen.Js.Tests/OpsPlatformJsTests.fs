@@ -104,7 +104,7 @@ let tests =
                                                                          Canon = canon
                                                                          Platform = Some platform
                                                                      }
-                                                            }) -> canon, platform
+                                                            }) -> SymbolKey.Type canon, platform
                     | other -> failtestf "expected %s as an Intrinsic shape with a JS repr, got %A" name other
 
                 let intCanon, intPlat = facesOf "Vesper.int"
@@ -138,7 +138,7 @@ let tests =
                                                                          Canon = canon
                                                                          Platform = Some platform
                                                                      }
-                                                            }) -> canon, platform
+                                                            }) -> SymbolKey.Type canon, platform
                     | other -> failtestf "expected %s as an Intrinsic shape with a JS repr, got %A" name other
 
                 Expect.equal (facesOf "Vesper.unit") (RuntimeNames.unitKey, "undefined") "unit -> undefined on JS"

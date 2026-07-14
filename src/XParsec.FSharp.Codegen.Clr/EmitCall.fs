@@ -348,12 +348,8 @@ module EmitCall =
             // element-wise (no tuple object is constructed).
             let isStatic = ValueOption.isNone receiver
 
-            let argSig =
-                match key with
-                | SymbolKey.Member mk -> mk.ArgSig
-                | other -> failwithf "Emit: ExternalMember key is not a MemberKey: %A" other
-
-            let argCount = argSig.Length
+            let argCount =
+                (SymbolKeyOps.asMemberKey "Emit: external member call" key).ArgSig.Length
 
             // The method consumes one spine element (its argument list); any
             // remainder is further application of the result (rare).

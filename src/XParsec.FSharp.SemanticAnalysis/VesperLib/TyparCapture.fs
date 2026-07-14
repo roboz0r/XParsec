@@ -268,7 +268,7 @@ module VesperLibTyparCapture =
         /// kind); the base/`.ctor` surfaces are read off the frozen `Class` shape /
         /// `TypeMembers` when the republish runs (`VesperLib.finalizeDeferred`).
         member val PendingIntrinsicClasses =
-            Dictionary<string, struct (SymbolKey * string)>(StringComparer.Ordinal) with get
+            Dictionary<string, struct (TypeKey * string)>(StringComparer.Ordinal) with get
 
         /// The capability interfaces (`disposable`/`equatable`/`comparable`: `extern with
         /// abstract member …` + a `.fs` `(# … #)` repr) awaiting their one-shot finalize-time
@@ -279,7 +279,7 @@ module VesperLibTyparCapture =
         /// shape's members + origin (`VesperLib.finalizeDeferred`). CLR-only — a JS build binds
         /// no repr, so a capability stays a plain single-faced interface `Class`.
         member val PendingCapabilityInterfaces =
-            Dictionary<string, struct (SymbolKey * string)>(StringComparer.Ordinal) with get
+            Dictionary<string, struct (TypeKey * string)>(StringComparer.Ordinal) with get
 
         /// Qualified names of `[<AutoOpen>]` modules encountered during
         /// extraction, in source order (`"Vesper.ArithmeticOperators"`). A
@@ -492,8 +492,7 @@ module VesperLibTyparCapture =
                                                                Canon = canon
                                                                Platform = Some platform
                                                            }
-                                                  } when platform <> SymbolKeyOps.intrinsicName canon ->
-                        Some(platform, canon)
+                                                  } when platform <> canon.Name -> Some(platform, SymbolKey.Type canon)
                     | _ -> None
                 )
                 // A platform repr is one-to-many over canons (JS: `number` <- int/float/
@@ -531,8 +530,7 @@ module VesperLibTyparCapture =
                                                                Canon = canon
                                                                Platform = Some platform
                                                            }
-                                                  } when platform <> SymbolKeyOps.intrinsicName canon ->
-                        d.[canon] <- platform
+                                                  } when platform <> canon.Name -> d.[SymbolKey.Type canon] <- platform
                     | _ -> ()
 
                 d :> System.Collections.Generic.IReadOnlyDictionary<_, _>

@@ -693,16 +693,8 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                         let seen = System.Collections.Generic.HashSet<_>(HashIdentity.Structural)
 
                         methods
-                        |> Array.filter (fun m ->
-                            match m.Key with
-                            | SymbolKey.Member mk -> seen.Add((mk.ArgSig, mk.Kind, m.MethodArity))
-                            | _ -> true
-                        )
-                        |> Array.sortByDescending (fun m ->
-                            match m.Key with
-                            | SymbolKey.Member mk -> mk.ArgSig.Length
-                            | _ -> 0
-                        )
+                        |> Array.filter (fun m -> seen.Add((m.Key.ArgSig, m.Key.Kind, m.MethodArity)))
+                        |> Array.sortByDescending (fun m -> m.Key.ArgSig.Length)
 
                     // Constructors are NOT inherited — a `.ctor` request stays on `t`.
                     if memberName = ".ctor" then

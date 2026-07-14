@@ -115,13 +115,10 @@ let tests =
                     Expect.equal m.Storage MemberStorage.Property "Default is a property"
                     // The declaring type is carried by the KEY's containment chain, typed —
                     // not by a string beside it.
-                    match m.Key with
-                    | SymbolKey.Member mk ->
-                        Expect.equal
-                            (SymbolKeyOps.typeMetaName mk.Decl)
-                            eqComparer
-                            "member key's declaring TypeKey names the declaring type"
-                    | other -> failtestf "expected a Member key, got %A" other
+                    Expect.equal
+                        (SymbolKeyOps.typeMetaName m.Key.Decl)
+                        eqComparer
+                        "member key's declaring TypeKey names the declaring type"
 
                     // Instantiated at `'T = int`, the property type is
                     // `EqualityComparer<int>` (the §7.3 per-use substitution).

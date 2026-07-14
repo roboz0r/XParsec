@@ -115,11 +115,9 @@ let tests =
                         (FTTuple(EqArray.ofList [ FTTypar(TyparAxis.Method, 0); FTTypar(TyparAxis.Method, 1) ]))
 
                 let m: ExternalMember =
-                    { TestHelpers.mkMember with
-                        Name = "genericMethod"
+                    { TestHelpers.mkMember "genericMethod" with
                         Signature = signature
                         MethodArity = 2
-                        Key = SymbolKeyOps.valueKey (SymbolKeyOps.inNamespace "") "genericMethod"
                     }
 
                 let level = 7
@@ -168,8 +166,7 @@ let tests =
                 =
                 test name {
                     let m: ExternalMember =
-                        { TestHelpers.mkMember with
-                            Name = name
+                        { TestHelpers.mkMember name with
                             Storage =
                                 if isProperty then
                                     MemberStorage.Property
@@ -177,7 +174,6 @@ let tests =
                                     MemberStorage.Method
                             Signature = signature
                             MethodArity = methodArity
-                            Key = SymbolKeyOps.valueKey (SymbolKeyOps.inNamespace "") name
                         }
 
                     let args = argsForArity declArity

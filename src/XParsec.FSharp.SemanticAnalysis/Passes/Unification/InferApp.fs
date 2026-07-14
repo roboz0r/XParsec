@@ -492,11 +492,7 @@ module internal UnificationInferApp =
                                             // most-params one `TryLookupMember` would return.
                                             let toString =
                                                 ctx.Provider.TryLookupMembers(scratchKey, "ToString")
-                                                |> Array.tryFind (fun m ->
-                                                    match m.Key with
-                                                    | SymbolKey.Member mk -> mk.ArgSig.Length = 0
-                                                    | _ -> false
-                                                )
+                                                |> Array.tryFind (fun m -> m.Key.ArgSig.Length = 0)
 
                                             match toString with
                                             | Some m ->
@@ -505,7 +501,7 @@ module internal UnificationInferApp =
                                                     {
                                                         ScratchClassName = scratchName
                                                         ScratchTy = scratchTy
-                                                        ToStringKey = m.Key
+                                                        ToStringKey = SymbolKey.Member m.Key
                                                     }
                                                 )
                                             | None ->
@@ -610,7 +606,7 @@ module internal UnificationInferApp =
                     // exclusion. A primitive `1 + 2` splices `ops-platform.fs`'s `(+)`
                     // exactly like a referenced package's operator does; the static-opt
                     // clause selection at splice time is what turns it into `add`.
-                    ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
+                    ctx.Resolution.IntrinsicKey.Set(key, SymbolKey.Binding sym.Key)
                     let resultTy = TyVar(freshTyVar ctx)
 
                     unify
@@ -651,7 +647,7 @@ module internal UnificationInferApp =
             // Thread the resolved `op_Dynamic` identity to Elaborate's `External` mint
             // (`translateDynamicLookup`, same `DynamicLookup` key) so the `$0[$1]`
             // body splices by KEY.
-            ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
+            ctx.Resolution.IntrinsicKey.Set(key, SymbolKey.Binding sym.Key)
             let resultVar = freshTyVar ctx
             let resultTy = TyVar resultVar
 
@@ -686,7 +682,7 @@ module internal UnificationInferApp =
             // Thread the resolved `op_DynamicAssignment` identity to Elaborate's
             // `External` mint (`translateAssignment`'s `DynamicLookup` arm, keyed by
             // the enclosing `Assignment` node) so the `$0[$1] = $2` body splices by KEY.
-            ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
+            ctx.Resolution.IntrinsicKey.Set(key, SymbolKey.Binding sym.Key)
 
             unify
                 ctx
@@ -727,7 +723,7 @@ module internal UnificationInferApp =
             | ValueSome sym ->
                 // Thread the resolved identity to Elaborate's `TExpr.External` mint (see
                 // the infix twin above) so the prefix operator splices by KEY.
-                ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
+                ctx.Resolution.IntrinsicKey.Set(key, SymbolKey.Binding sym.Key)
                 let resultTy = TyVar(freshTyVar ctx)
                 unify ctx key (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel) (TyFun(operandTy, resultTy))
                 resultTy

@@ -728,7 +728,7 @@ module internal UnificationTranslate =
         // (`disposable`) is an INTERFACE, a constraint not a value type, so
         // it stays a `TyClass` below. (The canon is read OFF the shape — the
         // resolved identity, not a by-name re-mint.)
-        | ExternalTypeShape.Intrinsic s -> Some(TyConst(s.Id.Canon, translatedArgs))
+        | ExternalTypeShape.Intrinsic s -> Some(TyConst(SymbolKey.Type s.Id.Canon, translatedArgs))
         // A source-written platform repr with a harvested non-interface
         // canon (`System.Exception` → `exn`, `System.Object` → `obj`,
         // `System.Int32` → `int`) resolves to the canon `TyConst`; capability

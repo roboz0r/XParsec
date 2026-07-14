@@ -293,7 +293,7 @@ module internal UnificationInferRecordAccess =
                     ctx.Resolution.ExternalAccess.Set(
                         diagKey,
                         {
-                            Key = m.Key
+                            Key = SymbolKey.Member m.Key
                             IsStatic = false
                             Storage = m.Storage
                             Signature = memberSig
@@ -368,7 +368,7 @@ module internal UnificationInferRecordAccess =
                     ctx.Resolution.ExternalAccess.Set(
                         diagKey,
                         {
-                            Key = m.Key
+                            Key = SymbolKey.Member m.Key
                             IsStatic = false
                             Storage = m.Storage
                             Signature = memberSig
@@ -429,7 +429,7 @@ module internal UnificationInferRecordAccess =
                 ctx.Resolution.ExternalAccess.Set(
                     diagKey,
                     {
-                        Key = m.Key
+                        Key = SymbolKey.Member m.Key
                         IsStatic = false
                         Storage = m.Storage
                         Signature = memberSig
@@ -449,7 +449,7 @@ module internal UnificationInferRecordAccess =
                 // Thread the resolved `GetArrayLength` identity to Elaborate's
                 // `External` mint (the `.Length` `DotLookup` / `LongIdent`-chain
                 // forms) so `InlineExpansion` splices the `ldlen` body by KEY.
-                ctx.Resolution.IntrinsicKey.Set(diagKey, sym.Key)
+                ctx.Resolution.IntrinsicKey.Set(diagKey, SymbolKey.Binding sym.Key)
                 let resultTy = TyVar(freshTyVar ctx)
                 unify ctx diagKey (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel) (TyFun(rTy, resultTy))
                 resultTy
@@ -494,7 +494,7 @@ module internal UnificationInferRecordAccess =
                 // Thread the resolved `GetArray` identity to Elaborate's `External` mint
                 // (`translateIndexedLookup`, same `IndexedLookup` key) so the `ldelem`
                 // body splices by KEY.
-                ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
+                ctx.Resolution.IntrinsicKey.Set(key, SymbolKey.Binding sym.Key)
                 let resultTy = TyVar(freshTyVar ctx)
 
                 unify
@@ -516,7 +516,7 @@ module internal UnificationInferRecordAccess =
             match ctx.CoreAccess.Value.GetString with
             | ValueSome sym ->
                 // Thread the resolved `GetString` identity (see `getArrayIndex`).
-                ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
+                ctx.Resolution.IntrinsicKey.Set(key, SymbolKey.Binding sym.Key)
                 let resultTy = TyVar(freshTyVar ctx)
 
                 unify
@@ -552,7 +552,7 @@ module internal UnificationInferRecordAccess =
                 ctx.Resolution.ExternalAccess.Set(
                     key,
                     {
-                        Key = m.Key
+                        Key = SymbolKey.Member m.Key
                         IsStatic = false
                         Storage = MemberStorage.Method
                         Signature = memberSig
@@ -626,7 +626,7 @@ module internal UnificationInferRecordAccess =
                 | ValueSome sym ->
                     // Thread the resolved `GetIndex` identity to Elaborate's `External`
                     // mint (same `IndexedLookup` key) so the `$0[$1]` body splices by KEY.
-                    ctx.Resolution.IntrinsicKey.Set(key, sym.Key)
+                    ctx.Resolution.IntrinsicKey.Set(key, SymbolKey.Binding sym.Key)
                     let resultTy = TyVar(freshTyVar ctx)
 
                     unify
