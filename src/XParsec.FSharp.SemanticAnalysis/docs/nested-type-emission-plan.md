@@ -208,13 +208,20 @@ this plan, and it grows with every future emitter change. So this work builds a
 what we actually wrote. What it must check, in priority order — the first is the one that
 catches a bad NT9, and is worth having even if nesting slipped:
 
-1. **Range partition.** Walk `TypeDefinition` rows in order and assert each one's field and
-   method ranges are consecutive, non-overlapping, gap-free, and together cover the whole
-   `Field`/`MethodDef` tables — and that each row's name is the one the layout put there. This
-   is a direct assertion of the prefix-sum assumption, and it is precisely what the existing
-   tautological checks cannot see.
+1. **Members by NAME — the only check with teeth.** The rows in each type's range must be
+   *the rows that belong to it*, asserted by name. Everything else about the ranges is
+   cheap to satisfy accidentally: ECMA-335 stores only each `TypeDef`'s FIRST field and
+   method, deriving a range's end from the next row's start, so **the ranges are a gap-free
+   partition by construction for any permutation of the row tables**. Permute `layout.Fields`
+   against `layout.Types` and every count, range and total still agrees — only the contents
+   are another type's. A pure range-partition check is therefore *green on exactly the failure
+   mode NT9 risks*, and must not be mistaken for a net.
 2. **Entry point in range** — `Main`'s `MethodDef` handle lies inside `Program`'s `MethodList`.
-3. **`<Module>` is row 1.**
+   This is the one genuine cross-check *between the two orders*: `Main`'s handle is predicted
+   from its index in `layout.Methods` while the range that must contain it is prefix-summed
+   from `layout.Types`. It is the tripwire for the `Main` trap below.
+3. **Range partition and `<Module>` is row 1** — worth pinning (they catch an out-of-band row,
+   a first-slot count drift, and the totals) but weak, per (1).
 4. **`NestedClass` rows** — exactly one per module-held type, `(nested, enclosing)` matching the
    key's holder chain, table ascending by the nested handle.
 5. **Pre-order contiguity** — for a holder at row `r` with subtree size `n`, rows `(r, r+n]` are

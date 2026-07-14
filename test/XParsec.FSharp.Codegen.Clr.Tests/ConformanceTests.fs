@@ -4,6 +4,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Common.Tests.Conformance
+open XParsec.FSharp.Codegen.Clr.Tests
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // The CLR's obligations over the shared corpus (`test/Codegen.Conformance/`). This
@@ -33,6 +34,12 @@ let private clrBackend: Backend =
             fun name src ->
                 let _, artifact = compileSource (assemblyName name) src
                 let bytes = Codegen.toBytes artifact
+
+                // Every corpus program's PE goes through the metadata assertions. Like
+                // the compile, this sits OUTSIDE the `try`: metadata the emitter's own
+                // prefix-sum prediction contradicts is a broken backend, not a
+                // conformance verdict, and must surface as such.
+                MetadataStructure.assertWellFormed name bytes
 
                 try
                     Some(RunOutcome.Completed(runEntryPoint bytes))

@@ -20,6 +20,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="TestHelpers.fs" />
+    <Compile Include="MetadataStructure.fs" />
     <Compile Include="ClrDriverTests.fs" />
     <Compile Include="PrintfHappyPathTests.fs" />
     <Compile Include="PrintfPartialTests.fs" />
@@ -86,6 +87,7 @@
     <Compile Include="TypeTestAsBinderTests.fs" />
     <Compile Include="StructuralFormatTests.fs" />
     <Compile Include="PrintfSpecTests.fs" />
+    <Compile Include="MetadataStructureTests.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>
