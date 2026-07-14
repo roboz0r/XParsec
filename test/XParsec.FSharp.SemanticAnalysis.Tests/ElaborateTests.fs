@@ -306,6 +306,41 @@ let nestedModuleTests =
                 | other -> failtestf "unexpected: %A" other
             }
 
+            // The DECL flattens; the CONTAINMENT does not. A binding's holder is the whole
+            // chain of modules it is written in — the same chain a type declared there gets
+            // (`SymbolKeyTests`, "a NESTED module produces a nested InModule chain"), because
+            // both read `ModuleRules.holderChain`. Dropping the outer module here would give
+            // one source location two containments depending on what was declared in it.
+            test "a binding in a nested module is held by the WHOLE module chain" {
+                let tast =
+                    analyse "namespace N\n\nmodule A =\n    module B =\n        let f (x: int) = x + 1"
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+
+                let info =
+                    match tast.ModuleMembers |> Map.toList |> List.map snd with
+                    | [ info ] -> info
+                    | other -> failtestf "expected exactly one module member, got %A" other
+
+                Expect.equal info.Name "f" "the binding's compiled name"
+                Expect.equal info.Holder.Name "B" "held by the INNERMOST module"
+
+                match info.Holder.Holder with
+                | ModuleHolder.InModule a ->
+                    Expect.equal a.Name "A" "which is itself held by the outer module"
+
+                    Expect.equal
+                        (List.ofSeq a.Namespace.Path.Underlying)
+                        [ "N" ]
+                        "and the outer module by the namespace — neither module is a namespace segment"
+                | other -> failtestf "expected B's holder to be module A, got %A" other
+
+                Expect.equal
+                    (SymbolKeyOps.qualifiedName info.Key)
+                    "N.A.B.f"
+                    "the binding's key qualifies through the whole chain"
+            }
+
             test "a nested module binding freezes identically to the module-level form" {
                 let nested = analyse "let top = 0\nmodule Inner =\n    let f x = x + 1"
                 let flat = analyse "let f x = x + 1"

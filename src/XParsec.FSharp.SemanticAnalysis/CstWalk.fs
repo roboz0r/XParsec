@@ -243,13 +243,6 @@ module DeclContainment =
     let enter (md: ModuleDefn<'T>) (c: DeclContainment<'T>) : DeclContainment<'T> =
         { c with Modules = c.Modules @ [ md ] }
 
-    /// The innermost enclosing module, `ValueNone` at the namespace/file top level — the
-    /// module a `let` compiles onto.
-    let innermost (c: DeclContainment<'T>) : ModuleDefn<'T> voption =
-        match List.tryLast c.Modules with
-        | Some md -> ValueSome md
-        | None -> ValueNone
-
     /// The declaring namespace in the `TTypeDecl.Namespace` shape: `None` for the global
     /// namespace / file module.
     let namespaceOpt (c: DeclContainment<'T>) : string option =

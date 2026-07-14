@@ -1770,20 +1770,19 @@ module Elaborate =
     /// `module`s it is nested in. Its innermost module is the compiled holder type a `let`
     /// binding lands on: such a binding records its `NodeKey` → `ModuleMemberInfo` so the
     /// backend emits it as a named public static method on that holder (e.g.
-    /// `ListModule::fold`) rather than on the anonymous "Program" holder. The holder NAME
-    /// comes from `NameResolutionTypeRegistration.moduleHolderName`, the same rule the
-    /// type-key mint applies — the compiled holder name has one definition, not two.
+    /// `ListModule::fold`) rather than on the anonymous "Program" holder. The holder is
+    /// `ModuleRules.holderChain` — the SAME chain builder the type-key mint reads
+    /// (`localTypeHolder`), so a binding and a type declared in one module are held by the
+    /// same module key, nesting included.
     let rec private translateModuleElem
         (ctx: PassContext)
         (c: DeclContainment<SyntaxToken>)
         (m: ModuleElem<SyntaxToken>)
         : (TDecl * (TypeVar * SemType) list) list =
-        let ns = DeclContainment.namespaceOpt c
-
         let holder =
-            match DeclContainment.innermost c with
-            | ValueSome md -> Some(NameResolutionTypeRegistration.moduleHolderName ctx md)
-            | ValueNone -> None
+            match NameResolutionTypeRegistration.localHolderChain ctx c with
+            | ModuleHolder.InModule mk -> Some mk
+            | ModuleHolder.InNamespace _ -> None
 
         match m with
         | ModuleElem.FunctionOrValue(ModuleFunctionOrValueDefn.Let(bindings = bindings)) ->
@@ -1808,15 +1807,10 @@ module Elaborate =
                                 | ValueSome cn -> cn
                                 | ValueNone -> nm
 
-                            // The holder is built from the two facts this site already
-                            // knows — namespace and module — so the binding's `SymbolKey`
-                            // is a direct construction downstream (`ModuleMemberInfo.Key`),
-                            // never a dotted-string re-parse.
-                            ctx.Bindings.ModuleMembers.[CstKeys.ofBinding b] <-
-                                {
-                                    Holder = SymbolKeyOps.moduleInNamespace (defaultArg ns "") h
-                                    Name = compiledNm
-                                }
+                            // The holder is the containment chain itself, so the binding's
+                            // `SymbolKey` is a direct construction downstream
+                            // (`ModuleMemberInfo.Key`), never a dotted-string re-parse.
+                            ctx.Bindings.ModuleMembers.[CstKeys.ofBinding b] <- { Holder = h; Name = compiledNm }
                         | ValueNone -> ()
                     // A top-level (implicit-Program-module) binding records no
                     // `ModuleMemberInfo`; stash its source name so the backend can
@@ -1910,11 +1904,11 @@ module Elaborate =
             let eT = translateExpr ctx e
             [ TDecl.Expression(eT, typeOfKey ctx (CstKeys.ofExpr e)), [] ]
         | ModuleElem.Type defs -> defs |> Seq.choose (tryTypeDecl ctx c) |> List.ofSeq
-        // A nested `module Foo = …` surfaces its body flat at the enclosing namespace —
-        // the CLR backend still emits a module-held type as a TOP-LEVEL TypeDef (nesting
-        // is not wired), even though the type's KEY now names the module. Its *functions*
-        // carry the holder name (`Foo` / `FooModule`), so they emit onto a real holder
-        // type; deeper nesting takes the innermost module's name.
+        // A nested `module Foo = …` surfaces its body flat as a decl LIST — the CLR backend
+        // still emits a module-held type as a TOP-LEVEL TypeDef (nesting is not wired),
+        // even though the type's KEY names the module. The containment is not flattened
+        // with it: `enter` extends the chain, so a binding at any depth is held by the
+        // whole chain of modules it is written in.
         | ModuleElem.Module((ModuleDefn.ModuleDefn(body = ModuleDefnBody(elements = inner))) as md) ->
             match inner with
             | ValueSome innerElems ->

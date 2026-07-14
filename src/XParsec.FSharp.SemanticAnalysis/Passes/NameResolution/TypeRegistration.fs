@@ -133,6 +133,12 @@ module NameResolutionTypeRegistration =
     let localTypeHolder (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : TypeHolder =
         ModuleRules.typeHolder (moduleNaming ctx) c
 
+    /// `ModuleRules.holderChain` under this pass's `ModuleNaming` — the holder a BINDING
+    /// declared in `c` sits in. The SAME chain `localTypeHolder` reads, so a binding and a
+    /// type declared in one module agree about which module holds them.
+    let localHolderChain (ctx: PassContext) (c: DeclContainment<SyntaxToken>) : ModuleHolder =
+        ModuleRules.holderChain (moduleNaming ctx) c
+
     /// Mint a project-local `SymbolKey` for a type declaration and assert it is unique
     /// across the compilation. The key's holder chain is the declaring containment
     /// threaded from the module walk, so the key names exactly where the type was
