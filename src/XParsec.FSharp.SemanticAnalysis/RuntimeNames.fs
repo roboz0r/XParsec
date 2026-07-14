@@ -13,9 +13,9 @@ namespace XParsec.FSharp.SemanticAnalysis
 /// canonical key (the cons-list additionally has its lowercase abbreviation key —
 /// the abbreviation name is load-bearing for contract extraction
 /// — so it's the one type with two accepted nominal
-/// forms). Recognition is KEY EQUALITY against those constants — every producer of a
-/// nominal key, intrinsics included, arity-suffixes it (`SymbolKeyOps.arityName`), so
-/// the arity is part of the identity and there is nothing left for a matcher to strip.
+/// forms). Recognition is KEY EQUALITY against those constants — a `TypeKey` carries its
+/// arity as an int FIELD, which no producer can forget to supply, so the arity is part of
+/// the identity and there is nothing left for a matcher to strip.
 /// The former parallel fully-qualified string constants + the `isVesperList` string
 /// recogniser are gone — the key constants are now the sole representation.
 ///
@@ -39,33 +39,32 @@ module RuntimeNames =
     // them yet; sub-step 4 wires the producers/consumers onto them.
     //
     // Shape conventions (so a key here equals the key the rest of the pipeline
-    // mints for the same type): `name` is the **arity-qualified** simple name
-    // (`` List`1 ``), following `SymbolKeyOps.arityName`, and the namespace is the
-    // type's declaring namespace — the whole of its nominal identity. These keys
-    // therefore recognise the type whether it is compiled locally (self-hosting
-    // `Vesper.List` / `Vesper.Core`) or resolved through a package reference.
+    // mints for the same type): `name` is the SOURCE simple name, the arity is the int
+    // beside it, and the namespace is the type's declaring namespace — the whole of its
+    // nominal identity. These keys therefore recognise the type whether it is compiled
+    // locally (self-hosting `Vesper.List` / `Vesper.Core`) or resolved through a package
+    // reference.
 
-    /// Canonical identity for the Vesper cons-list `List` union, arity-qualified
-    /// `` List`1 `` to match the locally compiled `UnionTypeInfo.Key`. The producers'
-    /// canonical key.
-    let vesperListKey: SymbolKey = SymbolKeyOps.typeKey "Vesper.Collections" "List`1"
+    /// Canonical identity for the Vesper cons-list `List` union at arity 1, matching the
+    /// locally compiled `UnionTypeInfo.Key`. The producers' canonical key.
+    let vesperListKey: SymbolKey =
+        SymbolKeyOps.typeKeyArity "Vesper.Collections" "List" 1
 
-    /// The cons-list's lowercase `list` abbreviation (`` and 'T list = List<'T> ``, arity 1
-    /// ⇒ `` list`1 ``) — the cons-list's *second* accepted nominal form, sharing the union's
-    /// namespace. Recogniser-only (no producer mints the abbreviation; `isVesperListKey`
-    /// matches it alongside `vesperListKey`), hence `private`.
+    /// The cons-list's lowercase `list` abbreviation (`` and 'T list = List<'T> ``, arity 1)
+    /// — the cons-list's *second* accepted nominal form, sharing the union's namespace.
+    /// Recogniser-only (no producer mints the abbreviation; `isVesperListKey` matches it
+    /// alongside `vesperListKey`), hence `private`.
     let private vesperListAbbrevKey: SymbolKey =
-        SymbolKeyOps.typeKey "Vesper.Collections" "list`1"
+        SymbolKeyOps.typeKeyArity "Vesper.Collections" "list" 1
 
     /// Canonical identity for FSharp.Core's `list` — the non-retargeted default
-    /// `ElaborateExpr` / `Unification` fall back to. Arity 1 (`` list`1 ``); never
-    /// project-local.
+    /// `ElaborateExpr` / `Unification` fall back to. Arity 1; never project-local.
     let fsharpCoreListKey: SymbolKey =
-        SymbolKeyOps.typeKey "Microsoft.FSharp.Collections" "list`1"
+        SymbolKeyOps.typeKeyArity "Microsoft.FSharp.Collections" "list" 1
 
-    /// Canonical identity for the heap ref-cell record (`Ref<'T>`, arity 1 ⇒
-    /// `` Ref`1 ``), matching the locally compiled `Vesper.Core` `RecordTypeInfo.Key`.
-    let vesperRefKey: SymbolKey = SymbolKeyOps.typeKey "Vesper" "Ref`1"
+    /// Canonical identity for the heap ref-cell record (`Ref<'T>`, arity 1), matching the
+    /// locally compiled `Vesper.Core` `RecordTypeInfo.Key`.
+    let vesperRefKey: SymbolKey = SymbolKeyOps.typeKeyArity "Vesper" "Ref" 1
 
     /// Canonical identity for the `%A` structural-format interface
     /// `Vesper.IStructuralFormattable` (non-generic). Recogniser-only —
@@ -75,19 +74,19 @@ module RuntimeNames =
     let private structuralFormattableKey: SymbolKey =
         SymbolKeyOps.typeKey "Vesper" "IStructuralFormattable"
 
-    /// Canonical identity for `PrintfFormat<'Printer,'State,'Residue,'Result>`
-    /// (arity 4 ⇒ `` PrintfFormat`4 ``) — the type a format literal freezes to
-    /// (`PrintfSpec.printfFormatName`). The FSharp.Core face of the format *type*.
+    /// Canonical identity for `PrintfFormat<'Printer,'State,'Residue,'Result>` (arity 4) —
+    /// the type a format literal freezes to (`PrintfSpec.printfFormatName`). The FSharp.Core
+    /// face of the format *type*.
     let printfFormatKey: SymbolKey =
-        SymbolKeyOps.typeKey "Microsoft.FSharp.Core" "PrintfFormat`4"
+        SymbolKeyOps.typeKeyArity "Microsoft.FSharp.Core" "PrintfFormat" 4
 
-    /// The `Vesper` face of `` PrintfFormat`4 ``. Source-level format annotations
+    /// The `Vesper` face of `PrintfFormat` at arity 4. Source-level format annotations
     /// (`Printf.StringFormat<_>` / `TextWriterFormat<_>`) resolve through the
     /// provider to THIS key, not the `Microsoft.FSharp.Core` one the format-literal
     /// machinery synthesises (`printfFormatName`). `isPrintfFormatKey` recognises both
     /// faces so a bound/ascribed format is seen as a `PrintfFormat` at every seam.
     let vesperPrintfFormatKey: SymbolKey =
-        SymbolKeyOps.typeKey "Vesper" "PrintfFormat`4"
+        SymbolKeyOps.typeKeyArity "Vesper" "PrintfFormat" 4
 
     /// The user-facing abbreviation for the object root — `obj` — declared in
     /// `prim-types-object.fs` as `type obj = (# "System.Object" #)`. The front end
@@ -144,10 +143,11 @@ module RuntimeNames =
     /// front end SPELL it in a member-bearing declaration (`array-index.js.fsi` /
     /// `array-index-body.js.fs`) — the double-backtick-escaped `arrayName 1`, i.e.
     /// `` ``[]`` ``. F# requires the `[]` type name be written backtick-escaped (`[]` is
-    /// not a bare identifier); `VesperLib.nameOfTok` preserves that RAW token, and
-    /// `SymbolKeyOps.arityName`'s backtick-guard then suppresses the `` `1 `` arity suffix —
-    /// so the array's member store/contract key is the bare `` ``[]`` ``, NOT `arrayName`'s
-    /// clean `"[]"` nor `"[]`1"`. Both the consumer-contract half and the harvest-store
+    /// not a bare identifier); `VesperLib.nameOfTok` preserves that RAW token, and an
+    /// ESCAPED name can carry no `` `N `` (the backticks are the escape), so `SymbolKeyOps`
+    /// holds it at arity 0 and renders it verbatim — the array's member store/contract key
+    /// is the bare `` ``[]`` ``, NOT `arrayName`'s clean `"[]"` nor `"[]`1"`. Both the
+    /// consumer-contract half and the harvest-store
     /// half derive this SAME string from the identical source spelling, so they agree by
     /// construction; the receiver-side `TyConst("[]")` indexer lookup
     /// (`inferIndexedLookup`) must translate to THIS string to meet them. Single-sourced
@@ -251,9 +251,9 @@ module RuntimeNames =
         member this.SymKey: SymbolKey = SymbolKey.Type this.Key
 
         /// Key EQUALITY against EITHER face — the `SymbolKey`-keyed consumers. Both faces
-        /// and every key that reaches here are arity-suffixed (the platform face from the
-        /// BCL metadata name, the canonical from the contract's compiled name), so identity
-        /// is `=` and nothing is stripped.
+        /// and every key that reaches here carry their arity as an int field no mint can
+        /// omit (the platform face parsed from the BCL metadata name, the canonical from
+        /// the contract's compiled name), so identity is `=` and nothing is stripped.
         member this.Matches(k: SymbolKey) : bool =
             this.SymKey = k
             || (
@@ -421,16 +421,19 @@ module RuntimeNames =
     /// numeric-family member, an enum's underlying type). Carries the `Vesper` contract
     /// namespace by construction: there is NO name-set classification (the former
     /// front-end shadow set is gone), the caller guarantees `name` denotes a primitive.
-    /// The `name` is taken VERBATIM. Every caller but the structural constructors names an
-    /// arity-0 scalar (`int`, an `IntWidth`, a literal's base type, an enum's underlying
-    /// type), for which the arity-suffixed identity IS the bare name; a CONTRACT-declared
-    /// generic intrinsic (`` seq`1 ``) is arity-suffixed like any other nominal and is
-    /// minted from the contract instead (`TypeRegistry.intrinsicKeyOf` /
-    /// `SymbolKeyOps.intrinsicCanonKey`), never here. The structural constructors
-    /// (`arrayKey`/`byrefKey`, arity 1) are the exception: they name no contract face —
-    /// the array's contract spelling is the backtick-escaped `` ``[]`` ``
+    /// The `name` is taken VERBATIM, at ARITY 0. Every caller but the structural
+    /// constructors names an arity-0 scalar (`int`, an `IntWidth`, a literal's base type, an
+    /// enum's underlying type); a CONTRACT-declared generic intrinsic (`seq`, arity 1)
+    /// carries its arity like any other nominal and is minted from the contract instead
+    /// (`TypeRegistry.intrinsicKeyOf` / `SymbolKeyOps.intrinsicCanonKey`), never here.
+    /// The structural constructors (`arrayKey`/`byrefKey`) are the exception: they name no
+    /// contract face — the array's contract spelling is the backtick-escaped `` ``[]`` ``
     /// (`arrayContractName`), a different string — so their producers and recognisers meet
-    /// only on these constants, and their identity name is the one
+    /// only on these constants and never through a metadata name. They are therefore held
+    /// at arity 0 like every other key minted here: their element typar rides the `TyConst`
+    /// args, they are never rendered to (or parsed from) a `` `N `` metadata name, and their
+    /// escaped contract face cannot carry an arity either — so agreeing on 0 is what keeps
+    /// the two faces from drifting. Their identity name is the one
     /// `isStructuralConstructorName` reads.
     /// Prefer the cached `*Key` constants; this by-name form is for the
     /// runtime-primitive-name sites that can't name a fixed constant.

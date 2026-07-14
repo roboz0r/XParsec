@@ -490,34 +490,25 @@ module UnificationEngineCore =
     // A **currency-only** map (`SymbolKey -> SymbolKey`): the reverse tier is gone, so a
     // key only ever routes FORWARD to an already-published intrinsic canon, else returns
     // itself. Resolution order:
-    //   1. the compiled unit's OWN intrinsics (`ctx.Types.IntrinsicReprTypes`, keyed by
-    //      short `.fsi` name) — its contract-stamped qualified key (`intrinsicKeyOf`) IS
-    //      the canon;
+    //   1. the compiled unit's OWN intrinsics (`ctx.Types.IntrinsicReprKeys`) — a key it
+    //      holds IS a contract-stamped canon (`intrinsicKeyOf` wrote both together at
+    //      registration), so it is its own canon;
     //   2. a *referenced* package's intrinsic, riding the provider as
-    //      `ExternalTypeShape.Intrinsic` (whose `Id.Canon` is the authoritative key),
-    //      resolved through the open scope so a bare short name reaches its `Vesper`-
-    //      qualified shape.
-    // The SHORT `.fsi` name keys the local table; the key-addressed store face resolves a
-    // referenced package's intrinsic directly by `key` (guarding a user nominal whose SIMPLE
-    // name coincides with an intrinsic — the key's own `(ns, name)` misses the provider,
-    // where a bare-name probe would have false-matched). Memoized per `PassContext`:
-    // `canonKey` runs inside the subtype recursive walk. A key that is none of the above
-    // caches its own identity.
+    //      `ExternalTypeShape.Intrinsic` (whose `Id.Canon` is the authoritative key).
+    // BOTH tiers answer BY KEY. Neither may project a name back out of `key` and match on
+    // it: a user nominal whose SIMPLE name coincides with an intrinsic (`MyLib.int`) would
+    // false-match the intrinsic and be canonicalised into it — the key's own `(ns, name,
+    // arity)` misses both tiers, which is the correct answer. Memoized per `PassContext`:
+    // `canonKey` runs inside the subtype recursive walk. A key that is neither caches its
+    // own identity.
     let private canonKey (ctx: PassContext) (key: SymbolKey) : SymbolKey =
         match ctx.IntrinsicCanonCache.TryGetValue key with
         | true, canon -> canon
         | _ ->
-            let short = SymbolKeyOps.simpleName key
-
             let canon =
-                if ctx.Types.IntrinsicReprTypes.ContainsKey short then
-                    // A self-compiled intrinsic: its contract-stamped qualified identity
-                    // (`IntrinsicKeys`, stamped from the declaring `namespace`) is the canon.
-                    TypeRegistry.intrinsicKeyOf ctx.Types short
+                if ctx.Types.IntrinsicReprKeys.ContainsKey key then
+                    key
                 else
-                    // `key` is already a resolved identity; the store face answers by key
-                    // (normalising a capability's platform face to canon internally), so no
-                    // open-scope probe of its qualified name is needed.
                     match ctx.Provider.TryLookupType key with
                     | ValueSome(ExternalTypeShape.Intrinsic { Id = { Canon = canon } }) -> canon
                     | _ -> key

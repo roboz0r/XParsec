@@ -381,11 +381,11 @@ let tests =
                 Expect.isTrue hasDup "duplicate-type diagnostic emitted"
             }
 
-            test "Phase 1: stamped *TypeInfo.Key is the arity-qualified TypeKey(None, \"\", name)" {
-                // Every registered type carries a project-local `SymbolKey`.
-                // Non-generic types key on the bare name; generic types carry the
-                // `` `N `` arity suffix that matches the emitted metadata name and
-                // codegen's `userTypes` keying (`SymbolKeyOps.arityName`).
+            test "Phase 1: stamped *TypeInfo.Key carries the declared name and arity" {
+                // Every registered type carries a project-local `SymbolKey`: the SOURCE name
+                // and the declared arity as an int. `(name, arity)` is the whole identity —
+                // the `` `N `` is a CLR spelling produced only when a metadata name is
+                // rendered, never carried in a key.
                 let ctx =
                     analyse (
                         "type R = { X: int }\n"
@@ -411,37 +411,32 @@ let tests =
                     | ValueSome info -> info.Key
                     | ValueNone -> failtestf "abbreviation %s not registered" n
 
-                Expect.equal (recordKey "R") (SymbolKeyOps.typeKey "" ("R")) "non-generic record → bare key"
+                Expect.equal (recordKey "R") (SymbolKeyOps.typeKeyArity "" "R" 0) "non-generic record → arity 0"
 
-                Expect.equal (recordKey "Box") (SymbolKeyOps.typeKey "" ("Box`1")) "generic record → arity-suffixed key"
+                Expect.equal (recordKey "Box") (SymbolKeyOps.typeKeyArity "" "Box" 1) "generic record → arity 1"
 
-                Expect.equal (unionKey "Color") (SymbolKeyOps.typeKey "" ("Color")) "non-generic union → bare key"
+                Expect.equal (unionKey "Color") (SymbolKeyOps.typeKeyArity "" "Color" 0) "non-generic union → arity 0"
 
-                Expect.equal
-                    (unionKey "Choice")
-                    (SymbolKeyOps.typeKey "" ("Choice`2"))
-                    "generic union → arity-suffixed key"
+                Expect.equal (unionKey "Choice") (SymbolKeyOps.typeKeyArity "" "Choice" 2) "generic union → arity 2"
 
-                Expect.equal
-                    (abbrevKey "Pair" 2)
-                    (SymbolKeyOps.typeKey "" ("Pair`2"))
-                    "generic abbrev → arity-suffixed key"
+                Expect.equal (abbrevKey "Pair" 2) (SymbolKeyOps.typeKeyArity "" "Pair" 2) "generic abbrev → arity 2"
 
-                Expect.equal (abbrevKey "Name" 0) (SymbolKeyOps.typeKey "" ("Name")) "non-generic abbrev → bare key"
+                Expect.equal (abbrevKey "Name" 0) (SymbolKeyOps.typeKeyArity "" "Name" 0) "non-generic abbrev → arity 0"
 
-                // The key's name component is exactly what codegen keys `userTypes` on.
-                Expect.equal
-                    (unionKey "Choice")
-                    (SymbolKeyOps.typeKey "" (SymbolKeyOps.arityName "Choice" 2))
-                    "union key name matches SymbolKeyOps.arityName"
+                // The metadata spelling is a RENDERING of the key, not part of it — and it is
+                // what codegen emits as the `TypeDef` name.
+                match unionKey "Choice" with
+                | SymbolKey.Type t ->
+                    Expect.equal t.Name "Choice" "the key's Name is the source name, unmangled"
+                    Expect.equal (SymbolKeyOps.typeSegmentName t) "Choice`2" "the arity is spelled only when rendered"
+                | other -> failtestf "expected a type key, got %A" other
             }
 
-            test "Phase 1: generic class Key is arity-suffixed" {
+            test "Phase 1: generic class Key carries its arity" {
                 let ctx = analyse "type C<'a>(x: 'a) =\n    member this.X = x"
 
                 match TypeRegistry.tryClass ctx.Types SourcePos.unbounded "C" with
-                | ValueSome info ->
-                    Expect.equal info.Key (SymbolKeyOps.typeKey "" ("C`1")) "generic class → arity-suffixed key"
+                | ValueSome info -> Expect.equal info.Key (SymbolKeyOps.typeKeyArity "" "C" 1) "generic class → arity 1"
                 | ValueNone -> failtest "class C not registered"
             }
 

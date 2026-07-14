@@ -399,25 +399,24 @@ module NameResolutionTypeRegistration =
 
                     TypeRegistry.claimType ctx.Types claimed
 
-                    // Contract-source an intrinsic binding's identity: mint its qualified,
-                    // ARITY-SUFFIXED key from the declaring namespace, so `Translate` resolves
-                    // `int` to `Vesper.int` (and `seq<'T>` to `` Vesper.Collections.seq`1 ``)
-                    // from the contract rather than re-deriving the namespace by name. Identity,
-                    // so it is minted here; the target-representation string is detail and stays
-                    // in the abbreviation registrar.
+                    // Contract-source an intrinsic binding's identity: mint its qualified key
+                    // from the declaring namespace, so `Translate` resolves `int` to
+                    // `Vesper.int` (and `seq<'T>` to `Vesper.Collections.seq` at arity 1) from
+                    // the contract rather than re-deriving the namespace by name. Identity, so
+                    // it is minted here; the target-representation string is detail and stays in
+                    // the abbreviation registrar.
                     //
                     // The arity is part of the identity, exactly as for a record/union key — it
                     // is what makes this key EQUAL to the CONTRACT's
-                    // `SymbolKeyOps.intrinsicCanonKey` (minted off the arity-suffixed compiled
-                    // name) when a unit compiles the very types its own contract publishes. Key
-                    // equality is then the whole identity test; no arity-blind matcher.
+                    // `SymbolKeyOps.intrinsicCanonKey` (whose arity comes from PARSING the
+                    // suffixed compiled name) when a unit compiles the very types its own
+                    // contract publishes. Key equality is then the whole identity test.
                     //
                     // NAMESPACE-only (not the containment): an intrinsic is a primitive binding
                     // declared at namespace level (`namespace Vesper` + `type int = (# … #)`);
                     // a module-held one has no contract face to agree with.
                     if kind = TypeDeclKind.IntrinsicRepr then
-                        ctx.Types.IntrinsicKeys.[name] <-
-                            SymbolKeyOps.typeKey c.Namespace (SymbolKeyOps.arityName name arity)
+                        ctx.Types.IntrinsicKeys.[name] <- SymbolKeyOps.typeKeyArity c.Namespace name arity
 
                     ValueSome claimed
 

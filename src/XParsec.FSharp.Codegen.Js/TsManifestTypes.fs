@@ -117,17 +117,15 @@ module internal TsManifestTranslate =
         /// The `SymbolKey` face — what `Resolve` hands the front end.
         member this.SymKey: SymbolKey = SymbolKey.Type this.Key
 
-    /// THE LAW (`SymbolKeyOps.arityName`) — the ONE spelling site of a declared type's
-    /// identity. A generic nominal type's compiled name is arity-suffixed
-    /// (`` Emitter`1 ``) and (name, arity) pairs are DISTINCT nominal types, so the
-    /// SIMPLE name minted into the `TypeKey` carries the `` `n `` suffix by the declared
-    /// arity — matching what `TypeTranslate`/`Elaborate` form when resolving an annotation
-    /// (`arityName`, suffixed-first; a no-op at arity 0). The returned pair is the two
-    /// faces of that one identity: the MAP key (dotted qualified name — the exact string
-    /// the front end hands to `TryLookupType`/`TryLookupMember`) and the
-    /// `SymbolKey.TypeKey` (simple suffixed name + namespace-path split, the
-    /// codegen-minting decomposition — mirroring `MetadataSymbols`, where the key
-    /// decomposes `Type.FullName` but the lookup string is the full name).
+    /// THE LAW — the ONE spelling site of a declared type's identity. `(name, arity)` pairs
+    /// are DISTINCT nominal types, so both faces of the identity are minted HERE from the
+    /// declared arity and cannot drift:
+    ///   * the MAP key — the dotted qualified COMPILED name, arity-suffixed
+    ///     (`` Emitter`1 ``, `SymbolKeyOps.arityName`), which is the exact string the front
+    ///     end hands to `TryLookupType` / `TryLookupMember`. This store is name-addressed by
+    ///     design, so this is a NAME-axis rendering.
+    ///   * the `TypeKey` — plain name + namespace path + `Arity` as an INT. The arity is
+    ///     never packed into the key's `Name`.
     /// `SymbolKeyOps.qualifiedName` of the key equals the map key by construction.
     /// Reference sites (`toFrozen`, `classifyHeritage`) suffix the manifest's bare
     /// spelling by the APPLIED arg count before probing the table: a TS `Named`
@@ -139,8 +137,7 @@ module internal TsManifestTranslate =
     /// (`originFor`). That is what lets a cross-package `Refs` entry (`toFrozen`'s `nominal`)
     /// mint the SAME key the home manifest registers its own declaration under.
     let mint (nsPath: string) (name: string) (arity: int) : string * TypeKey =
-        let simple = SymbolKeyOps.arityName name arity
-        qualify nsPath simple, SymbolKeyOps.typeKeyOf nsPath simple
+        qualify nsPath (SymbolKeyOps.arityName name arity), SymbolKeyOps.typeKeyOfArity nsPath name arity
 
     /// The per-manifest translation context, threaded as ONE argument through every
     /// walk rather than positional parameters: a new per-manifest fact (a refs table

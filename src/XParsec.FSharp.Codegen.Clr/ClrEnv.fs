@@ -463,10 +463,16 @@ type internal ClrEnv
                 // own holders instead of re-parsing a `+`-mangled string. The generic args
                 // ride the innermost nested TypeRef, so the encoder needs no further
                 // nesting awareness.
+                //
+                // Each row's name column is that SEGMENT's metadata spelling — its own name
+                // plus its own `` `N `` (`typeSegmentName`), which is exactly what the CLR
+                // rule says and what `declTypeKey` parsed the key out of.
                 let rec typeRefOf (t: TypeKey) : EntityHandle =
                     match t.Holder with
-                    | TypeHolder.InType outer -> toEntity (ctx.TypeRef(typeRefOf outer, "", t.Name))
-                    | TypeHolder.InNamespace ns -> toEntity (ctx.TypeRef(asm, ns.Dotted, t.Name))
+                    | TypeHolder.InType outer ->
+                        toEntity (ctx.TypeRef(typeRefOf outer, "", SymbolKeyOps.typeSegmentName t))
+                    | TypeHolder.InNamespace ns ->
+                        toEntity (ctx.TypeRef(asm, ns.Dotted, SymbolKeyOps.typeSegmentName t))
                     | TypeHolder.InModule m ->
                         // A module-held type compiles to a type NESTED in the module's holder
                         // type, so its `TypeRef` must chain through `externalModuleRef` — not
@@ -507,10 +513,9 @@ type internal ClrEnv
         match key, externalRecordShape key arity with
         | SymbolKey.Type t, ValueSome(fields, origin) ->
             // Namespace + simple name come off the KEY's own containment chain (a record is
-            // never a CLR nested type). Metadata `TypeRef` simple names carry the `` `n ``
-            // arity suffix; the contract-layer key (`Vesper.Ref`) lacks it, the metadata-layer
-            // key (`Vesper.Ref`1`) has it. Add when absent.
-            let simple = SymbolKeyOps.arityName t.Name arity
+            // never a CLR nested type). A metadata `TypeRef` name carries the `` `n `` arity
+            // suffix, which the key renders from its own `Arity`.
+            let simple = SymbolKeyOps.typeSegmentName t
 
             ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, t.Namespace.Dotted, simple)), fields)
         | _ -> ValueNone
@@ -527,7 +532,7 @@ type internal ClrEnv
     let externalUnionRef (key: SymbolKey) (arity: int) : (EntityHandle * ExternalCaseShape[]) voption =
         match key, externalUnionShape key arity with
         | SymbolKey.Type t, ValueSome(cases, origin) ->
-            let simple = SymbolKeyOps.arityName t.Name arity
+            let simple = SymbolKeyOps.typeSegmentName t
 
             ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, t.Namespace.Dotted, simple)), cases)
         | _ -> ValueNone

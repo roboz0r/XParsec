@@ -99,7 +99,14 @@ let tests =
                             "System.Collections.Generic"
                             "GetHashCode decl namespace"
 
-                        Expect.equal decl.Name "EqualityComparer`1" "GetHashCode decl type name (arity-suffixed)"
+                        Expect.equal decl.Name "EqualityComparer" "GetHashCode decl type name (plain — no `` `N ``)"
+                        Expect.equal decl.Arity 1 "GetHashCode decl type arity"
+
+                        Expect.equal
+                            (SymbolKeyOps.typeSegmentName decl)
+                            "EqualityComparer`1"
+                            "the arity is spelled only when the metadata name is RENDERED"
+
                         Expect.equal (EqArray.toList argSig) [ "!0" ] "GetHashCode(T) argSig is the declaring typar"
                     | other -> failtestf "unexpected GetHashCode key %A" other
 
@@ -131,7 +138,8 @@ let tests =
                                 "System.Collections.Generic"
                                 "Default decl namespace"
 
-                            Expect.equal decl.Name "EqualityComparer`1" "Default decl type name"
+                            Expect.equal decl.Name "EqualityComparer" "Default decl type name"
+                            Expect.equal decl.Arity 1 "Default decl type arity"
                             Expect.isTrue argSig.IsEmpty "Default is a property: empty argSig"
                         | other -> failtestf "unexpected Default key %A" other
                     | other -> failtestf "expected a static `Default` ExternalMember receiver, got %A" other
@@ -231,7 +239,14 @@ let tests =
                             "System.Collections.Generic"
                             "GetHashCode decl namespace"
 
-                        Expect.equal decl.Name "EqualityComparer`1" "GetHashCode decl type name (arity-suffixed)"
+                        Expect.equal decl.Name "EqualityComparer" "GetHashCode decl type name (plain — no `` `N ``)"
+                        Expect.equal decl.Arity 1 "GetHashCode decl type arity"
+
+                        Expect.equal
+                            (SymbolKeyOps.typeSegmentName decl)
+                            "EqualityComparer`1"
+                            "the arity is spelled only when the metadata name is RENDERED"
+
                         Expect.equal (EqArray.toList argSig) [ "!0" ] "GetHashCode(T) argSig is the declaring typar"
                     | other -> failtestf "unexpected GetHashCode key %A" other
 

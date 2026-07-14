@@ -144,6 +144,10 @@ and TypeKey =
     {
         Holder: TypeHolder
         Name: string
+        /// This segment's OWN generic-parameter count (0 ⇒ non-generic, and no `` `N ``
+        /// when rendered). A nested type's outer carries its own count; the CLR spells
+        /// each segment's separately (`` Outer`1+Inner`1 `` = one typar each).
+        Arity: int
     }
 
     /// Walk the holder chain to the namespace at its root. A nested type reports its

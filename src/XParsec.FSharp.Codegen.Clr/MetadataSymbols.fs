@@ -260,8 +260,10 @@ module private MetadataMapping =
     /// nested type's containment is `Type.DeclaringType`, so the key's holder chain is
     /// built by recursion, never by cutting `FullName` on `.` and `+`. Reflection's
     /// `Ns.Outer`1+Inner` display spelling is a rendering (`SymbolKeyOps.typeMetaName`);
-    /// it is not an input here. `Type.Name` is already the bare innermost segment, and a
-    /// nested type reports its outer's namespace — which is what the holder chain gives.
+    /// it is not an input here. `Type.Name` is the innermost METADATA segment — its own
+    /// name plus its own `` `N `` — so it is parsed by `typeKeyOfSegment`, the exact
+    /// inverse of the segment renderer. A nested type reports its outer's namespace, which
+    /// is what the holder chain gives.
     let rec declTypeKey (t: Type) : TypeKey =
         let t =
             if t.IsGenericType && not t.IsGenericTypeDefinition then
@@ -276,7 +278,7 @@ module private MetadataMapping =
                 let ns = if isNull t.Namespace then "" else t.Namespace
                 TypeHolder.InNamespace(SymbolKeyOps.namespaceKey ns)
 
-        { Holder = holder; Name = t.Name }
+        SymbolKeyOps.typeKeyOfSegment holder t.Name
 
 /// `IExternalSymbolProvider` over reference assembly paths via a shared `MetadataLoadContext`.
 /// `reverseCanon` is the harvested `{ platform-repr → [canon] }` map (`System.Int32 → [int]`)

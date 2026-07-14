@@ -162,10 +162,10 @@ type PassContextTypes =
         /// The name → qualified `SymbolKey` index for this unit's own intrinsics,
         /// populated at registration from the declaring `namespace` (`Vesper`). The
         /// intrinsic's identity is CONTRACT-SOURCED: `Translate` reads the resolved key
-        /// here instead of re-deriving the namespace from a hardcoded name set. The key is
-        /// ARITY-SUFFIXED exactly like a record's/union's (`` Vesper.Collections.seq`1 ``,
-        /// `Vesper.int`), so a self-compiled intrinsic's key EQUALS the one its own
-        /// contract publishes (`SymbolKeyOps.intrinsicCanonKey`) and the one a use site
+        /// here instead of re-deriving the namespace from a hardcoded name set. The key
+        /// CARRIES ITS ARITY exactly like a record's/union's (`Vesper.Collections.seq` at
+        /// arity 1, `Vesper.int` at 0), so a self-compiled intrinsic's key EQUALS the one its
+        /// own contract publishes (`SymbolKeyOps.intrinsicCanonKey`) and the one a use site
         /// stamps (`TypeHeadStamp.useSiteTypeKey`) — the arity is part of the identity, not
         /// something a recogniser must strip. The TABLE is keyed by the bare declared name
         /// (as every use site spells it); the arity rides in the VALUE.
@@ -358,17 +358,16 @@ module TypeRegistry =
     /// Is the type `key` (claimed under the short name `name`) visible from `useSite`?
     /// The kind indexes below map a name to KEYS, but the file-order fact lives on the
     /// CLAIM — so a kind index is scoped by asking the name table about the very key it is
-    /// about to answer with. One claim holds `(name, arity)`, and a key's arity is in its
-    /// `Name`, so at most one claim can match.
+    /// about to answer with. One claim holds `(name, arity)`, and a key carries both, so at
+    /// most one claim can match.
     let private keyVisibleAt (types: PassContextTypes) (useSite: SourcePos) (name: string) (key: TypeKey) : bool =
         match types.TypeClaims.TryGetValue name with
         | true, claims -> claims.Exists(fun c -> c.Key = key && visibleAt useSite c)
         | false, _ -> false
 
     /// The key a name claims at EXACTLY this arity AS SEEN FROM `useSite`, if any. The
-    /// `TypeKey`'s `Name` is the arity-qualified name (`SymbolKeyOps.arityName` is the one
-    /// rule both the mint and this read use), so the arity test is a name test on the
-    /// candidates.
+    /// arity is an INT on the key, so the test is an int compare — no `` `N `` suffix is
+    /// rendered and no string round-trip stands between the claim and the read.
     ///
     /// With `tryKeyOfBareName` it is the funnel EVERY kind index (record / union / class /
     /// abbrev) resolves a name through, which is why the use site enters here rather than
@@ -382,19 +381,18 @@ module TypeRegistry =
         : TypeKey voption =
         match index.TryGetValue name with
         | true, keys ->
-            let arityName = SymbolKeyOps.arityName name arity
-
             let i =
-                keys.FindIndex(fun k -> k.Name = arityName && keyVisibleAt types useSite name k)
+                keys.FindIndex(fun k -> k.Arity = arity && keyVisibleAt types useSite name k)
 
             if i < 0 then ValueNone else ValueSome keys.[i]
         | false, _ -> ValueNone
 
     /// What a BARE (arity-less) short name resolves to AS SEEN FROM `useSite`. A
-    /// NON-GENERIC type owns its short name outright — its key's `Name` *is* the bare name
-    /// — so it wins whenever one exists; failing that a lone candidate resolves; and an
-    /// arity-overloaded name (`Point\`2` / `Point\`3`) is genuinely ambiguous unqualified,
-    /// so it resolves to NOTHING and the caller must come with an arity or a key.
+    /// NON-GENERIC type owns its short name outright — nothing else can be written
+    /// unqualified and mean it — so it wins whenever one exists; failing that a lone
+    /// candidate resolves; and an arity-overloaded name (`Point<'a,'b>` / `Point<'a,'b,'c>`)
+    /// is genuinely ambiguous unqualified, so it resolves to NOTHING and the caller must
+    /// come with an arity or a key.
     ///
     /// The candidates are the VISIBLE ones: a type declared below the use is not merely
     /// out-competed, it is not a candidate at all — so it cannot resolve, and cannot make
@@ -416,7 +414,7 @@ module TypeRegistry =
                     visible <- visible + 1
                     lone <- ValueSome k
 
-                    if k.Name = name then
+                    if k.Arity = 0 then
                         exact <- ValueSome k
 
             match exact with

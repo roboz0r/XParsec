@@ -86,19 +86,23 @@ let tests =
                     [ "Vesper"; "Collections" ]
                     "the namespace is segmented from the name, not cut at the blanket origin"
 
-                Expect.equal viaOrigin.Name "seq`1" "the simple name is the last segment, arity-suffixed"
+                Expect.equal viaOrigin.Name "seq" "the simple name is the last segment, PLAIN — no `` `N ``"
+                Expect.equal viaOrigin.Arity 1 "the arity is an int field, not a suffix in the name"
             }
 
-            // `typeMetaName` is THE renderer and `typeKeyOf` THE parser for the `+`-mangled
-            // reflection display name of a CLR nested type. They must invert each other, and
-            // the nesting must land in the holder chain — not survive inside a key's `Name`.
+            // `typeMetaName` is THE renderer and `typeKeyOf` THE parser for the `+`-mangled,
+            // arity-suffixed reflection display name of a CLR nested type. They must invert
+            // each other; the nesting lands in the holder chain and the arity in `Arity` —
+            // neither survives inside a key's `Name`.
             test "nested type: the `+` chain becomes holders, and renders back unchanged" {
                 let k = SymbolKeyOps.typeKeyOf "System.Collections.Generic" "List`1+Enumerator"
 
                 match k.Holder with
                 | TypeHolder.InType outer ->
-                    Expect.equal outer.Name "List`1" "the outer keeps its arity suffix"
+                    Expect.equal outer.Name "List" "the outer's Name is plain"
+                    Expect.equal outer.Arity 1 "the outer owns the typar"
                     Expect.equal k.Name "Enumerator" "the inner Name is the bare segment, not `+`-mangled"
+                    Expect.equal k.Arity 0 "the enumerator declares no typar of its own"
                 | other -> failtestf "expected InType, got %A" other
 
                 Expect.equal
@@ -111,13 +115,65 @@ let tests =
                     "System.Collections.Generic"
                     "a nested type reports its OUTER's namespace, as the CLR does"
 
-                // A nested type's arity is carried by its OUTER, so requesting arity 1 must not
-                // re-suffix the inner segment.
+                // A nested type's arity is spelled by the segment that OWNS it, so a caller's
+                // single `arity` — the shape's total — must not be re-appended to the inner.
                 Expect.equal
                     (SymbolKeyOps.qualifiedTypeKeyOfT "N.List`1+Enumerator" 1
                      |> SymbolKeyOps.typeMetaName)
                     "N.List`1+Enumerator"
                     "the arity is already spelled by the outer; it is not re-appended to the inner"
+            }
+
+            // Each CLR metadata segment's `` `N `` is that segment's OWN typar count, so a
+            // generic type nested in a generic type spells BOTH (`` Outer`1+Inner`1 ``). With
+            // the arity mangled into `Name` this shape was unwritable — a producer could not
+            // suffix an inner whose outer already carried a backtick. Per-segment `Arity: int`
+            // makes it fall out.
+            test "renderer and parser are inverses, per segment" {
+                let roundTrip (ns: string) (name: string) =
+                    let k = SymbolKeyOps.typeKeyOf ns name
+
+                    // NAME round-trip: render ∘ parse = id on the metadata spelling.
+                    Expect.equal
+                        (SymbolKeyOps.typeMetaName k)
+                        (if ns = "" then name else ns + "." + name)
+                        (sprintf "render(parse(%s)) = %s" name name)
+
+                    // KEY round-trip: parse ∘ render = id on the key.
+                    Expect.equal
+                        (SymbolKeyOps.typeKeyOf ns (SymbolKeyOps.typeNestedName k))
+                        k
+                        (sprintf "parse(render(k)) = k for %s" name)
+
+                    k
+
+                Expect.equal (roundTrip "N" "Plain").Arity 0 "non-generic ⇒ arity 0, no suffix rendered"
+                Expect.equal (roundTrip "N" "List`1").Arity 1 "a generic's suffix parses to its arity"
+                Expect.equal (roundTrip "" "Global`2").Arity 2 "the global namespace round-trips too"
+
+                let nested = roundTrip "N" "Outer`1+Inner`1"
+
+                Expect.equal nested.Arity 1 "the INNER declares one typar of its own"
+
+                match nested.Holder with
+                | TypeHolder.InType outer -> Expect.equal outer.Arity 1 "the OUTER declares one of its own"
+                | other -> failtestf "expected InType, got %A" other
+
+                // The array's source spelling is BACKTICK-ESCAPED (F# requires it — `[]` is not
+                // a bare identifier). Those backticks are an escape, NOT an arity, so the name
+                // must survive the parser whole and render back verbatim.
+                let arr = roundTrip "Vesper" RuntimeNames.arrayContractName
+
+                Expect.equal arr.Name RuntimeNames.arrayContractName "the escape is not mangled into a name + arity"
+
+                Expect.equal arr.Arity 0 "a backtick ESCAPE is not a `` `N ``"
+
+                // ...and a mint that is HANDED an arity for it must not invent a suffix the
+                // renderer cannot spell, or the key would stop equalling the contract's.
+                Expect.equal
+                    (SymbolKeyOps.qualifiedTypeKeyOfT ("Vesper." + RuntimeNames.arrayContractName) 1)
+                    arr
+                    "an escaped name takes no arity, however it is minted"
             }
 
             // `moduleFullName` is the ONE rendering of a module's containment. Nothing parses

@@ -8,7 +8,7 @@ open XParsec.FSharp.Parser
 // Side tables hold all in-flight semantic information. CST is never mutated.
 
 /// Project-local nominal identity for a type definition: the containment chain the
-/// declaration sits in plus the .NET arity-qualified simple name (`Choice\`2`). It carries
+/// declaration sits in, the SOURCE simple name, and the declared generic arity. It carries
 /// no home assembly — a key is nominal identity, and a consumer resolving the same type
 /// across a package boundary therefore mints an EQUAL key without having to agree with
 /// this compilation about what its own assembly is called.
@@ -17,13 +17,15 @@ module internal LocalSymbolKey =
     /// The project-local `TypeKey` for `name` at `arity`, declared in `holder` — the
     /// declaring namespace, or the enclosing module chain rooted in it
     /// (`NameResolutionTypeRegistration.localTypeHolder` is the one producer of the
-    /// latter). The arity-name rule is `SymbolKeyOps.arityName` — the one shared
-    /// definition, so the emitted metadata name and the stamped `SymbolKey` name can't
-    /// drift. This key IS the registry key (`TypeRegistry` tables are `TypeKey`-keyed).
+    /// latter). `name` is the name AS WRITTEN and the arity is the declared typar count:
+    /// the `` `N `` is a CLR metadata spelling, produced only when a metadata name is
+    /// rendered (`SymbolKeyOps.typeSegmentName`), never carried in an identity. This key IS
+    /// the registry key (`TypeRegistry` tables are `TypeKey`-keyed).
     let ofType (holder: TypeHolder) (name: string) (arity: int) : TypeKey =
         {
             Holder = holder
-            Name = SymbolKeyOps.arityName name arity
+            Name = name
+            Arity = arity
         }
 
     /// The project-local `SymbolKey.MemberKey` for a member `name` of `kind` on the
