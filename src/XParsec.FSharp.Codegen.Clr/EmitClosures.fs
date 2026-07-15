@@ -153,9 +153,9 @@ module EmitClosures =
     /// `None` for a *top-level* (implicit-"Program"-module) value. A caller that only
     /// wants named-holder values returns `None` on the holderless case.
     let private classifyModuleValues
-        (moduleMembers: Map<NodeKey, ModuleMemberInfo>)
+        (moduleMembers: Map<NodeKey, ModuleBindingInfo>)
         (tyOk: FrozenType -> bool)
-        (project: NodeKey -> FrozenType -> Frozen.TExpr -> ModuleMemberInfo option -> 'a option)
+        (project: NodeKey -> FrozenType -> Frozen.TExpr -> ModuleBindingInfo option -> 'a option)
         (decls: Frozen.TDecl list)
         : 'a list =
         decls
@@ -186,7 +186,7 @@ module EmitClosures =
     /// top-level ("Program") values are out of scope and keep their current
     /// treatment.
     let collectModuleValues
-        (moduleMembers: Map<NodeKey, ModuleMemberInfo>)
+        (moduleMembers: Map<NodeKey, ModuleBindingInfo>)
         (decls: Frozen.TDecl list)
         : ModuleValue list =
         decls
@@ -257,7 +257,7 @@ module EmitClosures =
     /// still deferred.
     ///
     /// Both a value on a named holder and a top-level (implicit-"Program"-module)
-    /// generic value classify: the latter records no `ModuleMemberInfo`, so it gets
+    /// generic value classify: the latter records no `ModuleBindingInfo`, so it gets
     /// `Holder = None` (the Program holder) and a name from `TopLevelNames`
     /// (synthetic `value@<offset>` for a flattened nested trailing value).
     /// Position-independent — a method is computed on demand. A non-generalisable
@@ -266,7 +266,7 @@ module EmitClosures =
     /// monomorphic (and `Validation.checkValueRestriction` errors a mutable one), so
     /// its type is either ground or an `FTUnknown` the `tyOk` gate rejects.
     let collectGenericModuleValues
-        (moduleMembers: Map<NodeKey, ModuleMemberInfo>)
+        (moduleMembers: Map<NodeKey, ModuleBindingInfo>)
         (topLevelNames: Map<NodeKey, string>)
         (decls: Frozen.TDecl list)
         : StaticFn list =
@@ -316,14 +316,14 @@ module EmitClosures =
     /// Classify the *top-level* (implicit-"Program"-module) ground values: a
     /// non-`inline`, non-`Lambda`, non-function `let name = <value>` with no
     /// enclosing named module (it records a `TopLevelNames` entry but no
-    /// `ModuleMemberInfo`) whose type is fully ground. Each becomes a `public
+    /// `ModuleBindingInfo`) whose type is fully ground. Each becomes a `public
     /// static` field on the anonymous "Program" holder; the leading/trailing
     /// `.cctor`-vs-`Main` placement is decided later in `HolderPlan.create`.
     /// Generic top-level values are handled by `collectGenericModuleValues`'
     /// holderless fallback; function-typed values (a stored closure) are deferred,
     /// as for a named holder.
     let collectProgramValues
-        (moduleMembers: Map<NodeKey, ModuleMemberInfo>)
+        (moduleMembers: Map<NodeKey, ModuleBindingInfo>)
         (programHolder: HolderKey)
         (topLevelNames: Map<NodeKey, string>)
         // `(ns, name)` of every `[<Struct; IsByRefLike>]` type declared in this
@@ -360,7 +360,7 @@ module EmitClosures =
             (fun k ty value info ->
                 // A named-holder value (`module Foo`) takes the named-holder path;
                 // only a top-level (`holder = None`) value — recording no
-                // `ModuleMemberInfo` — becomes a Program-holder field here.
+                // `ModuleBindingInfo` — becomes a Program-holder field here.
                 match info with
                 | Some _ -> None
                 | None ->
@@ -572,7 +572,7 @@ module EmitClosures =
     /// (capture-demoted, or a binding `bridgeStaticFnEscapes` newly turned into a
     /// lambda whose key was never eligible) is left for closure discovery.
     let collectStaticFns
-        (moduleMembers: Map<NodeKey, ModuleMemberInfo>)
+        (moduleMembers: Map<NodeKey, ModuleBindingInfo>)
         // Per-binding frozen typar bounds from the front-end
         // scheme. Looked up by `c.Key`; absent ⇒ no bounds. Carried onto
         // `StaticFn.Constraints` and read by the call-site phantom-typar solve.

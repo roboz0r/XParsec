@@ -92,7 +92,7 @@ module ConformanceTypars =
     /// `Holder.Name` resolves a `[<RequireQualifiedAccess>]` / `ModuleSuffix` module's
     /// members; the bare `Name` covers a binding compiled with no holder (a top-level
     /// value in a named module).
-    let private lookupNames (info: ModuleMemberInfo option) (name: string) : string list =
+    let private lookupNames (info: ModuleBindingInfo option) (name: string) : string list =
         match info with
         | Some mi -> [ mi.HolderName + "." + mi.Name; mi.Name ] |> List.distinct
         | None -> [ name ]

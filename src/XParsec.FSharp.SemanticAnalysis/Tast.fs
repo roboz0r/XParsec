@@ -992,7 +992,7 @@ type TInlineBodyG<'ty, 'tok> =
 /// One entry of a unit's INLINE VOCABULARY (`TastFileG.InlineBodies`): a body,
 /// under the identity its home unit interns it by.
 ///
-/// The `Key` is MINTED (from `ModuleMemberInfo`, at freeze), not recovered: an inline
+/// The `Key` is MINTED (from `ModuleBindingInfo`, at freeze), not recovered: an inline
 /// binding is the one kind of symbol that is exported but NEVER emitted, so nothing
 /// downstream would ever mint its identity as a side effect of emitting it. A consumer
 /// splices by this key — the same key its use-site `TExpr.External` carries.
@@ -1032,10 +1032,10 @@ type TastFileG<'ty, 'tok> =
         /// (`module Foo`'s functions emit on a real `Foo`/`FooModule` static class,
         /// not the anonymous "Program" holder). Empty for a program with no named
         /// modules — every static method then lands on "Program" as before.
-        ModuleMembers: Map<NodeKey, ModuleMemberInfo>
+        ModuleMembers: Map<NodeKey, ModuleBindingInfo>
         /// A *top-level* (implicit-"Program"-module) binding's `NodeKey` → its
         /// source name. Top-level bindings (an exe's last file, FS0222) record no
-        /// `ModuleMemberInfo`; this names a top-level value lowered to a
+        /// `ModuleBindingInfo`; this names a top-level value lowered to a
         /// Program-holder static field. Empty for a library or a file led by a
         /// `module`/`namespace` declaration.
         TopLevelNames: Map<NodeKey, string>

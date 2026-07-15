@@ -49,7 +49,7 @@ module internal LocalSymbolKey =
     let ofMember (declKey: TypeKey) (name: string) (arity: int) (kind: MemberKind) : SymbolKey =
         SymbolKeyOps.memberKey declKey name (EqArray.ofList (List.replicate arity (FrozenType.FTUnknown ""))) 0 kind
 
-// `ModuleMemberInfo` moved to `SideTypes.fs` (it must precede `Tast.fs`).
+// `ModuleBindingInfo` moved to `SideTypes.fs` (it must precede `Tast.fs`).
 
 /// Field types start as fresh TyVars stamped by NameResolution and get linked
 /// to the real translated type by Unification before any expression is typed.

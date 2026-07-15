@@ -345,7 +345,7 @@ let tests =
                 let frozen = Pipeline.analyse realProvider.Value input lexed file
 
                 // `k` is the module's first decl; its published identity is the one its
-                // `ModuleMemberInfo` mints — the same one the rewrite must have baked in.
+                // `ModuleBindingInfo` mints — the same one the rewrite must have baked in.
                 let kKey =
                     match sem.Decls.[0] with
                     | TDecl.Let(TPat.NamedSimple(k, _, _), _, _, _) -> k
@@ -354,7 +354,7 @@ let tests =
                 let expected =
                     match Map.tryFind kKey sem.ModuleMembers with
                     | Some info -> info.Key
-                    | None -> failtest "`k` has no ModuleMemberInfo"
+                    | None -> failtest "`k` has no ModuleBindingInfo"
 
                 Expect.isEmpty frozen.Diagnostics "no diagnostics"
 
@@ -391,7 +391,7 @@ let tests =
 
             test "an inline template referencing a TOP-LEVEL binding is diagnosed, not published" {
                 // A top-level (implicit-`Program`-module) binding records a `TopLevelNames`
-                // entry but no `ModuleMemberInfo`, hence no `SymbolKey` — there is nothing
+                // entry but no `ModuleBindingInfo`, hence no `SymbolKey` — there is nothing
                 // for the sibling rewrite to bake in, so the free `Var` survives. That is
                 // exactly what the publish-time free-`Var` check exists to catch.
                 let input = "let k = 3\n\nmodule M =\n    let inline addK x = x + k\n"

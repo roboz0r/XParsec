@@ -48,7 +48,7 @@ type Diagnostic =
 /// nothing else would ever mint its identity), and it agrees BY CONSTRUCTION with
 /// the key a `.fsi` contract extractor mints for the same binding — both build the
 /// same holder chain from the same three facts.
-type ModuleMemberInfo =
+type ModuleBindingInfo =
     {
         Holder: ModuleKey
         Name: string

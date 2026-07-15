@@ -1768,7 +1768,7 @@ module Elaborate =
 
     /// `c` is the element's declaring containment — the `namespace` group plus the
     /// `module`s it is nested in. Its innermost module is the compiled holder type a `let`
-    /// binding lands on: such a binding records its `NodeKey` → `ModuleMemberInfo` so the
+    /// binding lands on: such a binding records its `NodeKey` → `ModuleBindingInfo` so the
     /// backend emits it as a named public static method on that holder (e.g.
     /// `ListModule::fold`) rather than on the anonymous "Program" holder. The holder is
     /// `ModuleRules.holderChain` — the SAME chain builder the type-key mint reads
@@ -1809,11 +1809,11 @@ module Elaborate =
 
                             // The holder is the containment chain itself, so the binding's
                             // `SymbolKey` is a direct construction downstream
-                            // (`ModuleMemberInfo.Key`), never a dotted-string re-parse.
+                            // (`ModuleBindingInfo.Key`), never a dotted-string re-parse.
                             ctx.Bindings.ModuleMembers.[CstKeys.ofBinding b] <- { Holder = h; Name = compiledNm }
                         | ValueNone -> ()
                     // A top-level (implicit-Program-module) binding records no
-                    // `ModuleMemberInfo`; stash its source name so the backend can
+                    // `ModuleBindingInfo`; stash its source name so the backend can
                     // name a top-level value's Program-holder static field. Recorded for every top-level
                     // binding (function or value); only the value collector reads it,
                     // so a top-level function's `fn$<off>` path is untouched.

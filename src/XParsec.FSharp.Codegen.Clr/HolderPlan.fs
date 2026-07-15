@@ -90,7 +90,7 @@ module HolderPlan =
     /// functions, validate the values' initialisers, and fix the holder /
     /// method / field emission orders.
     let create
-        (moduleMembers: Map<NodeKey, ModuleMemberInfo>)
+        (moduleMembers: Map<NodeKey, ModuleBindingInfo>)
         // Forwarded to `collectStaticFns` to populate
         // `StaticFn.Constraints`, which drives the call-site phantom-typar solve
         // (`EmitCall`). The emitted arity is re-derived independently by the

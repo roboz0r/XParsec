@@ -174,7 +174,7 @@ module Freeze =
     /// inline sibling resolves through the by-key inline channel (hitting the identity
     /// `Freeze` minted for it here); an ordinary module value/function resolves to the
     /// real compiled symbol its emission mints — the two agree by construction, since
-    /// `ModuleMemberInfo.Key` is the one place either is derived from. (The simple
+    /// `ModuleBindingInfo.Key` is the one place either is derived from. (The simple
     /// `name` the node also carries does NOT resolve at the consumer: the provider index
     /// is qualified-name keyed and the holder is not auto-opened. That is exactly why the
     /// key channel exists.)
@@ -182,7 +182,7 @@ module Freeze =
     /// So the rewrite map is `tast.ModuleMembers`, NOT the inline vocabulary: a template
     /// may reference an ordinary module value (`let k = 3` / `let inline addK x = x + k`),
     /// and that reference is just as un-splice-able as a reference to a sibling template.
-    let private rewriteSiblingRefs (siblings: Map<NodeKey, ModuleMemberInfo>) (d: TDecl) : TDecl =
+    let private rewriteSiblingRefs (siblings: Map<NodeKey, ModuleBindingInfo>) (d: TDecl) : TDecl =
         let mapper: TastWalk.Mapper =
             { TastWalk.identityMapper with
                 OverrideExpr =
@@ -208,7 +208,7 @@ module Freeze =
     /// The residue this can actually catch, after `rewriteSiblingRefs` has keyed every
     /// module-level sibling, is a reference to a TOP-LEVEL (implicit-`Program`-module)
     /// binding: `Elaborate` records those in `TopLevelNames` and gives them NO
-    /// `ModuleMemberInfo`, hence no `SymbolKey`, hence nothing to rewrite to.
+    /// `ModuleBindingInfo`, hence no `SymbolKey`, hence nothing to rewrite to.
     let private freeVarsOfBody (d: TDecl) : NodeKey list =
         match d with
         // The decl's own binder is in scope in its body (a template may be recursive), so
@@ -227,7 +227,7 @@ module Freeze =
     ///
     /// Rejecting it is a CONCESSION, not a rule of the language: the input is legal F#,
     /// and the reason we cannot publish it is ours — a top-level binding has no
-    /// `ModuleMemberInfo` to key. Giving those an identity (a `Program`-holder
+    /// `ModuleBindingInfo` to key. Giving those an identity (a `Program`-holder
     /// `ModuleKey`) would empty this arm of population, and is the eventual fix. Until
     /// then the boundary refuses what it cannot represent, loudly.
     let private publishable (ctx: PassContext) (tast: TastFile) (binder: NodeKey) (rewritten: TDecl) : bool =
@@ -253,7 +253,7 @@ module Freeze =
         // VOCABULARY predicate (`isInlineVocabulary` + an exportable identity) decides
         // WHAT gets published; `tast.ModuleMembers` — every module-level binder, inline or
         // not — is what the body is rewritten AGAINST. A template with no
-        // `ModuleMemberInfo` (a top-level `let inline` outside any module) has no home
+        // `ModuleBindingInfo` (a top-level `let inline` outside any module) has no home
         // module and so no exportable identity: it is spliced within its own unit and
         // published nowhere.
         let inlineBodies = ResizeArray<TInlineValue>()
