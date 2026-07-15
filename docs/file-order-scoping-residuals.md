@@ -401,10 +401,18 @@ which is why `(r :> IRank).Rank()` works) but never for instance-member dispatch
   falls to a `FieldGet` catch-all;
 - codegen MethodCall/PropertyGet against a record receiver — unverified on both backends.
 
-Closing it means threading `TyRecord` through inference + ~6 elaboration sites + the member-key
-registry lookup, then verifying member-call emission on a record receiver across both backends —
-mirroring the `TyUnion` path, which is the closest precedent at every site. A feature, not a
-resolution-only edit. Pairs naturally with the union augmentation-member work.
+**Deferred, and the fix is UNIFICATION, not a third arm.** The tempting move — mirror the
+`TyUnion` path into a parallel `TyRecord` arm at each of the ~6 sites — would triplicate dispatch
+that should be one path. Instance-member dispatch is ~90% kind-independent: a nominal receiver
+that carries members resolves a member the same way whether it is a class, a union, or a record
+(the declaring-key lookup, the member-key registry read, the `PropertyGet`/`MethodCall`
+lowering, the codegen receiver handling). The kind only matters for the genuinely kind-specific
+parts (a union's tag, a record's field set). So the real work is to factor the shared
+class/union dispatch into one nominal-member path keyed on "has members", with records falling
+into it for free — records being unreachable is the SYMPTOM of two parallel (class, union) paths
+that never became one. That refactor is the residual; verify member-call emission on a record
+receiver across both backends once it lands. Pairs naturally with the union augmentation-member
+work, which exercises the same shared path.
 
 ---
 
