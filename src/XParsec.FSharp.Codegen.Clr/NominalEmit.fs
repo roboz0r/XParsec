@@ -243,6 +243,7 @@ module internal NominalEmit =
 
     let prepare
         (asm: Assembler)
+        (emitCtx: Emit.EmitContext)
         (input: NominalEmissionInput)
         (td: Frozen.TTypeDecl)
         (members: Frozen.TTypeMember list)
@@ -252,7 +253,6 @@ module internal NominalEmit =
         let ctx = asm.Ctx
         let bodyStream = asm.BodyStream
         let encodeLocals = asm.EncodeLocals
-        let emitCtx = asm.EmitCtx
         let unions = asm.Unions
         let records = asm.Records
         let classes = asm.Classes

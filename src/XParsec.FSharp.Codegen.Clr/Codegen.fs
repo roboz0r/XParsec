@@ -20,44 +20,51 @@ module Codegen =
         : ClrArtifact =
         let asm = Assembler(symbols, project, tast, bclReferences)
 
-        // Bind: pre-fill the registries with layout-derived handles, so any
-        // prepared body can reference any type / member / factory / static fn
-        // / closure ctor with no emission-order discipline.
-        for ud in asm.UnionDecls do
-            NominalEmit.register asm (NominalEmissionInput.Union(ud.Cases, ud.Interfaces)) ud.Decl ud.Members
+        // Bind, per unit: pre-fill the registries with layout-derived handles, so any
+        // prepared body can reference any type / member / factory / static fn / closure
+        // ctor with no emission-order discipline. Each unit binds against its own
+        // `EmitContext` (NodeKey-keyed tables are file-local); the nominal registries and
+        // the combined row space are shared on the Assembler.
+        for u in asm.Units do
+            for ud in u.Layout.Partitioned.Unions do
+                NominalEmit.register asm (NominalEmissionInput.Union(ud.Cases, ud.Interfaces)) ud.Decl ud.Members
 
-        for rd in asm.RecordDecls do
-            NominalEmit.register
-                asm
-                (NominalEmissionInput.Record(rd.Fields, rd.Interfaces, rd.ValueKind <> ClassValueKind.RefType))
-                rd.Decl
-                rd.Members
+            for rd in u.Layout.Partitioned.Records do
+                NominalEmit.register
+                    asm
+                    (NominalEmissionInput.Record(rd.Fields, rd.Interfaces, rd.ValueKind <> ClassValueKind.RefType))
+                    rd.Decl
+                    rd.Members
 
-        for cd in asm.ClassDecls do
-            NominalEmit.register asm (NominalEmissionInput.Class cd) cd.Decl cd.Members
+            for cd in u.Layout.Partitioned.Classes do
+                NominalEmit.register asm (NominalEmissionInput.Class cd) cd.Decl cd.Members
 
-        asm.BindClosures()
+            asm.BindClosures u
 
-        // Prepare: build every signature + body against the resolved handles.
-        asm.PrepareInterfaces()
+        // Prepare, per unit: build every signature + body against the resolved handles,
+        // using that unit's `EmitContext`. `PrepareMain` gates itself on the unit that
+        // carries the entry point, so it fires for the entry unit alone.
+        for u in asm.Units do
+            asm.PrepareInterfaces u
 
-        for ud in asm.UnionDecls do
-            NominalEmit.prepare asm (NominalEmissionInput.Union(ud.Cases, ud.Interfaces)) ud.Decl ud.Members
+            for ud in u.Layout.Partitioned.Unions do
+                NominalEmit.prepare asm u.EmitCtx (NominalEmissionInput.Union(ud.Cases, ud.Interfaces)) ud.Decl ud.Members
 
-        for rd in asm.RecordDecls do
-            NominalEmit.prepare
-                asm
-                (NominalEmissionInput.Record(rd.Fields, rd.Interfaces, rd.ValueKind <> ClassValueKind.RefType))
-                rd.Decl
-                rd.Members
+            for rd in u.Layout.Partitioned.Records do
+                NominalEmit.prepare
+                    asm
+                    u.EmitCtx
+                    (NominalEmissionInput.Record(rd.Fields, rd.Interfaces, rd.ValueKind <> ClassValueKind.RefType))
+                    rd.Decl
+                    rd.Members
 
-        for cd in asm.ClassDecls do
-            NominalEmit.prepare asm (NominalEmissionInput.Class cd) cd.Decl cd.Members
+            for cd in u.Layout.Partitioned.Classes do
+                NominalEmit.prepare asm u.EmitCtx (NominalEmissionInput.Class cd) cd.Decl cd.Members
 
-        asm.PrepareStructEnums()
-        asm.PrepareClosures()
-        asm.PrepareStaticMethods()
-        asm.PrepareMain()
+            asm.PrepareStructEnums u
+            asm.PrepareClosures u
+            asm.PrepareStaticMethods u
+            asm.PrepareMain u
 
         // Write the MethodDef table in layout order, then the TypeDef rows +
         // sorted GenericParams, and serialise.

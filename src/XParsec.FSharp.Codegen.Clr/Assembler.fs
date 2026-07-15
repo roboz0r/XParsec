@@ -9,6 +9,40 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open AssemblerScaffold
 
+/// One compilation unit's emission state that the single combined field table forces
+/// to straddle the up-front field pass: the value-struct closure mint and the
+/// closure-verdict rewrite must PRECEDE the pass (both feed a field's signature), so
+/// they are built first and carried here into the post-pass completion (`completeUnit`),
+/// which adds the field-derived tables and the `EmitContext`.
+type private UnitPrelude =
+    {
+        Layout: UnitLayout
+        CtorHandleByNode: Dictionary<Frozen.TExpr, EntityHandle>
+        CachedClosureFieldByNode: Dictionary<Frozen.TExpr, EntityHandle>
+        ClosureValueTypeByNode: Dictionary<Frozen.TExpr, FrozenType>
+        ClosureTypeDefByNode: Dictionary<Frozen.TExpr, EntityHandle>
+        Verdict: ClosureVerdictRewrite.Rewrite
+    }
+
+/// The per-unit emission state the Bind / Prepare passes consume. A FRESH one per unit
+/// keeps the NodeKey-keyed tables (`StaticMethods`/`ModuleValueFields`/`MainInitValues`)
+/// and the reference-keyed closure tables from colliding across files. The nominal
+/// registries, the field-handle map and the ONE combined row space are SHARED — they
+/// live on the `Assembler` itself, keyed by `SymbolKey` / name / `FieldKey`.
+type internal UnitEmit =
+    {
+        Layout: UnitLayout
+        CtorHandleByNode: Dictionary<Frozen.TExpr, EntityHandle>
+        CachedClosureFieldByNode: Dictionary<Frozen.TExpr, EntityHandle>
+        ClosureValueTypeByNode: Dictionary<Frozen.TExpr, FrozenType>
+        ClosureTypeDefByNode: Dictionary<Frozen.TExpr, EntityHandle>
+        Verdict: ClosureVerdictRewrite.Rewrite
+        StaticMethods: Dictionary<NodeKey, Emit.StaticMethodRef>
+        ModuleValueFields: Dictionary<NodeKey, EntityHandle>
+        MainInitValues: Dictionary<NodeKey, EntityHandle>
+        EmitCtx: Emit.EmitContext
+    }
+
 /// The converged assembler over the `AssemblyLayout`: the layout enumerates
 /// every ranged-table row as data (handle = position), the constructor
 /// registers forward handles and
@@ -68,62 +102,70 @@ type internal Assembler
     let layout = Layout.build codegenSymbols project tast
     let layoutHandles = Layout.deriveHandles layout
 
-    let lowered = layout.Lowered
-    let plan = layout.Plan
-    let closures = layout.Closures
-    let closureByNode = layout.ClosureByNode
-
-    // closure name → its `Closure` record, so the type-layout
-    // pass (keyed only by `TypeSlotKey.Closure name`) can branch a value-struct closure
-    // onto struct attrs / `System.ValueType` base.
+    // closure name → its `Closure` record, so the type-layout pass (keyed only by
+    // `TypeSlotKey.Closure name`) can branch a value-struct closure onto struct attrs /
+    // `System.ValueType` base. SHARED across units (the one `ClosureNamer` keeps names
+    // unique assembly-wide); populated per unit in `buildPrelude`.
     let closureByName = Dictionary<string, Emit.Closure>()
-
-    do
-        for c in closures do
-            closureByName.[c.Name] <- c
 
     let closureIsValueStruct (name: string) : bool =
         match closureByName.TryGetValue name with
         | true, c -> c.IsValueStruct
         | false, _ -> false
 
-    let ctorHandleByNode =
-        Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
+    // The whole field table is written up front, straight off the layout; every later
+    // phase resolves def handles by `FieldKey` instead of adding rows. The map is SHARED
+    // — it spans the ONE combined field table, so any unit's body resolves a sibling
+    // unit's field row through it.
+    let fieldDefHandles = Dictionary<FieldKey, FieldDefinitionHandle>()
 
-    // A non-capturing, monomorphic closure's cached singleton field: its
-    // construction sites `ldsfld` this instead of `newobj`ing.
-    let cachedClosureFieldByNode =
-        Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
+    // A numeric enum's `static literal` case fields each carry a `Constant` row whose
+    // value is the case's underlying integer (boxed to the authored CLR primitive, so
+    // SRM picks the matching `ConstantTypeCode`). Keyed by `FieldKey` (SymbolKey-based,
+    // shared across units); the field pass attaches the constant as it writes each
+    // literal field (ascending field order, which the `Constant` table is also sorted by).
+    let enumFieldConstants = Dictionary<FieldKey, obj>()
 
-    // A captureless `Stack` (value-struct) closure's synthetic
-    // encodable `FrozenType` (the by-value local + the constrained-slot `MethodSpec`
-    // type-argument) and its closure-`TypeDef` handle (`initobj` operand).
-    let closureValueTypeByNode =
-        Dictionary<Frozen.TExpr, FrozenType>(HashIdentity.Reference)
+    // The nominal registries are SHARED: keyed by nominal `SymbolKey`, so a call in one
+    // unit's body resolves a type / member defined in another unit through the same
+    // tables. `unions`/`records`/`classes`/`interfaces` are filled by the Bind /
+    // `PrepareInterfaces` passes; `enums` is filled numeric here (in `buildPrelude`) and
+    // struct post-field-pass (in `completeUnit`).
+    let unions = Dictionary<SymbolKey, Emit.EmittedUnion>()
+    let records = Dictionary<SymbolKey, Emit.EmittedRecord>()
+    let classes = Dictionary<SymbolKey, Emit.EmittedClass>()
+    let enums = Dictionary<SymbolKey, Emit.EmittedEnum>()
+    let interfaces = Dictionary<SymbolKey, Emit.EmittedInterface>()
 
-    let closureTypeDefByNode =
-        Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
+    // A module value's verdict-rewritten field-slot type, keyed by binding `NodeKey`.
+    // Accumulated per unit in `buildPrelude` (each unit's own closure-verdict rewrite)
+    // and read by the ONE shared field pass — the single spot where the combined field
+    // table needs a per-unit datum, surfaced as a lookup so the pass itself stays a plain
+    // walk of `layout.Fields`.
+    let moduleValueSlotType = Dictionary<NodeKey, FrozenType>()
 
-    let partitionedDecls = layout.Partitioned
-    let interfaceDecls = partitionedDecls.Interfaces
-    let unionDecls = partitionedDecls.Unions
-    let recordDecls = partitionedDecls.Records
-    let classDecls = partitionedDecls.Classes
-    let enumDecls = partitionedDecls.Enums
-    let structEnumDecls = partitionedDecls.StructEnums
+    // Per unit, BEFORE the shared field pass: register this unit's nominals with the
+    // provider, mint its value-struct closure types, and build its closure-verdict
+    // rewrite — all three feed a field's signature, so they must precede the pass. The
+    // NodeKey / reference-keyed tables and the `EmitContext` are built post-field-pass in
+    // `completeUnit`; the provider registries and the field / enum-constant / registry
+    // maps this touches are SHARED.
+    let buildPrelude (unit: UnitLayout) : UnitPrelude =
+        let partitioned = unit.Partitioned
+        let closures = unit.Closures
+        let plan = unit.Plan
 
-    // Register each nominal type's layout-derived `TypeDefinition` handle so a
-    // field / factory / local signature can `encodeType` it before the row
-    // exists. A *generic* type also registers its shape so the provider can
-    // mint `MemberRef`s on its `TypeSpec`.
-    do
-        unionDecls
-        |> List.iter (fun ud ->
+        for c in closures do
+            closureByName.[c.Name] <- c
+
+        // Register each nominal type's layout-derived `TypeDefinition` handle so a field
+        // / factory / local signature can `encodeType` it before the row exists. A
+        // *generic* type also registers its shape so the provider can mint `MemberRef`s
+        // on its `TypeSpec`. Types are keyed by their nominal `SymbolKey` (namespace +
+        // arity + home assembly), so overloads (`Choice\`2`…`Choice\`7`) never collide in
+        // `userTypes` / `genericUnions`.
+        for ud in partitioned.Unions do
             let td = ud.Decl
-            // Types are keyed by their nominal `SymbolKey` (which embeds namespace,
-            // arity, and home assembly) so same-named overloads (`Choice\`2`…
-            // `Choice\`7`) and same-name-different-namespace types don't collide in
-            // `userTypes` / `genericUnions`.
             provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
 
             if not td.TypeParams.IsEmpty then
@@ -137,27 +179,21 @@ type internal Assembler
                     ]
 
                 provider.RegisterGenericUnion(td.TypeKey, EqArray.toList td.TypeParams, shape)
-        )
 
-    do
-        recordDecls
-        |> List.iter (fun rd ->
+        for rd in partitioned.Records do
             let td = rd.Decl
             provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
 
-            // A `[<Struct>]` record is a project-local value type → `VALUETYPE`
-            // (not `CLASS`) in every signature, exactly as a struct class.
+            // A `[<Struct>]` record is a project-local value type → `VALUETYPE` (not
+            // `CLASS`) in every signature, exactly as a struct class.
             if rd.ValueKind <> ClassValueKind.RefType then
                 provider.RegisterUserValueType td.Key
 
             if not td.TypeParams.IsEmpty then
                 let shape = [ for f in rd.Fields -> f.Name, f.Type ]
                 provider.RegisterGenericRecord(td.Key, EqArray.toList td.TypeParams, shape)
-        )
 
-    do
-        classDecls
-        |> List.iter (fun cd ->
+        for cd in partitioned.Classes do
             let td = cd.Decl
             provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
 
@@ -184,49 +220,34 @@ type internal Assembler
                     @ [ for sl in TPreambleEntryG.lets cd.StaticPreamble -> sl.Name, sl.Type ]
 
                 provider.RegisterGenericClass(td.Key, EqArray.toList td.TypeParams, List.length ctorParamFields, shape)
-        )
 
-    // Interfaces register their `TypeDef` too, so one Core interface naming another
-    // as a member-signature type (`IStructuralFormattable.Format(IFormatSink)`)
-    // resolves through `userTypes` like any project-local nominal.
-    do
-        interfaceDecls
-        |> List.iter (fun (td, _) ->
+        // Interfaces register their `TypeDef` too, so one Core interface naming another
+        // as a member-signature type (`IStructuralFormattable.Format(IFormatSink)`)
+        // resolves through `userTypes` like any project-local nominal. A *generic*
+        // interface (`IStructSeq<'E>`) also enters the generic-class registry so a
+        // constrained-typar dispatch can mint its abstract slot as a `MemberRef` on the
+        // instantiated interface `TypeSpec`.
+        for (td, _) in partitioned.Interfaces do
             provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
 
-            // A *generic* interface (`IStructSeq<'E>`) also enters the generic-class
-            // registry so a constrained-typar dispatch (`CallVia.Interface`)
-            // can mint its abstract slot as a `MemberRef` on the instantiated
-            // interface `TypeSpec` (`IStructSeq\`1<!E>::GetEnumerator`) via
-            // `UserGenericMemberRef`. An interface has no ctor params or fields, so
-            // the field/ctor-arity components are empty — only the typar count (for
-            // the self-`TypeSpec`) and the member signature are consulted.
             if not td.TypeParams.IsEmpty then
                 provider.RegisterGenericClass(td.Key, EqArray.toList td.TypeParams, 0, [])
-        )
 
-    // Every enum — numeric (`System.Enum` subclass) or string/mixed (`[<Struct>]`
-    // wrapper) — registers its layout-derived `TypeDefinition` handle so its own
-    // case fields (typed as the enum itself, `FTEnum`) and any `.ctor`/field
-    // signatures resolve through `userTypes` while the field/method tables are
-    // encoded below, and so a use site (a `(x: E)` annotation, an `E.A` access)
-    // encodes the enum reference. Both reprs are project-local value types (the base
-    // chain reaches `System.ValueType`), so each also registers as a user value type
-    // → `ELEMENT_TYPE_VALUETYPE` in every signature.
-    do
+        // Every enum — numeric (`System.Enum` subclass) or string/mixed (`[<Struct>]`
+        // wrapper) — registers its layout-derived handle (its case fields are typed as
+        // the enum itself, `FTEnum`) and, as a project-local value type (base chain
+        // reaches `System.ValueType`), registers as a user value type →
+        // `ELEMENT_TYPE_VALUETYPE`.
         for td in
-            (enumDecls |> List.map (fun ed -> ed.Decl))
-            @ (structEnumDecls |> List.map (fun sed -> sed.Decl)) do
+            (partitioned.Enums |> List.map (fun ed -> ed.Decl))
+            @ (partitioned.StructEnums |> List.map (fun sed -> sed.Decl)) do
             provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
             provider.RegisterUserValueType td.Key
 
-    // A *generic* closure is a real generic `TypeDefinition` after the nominal
-    // types and before the holders; its layout-derived handle lets capture-field
-    // `MemberRef`s and the construction-site `Newobj` both reach it. Monomorphic
-    // closures use their `Def` tokens directly.
-    do
-        closures
-        |> List.iter (fun c ->
+        // A *generic* closure is a real generic `TypeDefinition`; its layout-derived
+        // handle lets capture-field `MemberRef`s and the construction-site `Newobj` both
+        // reach it. Monomorphic closures use their `Def` tokens directly.
+        for c in closures do
             if c.Typars > 0 then
                 let handle = toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Closure c.Name))
 
@@ -239,17 +260,24 @@ type internal Assembler
                     c.ResultTy,
                     handle
                 )
-        )
 
-    // Mint each captureless value-struct closure's
-    // synthetic encodable `FrozenType` + `TypeDef` handle NOW, before the field
-    // table is written — the module-value field substitution
-    // (`substituteVerdictClosures`) must read `closureValueTypeByNode` while encoding a stored binding's
-    // `'TFunc` slot, and that slot's field is in the up-front field pass below.
-    // `BindClosures` (called later from `Codegen.assemble`) reads these already-minted
-    // entries rather than re-minting (`RegisterStackClosureValueType` is single-shot —
-    // it fails on a duplicate `<closure>` key).
-    do
+        let ctorHandleByNode = Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
+
+        // A non-capturing, monomorphic closure's cached singleton field: its
+        // construction sites `ldsfld` this instead of `newobj`ing.
+        let cachedClosureFieldByNode = Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
+
+        // A captureless `Stack` (value-struct) closure's synthetic encodable `FrozenType`
+        // (the by-value local + the constrained-slot `MethodSpec` type-argument) and its
+        // closure-`TypeDef` handle (`initobj` operand). Minted NOW, before the field table
+        // is written — the module-value field substitution (`substituteVerdictClosures`)
+        // must read `closureValueTypeByNode` while encoding a stored binding's `'TFunc`
+        // slot, and that slot's field is in the up-front field pass. `BindClosures` reads
+        // these already-minted entries rather than re-minting (`RegisterStackClosure-
+        // ValueType` is single-shot — it fails on a duplicate `<closure>` key).
+        let closureValueTypeByNode = Dictionary<Frozen.TExpr, FrozenType>(HashIdentity.Reference)
+        let closureTypeDefByNode = Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
+
         for c in closures do
             if c.IsValueStruct then
                 let defHandle = toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Closure c.Name))
@@ -257,86 +285,99 @@ type internal Assembler
                 closureValueTypeByNode.[c.Node] <- ft
                 closureTypeDefByNode.[c.Node] <- defHandle
 
-    // The seq→enumerator witness the closure-verdict rewrite needs to
-    // rewrite a chained binding's nested `'E` ENUMERATOR slot node-keyed (NOT by
-    // arrow shape). For a project-local seq class, its `GetEnumerator` interface-impl
-    // member's RETURN type is the enumerator over the class's declaring typars; map
-    // each seq class key → that template, then `enumeratorOf` instantiates it by a
-    // concrete (already-rewritten) seq nominal's args. This is the structural
-    // seq→enumerator relationship the type system defines — the codegen analog of
-    // `EmitResolve.tryInterfaceWitness`, computed here from the front-end class decls
-    // because `env.Classes` is not yet populated at the up-front field pass.
-    let enumeratorTemplateByClass =
-        let d = Dictionary<SymbolKey, FrozenType>()
-
-        for cd in classDecls do
-            let template =
-                cd.Interfaces
-                |> List.tryPick (fun (_, members) ->
-                    members
-                    |> List.tryPick (fun (m: Frozen.TTypeMember) ->
-                        if m.Name = "GetEnumerator" then Some m.ReturnTy else None
-                    )
-                )
-
-            match template with
-            | Some t -> d.[cd.Decl.Key] <- t
-            | None -> ()
-
-        d
-
-    // Instantiate a seq class's declaring-typar enumerator template by a concrete
-    // nominal's args: `FTTypar(Declaring, i) := args.[i]` throughout (the canonical
-    // `FrozenTypeBridge.substituteDeclaring` — a `GetEnumerator`-return template
-    // carries only the declaring axis, so its loud method-axis arm is unreachable).
-    // `ValueNone` when the nominal is not a project-local seq class (no template).
-    let enumeratorOf (seqTy: FrozenType) : FrozenType voption =
-        match seqTy with
-        | FTClass(key, args) ->
-            match enumeratorTemplateByClass.TryGetValue(SymbolKey.Type key) with
-            | true, template -> ValueSome(substituteDeclaring (args.AsSpan().ToArray()) template)
-            | false, _ -> ValueNone
-        | _ -> ValueNone
-
-    // The closure-verdict TAST rewrite, built from backend-neutral inputs
-    // (the already-minted value-struct closure types + the front-end's result-typar
-    // verdicts + the stored module values + the seq→enumerator witness). It owns
-    // `substituteVerdictClosures` / `retypeBody` / `retypeDecl` and the field-slot
-    // lookup; see `ClosureVerdictRewrite`. Built here (after the mint `do` above) so
-    // the field pass below can consult it.
-    let verdict =
-        ClosureVerdictRewrite.build
-            closureValueTypeByNode
-            tast.FunVerdicts
-            enumeratorOf
-            [ for mv in plan.AllModuleValues -> mv.Key, mv.Ty, mv.Init ]
-
-    let retypeBody = verdict.RetypeBody
-    let retypeDecl = verdict.RetypeDecl
-
-    // Tables are independent (only intra-table order matters), so the whole
-    // field table is written up front, straight off the layout; every later
-    // phase resolves def handles by `FieldKey` instead of adding rows. A
-    // generic closure's capture-field signature encodes inside the ambient
-    // closure-typar scope, bracketed per slot.
-    let fieldDefHandles = Dictionary<FieldKey, FieldDefinitionHandle>()
-
-    // A numeric enum's `static literal` case fields each carry a `Constant` row whose
-    // value is the case's underlying integer (boxed to the authored CLR primitive, so
-    // SRM picks the matching `ConstantTypeCode`). Keyed by `FieldKey` so the field pass
-    // attaches the constant as it writes each literal field (ascending field order,
-    // which the `Constant` table is also sorted by).
-    let enumFieldConstants = Dictionary<FieldKey, obj>()
-
-    do
-        for ed in enumDecls do
+        // A numeric enum's case `Constant` values + its `NumericEnum` registry entry.
+        // Both must exist before the field pass (which attaches the `Constant` rows). SRM
+        // reads the `ConstantTypeCode` off the box's RUNTIME type, so each value is boxed
+        // at the width's own .NET primitive — `IntWidth.boxed`.
+        for ed in partitioned.Enums do
             for (caseName, v) in ed.Cases do
-                // SRM reads the `ConstantTypeCode` off the box's RUNTIME type, so the value
-                // must be boxed at the width's own .NET primitive — `IntWidth.boxed`, the
-                // single place that says which that is.
                 let w, bits = TEnumCases.integralValue v
                 enumFieldConstants.[FieldKey.EnumCaseField(ed.Decl.Key, caseName)] <- IntWidth.boxed w bits
 
+            let caseValues = Dictionary<string, TConstValue>()
+
+            for (caseName, v) in ed.Cases do
+                caseValues.[caseName] <- v
+
+            enums.[ed.Decl.Key] <-
+                {
+                    Repr = Emit.EmittedEnumRepr.NumericEnum caseValues
+                }
+
+        // The seq→enumerator witness the closure-verdict rewrite needs to rewrite a
+        // chained binding's nested `'E` ENUMERATOR slot node-keyed (NOT by arrow shape).
+        // For a project-local seq class, its `GetEnumerator` interface-impl member's
+        // RETURN type is the enumerator over the class's declaring typars; map each seq
+        // class key → that template, then `enumeratorOf` instantiates it by a concrete
+        // seq nominal's args. Computed from THIS unit's class decls because `env.Classes`
+        // is not yet populated at the up-front field pass.
+        let enumeratorTemplateByClass =
+            let d = Dictionary<SymbolKey, FrozenType>()
+
+            for cd in partitioned.Classes do
+                let template =
+                    cd.Interfaces
+                    |> List.tryPick (fun (_, members) ->
+                        members
+                        |> List.tryPick (fun (m: Frozen.TTypeMember) ->
+                            if m.Name = "GetEnumerator" then Some m.ReturnTy else None
+                        )
+                    )
+
+                match template with
+                | Some t -> d.[cd.Decl.Key] <- t
+                | None -> ()
+
+            d
+
+        // Instantiate a seq class's declaring-typar enumerator template by a concrete
+        // nominal's args (`FrozenTypeBridge.substituteDeclaring`). `ValueNone` when the
+        // nominal is not a project-local seq class (no template).
+        let enumeratorOf (seqTy: FrozenType) : FrozenType voption =
+            match seqTy with
+            | FTClass(key, args) ->
+                match enumeratorTemplateByClass.TryGetValue(SymbolKey.Type key) with
+                | true, template -> ValueSome(substituteDeclaring (args.AsSpan().ToArray()) template)
+                | false, _ -> ValueNone
+            | _ -> ValueNone
+
+        // The closure-verdict TAST rewrite for THIS unit's bodies, from backend-neutral
+        // inputs (this unit's already-minted value-struct closure types + its result-typar
+        // verdicts + its stored module values + the seq→enumerator witness). It owns
+        // `substituteVerdictClosures` / `retypeBody` / `retypeDecl` and the field-slot
+        // lookup; see `ClosureVerdictRewrite`.
+        let verdict =
+            ClosureVerdictRewrite.build
+                closureValueTypeByNode
+                tast.FunVerdicts
+                enumeratorOf
+                [ for mv in plan.AllModuleValues -> mv.Key, mv.Ty, mv.Init ]
+
+        // Surface this unit's module-value slot types into the shared lookup the field
+        // pass reads. A non-verdict binding stores its declared type unchanged (the field
+        // pass would encode the same), so the pass need not know the verdict itself.
+        for mv in plan.AllModuleValues do
+            moduleValueSlotType.[mv.Key] <- verdict.ModuleValueSlotType mv.Key mv.Ty
+
+        {
+            Layout = unit
+            CtorHandleByNode = ctorHandleByNode
+            CachedClosureFieldByNode = cachedClosureFieldByNode
+            ClosureValueTypeByNode = closureValueTypeByNode
+            ClosureTypeDefByNode = closureTypeDefByNode
+            Verdict = verdict
+        }
+
+    // Force every unit's prelude BEFORE the field pass, so all units' nominals are
+    // registered and value-struct closures minted by the time any field signature is
+    // encoded.
+    let unitPreludes = layout.Units |> List.map buildPrelude
+
+    // Tables are independent (only intra-table order matters), so the whole field table
+    // is written up front, straight off the layout — the ONE combined row space across
+    // every unit. Every later phase resolves def handles by `FieldKey`. A generic
+    // closure's capture-field signature encodes inside the ambient closure-typar scope,
+    // bracketed per slot.
     do
         for fs in layout.Fields do
             match fs.ClosureScope with
@@ -354,11 +395,17 @@ type internal Assembler
                     // type, encoded from its TypeDef handle (no `FrozenType`).
                     | FieldKey.ClosureCached name ->
                         provider.ClosureSelfFieldSignature(toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Closure name)))
-                    // A stored module value whose initialiser feeds a
-                    // value-struct source lambda into a `'TFunc`-carrying result type —
-                    // rewrite the typar-position leaf to the `<closure>$` value-struct so
-                    // the field slot matches the value the call returns.
-                    | FieldKey.ModuleValue mvKey -> provider.FieldSignature(verdict.ModuleValueSlotType mvKey fs.Ty)
+                    // A stored module value whose initialiser feeds a value-struct source
+                    // lambda into a `'TFunc`-carrying result type — the owning unit's
+                    // verdict rewrote the slot to the `<closure>$` value-struct, surfaced
+                    // through `moduleValueSlotType`. Absent ⇒ the declared type unchanged.
+                    | FieldKey.ModuleValue mvKey ->
+                        let slotTy =
+                            match moduleValueSlotType.TryGetValue mvKey with
+                            | true, t -> t
+                            | false, _ -> fs.Ty
+
+                        provider.FieldSignature slotTy
                     | _ -> provider.FieldSignature fs.Ty
                 with ex ->
                     // Wrap (not `failwithf "%s" ex.Message`) so the original
@@ -385,33 +432,20 @@ type internal Assembler
                 ctx.FieldRowCount
                 layoutHandles.TotalFields
 
-    let unions = Dictionary<SymbolKey, Emit.EmittedUnion>()
-    let records = Dictionary<SymbolKey, Emit.EmittedRecord>()
-    let classes = Dictionary<SymbolKey, Emit.EmittedClass>()
+    // Per unit, AFTER the field pass: the field-derived tables (struct-enum registry,
+    // static-method refs, module-value field handles) and this unit's `EmitContext`. A
+    // FRESH EmitContext per unit keeps its NodeKey-keyed tables (`StaticMethods` /
+    // `ModuleValues` / `MainInitValues`) and reference-keyed closure tables from
+    // colliding across files; its nominal registries are the SHARED ones.
+    let completeUnit (pre: UnitPrelude) : UnitEmit =
+        let unit = pre.Layout
+        let partitioned = unit.Partitioned
+        let plan = unit.Plan
 
-    // Numeric enums: each case name → its underlying integer literal. A
-    // `StaticFieldGet` / `EnumCase` in any body pushes this constant directly (an enum
-    // value IS its integer; the `literal` field is metadata-only). Enums are
-    // monomorphic + member-less, so no register/prepare pass is needed.
-    let enums = Dictionary<SymbolKey, Emit.EmittedEnum>()
-
-    do
-        for ed in enumDecls do
-            let caseValues = Dictionary<string, TConstValue>()
-
-            for (caseName, v) in ed.Cases do
-                caseValues.[caseName] <- v
-
-            enums.[ed.Decl.Key] <-
-                {
-                    Repr = Emit.EmittedEnumRepr.NumericEnum caseValues
-                }
-
-    // String/mixed enums: the per-case `static initonly` field handles
-    // (read off the completed field pass) drive `E.A` `ldsfld`, and the case
-    // literals + backing field handle drive the `| E.A` pattern's field equality.
-    do
-        for sed in structEnumDecls do
+        // String/mixed enums: the per-case `static initonly` field handles (read off the
+        // completed field pass) drive `E.A` `ldsfld`, and the case literals + backing
+        // field handle drive the `| E.A` pattern's field equality.
+        for sed in partitioned.StructEnums do
             let caseFields = Dictionary<string, EntityHandle>()
             let caseLits = Dictionary<string, TEnumLiteral>()
 
@@ -425,76 +459,82 @@ type internal Assembler
                 {
                     Repr = Emit.EmittedEnumRepr.StructEnum(sed.IsMixed, backingField, caseFields, caseLits)
                 }
-    // Filled by `PrepareInterfaces` (shared by reference with `emitCtx`), so a call
-    // on an interface-typed receiver resolves its slot through `resolveInstanceMember`.
-    let interfaces = Dictionary<SymbolKey, Emit.EmittedInterface>()
 
-    // A static fn's call sites resolve through its layout-derived `MethodDef`
-    // handle; recursion and cross-calls need no emission-order discipline.
-    let staticMethods = Dictionary<NodeKey, Emit.StaticMethodRef>()
+        // A static fn's call sites resolve through its layout-derived `MethodDef` handle;
+        // recursion and cross-calls need no emission-order discipline.
+        let staticMethods = Dictionary<NodeKey, Emit.StaticMethodRef>()
 
-    do
-        plan.StaticFns
-        |> List.iter (fun fn ->
+        for fn in plan.StaticFns do
             staticMethods.[fn.Key] <-
                 {
                     Handle = toEntity (layoutHandles.MethodDefOf(MethodKey.StaticFn fn.Key))
-                    // The flat CLR arg count (the `call` operand count); the spine
-                    // split uses `Groups.Length`, which can be smaller (a tupled
-                    // group is one application, many flat params).
+                    // The flat CLR arg count (the `call` operand count); the spine split
+                    // uses `Groups.Length`, which can be smaller (a tupled group is one
+                    // application, many flat params).
                     ParamArity = List.length fn.Params
                     Groups = fn.Groups
                     ResultTy = fn.ResultTy
-                    // `plan.StaticFnTypars` is the max method
-                    // index over params + result + BODY, so a generic combinator emits
-                    // a `MethodSpec` slot for each phantom typar surviving in its body
-                    // (`fold`'s `'E`) — the call site solves those from `Constraints`.
+                    // `plan.StaticFnTypars` is the max method index over params + result +
+                    // BODY, so a generic combinator emits a `MethodSpec` slot for each
+                    // phantom typar surviving in its body (`fold`'s `'E`) — the call site
+                    // solves those from `Constraints`.
                     Typars = plan.StaticFnTypars.[fn.Key]
                     ParamTys = fn.Params |> List.map (fun p -> p.Ty)
                     ReturnsVoid = fn.ReturnsVoid
-                    // The frozen typar bounds the call-site
-                    // phantom-typar solve (`EmitCall`) reads to recover the phantom
-                    // method-typar slots no parameter/result mentions.
+                    // The frozen typar bounds the call-site phantom-typar solve (`EmitCall`)
+                    // reads to recover the phantom method-typar slots no parameter/result
+                    // mentions.
                     Constraints = fn.Constraints
                 }
-        )
 
-    // Module-value bindings resolve to their already-written field rows —
-    // any body encodes the `ldsfld` token straight off the def handle.
-    let moduleValueFields = Dictionary<NodeKey, EntityHandle>()
+        // Module-value bindings resolve to their already-written field rows — any body
+        // encodes the `ldsfld` token straight off the def handle.
+        let moduleValueFields = Dictionary<NodeKey, EntityHandle>()
 
-    do
-        plan.AllModuleValues
-        |> List.iter (fun mv -> moduleValueFields.[mv.Key] <- toEntity fieldDefHandles.[FieldKey.ModuleValue mv.Key])
+        for mv in plan.AllModuleValues do
+            moduleValueFields.[mv.Key] <- toEntity fieldDefHandles.[FieldKey.ModuleValue mv.Key]
 
-    // The trailing top-level values: their `public static` field is written in
-    // `Main` (`buildMain` `stsfld`), not a `.cctor`. Same field handles, a separate
-    // map so `buildMain` knows to emit the store (vs the cctor-initialised values it
-    // skips).
-    let mainInitValues = Dictionary<NodeKey, EntityHandle>()
+        // The trailing top-level values: their `public static` field is written in `Main`
+        // (`buildMain` `stsfld`), not a `.cctor`. Same field handles, a separate map so
+        // `buildMain` knows to emit the store (vs the cctor-initialised values it skips).
+        let mainInitValues = Dictionary<NodeKey, EntityHandle>()
 
-    do
-        plan.ProgramMainValues
-        |> List.iter (fun mv -> mainInitValues.[mv.Key] <- moduleValueFields.[mv.Key])
+        for mv in plan.ProgramMainValues do
+            mainInitValues.[mv.Key] <- moduleValueFields.[mv.Key]
 
-    let emitCtx: Emit.EmitContext =
+        let emitCtx: Emit.EmitContext =
+            {
+                Provider = icodegen
+                Ctx = ctx
+                ClosureByNode = unit.ClosureByNode
+                CtorHandleByNode = pre.CtorHandleByNode
+                CachedClosureFieldByNode = pre.CachedClosureFieldByNode
+                ClosureValueTypeByNode = pre.ClosureValueTypeByNode
+                ClosureTypeDefByNode = pre.ClosureTypeDefByNode
+                Unions = unions
+                Records = records
+                Classes = classes
+                Interfaces = interfaces
+                Enums = enums
+                StaticMethods = staticMethods
+                ModuleValues = moduleValueFields
+                MainInitValues = mainInitValues
+            }
+
         {
-            Provider = icodegen
-            Ctx = ctx
-            ClosureByNode = closureByNode
-            CtorHandleByNode = ctorHandleByNode
-            CachedClosureFieldByNode = cachedClosureFieldByNode
-            ClosureValueTypeByNode = closureValueTypeByNode
-            ClosureTypeDefByNode = closureTypeDefByNode
-            Unions = unions
-            Records = records
-            Classes = classes
-            Interfaces = interfaces
-            Enums = enums
+            Layout = unit
+            CtorHandleByNode = pre.CtorHandleByNode
+            CachedClosureFieldByNode = pre.CachedClosureFieldByNode
+            ClosureValueTypeByNode = pre.ClosureValueTypeByNode
+            ClosureTypeDefByNode = pre.ClosureTypeDefByNode
+            Verdict = pre.Verdict
             StaticMethods = staticMethods
-            ModuleValues = moduleValueFields
+            ModuleValueFields = moduleValueFields
             MainInitValues = mainInitValues
+            EmitCtx = emitCtx
         }
+
+    let units = unitPreludes |> List.map completeUnit
 
     // The Prepare phase binds every layout method row to its signature + body
     // offset + param names; `WriteMethods` walks `layout.Methods` and writes
@@ -618,14 +658,15 @@ type internal Assembler
     member _.Ctx = ctx
     member _.BodyStream = bodyStream
     member _.EncodeLocals = encodeLocals
-    member _.EmitCtx = emitCtx
     member _.Unions = unions
     member _.Records = records
     member _.Classes = classes
-    member _.UnionDecls = unionDecls
-    member _.RecordDecls = recordDecls
-    member _.ClassDecls = classDecls
-    member _.StructEnumDecls = structEnumDecls
+
+    /// The per-unit emission state: a fresh `EmitContext` plus this unit's NodeKey /
+    /// reference-keyed tables and its closure-verdict rewrite. The Bind / Prepare passes
+    /// iterate these; the nominal registries, the field-handle map and the one combined
+    /// row space live on the Assembler and are shared across units.
+    member _.Units: UnitEmit list = units
 
     /// True when *this* compilation defines the `%A` structural-format interfaces
     /// (`Vesper.IStructuralFormattable` / `IFormatSink`) — i.e. it is `Vesper.Core`.
@@ -666,28 +707,28 @@ type internal Assembler
     // The construction-site `Newobj` targets the ctor's `Def` directly via
     // this dict. Generic closures mint a fresh `MemberRef` at the use site
     // instead (dict left unpopulated).
-    member this.BindClosures() =
-        for c in closures do
+    member this.BindClosures(u: UnitEmit) =
+        for c in u.Layout.Closures do
             if c.Typars = 0 then
-                ctorHandleByNode.[c.Node] <- toEntity (layoutHandles.MethodDefOf(MethodKey.ClosureCtor c.Name))
+                u.CtorHandleByNode.[c.Node] <- toEntity (layoutHandles.MethodDefOf(MethodKey.ClosureCtor c.Name))
 
             // A non-capturing, monomorphic closure is cached: the construction site
             // `ldsfld`s its singleton field instead of `newobj`ing.
             if Emit.closureIsCached c then
-                cachedClosureFieldByNode.[c.Node] <- toEntity (fieldDefHandles.[FieldKey.ClosureCached c.Name])
+                u.CachedClosureFieldByNode.[c.Node] <- toEntity (fieldDefHandles.[FieldKey.ClosureCached c.Name])
 
             // A captureless `Stack` (value-struct) closure is
             // constructed by-value (`initobj` to a local) and its struct `TypeDef`
             // is the constrained-slot `MethodSpec` type-argument at the call site.
             // Its synthetic value-type `FrozenType` + `TypeDef` handle were already
-            // minted in the constructor (before the field pass, so the stored-slot
+            // minted in `buildPrelude` (before the field pass, so the stored-slot
             // substitution could read them); `RegisterStackClosureValueType` is
             // single-shot, so this only asserts they are present — never re-mints.
-            if c.IsValueStruct && not (closureValueTypeByNode.ContainsKey c.Node) then
+            if c.IsValueStruct && not (u.ClosureValueTypeByNode.ContainsKey c.Node) then
                 failwithf "Emit: value-struct closure '%s' was not pre-minted before the field pass" c.Name
 
-    member this.PrepareInterfaces() =
-        for (td, methods) in interfaceDecls do
+    member this.PrepareInterfaces(u: UnitEmit) =
+        for (td, methods) in u.Layout.Partitioned.Interfaces do
             // The use-site member table for a call on an interface-typed receiver:
             // each method's `MethodKey.InterfaceMethod` handle keyed by source name, so
             // `resolveInstanceMember` finds the slot and `buildMethodCall` `callvirt`s
@@ -747,8 +788,8 @@ type internal Assembler
     /// base for the `TypeDefinition` row. The per-case field handles + literals were
     /// captured in the `enums` registry (after the field pass); here they drive the
     /// `newobj;stsfld` sequence.
-    member this.PrepareStructEnums() =
-        for sed in structEnumDecls do
+    member this.PrepareStructEnums(u: UnitEmit) =
+        for sed in u.Layout.Partitioned.StructEnums do
             let td = sed.Decl
 
             let fieldTy =
@@ -816,8 +857,8 @@ type internal Assembler
     // A *generic* closure enters closure-typar mode around every signature/body
     // build, so the body's `FTTypar(Method, i)` (the enclosing method's typars)
     // re-project onto this closure class's `!i`.
-    member this.PrepareClosures() =
-        for c in closures do
+    member this.PrepareClosures(u: UnitEmit) =
+        for c in u.Layout.Closures do
             let captureFields = Dictionary<NodeKey, EntityHandle>()
             let isGenericClosure = c.Typars > 0
             // This closure's self-instantiation over its *own* typars (`!0 … !{n-1}`),
@@ -867,7 +908,7 @@ type internal Assembler
                         (IlIr.lower (Emit.buildClosureCtor provider.ObjectCtorRef fieldHandles))
 
             let invokeBodyOffset =
-                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildClosureInvoke emitCtx c captureFields))
+                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildClosureInvoke u.EmitCtx c captureFields))
 
             this.AddPrepared(
                 MethodKey.ClosureCtor c.Name,
@@ -958,7 +999,13 @@ type internal Assembler
                 }
             )
 
-    member this.PrepareStaticMethods() =
+    member this.PrepareStaticMethods(u: UnitEmit) =
+        let plan = u.Layout.Plan
+        let staticMethods = u.StaticMethods
+        let moduleValueFields = u.ModuleValueFields
+        let retypeBody = u.Verdict.RetypeBody
+        let emitCtx = u.EmitCtx
+
         let prepareStaticFn (fn: Emit.StaticFn) =
             // A *generic* static method: its body / signature / locals embed
             // `FTTypar(Method, i)` (freeze-quantified), which the encoder maps to
@@ -1048,15 +1095,17 @@ type internal Assembler
             | HolderFn fn -> prepareStaticFn fn
             | ProgramCctor -> prepareProgramCctor ()
 
-    member this.PrepareMain() =
-        if layout.EmitEntryPoint then
+    /// `Main` belongs to the ENTRY unit only — the one whose layout carries the entry
+    /// point. A non-entry unit contributes no `Main` row, so this is a no-op for it.
+    member this.PrepareMain(u: UnitEmit) =
+        if u.Layout.EmitEntryPoint then
             // Retype the Main decls so a reference to a verdict module
             // value (and its field projections) dispatches on the `<closure>$` value-
             // struct nominal, not the frozen arrow.
-            let mainDecls = lowered |> List.map retypeDecl
+            let mainDecls = u.Layout.Lowered |> List.map u.Verdict.RetypeDecl
 
             let mainBodyOffset =
-                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildMain emitCtx mainDecls))
+                Cil.buildBody encodeLocals bodyStream (IlIr.lower (Emit.buildMain u.EmitCtx mainDecls))
 
             this.AddPrepared(
                 MethodKey.Main,
