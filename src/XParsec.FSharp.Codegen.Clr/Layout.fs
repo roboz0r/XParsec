@@ -159,8 +159,11 @@ type internal FieldKey =
     /// A non-capturing, monomorphic closure's `static readonly` singleton field —
     /// the one cached instance every construction site `ldsfld`s.
     | ClosureCached of closure: string
-    /// A module-level value's `public static` holder field.
-    | ModuleValue of NodeKey
+    /// A module-level value's `public static` holder field, keyed by its
+    /// `SymbolKey` (declaring holder + emitted name) so the ONE combined field-def
+    /// map stays injective across compilation units and under entry-file shadowing —
+    /// a bare per-file `NodeKey` collides on both axes (`Emit.ModuleValue.SymbolKey`).
+    | ModuleValue of SymbolKey
 
 /// One `Field` row: the i-th entry of `AssemblyLayout.Fields` is table row
 /// i+1. The layout stores only def-table rows; whether a *use site* routes
@@ -214,7 +217,11 @@ type internal MethodKey =
     /// The anonymous "Program" holder's `.cctor` — initialises the
     /// leading-prefix top-level values; at most one per assembly.
     | ProgramCctor
-    | StaticFn of NodeKey
+    /// A top-level function lowered to a static method, keyed by its `SymbolKey`
+    /// (declaring holder + emitted name) so the ONE combined method-def map stays
+    /// injective across compilation units and under entry-file shadowing — a bare
+    /// per-file `NodeKey` collides on both axes (`Emit.StaticFn.SymbolKey`).
+    | StaticFn of SymbolKey
     | Main
 
 /// One `MethodDef` row: the i-th entry of `AssemblyLayout.Methods` is table
@@ -1287,7 +1294,7 @@ module internal Layout =
                     if fn.Holder = Some h then
                         yield
                             {
-                                Key = MethodKey.StaticFn fn.Key
+                                Key = MethodKey.StaticFn fn.SymbolKey
                                 Name = fn.Name
                                 Attrs = staticMethodAttrs
                             }
@@ -1303,7 +1310,7 @@ module internal Layout =
                 [
                     for mv in values ->
                         {
-                            Key = FieldKey.ModuleValue mv.Key
+                            Key = FieldKey.ModuleValue mv.SymbolKey
                             Name = mv.Name
                             Attrs = FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
                             Ty = mv.Ty
@@ -1477,7 +1484,7 @@ module internal Layout =
                 [
                     for mv in plan.ProgramCctorValues ->
                         {
-                            Key = FieldKey.ModuleValue mv.Key
+                            Key = FieldKey.ModuleValue mv.SymbolKey
                             Name = mv.Name
                             Attrs = FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
                             Ty = mv.Ty
@@ -1485,7 +1492,7 @@ module internal Layout =
                         }
                     for mv in plan.ProgramMainValues ->
                         {
-                            Key = FieldKey.ModuleValue mv.Key
+                            Key = FieldKey.ModuleValue mv.SymbolKey
                             Name = mv.Name
                             Attrs = FieldAttributes.Public ||| FieldAttributes.Static
                             Ty = mv.Ty
@@ -1504,7 +1511,7 @@ module internal Layout =
                 for u in units do
                     for fn in u.Plan.HolderlessFns ->
                         {
-                            Key = MethodKey.StaticFn fn.Key
+                            Key = MethodKey.StaticFn fn.SymbolKey
                             Name = fn.Name
                             Attrs = staticMethodAttrs
                         }

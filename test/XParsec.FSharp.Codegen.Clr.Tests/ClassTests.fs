@@ -12,6 +12,19 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // missing field, wrong vtable) surfaces with a legible stack trace through the
 // `TestHelpers.loadAssembly` / `Activator.CreateInstance` path.
 
+/// A top-level (Program-holder) value/function's emitted metadata name carries its
+/// source offset (`x` → `x$<offset>`), so a shadowed `let x` stays a distinct row and
+/// its `SymbolKey` handle key stays injective. Match a source name against that scheme.
+let private topLevelNameMatches (source: string) (emitted: string) : bool =
+    emitted = source || emitted.StartsWith(source + "$")
+
+/// The Program-holder static field for a source top-level value `name` (its emitted
+/// field is `name$<offset>`), or `null` when there is none.
+let private programStaticField (program: Type) (name: string) : FieldInfo =
+    program.GetFields(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static)
+    |> Array.tryFind (fun f -> topLevelNameMatches name f.Name)
+    |> Option.toObj
+
 [<Tests>]
 let monoTests =
     let declaredInstance =
@@ -871,8 +884,7 @@ let staticTests =
                 let asm = loadAssembly bytes
                 let program = asm.GetType "Program"
 
-                let field n =
-                    program.GetField(n, BindingFlags.Public ||| BindingFlags.Static)
+                let field n = programStaticField program n
 
                 Expect.isNotNull (field "a") "a is a public static field on Program"
                 Expect.isTrue (field "a").IsInitOnly "a (leading) is initonly — set by the Program .cctor"
@@ -898,8 +910,7 @@ let staticTests =
                 let program = asm.GetType "Program"
                 Expect.isNotNull program "the Program holder is emitted"
 
-                let providerField =
-                    program.GetField("provider", BindingFlags.Public ||| BindingFlags.Static)
+                let providerField = programStaticField program "provider"
 
                 Expect.isNotNull providerField "the top-level value `provider` is a public static field on Program"
                 Expect.isTrue providerField.IsInitOnly "provider (leading) is initonly — set by the Program .cctor"
@@ -943,7 +954,7 @@ let staticTests =
 
                 let emptyMethod =
                     program.GetMethods(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Static)
-                    |> Array.tryFind (fun m -> m.Name = "empty")
+                    |> Array.tryFind (fun m -> topLevelNameMatches "empty" m.Name)
 
                 match emptyMethod with
                 | None -> failtest "the generic value `empty` is emitted as a static method on Program"
@@ -999,13 +1010,13 @@ let staticTests =
 
                 let statics = program.GetFields(BindingFlags.Public ||| BindingFlags.Static)
 
-                let pField = program.GetField("p", BindingFlags.Public ||| BindingFlags.Static)
+                let pField = programStaticField program "p"
 
                 Expect.isNotNull pField "the leading value p is a public static field on Program"
                 Expect.isTrue pField.IsInitOnly "p (leading) is initonly — set by the Program .cctor"
 
                 // The trailing value `r` is nested (folded into a sequential), so it
-                // carries no recorded source name and is field-named `value@<offset>`;
+                // carries no recorded source name and is field-named `value$<offset>`;
                 // it is the (sole) mutable Program static — `Main` `stsfld`s it.
                 let mutables = statics |> Array.filter (fun f -> not f.IsInitOnly) |> Array.toList
 

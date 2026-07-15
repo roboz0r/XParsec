@@ -1046,8 +1046,11 @@ let structSeqTests =
                     |> Seq.collect (fun tdh -> (md.GetTypeDefinition tdh).GetFields())
                     |> Seq.tryPick (fun fh ->
                         let fd = md.GetFieldDefinition fh
+                        // A top-level (Program-holder) value's field name carries its
+                        // source offset (`h` → `h$<offset>`).
+                        let fn = md.GetString fd.Name
 
-                        if md.GetString fd.Name = "h" then
+                        if fn = "h" || fn.StartsWith "h$" then
                             Some fd.Signature
                         else
                             None

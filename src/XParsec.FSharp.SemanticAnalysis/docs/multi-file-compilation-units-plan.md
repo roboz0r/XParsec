@@ -160,6 +160,37 @@ out naturally once a real second consumer exists.
   now-dead singular `AssemblyLayout` fields (`Lowered`/`Plan`/`Closures`/`ClosureByNode`/
   `Partitioned`). `Codegen.assemble` still passes `[tast]`, so single-file emission is byte-identical
   (CLR suite green); the N-unit paths are reviewed but first EXERCISED at C7.
+- **C6.5 (NEWLY FOUND — blocks N-unit; TWO steps, X then the re-key).** `MethodKey.StaticFn` /
+  `FieldKey.ModuleValue` embed a bare per-file `NodeKey`, and `Layout.deriveHandles` builds ONE
+  shared `Dictionary<MethodKey,_>` over the combined `layout.Methods` (`Layout.fs:1634/1648`) plus
+  the Assembler's shared `fieldDefHandles`. The principled fix is to re-key those two cases by
+  **`SymbolKey`** — name keying makes cross-file resolution collision-free BY CONSTRUCTION (two
+  different fns in different files have different qualified names regardless of offset; the
+  same-offset "collision" only exists under NodeKey keying), so **NO unit discriminator is needed**.
+  The ONLY case where `SymbolKey` is not injective is **shadowing** — legal ONLY in the last (entry)
+  file's top-level code, which today emits e.g. two static fields both literally named `x` on the
+  Program holder, distinguished only by `NodeKey`.
+
+  **Investigation verdict (2026-07-15): uniquify the names; do NOT gate on the Main-locals rework.**
+  The "lower top-level values to `Main` locals" fix (X) does NOT fully evacuate the shadow collision:
+  top-level **generic** values have NO non-generic `Main`-local form (they compile to 0-arg generic
+  `StaticFn` static methods), and shadowed top-level **functions** and static-fn-**pinned** values
+  also remain. So X leaves residue in BOTH key domains and STILL needs the uniquify fallback. The
+  uniquify fallback is by contrast necessary AND sufficient on its own, and far smaller. Therefore:
+    - **C6.5 (chosen).** Make entry-file top-level program values + holderless generic values
+      offset-unique in their emitted metadata name via `topLevelName` (`EmitClosures.fs:234`) —
+      `<name>$<NodeKey.Offset>` (functions already emit `fn$<offset>`). Then re-key
+      `MethodKey.StaticFn` / `FieldKey.ModuleValue` from `NodeKey` to `SymbolKey`, minting the
+      SymbolKey from that now-unique name. The map is injective + globally unique across units by
+      name; `NodeKey` stays untouched; `LocalModuleFns` keeps `SymbolKey`. EMISSION change (names
+      `x` → `x$<offset>`); only `MetadataStructureTests` field-name expectations update (~1 test) —
+      runtime-output tests are unaffected. Also removes the latent duplicate-field-name sketchiness.
+    - **X (deferred, OPTIONAL).** Lowering entry-file top-level non-generic ground values to `Main`
+      locals (escaping ones captured) is a separate F#-fidelity / leaner-Program-holder improvement,
+      NOT a prerequisite for the re-key. Reuses the existing ref-struct Main-local + capture
+      machinery (`Emit.fs:76-80`, `buildVarLoad`, `discoverClosures` non-captured set); its only new
+      work is a pinned-field analysis for values read by surviving static fns / member cctors.
+  Must land BEFORE C7.
 - **C7** — `Codegen.compileUnits` entry (composite provider = units' views ++ external; merged
   reprs) driving the multi-tast `Assembler`; single-`tast` `compile` becomes `compileUnits [one]`.
   **The semantic change is PROVEN here**: a two-unit CLR fixture (unit 2 calls unit 1's fn, builds

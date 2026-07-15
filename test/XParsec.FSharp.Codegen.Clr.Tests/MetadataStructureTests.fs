@@ -226,9 +226,13 @@ let tests =
                         }
                         // The anonymous holder, last, so that `Main` — the final row of the
                         // final node — falls inside its method range.
+                        // A top-level (Program-holder) value's field name carries its
+                        // source offset (`p` → `p$<offset>`) so two shadowed `let p`s
+                        // stay distinct rows, and its `SymbolKey` handle key — minted
+                        // from this same name — stays injective.
                         {
                             Type = "Program"
-                            Fields = [ "p"; "c"; "s"; "t"; "n" ]
+                            Fields = [ "p$313"; "c$338"; "s$357"; "t$372"; "n$393" ]
                             Methods = [ "Main" ]
                         }
                     ]

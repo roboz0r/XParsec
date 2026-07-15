@@ -287,8 +287,14 @@ let tests =
                 let eligible = Emit.staticEligible moduleValueKeys fns0
                 let lowered = Emit.bridgeStaticFnEscapes eligible fns0 lowered0
 
+                // A holderless static fn keys on the Program holder, mirroring
+                // `Layout.build` (this test asserts only discovered closures, so the
+                // holder name is immaterial — any valid `ModuleKey` yields the same set).
+                let programHolder =
+                    SymbolKeyOps.moduleKeyOf (ModuleHolder.InNamespace NamespaceKey.Global) "Program"
+
                 let staticFns =
-                    Emit.collectStaticFns tast.ModuleMembers tast.GenericFnSchemes eligible (CompiledFns.gather lowered)
+                    Emit.collectStaticFns tast.ModuleMembers programHolder tast.GenericFnSchemes eligible (CompiledFns.gather lowered)
 
                 let typarsMap = Dictionary<NodeKey, int>()
 

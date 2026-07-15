@@ -311,6 +311,15 @@ module EmitTypes =
     type StaticFn =
         {
             Key: NodeKey
+            /// This binding's stable handle key: its `SymbolKey` (declaring holder +
+            /// emitted `Name`). The combined `MethodKey.StaticFn` handle map keys on
+            /// this rather than the per-file `Key` — a bare `NodeKey` collides across
+            /// compilation units (same offset in two files) and, under top-level
+            /// shadowing, across two rows of the entry file. Built from the SAME
+            /// (holder, `Name`) the metadata name uses, so the key and the emitted
+            /// name agree and stay extractable; a holderless binding's `Name` carries
+            /// the source offset so shadowed bindings stay distinct.
+            SymbolKey: SymbolKey
             Name: string
             /// `Some holderKey` when from a named `module Foo = …`: emits as a
             /// public static method on the `Foo` holder type. `None` ⇒ the
@@ -352,6 +361,14 @@ module EmitTypes =
     type ModuleValue =
         {
             Key: NodeKey
+            /// This value's stable handle key: its `SymbolKey` (declaring holder +
+            /// emitted `Name`). The combined `FieldKey.ModuleValue` handle map keys on
+            /// this rather than the per-file `Key` — a bare `NodeKey` collides across
+            /// compilation units and, under top-level shadowing, across two rows of the
+            /// entry file. Built from the SAME (holder, `Name`) the metadata name uses;
+            /// a Program-holder value's `Name` carries the source offset so shadowed
+            /// bindings stay distinct.
+            SymbolKey: SymbolKey
             Name: string
             Ty: FrozenType
             Init: Frozen.TExpr

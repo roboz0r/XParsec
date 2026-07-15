@@ -121,7 +121,7 @@ module HolderPlan =
             for mv in Emit.collectProgramValues moduleMembers programHolder topLevelNames refStructNsNames lowered0 do
                 s.Add mv.Key |> ignore
 
-            for fn in Emit.collectGenericModuleValues moduleMembers topLevelNames lowered0 do
+            for fn in Emit.collectGenericModuleValues moduleMembers programHolder topLevelNames lowered0 do
                 s.Add fn.Key |> ignore
 
             s
@@ -162,7 +162,7 @@ module HolderPlan =
         // its `MethodSpec`. They join the static-method machinery as 0-param fns
 
         let genericModuleValues =
-            Emit.collectGenericModuleValues moduleMembers topLevelNames lowered
+            Emit.collectGenericModuleValues moduleMembers programHolder topLevelNames lowered
 
         let genericModuleValueKeys =
             HashSet<NodeKey>(genericModuleValues |> List.map (fun fn -> fn.Key))
@@ -172,7 +172,7 @@ module HolderPlan =
         // a lambda whose key was never eligible is skipped here and falls to closure
         // discovery.
         let collectedFns =
-            Emit.collectStaticFns moduleMembers genericFnSchemes eligible (CompiledFns.gather lowered)
+            Emit.collectStaticFns moduleMembers programHolder genericFnSchemes eligible (CompiledFns.gather lowered)
 
         // Generic module values emit exactly like static fns (signature, body,
         // handle, holder method slot); merge them in so every downstream pass —

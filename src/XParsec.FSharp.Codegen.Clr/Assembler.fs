@@ -150,12 +150,14 @@ type internal Assembler
     let enums = Dictionary<SymbolKey, Emit.EmittedEnum>()
     let interfaces = Dictionary<SymbolKey, Emit.EmittedInterface>()
 
-    // A module value's verdict-rewritten field-slot type, keyed by binding `NodeKey`.
-    // Accumulated per unit in `buildPrelude` (each unit's own closure-verdict rewrite)
-    // and read by the ONE shared field pass — the single spot where the combined field
-    // table needs a per-unit datum, surfaced as a lookup so the pass itself stays a plain
-    // walk of `layout.Fields`.
-    let moduleValueSlotType = Dictionary<NodeKey, FrozenType>()
+    // A module value's verdict-rewritten field-slot type, keyed by its `SymbolKey` — the
+    // SAME identity `FieldKey.ModuleValue` carries, so the ONE shared field pass reads it
+    // straight off the field key (a per-file `NodeKey` would collide here across units too).
+    // Accumulated per unit in `buildPrelude` (each unit's own closure-verdict rewrite) and
+    // read by the shared field pass — the single spot where the combined field table needs
+    // a per-unit datum, surfaced as a lookup so the pass itself stays a plain walk of
+    // `layout.Fields`.
+    let moduleValueSlotType = Dictionary<SymbolKey, FrozenType>()
 
     // Per unit, BEFORE the shared field pass: register this unit's nominals with the
     // provider, mint its value-struct closure types, and build its closure-verdict
@@ -259,18 +261,18 @@ type internal Assembler
 
         // Register this unit's home-local module functions so a SIBLING unit's cross-file
         // call resolves to the local `MethodDef` (`ClrRecipes.emitExternalCall` probes
-        // `env.LocalModuleFns` before minting an `AssemblyRef`-scoped `MemberRef`). The key
-        // is the SAME `valueKey` `emitExternalCall` reconstructs from the call's declaring
-        // module + name, so the two sides meet. Holder-less fns (`None`) are never
-        // cross-referenced — they live on the anonymous Program holder — so skip them. For
-        // a single unit no `External` call ever targets this table, leaving emission
-        // unchanged.
+        // `env.LocalModuleFns` before minting an `AssemblyRef`-scoped `MemberRef`). The
+        // key is the fn's `SymbolKey` — the SAME identity `emitExternalCall` reconstructs
+        // from the call's declaring module + name (a named-holder fn's `SymbolKey` is
+        // `valueKey (InModule holder) name`), so the two sides meet. Holder-less fns
+        // (`None`) are never cross-referenced — they live on the anonymous Program holder —
+        // so skip them. For a single unit no `External` call ever targets this table,
+        // leaving emission unchanged.
         for fn in plan.StaticFns do
             match fn.Holder with
-            | Some mk ->
-                let valueKey = SymbolKeyOps.valueKey (ModuleHolder.InModule mk) fn.Name
-                let localMethodDef = toEntity (layoutHandles.MethodDefOf(MethodKey.StaticFn fn.Key))
-                provider.RegisterLocalModuleFn(valueKey, localMethodDef)
+            | Some _ ->
+                let localMethodDef = toEntity (layoutHandles.MethodDefOf(MethodKey.StaticFn fn.SymbolKey))
+                provider.RegisterLocalModuleFn(fn.SymbolKey, localMethodDef)
             | None -> ()
 
         // A *generic* closure is a real generic `TypeDefinition`; its layout-derived
@@ -386,7 +388,7 @@ type internal Assembler
         // pass reads. A non-verdict binding stores its declared type unchanged (the field
         // pass would encode the same), so the pass need not know the verdict itself.
         for mv in plan.AllModuleValues do
-            moduleValueSlotType.[mv.Key] <- verdict.ModuleValueSlotType mv.Key mv.Ty
+            moduleValueSlotType.[mv.SymbolKey] <- verdict.ModuleValueSlotType mv.Key mv.Ty
 
         {
             Layout = unit
@@ -496,7 +498,7 @@ type internal Assembler
         for fn in plan.StaticFns do
             staticMethods.[fn.Key] <-
                 {
-                    Handle = toEntity (layoutHandles.MethodDefOf(MethodKey.StaticFn fn.Key))
+                    Handle = toEntity (layoutHandles.MethodDefOf(MethodKey.StaticFn fn.SymbolKey))
                     // The flat CLR arg count (the `call` operand count); the spine split
                     // uses `Groups.Length`, which can be smaller (a tupled group is one
                     // application, many flat params).
@@ -521,7 +523,7 @@ type internal Assembler
         let moduleValueFields = Dictionary<NodeKey, EntityHandle>()
 
         for mv in plan.AllModuleValues do
-            moduleValueFields.[mv.Key] <- toEntity fieldDefHandles.[FieldKey.ModuleValue mv.Key]
+            moduleValueFields.[mv.Key] <- toEntity fieldDefHandles.[FieldKey.ModuleValue mv.SymbolKey]
 
         // The trailing top-level values: their `public static` field is written in `Main`
         // (`buildMain` `stsfld`), not a `.cctor`. Same field handles, a separate map so
@@ -1064,7 +1066,7 @@ type internal Assembler
                 | false, true -> provider.GenericMethodOnTypeSignatureVoid(typarCount, paramTys, false)
 
             this.AddPrepared(
-                MethodKey.StaticFn fn.Key,
+                MethodKey.StaticFn fn.SymbolKey,
                 {
                     Signature = signature
                     BodyOffset = bodyOffset

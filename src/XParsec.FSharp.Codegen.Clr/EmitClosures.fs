@@ -145,6 +145,15 @@ module EmitClosures =
         walkFreeRefs bound (fun key _ -> acc.Add key |> ignore) body
         acc
 
+    /// A top-level binding's stable handle key: its `SymbolKey`, from the declaring
+    /// holder (a named module, or the Program holder for a holderless binding) and its
+    /// emitted `name`. Minted from the same (holder, name) the metadata row uses, so the
+    /// combined `MethodKey.StaticFn` / `FieldKey.ModuleValue` handle map keys on an
+    /// identity that is unique across compilation units (distinct qualified names) and,
+    /// with the offset the shadowable names carry, across shadowed entry-file rows.
+    let private bindingSymbolKey (holder: HolderKey) (name: string) : SymbolKey =
+        SymbolKeyOps.valueKey (ModuleHolder.InModule holder) name
+
     /// The shared classification shell behind `collectModuleValues` /
     /// `collectGenericModuleValues`: a non-`inline`, non-`Lambda` `let name = value`.
     /// `tyOk` selects which type shapes qualify (fully ground vs. open-but-encodable);
@@ -200,6 +209,7 @@ module EmitClosures =
                 |> Option.map (fun info ->
                     {
                         Key = k
+                        SymbolKey = bindingSymbolKey info.Holder info.Name
                         Name = info.Name
                         Ty = ty
                         Init = value
@@ -225,16 +235,22 @@ module EmitClosures =
         | FTLocalTypar _ -> false
         | t -> FrozenType.forallChildren ftNoUnknown t
 
-    /// The source name of a *top-level* (holderless) binding for its Program-holder
-    /// field/method. A *leading* standalone `ModuleElem.Let` had its name recorded by
-    /// `Elaborate` (`TopLevelNames`); a value *after* a top-level statement folds into
-    /// the preceding sequential (a nested `let`, not its own module element) and has no
-    /// recorded name — synthesise one fsc-style (`value@<offset>`), the field being
-    /// assembly-internal and resolved by `NodeKey`, never by name.
+    /// The emitted metadata name of a *top-level* (holderless) binding on the
+    /// Program holder. The source name (recorded by `Elaborate` in `TopLevelNames`
+    /// for a *leading* standalone `ModuleElem.Let`; a value *after* a top-level
+    /// statement folds into the preceding sequential and has none — synthesise
+    /// `value`) is always suffixed with the source offset (`x` → `x$<offset>`).
+    /// A top-level binding is SHADOWABLE (`let x = 1 … let x = 2` is two Program-holder
+    /// rows sharing the source name), so the offset makes each row's field/method name
+    /// unique — and, since its `SymbolKey` handle key is minted from this same name,
+    /// makes that key injective too.
     let private topLevelName (topLevelNames: Map<NodeKey, string>) (k: NodeKey) : string =
-        match Map.tryFind k topLevelNames with
-        | Some n -> n
-        | None -> sprintf "value@%d" k.Offset
+        let name =
+            match Map.tryFind k topLevelNames with
+            | Some n -> n
+            | None -> "value"
+
+        sprintf "%s$%d" name k.Offset
 
     /// `(ns, name)` of a `TypeSlotKey` — used to match a value's type against the
     /// ref-struct set, keyed on `(ns, name)` because the use-site `FTClass` key and
@@ -267,6 +283,7 @@ module EmitClosures =
     /// its type is either ground or an `FTUnknown` the `tyOk` gate rejects.
     let collectGenericModuleValues
         (moduleMembers: Map<NodeKey, ModuleBindingInfo>)
+        (programHolder: HolderKey)
         (topLevelNames: Map<NodeKey, string>)
         (decls: Frozen.TDecl list)
         : StaticFn list =
@@ -296,6 +313,8 @@ module EmitClosures =
                 Some
                     {
                         Key = k
+                        // Holderless ⇒ the Program holder is this key's declaring module.
+                        SymbolKey = bindingSymbolKey (Option.defaultValue programHolder holder) name
                         Name = name
                         Holder = holder
                         Params = []
@@ -364,10 +383,13 @@ module EmitClosures =
                 match info with
                 | Some _ -> None
                 | None ->
+                    let name = topLevelName topLevelNames k
+
                     Some
                         {
                             Key = k
-                            Name = topLevelName topLevelNames k
+                            SymbolKey = bindingSymbolKey programHolder name
+                            Name = name
                             Ty = ty
                             Init = value
                             Holder = programHolder
@@ -573,6 +595,7 @@ module EmitClosures =
     /// lambda whose key was never eligible) is left for closure discovery.
     let collectStaticFns
         (moduleMembers: Map<NodeKey, ModuleBindingInfo>)
+        (programHolder: HolderKey)
         // Per-binding frozen typar bounds from the front-end
         // scheme. Looked up by `c.Key`; absent ⇒ no bounds. Carried onto
         // `StaticFn.Constraints` and read by the call-site phantom-typar solve.
@@ -599,6 +622,9 @@ module EmitClosures =
                     yield
                         {
                             Key = c.Key
+                            // Holderless ⇒ the Program holder is this key's declaring
+                            // module; its `fn$<offset>` name is already offset-unique.
+                            SymbolKey = bindingSymbolKey (Option.defaultValue programHolder holder) name
                             Name = name
                             Holder = holder
                             Params = c.Params
