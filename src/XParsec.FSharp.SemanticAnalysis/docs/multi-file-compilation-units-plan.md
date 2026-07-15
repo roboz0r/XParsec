@@ -160,6 +160,61 @@ file's decl, will surface at the file boundary. This is a correctness tightening
 expect it to flush out one or two latent ordering assumptions in the existing manifests
 when flipped on.
 
+## Decisions (2026-07-15 implementation kickoff)
+
+Confirmed against current code (anchors refreshed): `isAccessible` is `VesperLib.fs:593`
+(public-only); `ICodegenSymbols` lives in `ExternalSymbols.fs:1043` (not
+`CodegenSymbols.fs`); the production Pipeline seams are `analyseFor` /
+`analyseForSelfHost`; the compose-without-re-origin seam is
+`ExternalSymbolProviders.stack (stampOrigin: SymbolOrigin voption)` / `composite`
+(= `stack ValueNone`). Crucially, the NodeKey-keyed side tables
+(`IntrinsicReprKeys`, `ClosureReprs`, `FunVerdicts`, `GenericFnSchemes`) ride *inside*
+`Frozen.TastFile` (`TastFileG`, `Tast.fs:1005`) and `Codegen.compile` takes no
+`PassContext` — so per-unit table isolation falls out of having N frozen files.
+
+1. **Concat is deleted in Step D**, not kept as a fallback — core-lib file order is
+   trusted; no A/B period.
+2. **Codegen-unit iteration is factored into `Codegen.Common`** where backend-agnostic
+   (the "a compilation is an ordered sequence of frozen units" concept + the
+   bind-all-then-prepare-per-unit shape), so `Codegen.Js` shares it; only SRM/CLR
+   emission stays in `Codegen.Clr`.
+3. **Phase 1 only** — authentic positions + per-file re-parse, zero type-checking
+   semantic change. No incremental reuse (Phase 2), no DAG (Phase 3).
+
+### Foundation reframe (front-end enrichment before the projection)
+
+The projection needs three facts the frozen domain doesn't carry today. The
+`BindingKey` *identity* is already total (module bindings don't overload and can't
+shadow at module scope — a redefinition is a duplicate-binding diagnostic), so the
+key is **not** widened. Instead the facts ride freeze-populated side tables:
+
+- **Accessibility** — a token-free 3-state `Accessibility = Public | Internal |
+  Private` (stored honestly, not pre-thresholded: cross-package export is public-only,
+  intra-assembly is internal-or-better — two thresholds over one fact), exposed as a
+  `SymbolKey -> Accessibility` side table on `TastFileG`, modeled on `IntrinsicReprKeys`.
+- **`ValRepr`** (module-function compiled arity) — computed **upstream at freeze**
+  (`peelValRepr` while the lambda spine still exists; backend-neutral), on its own
+  `TastFileG` side table. Compile-order wall: `ValReprG` is defined in `Tast.fs`, so
+  this cannot live on `ModuleBindingInfo` (`SideTypes.fs`, which must precede `Tast.fs`).
+- **`TyparArity`** — the binding's single value/function typar-axis width, minted where
+  the method-axis indices are minted.
+
+The projection normalizes the typar axis once at its boundary via
+`ConformanceTypars.normAxis` (Method→Declaring), rather than flipping
+`ExternalSymbol.Scheme`'s Declaring convention. The frozen side tables and the
+projection that reads them land **together** (no unread infra ships first).
+
+Revised sequencing: **0a** `SymbolOrigin.Assembly: string` (+ standalone hash helper;
+independent, before Step C) → **0b+A** freeze side tables + projection (together) →
+**B/C/D**.
+
+The cross-file codegen mechanism: one shared assembly/`MetadataContext`; a **Bind**
+pass over *all* units registers every unit's type/member handles into the shared
+**name/SymbolKey**-keyed registries (globally unique via qualified names); a **Prepare**
+pass runs **per unit** with that unit's **NodeKey**-keyed tables active. Cross-file
+calls resolve by home-origin name to the local `MethodDef`; the NodeKey tables are only
+ever consulted for the owning unit's own bodies, so they never flatten (constraint 1/2).
+
 ## Phasing
 
 - **Phase 1 (this plan):** file-unit-as-provider model, the signature projection, the
