@@ -527,7 +527,7 @@ type internal ClrEnv
         | SymbolKey.Type t, ValueSome(fields, origin) ->
             // Namespace + simple name come off the KEY's own containment chain (a record is
             // never a CLR nested type). A metadata `TypeRef` name carries the `` `n `` arity
-            // suffix, which the key renders from its own `Arity`.
+            // suffix, which the key renders from its own `TyparArity`.
             let simple = SymbolKeyOps.typeSegmentName t
 
             ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, t.Namespace.Dotted, simple)), fields)

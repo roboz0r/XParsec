@@ -12,8 +12,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     let symbols = env.Symbols
     let markFSharpCoreDep c = env.MarkFSharpCoreDep c
 
-    let recoverOpenTypars declArity methodArity openT instT =
-        enc.RecoverOpenTypars(declArity, methodArity, openT, instT)
+    let recoverOpenTypars declTyparArity methodTyparArity openT instT =
+        enc.RecoverOpenTypars(declTyparArity, methodTyparArity, openT, instT)
 
     let encodeType te t = enc.EncodeType(te, t)
 
@@ -342,7 +342,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             // freezes in the symbol layer, so codegen authors no `TypeVar` and never touches
             // `Instantiate`). Its nominal heads are already kind-correct (`'T option` ⇒
             // `FTUnion`), so they encode + recover against the producer's emitted signature unchanged.
-            let methodArity = openSig.MethodArity
+            let methodTyparArity = openSig.MethodTyparArity
 
             // Peel exactly `n` top-level `->` groups off the open template — one per
             // SOURCE argument group. Unlike `decurryFrozen` (which peels every arrow),
@@ -396,7 +396,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                 let s = BlobBuilder()
 
                 BlobEncoder(s)
-                    .MethodSignature(genericParameterCount = methodArity, isInstanceMethod = false)
+                    .MethodSignature(genericParameterCount = methodTyparArity, isInstanceMethod = false)
                     .Parameters(
                         List.length flatParamTys,
                         (fun (ret: ReturnTypeEncoder) ->
@@ -419,13 +419,13 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             let memberRef = toEntity (ctx.MemberRef(parent, name, msig))
 
             let callHandle =
-                if methodArity = 0 then
+                if methodTyparArity = 0 then
                     memberRef
                 elif List.isEmpty openSig.Constraints then
                     // Use-site instantiation: match the open template (its `FTTypar(Method, i)`) against
                     // the call's concrete type, recovering each method arg by its index. No phantom
                     // constraint typars, so every method typar is signature-reachable.
-                    let _, methodArgs = recoverOpenTypars 0 methodArity openSig.Signature fnTy
+                    let _, methodArgs = recoverOpenTypars 0 methodTyparArity openSig.Signature fnTy
 
                     methodSpec memberRef methodArgs
                 else
@@ -437,16 +437,20 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                     // partially, then solve the phantom from `openSig.Constraints` via the source's
                     // external seq impl (`tryExternalInterfaceWitness`), exactly as the in-assembly
                     // path solves it from `env.Classes`. The member-ref's `genericParameterCount`
-                    // already encodes `methodArity` (= 5 for `fold`), so the minted `MethodSpec`
+                    // already encodes `methodTyparArity` (= 5 for `fold`), so the minted `MethodSpec`
                     // carries the full method instantiation incl. `'E`.
                     let instArr =
-                        TastLower.matchInstantiationPartial methodArity [ openSig.Signature ] [ fnTy ]
+                        TastLower.matchInstantiationPartial methodTyparArity [ openSig.Signature ] [ fnTy ]
 
-                    TastLower.solvePhantomTypars methodArity openSig.Constraints tryExternalInterfaceWitness instArr
+                    TastLower.solvePhantomTypars
+                        methodTyparArity
+                        openSig.Constraints
+                        tryExternalInterfaceWitness
+                        instArr
 
                     let methodArgs =
                         [
-                            for i in 0 .. methodArity - 1 ->
+                            for i in 0 .. methodTyparArity - 1 ->
                                 match instArr.[i] with
                                 | ValueSome t -> t
                                 | ValueNone ->

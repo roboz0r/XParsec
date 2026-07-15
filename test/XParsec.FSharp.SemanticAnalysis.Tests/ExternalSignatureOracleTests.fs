@@ -117,7 +117,7 @@ let tests =
                 let m: ExternalMember =
                     { TestHelpers.mkMember "genericMethod" with
                         Signature = signature
-                        MethodArity = 2
+                        MethodTyparArity = 2
                     }
 
                 let level = 7
@@ -152,15 +152,15 @@ let tests =
 
             /// Build a member from a hand-written two-axis `ExternalSignature` and
             /// assert `instantiateSignature` realises it to `expected` on ground
-            /// args. `declArity` is the declaring type's arity; `expected` is
+            /// args. `declTyparArity` is the declaring type's arity; `expected` is
             /// `None` for a generic member (method axis freshens to `TyVar`s, which
             /// have no structural counterpart — only the arities + `TyFun` shape are
             /// asserted there).
             let memberOracle
                 name
                 isProperty
-                declArity
-                methodArity
+                declTyparArity
+                methodTyparArity
                 (signature: ExternalSignature)
                 (expected: SemType option)
                 =
@@ -173,10 +173,10 @@ let tests =
                                 else
                                     MemberStorage.Method
                             Signature = signature
-                            MethodArity = methodArity
+                            MethodTyparArity = methodTyparArity
                         }
 
-                    let args = argsForArity declArity
+                    let args = argsForArity declTyparArity
 
                     match expected with
                     | Some exp ->
@@ -188,8 +188,8 @@ let tests =
                         // With a method axis the realiser freshens `TyVar`s;
                         // structural value-equality doesn't apply, so assert the
                         // arities round-trip and the signature is a `TyFun`.
-                        Expect.equal m.Signature.DeclaringArity declArity "declaring arity preserved"
-                        Expect.equal m.Signature.MethodArity methodArity "method arity preserved"
+                        Expect.equal m.Signature.DeclaringTyparArity declTyparArity "declaring arity preserved"
+                        Expect.equal m.Signature.MethodTyparArity methodTyparArity "method arity preserved"
 
                         match ExternalSymbols.instantiateSignature m args 0 with
                         | TyFun _ -> ()

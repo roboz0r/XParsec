@@ -689,7 +689,7 @@ let private encodeRefEntry (name: string) (e: RefEntry) : JsonValue =
             "name", jStr name
             "home", jStr e.Home
             "kind", jStr e.Kind.Wire
-            "arity", jInt e.Arity
+            "arity", jInt e.TyparArity
         ]
 
 let private decodeRefEntry (j: JsonValue) : Result<string * RefEntry, string> =
@@ -708,7 +708,7 @@ let private decodeRefEntry (j: JsonValue) : Result<string * RefEntry, string> =
              {
                  Home = home
                  Kind = kind
-                 Arity = arity
+                 TyparArity = arity
              })
     }
 

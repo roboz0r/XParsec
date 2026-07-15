@@ -445,8 +445,8 @@ type ClrProvider
         member _.StaticFnMethodSpec(handle, instTypes) =
             ext.StaticFnMethodSpec(handle, instTypes)
 
-        member _.RecoverOpenTypars(declArity, methodArity, openT, instT) =
-            enc.RecoverOpenTypars(declArity, methodArity, openT, instT)
+        member _.RecoverOpenTypars(declTyparArity, methodTyparArity, openT, instT) =
+            enc.RecoverOpenTypars(declTyparArity, methodTyparArity, openT, instT)
 
         member _.TryEmitInvoke(funcTy) =
             match funcTy with

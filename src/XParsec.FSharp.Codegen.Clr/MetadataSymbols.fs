@@ -114,7 +114,7 @@ module private MetadataMapping =
             Some(frozenParams (paramTys |> Array.map Option.get), retTy.Value)
 
     /// Method-axis generic-parameter count; `0` for a non-generic method.
-    let methodArityOf (m: MethodInfo) : int =
+    let methodTyparArityOf (m: MethodInfo) : int =
         if m.IsGenericMethodDefinition then
             m.GetGenericArguments().Length
         else
@@ -245,16 +245,16 @@ module private MetadataMapping =
             | fn -> fn
 
     /// Property `ExternalSignature`: `Parameters = unit`, value type in `Return`.
-    let propertySignature (declaringArity: int) (valueTy: FrozenType) : ExternalSignature =
-        ExternalSignature.make (declaringArity, 0, FTConst(RuntimeNames.unitKey, EqArray.empty), valueTy)
+    let propertySignature (declaringTyparArity: int) (valueTy: FrozenType) : ExternalSignature =
+        ExternalSignature.make (declaringTyparArity, 0, FTConst(RuntimeNames.unitKey, EqArray.empty), valueTy)
 
     /// Method/ctor `ExternalSignature` from its `(Parameters, Return)` templates.
     let methodSignature
-        (declaringArity: int)
-        (methodArity: int)
+        (declaringTyparArity: int)
+        (methodTyparArity: int)
         (parameters: FrozenType, ret: FrozenType)
         : ExternalSignature =
-        ExternalSignature.make (declaringArity, methodArity, parameters, ret)
+        ExternalSignature.make (declaringTyparArity, methodTyparArity, parameters, ret)
 
     /// The declaring type's `TypeKey`, read STRUCTURALLY off the reflection object: a
     /// nested type's containment is `Type.DeclaringType`, so the key's holder chain is
@@ -401,12 +401,12 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                 |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
                 |> EqArray.ofArray
 
-            let methodArity = MetadataMapping.methodArityOf m
+            let methodTyparArity = MetadataMapping.methodTyparArityOf m
 
             { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name argSig MemberKind.Method) with
                 IsStatic = m.IsStatic
-                Signature = MetadataMapping.methodSignature arity methodArity (ps, ret)
-                MethodArity = methodArity
+                Signature = MetadataMapping.methodSignature arity methodTyparArity (ps, ret)
+                MethodTyparArity = methodTyparArity
                 Origin = origin
                 OptionalDefaults = MetadataMapping.optionalDefaults (m.GetParameters())
             }
@@ -568,7 +568,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
                     let shape: ExternalClassShape =
                         {
-                            Arity = arity
+                            TyparArity = arity
                             IsInterface = t.IsInterface
                             Members = enumerateClassMembers t
                             FrozenInterfaces = buildClassInterfaces t
@@ -685,7 +685,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                             baseChain t |> List.toArray
 
                     // Dedupe collected method overloads by signature `(argSig, kind,
-                    // methodArity)`: fed a most-derived-first array, `HashSet.Add` keeps
+                    // methodTyparArity)`: fed a most-derived-first array, `HashSet.Add` keeps
                     // the first sighting, so a derived override drops its base twin while
                     // overloads split across levels all survive. Re-sorted most-params-first
                     // (stable) so `computeMember`'s `arr.[0]` is the widest overload.
@@ -693,7 +693,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                         let seen = System.Collections.Generic.HashSet<_>(HashIdentity.Structural)
 
                         methods
-                        |> Array.filter (fun m -> seen.Add((m.Key.ArgSig, m.Key.Kind, m.MethodArity)))
+                        |> Array.filter (fun m -> seen.Add((m.Key.ArgSig, m.Key.Kind, m.MethodTyparArity)))
                         |> Array.sortByDescending (fun m -> m.Key.ArgSig.Length)
 
                     // Constructors are NOT inherited — a `.ctor` request stays on `t`.

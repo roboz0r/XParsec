@@ -135,7 +135,7 @@ let refEntry (name: string) (home: string) (kind: Schema.RefKind) (arity: int) :
     {
         Home = home
         Kind = kind
-        Arity = arity
+        TyparArity = arity
     }
 
 /// An instance data Property of type `ty`.

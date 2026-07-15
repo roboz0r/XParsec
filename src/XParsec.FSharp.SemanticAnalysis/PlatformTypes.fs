@@ -46,7 +46,9 @@ module PlatformTypes =
         match ctx.Provider.TryLookupType key with
         // Scalar or heritable primitive alike — the identity axis is one pattern; only
         // a nullary intrinsic with no repr on this target is unrepresentable.
-        | ValueSome(ExternalTypeShape.Intrinsic { Id = { Arity = 0; Platform = None } }) -> true
+        | ValueSome(ExternalTypeShape.Intrinsic {
+                                                    Id = { TyparArity = 0; Platform = None }
+                                                }) -> true
         | _ -> false
 
     /// Add every nominal name in `t` (and its type args) with no target representation

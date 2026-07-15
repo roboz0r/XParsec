@@ -490,7 +490,7 @@ type SigAxis =
     /// A CONSTRUCTOR: its own typars split by ORIGIN. TS models a real generic
     /// class's construct signatures as generic over the CLASS typars — those already
     /// ride the DECLARING axis (counted in the type's `typeParams`), so they resolve
-    /// to `Typar i` and DON'T inflate the ctor's method arity ("MethodArity = 0 for
+    /// to `Typar i` and DON'T inflate the ctor's method arity ("MethodTyparArity = 0 for
     /// every real-class constructor"). The constructor-INTERFACE idiom (`interface
     /// FooCtor { new <T>(v: T): Foo<T> }`, the fused-global class-like shape) instead
     /// introduces FRESH typars unknown to the declaring axis; those ride the METHOD

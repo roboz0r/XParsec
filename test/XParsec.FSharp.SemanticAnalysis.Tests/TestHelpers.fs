@@ -81,14 +81,14 @@ let (|TyClass|_|) (t: SemType) =
 /// (`TestHelpers.mkSignature`) from files that must not `open` this module's shadow
 /// `TyUnion`/`TyRecord`/`TyClass` constructors.
 let mkSignature
-    (declaringArity: int)
-    (methodArity: int)
+    (declaringTyparArity: int)
+    (methodTyparArity: int)
     (parameters: FrozenType)
     (ret: FrozenType)
     : ExternalSignature =
     {
-        DeclaringArity = declaringArity
-        MethodArity = methodArity
+        DeclaringTyparArity = declaringTyparArity
+        MethodTyparArity = methodTyparArity
         Parameters = parameters
         Return = ret
         MethodTyparBounds = [||]

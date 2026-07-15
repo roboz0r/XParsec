@@ -107,7 +107,7 @@ let private fake: IExternalSymbolProvider =
                   ValueSome
                       {
                           UnionName = "Uni"
-                          Arity = 1
+                          TyparArity = 1
                           Origin = origin
                           Case = markerCase
                           IsRequireQualifiedAccess = false

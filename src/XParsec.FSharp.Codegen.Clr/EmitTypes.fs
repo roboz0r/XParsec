@@ -103,14 +103,14 @@ module EmitTypes =
         }
 
     /// An augmentation member on a union/class `TypeDefinition`. A property's
-    /// `Handle` is its `get_<name>` method; `Arity` excludes `this`. `Handle` is
+    /// `Handle` is its `get_<name>` method; `ParamArity` excludes `this`. `Handle` is
     /// the `Def` token (monomorphic); a generic type reaches the member through a
     /// `MemberRef` on the instantiated `TypeSpec` built from `MetaName` + signature.
     type EmittedMember =
         {
             Handle: EntityHandle
             IsStatic: bool
-            Arity: int
+            ParamArity: int
             MetaName: string
             ParamTys: FrozenType list
             RetTy: FrozenType
@@ -351,7 +351,7 @@ module EmitTypes =
 
     /// Emission handle + shape of a static-method function, resolved before any
     /// body is built (the `MethodDefinition` handle is predicted from row order).
-    /// A call site `f a b` `call`s `Handle` with the first `Arity` args, then
+    /// A call site `f a b` `call`s `Handle` with the first `ParamArity` args, then
     /// `Invoke`s the result with any remainder. A generic method carries its typar
     /// *count* and declared `ParamTys` (which embed `TyTypar(Method, i)`): the
     /// call site recovers the instantiation by matching `ParamTys` against the
@@ -364,7 +364,7 @@ module EmitTypes =
             /// instruction's argument count. With tuple flattening this can exceed
             /// the number of source applications a call collapses; the spine split
             /// is driven by `Groups.Length`, not this.
-            Arity: int
+            ParamArity: int
             /// The SOURCE groups (mirrors `StaticFn.Groups`): `Groups.Length` spine
             /// applications collapse into one `call`, and each tuple group's single
             /// argument is flattened to N pushed values at the call site.

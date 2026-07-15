@@ -88,7 +88,7 @@ module NameResolutionTypeHeadStamp =
             ctx
             (arityProbes arity)
             (fun key a shape ->
-                if shape.Arity = a then
+                if shape.TyparArity = a then
                     ValueSome(useSiteTypeKey key a shape)
                 else
                     ValueNone
@@ -121,9 +121,9 @@ module NameResolutionTypeHeadStamp =
             /// arity-suffixed where the hitting probe was).
             Compiled: string
             /// The arity the hitting probe asked for — NOT necessarily the shape's
-            /// own (`Shape.Arity`): a bare-keyed generic (`Vesper.Option`, arity 1)
-            /// hits the bare probe (`ProbedArity` 0).
-            ProbedArity: int
+            /// own (`Shape.TyparArity`): a bare-keyed generic (`Vesper.Option`, arity 1)
+            /// hits the bare probe (`ProbedTyparArity` 0).
+            ProbedTyparArity: int
             Shape: ExternalTypeShape
         }
 
@@ -139,7 +139,7 @@ module NameResolutionTypeHeadStamp =
                 ValueSome
                     {
                         Compiled = key
-                        ProbedArity = a
+                        ProbedTyparArity = a
                         Shape = shape
                     }
             )
@@ -208,7 +208,7 @@ module NameResolutionTypeHeadStamp =
         if TypeRegistry.isWrittenTypeNameInScope ctx.Types (ctx.UseSiteAt head.Key) written then
             LocalType
         else
-            match tryResolveExternalTypeKey ctx written.Written head.Arity with
+            match tryResolveExternalTypeKey ctx written.Written head.TyparArity with
             | ValueSome sym ->
                 ctx.Resolution.ResolvedTypeHead.Set(head.Key, sym)
                 ExternalType

@@ -53,7 +53,7 @@ let tests =
             // T8 Step 6 — generic type MEMBER conformance against a REAL extracted `.fsi`.
             // `Formatter.AppendFormatted: 'T -> unit` (+ its overloads and
             // `AppendStructured`) are generic members the `.fsi` extractor now publishes
-            // with a method-owned typar (`MethodArity = 1`, `FTTypar(Method, 0)`), no
+            // with a method-owned typar (`MethodTyparArity = 1`, `FTTypar(Method, 0)`), no
             // longer dropped. This drives BOTH halves: the published contract surface is
             // present + correctly typed, and `checkMembers` confirms the real
             // `formatter.fs` member signatures agree with it end-to-end.
@@ -93,10 +93,10 @@ let tests =
                 Expect.isNonEmpty appendFormatted "formatter.fsi publishes AppendFormatted overloads"
 
                 Expect.isTrue
-                    (appendFormatted |> Array.forall (fun m -> m.MethodArity = 1))
+                    (appendFormatted |> Array.forall (fun m -> m.MethodTyparArity = 1))
                     (sprintf
-                        "every AppendFormatted overload carries its own typar (MethodArity = 1); got %A"
-                        (appendFormatted |> Array.map (fun m -> m.MethodArity)))
+                        "every AppendFormatted overload carries its own typar (MethodTyparArity = 1); got %A"
+                        (appendFormatted |> Array.map (fun m -> m.MethodTyparArity)))
 
                 // And the real `formatter.fs` members agree with that published surface.
                 let memberMismatches = ConformanceTypars.checkMembers contract tast

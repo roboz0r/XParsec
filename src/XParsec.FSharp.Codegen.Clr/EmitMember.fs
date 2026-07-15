@@ -298,13 +298,13 @@ module EmitMember =
                 if m.MethodTyparCount = 0 then
                     handle0
                 else
-                    let declArity =
+                    let declTyparArity =
                         match receiverShape receiverTy with
                         | ValueSome(_, rargs) -> List.length rargs
                         | ValueNone -> 0
 
                     let _, methodArgs =
-                        recoverMemberInst env m declArity [ for a in args -> typeOfExpr a ] ty
+                        recoverMemberInst env m declTyparArity [ for a in args -> typeOfExpr a ] ty
 
                     env.Provider.StaticFnMethodSpec(handle0, methodArgs)
 

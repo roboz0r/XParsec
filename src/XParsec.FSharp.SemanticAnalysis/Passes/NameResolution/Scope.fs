@@ -161,7 +161,7 @@ module NameResolutionScope =
                     match bareHit with
                     | ValueSome hit ->
                         match hit.Shape with
-                        | ExternalTypeShape.Class info when info.Arity = 0 ->
+                        | ExternalTypeShape.Class info when info.TyparArity = 0 ->
                             ctx.Resolution.ResolvedType.Set(
                                 useKey,
                                 SymbolKeyOps.externalTypeKeyOf info.Origin hit.Compiled 0
@@ -192,7 +192,7 @@ module NameResolutionScope =
                     || ctx.Resolution.ResolvedType.ContainsKey useKey
                     || (
                         match bareHit with
-                        | ValueSome hit -> hit.Shape.Arity = 0
+                        | ValueSome hit -> hit.Shape.TyparArity = 0
                         | ValueNone -> false
                     )
                     // A bare external union case resolves only when its union is NOT
@@ -656,7 +656,7 @@ module NameResolutionScope =
                             | ValueSome {
                                             Compiled = compiled
                                             Shape = ExternalTypeShape.Class info
-                                        } when info.Arity = 0 ->
+                                        } when info.TyparArity = 0 ->
                                 ctx.Resolution.ResolvedType.Set(
                                     CstKeys.ofExpr e,
                                     SymbolKeyOps.externalTypeKeyOf info.Origin compiled 0
@@ -665,9 +665,9 @@ module NameResolutionScope =
                                 match prefixHit with
                                 | ValueSome {
                                                 Compiled = compiled
-                                                ProbedArity = 0
+                                                ProbedTyparArity = 0
                                                 Shape = ExternalTypeShape.Class info
-                                            } when info.Arity = 0 ->
+                                            } when info.TyparArity = 0 ->
                                     ctx.Resolution.ExternalStaticReceiver.Set(
                                         CstKeys.ofExpr e,
                                         SymbolKeyOps.externalTypeKey info.Origin compiled 0
@@ -684,12 +684,12 @@ module NameResolutionScope =
                         match prefixHit with
                         | ValueSome {
                                         Compiled = compiled
-                                        ProbedArity = a
+                                        ProbedTyparArity = a
                                         Shape = ExternalTypeShape.Union(origin = origin)
                                     }
                         | ValueSome {
                                         Compiled = compiled
-                                        ProbedArity = a
+                                        ProbedTyparArity = a
                                         Shape = ExternalTypeShape.Record(origin = origin)
                                     } ->
                             ctx.Resolution.ExternalUnionRecordQualifier.Set(
@@ -699,7 +699,7 @@ module NameResolutionScope =
                         | _ -> ()
 
                         // The whole name / the prefix resolves as an external type at
-                        // arity 0 (`Shape.Arity` must agree with the bare probe: a
+                        // arity 0 (`Shape.TyparArity` must agree with the bare probe: a
                         // bare-keyed generic union hit is NOT an arity-0 type). A
                         // whole-name hit is a bare type ref; a prefix hit is a folded
                         // static-member access (`System.Console.Out`), whose member is
@@ -708,12 +708,12 @@ module NameResolutionScope =
                         // here doesn't manufacture a member that isn't there).
                         let qualIsExternalType =
                             match qualHit with
-                            | ValueSome hit -> hit.Shape.Arity = 0
+                            | ValueSome hit -> hit.Shape.TyparArity = 0
                             | ValueNone -> false
 
                         let isExternalStaticMember =
                             match prefixHit with
-                            | ValueSome hit -> hit.ProbedArity = 0 && hit.Shape.Arity = 0
+                            | ValueSome hit -> hit.ProbedTyparArity = 0 && hit.Shape.TyparArity = 0
                             | ValueNone -> false
 
                         if
@@ -794,7 +794,7 @@ module NameResolutionScope =
             match typeAppReceiverName ctx receiver with
             | ValueSome name ->
                 match tryClassifyExternalType ctx (arityProbes types.Length) name with
-                | ValueSome hit when hit.Shape.Arity = types.Length ->
+                | ValueSome hit when hit.Shape.TyparArity = types.Length ->
                     let key = useSiteTypeKey hit.Compiled types.Length hit.Shape
                     ctx.Resolution.ResolvedType.Set(CstKeys.ofExpr receiver, key)
 

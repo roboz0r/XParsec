@@ -435,7 +435,7 @@ module NameResolutionTypeRegistration =
                         ctx.Types
                         {
                             Name = name
-                            Arity = arity
+                            TyparArity = arity
                             Kind = kind
                             DeclKey = declKey
                             Defn = td
@@ -465,7 +465,7 @@ module NameResolutionTypeRegistration =
                             Identity =
                                 {
                                     Name = name
-                                    Arity = arity
+                                    TyparArity = arity
                                     Holder = holder
                                     Kind = kind
                                     DeclKey = declKey

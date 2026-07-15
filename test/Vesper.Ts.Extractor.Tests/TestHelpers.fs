@@ -302,11 +302,11 @@ let testProviderResolves (path: string) =
 
                 // Generics (Tier 3 item 11): the declaring-axis arity round-trips — a
                 // generic `Box<T>`/`Container<T>` resolves to an `ExternalTypeShape.Class`
-                // whose `Arity` equals the emitted `typeParams`. Trivially 0 for the
+                // whose `TyparArity` equals the emitted `typeParams`. Trivially 0 for the
                 // (many) non-generic fixtures; exercises the count on `generics`.
                 match prov.TryLookupType name with
                 | ValueSome(ExternalTypeShape.Class shape) ->
-                    Expect.equal shape.Arity typeParams $"type '{name}' arity must equal its typeParams"
+                    Expect.equal shape.TyparArity typeParams $"type '{name}' arity must equal its typeParams"
                 | _ -> ()
 
                 // Heritage (Tier 4 item 16): every heritage entry must land in EXACTLY one

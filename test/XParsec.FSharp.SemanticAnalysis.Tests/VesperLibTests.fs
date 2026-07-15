@@ -1242,7 +1242,7 @@ let tests =
                     provider.TryLookupMember(SymbolKeyOps.qualifiedTypeKey "Microsoft.FSharp.Core.option`1" 0, "Map")
                 with
                 | ValueSome m when m.Signature.Return <> unfreezable && m.Signature.Return <> deferred ->
-                    ExternalSymbols.instantiateSignature m (argsFor m.Signature.DeclaringArity) 0
+                    ExternalSymbols.instantiateSignature m (argsFor m.Signature.DeclaringTyparArity) 0
                     |> ignore
                 | _ -> ()
             }
@@ -1740,7 +1740,7 @@ let tests =
                         Holder =
                             TypeHolder.InModule(SymbolKeyOps.moduleInNamespace "Microsoft.FSharp.Core" "ByRefKinds")
                         Name = "In"
-                        Arity = 0
+                        TyparArity = 0
                     }
 
                 Expect.equal

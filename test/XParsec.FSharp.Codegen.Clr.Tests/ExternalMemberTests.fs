@@ -101,7 +101,7 @@ let tests =
                             "GetHashCode decl namespace"
 
                         Expect.equal decl.Name "EqualityComparer" "GetHashCode decl type name (plain — no `` `N ``)"
-                        Expect.equal decl.Arity 1 "GetHashCode decl type arity"
+                        Expect.equal decl.TyparArity 1 "GetHashCode decl type arity"
 
                         Expect.equal
                             (SymbolKeyOps.typeSegmentName decl)
@@ -140,7 +140,7 @@ let tests =
                                 "Default decl namespace"
 
                             Expect.equal decl.Name "EqualityComparer" "Default decl type name"
-                            Expect.equal decl.Arity 1 "Default decl type arity"
+                            Expect.equal decl.TyparArity 1 "Default decl type arity"
                             Expect.isTrue argSig.IsEmpty "Default is a property: empty argSig"
                         | other -> failtestf "unexpected Default key %A" other
                     | other -> failtestf "expected a static `Default` ExternalMember receiver, got %A" other
@@ -242,7 +242,7 @@ let tests =
                             "GetHashCode decl namespace"
 
                         Expect.equal decl.Name "EqualityComparer" "GetHashCode decl type name (plain — no `` `N ``)"
-                        Expect.equal decl.Arity 1 "GetHashCode decl type arity"
+                        Expect.equal decl.TyparArity 1 "GetHashCode decl type arity"
 
                         Expect.equal
                             (SymbolKeyOps.typeSegmentName decl)

@@ -117,7 +117,7 @@ module internal TsManifestTranslate =
     ///     (`` Emitter`1 ``, `SymbolKeyOps.arityName`), which is the exact string the front
     ///     end hands to `TryLookupType` / `TryLookupMember`. This store is name-addressed by
     ///     design, so this is a NAME-axis rendering.
-    ///   * the `TypeKey` — plain name + namespace path + `Arity` as an INT. The arity is
+    ///   * the `TypeKey` — plain name + namespace path + `TyparArity` as an INT. The arity is
     ///     never packed into the key's `Name`.
     /// `SymbolKeyOps.qualifiedName` of the key equals the map key by construction.
     /// Reference sites (`toFrozen`, `classifyHeritage`) suffix the manifest's bare
@@ -471,7 +471,7 @@ module internal TsManifestTranslate =
             | Some key -> FTClass(key, EqArray.ofSeq args)
             | None ->
                 // Own-registry miss: consult the FOREIGN refs table (keyed by the BARE
-                // name — a `RefEntry` carries its own declared `Arity`). A
+                // name — a `RefEntry` carries its own declared `TyparArity`). A
                 // class/interface-kind ref mints the foreign type's `FTClass` IDENTITY —
                 // the ECMA-335 `TypeRef` analog — whose `qualifiedName` equals what the home
                 // manifest's provider registers its own type under (`mint` at nsPath "":
@@ -499,7 +499,7 @@ module internal TsManifestTranslate =
 
                         // Through `mint` — THE one spelling site of a declared type's identity —
                         // so a ref's key cannot drift from the declaration's.
-                        let key = snd (mint ns name entry.Arity)
+                        let key = snd (mint ns name entry.TyparArity)
 
                         FTClass(key, EqArray.ofSeq args)
                     | Schema.RefKind.Alias
@@ -566,13 +566,13 @@ module internal TsManifestTranslate =
         | [ p ] -> toFrozen ctx p.Type
         | many -> FTTuple(EqArray.ofSeq (many |> List.map (fun p -> toFrozen ctx p.Type)))
 
-    let signatureOf (ctx: TranslateCtx) (declArity: int) (sg: Schema.Signature) : ExternalSignature =
+    let signatureOf (ctx: TranslateCtx) (declTyparArity: int) (sg: Schema.Signature) : ExternalSignature =
         // Per-method-typar bound (`<Key extends keyof Events>`), carried FAITHFULLY as a
         // `FrozenType` (`FTKeyOf(FTTypar(Declaring,0))`) so the front end can keyof-fold
         // it at the call site (the call-site literal-grounding rule). The schema OMITS
         // `TypeParamBounds` when every entry is `None`, so an unconstrained signature
         // yields the empty array (the churn-free default every non-TS producer already
-        // uses) — never a `MethodArity`-long array of `ValueNone`, which would be
+        // uses) — never a `MethodTyparArity`-long array of `ValueNone`, which would be
         // observationally identical but noisier.
         let bounds =
             if sg.TypeParamBounds |> List.exists Option.isSome then
@@ -587,8 +587,8 @@ module internal TsManifestTranslate =
                 [||]
 
         {
-            DeclaringArity = declArity
-            MethodArity = sg.TypeParams
+            DeclaringTyparArity = declTyparArity
+            MethodTyparArity = sg.TypeParams
             Parameters = paramsFrozen ctx sg.Params
             Return = toFrozen ctx sg.Returns
             MethodTyparBounds = bounds

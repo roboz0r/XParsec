@@ -37,7 +37,7 @@ let private typeDeclKeyInArity (tast: TastFile) (moduleName: string) (typeName: 
                     match td.Key with
                     | SymbolKey.Type {
                                          Holder = TypeHolder.InModule m
-                                         Arity = a
+                                         TyparArity = a
                                      } when m.Name = moduleName && a = arity -> yield td.Key
                     | _ -> ()
                 | _ -> ()

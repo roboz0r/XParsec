@@ -320,7 +320,7 @@ module internal UnificationInferApp =
                             // minted `TyClass` key matches a real sink argument's
                             // (`Console.Out`) exactly: the qualified name IS the identity.
                             match ctx.Provider.TryLookupType(SymbolKeyOps.qualifiedTypeKey name 0) with
-                            | ValueSome(ExternalTypeShape.Class info) when info.Arity = 0 ->
+                            | ValueSome(ExternalTypeShape.Class info) when info.TyparArity = 0 ->
                                 ValueSome(TyClass(SymbolKeyOps.qualifiedTypeKeyOfT name 0, EqArray.empty))
                             | _ -> ValueNone
                         )

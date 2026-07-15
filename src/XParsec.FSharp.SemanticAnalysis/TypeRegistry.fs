@@ -39,7 +39,7 @@ type TypeIdentity =
         Name: string
         /// Generic arity. Part of the CLAIM: `Foo` and `` Foo`1 `` are distinct claims (as
         /// in F#) and may be held by different kinds.
-        Arity: int
+        TyparArity: int
         /// The module / namespace chain the declaration sits in. Part of the CLAIM, and the
         /// reason `N.A.T` and `N.B.T` are two types rather than one name contested twice: a
         /// claim is `(Holder, Name, Arity)`, and at most one type of any kind may hold it.
@@ -99,7 +99,7 @@ type ClaimedTypeDefn =
 type RejectedTypeDefn =
     {
         Name: string
-        Arity: int
+        TyparArity: int
         Kind: TypeDeclKind
         DeclKey: NodeKey
         Defn: TypeDefn<SyntaxToken>
@@ -617,7 +617,7 @@ module TypeRegistry =
         : TypeKey voption =
         match index.TryGetValue written.Name with
         | true, keys ->
-            match tryWinner types useSite written (fun c -> c.Arity = arity && keys.Contains c.Key) with
+            match tryWinner types useSite written (fun c -> c.TyparArity = arity && keys.Contains c.Key) with
             | ValueSome c -> ValueSome c.Key
             | ValueNone -> ValueNone
         | false, _ -> ValueNone
@@ -643,7 +643,7 @@ module TypeRegistry =
         | true, keys ->
             let inThisKind (c: TypeIdentity) = keys.Contains c.Key
 
-            match tryWinner types useSite written (fun c -> c.Arity = 0 && inThisKind c) with
+            match tryWinner types useSite written (fun c -> c.TyparArity = 0 && inThisKind c) with
             | ValueSome c -> ValueSome c.Key
             | ValueNone ->
                 // No non-generic claimant. The generic ones answer only if they agree on an
@@ -658,8 +658,8 @@ module TypeRegistry =
                         for c in claims do
                             if inThisKind c && (claimRank useSite reaches c).IsSome then
                                 match seen with
-                                | ValueSome a when a <> c.Arity -> oneArity <- false
-                                | _ -> seen <- ValueSome c.Arity
+                                | ValueSome a when a <> c.TyparArity -> oneArity <- false
+                                | _ -> seen <- ValueSome c.TyparArity
 
                         if oneArity then seen else ValueNone
                     | false, _ -> ValueNone
@@ -667,7 +667,7 @@ module TypeRegistry =
                 match arities with
                 | ValueNone -> ValueNone
                 | ValueSome arity ->
-                    match tryWinner types useSite written (fun c -> c.Arity = arity && inThisKind c) with
+                    match tryWinner types useSite written (fun c -> c.TyparArity = arity && inThisKind c) with
                     | ValueSome c -> ValueSome c.Key
                     | ValueNone -> ValueNone
         | false, _ -> ValueNone
@@ -737,7 +737,7 @@ module TypeRegistry =
         (written: WrittenTypeName)
         (arity: int)
         : TypeIdentity voption =
-        tryWinner types useSite written (fun c -> c.Arity = arity)
+        tryWinner types useSite written (fun c -> c.TyparArity = arity)
 
     /// `tryWrittenTypeClaim` for a name written with no qualifier.
     let tryTypeClaim (types: PassContextTypes) (useSite: UseSite) (name: string) (arity: int) : TypeIdentity voption =
@@ -754,7 +754,7 @@ module TypeRegistry =
     /// holds exactly the claims made so far.
     let isTypeClaimed (types: PassContextTypes) (holder: ModuleHolder) (name: string) (arity: int) : bool =
         match types.TypeClaims.TryGetValue name with
-        | true, claims -> claims.Exists(fun c -> c.Arity = arity && c.Holder = holder)
+        | true, claims -> claims.Exists(fun c -> c.TyparArity = arity && c.Holder = holder)
         | false, _ -> false
 
     /// The claim the written name reaches at `useSite` at ANY arity — THE local/external

@@ -35,8 +35,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     let encodeType te t = enc.EncodeType(te, t)
     let methodSpec handle args = enc.MethodSpec(handle, args)
 
-    let recoverOpenTypars declArity methodArity (openT: FrozenType) (instT: FrozenType) =
-        enc.RecoverOpenTypars(declArity, methodArity, openT, instT)
+    let recoverOpenTypars declTyparArity methodTyparArity (openT: FrozenType) (instT: FrozenType) =
+        enc.RecoverOpenTypars(declTyparArity, methodTyparArity, openT, instT)
 
     // The declaring-type key drives the `VALUETYPE` vs `CLASS` tag of the parent generic-inst
     // (`Span`1<char>` and struct unions/records are value types); a non-value-type or an
@@ -56,13 +56,13 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// return, each carrying self-describing `FTTypar(Declaring, i)` / `FTTypar(Method, j)` placeholders
     /// the `encodeType` arm resolves to `!i` / `!!j` directly. Replaces running the legacy
     /// `BuildSignature` closure on marker typars then decurrying — the template already carries the
-    /// single top-level tupled split. `methodArity > 0` sets the `GENERIC` calling-convention header
+    /// single top-level tupled split. `methodTyparArity > 0` sets the `GENERIC` calling-convention header
     /// count for a generic external method (`Enumerable.Take<TSource>`); the caller wraps the result in
     /// a `MethodSpec`. Shared by `externalMemberRef` (parent recovered by signature match) and
     /// `externalMemberRefOn` (parent encoded straight from the declaring type).
     let mintMemberRef
         (parent: EntityHandle)
-        (methodArity: int)
+        (methodTyparArity: int)
         (paramsT: FrozenType)
         (retT: FrozenType)
         (isProperty: bool)
@@ -93,7 +93,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 | p -> [ p ]
 
             BlobEncoder(s)
-                .MethodSignature(genericParameterCount = methodArity, isInstanceMethod = not isStatic)
+                .MethodSignature(genericParameterCount = methodTyparArity, isInstanceMethod = not isStatic)
                 .Parameters(
                     List.length paramTys,
                     // A `System.Void` return maps to `TyConst "unit"`,
@@ -192,14 +192,14 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         | _ ->
             let declFullName = SymbolKeyOps.typeMetaName declKey
 
-            let declArity = arityOfMetaName name
+            let declTyparArity = arityOfMetaName name
 
             let chosen = lookupChosen declFullName memberName mk
-            let methodArity = chosen.MethodArity
+            let methodTyparArity = chosen.MethodTyparArity
             let sig_ = chosen.Signature
 
             let declArgs, methodArgs =
-                recoverOpenTypars declArity methodArity (openTemplate chosen isProperty) memberTy
+                recoverOpenTypars declTyparArity methodTyparArity (openTemplate chosen isProperty) memberTy
 
             let tref =
                 match externalClassRef (SymbolKey.Type declKey) with
@@ -213,7 +213,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 methodSpec
                     (mintMemberRef
                         parent
-                        methodArity
+                        methodTyparArity
                         sig_.Parameters
                         sig_.Return
                         isProperty
@@ -296,15 +296,15 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             let declFullName = SymbolKeyOps.typeMetaName declKey
 
             let chosen = lookupChosen declFullName memberName mk
-            let methodArity = chosen.MethodArity
+            let methodTyparArity = chosen.MethodTyparArity
             let sig_ = chosen.Signature
 
             // The declaring args come straight off `declTy` (the whole point of this entry point); only
             // the method axis (if any) is recovered by matching the open signature template against
-            // `memberTy`. Passing declArity 0 leaves the template's `FTTypar(Declaring, i)` unrecorded —
+            // `memberTy`. Passing declTyparArity 0 leaves the template's `FTTypar(Declaring, i)` unrecorded —
             // those slots encode as `!i` straight off the node when the signature blob is minted.
             let _, methodArgs =
-                recoverOpenTypars 0 methodArity (openTemplate chosen isProperty) memberTy
+                recoverOpenTypars 0 methodTyparArity (openTemplate chosen isProperty) memberTy
 
             // The parent is the declaring type encoded directly (value-type / nested correct), not
             // recovered+rebuilt — that is the whole point of this entry point.
@@ -314,7 +314,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 methodSpec
                     (mintMemberRef
                         parent
-                        methodArity
+                        methodTyparArity
                         sig_.Parameters
                         sig_.Return
                         isProperty
@@ -359,8 +359,8 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                     typeSpecOf dt
                 | ValueNone ->
                     // Static field: recover the declaring args from the open field type.
-                    let declArity = arityOfMetaName name
-                    let declArgs, _ = recoverOpenTypars declArity 0 openFieldTy memberTy
+                    let declTyparArity = arityOfMetaName name
+                    let declArgs, _ = recoverOpenTypars declTyparArity 0 openFieldTy memberTy
 
                     let tref =
                         match externalClassRef (SymbolKey.Type declKey) with

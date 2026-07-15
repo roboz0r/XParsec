@@ -24,7 +24,7 @@ let tests =
             test "EqualityComparer`1 resolves as a non-interface Class with an origin" {
                 match provider.TryLookupType eqComparer with
                 | ValueSome(ExternalTypeShape.Class info) ->
-                    Expect.equal info.Arity 1 "one declared typar"
+                    Expect.equal info.TyparArity 1 "one declared typar"
                     Expect.isFalse info.IsInterface "a class, not an interface"
                     Expect.equal info.Origin.Namespace.Dotted "System.Collections.Generic" "origin namespace"
                     Expect.isTrue info.Origin.Assembly.IsSome "origin carries the defining assembly"
@@ -34,7 +34,7 @@ let tests =
             test "a generic interface resolves with isInterface = true" {
                 match provider.TryLookupType "System.Collections.Generic.IEnumerable`1" with
                 | ValueSome(ExternalTypeShape.Class info) ->
-                    Expect.equal info.Arity 1 "one typar"
+                    Expect.equal info.TyparArity 1 "one typar"
                     Expect.isTrue info.IsInterface "IEnumerable`1 is an interface"
                 | other -> failtestf "expected an interface Class shape, got %A" other
             }
@@ -42,7 +42,7 @@ let tests =
             test "a non-generic type resolves with arity 0" {
                 match provider.TryLookupType "System.Object" with
                 | ValueSome(ExternalTypeShape.Class info) ->
-                    Expect.equal info.Arity 0 "System.Object is non-generic"
+                    Expect.equal info.TyparArity 0 "System.Object is non-generic"
                     Expect.isFalse info.IsInterface "System.Object is a class"
                 | other -> failtestf "expected a Class shape, got %A" other
             }
@@ -230,7 +230,7 @@ let tests =
 
                 match leaf.TryLookupType eqComparer, provider.TryLookupType eqComparer with
                 | ValueSome(ExternalTypeShape.Class a), ValueSome(ExternalTypeShape.Class b) ->
-                    Expect.equal a.Arity b.Arity "same arity"
+                    Expect.equal a.TyparArity b.TyparArity "same arity"
                     Expect.equal a.IsInterface b.IsInterface "same interface-ness"
                     Expect.equal a.Origin.Assembly b.Origin.Assembly "same origin assembly"
                 | other -> failtestf "expected both leaves to resolve %s as a Class, got %A" eqComparer other

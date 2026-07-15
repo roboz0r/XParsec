@@ -42,12 +42,12 @@ module internal TsManifestMembers =
         (ctx: TranslateCtx)
         (declKey: TypeKey)
         (origin: SymbolOrigin)
-        (declArity: int)
+        (declTyparArity: int)
         (mem: Schema.Member)
         : ExternalMember list =
         overloadArgSigs ctx mem
         |> List.map (fun (argSig, sg) ->
-            ExternalMember.ctor declKey (signatureOf ctx declArity sg) (EqArray.ofList argSig) origin []
+            ExternalMember.ctor declKey (signatureOf ctx declTyparArity sg) (EqArray.ofList argSig) origin []
         )
 
     /// Expand a named method's N overload signatures into N `ExternalMember`s — one per
@@ -60,7 +60,7 @@ module internal TsManifestMembers =
         (ctx: TranslateCtx)
         (declKey: TypeKey)
         (origin: SymbolOrigin)
-        (declArity: int)
+        (declTyparArity: int)
         (kind: MemberKind)
         (mem: Schema.Member)
         : ExternalMember list =
@@ -68,8 +68,8 @@ module internal TsManifestMembers =
         |> List.map (fun (argSig, sg) ->
             { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey mem.Name (EqArray.ofList argSig) kind) with
                 IsStatic = mem.Static
-                Signature = signatureOf ctx declArity sg
-                MethodArity = sg.TypeParams
+                Signature = signatureOf ctx declTyparArity sg
+                MethodTyparArity = sg.TypeParams
                 Origin = origin
                 OptionalDefaults = List.replicate (trailingOptionalCount sg.Params) TConstValue.Unit
                 IsOptional = mem.Optional
@@ -80,12 +80,12 @@ module internal TsManifestMembers =
         (ctx: TranslateCtx)
         (declKey: TypeKey)
         (origin: SymbolOrigin)
-        (declArity: int)
+        (declTyparArity: int)
         (isInterface: bool)
         (mem: Schema.Member)
         : ExternalMember list =
         match mem.Kind with
-        | Schema.MemberKind.Method when mem.Name = ".ctor" -> expandCtor ctx declKey origin declArity mem
+        | Schema.MemberKind.Method when mem.Name = ".ctor" -> expandCtor ctx declKey origin declTyparArity mem
         | Schema.MemberKind.Property ->
             let ret =
                 match mem.Type with
@@ -96,7 +96,7 @@ module internal TsManifestMembers =
                 { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey mem.Name EqArray.empty MemberKind.Property) with
                     IsStatic = mem.Static
                     Storage = MemberStorage.Property
-                    Signature = ExternalSignature.make (declArity, 0, unitFrozen, ret)
+                    Signature = ExternalSignature.make (declTyparArity, 0, unitFrozen, ret)
                     Origin = origin
                     IsOptional = mem.Optional
                 }
@@ -108,7 +108,7 @@ module internal TsManifestMembers =
                 else
                     MemberKind.Method
 
-            expandMethod ctx declKey origin declArity kind mem
+            expandMethod ctx declKey origin declTyparArity kind mem
 
     /// Split a flat `heritage` list into implemented/extended INTERFACES (`FrozenInterfaces`)
     /// and the single base CLASS (`FrozenBaseType`). The schema's `heritage` is a FLAT
@@ -230,7 +230,7 @@ module internal TsManifestMembers =
                 qn,
                 ExternalTypeShape.Class
                     {
-                        Arity = tp
+                        TyparArity = tp
                         IsInterface = isInterface
                         Members = mems
                         FrozenInterfaces = frozenInterfaces
@@ -353,7 +353,7 @@ module internal TsManifestMembers =
             qn,
             ExternalTypeShape.Class
                 {
-                    Arity = 0
+                    TyparArity = 0
                     IsInterface = true
                     Members = members
                     FrozenInterfaces = [||]
@@ -492,7 +492,7 @@ module internal TsManifestMembers =
             qn,
             ExternalTypeShape.Class
                 {
-                    Arity = 0
+                    TyparArity = 0
                     IsInterface = false
                     Members = members
                     FrozenInterfaces = [||]

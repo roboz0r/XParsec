@@ -512,7 +512,7 @@ module internal UnificationTranslate =
             let fromLocal =
                 match TypeRegistry.tryTypeClaimAnyArity ctx.Types (ctx.UseSiteAt diagKey) name with
                 | ValueSome claim ->
-                    let args = EqArray.init claim.Arity (fun _ -> TyVar(freshTyVar ctx))
+                    let args = EqArray.init claim.TyparArity (fun _ -> TyVar(freshTyVar ctx))
                     resolveClaimedType ctx diagKey claim args
                 | ValueNone -> ValueNone
 
@@ -571,7 +571,11 @@ module internal UnificationTranslate =
                 errorTy
                     ctx
                     diagKey
-                    (sprintf "Type '%s' expects %d type argument(s) but got %d" written.Written other.Arity args.Length)
+                    (sprintf
+                        "Type '%s' expects %d type argument(s) but got %d"
+                        written.Written
+                        other.TyparArity
+                        args.Length)
             | ValueNone ->
                 assertNoDottedStampGap ctx diagKey li args.Length
                 unresolvedHeadTy ctx diagKey written.Written (TyVar(freshTyVar ctx))
@@ -624,7 +628,11 @@ module internal UnificationTranslate =
                             {
                                 Key = diagKey
                                 Message =
-                                    sprintf "Type '%s' expects %d type argument(s) but got %d" name claim.Arity argCount
+                                    sprintf
+                                        "Type '%s' expects %d type argument(s) but got %d"
+                                        name
+                                        claim.TyparArity
+                                        argCount
                                 Code = ""
                                 Severity = Severity.Error
                             }
@@ -724,7 +732,7 @@ module internal UnificationTranslate =
         let arity = translatedArgs.Length
 
         match ctx.Provider.TryLookupType(SymbolKey.Type symKey) with
-        | ValueSome shape when shape.Arity = arity ->
+        | ValueSome shape when shape.TyparArity = arity ->
             match buildExternalTy ctx (SymbolKeyOps.typeMetaName symKey) shape arity translatedArgs with
             | Some ty -> ValueSome ty
             | None -> ValueNone

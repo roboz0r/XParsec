@@ -40,7 +40,7 @@ namespace XParsec.FSharp.SemanticAnalysis
 // Step 6 extends the SAME faithfulness invariant to generic type MEMBERS
 // (`Formatter.AppendFormatted: 'T -> unit`, the overloaded set) via `checkMembers`
 // below — now that `.fsi` extraction publishes a member's own method typars
-// (`reaxisMethodTypars`, `MethodArity > 0`) rather than dropping the member. A
+// (`reaxisMethodTypars`, `MethodTyparArity > 0`) rather than dropping the member. A
 // member carries TWO typar axes (the declaring type's + its own), so — unlike the
 // single-axis module binding — its check compares the two frozen signatures
 // DIRECTLY (no axis collapse): both sides already write the declaring type's typars
@@ -157,7 +157,7 @@ module ConformanceTypars =
             MemberName: string
             /// The member's own method-typar count (`> 0` — this pass only checks
             /// generic members).
-            MethodArity: int
+            MethodTyparArity: int
             /// The `.fs`-inferred member signature (`params → return`, or the bare
             /// value type for a property).
             Inferred: FrozenType
@@ -216,7 +216,7 @@ module ConformanceTypars =
                             let overloads = provider.TryLookupMembers(td.Key, m.Name)
                             // Candidate set: overloads with the SAME method arity. A
                             // different-arity overload is a different generic member.
-                            let candidates = overloads |> Array.filter (fun em -> em.MethodArity = arity)
+                            let candidates = overloads |> Array.filter (fun em -> em.MethodTyparArity = arity)
 
                             // Skip when the contract publishes no matching-arity overload
                             // at all — that is PRESENCE (Step 4.1 / `ConformancePass`),
@@ -229,7 +229,7 @@ module ConformanceTypars =
                                     {
                                         TypeName = typeName
                                         MemberName = m.Name
-                                        MethodArity = arity
+                                        MethodTyparArity = arity
                                         Inferred = inferred
                                         Published = [ for em in candidates -> extractedSigOf em ]
                                     }

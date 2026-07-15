@@ -295,7 +295,7 @@ module CstKeys =
             LongIdent: LongIdent<SyntaxToken>
             /// Syntactic type-arg count, the arity both faces resolve at: `NamedType`
             /// ⇒ 0, `GenericType` ⇒ arg count, `SuffixedType` ⇒ 1 (postfix `'T list`).
-            Arity: int
+            TyparArity: int
         }
 
     /// Decompose a `Type` node's *head*, when it has one. Only the three head-bearing
@@ -311,21 +311,21 @@ module CstKeys =
                 {
                     Key = NodeKey.ofToken li.Idents.[0] NodeKind.TypeNamed
                     LongIdent = li
-                    Arity = 0
+                    TyparArity = 0
                 }
         | Type.GenericType(longIdent = li; typeArgs = args) ->
             ValueSome
                 {
                     Key = NodeKey.ofToken li.Idents.[0] NodeKind.TypeGeneric
                     LongIdent = li
-                    Arity = args.Length
+                    TyparArity = args.Length
                 }
         | Type.SuffixedType(longIdent = li) ->
             ValueSome
                 {
                     Key = NodeKey.ofToken li.Idents.[0] NodeKind.TypeGeneric
                     LongIdent = li
-                    Arity = 1
+                    TyparArity = 1
                 }
         | _ -> ValueNone
 

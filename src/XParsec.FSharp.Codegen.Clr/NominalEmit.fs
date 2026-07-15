@@ -97,7 +97,7 @@ module internal NominalEmit =
                 {
                     Handle = toEntity (asm.MethodDef(MethodKey.Member(td.Key, i)))
                     IsStatic = mem.IsStatic
-                    Arity = mem.Params.Length
+                    ParamArity = mem.Params.Length
                     MetaName = memberMetaName mem
                     ParamTys = [ for (_, t) in mem.Params -> t ]
                     RetTy = mem.ReturnTy

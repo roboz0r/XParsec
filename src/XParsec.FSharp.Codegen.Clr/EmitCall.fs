@@ -240,7 +240,7 @@ module EmitCall =
 
         | TExprG.Var(k, _, _) when env.StaticMethods.ContainsKey k ->
             // A top-level function emitted as a static method: `call` it with
-            // the first `Arity` args (always present — a non-saturated use would
+            // the first `ParamArity` args (always present — a non-saturated use would
             // have escaped to a closure, see `collectStaticFns`), then `Invoke`
             // the result with any remainder. A generic static method `call`s a
             // `MethodSpec` instantiating it — recovered by matching its declared

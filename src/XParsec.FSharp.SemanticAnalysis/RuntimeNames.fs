@@ -469,7 +469,7 @@ module RuntimeNames =
 
     let isPrimitiveKeyIn (names: Set<string>) (k: SymbolKey) : bool =
         match k with
-        | SymbolKey.Type t -> t.Arity = 0 && t.Holder = intrinsicHolder && names.Contains t.Name
+        | SymbolKey.Type t -> t.TyparArity = 0 && t.Holder = intrinsicHolder && names.Contains t.Name
         | _ -> false
 
     // --- Canonical intrinsic key identities ------------------------------------------
@@ -605,7 +605,7 @@ module IntrinsicTypePatterns =
     /// intrinsic canon — cannot be mistaken for a platform name.
     let (|PlatformName|_|) (k: SymbolKey) : string option =
         match k with
-        | SymbolKey.Type t when t.Arity = 0 && t.Holder = TypeHolder.InNamespace NamespaceKey.Global -> Some t.Name
+        | SymbolKey.Type t when t.TyparArity = 0 && t.Holder = TypeHolder.InNamespace NamespaceKey.Global -> Some t.Name
         | _ -> None
 
     let (|FTUnit|_|) (ft: FrozenType) =

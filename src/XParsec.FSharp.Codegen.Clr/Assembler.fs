@@ -437,7 +437,7 @@ type internal Assembler
                     // The flat CLR arg count (the `call` operand count); the spine
                     // split uses `Groups.Length`, which can be smaller (a tupled
                     // group is one application, many flat params).
-                    Arity = List.length fn.Params
+                    ParamArity = List.length fn.Params
                     Groups = fn.Groups
                     ResultTy = fn.ResultTy
                     // `plan.StaticFnTypars` is the max method
@@ -703,7 +703,7 @@ type internal Assembler
                     {
                         Handle = handle
                         IsStatic = false
-                        Arity = List.length paramTys
+                        ParamArity = List.length paramTys
                         // The IL method name (a property → its `get_<Name>` getter);
                         // the use-site table below stays keyed by the bare member name.
                         MetaName = if m.IsProperty then "get_" + m.Name else m.Name

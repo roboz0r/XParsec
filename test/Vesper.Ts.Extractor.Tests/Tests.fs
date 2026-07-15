@@ -116,25 +116,25 @@ let enumValueCodecTests =
                                 {
                                     Home = "boxlib"
                                     Kind = Schema.RefKind.Class
-                                    Arity = 1
+                                    TyparArity = 1
                                 }
                                 "Bus",
                                 {
                                     Home = "eventlib"
                                     Kind = Schema.RefKind.Interface
-                                    Arity = 0
+                                    TyparArity = 0
                                 }
                                 "Handler",
                                 {
                                     Home = "eventlib"
                                     Kind = Schema.RefKind.Alias
-                                    Arity = 1
+                                    TyparArity = 1
                                 }
                                 "Color",
                                 {
                                     Home = "palette"
                                     Kind = Schema.RefKind.Enum
-                                    Arity = 0
+                                    TyparArity = 0
                                 }
                             ]
                     }

@@ -300,7 +300,7 @@ let recordForeignRef (ctx: MapCtx) (name: string) (sym: Ts.Symbol) : unit =
                     {
                         Home = home
                         Kind = kind
-                        Arity = refArity resolved
+                        TyparArity = refArity resolved
                     }
                 )
 

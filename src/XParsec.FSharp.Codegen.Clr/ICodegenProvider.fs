@@ -385,7 +385,8 @@ type ICodegenProvider =
     /// argument/result types (the same primitive the external member-ref path uses
     /// to recover a declaring instantiation).
     abstract RecoverOpenTypars:
-        declArity: int * methodArity: int * openT: FrozenType * instT: FrozenType -> FrozenType list * FrozenType list
+        declTyparArity: int * methodTyparArity: int * openT: FrozenType * instT: FrozenType ->
+            FrozenType list * FrozenType list
 
     /// Apply a function *value* of type `funcTy` to one argument —
     /// `Vesper.Fun\`2::Invoke`. Receiver and argument are both already on the

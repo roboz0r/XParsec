@@ -143,7 +143,7 @@ type TypeHolder =
 /// a bare metadata name can express; see `typeKeyOf`). Because the arity is a FIELD, a
 /// producer cannot forget to state it, and no consumer can be arity-blind by accident.
 ///
-/// For a NESTED type `Name`/`Arity` are the innermost segment's own (`Enumerator`, 0); the
+/// For a NESTED type `Name`/`TyparArity` are the innermost segment's own (`Enumerator`, 0); the
 /// `+`-mangled reflection spelling is produced on demand, each segment rendering its OWN
 /// count (`` List`1+Enumerator ``), which is the CLR rule.
 ///
@@ -160,7 +160,7 @@ and TypeKey =
         /// This segment's OWN generic-parameter count (0 ⇒ non-generic, and no `` `N ``
         /// when rendered). A nested type's outer carries its own count; the CLR spells
         /// each segment's separately (`` Outer`1+Inner`1 `` = one typar each).
-        Arity: int
+        TyparArity: int
     }
 
     /// Walk the holder chain to the namespace at its root. A nested type reports its
@@ -876,7 +876,7 @@ type SemType =
     /// unify pairwise. Identity is the resolved `TypeKey` (minted once in
     /// NameResolution / Translate), not a bare string — a nominal head is ALWAYS a type,
     /// so the payload is the narrow key, never the wider `SymbolKey`. The `key`'s holder
-    /// distinguishes same-named records in different namespaces; its `Arity` is part of it.
+    /// distinguishes same-named records in different namespaces; its `TyparArity` is part of it.
     | TyRecord of key: TypeKey * args: EqArray<SemType>
     /// Same shape as TyRecord. Cases / TypeParams live in the union registry,
     /// reachable by `key` (`TypeRegistry.tryUnionByKey`).
@@ -1779,7 +1779,7 @@ module FrozenTypeBridge =
     /// The largest declaring-typar index a template references, or `-1` if it
     /// references none. `freezeMemberSig` uses this to DROP a member whose
     /// signature names a typar beyond the declaring type's arity
-    /// (`maxDeclaringIndex >= declaringArity`): such a member can't be instantiated
+    /// (`maxDeclaringIndex >= declaringTyparArity`): such a member can't be instantiated
     /// from the receiver's declaring args alone, so it's removed rather than
     /// surfaced with an unrealisable slot. This is a policy choice — drop vs.
     /// degrade — not crash-avoidance: both realisers (`instantiateDeclaring`,
@@ -1800,21 +1800,22 @@ module FrozenTypeBridge =
     /// declaring + method axes. The contract-extraction translate (`translateType`)
     /// bakes EVERY typar on the `Declaring` axis — it threads one `TyparCollector`
     /// with no axis notion. A member's collector is seeded with the declaring type's
-    /// own typars (indices `0 .. declaringArity-1`) before its signature is walked,
+    /// own typars (indices `0 .. declaringTyparArity-1`) before its signature is walked,
     /// so any typar the member INTRODUCES — explicit `<'a>` or an implicit `'T`
-    /// (`Formatter.AppendFormatted: 'T -> unit`) — lands at index `>= declaringArity`.
+    /// (`Formatter.AppendFormatted: 'T -> unit`) — lands at index `>= declaringTyparArity`.
     /// Those are the member's OWN generic parameters: rewrite each to
-    /// `FTTypar(Method, i - declaringArity)`, leaving the genuine declaring typars
+    /// `FTTypar(Method, i - declaringTyparArity)`, leaving the genuine declaring typars
     /// untouched. The `.fsi` analogue of `Elaborate.freezeTypars`' `methodEnv` flip;
     /// the single point that gives an extracted member its method axis (so codegen
-    /// reads a real `MethodArity` and mints the `MethodSpec`'s generic params).
-    let rec reaxisMethodTypars (declaringArity: int) (template: FrozenType) : FrozenType =
+    /// reads a real `MethodTyparArity` and mints the `MethodSpec`'s generic params).
+    let rec reaxisMethodTypars (declaringTyparArity: int) (template: FrozenType) : FrozenType =
         match template with
-        | FTTypar(TyparAxis.Declaring, i) when i >= declaringArity -> FTTypar(TyparAxis.Method, i - declaringArity)
+        | FTTypar(TyparAxis.Declaring, i) when i >= declaringTyparArity ->
+            FTTypar(TyparAxis.Method, i - declaringTyparArity)
         // Child recursion reaches a member-introduced typar buried in ANY child —
         // `keyof`/indexed/conditional included; `mapChildren` routes `FTOr` through
         // `MkUnion`, keeping the every-rebuild-canonicalises invariant.
-        | t -> FrozenType.mapChildren (reaxisMethodTypars declaringArity) t
+        | t -> FrozenType.mapChildren (reaxisMethodTypars declaringTyparArity) t
 
     /// `true` when the type is fully ground: no open typar on either axis, no
     /// body-local free typar, and no `FTUnknown` (a leaked inference metavar the

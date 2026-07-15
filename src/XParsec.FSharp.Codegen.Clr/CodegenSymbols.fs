@@ -60,7 +60,7 @@ module CodegenSymbols =
                             {
                                 Origin = sym.Origin
                                 Signature = os.Signature
-                                MethodArity = os.MethodArity
+                                MethodTyparArity = os.MethodTyparArity
                                 ValRepr = sym.ValRepr
                                 Constraints = os.Constraints
                             }

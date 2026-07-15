@@ -95,27 +95,27 @@ module VesperLib =
     ///
     /// A member typar beyond the declaring type's own (`AppendFormatted: 'T -> unit`
     /// on the niladic `Formatter`, or an explicit `member Foo<'a>`) is no longer
-    /// dropped: the member's collector interns it at an index `>= declaringArity`, so
+    /// dropped: the member's collector interns it at an index `>= declaringTyparArity`, so
     /// `reaxisMethodTypars` flips it onto the METHOD axis and the returned
-    /// `MethodArity` (`collector.Count - declaringArity`) publishes the member's own
+    /// `MethodTyparArity` (`collector.Count - declaringTyparArity`) publishes the member's own
     /// generic-parameter count — the T8 Step 6 generic-member surface. The count is
     /// read off the collector AFTER the translate, so an implicit method typar
     /// interned during the signature walk (no explicit `<'T>`) is included.
     let private freezeMemberSig
         (ctx: ExtractCtx)
         (isProperty: bool)
-        (declaringArity: int)
+        (declaringTyparArity: int)
         (dm: DeferredMember)
         : ExternalSignature voption =
         let dc = dm.Ctx
 
-        let methodArityNow () =
-            max 0 (dc.Typars.Count - declaringArity)
+        let methodTyparArityNow () =
+            max 0 (dc.Typars.Count - declaringTyparArity)
 
         try
             match translateCurriedSig ctx dc.Lexed dc.Input dc.Opens dc.Typars (ConstraintCollector()) dm.Signature with
             | Ok frozen ->
-                let frozen = FrozenTypeBridge.reaxisMethodTypars declaringArity frozen
+                let frozen = FrozenTypeBridge.reaxisMethodTypars declaringTyparArity frozen
 
                 let parameters, ret =
                     if isProperty then
@@ -127,13 +127,13 @@ module VesperLib =
                         // a nullary value rather than fabricating a parameter slot.
                         | other -> FTConst(RuntimeNames.unitKey, EqArray.empty), other
 
-                ValueSome(ExternalSignature.make (declaringArity, methodArityNow (), parameters, ret))
+                ValueSome(ExternalSignature.make (declaringTyparArity, methodTyparArityNow (), parameters, ret))
             | Error _ -> ValueNone
         with BodylessExternalShape _ ->
             ValueSome(
                 ExternalSignature.make (
-                    declaringArity,
-                    methodArityNow (),
+                    declaringTyparArity,
+                    methodTyparArityNow (),
                     FTConst(RuntimeNames.unitKey, EqArray.empty),
                     ExternalSymbols.unfreezable
                 )
@@ -415,12 +415,12 @@ module VesperLib =
                     let m = members.[i]
                     let s = m.Signature
 
-                    match freezeMemberSig ctx m.IsValueMember s.DeclaringArity deferred.[i] with
+                    match freezeMemberSig ctx m.IsValueMember s.DeclaringTyparArity deferred.[i] with
                     | ValueSome sign ->
                         // Rebuild the member key's `argSig` from the now-frozen parameters
                         // (extraction stamped it empty — the signature was still deferred).
                         // A property has no parameters, so its key stays empty-`argSig`
-                        // (matching the metadata layer). `MethodArity` is likewise only
+                        // (matching the metadata layer). `MethodTyparArity` is likewise only
                         // known post-freeze (the member's own typars surface during the
                         // signature walk), so it is propagated off the frozen signature
                         // here, overwriting the extraction-time `0` placeholder.
@@ -428,7 +428,7 @@ module VesperLib =
                             if m.IsValueMember then
                                 { m with
                                     Signature = sign
-                                    MethodArity = sign.MethodArity
+                                    MethodTyparArity = sign.MethodTyparArity
                                 }
                             else
                                 { m with
@@ -437,7 +437,7 @@ module VesperLib =
                                         { m.Key with
                                             ArgSig = ExternalSymbols.argSigOfParameters sign.Parameters
                                         }
-                                    MethodArity = sign.MethodArity
+                                    MethodTyparArity = sign.MethodTyparArity
                                 }
 
                         kept.Add m'
@@ -481,7 +481,7 @@ module VesperLib =
             | true, DeferredBody.Class(dc, _, _, ctors) when not (List.isEmpty ctors) ->
                 let arity =
                     match ctx.TypeShapes.TryGetValue k with
-                    | true, ExternalTypeShape.Class shape -> shape.Arity
+                    | true, ExternalTypeShape.Class shape -> shape.TyparArity
                     | _ -> 0
 
                 let declKey = SymbolKeyOps.qualifiedTypeKeyOfT k arity
@@ -534,7 +534,7 @@ module VesperLib =
                             Id =
                                 {
                                     Canon = canon
-                                    Arity = shape.Arity
+                                    TyparArity = shape.TyparArity
                                     Platform = Some platform
                                 }
                             Class =
@@ -560,7 +560,7 @@ module VesperLib =
                     ExternalTypeShape.IntrinsicInterface
                         {
                             Canon = canon
-                            Arity = shape.Arity
+                            TyparArity = shape.TyparArity
                             Platform = platform
                             Members = shape.Members
                             // Carry the capability's inherited interfaces (`enumerator : disposable`)
@@ -1127,7 +1127,7 @@ module VesperLib =
                                     // zero's own `deferred (0, 0)` would carry the wrong
                                     // declaring arity, so this one is written.
                                     Signature = ExternalSignature.deferred (arity, 0)
-                                // `MethodArity` keeps the zero's `0` until the finalize pass
+                                // `MethodTyparArity` keeps the zero's `0` until the finalize pass
                                 // (`freezeMemberSig`) overwrites it off the frozen signature:
                                 // the real method-typar count is only known once the signature
                                 // is walked. The `.fsi` contract layer publishes no

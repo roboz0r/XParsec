@@ -369,13 +369,13 @@ type internal ClrEncoder(env: ClrEnv) =
     /// bug. The recovered slices stay `FrozenType` — the emit walk is `FrozenType`-native
     /// end to end.
     let recoverOpenTypars
-        (declArity: int)
-        (methodArity: int)
+        (declTyparArity: int)
+        (methodTyparArity: int)
         (openT: FrozenType)
         (instT: FrozenType)
         : FrozenType list * FrozenType list =
-        let decl = Array.create declArity ValueNone
-        let meth = Array.create methodArity ValueNone
+        let decl = Array.create declTyparArity ValueNone
+        let meth = Array.create methodTyparArity ValueNone
 
         let rec go (d: FrozenType) (a: FrozenType) =
             match d with
@@ -456,8 +456,8 @@ type internal ClrEncoder(env: ClrEnv) =
     member _.EncodeListOf(te, inner) = encodeListOf te inner
     member _.EncodeType(te, t: FrozenType) = encodeType te t
 
-    member _.RecoverOpenTypars(declArity, methodArity, openT, instT) =
-        recoverOpenTypars declArity methodArity openT instT
+    member _.RecoverOpenTypars(declTyparArity, methodTyparArity, openT, instT) =
+        recoverOpenTypars declTyparArity methodTyparArity openT instT
 
     member _.MethodSpec(handle, args) = methodSpec handle args
 

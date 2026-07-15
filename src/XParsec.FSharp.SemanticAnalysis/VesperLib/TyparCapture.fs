@@ -455,7 +455,7 @@ module VesperLibTyparCapture =
                                 d.[case.Name] <-
                                     {
                                         UnionName = kv.Key
-                                        Arity = arity
+                                        TyparArity = arity
                                         Origin = origin
                                         Case = case
                                         IsRequireQualifiedAccess = rqa

@@ -45,7 +45,7 @@ let private provider: IExternalSymbolProvider =
                   ValueSome
                       {
                           UnionName = union
-                          Arity = 0
+                          TyparArity = 0
                           Origin = SymbolOrigin.Empty
                           Case = ExternalCaseShape.create (name, [||])
                           IsRequireQualifiedAccess = rqa

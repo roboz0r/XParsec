@@ -51,7 +51,7 @@ module SymbolKeyOps =
     /// cannot take a `` `N `` suffix — the backticks are the escape, so a suffix would be
     /// unreadable — which is why the array's contract/store spelling is the bare escaped
     /// string at every layer (`RuntimeNames.arrayContractName`), never `` ``[]```1 ``. It is
-    /// therefore held at `Arity = 0` and rendered verbatim, and `arityName` / `parseArity`
+    /// therefore held at `TyparArity = 0` and rendered verbatim, and `arityName` / `parseArity`
     /// agree on that, which is what makes them exact inverses.
     let private isEscapedName (name: string) = name.Contains '`'
 
@@ -147,7 +147,7 @@ module SymbolKeyOps =
     /// `` `N `` (`` List`1 ``). This is what a `TypeDef` / `TypeRef` row's name column
     /// carries, and the per-segment half of `typeNestedName`. THE renderer of the arity;
     /// `typeKeyOfSegment` is its exact inverse.
-    let typeSegmentName (t: TypeKey) : string = arityName t.Name t.Arity
+    let typeSegmentName (t: TypeKey) : string = arityName t.Name t.TyparArity
 
     /// Mint one segment of a type key from its CLR metadata name under `holder` — the
     /// parse half of `typeSegmentName`, for a producer that meets the metadata name one
@@ -158,7 +158,7 @@ module SymbolKeyOps =
         {
             Holder = holder
             Name = bare
-            Arity = arity
+            TyparArity = arity
         }
 
     /// The `+`-joined chain of a module's COMPILED HOLDER-CLASS names, WITHOUT the
@@ -210,7 +210,7 @@ module SymbolKeyOps =
     /// Mint a `TypeKey` from the boundary spelling `(dotted ns, simple name)`, where
     /// `name` may carry the `+`-mangled nested chain AND the `` `N `` suffixes a
     /// reflection display name produces — each segment's suffix is PARSED into that
-    /// segment's `Arity` (`parseArity`), so the key round-trips exactly through
+    /// segment's `TyparArity` (`parseArity`), so the key round-trips exactly through
     /// `typeMetaName`. THE parser; there is exactly one.
     ///
     /// It mints `InNamespace` / `InType` and NOTHING else — a partial inverse, honestly:
@@ -239,7 +239,7 @@ module SymbolKeyOps =
     ///
     /// An ESCAPED name (`` ``[]`` ``) is the one place the count does not survive the name
     /// axis: it can carry no `` `N `` (`arityName` / `parseArity` agree on that), so a
-    /// producer that DOES hold the count must still hold the key at `Arity = 0` — otherwise
+    /// producer that DOES hold the count must still hold the key at `TyparArity = 0` — otherwise
     /// the array's identity would differ between the producer that declared it (`type
     /// ``[]``<'T>`, arity 1) and every producer that meets it as a name (arity 0), and the
     /// two would not compare equal.
@@ -247,7 +247,7 @@ module SymbolKeyOps =
         {
             Holder = holder
             Name = name
-            Arity = if isEscapedName name then 0 else arity
+            TyparArity = if isEscapedName name then 0 else arity
         }
 
     /// `typeKeyOfHolder` for a type declared directly in a namespace, from the boundary
@@ -264,7 +264,7 @@ module SymbolKeyOps =
     /// take none (`isEscapedName`), so it stays at 0 — which is what keeps a key minted
     /// here equal to the one minted from the same contract name with no arity in hand.
     let rec private spelledArity (t: TypeKey) : bool =
-        t.Arity > 0
+        t.TyparArity > 0
         || isEscapedName t.Name
         || (
             match t.Holder with
@@ -274,7 +274,7 @@ module SymbolKeyOps =
 
     let private withArity (arity: int) (t: TypeKey) : TypeKey =
         if arity > 0 && not (spelledArity t) then
-            { t with Arity = arity }
+            { t with TyparArity = arity }
         else
             t
 
@@ -382,7 +382,7 @@ module SymbolKeyOps =
     // constants + recognisers and routes its `bareName` / `qualifiedName` needs here.
 
     /// The key's `name` component with the containment dropped. It is the PLAIN SOURCE
-    /// name — a key's `Name` never carries a `` `N `` (the arity is `TypeKey.Arity`, an
+    /// name — a key's `Name` never carries a `` `N `` (the arity is `TypeKey.TyparArity`, an
     /// int), so nothing is packed in it to strip. Use this where a name feeds a canonical
     /// string-keyed repr map (the platform-repr axis, the SRTP `primitiveSupports`) — a
     /// name axis that is string-keyed BY DESIGN. For a *comparison* against a well-known
@@ -451,7 +451,7 @@ module SymbolKeyOps =
     /// `qualifiedTypeKeyOfT` as a `SymbolKey`. THE mint for a fully-qualified compiled
     /// name held as a string — a platform repr, a fixed printf-sink name, a codegen
     /// bridge name, a metadata/contract scrape. Passing arity 0 for an already-suffixed
-    /// generic name is lossless: the suffix is PARSED into `Arity`, so the key is the
+    /// generic name is lossless: the suffix is PARSED into `TyparArity`, so the key is the
     /// same one the caller would get by handing the bare name and the count.
     let qualifiedTypeKey (compiled: string) (arity: int) : SymbolKey =
         SymbolKey.Type(qualifiedTypeKeyOfT compiled arity)
@@ -477,7 +477,7 @@ module SymbolKeyOps =
     /// The contract-sourced canon key for an intrinsic the VesperLib extractor
     /// publishes. An intrinsic is a nominal like any other, so its canon key is simply
     /// the key of its COMPILED name — which the extractor spells arity-suffixed
-    /// (`` Vesper.Collections.seq`1 ``), so the `` `1 `` PARSES into `Arity` and the arity
+    /// (`` Vesper.Collections.seq`1 ``), so the `` `1 `` PARSES into `TyparArity` and the arity
     /// is in the key. Deliberately the same mint the use-site stamp takes
     /// (`TypeHeadStamp.useSiteTypeKey`'s `Intrinsic` arm) and the same one
     /// `TypeRegistry.IntrinsicKeys` stamps for a self-compiled intrinsic, so all three

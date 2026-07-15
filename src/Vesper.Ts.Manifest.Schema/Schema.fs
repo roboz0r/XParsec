@@ -219,7 +219,7 @@ type RefEntry =
         Kind: RefKind
         /// The referenced type's DECLARED generic arity: the arity law applies, so the
         /// minted key's simple name is `SymbolKeyOps.arityName name Arity`.
-        Arity: int
+        TyparArity: int
     }
 
 type Span = { File: string; Start: int; End: int }

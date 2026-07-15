@@ -558,15 +558,20 @@ let typarConformanceTests =
 /// A method-axis typar marker (`FTTypar(Method, i)`).
 let private mAxis (i: int) : FrozenType = FTTypar(TyparAxis.Method, i)
 
-/// A non-property, non-static external member named `name` with `methodArity` own
+/// A non-property, non-static external member named `name` with `methodTyparArity` own
 /// typars and the given (already method-axised) tupled `parameters` / `ret` — the
 /// `.fsi`-published overload the stub serves.
-let private mkMember (name: string) (methodArity: int) (parameters: FrozenType) (ret: FrozenType) : ExternalMember =
+let private mkMember
+    (name: string)
+    (methodTyparArity: int)
+    (parameters: FrozenType)
+    (ret: FrozenType)
+    : ExternalMember =
     { ExternalMember.OfKey(
           SymbolKeyOps.memberKeyOf (SymbolKeyOps.qualifiedTypeKeyOfT "C" 0) name EqArray.empty MemberKind.Method
       ) with
-        Signature = mkSignature 0 methodArity parameters ret
-        MethodArity = methodArity
+        Signature = mkSignature 0 methodTyparArity parameters ret
+        MethodTyparArity = methodTyparArity
     }
 
 /// A contract provider publishing exactly `overloads` as the member set of every
@@ -631,7 +636,7 @@ let memberTyparConformanceTests =
 
                 Expect.equal (List.length mismatches) 1 "one member typar-order mismatch"
                 Expect.equal mismatches.Head.MemberName "M" "the mismatch names M"
-                Expect.equal mismatches.Head.MethodArity 2 "carries the method arity"
+                Expect.equal mismatches.Head.MethodTyparArity 2 "carries the method arity"
             }
 
             test "a member the contract does not publish is skipped (presence is Step 4.1)" {

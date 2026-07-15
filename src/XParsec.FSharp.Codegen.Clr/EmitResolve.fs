@@ -63,13 +63,13 @@ module EmitResolve =
     let recoverMemberInst
         (env: EmitEnv)
         (m: EmittedMember)
-        (declArity: int)
+        (declTyparArity: int)
         (argTys: FrozenType list)
         (resultTy: FrozenType)
         : FrozenType list * FrozenType list =
         let openT = curriedFun m.ParamTys m.RetTy
         let instT = curriedFun argTys resultTy
-        env.Provider.RecoverOpenTypars(declArity, m.MethodTyparCount, openT, instT)
+        env.Provider.RecoverOpenTypars(declTyparArity, m.MethodTyparCount, openT, instT)
 
     /// The codegen analog of front-end
     /// `Engine.tryUpcastWitness` / `subtypeInterfacesOf`, and the project-local head
@@ -291,7 +291,7 @@ module EmitResolve =
         // `ExternalMemberRefOn` parent is the receiver type itself, so it is wrong
         // for a member inherited from a different declaring type — e.g.
         // `IEnumerator`1<int>.MoveNext()` is really `IEnumerator::MoveNext()` on
-        // the non-generic base, which the recover path mints correctly (declArity
+        // the non-generic base, which the recover path mints correctly (declTyparArity
         // 0). Gate on declaring-key == receiver-key.
         | FTClass(rKey, args) when
             args.Length > 0

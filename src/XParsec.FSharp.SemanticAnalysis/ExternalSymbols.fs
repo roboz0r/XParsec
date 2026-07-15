@@ -242,7 +242,7 @@ type ExternalUnionCase =
         /// `Vesper.Choice`2`).
         UnionName: string
         /// The union's declared typar arity (one fresh TyVar per slot at a use site).
-        Arity: int
+        TyparArity: int
         /// Where the union is declared — assembly + namespace. `SymbolOrigin.Empty`
         /// for providers that don't model origins (the extractor records `Empty`;
         /// `ExternalSymbolProviders.stack` re-stamps the package origin, mirroring how it
@@ -275,7 +275,7 @@ type ExternalUnionCase =
 /// is the .NET-tupled argument type (`N ≥ 2` → one `FTTuple`; 0 params →
 /// `unit`); `Return` the result. Open typars are baked as `FTTypar(Declaring,i)`
 /// (the declaring type's typars) / `FTTypar(Method,j)` (the method's own) — the
-/// `DeclaringArity` / `MethodArity` counts give each axis's width. For a
+/// `DeclaringTyparArity` / `MethodTyparArity` counts give each axis's width. For a
 /// value member (`ExternalMember.IsValueMember` — a field or property) there are no
 /// parameters: `Parameters` is `unit` and the value type lives in `Return`; consumers
 /// gate reconstruction on `IsValueMember` (see `ExternalSymbols.instantiateSignature`).
@@ -283,8 +283,8 @@ type ExternalUnionCase =
 /// data form is what unblocks generic external static methods (`truncate`).
 type ExternalSignature =
     {
-        DeclaringArity: int
-        MethodArity: int
+        DeclaringTyparArity: int
+        MethodTyparArity: int
         Parameters: FrozenType
         Return: FrozenType
         /// Per-method-typar UPPER BOUND (`<Key extends keyof Events>`), aligned to the
@@ -293,7 +293,7 @@ type ExternalSignature =
         /// Baked over the DECLARING typars just like `Parameters`/`Return`, so
         /// `ExternalSymbols.instantiateSignatureBounds` realises it against the use-site
         /// declaring args (`keyof Events` at `Emitter<R>` → `TyKeyOf R`). Length is
-        /// `MethodArity` when any bound is present, else EMPTY (the churn-free default
+        /// `MethodTyparArity` when any bound is present, else EMPTY (the churn-free default
         /// for every non-TS producer — reflection/`.fsi`/JS-native carry no TS keyof
         /// bound). Consumed by the call-site literal-grounding rule (R4a step 3 item 2):
         /// a syntactic string constant admits into a method typar whose bound's
@@ -305,14 +305,14 @@ type ExternalSignature =
     /// The deferred sentinel a contract-layer member carries between extraction
     /// and the `ExtractCtx.toProvider` finalize pass (which fills `Parameters` /
     /// `Return` by translating the stashed signature CST once the registry is
-    /// complete). `DeclaringArity` / `MethodArity` are recorded eagerly so the
+    /// complete). `DeclaringTyparArity` / `MethodTyparArity` are recorded eagerly so the
     /// finalize pass needs only the CST. Metadata-layer (`MetadataSymbols`,
     /// reflection-backed) members skip this and build their template eagerly —
     /// their shapes are total and registry-independent.
-    static member deferred(declaringArity: int, methodArity: int) : ExternalSignature =
+    static member deferred(declaringTyparArity: int, methodTyparArity: int) : ExternalSignature =
         {
-            DeclaringArity = declaringArity
-            MethodArity = methodArity
+            DeclaringTyparArity = declaringTyparArity
+            MethodTyparArity = methodTyparArity
             Parameters = deferredTemplate
             Return = deferredTemplate
             MethodTyparBounds = [||]
@@ -326,11 +326,11 @@ type ExternalSignature =
     /// bound-carrying producer (the TS-manifest `signatureOf`) still builds the
     /// record explicitly.
     static member make
-        (declaringArity: int, methodArity: int, parameters: FrozenType, return': FrozenType)
+        (declaringTyparArity: int, methodTyparArity: int, parameters: FrozenType, return': FrozenType)
         : ExternalSignature =
         {
-            DeclaringArity = declaringArity
-            MethodArity = methodArity
+            DeclaringTyparArity = declaringTyparArity
+            MethodTyparArity = methodTyparArity
             Parameters = parameters
             Return = return'
             MethodTyparBounds = [||]
@@ -363,9 +363,9 @@ type ExternalMember =
         /// `FTTypar(Method, j)` nodes (the method axis is intrinsic to the
         /// member — there is nothing to pass in, unlike the declaring args); a
         /// consumer instantiates them to fresh inference vars at a call site, and
-        /// codegen reads `MethodArity` to mint the `MethodSpec`'s generic-parameter
+        /// codegen reads `MethodTyparArity` to mint the `MethodSpec`'s generic-parameter
         /// count.
-        MethodArity: int
+        MethodTyparArity: int
         Origin: SymbolOrigin
         /// The interned identity — a `MemberKey`, the ONE kind a member entry can have:
         /// the *open* declaring type (its `argSig` in `!0`-typars) + name + kind, minted
@@ -418,7 +418,7 @@ type ExternalMember =
             IsStatic = false
             Storage = MemberStorage.Method
             Signature = ExternalSignature.deferred (0, 0)
-            MethodArity = 0
+            MethodTyparArity = 0
             Origin = SymbolOrigin.Empty
             Key = key
             OptionalDefaults = []
@@ -432,7 +432,7 @@ type ExternalMember =
     member m.IsValueMember = m.Storage.IsValueMember
 
     /// The canonical `.ctor` member shape every layer must agree on: `Name =
-    /// ".ctor"`, instance, non-property, `MethodArity = 0`, keyed as a
+    /// ".ctor"`, instance, non-property, `MethodTyparArity = 0`, keyed as a
     /// `MemberKind.Method` over `declKey`. The metadata layer (`MetadataSymbols`),
     /// the `.fsi` contract extractor (`VesperLib`), and the JS-native stubs
     /// (`JsNativeSymbols`) all mint a constructor through this, so the constant
@@ -546,7 +546,7 @@ type ExternalClassFlags =
 /// / `instantiateBaseType`).
 type ExternalClassShape =
     {
-        Arity: int
+        TyparArity: int
         IsInterface: bool
         /// All public declared methods + properties whose signature maps via
         /// the `tryBuildType`. Sibling members the metadata layer can't
@@ -573,7 +573,7 @@ type ExternalClassShape =
     /// (`MetadataSymbols`) build the rich form directly.
     static member basic(arity: int, isInterface: bool, origin: SymbolOrigin) : ExternalClassShape =
         {
-            Arity = arity
+            TyparArity = arity
             IsInterface = isInterface
             Members = [||]
             FrozenInterfaces = [||]
@@ -609,7 +609,7 @@ type ExternalClassShape =
 ///   backend path needs no repr string. On CLR every primitive's base `.fs` IS
 ///   its platform repr, so `Platform` is always `Some` there.
 ///
-/// `Arity` — the type's generic parameter count. Usually `0` (the scalar
+/// `TyparArity` — the type's generic parameter count. Usually `0` (the scalar
 /// primitives), but NOT always: the structural type constructors are intrinsics
 /// too (`type 'T [] = (# "!0[]" #)`, arity 1; `byref`, nd-array). Load-bearing
 /// for representability: only an `arity = 0` intrinsic with `Platform = None`
@@ -620,7 +620,7 @@ type IntrinsicIdentity =
         /// other kind. The `SemType`/`FrozenType`-facing consumers widen at the boundary
         /// (`SymbolKey.Type`), which is where the IR still speaks the wide key.
         Canon: TypeKey
-        Arity: int
+        TyparArity: int
         Platform: string option
     }
 
@@ -669,7 +669,7 @@ type IntrinsicShape =
             Id =
                 {
                     Canon = canon
-                    Arity = arity
+                    TyparArity = arity
                     Platform = platform
                 }
             Class = ValueNone
@@ -694,7 +694,7 @@ type IntrinsicShape =
 ///   pre-split namespace `stampType` homes the `Origin` on. NOT the value-resolution key.
 /// - `Platform` — the `.fs` `(# … #)` BCL repr (`"System.IDisposable"`), driving CLR
 ///   reconciliation + the `ClrEnv` InterfaceImpl redirect.
-/// - `Arity` — the type's generic parameter count (`equatable<'T>` = 1).
+/// - `TyparArity` — the type's generic parameter count (`equatable<'T>` = 1).
 /// - `Members` — the abstract member surface (`Dispose`), read by
 ///   `Unification.checkInterfaceConformance`. Populated at finalize (after the
 ///   deferred member loop) via the `PendingCapabilityInterfaces` republish.
@@ -707,7 +707,7 @@ type IntrinsicInterfaceShape =
         /// A `TypeKey` — a capability is a nominal INTERFACE type; no other kind can name
         /// it, so `Canon.Namespace` is a field read rather than a match with a fallback.
         Canon: TypeKey
-        Arity: int
+        TyparArity: int
         Platform: string
         Members: ExternalMember[]
         /// The capability's directly-inherited interfaces as `(compiled-name, type-args)`
@@ -812,11 +812,11 @@ type ExternalTypeShape =
     /// The shape's syntactic arity — the guard every resolution face applies so a
     /// generic type referenced at the wrong arity isn't mistaken for this type
     /// (and the abbrev/record builders get a right-length arg array).
-    member this.Arity: int =
+    member this.TyparArity: int =
         match this with
-        | Class info -> info.Arity
-        | Intrinsic s -> s.Id.Arity
-        | IntrinsicInterface s -> s.Arity
+        | Class info -> info.TyparArity
+        | Intrinsic s -> s.Id.TyparArity
+        | IntrinsicInterface s -> s.TyparArity
         | Enum _ -> 0 // enums are never generic
         | Record(arity = a)
         | Union(arity = a)
@@ -1009,7 +1009,7 @@ type CodegenOpenSignature =
     {
         Origin: SymbolOrigin
         Signature: FrozenType
-        MethodArity: int
+        MethodTyparArity: int
         /// The SOURCE arity carried across the assembly boundary: how the producer grouped
         /// curried / tupled parameters (`ValRepr.Groups`). The codegen boundary reads
         /// it to flatten / lone-unit-erase the member-ref parameters and split the

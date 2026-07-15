@@ -57,7 +57,7 @@ module JsNativeSymbols =
     let private errorShape: ExternalTypeShape =
         ExternalTypeShape.Class
             {
-                Arity = 0
+                TyparArity = 0
                 IsInterface = false
                 Members = [| errorCtor; errorMessage |]
                 FrozenInterfaces = [||]
@@ -121,12 +121,12 @@ module JsNativeSymbols =
     /// foreign type treated as `seq<'T>` injects this name into the type's interface set.
     let enumerableInterfaceName: string = SymbolKeyOps.qualifiedName ienumerableKey
 
-    /// An instance interface member of an erased interface. `declaringArity` is the
+    /// An instance interface member of an erased interface. `declaringTyparArity` is the
     /// declaring interface's generic arity (`1` for `IEnumerable<'T>`/`IEnumerator<'T>`,
     /// `0` for the non-generic `System.IDisposable`).
     let private mkIfaceMember
         (origin: SymbolOrigin)
-        (declaringArity: int)
+        (declaringTyparArity: int)
         (declKey: TypeKey)
         (name: string)
         (isProperty: bool)
@@ -139,7 +139,7 @@ module JsNativeSymbols =
                     MemberStorage.Property
                 else
                     MemberStorage.Method
-            Signature = ExternalSignature.make (declaringArity, 0, parameters, ret)
+            Signature = ExternalSignature.make (declaringTyparArity, 0, parameters, ret)
             Origin = origin
         }
 
@@ -152,7 +152,7 @@ module JsNativeSymbols =
     let private mkErasedClassIface (arity: int) (origin: SymbolOrigin) (members: ExternalMember[]) : ExternalTypeShape =
         ExternalTypeShape.Class
             {
-                Arity = arity
+                TyparArity = arity
                 IsInterface = true
                 Members = members
                 FrozenInterfaces = [||]

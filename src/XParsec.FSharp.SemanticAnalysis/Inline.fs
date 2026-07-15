@@ -382,7 +382,7 @@ module Inline =
 
     /// The open method signature of an external symbol: its full curried
     /// monotype with the method-owned typars resolved to self-describing
-    /// `TyTypar(Method, i)` nodes (`MethodArity` of them). This is the
+    /// `TyTypar(Method, i)` nodes (`MethodTyparArity` of them). This is the
     /// strictly-smaller precursor of the planned `instantiate :
     /// ExternalSignature -> level -> SemType` seam: it lets
     /// `ClrRecipes.emitExternalCall` reconstruct an
@@ -399,7 +399,7 @@ module Inline =
             /// count. INCLUDES phantom typars present only in `Coercion` bounds (the
             /// enumerator `'E` in `'S :> IStructSeq<'T,'E>`), recovered by the
             /// dependent-typar pass so the count matches the producer's emitted IL.
-            MethodArity: int
+            MethodTyparArity: int
             /// The symbol's `when 'a :> <ty>` bounds, frozen over the method-typar
             /// axis (`FTTypar(Method, i)` leaves) in the SAME `FrozenConstraint` shape
             /// the project-local `EmitCall` phantom-typar solve consumes — so the
@@ -419,7 +419,7 @@ module Inline =
     /// walk silently dropped an explicit `<'b,'a>`'s declared order, so a call to
     /// `Set.fold<'T,'State>` (whose declared order differs from appearance) emitted
     /// a `MethodSpec` permuted from the callee's emitted `GenericParam` order — a
-    /// `MissingMethodException` at JIT. `MethodArity` is the scheme's own typar
+    /// `MissingMethodException` at JIT. `MethodTyparArity` is the scheme's own typar
     /// count. A free function's scheme carries no `Method`-axis typars, but the
     /// freshener maps that branch identically for totality.
     let openMethodSignature (sym: ExternalSymbol) : OpenMethodSignature =
@@ -437,7 +437,7 @@ module Inline =
         // `IStructSeq<'T,'E>`) carries the phantom typars to recover. A phantom (the
         // enumerator `'E`) is a declaring typar of the scheme that appears only inside a
         // `Coercion` target, never in a parameter/result — so it carries no `Signature`
-        // position, but IS counted in `TyparArity` (hence `MethodArity`) and gets its
+        // position, but IS counted in `TyparArity` (hence `MethodTyparArity`) and gets its
         // method slot. Mapped POSITIONALLY (`Declaring i ↦ Method i`), matching
         // `Signature`'s declared-order projection — NOT re-derived by first-appearance.
         let constraints =
@@ -458,6 +458,6 @@ module Inline =
 
         {
             Signature = toFrozen openSig
-            MethodArity = sym.TyparArity
+            MethodTyparArity = sym.TyparArity
             Constraints = constraints
         }

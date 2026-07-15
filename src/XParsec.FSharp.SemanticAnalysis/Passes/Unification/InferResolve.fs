@@ -106,10 +106,10 @@ module internal UnificationInferResolve =
     /// qualifier discipline lives upstream in the stamp; a caller that holds the
     /// payload already holds the verdict.
     let externalCasePattern (ctx: PassContext) (uc: ExternalUnionCase) : SemType * SemType[] =
-        let freshArgs = Array.init uc.Arity (fun _ -> TyVar(freshTyVar ctx))
+        let freshArgs = Array.init uc.TyparArity (fun _ -> TyVar(freshTyVar ctx))
 
         let unionTy =
-            TyUnion(SymbolKeyOps.externalTypeKeyOf uc.Origin uc.UnionName uc.Arity, EqArray.ofArray freshArgs)
+            TyUnion(SymbolKeyOps.externalTypeKeyOf uc.Origin uc.UnionName uc.TyparArity, EqArray.ofArray freshArgs)
 
         let fields = ExternalSymbols.instantiateCaseFieldTypes uc.Case freshArgs
         unionTy, fields
