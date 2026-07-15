@@ -92,6 +92,7 @@
     <Compile Include="DynamicEscape.fs" />
     <Compile Include="Freeze.fs" />
     <Compile Include="Pipeline.fs" />
+    <Compile Include="AssemblyUnits.fs" />
     <None Include="README.md" />
     <None Include="docs\architecture.md" />
     <None Include="docs\nodekey.md" />

@@ -1,0 +1,168 @@
+namespace XParsec.FSharp.SemanticAnalysis
+
+open XParsec.FSharp.Lexer
+open XParsec.FSharp.Parser
+
+// The FRONT-END multi-file assembly pipeline: an assembly is a LINEAR compose of
+// per-file provider views, ahead of the external (package/BCL) provider. Each file is
+// parsed and analysed ON ITS OWN — its own Input/Lexed/Ast/PassContext — so `NodeKey`
+// offsets are per-file and never collide across files. That is the whole point: nothing
+// `NodeKey`-keyed is ever merged across units.
+//
+// For file N (manifest order):
+//   1. Parse it (its own `Lexed` + `ImplementationFile`).
+//   2. Analyse+freeze it against `composite(prior file views (nearest-first) ++ [external])`.
+//   3. Project its inferred signature to a provider view (`FrozenSignature.toProvider`)
+//      and push it for the files that follow.
+//
+// Cross-file same-assembly resolution works because a prior file's view stamps
+// `Origin = InAssembly assemblyName` (the compilation's OWN name), and
+// `TypeRegistration.diagnoseExternalClaim` treats a claim whose asm = the home assembly
+// as deliberately NOT a clash — so a file-N home-stamped symbol resolves in file N+1.
+//
+// This is the FRONT END only: no codegen. It proves cross-file NAME RESOLUTION.
+
+module AssemblyUnits =
+
+    /// One successfully analysed unit of a multi-file assembly: its own source text and
+    /// `Lexed` (so its per-file diagnostics resolve to positions WITHIN it), the frozen
+    /// tree, and the provider view later files resolve its exports through.
+    type FrozenUnit =
+        {
+            Path: string
+            Input: string
+            Lexed: Lexed
+            Frozen: Frozen.TastFile
+            View: IExternalSymbolProvider
+        }
+
+    /// A unit that never reached analysis: a lex/parse failure, surfaced as a unit-level
+    /// error (mirroring `ClrDriver.parse`'s `Diagnostic list` shape) rather than thrown.
+    /// Such a unit contributes NO view, so later files simply compose over the units that
+    /// did parse.
+    // `open XParsec.FSharp.Parser` (needed for the parse chain) also declares a
+    // `Diagnostic`; the bare name binds to the parser's, so the front-end diagnostic is
+    // named through this alias throughout.
+    type Diagnostic = XParsec.FSharp.SemanticAnalysis.Diagnostic
+
+    type UnitError =
+        {
+            Path: string
+            Diagnostics: Diagnostic list
+        }
+
+    /// A diagnostic anchored to the unit it came from: its source path plus a (line, col)
+    /// resolved against THAT unit's own text. Offsets are per-unit, so resolution happens
+    /// within each unit — never by flattening bare diagnostics across units.
+    type AnchoredDiagnostic =
+        {
+            Path: string
+            Diagnostic: Diagnostic
+            Line: int
+            Col: int
+        }
+
+    // No source anchor exists for a whole-file lex/parse failure.
+    let private driverDiagnostic (message: string) : Diagnostic =
+        {
+            Key = NodeKey.ofSynthetic 0 NodeKind.SynthUnsupportedDecl
+            Code = "ASM"
+            Message = message
+            Severity = Severity.Error
+        }
+
+    /// Lex + parse one in-memory `(path, source)`, mirroring `ClrDriver.parse`: a
+    /// bare-expression fragment wraps as an `AnonymousModule`. Front-end failures are
+    /// user errors and surface as `Diagnostic`s, never exceptions.
+    let private parse (source: string) : Result<Lexed * ImplementationFile<SyntaxToken>, Diagnostic list> =
+        match Lexing.lexString source with
+        | Result.Error e -> Error [ driverDiagnostic (sprintf "lex error: %A" e) ]
+        | Result.Ok lexed ->
+            let reader = Reader.ofLexed lexed source Set.empty
+
+            match FSharpAst.parse reader with
+            | Result.Error e -> Error [ driverDiagnostic (sprintf "parse error: %A" e) ]
+            | Result.Ok(FSharpAst.ImplementationFile f) -> Ok(lexed, f)
+            | Result.Ok(FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment elems)) ->
+                Ok(lexed, ImplementationFile.AnonymousModule elems)
+            | Result.Ok other -> Error [ driverDiagnostic (sprintf "unexpected AST: %A" other) ]
+
+    /// Analyse a multi-file assembly in manifest order. Each file resolves the ones
+    /// BEFORE it — the prior file views composed nearest-first, then the external
+    /// provider last — so a name a nearer file re-declares shadows a farther one's, and
+    /// the external surface is the final fallback. Returns one `Result` per file, in
+    /// order: `Ok` for an analysed unit (carrying its view), `Error` for a parse failure.
+    /// A failed file contributes no view; the files after it compose over the survivors.
+    let analyseAssembly
+        (assemblyName: string)
+        (external: IExternalSymbolProvider)
+        (files: (string * string) list)
+        : Result<FrozenUnit, UnitError> list =
+        // Prior file views in FILE ORDER (oldest first); the newest is at the head after
+        // each push, so `List.rev` before composing puts the NEAREST file first.
+        let mutable priorViews: IExternalSymbolProvider list = []
+        let results = ResizeArray<Result<FrozenUnit, UnitError>>()
+
+        for (path, source) in files do
+            match parse source with
+            | Error ds -> results.Add(Error { Path = path; Diagnostics = ds })
+            | Ok(lexed, file) ->
+                // Nearest prior file first, external last.
+                let composed =
+                    ExternalSymbolProviders.composite ((List.rev priorViews) @ [ external ])
+
+                let frozen = Pipeline.analyseFor assemblyName composed source lexed file
+                let view = FrozenSignature.toProvider assemblyName frozen
+
+                // Push this file's view so LATER files can resolve its exports. It rides
+                // at the head, so it composes NEAREST for the immediately-following file.
+                priorViews <- view :: priorViews
+
+                results.Add(
+                    Ok
+                        {
+                            Path = path
+                            Input = source
+                            Lexed = lexed
+                            Frozen = frozen
+                            View = view
+                        }
+                )
+
+        List.ofSeq results
+
+    /// The (1-based line, 1-based col) a source `offset` sits at within `input`. A
+    /// counter-minted `NodeKey` (no source position) has no place in any file, so it
+    /// anchors at the file head `(1, 1)`.
+    let private lineColOf (input: string) (key: NodeKey) : int * int =
+        if not key.IsSourcePosition then
+            1, 1
+        else
+            let offset = min key.Offset input.Length
+            let mutable line = 1
+            let mutable lastNewline = -1
+
+            for i in 0 .. offset - 1 do
+                if input.[i] = '\n' then
+                    line <- line + 1
+                    lastNewline <- i
+
+            line, offset - lastNewline
+
+    /// Every unit's diagnostics, each anchored to ITS OWN unit: path + (line, col)
+    /// resolved against that unit's `Input`. Offsets are per-unit, so a file-2 diagnostic
+    /// resolves against file 2's text and carries file 2's path — bare diagnostics are
+    /// never flattened across units.
+    let consolidatedDiagnostics (units: FrozenUnit list) : AnchoredDiagnostic list =
+        [
+            for u in units do
+                for d in u.Frozen.Diagnostics do
+                    let line, col = lineColOf u.Input d.Key
+
+                    {
+                        Path = u.Path
+                        Diagnostic = d
+                        Line = line
+                        Col = col
+                    }
+        ]
