@@ -316,8 +316,15 @@ type internal UnitLayout =
         Closures: EmitTypes.Closure list
         ClosureByNode: Dictionary<Frozen.TExpr, EmitTypes.Closure>
         Partitioned: PartitionedTypeDecls
-        /// Whether this unit carries the entry point (`Main`). A layout decision read
-        /// back by `combine` when it mints the Program holder.
+        /// This unit's source-lambda value-struct closure verdicts, snapshotted from its
+        /// own `tast.FunVerdicts`. The Assembler's per-unit closure-verdict rewrite reads
+        /// exactly this unit's verdicts (a foreign unit's node keys mean nothing to it),
+        /// which is why it rides on the unit rather than a single ctor-level table.
+        FunVerdicts: Map<NodeKey, FunVerdict>
+        /// Whether this unit carries the entry point (`Main`). `buildUnit` leaves it FALSE
+        /// — the OutputKind decision belongs to the whole assembly, not a file — and
+        /// `combine` stamps it TRUE on the single entry unit (an executable's last file)
+        /// and FALSE on all others, so `PrepareMain` fires exactly once.
         EmitEntryPoint: bool
         /// True iff this unit defines the `%A` structural-format interfaces
         /// (it is `Vesper.Core`). See `AssemblyLayout.DefinesStructuralFormatInterfaces`.
@@ -340,13 +347,8 @@ type internal AssemblyLayout =
         /// The full `MethodDef` table in row order — the methods of `Types`, in `Types`
         /// order. Derived, never assembled a second time.
         Methods: MethodRow list
-        Lowered: Frozen.TDecl list
-        Plan: HolderPlan
-        Closures: EmitTypes.Closure list
-        ClosureByNode: Dictionary<Frozen.TExpr, EmitTypes.Closure>
-        Partitioned: PartitionedTypeDecls
         /// The Program slot's presence is a layout decision: exe (`Main`) or
-        /// holder-less fns.
+        /// holder-less fns. True iff some unit carries the entry point.
         EmitEntryPoint: bool
         /// True iff *this* compilation defines the `%A` structural-format interfaces
         /// (it is `Vesper.Core`). Computed once here from `Partitioned.Interfaces`;
@@ -355,9 +357,11 @@ type internal AssemblyLayout =
         /// `Format` body) all read, so the row reservation and the body emission can
         /// never disagree.
         DefinesStructuralFormatInterfaces: bool
-        /// The per-unit products this layout was combined from. Today always a
-        /// single element; the Assembler still reads the singular fields above, which
-        /// for one unit equal that unit's — a later migration moves it onto `Units`.
+        /// The per-unit products this layout was combined from — one per source file.
+        /// Every per-unit datum the emission passes need (lowered decls, holder plan,
+        /// closures, partition, closure verdicts, the entry flag) lives here, keyed so a
+        /// unit's bodies resolve their own file-local nodes; the shared registries and the
+        /// one combined row space live on the Assembler.
         Units: UnitLayout list
     }
 
@@ -791,11 +795,6 @@ module internal Layout =
                 tast.ClosureReprs
                 lowered
                 memberRoots
-
-        let emitEntryPoint =
-            match project.OutputKind with
-            | Exe -> true
-            | Library -> false
 
         // Each type's node carries its own field and method rows: the rows the writer
         // walks ARE the rows its range claims, since both are `List.collect`s over the
@@ -1375,7 +1374,10 @@ module internal Layout =
             Closures = closures
             ClosureByNode = closureByNode
             Partitioned = partitioned
-            EmitEntryPoint = emitEntryPoint
+            FunVerdicts = tast.FunVerdicts
+            // The entry flag is the whole-assembly OutputKind decision, made by `combine`
+            // (an executable's LAST file is the entry unit); a file cannot know it alone.
+            EmitEntryPoint = false
             DefinesStructuralFormatInterfaces = definesStructuralFormatInterfaces
         }
 
@@ -1385,16 +1387,57 @@ module internal Layout =
     /// completeness check ONCE over the combined set. The singular lowering products stay
     /// exposed for the Assembler; for a single unit they are that unit's.
     let combine (project: ProjectInfo) (units: UnitLayout list) : AssemblyLayout =
-        // Only ever a single unit today, so the one Program holder and the singular
-        // AssemblyLayout fields take that unit's data. N-unit combination — entry-unit
-        // selection, holder de-dup, cross-unit closure sharing — is not yet implemented.
-        let unit =
-            match units with
-            | [ u ] -> u
-            | _ -> failwith "Layout.combine: only single-unit combination is supported"
+        // The entry unit carries the program entry point (`Main` + the anonymous "Program"
+        // holder). For an executable it is the LAST file — F#'s rule that only the final
+        // compilation unit may hold top-level expressions — and a library has none. Stamp
+        // the flag onto exactly that unit (`buildUnit` left every unit FALSE, unaware of
+        // the whole-assembly OutputKind decision) so `PrepareMain` fires once.
+        let entryIndex =
+            match project.OutputKind with
+            | Exe -> List.length units - 1
+            | Library -> -1
 
-        let plan = unit.Plan
-        let emitEntryPoint = unit.EmitEntryPoint
+        let units =
+            units |> List.mapi (fun i u -> { u with EmitEntryPoint = (i = entryIndex) })
+
+        let entryUnit =
+            match units |> List.tryFind (fun u -> u.EmitEntryPoint) with
+            | Some u -> ValueSome u
+            | None -> ValueNone
+
+        // Only the entry file may carry top-level VALUE bindings — the anonymous "Program"
+        // holder's static fields, written by its `.cctor` (leading prefix) or `Main`
+        // (trailing). These come from a file's implicit-module top-level `let`s, which only
+        // an executable's last file has; a non-entry unit with any is a front-end error. A
+        // namespace-level `let` (a holder-less FN) is NOT top-level code — a library may
+        // carry those on the Program holder — so it is aggregated below, not rejected here.
+        units
+        |> List.iteri (fun i u ->
+            if not u.EmitEntryPoint then
+                let p = u.Plan
+
+                if not (List.isEmpty p.ProgramCctorValues) || not (List.isEmpty p.ProgramMainValues) then
+                    failwithf
+                        "Layout.combine: compilation unit %d of %d carries %d top-level value binding(s) but is not the entry file — only the last file of an executable may carry top-level code"
+                        (i + 1)
+                        (List.length units)
+                        (List.length p.ProgramCctorValues + List.length p.ProgramMainValues)
+        )
+
+        // A holder `TypeSlotKey` contributed by two units is a same-FQN module split across
+        // files — a front-end error the front end should already reject. Assert it here so a
+        // duplicate holder TypeDef row can never reach `deriveHandles` (an opaque throw).
+        let holderSeen = HashSet<TypeSlotKey>()
+
+        for u in units do
+            for k in u.BuiltKeys do
+                match k with
+                | TypeSlotKey.Holder _ ->
+                    if not (holderSeen.Add k) then
+                        failwithf
+                            "Layout.combine: holder %A is contributed by more than one unit — a module's definition is split across files"
+                            k
+                | _ -> ()
 
         // The single `<Module>` pseudo-type is minted once here, not per unit, so it is
         // TypeDef row 1 for the whole assembly no matter how many units are combined.
@@ -1414,42 +1457,64 @@ module internal Layout =
                 Nested = []
             }
 
-        // The single Program holder: its top-level value fields — leading-prefix values are
-        // `initonly` (written by the Program `.cctor`), values after a top-level `do`
-        // are plain mutable `static` (written by `Main`) — its `.cctor`, its
-        // holder-less fns, and `Main`. Minted once here, not per unit.
+        // The single Program holder, minted once here (not per unit). Its top-level value
+        // FIELDS + `.cctor` + `Main` come from the ENTRY unit alone (only the last file of
+        // an executable has top-level value bindings / `Main`; a library has neither):
+        // leading-prefix values are `initonly` (written by the `.cctor`), values after a
+        // top-level `do` are plain mutable `static` (written by `Main`). Its holder-less
+        // static FNS aggregate across EVERY unit — a namespace-level `let` in any file lands
+        // here — in unit order, each prepared by its owning unit's `MethodPlan`.
         //
         // `Main` belongs to this node's method list, which is what puts it inside the
         // Program type's `MethodList` range: the row and the range that claims it are
         // now the same list, so no ordering convention is left to preserve.
         let programFields =
+            match entryUnit with
+            | ValueNone -> []
+            | ValueSome u ->
+                let plan = u.Plan
+
+                [
+                    for mv in plan.ProgramCctorValues ->
+                        {
+                            Key = FieldKey.ModuleValue mv.Key
+                            Name = mv.Name
+                            Attrs = FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
+                            Ty = mv.Ty
+                            ClosureScope = ValueNone
+                        }
+                    for mv in plan.ProgramMainValues ->
+                        {
+                            Key = FieldKey.ModuleValue mv.Key
+                            Name = mv.Name
+                            Attrs = FieldAttributes.Public ||| FieldAttributes.Static
+                            Ty = mv.Ty
+                            ClosureScope = ValueNone
+                        }
+                ]
+
+        let hasProgramCctor =
+            match entryUnit with
+            | ValueSome u -> not (List.isEmpty u.Plan.ProgramCctorValues)
+            | ValueNone -> false
+
+        // Every unit's holder-less fns, in unit order, on the one Program holder.
+        let holderlessFnRows =
             [
-                for mv in plan.ProgramCctorValues ->
-                    {
-                        Key = FieldKey.ModuleValue mv.Key
-                        Name = mv.Name
-                        Attrs = FieldAttributes.Public ||| FieldAttributes.Static ||| FieldAttributes.InitOnly
-                        Ty = mv.Ty
-                        ClosureScope = ValueNone
-                    }
-                for mv in plan.ProgramMainValues ->
-                    {
-                        Key = FieldKey.ModuleValue mv.Key
-                        Name = mv.Name
-                        Attrs = FieldAttributes.Public ||| FieldAttributes.Static
-                        Ty = mv.Ty
-                        ClosureScope = ValueNone
-                    }
+                for u in units do
+                    for fn in u.Plan.HolderlessFns ->
+                        {
+                            Key = MethodKey.StaticFn fn.Key
+                            Name = fn.Name
+                            Attrs = staticMethodAttrs
+                        }
             ]
 
-        let hasProgramCctor = not (List.isEmpty plan.ProgramCctorValues)
-
+        // The Program holder exists when there is any top-level code or namespace-level fn
+        // to hold it: an entry point (`Main`), leading-prefix value fields, or any
+        // holder-less fn across the units.
         let programNodes =
-            if
-                emitEntryPoint
-                || not (List.isEmpty plan.HolderlessFns)
-                || not (List.isEmpty programFields)
-            then
+            if entryUnit.IsSome || not (List.isEmpty programFields) || not (List.isEmpty holderlessFnRows) then
                 [
                     {
                         Slot =
@@ -1472,14 +1537,11 @@ module internal Layout =
                                             Attrs = cctorAttrs
                                         }
 
-                                for fn in plan.HolderlessFns ->
-                                    {
-                                        Key = MethodKey.StaticFn fn.Key
-                                        Name = fn.Name
-                                        Attrs = staticMethodAttrs
-                                    }
+                                yield! holderlessFnRows
 
-                                if emitEntryPoint then
+                                // `Main` is emitted iff there is an entry unit — only an
+                                // executable has one, and it is what makes that unit the entry.
+                                if entryUnit.IsSome then
                                     yield
                                         {
                                             Key = MethodKey.Main
@@ -1534,24 +1596,31 @@ module internal Layout =
             Types = types
             Fields = types |> List.collect (fun n -> n.Fields)
             Methods = types |> List.collect (fun n -> n.Methods)
-            Lowered = unit.Lowered
-            Plan = unit.Plan
-            Closures = unit.Closures
-            ClosureByNode = unit.ClosureByNode
-            Partitioned = unit.Partitioned
-            EmitEntryPoint = unit.EmitEntryPoint
-            DefinesStructuralFormatInterfaces = unit.DefinesStructuralFormatInterfaces
+            // Assembly-level: does any unit carry the entry point (the PE serialises with an
+            // entry point) / define the `%A` structural-format interfaces (Core suppresses
+            // the per-type `Format` row + body).
+            EmitEntryPoint = entryUnit.IsSome
+            DefinesStructuralFormatInterfaces = units |> List.exists (fun u -> u.DefinesStructuralFormatInterfaces)
             Units = units
         }
 
-    /// Plan the whole assembly from one tast: build its single unit and combine it. The
-    /// ONE `ClosureNamer` is created here and threaded through `buildUnit` — a multi-unit
-    /// driver shares one across every unit so closure TypeDef names stay unique
-    /// assembly-wide. Single-unit output is byte-identical to the pre-split `build`.
-    let build (symbols: ICodegenSymbols) (project: ProjectInfo) (tast: Frozen.TastFile) : AssemblyLayout =
+    /// Plan the whole assembly from every tast: build one unit per file and combine them.
+    /// The ONE `ClosureNamer` is created here and threaded through every `buildUnit`, so
+    /// closure TypeDef names stay unique assembly-wide across files. `combine` selects the
+    /// entry unit, rejects top-level code outside it, and mints the shared `<Module>` /
+    /// Program roots once. Single-unit output is byte-identical to the pre-split `build`.
+    let buildMany
+        (symbols: ICodegenSymbols)
+        (project: ProjectInfo)
+        (tasts: Frozen.TastFile list)
+        : AssemblyLayout =
         let closureNamer = Emit.ClosureNamer()
-        let unit = buildUnit closureNamer symbols project tast
-        combine project [ unit ]
+        let units = tasts |> List.map (buildUnit closureNamer symbols project)
+        combine project units
+
+    /// Plan the whole assembly from one tast — `buildMany` over a singleton unit list.
+    let build (symbols: ICodegenSymbols) (project: ProjectInfo) (tast: Frozen.TastFile) : AssemblyLayout =
+        buildMany symbols project [ tast ]
 
     /// Derive every handle from the layout once: TypeDef handle = position in the
     /// pre-order flattening + 1; first-field / first-method handles by prefix-summing

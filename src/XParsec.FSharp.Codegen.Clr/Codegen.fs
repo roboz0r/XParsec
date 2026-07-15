@@ -18,7 +18,9 @@ module Codegen =
         (project: ProjectInfo)
         (tast: Frozen.TastFile)
         : ClrArtifact =
-        let asm = Assembler(symbols, project, tast, bclReferences)
+        // One unit today: the Assembler takes a unit LIST (the N-unit mechanism), driven
+        // here with a singleton so single-file emission stays byte-identical.
+        let asm = Assembler(symbols, project, [ tast ], bclReferences)
 
         // Bind, per unit: pre-fill the registries with layout-derived handles, so any
         // prepared body can reference any type / member / factory / static fn / closure

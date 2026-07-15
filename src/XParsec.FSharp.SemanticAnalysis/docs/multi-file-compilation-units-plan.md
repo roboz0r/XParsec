@@ -149,11 +149,21 @@ out naturally once a real second consumer exists.
   thread the closure-counter base (defaulting to 0).
 - **C5** — Assembler loops `layout.Units`, fresh `EmitContext` per unit (shared nominal registries
   + ctx + provider; per-unit NodeKey dicts). *Highest risk — the invasive one.*
-- **C6** — Bind registers all units' nominals + module fns; `combine` accepts N units (one
-  `<Module>`, entry-unit Program, holder de-dup guard, closure-counter chaining). **The semantic
-  change lands here.**
-- **C7** — `Codegen.compileUnits` entry (composite provider + merged reprs); single-`tast`
-  `compile` becomes `compileUnits [oneUnit]`.
+- **C6** — N-unit MECHANISM, kept byte-identical by still driving ONE unit. `combine` generalizes
+  to N units (one `<Module>`; entry unit = the LAST unit for an Exe / none for a Library; mint the
+  Program holder from it and set per-unit `EmitEntryPoint` on the entry unit ALONE so `PrepareMain`
+  fires once; reject top-level expressions in a non-entry unit; holder-key de-dup guard). Add
+  `Layout.buildMany` (one `ClosureNamer` → `buildUnit` each → `combine`). `UnitLayout` carries
+  `FunVerdicts` so `buildPrelude` stops reading the single ctor `tast.FunVerdicts`. The `Assembler`
+  takes `tasts: Frozen.TastFile list`, unions their `IntrinsicReprKeys`, and builds via `buildMany`.
+  Bind registers each unit's module fns into `localModuleFns` (activating the C3 branch). Drop the
+  now-dead singular `AssemblyLayout` fields (`Lowered`/`Plan`/`Closures`/`ClosureByNode`/
+  `Partitioned`). `Codegen.assemble` still passes `[tast]`, so single-file emission is byte-identical
+  (CLR suite green); the N-unit paths are reviewed but first EXERCISED at C7.
+- **C7** — `Codegen.compileUnits` entry (composite provider = units' views ++ external; merged
+  reprs) driving the multi-tast `Assembler`; single-`tast` `compile` becomes `compileUnits [one]`.
+  **The semantic change is PROVEN here**: a two-unit CLR fixture (unit 2 calls unit 1's fn, builds
+  its record, and a generic fn) compiles and runs, exercising the home-local branch + `combine`.
 
 ### Open items to close during Step C/D (see "Known open items" section below for detail)
 

@@ -53,7 +53,7 @@ type internal UnitEmit =
 /// `GenericParam` rows are collected and emitted last, sorted by
 /// `CodedIndex.TypeOrMethodDef(owner)` then index, as SRM requires.
 type internal Assembler
-    (symbols: IExternalSymbolProvider, project: ProjectInfo, tast: Frozen.TastFile, bclReferences: string list) =
+    (symbols: IExternalSymbolProvider, project: ProjectInfo, tasts: Frozen.TastFile list, bclReferences: string list) =
 
     let ctx = MetadataContext()
     do ctx.AddModuleAndAssembly(project.AssemblyName)
@@ -76,11 +76,24 @@ type internal Assembler
         )
         |> Map.ofList
 
+    // The own-compilation intrinsic reprs are the UNION of every unit's `IntrinsicReprKeys`
+    // — a `SymbolKey` identifies an intrinsic assembly-wide, so a key repeated across files
+    // is the same declaration (a genuine duplicate would already be a front-end
+    // duplicate-decl error), making last-wins union safe.
+    let intrinsicReprKeys =
+        let d = Dictionary<SymbolKey, string>()
+
+        for tast in tasts do
+            for kv in tast.IntrinsicReprKeys do
+                d.[kv.Key] <- kv.Value
+
+        d
+
     let provider =
-        // Own-unit intrinsics only; every other primitive's repr is read through the
+        // Own-compilation intrinsics only; every other primitive's repr is read through the
         // provider (`ClrEnv.TryPrimitiveRepr`), the single source of truth harvested
         // from the dependency closure's `.fs`. No codegen-local repr table backs this up.
-        ClrProvider(ctx, tast.IntrinsicReprKeys, references, symbols)
+        ClrProvider(ctx, intrinsicReprKeys, references, symbols)
 
     let icodegen = provider :> ICodegenProvider
     let encodeLocals (locals: FrozenType list) = icodegen.EncodeLocalSignature locals
@@ -99,7 +112,7 @@ type internal Assembler
     // a lookup into the prefix-sum derivation, not arithmetic. The layout also
     // carries the lowering products (lowered decls, holder plan, closures,
     // partition) computed once inside `Layout.build`.
-    let layout = Layout.build codegenSymbols project tast
+    let layout = Layout.buildMany codegenSymbols project tasts
     let layoutHandles = Layout.deriveHandles layout
 
     // closure name → its `Closure` record, so the type-layout pass (keyed only by
@@ -244,6 +257,22 @@ type internal Assembler
             provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
             provider.RegisterUserValueType td.Key
 
+        // Register this unit's home-local module functions so a SIBLING unit's cross-file
+        // call resolves to the local `MethodDef` (`ClrRecipes.emitExternalCall` probes
+        // `env.LocalModuleFns` before minting an `AssemblyRef`-scoped `MemberRef`). The key
+        // is the SAME `valueKey` `emitExternalCall` reconstructs from the call's declaring
+        // module + name, so the two sides meet. Holder-less fns (`None`) are never
+        // cross-referenced — they live on the anonymous Program holder — so skip them. For
+        // a single unit no `External` call ever targets this table, leaving emission
+        // unchanged.
+        for fn in plan.StaticFns do
+            match fn.Holder with
+            | Some mk ->
+                let valueKey = SymbolKeyOps.valueKey (ModuleHolder.InModule mk) fn.Name
+                let localMethodDef = toEntity (layoutHandles.MethodDefOf(MethodKey.StaticFn fn.Key))
+                provider.RegisterLocalModuleFn(valueKey, localMethodDef)
+            | None -> ()
+
         // A *generic* closure is a real generic `TypeDefinition`; its layout-derived
         // handle lets capture-field `MemberRef`s and the construction-site `Newobj` both
         // reach it. Monomorphic closures use their `Def` tokens directly.
@@ -349,7 +378,7 @@ type internal Assembler
         let verdict =
             ClosureVerdictRewrite.build
                 closureValueTypeByNode
-                tast.FunVerdicts
+                unit.FunVerdicts
                 enumeratorOf
                 [ for mv in plan.AllModuleValues -> mv.Key, mv.Ty, mv.Init ]
 
