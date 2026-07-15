@@ -385,15 +385,14 @@ simply not reachable.
 
 ---
 
-## Residual 5 — a narrowing that is now cheap
+## Residual 5 — a narrowing that is now cheap — **CLOSED** (`6e24398e`)
 
-`SemanticInfo.fs` notes that the type IR's nominal payloads (`SemType.TyClass/TyRecord/
-TyUnion`, `FrozenType.FTClass/…`) still carry a `SymbolKey` rather than a `TypeKey`, so
-three sites must narrow and fail loud on the impossible arm
-(`Elaborate.Resolve.nominalDeclKey`, `Inline.nominalHeadKey`, `EmitResolve.nominalTypeKey`).
-
-Registration now routes every local type through one mint and one claim, so the "two keys
-for one type" hazard that made this risky is much reduced. Worth revisiting.
+Done. The type IR's nominal payloads carry `TypeKey` outright now
+(`SemType.TyClass/TyRecord/TyUnion/TyEnum`, `FrozenType.FTClass/…`), so the
+`SymbolKey`→`TypeKey` narrow-and-fail-loud is gone: `Elaborate.Resolve.nominalDeclKey`,
+`Inline.nominalHeadKey` and `EmitResolve.nominalTypeKey` return a `TypeKey` directly, and
+seven such checks were deleted rather than added. (Same item as the SymbolKey-reshape
+review's "REMAINING NARROWING" follow-up; closed with it.)
 
 ---
 
@@ -431,13 +430,12 @@ site (`List.map bump`), in both backends. Hence deferred, deliberately.
 
 ## Also outstanding
 
-`docs/thermo-review-938dd9da34.md` holds the rest of the review backlog from the
-`SymbolKey` reshape — none of it was addressed by this work. Its headline (findings 1 and 2)
-is that the provider stores and `TypeRegistry.TypeClaims` are still addressed by a
-flattened *string* projection of the structured key, with a `#if DEBUG` tripwire
-(`Engine.fs:174` `checkAsmInvariant`) policing the gap and **not shipping in release**.
-`TypeClaims` being name-keyed is directly adjacent to Residual 1 — if you are adding a
-claim ordinal anyway, keying that table by `TypeKey` at the same time is the natural pairing.
+The `SymbolKey`-reshape review backlog (`docs/thermo-review-938dd9da34.md`) is now fully
+closed and that doc deleted. Findings 1/2 landed — the home assembly left `SymbolKey`, the
+`#if DEBUG` `checkAsmInvariant` tripwire is gone, and `SymbolKey` equality is the single
+identity test. `TypeRegistry.TypeClaims` stays short-name-keyed but disambiguates by
+holder + arity through its `TypeIdentity` list (finding 1's shape), so it is by design, not
+an open gap — no `TypeKey` re-keying is owed.
 
 ## Working notes for whoever picks this up
 
