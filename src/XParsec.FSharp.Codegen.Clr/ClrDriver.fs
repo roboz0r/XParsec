@@ -37,23 +37,6 @@ module ClrDriver =
             Severity = Severity.Error
         }
 
-    // The production parse chain (lex → reader → `FSharpAst.parse`), calling the
-    // parser API directly — the driver takes no dependency on test plumbing. A
-    // bare-expression fragment wraps as an `AnonymousModule`, matching the front
-    // end's script posture.
-    let private parse (source: string) : Result<Lexed * ImplementationFile<SyntaxToken>, Diagnostic list> =
-        match Lexing.lexString source with
-        | Result.Error e -> Error [ driverDiagnostic (sprintf "lex error: %A" e) ]
-        | Result.Ok lexed ->
-            let reader = Reader.ofLexed lexed source Set.empty
-
-            match FSharpAst.parse reader with
-            | Result.Error e -> Error [ driverDiagnostic (sprintf "parse error: %A" e) ]
-            | Result.Ok(FSharpAst.ImplementationFile f) -> Ok(lexed, f)
-            | Result.Ok(FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment elems)) ->
-                Ok(lexed, ImplementationFile.AnonymousModule elems)
-            | Result.Ok other -> Error [ driverDiagnostic (sprintf "unexpected AST: %A" other) ]
-
     /// Compile `source` to an in-memory PE artifact against the compilation's own
     /// reference set. Front end: `Pipeline.analyseFor` — the frozen production
     /// entry. A driver program is an FSharp.Core-front-end CONSUMER of the Vesper
@@ -62,7 +45,7 @@ module ClrDriver =
     /// one production call rather than the `analyseSemFor` + `Freeze.run` split the
     /// tests use to also return the pre-freeze `SemType` tree for assertions.
     let compile (inputs: ClrCompilation) (source: string) : Result<ClrArtifact, Diagnostic list> =
-        match parse source with
+        match Pipeline.parse "DRV" source with
         | Error ds -> Error ds
         | Ok(lexed, file) ->
             let provider =

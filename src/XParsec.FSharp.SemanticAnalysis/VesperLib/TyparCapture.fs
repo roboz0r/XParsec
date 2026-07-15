@@ -372,42 +372,6 @@ module VesperLibTyparCapture =
                         | _ -> ValueNone
                     | _ -> ValueNone
 
-        /// The declaration-ordered members of a type named `memberName` — the overload set —
-        /// and the first of them. `ValueNone` for a type with no members extracted at all,
-        /// which is the same answer as "no member of that name": the type's member surface is
-        /// what the contract published, and nothing distinguishes an absent list from an
-        /// empty one.
-        let private membersNamed
-            (memberName: string)
-            (members: ResizeArray<ExternalMember> voption)
-            : ExternalMember[] =
-            match members with
-            | ValueNone -> [||]
-            | ValueSome members ->
-                [|
-                    for m in members do
-                        if m.Name = memberName then
-                            m
-                |]
-
-        let private firstMemberNamed
-            (memberName: string)
-            (members: ResizeArray<ExternalMember> voption)
-            : ExternalMember voption =
-            match members with
-            | ValueNone -> ValueNone
-            | ValueSome members ->
-                let mutable found = ValueNone
-                let mutable i = 0
-
-                while found.IsNone && i < members.Count do
-                    if members.[i].Name = memberName then
-                        found <- ValueSome members.[i]
-
-                    i <- i + 1
-
-                found
-
         /// Provider over the extracted symbol / type-shape tables, exposing
         /// `ctx.AutoOpenPrefixes` as its ambient. The pipeline seeds the
         /// ambient into the open scope and probes it BEHIND explicit
@@ -574,39 +538,33 @@ module VesperLibTyparCapture =
             // The extractor's leaf: the TYPE channels are key-addressed (its types carry a
             // module chain a name cannot express), the symbol channel stays name-addressed —
             // a binding's key renders `.`-joined, which is exactly how `ctx.Symbols` is keyed.
-            ExternalSymbolProviders.ofKeyedLeaf
-                { ExternalSymbolProviders.KeyedLeaf.ofNamed
-                      { ExternalSymbolProviders.NamedLeaf.empty with
-                          TryLookup =
-                              fun name ->
-                                  match ctx.Symbols.TryGetValue name with
-                                  | true, sym -> ValueSome sym
-                                  | _ -> ValueNone
-                          TryLookupType = fun name -> typeKeyOfName name |> ValueOption.bind typeShapeByKey
-                          TryLookupUnionCase =
-                              fun caseName ->
-                                  match unionCaseIndex.TryGetValue caseName with
-                                  | true, hit -> ValueSome hit
-                                  | _ -> ValueNone
-                          AmbientOpenPrefixes = List.ofSeq ctx.AutoOpenPrefixes
-                          TryLookupMember =
-                              fun (typeName, memberName) ->
-                                  typeKeyOfName typeName
-                                  |> ValueOption.bind (fun key -> firstMemberNamed memberName (typeMembersByKey key))
-                          TryLookupMembers =
-                              fun (typeName, memberName) ->
-                                  match typeKeyOfName typeName with
-                                  | ValueSome key -> membersNamed memberName (typeMembersByKey key)
-                                  | ValueNone -> [||]
-                          // A `.fsi` contract does not (yet) publish TS index signatures, and
-                          // the extractor exposes signatures rather than spliceable inline
-                          // bodies — those are collected separately and served by the codegen
-                          // contract-stack wrapper layered over this provider. Both channels
-                          // keep `NamedLeaf.empty`'s miss.
-                          IntrinsicReverseCanon = intrinsicReverse
-                          IntrinsicForwardRepr = intrinsicForward
-                      } with
-                    TypeShapeByKey = typeShapeByKey
-                    TypeMemberByKey = fun (key, memberName) -> firstMemberNamed memberName (typeMembersByKey key)
-                    TypeMembersByKey = fun (key, memberName) -> membersNamed memberName (typeMembersByKey key)
-                }
+            // The by-key type-member faces (`TypeMemberByKey` / `TypeMembersByKey`, the
+            // declaration-ordered by-name overload scan) are wired by `ofNamedWithMembers`
+            // from `typeMembersByKey`, so the extractor no longer hand-rolls that scan.
+            // The store face is the ONLY member reader here (the resolver interface has no
+            // by-name member lookup), so the leaf supplies no name-keyed member face.
+            ExternalSymbolProviders.ofKeyedLeaf (
+                ExternalSymbolProviders.KeyedLeaf.ofNamedWithMembers
+                    { ExternalSymbolProviders.NamedLeaf.empty with
+                        TryLookup =
+                            fun name ->
+                                match ctx.Symbols.TryGetValue name with
+                                | true, sym -> ValueSome sym
+                                | _ -> ValueNone
+                        TryLookupType = fun name -> typeKeyOfName name |> ValueOption.bind typeShapeByKey
+                        TryLookupUnionCase =
+                            fun caseName ->
+                                match unionCaseIndex.TryGetValue caseName with
+                                | true, hit -> ValueSome hit
+                                | _ -> ValueNone
+                        AmbientOpenPrefixes = List.ofSeq ctx.AutoOpenPrefixes
+                        // A `.fsi` contract does not (yet) publish TS index signatures, and
+                        // the extractor exposes signatures rather than spliceable inline
+                        // bodies — those are collected separately and served by the codegen
+                        // contract-stack wrapper layered over this provider. Both channels
+                        // keep `NamedLeaf.empty`'s miss.
+                        IntrinsicReverseCanon = intrinsicReverse
+                        IntrinsicForwardRepr = intrinsicForward }
+                    typeShapeByKey
+                    typeMembersByKey
+            )

@@ -712,7 +712,7 @@ module internal NominalEmit =
             // A STATIC `unit` member now also encodes `void`
             // ("void everywhere": the static asymmetry is
             // removed). The flip is safe because the re-read invariant
-            // (`MetadataSymbols.frozenParams` maps a parameterless `void` back to
+            // (`ExternalSymbols.tupledParams` maps a parameterless `void` back to
             // `unit -> unit`) round-trips it, and every call site already treats a
             // `unit`-returning call as void + a reified `unit`.
             let returnsVoid =

@@ -6,6 +6,38 @@ open XParsec.FSharp.SemanticAnalysis.Passes
 
 module Pipeline =
 
+    /// The SHARED front-end parse chain (lex → `Reader.ofLexed` → `FSharpAst.parse`),
+    /// the one home for every driver's parse: a bare-expression `ScriptFragment` wraps as
+    /// an `AnonymousModule`, and lex/parse failures surface as `Diagnostic`s (never
+    /// exceptions) stamped with the caller's `code` — the only delta between drivers
+    /// (`"DRV"` for the CLR driver, `"ASM"` for the multi-file assembly pipeline). The
+    /// return type is qualified because `open XParsec.FSharp.Parser` brings the PARSER's
+    /// `Diagnostic` into scope, shadowing the SemanticAnalysis one this produces.
+    let parse
+        (code: string)
+        (source: string)
+        : Result<Lexed * ImplementationFile<SyntaxToken>, XParsec.FSharp.SemanticAnalysis.Diagnostic list> =
+        // No source anchor exists for a whole-file lex/parse failure.
+        let fail (message: string) : XParsec.FSharp.SemanticAnalysis.Diagnostic =
+            {
+                Key = NodeKey.ofSynthetic 0 NodeKind.SynthUnsupportedDecl
+                Code = code
+                Message = message
+                Severity = Severity.Error
+            }
+
+        match Lexing.lexString source with
+        | Result.Error e -> Error [ fail (sprintf "lex error: %A" e) ]
+        | Result.Ok lexed ->
+            let reader = Reader.ofLexed lexed source Set.empty
+
+            match FSharpAst.parse reader with
+            | Result.Error e -> Error [ fail (sprintf "parse error: %A" e) ]
+            | Result.Ok(FSharpAst.ImplementationFile f) -> Ok(lexed, f)
+            | Result.Ok(FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment elems)) ->
+                Ok(lexed, ImplementationFile.AnonymousModule elems)
+            | Result.Ok other -> Error [ fail (sprintf "unexpected AST: %A" other) ]
+
     /// Runs every pass through the `SemType` domain and returns the populated
     /// `PassContext` plus the **`SemType`** `TastFile` — the pre-freeze tree. This is
     /// the accessor for front-end consumers that assert on `SemType` shapes (tests,

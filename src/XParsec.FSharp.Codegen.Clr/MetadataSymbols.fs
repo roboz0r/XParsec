@@ -89,17 +89,9 @@ module private MetadataMapping =
                 Some(FTConst(reverseCanon.[fullName] |> List.head, EqArray.empty))
             | fullName -> Some(FTClass(SymbolKeyOps.qualifiedTypeKeyOf fullName 0, EqArray.empty))
 
-    /// The tupled parameter template: 0 → `unit`, 1 → bare param, N≥2 → `FTTuple`
-    /// (.NET calling convention — not curried).
-    let frozenParams (ps: FrozenType[]) : FrozenType =
-        match ps.Length with
-        | 0 -> FTConst(RuntimeNames.unitKey, EqArray.empty)
-        | 1 -> ps.[0]
-        | _ -> FTTuple(EqArray.ofArray ps)
-
     /// `(per-parameter templates, Return)` for a method. `None` if any type doesn't map.
     /// The parameter templates are UNCOLLAPSED — the caller collapses them with
-    /// `frozenParams` for the `ExternalSignature.Parameters` (unit/single/tuple) and uses
+    /// `ExternalSymbols.tupledParams` for the `ExternalSignature.Parameters` (unit/single/tuple) and uses
     /// the same array directly as the member key's structural `ArgSig` (one FrozenType per
     /// value parameter, so `.Length` is the value-parameter arity). Computing them once
     /// here is why the key needs no re-derivation and no rendered string.
@@ -396,7 +388,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
             { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name argSig methodTyparArity MemberKind.Method) with
                 IsStatic = m.IsStatic
                 Signature =
-                    MetadataMapping.methodSignature arity methodTyparArity (MetadataMapping.frozenParams ps, ret)
+                    MetadataMapping.methodSignature arity methodTyparArity (ExternalSymbols.tupledParams ps, ret)
                 MethodTyparArity = methodTyparArity
                 Origin = origin
                 OptionalDefaults = MetadataMapping.optionalDefaults (m.GetParameters())
@@ -459,7 +451,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
                     { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey "get_Item" argSig 0 MemberKind.Method) with
                         IsStatic = getter.IsStatic
-                        Signature = MetadataMapping.methodSignature arity 0 (MetadataMapping.frozenParams ps, ret)
+                        Signature = MetadataMapping.methodSignature arity 0 (ExternalSymbols.tupledParams ps, ret)
                         Origin = origin
                     }
                 )
@@ -481,7 +473,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
                     ExternalMember.ctor
                         declKey
-                        (MetadataMapping.methodSignature arity 0 (MetadataMapping.frozenParams ps, ret))
+                        (MetadataMapping.methodSignature arity 0 (ExternalSymbols.tupledParams ps, ret))
                         argSig
                         origin
                         (MetadataMapping.optionalDefaults (c.GetParameters()))
@@ -603,7 +595,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
                                 ExternalMember.ctor
                                     declKey
-                                    (MetadataMapping.methodSignature arity 0 (MetadataMapping.frozenParams ps, ret))
+                                    (MetadataMapping.methodSignature arity 0 (ExternalSymbols.tupledParams ps, ret))
                                     argSig
                                     origin
                                     (MetadataMapping.optionalDefaults (c.GetParameters()))
@@ -791,7 +783,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
 module MetadataSymbols =
 
-    /// Host runtime TPA. `Origin.Assembly` resolves to `System.Private.CoreLib`
+    /// Host runtime TPA. A stamped `Origin` resolves to `System.Private.CoreLib`
     /// (impl), not `System.Runtime` (ref); a future driver should supply the target
     /// TFM's reference-pack paths instead.
     let runtimeAssemblyPaths () : string list =

@@ -91,6 +91,45 @@ module ExternalSymbolProviders =
                 TypeMembersByKey = fun (key, m) -> leaf.TryLookupMembers(SymbolKeyOps.qualifiedName key, m)
             }
 
+        /// A leaf that HOLDS its types' members by key: it supplies the shape face and a
+        /// `SymbolKey -> members` index, and this builder wires `TypeMemberByKey` /
+        /// `TypeMembersByKey` — the declaration-ordered by-name overload scan — INTERNALLY,
+        /// once, so no producer (the `.fsi` contract extractor, a frozen-impl projection)
+        /// re-implements it. `membersByKey` answers a type's full declaration-ordered
+        /// member list; `ValueNone` and an empty list are the same answer ("no such member"
+        /// ≡ "type carries no members"), matching every leaf's provider face.
+        let ofNamedWithMembers
+            (leaf: NamedLeaf)
+            (typeShapeByKey: SymbolKey -> ExternalTypeShape voption)
+            (membersByKey: SymbolKey -> ResizeArray<ExternalMember> voption)
+            : KeyedLeaf =
+            let membersNamed (memberName: string) (key: SymbolKey) : ExternalMember[] =
+                match membersByKey key with
+                | ValueNone -> [||]
+                | ValueSome ms -> [| for m in ms do if m.Name = memberName then m |]
+
+            let firstMemberNamed (memberName: string) (key: SymbolKey) : ExternalMember voption =
+                match membersByKey key with
+                | ValueNone -> ValueNone
+                | ValueSome ms ->
+                    let mutable found = ValueNone
+                    let mutable i = 0
+
+                    while found.IsNone && i < ms.Count do
+                        if ms.[i].Name = memberName then
+                            found <- ValueSome ms.[i]
+
+                        i <- i + 1
+
+                    found
+
+            {
+                Named = leaf
+                TypeShapeByKey = typeShapeByKey
+                TypeMemberByKey = fun (key, memberName) -> firstMemberNamed memberName key
+                TypeMembersByKey = fun (key, memberName) -> membersNamed memberName key
+            }
+
     /// Derive the two-faced provider from a leaf that answers the type channels BY KEY —
     /// see `KeyedLeaf`. The one provider object expression; `ofNamedLeaf` is this over a
     /// leaf whose key faces are the rendered projections of its name faces.

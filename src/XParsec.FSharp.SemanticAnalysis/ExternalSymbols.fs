@@ -1402,6 +1402,22 @@ module ExternalSymbols =
         | FTTuple items -> items
         | single -> EqArray.singleton single
 
+    /// The unit type as a frozen template head — the `.NET`-tupled `Parameters` form a
+    /// member with no value parameters folds to.
+    let unitFrozen: FrozenType = FTConst(RuntimeNames.unitKey, EqArray.empty)
+
+    /// Fold a method / ctor's per-parameter frozen types into the single `.NET`-tupled
+    /// `Parameters` form an `ExternalSignature` carries: none ⇒ `unit`, one ⇒ itself,
+    /// several ⇒ an `FTTuple`. The forward direction of `argSigOfParameters` (which
+    /// un-tuples it back to one `FrozenType` per value parameter) — the ONE home every
+    /// signature producer (contract extractor, metadata reader, frozen-impl projection)
+    /// folds through, so the fold cannot drift between them.
+    let tupledParams (ps: FrozenType[]) : FrozenType =
+        match ps.Length with
+        | 0 -> unitFrozen
+        | 1 -> ps.[0]
+        | _ -> FTTuple(EqArray.ofArray ps)
+
     // --- Contract-extraction finalize fallback ----
     //
     // The `VesperLib` finalize pass translates each stashed body / member CST to a

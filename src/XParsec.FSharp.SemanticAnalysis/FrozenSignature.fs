@@ -25,10 +25,6 @@ open System.Collections.Generic
 
 module FrozenSignature =
 
-    /// The unit type as a frozen template head — a member with no value parameters
-    /// tuples to this.
-    let private unitFrozen = FTConst(RuntimeNames.unitKey, EqArray.empty)
-
     /// Re-axis a binding's frozen `ValRepr` onto the `Declaring` axis, so its
     /// parameter / result types share the axis the sibling `Scheme` is remapped to
     /// (`toDeclaringAxis`) rather than the frozen decl's `Method` axis. This keeps the
@@ -45,39 +41,6 @@ module FrozenSignature =
                     | ArgGroupG.GTuple pat -> ArgGroupG.GTuple(TastConvert.pat ConformanceTypars.toDeclaringAxis pat))
             ResultTy = ConformanceTypars.toDeclaringAxis vr.ResultTy
         }
-
-    /// Fold a member's frozen parameter types into the single `.NET`-tupled
-    /// `Parameters` form an `ExternalSignature` carries: none ⇒ `unit`, one ⇒ itself,
-    /// several ⇒ a tuple. Mirrors `VesperLib.frozenParamsOf` / the metadata layer's
-    /// `frozenParams`, kept here so the projection needs no cross-module private.
-    let private tupledParams (ps: FrozenType[]) : FrozenType =
-        match ps.Length with
-        | 0 -> unitFrozen
-        | 1 -> ps.[0]
-        | _ -> FTTuple(EqArray.ofArray ps)
-
-    /// The declaration-ordered members of `members` named `memberName` — the overload
-    /// set; and the first of them. `ValueNone`/`[||]` is the same answer for "no such
-    /// member" and "type carries no members", matching the extractor's provider.
-    let private membersNamed (memberName: string) (members: ResizeArray<ExternalMember> voption) : ExternalMember[] =
-        match members with
-        | ValueNone -> [||]
-        | ValueSome ms -> [| for m in ms do if m.Name = memberName then m |]
-
-    let private firstMemberNamed (memberName: string) (members: ResizeArray<ExternalMember> voption) : ExternalMember voption =
-        match members with
-        | ValueNone -> ValueNone
-        | ValueSome ms ->
-            let mutable found = ValueNone
-            let mutable i = 0
-
-            while found.IsNone && i < ms.Count do
-                if ms.[i].Name = memberName then
-                    found <- ValueSome ms.[i]
-
-                i <- i + 1
-
-            found
 
     /// Project a frozen implementation file's INTERNAL-or-better signature to a
     /// provider view. `assemblyName` is this unit's home assembly — a file-N entity is
@@ -122,7 +85,11 @@ module FrozenSignature =
 
             let isValueMember = (m.Kind = TMemberKind.Property)
             let methodArity = GeneralizedTypars.count m.MethodTypeParams
-            let parameters = if isValueMember then unitFrozen else tupledParams paramTys
+            let parameters =
+                if isValueMember then
+                    ExternalSymbols.unitFrozen
+                else
+                    ExternalSymbols.tupledParams paramTys
 
             let signature =
                 ExternalSignature.make (declArity, methodArity, parameters, m.ReturnTy)
@@ -345,25 +312,24 @@ module FrozenSignature =
             | true, key -> typeShapeByKey key
             | _ -> ValueNone
 
-        ExternalSymbolProviders.ofKeyedLeaf
-            { ExternalSymbolProviders.KeyedLeaf.ofNamed
-                  { ExternalSymbolProviders.NamedLeaf.empty with
-                      TryLookup =
-                          fun name ->
-                              match symbols.TryGetValue name with
-                              | true, sym -> ValueSome sym
-                              | _ -> ValueNone
-                      TryLookupType = typeShapeByName
-                      TryLookupUnionCase =
-                          fun caseName ->
-                              match unionCaseIndex.TryGetValue caseName with
-                              | true, hit -> ValueSome hit
-                              | _ -> ValueNone
-                      // A frozen impl unit publishes no `[<AutoOpen>]` surface (yet).
-                      AmbientOpenPrefixes = []
-                      IntrinsicReverseCanon = intrinsicReverse
-                      IntrinsicForwardRepr = intrinsicForward } with
-                TypeShapeByKey = typeShapeByKey
-                TypeMemberByKey = fun (key, memberName) -> firstMemberNamed memberName (typeMembersByKey key)
-                TypeMembersByKey = fun (key, memberName) -> membersNamed memberName (typeMembersByKey key)
-            }
+        ExternalSymbolProviders.ofKeyedLeaf (
+            ExternalSymbolProviders.KeyedLeaf.ofNamedWithMembers
+                { ExternalSymbolProviders.NamedLeaf.empty with
+                    TryLookup =
+                        fun name ->
+                            match symbols.TryGetValue name with
+                            | true, sym -> ValueSome sym
+                            | _ -> ValueNone
+                    TryLookupType = typeShapeByName
+                    TryLookupUnionCase =
+                        fun caseName ->
+                            match unionCaseIndex.TryGetValue caseName with
+                            | true, hit -> ValueSome hit
+                            | _ -> ValueNone
+                    // A frozen impl unit publishes no `[<AutoOpen>]` surface (yet).
+                    AmbientOpenPrefixes = []
+                    IntrinsicReverseCanon = intrinsicReverse
+                    IntrinsicForwardRepr = intrinsicForward }
+                typeShapeByKey
+                typeMembersByKey
+        )

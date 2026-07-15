@@ -36,13 +36,11 @@ module AssemblyUnits =
             View: IExternalSymbolProvider
         }
 
-    /// A unit that never reached analysis: a lex/parse failure, surfaced as a unit-level
-    /// error (mirroring `ClrDriver.parse`'s `Diagnostic list` shape) rather than thrown.
-    /// Such a unit contributes NO view, so later files simply compose over the units that
-    /// did parse.
-    // `open XParsec.FSharp.Parser` (needed for the parse chain) also declares a
-    // `Diagnostic`; the bare name binds to the parser's, so the front-end diagnostic is
-    // named through this alias throughout.
+    /// A unit that never reached analysis: a lex/parse failure (`Pipeline.parse "ASM"`),
+    /// surfaced as a unit-level error rather than thrown. Such a unit contributes NO view,
+    /// so later files simply compose over the units that did parse.
+    // `open XParsec.FSharp.Parser` also declares a `Diagnostic`; the bare name binds to
+    // the parser's, so the front-end diagnostic is named through this alias throughout.
     type Diagnostic = XParsec.FSharp.SemanticAnalysis.Diagnostic
 
     type UnitError =
@@ -62,31 +60,6 @@ module AssemblyUnits =
             Col: int
         }
 
-    // No source anchor exists for a whole-file lex/parse failure.
-    let private driverDiagnostic (message: string) : Diagnostic =
-        {
-            Key = NodeKey.ofSynthetic 0 NodeKind.SynthUnsupportedDecl
-            Code = "ASM"
-            Message = message
-            Severity = Severity.Error
-        }
-
-    /// Lex + parse one in-memory `(path, source)`, mirroring `ClrDriver.parse`: a
-    /// bare-expression fragment wraps as an `AnonymousModule`. Front-end failures are
-    /// user errors and surface as `Diagnostic`s, never exceptions.
-    let private parse (source: string) : Result<Lexed * ImplementationFile<SyntaxToken>, Diagnostic list> =
-        match Lexing.lexString source with
-        | Result.Error e -> Error [ driverDiagnostic (sprintf "lex error: %A" e) ]
-        | Result.Ok lexed ->
-            let reader = Reader.ofLexed lexed source Set.empty
-
-            match FSharpAst.parse reader with
-            | Result.Error e -> Error [ driverDiagnostic (sprintf "parse error: %A" e) ]
-            | Result.Ok(FSharpAst.ImplementationFile f) -> Ok(lexed, f)
-            | Result.Ok(FSharpAst.ScriptFragment(ScriptFragment.ScriptFragment elems)) ->
-                Ok(lexed, ImplementationFile.AnonymousModule elems)
-            | Result.Ok other -> Error [ driverDiagnostic (sprintf "unexpected AST: %A" other) ]
-
     /// Analyse a multi-file assembly in manifest order. Each file resolves the ones
     /// BEFORE it — the prior file views composed nearest-first, then the external
     /// provider last — so a name a nearer file re-declares shadows a farther one's, and
@@ -104,7 +77,7 @@ module AssemblyUnits =
         let results = ResizeArray<Result<FrozenUnit, UnitError>>()
 
         for (path, source) in files do
-            match parse source with
+            match Pipeline.parse "ASM" source with
             | Error ds -> results.Add(Error { Path = path; Diagnostics = ds })
             | Ok(lexed, file) ->
                 // Nearest prior file first, external last.
@@ -131,33 +104,23 @@ module AssemblyUnits =
 
         List.ofSeq results
 
-    /// The (1-based line, 1-based col) a source `offset` sits at within `input`. A
-    /// counter-minted `NodeKey` (no source position) has no place in any file, so it
-    /// anchors at the file head `(1, 1)`.
-    let private lineColOf (input: string) (key: NodeKey) : int * int =
-        if not key.IsSourcePosition then
-            1, 1
-        else
-            let offset = min key.Offset input.Length
-            let mutable line = 1
-            let mutable lastNewline = -1
-
-            for i in 0 .. offset - 1 do
-                if input.[i] = '\n' then
-                    line <- line + 1
-                    lastNewline <- i
-
-            line, offset - lastNewline
-
     /// Every unit's diagnostics, each anchored to ITS OWN unit: path + (line, col)
     /// resolved against that unit's `Input`. Offsets are per-unit, so a file-2 diagnostic
     /// resolves against file 2's text and carries file 2's path — bare diagnostics are
-    /// never flattened across units.
+    /// never flattened across units. Position resolution is `XParsec`'s canonical
+    /// `LineIndex` (the same resolver `Debug.fs` uses), built ONCE per unit; a
+    /// counter-minted `NodeKey` (no source position) anchors at the file head `(1, 1)`.
     let consolidatedDiagnostics (units: FrozenUnit list) : AnchoredDiagnostic list =
         [
             for u in units do
+                let lineIndex = XParsec.LineIndex.OfString u.Input
+
                 for d in u.Frozen.Diagnostics do
-                    let line, col = lineColOf u.Input d.Key
+                    let struct (line, col) =
+                        if not d.Key.IsSourcePosition then
+                            struct (1, 1)
+                        else
+                            lineIndex.GetLineCol(min d.Key.Offset u.Input.Length)
 
                     {
                         Path = u.Path

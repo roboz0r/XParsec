@@ -329,17 +329,6 @@ module VesperLib =
     // underflowed the stack; it is rebuilt from the frozen signature in
     // `finalizeDeferred` once the parameter type is known.
 
-    /// Fold a method/ctor's frozen parameter types into the single `.NET`-tupled
-    /// `Parameters` form an `ExternalSignature` carries: none ⇒ `unit`, one ⇒ itself,
-    /// several ⇒ a tuple. The inverse of `argSigOfParameters` / the metadata layer's
-    /// `frozenParams` (`MetadataSymbols`), here so the contract extractor can freeze a
-    /// `new: … -> T` constructor without reaching across the codegen-layer boundary.
-    let private frozenParamsOf (ps: FrozenType[]) : FrozenType =
-        match ps.Length with
-        | 0 -> FTConst(RuntimeNames.unitKey, EqArray.empty)
-        | 1 -> ps.[0]
-        | _ -> FTTuple(EqArray.ofArray ps)
-
     /// Freeze the deferred body / member / val CSTs stashed during extraction into
     /// `FrozenType` templates, in place, once the registry is complete.
     /// A body / val may forward-reference a type
@@ -490,7 +479,8 @@ module VesperLib =
                 let ctorMembers =
                     [
                         for (paramCsts, retCst) in ctors do
-                            let parameters = paramCsts |> Array.map (freezeBodyType ctx dc) |> frozenParamsOf
+                            let parameters =
+                                paramCsts |> Array.map (freezeBodyType ctx dc) |> ExternalSymbols.tupledParams
                             let ret = freezeBodyType ctx dc retCst
 
                             ExternalMember.ctor
