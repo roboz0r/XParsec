@@ -381,13 +381,33 @@ a value type; the overlapping optimization in `brainstorm-du-layout.md` is defer
 
 ---
 
-## Residual 4 — record instance members are unreachable by dot-access
+## Residual 4 — record instance members are unreachable by dot-access — **LANDED**
 
 ```fsharp
 type Foo = { a: int }
     with member this.Bar () = 1
 // v.Bar()  =>  codegen CRASH
 ```
+
+Fixed by unification, not a third arm — the design below is now the design record. Member
+dispatch is one path shared by class, union, and record: a `(|TyNominal|_|)` active pattern
+(`SemanticInfo.fs`, matching `TyClass`/`TyUnion`/`TyRecord`, NOT `TyEnum`) is the sole,
+greppable vehicle for kind-blind dispatch, and the three DU cases stay distinct in the
+representation. Inference's `resolveFieldStep` `TyRecord` arm now falls to the same
+`resolveLocalInstanceMember` helper the class/union arms use on a field-name miss; Elaborate's
+`tryClassMemberByKey`→`tryNominalMemberByKey` also consults the record registry, and the pure
+member-dispatch sites (`nominalDeclKey`, `InstanceMethodCall`, `ClassChainMethod`,
+`translateDotLookup`) match `TyNominal`. Where a kind adds behaviour on top of member dispatch —
+a record's field-by-name access in `resolveFieldStep`/`translateDotLookup`, or a class's
+inheritance-chain `fieldStep` — the kind-specific arm is ordered BEFORE the `TyNominal` arm so it
+wins; and pattern lowering (`Elaborate/Patterns.fs`) keeps forking explicitly on kind, because
+destructuring genuinely differs by kind (a union's tag switch, a record's field projection, a
+class's non-structural match) and must NOT be unified. CLR factored the previously-triplicated
+member-table→pickOverload→memberRef shape into one `fromMembers` (union/class/record/interface all
+route through it); JS needed no change (it already resolved record members by key — the front end
+just never reached it). Verified across both backends (`test/Codegen.Conformance/records/record-members.fs`,
+resolved-identity pins that a stray `FieldGet` cannot satisfy); the `(r :> IRank).Rank()` interface
+path still works.
 
 **Bigger than first recorded, and it is a crash, not a clean diagnostic** (verified end to
 end). Inference emits "Type 'Foo' has no field 'Bar'" AND elaboration lowers the unresolved
@@ -432,11 +452,26 @@ review's "REMAINING NARROWING" follow-up; closed with it.)
 
 ---
 
-## Residual 6 — `static let mutable` has no store node
+## Residual 6 — `static let mutable` has no store node — **LANDED**
 
-`Tast` has `TExpr.StaticFieldGet` but no `StaticFieldSet`, so a write to a `static let mutable`
-elaborates to `Assignment(StaticFieldGet …, rhs)` — a node neither backend can emit. It is
-currently **diagnosed** at registration.
+`Tast` now has `TExpr.StaticFieldSet` (declKey/fieldName carrier mirroring `StaticFieldGet`, plus
+the value child; result unit). Elaborate's `staticFieldRewrite.MkSet` lowers a write to the store
+node instead of `Assignment(StaticFieldGet …, rhs)`; CLR emits `stsfld` via the same
+`resolveStaticField` handle the getter's `ldsfld` uses (so generic classes get the open-`TypeSpec`
+`MemberRef` for free); JS assigns the static-let backing property on the emitted class object. The
+registration-time rejection is gone: the binder registers as a normal preamble let and `IsMutable`
+flows faithfully, so `Validation`'s "assignment to immutable binding" still rejects a write to a
+NON-mutable static let — the gate is now real, not the accidental `IsMutable = false` one below.
+Lifting the JS static-preamble rejection also emits `static let`/`static do` preambles as
+module-load init on JS (a step into Residual 2b). Pinned: shared-cell accumulation across instances
+agrees on both backends (`test/Codegen.Conformance/classes/static-mutable.fs`), CLR IL contains
+`stsfld`+`ldsfld`, a non-mutable static-let write is still rejected.
+
+The historical note below is kept — it is why reading `IsMutable` faithfully mattered.
+
+`Tast` had `TExpr.StaticFieldGet` but no `StaticFieldSet`, so a write to a `static let mutable`
+elaborated to `Assignment(StaticFieldGet …, rhs)` — a node neither backend could emit. It was
+**diagnosed** at registration.
 
 Worth knowing how close this came to shipping as a crash: the old `extractStaticLets` hard-coded
 `IsMutable = false` for a `static let`, which made `Validation`'s "assignment to immutable

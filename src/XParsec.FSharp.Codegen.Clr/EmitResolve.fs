@@ -194,58 +194,46 @@ module EmitResolve =
         // the receiver's nominal `TypeKey` directly
         let key, tyArgs = nominalShape (sprintf "member '%s' access" name) receiverTy
 
-        match env.Unions.TryGetValue(SymbolKey.Type key) with
-        | true, u ->
-            match u.Members.TryGetValue name with
+        // The member-key registry read, identical across every emitted-nominal kind
+        // (union / class / record / interface): pick the overload by argument types and
+        // mint the `Def`-token or generic `MemberRef` handle. Only the table and its
+        // declaring typars differ per kind — factored here so a record dispatches on the
+        // same path as a class/union, not a copied arm.
+        let fromMembers
+            (kindLabel: string)
+            (typars: string list)
+            (members: System.Collections.Generic.Dictionary<string, EmittedMember list>)
+            =
+            match members.TryGetValue name with
             | true, candidates ->
                 let m = pickOverload name candidates argTys
 
                 memberRef
                     env
-                    u.Typars
+                    typars
                     key
                     tyArgs
                     (UserMemberKind.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy))
                     m.Handle,
                 m
-            | false, _ -> failwithf "Emit: union '%A' has no emitted member '%s'" key name
+            | false, _ -> failwithf "Emit: %s '%A' has no emitted member '%s'" kindLabel key name
+
+        match env.Unions.TryGetValue(SymbolKey.Type key) with
+        | true, u -> fromMembers "union" u.Typars u.Members
         | false, _ ->
             match env.Classes.TryGetValue(SymbolKey.Type key) with
-            | true, c ->
-                match c.Members.TryGetValue name with
-                | true, candidates ->
-                    let m = pickOverload name candidates argTys
-
-                    memberRef
-                        env
-                        c.Typars
-                        key
-                        tyArgs
-                        (UserMemberKind.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy))
-                        m.Handle,
-                    m
-                | false, _ -> failwithf "Emit: class '%A' has no emitted member '%s'" key name
+            | true, c -> fromMembers "class" c.Typars c.Members
             | false, _ ->
-                // An interface-typed receiver (`(x :> IFace).M()` — or, later, an
-                // interface-constrained typar): resolve the abstract slot and let
-                // `emitInstanceMember` `callvirt` it (interface ⇒ not a value type, so
-                // it takes the `Callvirt` arm). Same member-table shape as a class.
-                match env.Interfaces.TryGetValue(SymbolKey.Type key) with
-                | true, iface ->
-                    match iface.Members.TryGetValue name with
-                    | true, candidates ->
-                        let m = pickOverload name candidates argTys
-
-                        memberRef
-                            env
-                            iface.Typars
-                            key
-                            tyArgs
-                            (UserMemberKind.Member(m.MetaName, false, m.MethodTyparCount, m.ParamTys, m.RetTy))
-                            m.Handle,
-                        m
-                    | false, _ -> failwithf "Emit: interface '%A' has no emitted member '%s'" key name
-                | false, _ -> failwithf "Emit: no emitted type carrying members for receiver '%A'" key
+                match env.Records.TryGetValue(SymbolKey.Type key) with
+                | true, r -> fromMembers "record" r.Typars r.Members
+                | false, _ ->
+                    // An interface-typed receiver (`(x :> IFace).M()` — or, later, an
+                    // interface-constrained typar): resolve the abstract slot and let
+                    // `emitInstanceMember` `callvirt` it (interface ⇒ not a value type, so
+                    // it takes the `Callvirt` arm). Same member-table shape as a class.
+                    match env.Interfaces.TryGetValue(SymbolKey.Type key) with
+                    | true, iface -> fromMembers "interface" iface.Typars iface.Members
+                    | false, _ -> failwithf "Emit: no emitted type carrying members for receiver '%A'" key
 
     /// Member handle for an instance access on an *external* (referenced-package)
     /// type. A union/record receiver carries its instantiation in its own type

@@ -164,14 +164,23 @@ module internal ElaborateAccess =
         let rTy = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr r))
         let receiver = translateExpr ctx r
 
-        // A class/union receiver's member access is a `PropertyGet` (a
-        // method-as-value keeps the same shape — codegen eta-expands);
-        // anything else reads a record/tuple field.
+        // A record exposes BOTH fields and instance-member properties by dot-access, so
+        // — unlike a class/union whose `.X` is always a member — the field-vs-member
+        // decision is made here through the shared member read: a member name lowers to
+        // `PropertyGet`, a field name to `FieldGet`. This kind-specific arm is ordered
+        // BEFORE the kind-blind `TyNominal` arm so the record's field access wins.
         match rTy with
-        | TyClass _
-        | TyUnion _ ->
-            let key =
-                LocalSymbolKey.ofMember (nominalDeclKey rTy) memberName 0 MemberKind.Property
+        | TyRecord(recKey, _) ->
+            match tryNominalMemberByKey ctx recKey memberName with
+            | ValueSome(declKey, _) ->
+                let key = LocalSymbolKey.ofMember declKey memberName 0 MemberKind.Property
+                TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty, tok)
+            | ValueNone -> TExpr.FieldGet(receiver, memberName, ty, tok)
+        // A class/union receiver's `.X` is always a member — a `PropertyGet` (a
+        // method-as-value keeps the same shape — codegen eta-expands). Records were
+        // handled above, so `TyNominal` here catches only class/union.
+        | TyNominal(nominalKey, _) ->
+            let key = LocalSymbolKey.ofMember nominalKey memberName 0 MemberKind.Property
 
             TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty, tok)
         // `(expr).Length` on an intrinsic rank-1 array desugars to the core

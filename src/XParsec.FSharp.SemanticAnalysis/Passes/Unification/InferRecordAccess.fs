@@ -154,10 +154,12 @@ module internal UnificationInferRecordAccess =
     /// TyVar. For a generic receiver `(b : Box<int>).Value`, the declared field /
     /// member type `'a` is substituted against the receiver's arg list so `Value`
     /// types as `int`, not a free typar.
-    /// Resolve an instance member on a project-local class/union, or emit a
-    /// static-hint-aware diagnostic. Shared by the `TyClass` / `TyUnion` arms of
-    /// `resolveFieldStep` — the only thing that differs between them is the
-    /// registry consulted and the "Unknown … type" wording on a registry miss.
+    /// Resolve an instance member on a project-local class/union/record, or emit a
+    /// static-hint-aware diagnostic. Shared by the `TyClass` / `TyUnion` / `TyRecord`
+    /// arms of `resolveFieldStep` — the only thing that differs between them is the
+    /// registry consulted and the "Unknown … type" wording on a registry miss. A
+    /// record reaches it on a field-name miss, so a record's instance members are
+    /// resolved on the same path as a class's or union's, not a parallel arm.
     and resolveLocalInstanceMember
         (ctx: PassContext)
         (diagKey: NodeKey)
@@ -242,7 +244,10 @@ module internal UnificationInferRecordAccess =
             | ValueSome info ->
                 match info.Fields |> Array.tryFind (fun f -> f.Name = memberName) with
                 | Some field -> instantiateMember (info.TypeParams, args) field.Type
-                | None -> errorTy ctx diagKey (sprintf "Type '%s' has no field '%s'" info.Name memberName)
+                // Not a field — a record also carries instance members. Resolve it on
+                // the same shared path a class/union takes, so `r.Bar` reaches the
+                // record's augmentation member rather than falling to a field-miss.
+                | None -> resolveLocalInstanceMember ctx diagKey info.Name info.TypeParams args info.Members memberName
             | ValueNone ->
                 let (DisplayName shown) = SymbolKeyOps.typeSimpleName recKey
                 errorTy ctx diagKey (sprintf "Unknown record type '%s'" shown)

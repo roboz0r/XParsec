@@ -118,6 +118,10 @@ module EmitJsTypes =
             Name: string
             Fields: string list
             Preamble: ClassPreamble voption
+            /// `static let` / `static do` entries in declaration order, initialising the
+            /// class's static backing fields (`ClassName.field`) at module load. Empty
+            /// for a class with no static preamble.
+            StaticPreamble: Frozen.TPreambleEntry list
             Members: PartitionedMembers
         }
 
@@ -339,6 +343,7 @@ module EmitJsTypes =
                                 Name = info.Name
                                 Fields = info.Fields
                                 Preamble = ValueNone
+                                StaticPreamble = []
                                 Members = parts
                             }
                 | TTypeKindG.Union(cases, unionMembers, unionInterfaces) ->
@@ -384,10 +389,8 @@ module EmitJsTypes =
 
                     // Class shapes this lowering does not model are REJECTED here, never dropped:
                     // the emitter reads only `CtorParams` / `Fields` / `Members` /
-                    // `InstancePreamble`, so admitting one would compile to a program that
-                    // silently disagrees with the CLR backend on the same source.
-                    //  * `static let` / `static do` — no `.cctor` analogue is emitted, so the
-                    //    initialiser and any effect its `static do` performs would vanish.
+                    // `InstancePreamble` / `StaticPreamble`, so admitting one would compile to a
+                    // program that silently disagrees with the CLR backend on the same source.
                     //  * `inherit` — no `extends` / `super(...)` is emitted, so the base ctor
                     //    (and its `do`) never runs and the base's members are absent from the
                     //    prototype.
@@ -397,11 +400,6 @@ module EmitJsTypes =
                     //    (On the `val`-form class — no primary ctor — the positional field ctor
                     //    below IS the lowering of its field-initialising `new(…) = { … }`, which
                     //    is why that shape is admitted.)
-                    if not cls.StaticPreamble.IsEmpty then
-                        failwithf
-                            "EmitJs: class '%s' declares a `static let`/`static do` preamble; class static preambles are not yet supported on the JS target"
-                            td.Name
-
                     if cls.BaseType.IsSome || cls.BaseCtorCall.IsSome then
                         failwithf
                             "EmitJs: class '%s' declares an `inherit` clause; class inheritance is not yet supported on the JS target"
@@ -445,6 +443,7 @@ module EmitJsTypes =
                             Name = td.Name
                             Fields = fieldNames
                             Preamble = preamble
+                            StaticPreamble = [ for entry in cls.StaticPreamble -> entry ]
                             Members = parts
                         }
                 // JS enum repr: a module-scope frozen object map `const E =

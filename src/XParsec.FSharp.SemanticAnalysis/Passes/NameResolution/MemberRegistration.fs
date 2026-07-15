@@ -518,14 +518,6 @@ module NameResolutionMemberRegistration =
                 | ValueSome acc ->
                     for b in bindings do
                         match bindingsOfPat ctx b.headPat with
-                        // A `static let mutable` binder IS the static field, so `x <- e` must
-                        // store to it — but the TAST has no static-field STORE node (only
-                        // `TExpr.StaticFieldGet`), so the write would elaborate to an assignment
-                        // whose target is a `StaticFieldGet` and no backend could emit it.
-                        // Reject the declaration outright rather than crash in codegen; lifting
-                        // this means adding `TExpr.StaticFieldSet` end to end.
-                        | [ _ ] when isStatic && b.mutableToken.IsSome ->
-                            diagnose "`static let mutable` is not yet supported"
                         | [ (name, key) ] ->
                             let tv = TypeVar()
                             tv.Level <- 0

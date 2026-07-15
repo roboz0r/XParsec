@@ -750,10 +750,11 @@ module Elaborate =
     /// preamble entry — must be rewritten to a field access, so codegen never sees the
     /// binder's `NodeKey`. `MkSet` rewrites the WRITE side with the read side: a
     /// `let mutable` binder IS the field, so a `c <- c + 1` must store to it (a `TExpr.Let`
-    /// binder would instead be promoted to a ref cell and fork the storage). `MkSet` is
-    /// `ValueNone` where the TAST has no store node for the target: there is no
-    /// `TExpr.StaticFieldSet`, which is exactly why `static let mutable` is rejected at
-    /// registration — nothing writable can reach the static rewrite.
+    /// binder would instead be promoted to a ref cell and fork the storage). An instance
+    /// field stores via `TExpr.FieldSet` on `this`; a `static let mutable` via
+    /// `TExpr.StaticFieldSet`. `MkSet` stays `ValueNone` only where no store node exists
+    /// for the target; the "assignment to immutable binding" check already rejects a write
+    /// to a non-`mutable` binder upstream, so a plain `static let` never reaches this.
     [<NoEquality; NoComparison>]
     type private FieldRewrite =
         {
@@ -792,7 +793,7 @@ module Elaborate =
                 |> Array.map (fun l -> l.DeclKey, l.Name)
                 |> Map.ofArray
             MkGet = fun name ty tok -> TExpr.StaticFieldGet(info.Key, name, ty, tok)
-            MkSet = ValueNone
+            MkSet = ValueSome(fun name rhs ty tok -> TExpr.StaticFieldSet(info.Key, name, rhs, ty, tok))
         }
 
     /// Primary-ctor params AND instance-`let` binders → `TExpr.FieldGet`/`FieldSet` on

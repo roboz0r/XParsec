@@ -109,6 +109,7 @@ module EmitExpr =
         | TExprG.MethodCall _ -> EmitMember.buildMethodCall buildExpr env b e
         | TExprG.StaticPropertyGet _ -> EmitMember.buildStaticPropertyGet env b e
         | TExprG.StaticFieldGet _ -> EmitMember.buildStaticFieldGet env b e
+        | TExprG.StaticFieldSet _ -> EmitMember.buildStaticFieldSet buildExpr env b e
         | TExprG.StaticMethodCall _ -> EmitMember.buildStaticMethodCall buildExpr env b e
         | TExprG.ExternalMember _ -> EmitMember.buildExternalMember buildExpr env b e
 

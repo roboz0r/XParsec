@@ -324,14 +324,16 @@ module EmitJs =
         // `StaticFieldGet` is the general static-field carrier (a class `static let`
         // backing-field read also lowers to it), so route to `enumCaseAccess` ONLY
         // when the node's type is the enum itself (`FTEnum`, stamped by Unification's
-        // enum arm). A non-enum key (a future `static let`) falls through to a loud
-        // failure rather than `enumCaseAccess` fabricating a bogus self-import.
+        // enum arm). A non-enum key is a class `static let` backing field, stored as a
+        // property on the emitted class object (`ClassName.field`) — the store analogue
+        // is `StaticFieldSet`.
         | TExprG.StaticFieldGet(enumKey, caseName, FTEnum _, _) -> enumCaseAccess ctx enumKey caseName loc
-        | TExprG.StaticFieldGet(declKey, fieldName, _, _) ->
-            failwithf
-                "EmitJs: static-field read of '%s' on '%A' is not an enum case; class `static let` field reads are not yet supported on the JS target"
-                fieldName
-                declKey
+        | TExprG.StaticFieldGet(declKey, fieldName, _, _) -> staticFieldRef ctx declKey fieldName loc
+
+        // `x <- v` on a `static let mutable` backing field → `(ClassName.field = v)`.
+        // Unit-typed like `FieldSet`; the yielded value is unused in statement position.
+        | TExprG.StaticFieldSet(declKey, fieldName, value, _, _) ->
+            JsExpr.Assign(staticFieldRef ctx declKey fieldName loc, buildExpr ctx value, loc)
 
         | TExprG.StaticMethodCall(key, args, _, _) -> applyArgs ctx (Members.localFn ctx key true false loc) args
 
@@ -835,6 +837,32 @@ module EmitJs =
                 | TPreambleEntryG.Do e -> yield! buildStatements ctx e
         ]
 
+    /// A class's `static let` / `static do` preamble → module-load statements that
+    /// initialise the class's static backing fields. A `static let x = init` stores
+    /// `ClassName.x = init`; the read/write sites resolve the same `ClassName.x` slot
+    /// (`staticFieldRef`). Entries run in declaration order — load-bearing, exactly as the
+    /// instance preamble — so an initialiser may read an earlier `static let`.
+    let private emitStaticPreamble
+        (ctx: WalkCtx)
+        (className: string)
+        (entries: Frozen.TPreambleEntry list)
+        : JsStatement list =
+        [
+            for entry in entries do
+                match entry with
+                | TPreambleEntryG.Let l ->
+                    let field =
+                        JsExpr.Member(
+                            JsExpr.Identifier(className, ValueNone),
+                            JsExpr.Identifier(l.Name, ValueNone),
+                            false,
+                            ValueNone
+                        )
+
+                    yield JsStatement.Expression(JsExpr.Assign(field, buildExpr ctx l.Init, ValueNone))
+                | TPreambleEntryG.Do e -> yield! buildStatements ctx e
+        ]
+
     /// The whole frozen file → a `Program`. Type declarations become JS `class`es first
     /// (classes are not hoisted); remaining decls are lowered — `let inline` templates
     /// and `type` decls drop out, leaving module values and effectful expressions.
@@ -915,6 +943,15 @@ module EmitJs =
                 for (typeName, m) in collected.Members -> EmitJsMembers.emitMemberFn buildExpr ctx typeName m
             ]
 
+        // Static preambles run at module load AFTER every class + member const-arrow is
+        // defined (a `static let` may call a static member) and BEFORE the body reads a
+        // static field. Declaration order across classes matches `collectTypes`.
+        let staticPreambleStmts =
+            [
+                for pc in collected.PendingClasses do
+                    yield! emitStaticPreamble ctx pc.Name pc.StaticPreamble
+            ]
+
         // A module binder mutated by a later module-level `Assignment` (a top-level
         // `let mutable m … m <- e`) must emit as `let`/`export let`, not `const`.
         let reassignedAtTop (k: NodeKey) =
@@ -953,5 +990,6 @@ module EmitJs =
                 @ classDecls
                 @ pendingUnionDecls
                 @ memberDecls
+                @ staticPreambleStmts
                 @ body
         }

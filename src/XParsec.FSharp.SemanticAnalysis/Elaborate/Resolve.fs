@@ -127,16 +127,15 @@ module internal ElaborateResolve =
             | Expr.TypeApp(expr = inner) -> tryClassRef ctx inner
             | _ -> ValueNone
 
-    /// The declaring nominal `TypeKey` of a class/union receiver type — the `Decl`
-    /// slot of the `MemberKey` minted for an instance member access. Only called
-    /// where the receiver is already known to be nominal (the active patterns /
-    /// `InstanceMethodCall` guard on `TyClass`/`TyUnion`), so a non-nominal type is an
+    /// The declaring nominal `TypeKey` of a class/union/record receiver type — the
+    /// `Decl` slot of the `MemberKey` minted for an instance member access. Only
+    /// called where the receiver is already known to be nominal (the active patterns /
+    /// `InstanceMethodCall` guard on `TyNominal`), so a non-nominal type is an
     /// Elaborate invariant break.
     let nominalDeclKey (ty: SemType) : TypeKey =
         match Unification.zonk ty with
-        | TyClass(key, _)
-        | TyUnion(key, _) -> key
-        | other -> failwithf "Elaborate: expected a class/union receiver for a member access, got %A" other
+        | TyNominal(key, _) -> key
+        | other -> failwithf "Elaborate: expected a class/union/record receiver for a member access, got %A" other
 
     /// Look up `memberName` on `typeName` — a class or (P3d.3) a union
     /// augmentation. Returns the declaring type's `SymbolKey` (`info.Key`)
@@ -162,16 +161,21 @@ module internal ElaborateResolve =
         | ValueNone ->
             match TypeRegistry.tryUnionBare ctx.Types useSite typeName with
             | ValueSome info -> pick info.TypeKey info.Members
-            | ValueNone -> ValueNone
+            | ValueNone ->
+                match TypeRegistry.tryRecord ctx.Types useSite typeName with
+                | ValueSome info -> pick info.TypeKey info.Members
+                | ValueNone -> ValueNone
 
-    /// Key-based sibling of `tryClassMember`: resolves the declaring class / union
-    /// by its arity-qualified `SymbolKey` (`tryClassByKey`/`tryUnionByKey`, which
-    /// read the key's ``Name`arity`` verbatim), not the bare simple name. An
-    /// arity-overloaded receiver (`Fun`2`/`Fun`3`) does not resolve by bare name,
-    /// so a `simpleName`-keyed lookup would miss and the call would mis-lower to a
-    /// `Vesper.Fun::Invoke` function application. Callers holding the receiver's
-    /// `TyClass`/`TyUnion` key must route through here.
-    let private tryClassMemberByKey
+    /// Key-based sibling of `tryClassMember`: resolves the declaring class / union /
+    /// record by its arity-qualified `SymbolKey` (`tryClassByKey`/`tryUnionByKey`/
+    /// `tryRecordByKey`, which read the key's ``Name`arity`` verbatim), not the bare
+    /// simple name. An arity-overloaded receiver (`Fun`2`/`Fun`3`) does not resolve by
+    /// bare name, so a `simpleName`-keyed lookup would miss and the call would mis-lower
+    /// to a `Vesper.Fun::Invoke` function application. This is the single member-key
+    /// registry read every nominal member dispatch routes through — a record's members
+    /// resolve here on the same path as a class's or union's. Callers holding the
+    /// receiver's nominal key must route through here.
+    let tryNominalMemberByKey
         (ctx: PassContext)
         (typeKey: TypeKey)
         (memberName: string)
@@ -186,7 +190,10 @@ module internal ElaborateResolve =
         | ValueNone ->
             match TypeRegistry.tryUnionByKey ctx.Types typeKey with
             | ValueSome info -> pick info.TypeKey info.Members
-            | ValueNone -> ValueNone
+            | ValueNone ->
+                match TypeRegistry.tryRecordByKey ctx.Types typeKey with
+                | ValueSome info -> pick info.TypeKey info.Members
+                | ValueNone -> ValueNone
 
     // --- Implicit value→`obj` upcast ----------------------------------------
     //
@@ -301,7 +308,7 @@ module internal ElaborateResolve =
     /// `declKey.memberName`; empty when the member is unresolved (the call still
     /// emits — just unwrapped, exactly as before this plan).
     let memberParamTys (ctx: PassContext) (declKey: TypeKey) (memberName: string) : SemType list =
-        match tryClassMemberByKey ctx declKey memberName with
+        match tryNominalMemberByKey ctx declKey memberName with
         | ValueSome(_, m) -> flatMemberParams m.Type
         | ValueNone -> []
 
@@ -363,15 +370,14 @@ module internal ElaborateResolve =
                 | ValueNone -> ValueNone
                 | ValueSome tv ->
                     match Unification.zonk (TyVar tv) with
-                    | TyClass(typeKey, _)
-                    | TyUnion(typeKey, _) ->
+                    | TyNominal(typeKey, _) ->
                         let memberName = ctx.NameOf li.Idents.[1]
 
                         // Resolve by the arity-qualified key, not the bare simple name:
                         // an arity-overloaded receiver (`Fun`2`/`Fun`3`) does not resolve
                         // by bare name, so a bare lookup would miss and `f.Invoke(a,b)`
                         // would mis-lower to a `Vesper.Fun::Invoke` function application.
-                        match tryClassMemberByKey ctx typeKey memberName with
+                        match tryNominalMemberByKey ctx typeKey memberName with
                         | ValueSome(_, m) -> ValueSome(rb.BindingSite, Unification.zonk (TyVar tv), m)
                         | ValueNone -> ValueNone
                     | _ -> ValueNone
@@ -625,13 +631,21 @@ module internal ElaborateResolve =
             | TyRecord(recKey, args) ->
                 match TypeRegistry.tryRecordByKey ctx.Types recKey with
                 | ValueSome info ->
-                    info.Fields
-                    |> Array.tryPick (fun f ->
-                        if f.Name = segName then
-                            Some(Unification.instantiateMember (info.TypeParams, args) f.Type)
-                        else
-                            None
-                    )
+                    // A record's chain segment is a field OR an instance member
+                    // (property) — check fields first, then members, mirroring the
+                    // class arm below (a record has no inheritance, so no chain walk).
+                    let fieldTy =
+                        info.Fields
+                        |> Array.tryPick (fun f ->
+                            if f.Name = segName then
+                                Some(Unification.instantiateMember (info.TypeParams, args) f.Type)
+                            else
+                                None
+                        )
+
+                    match fieldTy with
+                    | Some _ -> fieldTy
+                    | None -> memberTy (info.TypeParams, args) info.Members
                 | ValueNone -> None
             | TyUnion(unionKey, args) ->
                 match TypeRegistry.tryUnionByKey ctx.Types unionKey with
@@ -685,6 +699,18 @@ module internal ElaborateResolve =
         let isMember (members: TypeMemberInfo[]) =
             members |> Array.exists (fun m -> m.Name = segName)
 
+        // A flat nominal (union or record — neither has an inheritance chain): a
+        // member-name segment is a `PropertyGet`, a non-member (a record field, a
+        // union tag/case field) a `FieldGet`. The two kinds share ONE arm through
+        // the member-key read (`tryNominalMemberByKey`); only which registry it
+        // consults differs, and that is hidden inside the read.
+        let flatNominalStep (typeKey: TypeKey) : TExpr =
+            match tryNominalMemberByKey ctx typeKey segName with
+            | ValueSome(declKey, _) ->
+                let key = LocalSymbolKey.ofMember declKey segName 0 MemberKind.Property
+                TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy, tok)
+            | ValueNone -> TExpr.FieldGet(receiver, segName, stepTy, tok)
+
         match Unification.zonk recvTy with
         | TyClass(clsKey, args) ->
             match TypeRegistry.tryClassByKey ctx.Types clsKey with
@@ -715,12 +741,12 @@ module internal ElaborateResolve =
                         tok
                     )
                 | ValueNone -> TExpr.FieldGet(receiver, segName, stepTy, tok)
-        | TyUnion(unionKey, args) ->
-            match TypeRegistry.tryUnionByKey ctx.Types unionKey with
-            | ValueSome info when isMember info.Members ->
-                let key = LocalSymbolKey.ofMember info.TypeKey segName 0 MemberKind.Property
-                TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy, tok)
-            | _ -> TExpr.FieldGet(receiver, segName, stepTy, tok)
+        // A flat nominal — union or record. The `TyClass` arm above forks for its
+        // inheritance chain; union and record share `flatNominalStep` (a member is a
+        // `PropertyGet`, a record field / union case field a `FieldGet`), so they land
+        // here through `TyNominal` (class is already handled above, so this only ever
+        // catches union/record).
+        | TyNominal(nominalKey, _) -> flatNominalStep nominalKey
         // `arr.Length` on an intrinsic rank-1 array desugars to the core
         // `GetArrayLength` inline function (the `ldlen` mnemonic lives in
         // `ops-platform.fs`, spliced here by `InlineExpansion`). `array.Length`
@@ -746,9 +772,8 @@ module internal ElaborateResolve =
             let memberName = ctx.NameOf li.Idents.[0]
 
             match Unification.zonk (typeOfKey ctx (CstKeys.ofExpr r)) with
-            | TyClass(typeKey, _)
-            | TyUnion(typeKey, _) ->
-                match tryClassMemberByKey ctx typeKey memberName with
+            | TyNominal(typeKey, _) ->
+                match tryNominalMemberByKey ctx typeKey memberName with
                 | ValueSome(declKey, m) when m.Kind = ClassMemberKind.Method -> ValueSome(r, declKey, memberName)
                 | _ -> ValueNone
             | _ -> ValueNone
@@ -800,11 +825,10 @@ module internal ElaborateResolve =
                     ValueNone
                 else
                     match recvTy with
-                    | TyClass(typeKey, _)
-                    | TyUnion(typeKey, _) ->
+                    | TyNominal(typeKey, _) ->
                         let memberName = ctx.NameOf li.Idents.[n - 1]
 
-                        match tryClassMemberByKey ctx typeKey memberName with
+                        match tryNominalMemberByKey ctx typeKey memberName with
                         | ValueSome(_, m) when m.Kind = ClassMemberKind.Method ->
                             let prefixLi =
                                 {

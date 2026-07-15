@@ -151,6 +151,7 @@ module internal NominalEmit =
                         ]
                     IsValueType = isStruct
                     Ctor = toEntity (asm.MethodDef(MethodKey.NominalCtor td.Key))
+                    Members = emittedMembers
                 }
 
         | NominalEmissionInput.Class cd ->

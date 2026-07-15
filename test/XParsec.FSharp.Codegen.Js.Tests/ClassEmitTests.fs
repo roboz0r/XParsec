@@ -297,10 +297,12 @@ let tests =
                 Expect.isGreaterThan letStore paramStore "the instance-`let` store follows the ctor-param store"
             }
 
-            // A JS `.cctor` analogue is not emitted yet, so a static preamble would be
-            // silently dropped — it must fail loudly instead.
-            test "a class with a `static let` preamble fails loudly on the JS target" {
-                let compile () =
+            // A `static let` backing field is a property on the emitted class object
+            // (`C.scale`), initialised by a module-load static preamble; a member reads the
+            // same slot. The RUNTIME semantics of `static let mutable` sharing are pinned in
+            // the conformance corpus (`classes/static-mutable.fs`, run on JS *and* CLR).
+            test "a class `static let` emits a class-object field initialised at module load" {
+                let src =
                     emitJs (
                         lines
                             [
@@ -310,16 +312,14 @@ let tests =
                                 "printfn \"%d\" (C(2).N)"
                             ]
                     )
-                    |> ignore
 
-                Expect.throwsC
-                    compile
-                    (fun ex ->
-                        Expect.stringContains
-                            ex.Message
-                            "static preambles are not yet supported"
-                            "the failure names the unsupported feature rather than dropping it"
-                    )
+                // The class is declared before its static field is initialised, and the
+                // member reads the same `C.scale` slot.
+                let classDecl = src.IndexOf "class C"
+                let scaleInit = src.IndexOf "C.scale = "
+                Expect.isGreaterThan classDecl -1 "the class emits"
+                Expect.isGreaterThan scaleInit classDecl "the static field is initialised after the class is declared"
+                Expect.stringContains src "C.scale" "the member reads the static field off the class object"
             }
 
             // No `extends` / `super(...)` is emitted, so an admitted `inherit` would run neither

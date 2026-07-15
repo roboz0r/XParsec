@@ -409,15 +409,21 @@ let tests =
                     expectClean "[<Struct>]\ntype S(x: int) =\n    static let k = 41\n    member _.X = x + k"
                 }
 
-            // A `static let mutable` binder IS the static field, so a write must store to it —
-            // but there is no `TExpr.StaticFieldSet`, so the write would elaborate to an
-            // assignment whose target is a `StaticFieldGet` and crash codegen. Reject the
-            // declaration instead.
+            // A `static let mutable` binder IS the static field, so a write stores to it
+            // (`TExpr.StaticFieldSet`, emitted `stsfld` / a class-object property assign).
             yield
-                test "a `static let mutable` is rejected" {
+                test "a write to a `static let mutable` is accepted" {
+                    expectClean "type C() =\n    static let mutable n = 0\n    member _.Bump () = n <- n + 1"
+                }
+
+            // …but a write to a NON-mutable `static let` is still an immutable-binding error —
+            // the mutability gate reads `IsMutable` faithfully off the binder, so only the
+            // `mutable` form is writable.
+            yield
+                test "a write to a non-mutable `static let` is rejected" {
                     expectError
-                        "`static let mutable` is not yet supported"
-                        "type C() =\n    static let mutable n = 0\n    member _.Bump () = n <- n + 1"
+                        "assignment to immutable binding"
+                        "type C() =\n    static let n = 0\n    member _.Bump () = n <- n + 1"
                 }
 
             // The object is NOT nameable from the preamble: F# only exposes it through an

@@ -337,6 +337,18 @@ module EmitMember =
             | ValueNone -> b.Add(ILInstr.Ldsfld(resolveStaticField env declKey name))
         | _ -> failwith "EmitMember.buildStaticFieldGet: unreachable"
 
+    let buildStaticFieldSet (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
+        match e with
+        | TExprG.StaticFieldSet(declKey, name, value, _, _) ->
+            // `x <- v` on a `static let mutable` backing field — the store analogue of
+            // `buildStaticFieldGet`'s `ldsfld`. `stsfld` consumes the value push and
+            // leaves nothing, but the write is *unit-typed*, so reify a unit value for
+            // the consumer, exactly as `buildFieldSet` does.
+            recur env b value
+            b.Add(ILInstr.Stsfld(resolveStaticField env declKey name))
+            EmitTypes.buildUnitValue env b
+        | _ -> failwith "EmitMember.buildStaticFieldSet: unreachable"
+
     let buildStaticMethodCall (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
         | TExprG.StaticMethodCall(key, args, ty, _) ->

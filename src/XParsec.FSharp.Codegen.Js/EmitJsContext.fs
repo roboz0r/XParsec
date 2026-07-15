@@ -325,6 +325,16 @@ module EmitJsContext =
             let local = JsImports.addTypeRef ctx.Imports asm enumName
             JsExpr.Member(JsExpr.Identifier(local, loc), JsExpr.Identifier(caseName, ValueNone), false, loc)
 
+    /// A class `static let` backing field → a property on the emitted class object
+    /// (`ClassName.field`). Shared by the `StaticFieldGet` read and the `StaticFieldSet`
+    /// write so both name the identical slot; the static preamble initialises it at module
+    /// load. `declKey` is the declaring class's nominal `SymbolKey`, keying `ctx.Classes`.
+    let staticFieldRef (ctx: WalkCtx) (declKey: SymbolKey) (fieldName: string) (loc: JsLoc voption) : JsExpr =
+        match ctx.Classes.TryGetValue declKey with
+        | true, className ->
+            JsExpr.Member(JsExpr.Identifier(className, loc), JsExpr.Identifier(fieldName, ValueNone), false, loc)
+        | _ -> failwithf "EmitJs: static field '%s' resolves to no emitted class ('%A')" fieldName declKey
+
     /// The import reference for an external VALUE: its home and the FORM its home module
     /// exports it under, BOTH read off the one `ExternalSymbol` the provider resolved for
     /// the key — the shape is the `key -> home` oracle (`Home`), and the same seam carries

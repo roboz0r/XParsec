@@ -1472,6 +1472,37 @@ module FrozenType =
             f c1.WhenFalse c2.WhenFalse
         | _ -> ()
 
+/// SemType-level active patterns that read naturally in `match` arms, auto-opened
+/// with the rest of `SemanticInfo`.
+[<AutoOpen>]
+module SemTypePatterns =
+
+    /// A NOMINAL registry type that carries type arguments and can hold instance
+    /// members — class, union, OR record. NOT `TyEnum` (niladic, no `args`) and NOT
+    /// `TyConst` (an intrinsic head, not a member-bearing registry type). Yields the
+    /// declaring `TypeKey` and the receiver's type arguments.
+    ///
+    /// This is the single unification vehicle for kind-blind instance-member
+    /// dispatch: a `match` arm on `TyNominal(key, args)` treats the three kinds
+    /// identically (the declaring-key lookup, the member-key registry read, the
+    /// `MethodCall`/`PropertyGet` lowering), and every such site is greppable. The
+    /// three cases stay DISTINCT in the representation — this pattern is the only
+    /// sanctioned way to say "these three, identically", and it keeps the arms
+    /// source-compatible with a future real `TyNominal` DU case (only construction
+    /// sites would change). A site where a kind adds behaviour ON TOP of member
+    /// dispatch — a record's field-by-name access, or a construction / tag / field
+    /// site where the kind genuinely forks — keeps its explicit
+    /// `TyRecord`/`TyUnion`/`TyClass` arm, ordered BEFORE this one so the
+    /// kind-specific behaviour wins. Does NOT zonk — match on an already-resolved
+    /// type (`Unification.zonk` first where the receiver may be a link).
+    [<return: Struct>]
+    let (|TyNominal|_|) (ty: SemType) : struct (TypeKey * EqArray<SemType>) voption =
+        match ty with
+        | TyClass(key, args)
+        | TyUnion(key, args)
+        | TyRecord(key, args) -> ValueSome(struct (key, args))
+        | _ -> ValueNone
+
 /// `SemType` sibling of the `FrozenType` child-walk module above — the same
 /// one-level skeletons, PURELY structural: no `resolveStep`/`zonk` here (a walk
 /// dispatches on its own resolved view first, then delegates the child-carrying

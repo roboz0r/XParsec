@@ -329,6 +329,12 @@ module Regions =
             let vR = inferRegion s ctx v
             s.Graph.AddEdge(vR, recvR)
             RegionId.Unknown
+        | TExpr.StaticFieldSet(_, _, v, _, _) ->
+            // The slot is a static field — an `Unknown`-region global, exactly like
+            // `StaticFieldGet`. Walk the stored value so its capture edges register;
+            // the edge into an `Unknown` sink short-circuits, so no cell to bound.
+            inferRegion s ctx v |> ignore
+            RegionId.Unknown
         // `:>` / `:?>` are static-type adjustments over the same runtime value —
         // non-allocating, so the result rides the source's region. `:?` produces
         // a bool (Unknown), but walking the source registers any inner captures.

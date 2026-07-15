@@ -573,6 +573,39 @@ let staticTests =
                 Expect.equal (m.Invoke(instance, [||]) :?> int) 7 "instance Get() reads the static-let field k = 7"
             }
 
+            // A `static let mutable` binder IS the static field, so a write (`n <- e`)
+            // stores to it — `TExpr.StaticFieldSet`, emitted `stsfld` (0x80), the store
+            // analogue of the `ldsfld` (0x7E) a read emits. Assert both opcodes on the
+            // emitted method IL directly (not just the reflected result), then confirm the
+            // shared cell accumulates across two writes.
+            test "a write to a `static let mutable` emits `stsfld` (accumulates to 7)" {
+                let _, artifact =
+                    compileSource
+                        "ClsStaticLetMutable"
+                        (String.concat
+                            "\n"
+                            [
+                                "type C() ="
+                                "    static let mutable n = 0"
+                                "    static member Bump (k: int) = n <- n + k"
+                                "    static member N = n"
+                                "let c = C()"
+                            ])
+
+                let bytes = Codegen.toBytes artifact
+                let bumpIl = peMethodIl bytes "C" "Bump"
+                Expect.isTrue (Array.contains 0x80uy bumpIl) "the write to `static let mutable` emits `stsfld` (0x80)"
+                Expect.isTrue (Array.contains 0x7Euy bumpIl) "the read of `n` in `n + k` emits `ldsfld` (0x7E)"
+
+                let asm = loadAssembly bytes
+                let ty = asm.GetType "C"
+                let bump = ty.GetMethod("Bump", declaredStatic, null, [| typeof<int> |], null)
+                let getN = ty.GetMethod("get_N", declaredStatic, null, [||], null)
+                bump.Invoke(null, [| box 3 |]) |> ignore
+                bump.Invoke(null, [| box 4 |]) |> ignore
+                Expect.equal (getN.Invoke(null, [||]) :?> int) 7 "the shared static cell accumulates both writes"
+            }
+
             // `static let` on a *generic* class. The field lives on the open generic
             // `TypeDefinition` (one instance per closed instantiation, `.cctor`-
             // initialised); its `.cctor` store and the member-body read both mint a

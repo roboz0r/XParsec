@@ -349,6 +349,14 @@ type TExprG<'ty, 'tok> =
     /// field is a field, resolved through the class's `StaticFields`, and
     /// `MemberKind` has no `Field` case).
     | StaticFieldGet of declKey: SymbolKey * fieldName: string * ty: 'ty * tok: 'tok
+    /// Store to a class-level `static let mutable` backing field. Lowered from a write
+    /// (`x <- e`) to a `static let mutable`-bound name in a member body — Elaborate
+    /// rewrites the resolved `Assignment(Var …)` exactly as an instance `let mutable`
+    /// write becomes a `FieldSet`. Codegen emits `stsfld` against the class's private
+    /// static field (the store analogue of `StaticFieldGet`'s `ldsfld`). `declKey` and
+    /// `fieldName` carry the same field identity as `StaticFieldGet`. `ty` is the field's
+    /// type; the store's own result type is unit.
+    | StaticFieldSet of declKey: SymbolKey * fieldName: string * value: TExprG<'ty, 'tok> * ty: 'ty * tok: 'tok
     /// Member access on an *external* type resolved through `IExternalSymbolProvider`
     /// `key` interns the resolved `SymbolKey` so
     /// codegen (P4) mints the ref off the node's identity instead of re-resolving by

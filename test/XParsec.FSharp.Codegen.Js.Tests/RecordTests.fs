@@ -115,4 +115,56 @@ let tests =
                     Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
                     Expect.equal out "5" "record built inside a curried function"
             }
+
+            // Instance-member dispatch on a record receiver: each augmentation member
+            // emits as a free receiver-first function (`<Type>__<member>`), and a
+            // `v.M()` / `v.Prop` call site lowers to it — the same form union/class
+            // members take. A field read (`v.X`) still lowers to a plain member access.
+            let vecSrc =
+                "type Vec =\n"
+                + "    { X: int; Y: int }\n"
+                + "    member this.Sum () = this.X + this.Y\n"
+                + "    member this.AddN (n: int) = this.X + this.Y + n\n"
+                + "    member this.Doubled = this.X * 2\n"
+
+            test "record instance members emit as free receiver-first functions" {
+                let src = emitJs vecSrc
+                Expect.stringContains src "const Vec__Sum = (" "instance method, mangled name"
+                Expect.stringContains src "const Vec__AddN = (" "instance method with an arg"
+                Expect.stringContains src ") => (n) =>" "AddN curries the receiver then its argument"
+                Expect.stringContains src "const Vec__get_Doubled = (" "instance property getter, mangled name"
+            }
+
+            test "a record instance method call executes receiver-first (Sum = 7)" {
+                match
+                    runJs "record-member-method" (vecSrc + "\nlet v = { X = 3; Y = 4 }\nprintfn \"%d\" (v.Sum())")
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "7" "Vec__Sum(this$) = X+Y"
+            }
+
+            test "a record instance method passes its argument (AddN 10 = 17)" {
+                match runJs "record-member-arg" (vecSrc + "\nlet v = { X = 3; Y = 4 }\nprintfn \"%d\" (v.AddN 10)") with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "17" "Vec__AddN(this$)(n) = X+Y+n"
+            }
+
+            // Resolved-identity pin: `Doubled` (6) is not a field, and differs from
+            // every field value (3, 4); a field read (`v.X` = 3) must still work.
+            test "a record instance property resolves to the member, a field to the field (6 then 3)" {
+                match
+                    runJs
+                        "record-member-prop"
+                        (vecSrc
+                         + "\nlet v = { X = 3; Y = 4 }\nprintfn \"%d\" v.Doubled\nprintfn \"%d\" v.X")
+                with
+                | None -> skiptest "node not found on PATH"
+                | Some(code, out) ->
+                    Expect.equal code 0 (sprintf "node exits 0 (%s)" out)
+                    Expect.equal out "6\n3" "Vec__get_Doubled reads X*2 (=6); v.X is a plain field read (=3)"
+            }
         ]

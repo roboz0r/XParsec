@@ -466,6 +466,13 @@ type private Renderer() =
             push "."
             push name
 
+        | TExpr.StaticFieldSet(declKey, name, value, _, _) ->
+            push (shownName declKey)
+            push "."
+            push name
+            push " <- "
+            this.Expr value
+
         | TExpr.Format(sink, segments, _, _) ->
             let sinkStr =
                 match sink with

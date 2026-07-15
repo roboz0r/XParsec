@@ -178,6 +178,12 @@ module EmitTypes =
             /// at use sites (box on `:>`, `unbox.any` on `:?>`), like the class flag.
             IsValueType: bool
             Ctor: EntityHandle
+            /// Augmentation members keyed by source name — same shape and role as
+            /// `EmittedUnion.Members` / `EmittedClass.Members`, so `resolveInstanceMember`
+            /// resolves a `r.Member` access on a record receiver on the same path. A
+            /// name maps to a *list* of overloads (declaration order), disambiguated by
+            /// argument types at the call site (`EmitResolve.pickOverload`).
+            Members: Dictionary<string, EmittedMember list>
         }
 
     /// A class emitted into this assembly. Same `Members` shape as

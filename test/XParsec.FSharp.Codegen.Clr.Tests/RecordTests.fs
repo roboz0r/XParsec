@@ -617,3 +617,99 @@ let interfaceImplTests =
                     (sprintf "the diagnostic names the capability collision (%A)" errors)
             }
         ]
+
+// Direct instance-member dispatch on a record RECEIVER (`v.Method()` / `v.Property`),
+// distinct from the `(r :> IFace).M()` interface-coercion path above. A record's
+// augmentation members resolve on the same nominal-member path as a class or union;
+// before this these lowered to a `FieldGet` and crashed in codegen.
+[<Tests>]
+let instanceMemberTests =
+    testList
+        "RecordInstanceMember"
+        [
+            test "a record instance method call resolves to the member (prints 7)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Vec ="
+                            "    { X: int; Y: int }"
+                            "    member this.Sum () = this.X + this.Y"
+                            "let v = { X = 3; Y = 4 }"
+                            "printfn \"%d\" (v.Sum())"
+                        ]
+
+                let tast, artifact = compileSource "RecInstMethod" src
+                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Trim()) "7" "v.Sum() computes X+Y (=7) — the member body, not a field read"
+            }
+
+            test "a record instance method with an argument resolves + passes the arg (prints 17)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Vec ="
+                            "    { X: int; Y: int }"
+                            "    member this.AddN (n: int) = this.X + this.Y + n"
+                            "let v = { X = 3; Y = 4 }"
+                            "printfn \"%d\" (v.AddN 10)"
+                        ]
+
+                let tast, artifact = compileSource "RecInstMethodArg" src
+                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Trim()) "17" "v.AddN 10 computes X+Y+n (=17)"
+            }
+
+            // Resolved-identity pin: the property NAME (`Doubled`) is NOT a field, and
+            // its value (X*2 = 6) differs from every field value (3, 4) — so a stray
+            // `FieldGet` could not accidentally produce the right answer.
+            test "a record instance property resolves to the member, not a field (prints 6)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Vec ="
+                            "    { X: int; Y: int }"
+                            "    member this.Doubled = this.X * 2"
+                            "let v = { X = 3; Y = 4 }"
+                            "printfn \"%d\" v.Doubled"
+                        ]
+
+                let tast, artifact = compileSource "RecInstProperty" src
+                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Trim()) "6" "v.Doubled reads the member (X*2=6), not a field"
+            }
+
+            // A field read and a member read on the SAME record must both work: the
+            // field-vs-member decision is made per access, not per type.
+            test "a field read and a member read coexist on one record (prints 3 then 6)" {
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Vec ="
+                            "    { X: int; Y: int }"
+                            "    member this.Doubled = this.X * 2"
+                            "let v = { X = 3; Y = 4 }"
+                            "printfn \"%d\" v.X"
+                            "printfn \"%d\" v.Doubled"
+                        ]
+
+                let tast, artifact = compileSource "RecFieldAndMember" src
+                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+
+                Expect.equal
+                    (output.Trim().Replace("\r", ""))
+                    "3\n6"
+                    "v.X is a field read (3); v.Doubled is a member (6)"
+            }
+        ]

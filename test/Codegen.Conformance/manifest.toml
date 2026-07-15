@@ -204,13 +204,16 @@ width = "decimal"
 # make the AGREEMENT a tested property — they carry no `width` and so contribute nothing to
 # the arithmetic matrix.
 #
-# Two preamble features are on NEITHER backend's `run` list, by design, and so have no
-# program here: `inherit` (a base-ctor call before the preamble) and `static let` / `static
-# do` — the JS backend has no `.cctor` analogue and no secondary ctors, and REJECTS both
-# rather than dropping them. A `run = ["clr", "js"]` program for either could not pass; a
-# `run = ["clr"]` one would be a per-backend test wearing the corpus's clothes, which is
-# what this file exists to stop. Their JS rejection is pinned in the JS suite, and their CLR
-# behaviour in the CLR suite.
+# `inherit` (a base-ctor call before the preamble) is on NEITHER backend's `run` list, by
+# design, and so has no program here: the JS backend has no `extends`/`super(…)` and REJECTS
+# it rather than dropping it. A `run = ["clr", "js"]` program for it could not pass; a
+# `run = ["clr"]` one would be a per-backend test wearing the corpus's clothes, which is what
+# this file exists to stop. Its JS rejection is pinned in the JS suite, its CLR behaviour in
+# the CLR suite.
+#
+# A `static let mutable` (below) DOES run on both: the CLR stores to a private static field
+# (`stsfld`), JS assigns a property on the emitted class object, and the shared-cell
+# accumulation must agree — exactly the divergence a conformance case exists to catch.
 
 [[program]]
 path = "classes/preamble-let.fs"
@@ -236,6 +239,10 @@ run = ["clr", "js"]
 path = "classes/preamble-fn-value.fs"
 run = ["clr", "js"]
 
+[[program]]
+path = "classes/static-mutable.fs"
+run = ["clr", "js"]
+
 # ---------------------------------------------------------------------------------------
 # RECORDS — a [<Struct>] record. The CLR emits it as a System.ValueType-based value type;
 # JS has no value types and emits it as an ordinary reference object. The observable
@@ -244,4 +251,8 @@ run = ["clr", "js"]
 # could not catch a divergence in either the CLR value-type IL or the JS reference form.
 [[program]]
 path = "records/struct-record.fs"
+run = ["clr", "js"]
+
+[[program]]
+path = "records/record-members.fs"
 run = ["clr", "js"]
