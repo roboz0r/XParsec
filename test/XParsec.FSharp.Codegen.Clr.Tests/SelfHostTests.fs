@@ -30,7 +30,7 @@ let tests =
     testList
         "SelfHost"
         [
-            // ---- Vesper.Core: the Fun`2 interface + Ref`1 cell (Rung1) --------
+            // ---- Vesper.Core: the Fun`2 interface + Ref`1 cell --------
             test "compiles prim-types-min.fs to a Vesper.Core.dll with the Fun`2 interface and no FSharp.Core" {
                 let src = File.ReadAllText(vesperCoreSource "prim-types-min.fs")
                 let project = ProjectInfo.library "Vesper.Core"

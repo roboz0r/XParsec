@@ -96,12 +96,9 @@ let tests =
                             "GetHashCode's declaring type is homed in the defining assembly"
 
                         Expect.equal
-                            (SymbolKeyOps.typeNs decl)
-                            "System.Collections.Generic"
-                            "GetHashCode decl namespace"
-
-                        Expect.equal decl.Name "EqualityComparer" "GetHashCode decl type name (plain — no `` `N ``)"
-                        Expect.equal decl.TyparArity 1 "GetHashCode decl type arity"
+                            decl
+                            (SymbolKeyOps.typeKeyOfArity "System.Collections.Generic" "EqualityComparer" 1)
+                            "GetHashCode declaring type"
 
                         Expect.equal
                             (SymbolKeyOps.typeSegmentName decl)
@@ -138,12 +135,10 @@ let tests =
                                                Kind = MemberKind.Property
                                            } ->
                             Expect.equal
-                                (SymbolKeyOps.typeNs decl)
-                                "System.Collections.Generic"
-                                "Default decl namespace"
+                                decl
+                                (SymbolKeyOps.typeKeyOfArity "System.Collections.Generic" "EqualityComparer" 1)
+                                "Default declaring type"
 
-                            Expect.equal decl.Name "EqualityComparer" "Default decl type name"
-                            Expect.equal decl.TyparArity 1 "Default decl type arity"
                             Expect.isTrue argSig.IsEmpty "Default is a property: empty argSig"
                         | other -> failtestf "unexpected Default key %A" other
                     | other -> failtestf "expected a static `Default` ExternalMember receiver, got %A" other
@@ -240,12 +235,9 @@ let tests =
                             "GetHashCode's declaring type is homed in the defining assembly"
 
                         Expect.equal
-                            (SymbolKeyOps.typeNs decl)
-                            "System.Collections.Generic"
-                            "GetHashCode decl namespace"
-
-                        Expect.equal decl.Name "EqualityComparer" "GetHashCode decl type name (plain — no `` `N ``)"
-                        Expect.equal decl.TyparArity 1 "GetHashCode decl type arity"
+                            decl
+                            (SymbolKeyOps.typeKeyOfArity "System.Collections.Generic" "EqualityComparer" 1)
+                            "GetHashCode declaring type"
 
                         Expect.equal
                             (SymbolKeyOps.typeSegmentName decl)
@@ -462,8 +454,7 @@ let tests =
                             (declAssembly provider decl)
                             "Out's declaring type is homed in the defining assembly"
 
-                        Expect.equal (SymbolKeyOps.typeNs decl) "System" "Out decl namespace"
-                        Expect.equal decl.Name "Console" "Out decl type name (non-generic, no arity suffix)"
+                        Expect.equal decl (SymbolKeyOps.typeKeyOfArity "System" "Console" 0) "Out declaring type"
                         Expect.isTrue argSig.IsEmpty "Out is a property: empty argSig"
                     | other -> failtestf "unexpected Out key %A" other
                 | other -> failtestf "expected a static `Out` ExternalMember, got %A" other

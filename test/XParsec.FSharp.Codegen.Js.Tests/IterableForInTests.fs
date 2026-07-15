@@ -7,7 +7,7 @@ open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 open XParsec.FSharp.Codegen.Js.Tests.SchemaDsl
 
-// Wall 4 step 1 — a TS `[Symbol.iterator]()` type is homed as `seq<'T>` by the provider,
+// A TS `[Symbol.iterator]()` type is homed as `seq<'T>` by the provider,
 // so `for x in src` lowers to a native JS `for..of` with ZERO front-end/emit change.
 //
 // The provider (backend-owned) reads the faithful `__@iterator@N` member the extractor
@@ -63,7 +63,7 @@ let private setProvider: IExternalSymbolProvider = stackTs setManifest
 let private mapProvider: IExternalSymbolProvider = stackTs es2015Manifest
 
 // A function-local mutable accumulates the iteration (module-level `let mutable` is a
-// separate emit gap — it lowers to `const`; the loop capture is Wall 5). `sum` is a
+// separate emit gap — it lowers to `const`; the loop capture is deferred separately). `sum` is a
 // top-level `let` so library-mode emit exports it and the harness reads it back.
 let private program =
     String.concat

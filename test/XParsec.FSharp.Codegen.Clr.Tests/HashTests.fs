@@ -9,7 +9,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 // `hash` — the third equality-family member (C-Eq1) — now sourced from
 // `src/Vesper.Core/ops-platform.fs`, not the
-// `Emit.isHash` codegen stopgap (milestone M).
+// `Emit.isHash` codegen stopgap.
 //
 // `let inline hash (obj: 'T) = EqualityComparer<'T>.Default.GetHashCode obj` is
 // loaded as a cross-package inline body (`ClrSymbolProviders.inlineBodies`) and

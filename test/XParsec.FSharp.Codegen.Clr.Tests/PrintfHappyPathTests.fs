@@ -133,7 +133,7 @@ let tests =
         "PrintfHappyPath"
         [
             // A literal-only `printfn` (no holes) lowers to a Format node carrying a
-            // single `Lit` segment — the simplest happy-path shape (former Slice1).
+            // single `Lit` segment — the simplest happy-path shape.
             test "`printfn \"hi\"` lowers to a single-literal Format node and prints \"hi\"" {
                 match soleDecl "printfn \"hi\"" with
                 | TDecl.Expression(TExpr.Format(sink, segs, _, _), _) ->

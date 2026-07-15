@@ -4,7 +4,7 @@ open Expecto
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
-// W9 Stage 1b-elab — the front end now ELABORATES an inline intrinsic-abbrev
+// The front end now ELABORATES an inline intrinsic-abbrev
 // augmentation `type X = (# "repr" #) with member _.M p = (# … #)` into a
 // harvestable `TDecl.Type(Class)` carrying `this`-first member bodies, while KEEPING
 // the abbrev's `TyConst` identity (it stays intrinsic at every other use site).

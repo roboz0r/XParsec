@@ -1,6 +1,7 @@
 module XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
 open System.IO
+open Expecto
 open XParsec.FSharp.Lexer
 open XParsec.FSharp.Lexer.Lexing
 open XParsec.FSharp.Parser
@@ -186,3 +187,21 @@ let typeOf (ctx: PassContext) (key: NodeKey) : SemType =
     match ctx.Bindings.TypeVar.TryGetValue key with
     | ValueSome tv -> Passes.Unification.zonk (TyVar tv)
     | ValueNone -> failwithf "no TypeVar entry for %O" key
+
+/// The registered record / union / class named `name`, resolved from the whole-unit
+/// view (`UseSite.unbounded`), or a test failure. Collapse the `match TypeRegistry.try*
+/// … | ValueNone -> failtest` shape the registry-assertion sites otherwise repeat.
+let expectRecord (ctx: PassContext) (name: string) =
+    match TypeRegistry.tryRecord ctx.Types UseSite.unbounded name with
+    | ValueSome info -> info
+    | ValueNone -> failtestf "record type %s not registered" name
+
+let expectUnion (ctx: PassContext) (name: string) =
+    match TypeRegistry.tryUnionBare ctx.Types UseSite.unbounded name with
+    | ValueSome info -> info
+    | ValueNone -> failtestf "union type %s not registered" name
+
+let expectClass (ctx: PassContext) (name: string) =
+    match TypeRegistry.tryClass ctx.Types UseSite.unbounded name with
+    | ValueSome info -> info
+    | ValueNone -> failtestf "class type %s not registered" name

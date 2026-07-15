@@ -8,7 +8,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // row is one `runs` assertion named by its source — the table *is* the coverage
 // map for "which literal forms reach IL and print their value". A break in
 // literal lowering (int boxing, char/byte conv, decimal const decoding) shows
-// up here as a punctual red row rather than buried in a milestone test.
+// up here as a punctual red row rather than buried in a broader test.
 
 [<Tests>]
 let tests =

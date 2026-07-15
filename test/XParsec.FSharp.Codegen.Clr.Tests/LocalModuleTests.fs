@@ -39,8 +39,8 @@ let tests =
     testList
         "LocalModule"
         [
-            // ---- G15: qualified sibling-module resolution ---------------------
-            test "G15: a module body calls a sibling module's let-bound function (A.f)" {
+            // ---- qualified sibling-module resolution ---------------------
+            test "a module body calls a sibling module's let-bound function (A.f)" {
                 runsLines
                     [ "11" ]
                     (String.concat
@@ -54,7 +54,7 @@ let tests =
                         ])
             }
 
-            test "G15: a class member body calls a local module's function (mirrors Set→SetTree)" {
+            test "a class member body calls a local module's function (mirrors Set→SetTree)" {
                 runsLines
                     [ "7" ]
                     (String.concat
@@ -71,8 +71,8 @@ let tests =
                         ])
             }
 
-            // ---- G16: unqualified enclosing-module reference from a nested type
-            test "G16: a struct nested in a module calls a let-bound module sibling unqualified" {
+            // ---- unqualified enclosing-module reference from a nested type
+            test "a struct nested in a module calls a let-bound module sibling unqualified" {
                 runsLines
                     [ "42" ]
                     (String.concat
@@ -93,7 +93,7 @@ let tests =
             // ctor field-init block* calls a module sibling (`stack = collapseLHS
             // [s]`). The member-body scope alone isn't enough — the ctor scope must
             // also see the enclosing module's bindings.
-            test "G16: a nested struct's secondary-ctor field-init calls a module sibling (SetIterator shape)" {
+            test "a nested struct's secondary-ctor field-init calls a module sibling (SetIterator shape)" {
                 runsLines
                     [ "10" ]
                     (String.concat

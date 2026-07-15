@@ -479,7 +479,7 @@ let compileSourceTo (project: ProjectInfo) (input: string) : ClrArtifact =
 let compileSourceWith (manifestPaths: string list) (assemblyName: string) (input: string) : TastFile * ClrArtifact =
     compileContract manifestPaths (ProjectInfo.defaults assemblyName) input
 
-/// Contract-backed compile against the real `Vesper.Core` manifest (milestone M).
+/// Contract-backed compile against the real `Vesper.Core` manifest.
 let compileSourceContract (assemblyName: string) (input: string) : TastFile * ClrArtifact =
     compileContract [ vesperCoreManifest ] (ProjectInfo.defaults assemblyName) input
 

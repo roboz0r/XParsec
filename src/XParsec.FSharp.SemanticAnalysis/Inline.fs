@@ -5,8 +5,7 @@ open XParsec.FSharp.Parser
 
 // `let inline` expansion helper. The pre-freeze `Passes.InlineExpansion` pass
 // invokes it once per call site, between `Elaborate.elaborate` and the
-// `freezeTypars` cut, where `zonk` / union-find are still native. It lived
-// codegen-side until beat (b) relocated the expander; it stays in
+// `freezeTypars` cut, where `zonk` / union-find are still native. It stays in
 // this module (rather than the pass) because `openMethodSignature` below shares it
 // and `Codegen` no longer references the inline machinery at all.
 //

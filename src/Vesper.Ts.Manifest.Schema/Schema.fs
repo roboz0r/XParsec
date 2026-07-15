@@ -75,7 +75,7 @@ type TypeRef =
     | Conditional of check: TypeRef * extends: TypeRef * whenTrue: TypeRef * whenFalse: TypeRef
     /// TS `any` → the opaque `dynamic` JS intrinsic front-end side (`FTConst "dynamic"`).
     | Dynamic
-    /// Structural object type, content-hashed (deferred milestone). `index` carries the
+    /// Structural object type, content-hashed. `index` carries the
     /// TS index signatures `{ [k: K]: V }` the object bears (an instantiated `Record<K,V>`,
     /// or an anonymous `{ [k: string]: T }`) as a list of `(key, value)` pairs — a DISTINCT
     /// facet, NOT a reserved `get_Item` field (which would collide with a real BCL member

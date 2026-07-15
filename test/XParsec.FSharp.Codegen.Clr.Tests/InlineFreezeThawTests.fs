@@ -1,4 +1,4 @@
-module XParsec.FSharp.Codegen.Clr.Tests.InlineFreezeThawSpikeTests
+module XParsec.FSharp.Codegen.Clr.Tests.InlineFreezeThawTests
 
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
@@ -175,7 +175,7 @@ let private asSymbolScheme (ft: FrozenType) : FrozenType =
     FrozenTypeBridge.instantiateWith
         (fun i -> TyTypar(TyparAxis.Declaring, i))
         (fun j -> TyTypar(TyparAxis.Declaring, j))
-        (FrozenTypeBridge.localTyparInTemplate "InlineFreezeThawSpikeTests.asSymbolScheme")
+        (FrozenTypeBridge.localTyparInTemplate "InlineFreezeThawTests.asSymbolScheme")
         ft
     |> toFrozen
 

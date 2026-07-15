@@ -6,9 +6,9 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Clr
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// List literals: the cons-chain construction (`Slice4` anchor for the TAST
-// shape) and its runtime printing, plus a `[1; 2; 3]` over a program's *own*
-// declared `List<'T>` union (`Rung2` anchor). The list type retargets onto the
+// List literals: the cons-chain construction (the TAST shape anchor) and its
+// runtime printing, plus a `[1; 2; 3]` over a program's *own*
+// declared `List<'T>` union. The list type retargets onto the
 // Vesper cons-list; `%A` here is the FSharp.Core cold-path printer.
 
 let private lines xs = String.concat "\n" xs

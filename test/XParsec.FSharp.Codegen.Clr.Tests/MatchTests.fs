@@ -3,8 +3,8 @@ module XParsec.FSharp.Codegen.Clr.Tests.MatchTests
 open Expecto
 open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
-// Layer 1 behavioral corpus: `match`. Rung2Tests holds the deep anchors (TAST
-// shape, the emitted-union deconstruction); this is the broad net over the
+// Layer 1 behavioral corpus: `match`. The deep anchors (TAST shape, the
+// emitted-union deconstruction) live elsewhere; this is the broad net over the
 // pattern forms the backend lowers — literal arms, the wildcard default, a
 // named binder, `when` guards, and bool/char scrutinees. A DU + nested-DU row
 // (multi-line, needs a type decl) closes the loop on constructor patterns.
@@ -47,7 +47,7 @@ let tests =
                     // DU constructor patterns: nullary + a payload-binding case.
                     // Let-bound (not inline as the printfn arg): an inline DU-match
                     // in argument position currently trips a Elaborate translateApp
-                    // bug, whereas the let-bound form is the proven Rung2 shape.
+                    // bug, whereas the let-bound form is the proven working shape.
                     du
                     + "\nlet r = match Pair(3, 4) with | Dot -> 0 | Pair(a, b) -> a + b\nprintfn \"%d\" r",
                     "7"

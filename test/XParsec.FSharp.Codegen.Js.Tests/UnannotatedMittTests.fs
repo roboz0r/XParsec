@@ -9,7 +9,7 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // The mitt full-surface gate's residues, each pinned so a future regression is
 // visible:
 //   • the annotation-required POLICY for the generic factory (deliberately open).
-//   • undefined-vs-unit type identity — now CLOSED (Wall 1): a `unit`-typed event is
+//   • undefined-vs-unit type identity — now CLOSED: a `unit`-typed event is
 //     correctly rejected by no-payload `emit`, an `undefined`-typed one accepted.
 
 let private analyseErrors (input: string) : string list =
@@ -20,7 +20,7 @@ let tests =
     testList
         "UnannotatedMitt"
         [
-            // ── Wall 1: annotation-required policy ──
+            // ── annotation-required policy ──
             test "an ANNOTATED mitt() grounds Events and type-checks" {
                 let input = "let e : Emitter<int> = mitt()\n"
                 Expect.isEmpty (analyseErrors input) "an explicit Emitter<int> annotation grounds Events"
@@ -70,7 +70,7 @@ let tests =
             }
 
             test "a unit-typed event is REJECTED by no-payload emit (undefined≠unit now holds)" {
-                // GAP CLOSED (Wall 1): `unit` and `undefined` are now distinct type
+                // GAP CLOSED: `unit` and `undefined` are now distinct type
                 // identities, so `undefined extends Events[Key]` NO LONGER holds for a `unit`
                 // payload — the conditional folds to `never` and a no-payload `emit("tick")`
                 // on a `unit`-typed event correctly errors. (Only an `undefined`-typed event

@@ -47,7 +47,7 @@
     <Compile Include="LogicalOperatorTests.fs" />
     <Compile Include="StructuralEqualityTests.fs" />
     <Compile Include="StaticOptimizationTests.fs" />
-    <Compile Include="InlineFreezeThawSpikeTests.fs" />
+    <Compile Include="InlineFreezeThawTests.fs" />
     <Compile Include="HashTests.fs" />
     <Compile Include="IlIrTests.fs" />
     <Compile Include="MetadataSymbolsTests.fs" />

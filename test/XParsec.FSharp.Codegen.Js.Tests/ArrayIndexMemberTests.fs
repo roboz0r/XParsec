@@ -5,7 +5,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// W9 Stage 2a — the array `arr.[i]` READ migrated onto a `get_Item` MEMBER accessor
+// The array `arr.[i]` READ migrated onto a `get_Item` MEMBER accessor
 // on `'T[]` (the landed `IntrinsicAbbrevHost` member-inline mechanism), replacing the
 // free `GetArray` inline as the RESOLUTION target on the JS target.
 //

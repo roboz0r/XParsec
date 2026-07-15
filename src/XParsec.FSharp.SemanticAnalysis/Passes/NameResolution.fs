@@ -68,13 +68,13 @@ module NameResolution =
             /// Unification's `fillBaseCtorCall` sees its idents bound. `ValueNone`
             /// for unions and classes without an `inherit` clause.
             InheritsExpr: Expr<SyntaxToken> voption
-            /// G16: the enclosing module's `let` value/function bindings that are VISIBLE
+            /// The enclosing module's `let` value/function bindings that are VISIBLE
             /// from this type's declaration, present when the type is declared inside a
             /// `module Foo = …`. Entered as the lowest-priority layer of
             /// every member-body scope so a nested type's method can reference a
             /// module sibling unqualified (`collapseLHS`, `notStarted` in
             /// `SetIterator`). Empty for a top-level type, and for a module whose `let`s all
-            /// sit below the type. Built from the same `LocalModules` registry G15's
+            /// sit below the type. Built from the same `LocalModules` registry that
             /// *qualified* resolution reads, and scoped by the same offsets.
             EnclosingModuleScope: Scope
             Elements: TypeDefnElements<SyntaxToken>
@@ -193,7 +193,7 @@ module NameResolution =
         for f in w.InstanceFields do
             declareField f.Name f.DeclKey
 
-        // G16: the enclosing module's value bindings are visible — unqualified — to
+        // The enclosing module's value bindings are visible — unqualified — to
         // every member body of a type nested in that module (F# spec §8.7). They
         // enter as the *lowest-priority* tail layer so `this` / ctor params /
         // preamble binders shadow on a name clash. Already scoped to the type's position by
@@ -417,7 +417,7 @@ module NameResolution =
                     walkMemberDefn md
             | _ -> ()
 
-    /// G16: the member bindings of the module a local type is declared inside that are
+    /// The member bindings of the module a local type is declared inside that are
     /// VISIBLE from the type — looked up via the `TypeEnclosingModule` → `LocalModules`
     /// registries the pre-pass populated. Empty for a top-level type.
     ///
@@ -698,13 +698,13 @@ module NameResolution =
     /// `TypeEnclosingModule`. `$` is not a legal F# identifier character, so this
     /// never collides with a real `module Foo = …` short name. It lets a top-level
     /// type's member body resolve a top-level `let` sibling unqualified — the same
-    /// G16 mechanism a *named*-module-nested type gets, extended to the anonymous
+    /// mechanism a *named*-module-nested type gets, extended to the anonymous
     /// /file module (a top-level `RuntimeFormatState`-style sink calling top-level
     /// `flatWidth` / `render`). Only the *unqualified* path uses it; no qualified
-    /// reference ever names this segment, so G15 is unaffected.
+    /// reference ever names this segment, so qualified resolution is unaffected.
     let private topLevelModuleSentinel = "$top"
 
-    /// G15/G16 pre-pass. Walk the *un-flattened* module tree and, for every
+    /// Local-module pre-pass. Walk the *un-flattened* module tree and, for every
     /// `module Foo = …` (and the implicit top-level module, keyed by
     /// `topLevelModuleSentinel`), record (a) its directly-`let`-bound
     /// values/functions into `LocalModules` (member name → binding-site `NodeKey`)
@@ -775,7 +775,8 @@ module NameResolution =
 
         // The implicit top-level module is entered under the sentinel name (not
         // `ValueNone`), so its direct `let`s register as resolvable siblings for a
-        // top-level type's member bodies (G16, extended to the file module).
+        // top-level type's member bodies (the same unqualified-sibling mechanism,
+        // extended to the file module).
         let top = ValueSome topLevelModuleSentinel
 
         match file with
@@ -790,7 +791,7 @@ module NameResolution =
                 | NamespaceDeclGroup.Global(elements = elems) -> walk top ValueNone elems
 
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
-        // G15/G16: capture local-module structure before the flattened walk erases it.
+        // Capture local-module structure before the flattened walk erases it.
         registerLocalModules ctx file
         let walker = mkWalker ctx
         // Seed the walk from the stable ambient prelude. walkElems overwrites

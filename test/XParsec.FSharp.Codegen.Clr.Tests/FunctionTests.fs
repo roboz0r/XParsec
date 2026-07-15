@@ -12,8 +12,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // method calling another, `inline`, and a higher-order function taking a lambda.
 // The table is the broad behavioral net; the anchors beneath it pin the emission
 // strategy (top-level fn → static method, capturing fn → closure), the
-// `inline`-expansion NodeKey freshening, and the nested-module holder shape that
-// the former `Slice3`/`Rung2` milestone files proved.
+// `inline`-expansion NodeKey freshening, and the nested-module holder shape.
 
 /// Every emitted `fn$…` static method (the mangled top-level-function form).
 let private staticFnMethods (bytes: byte[]) : MethodInfo[] =
@@ -61,7 +60,7 @@ let tests =
                     "let apply f x = f x\nprintfn \"%d\" (apply (fun n -> n + 1) 41)", "42"
                 ] -> test src { runs expected src }
 
-            // ---- inline expansion (former Slice3 anchors) --------------------
+            // ---- inline expansion --------------------
             yield
                 test "an inline binding keeps its template and expands its use site pre-freeze" {
                     // the `let inline succ` template (decl 0)
@@ -101,7 +100,7 @@ let tests =
                     runs "42" "let inline succ x = x + 1\nprintfn \"%d\" (succ (succ 40))"
                 }
 
-            // ---- emission strategy: static method vs closure (former Rung2) ---
+            // ---- emission strategy: static method vs closure ---
             yield
                 test "a top-level function is emitted as a static method with one real Param row (G8)" {
                     let _, artifact =

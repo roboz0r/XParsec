@@ -326,13 +326,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     /// its hard error.
     let emitExternalCall (declModule: ModuleKey) (name: string) (fnTy: FrozenType) : CallRecipe voption =
         let compiledFullName =
-            SymbolKeyOps.qualifiedName (
-                SymbolKey.Binding
-                    {
-                        Decl = ModuleHolder.InModule declModule
-                        Name = name
-                    }
-            )
+            SymbolKeyOps.qualifiedName (SymbolKeyOps.valueKey (ModuleHolder.InModule declModule) name)
 
         match symbols.TryLookupOpenSignature compiledFullName with
         | ValueNone -> ValueNone

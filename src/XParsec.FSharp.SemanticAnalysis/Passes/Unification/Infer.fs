@@ -351,9 +351,9 @@ module UnificationInfer =
         // generic member's signature annotation (`(x: 'T)`, `: Set<'T>`) resolves
         // them rather than diagnosing "Free type parameter 'T" under strict scope.
         // The binding's own `<'a>` typars seed below, shadowing on a name clash.
-        // `EnclosingTypars` carries the class typars (G11) and, for a generic
+        // `EnclosingTypars` carries the class typars and, for a generic
         // member's body walk, the member's own explicit `<'C>` + implicit signature
-        // typars (G12) — so both the signature annotation here and any nested `let`
+        // typars — so both the signature annotation here and any nested `let`
         // in the body resolve them rather than diagnosing them free under strict
         // member scope.
         match ctx.Resolution.EnclosingTypars with

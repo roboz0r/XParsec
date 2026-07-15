@@ -477,7 +477,7 @@ module NameResolutionScope =
                     }
                 )
             | ValueNone ->
-                // G15: `Module.member` where `Module` is a *local* (in-file) module
+                // `Module.member` where `Module` is a *local* (in-file) module
                 // and `member` one of its `let`-bound values/functions. The module
                 // tree is flattened before this walk, so the sibling is unresolvable
                 // by the provider (which only knows dependency packages) and by the
@@ -519,7 +519,7 @@ module NameResolutionScope =
                     else
                         false
 
-                // Everything below G15: the qualified name names something outside
+                // Below the local-module case: the qualified name names something outside
                 // the local-module registry — an external value, a local qualified
                 // ctor/static, an external union case/static, or genuinely unresolved.
                 let resolveQualifiedExternal () =

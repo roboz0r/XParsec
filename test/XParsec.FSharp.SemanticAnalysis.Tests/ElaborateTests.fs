@@ -744,8 +744,8 @@ let listAbbrevTests =
             }
 
             // Regression: with no `list` abbreviation in scope, a list literal
-            // stays the FSharp.Core nominal with `Cons`/`Nil` (additive — Slice4
-            // and every existing list-bearing program are untouched).
+            // stays the FSharp.Core nominal with `Cons`/`Nil` (additive — every
+            // existing list-bearing program is untouched).
             test "a list literal with no `list` abbrev keeps the FSharp.Core nominal" {
                 let tast = analyse "let xs = [1; 2; 3]"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"

@@ -41,11 +41,11 @@ type Origin =
         | Some a -> Origin.InAssembly(AssemblyName a)
 
 /// A namespace — the root holder. `Path` is SEGMENTED (`["System"; "Collections"]`),
-/// never a dotted string: the two prefix relations the codebase has (`StartsWith(ns + ".")`)
-/// are segment-list prefix tests, which is what they always meant, and the last-dot
-/// reconstruction they used to need is what mis-cut `Vesper.Collections.seq`.
+/// never a dotted string: the prefix relations the codebase needs (`StartsWith(ns + ".")`)
+/// are segment-list prefix tests. A dotted string can only approximate them with a
+/// last-dot cut, which mis-splits a name like `Vesper.Collections.seq`.
 /// An EMPTY path is the global namespace — a real thing (CLR types live there), not a
-/// sentinel. This is what retires `ns = ""`.
+/// sentinel: the global namespace is spelled by the empty path, never by `ns = ""`.
 type NamespaceKey =
     {
         Path: EqArray<string>
@@ -121,10 +121,10 @@ type TypeHolder =
     /// EXTERNAL ONLY — a CLR *nested* type. Unconstructible from Vesper source (the
     /// parser cannot declare a nested type); required to name
     /// `` System.Collections.Generic.List`1+Enumerator ``, the shape the duck-typed
-    /// struct-enumerator path consumes. This case IS the decoder that
-    /// `ClrEnv.externalClassRef` used to hand-roll with `simple.Split('+')`: the `+`
-    /// is a reflection *display* convention, not a metadata name, so a nested
-    /// `TypeRef` must chain through its enclosing type's `TypeRef` as ResolutionScope.
+    /// struct-enumerator path consumes. This case decodes the nesting STRUCTURALLY: the `+`
+    /// in that display name is a reflection *display* convention, not a metadata name, so a
+    /// nested `TypeRef` must chain through its enclosing type's `TypeRef` as ResolutionScope
+    /// rather than be recovered by splitting a string on `+`.
     | InType of outer: TypeKey
 
 /// A type definition — a nominal identity, and for a project-local type its
@@ -265,14 +265,13 @@ module WrittenTypeName =
     /// A name written with no qualifier.
     let bare (name: string) : WrittenTypeName = { Path = ""; Name = name }
 
-/// Was `SymbolKey.ValueKey`: a module-level binding / operator. No `ArgSig`: modules
-/// do not overload.
+/// A module-level binding / operator. No `ArgSig`: modules do not overload.
 ///
 /// `Decl` is a `ModuleHolder`, so the two states are distinguished BY CASE, not by an
 /// empty string: `InModule m` is the ordinary module-qualified binding
 /// (`Vesper.Unchecked.defaultof`), and `InNamespace ns` is the UNQUALIFIED one — a flat
-/// package's export, which has no declaring module.
-/// `ClrProvider`'s hand-rolled `when ns <> ""` guard is now that case match.
+/// package's export, which has no declaring module. A consumer matches on that case,
+/// never on a `when ns <> ""` string guard.
 ///
 /// A namespace holding a value is not F# — but this key names the EXTERNAL vocabulary
 /// too, where a TS module's top-level export and a flat-package contract extern are
@@ -595,9 +594,8 @@ type LiteralConst =
         | LiteralConst.String s -> "\"" + s + "\""
         | LiteralConst.Int n -> string n
 
-/// A member on a type. `Decl` is a `TypeKey` — the whole point of the reshape: the
-/// three `failwithf "declaring key is not a TypeKey"` runtime checks
-/// `ClrExternalMembers` used to carry were the type system's absence, hand-rolled.
+/// A member on a type. `Decl` is a `TypeKey`, so "the declaring key is not a type" is
+/// unrepresentable by construction rather than a `failwithf` runtime guard a consumer runs.
 ///
 /// `ArgSig` is the member's value-parameter signature as `FrozenType`s, written in the
 /// declaring type's OPEN typars (`FTTypar(Declaring, i)`, never an instantiation — so a
@@ -672,11 +670,11 @@ and [<RequireQualifiedAccess>] SymbolKey =
 /// metavar reaching the backend is unrepresentable rather than a convention to
 /// assert against. Open type parameters — a generic definition's own typars in
 /// their uninstantiated form — are the explicit, self-describing `FTTypar` node
-/// (carrying its axis + index), replacing the marker-`TypeVar` mechanism codegen
-/// used to fake them. Structural equality is value-based (no `TypeVar` leaf), so
-/// a `FrozenType` is a sound dictionary key — this is what lets it serve as the
-/// overload-identity key that retires the lossy `SymbolKey.MemberKey.argSig`
-/// string. Constructors mirror `SemType`'s shape under an `FT` prefix to avoid
+/// (carrying its axis + index), so codegen reads a typar's axis + index off the node
+/// rather than from a marker-`TypeVar` convention. Structural equality is value-based
+/// (no `TypeVar` leaf), so a `FrozenType` is a sound dictionary key — which is what lets
+/// it back a `MemberKey`'s `ArgSig` as a structural overload identity rather than a lossy
+/// display string. Constructors mirror `SemType`'s shape under an `FT` prefix to avoid
 /// ambiguity when both types are in scope.
 ///
 /// NOTE (naming): `FrozenType` / `FT*` are
@@ -849,8 +847,8 @@ type SemType =
     /// `TyArray`/`TyByref`/… active patterns (`IntrinsicTypePatterns`) — never by a
     /// stringified name; the codegen/repr axis (canon→platform maps) reads the bare
     /// name via `SymbolKeyOps.intrinsicName` (non-lossy) or `simpleName` (display). Args
-    /// participate in unification (same arity rule as `TyRecord`). (The declaring-type
-    /// typar-marker role this case used to also carry moved to `TyTypar`.)
+    /// participate in unification (same arity rule as `TyRecord`). A declaring-type typar
+    /// is a `TyTypar`, never this case — `TyConst` is a nominal head only.
     | TyConst of key: SymbolKey * args: EqArray<SemType>
     /// Curried; multi-arg functions nest TyFun.
     | TyFun of arg: SemType * result: SemType
@@ -931,8 +929,8 @@ type SemType =
     /// representation of an open typar on the post-freeze `SemType` subset:
     /// `freeze` rewrites every surviving `TyVar` to one, so afterwards no `TyVar`
     /// remains in any TAST `.ty` field — every open typar is a `TyTypar`, and a
-    /// `TyVar` reaching Codegen is a bug. It replaces the old declaring-typar
-    /// `TyConst "'A"` markers and the leftover-`TyVar` static-fn typars. It also
+    /// `TyVar` reaching Codegen is a bug. A declaring-typar marker and a static-fn typar
+    /// are both this single case — there is no `TyConst "'A"` marker form. It also
     /// rides the inference-side template helpers that work in `SemType` but must
     /// name an open typar (`ofFrozen`, `ExternalSymbols.openSignature`).
     ///

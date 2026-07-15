@@ -6,7 +6,7 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Js
 open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 
-// Wall 1 isolation: `undefined`, `null`, and `unit` are THREE distinct type
+// Isolation: `undefined`, `null`, and `unit` are THREE distinct type
 // identities under the conditional-fold membership test (directional `subsumes`),
 // even though `unit` and `undefined` are backend repr-coincident (both emit JS
 // `undefined`). `undefined` is a real JS-only intrinsic (`prim-types-undefined.js.fsi`,
@@ -123,7 +123,7 @@ let tests =
             }
 
             test "undefined extends unit folds FALSE (bool branch) — undefined ≠ unit" {
-                // The core Wall 1 pin: pre-fix, `canonName undefined` collapsed to `unit`
+                // The core pin: pre-fix, `canonName undefined` collapsed to `unit`
                 // and this wrongly folded to the int branch. It must now fold to bool.
                 Expect.isEmpty (analyse "e.uUnit(true)") "undefined ⊑ unit is FALSE → bool param"
                 Expect.isNonEmpty (analyse "e.uUnit(5)") "an int arg proves undefined⊑unit did NOT hold"

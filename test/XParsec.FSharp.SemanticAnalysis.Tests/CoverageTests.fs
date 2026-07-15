@@ -843,12 +843,12 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
-            // G13: `static let` on a *generic* class is now
+            // `static let` on a *generic* class is now
             // supported — the field rides the open generic `TypeDefinition` (one per
             // closed instantiation, `.cctor`-initialised) and codegen mints the
             // read/store as a `MemberRef` on the self-`TypeSpec`. The front-end no
             // longer rejects it; it surfaces in the static preamble like the mono case.
-            test "TAST: `static let` on a generic class surfaces with no diagnostic (G13)" {
+            test "TAST: `static let` on a generic class surfaces with no diagnostic" {
                 let tast =
                     analyse "type Box<'a>() =\n    static let x = 42\n    static member Get () = x"
 

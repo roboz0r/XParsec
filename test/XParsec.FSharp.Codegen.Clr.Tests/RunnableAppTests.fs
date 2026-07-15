@@ -9,7 +9,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // `dotnet` host, not just in-process. Beyond the PE, the host needs deployment
 // plumbing `materialiseApp` writes: a `runtimeconfig.json` (the host won't start
 // without one) and a copy of `FSharp.Core.dll` (absent from the shared framework).
-// The on-disk-PE anchors below (former `Slice1`/`Rung2`) cover the lower-level
+// The on-disk-PE anchors below cover the lower-level
 // `materialise` (a loadable DLL, no app bundle) and a recursive-static-method app.
 
 [<Tests>]
@@ -18,7 +18,7 @@ let tests =
         "RunnableApp"
         [
             // `materialise` (not `materialiseApp`) writes a loadable PE to disk that
-            // round-trips through the runtime loader and runs (former Slice1).
+            // round-trips through the runtime loader and runs.
             test "`materialise` writes a loadable PE to disk that runs and prints \"hi\"" {
                 let outDir = tmpDir "runnable-materialise"
                 let outPath = IO.Path.Combine(outDir, "MaterialiseHi.dll")

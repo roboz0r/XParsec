@@ -646,12 +646,12 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
-            // G11: a generic member's *signature* annotation may name the enclosing
+            // A generic member's *signature* annotation may name the enclosing
             // class typar. `inferBinding` mints a fresh typar scope per binding; it
             // must seed it with the class typars (via `Resolution.EnclosingTypars`)
             // first, else `translateType` on the annotation finds an empty strict
             // scope and falsely diagnoses "Free type parameter 'a".
-            test "G11: instance member signature names the class typar" {
+            test "instance member signature names the class typar" {
                 let ctx =
                     analyse
                         "type Box<'a>(value: 'a) =\n    member this.Value = value\n    member this.Wrap (x: 'a) : Box<'a> = Box(x)"
@@ -664,7 +664,7 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
-            test "G11: static member signature names the class typar" {
+            test "static member signature names the class typar" {
                 let ctx =
                     analyse
                         "type Box<'a>(value: 'a) =\n    member this.Value = value\n    static member Of (x: 'a) : Box<'a> = Box(x)"
@@ -677,13 +677,13 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
-            // G12: a generic member may introduce an *implicit* type parameter —
+            // A generic member may introduce an *implicit* type parameter —
             // one named only in a param/return annotation, neither a class typar nor
             // an explicit `<'U>` on the member. MemberRegistration must register it
             // into `MethodTypeParams`, and Unification must keep it in scope across
             // the member-body walk (signature *and* nested lets) — else strict member
             // scope falsely diagnoses "Free type parameter 'U".
-            test "G12: implicit member typar in return annotation" {
+            test "implicit member typar in return annotation" {
                 let ctx =
                     analyse
                         "type Box<'a>(value: 'a) =\n    member this.Value = value\n    member this.Map (f: 'a -> 'b) : Box<'b> = Box(f value)"
@@ -696,7 +696,7 @@ let tests =
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
-            test "G12: implicit member typar in a nested-let body annotation" {
+            test "implicit member typar in a nested-let body annotation" {
                 // `'b` is named in the return *and* in `Comparer<'b>` inside a nested
                 // `let` in the body — it must persist past the member's own binding
                 // into nested scopes (the set.fs `s.Map` shape).
@@ -1342,7 +1342,7 @@ let tests =
                 |> Seq.exists (fun d -> d.Severity = Severity.Warning && d.Message.Contains "anonymous union")
 
             test "an exhaustive type-test match on a union checks with no warning" {
-                // The seed milestone: both members tested, so the match is provably
+                // Both members tested, so the match is provably
                 // exhaustive and the binders `i`/`s` narrow to `int`/`string`.
                 let ctx =
                     analyse
@@ -1403,7 +1403,7 @@ let tests =
                 |> Option.defaultWith (fun () -> failtest "expected a frozen `let` decl")
 
             test "an annotated `int | string` binding freezes to a canonical FTOr signature" {
-                // The seed milestone's signature: domain AND return both `int |
+                // The signature under test: domain AND return both `int |
                 // string`, so the frozen decl type is `FTFun(FTOr, FTOr)`. The
                 // expected `FrozenType` is built by freezing the *same* canonical
                 // SemType (`toFrozen ∘ mkUnion`), so the member order under test is

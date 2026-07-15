@@ -8,7 +8,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // shadowing, `let rec`, `let inline`, inner (function-body) bindings, and a
 // nested-module member accessed unqualified. This table is the broad net that a
 // binding-resolution or slot-allocation regression trips first; the anchor
-// beneath it (former `Slice2`) pins the TAST shape — a `let`-bound NodeKey that a
+// beneath it pins the TAST shape — a `let`-bound NodeKey that a
 // later `Var` use resolves to. Multi-line rows use `\n` rather than triple-quotes
 // so the table stays column-aligned.
 
@@ -37,7 +37,7 @@ let tests =
                     "module M =\n    let twice x = x + x\nprintfn \"%d\" (twice 21)", "42"
                 ] -> test src { runs expected src }
 
-            // The TAST anchor (former Slice2): a `let x = 1 + 2` decl splits off
+            // The TAST anchor: a `let x = 1 + 2` decl splits off
             // and the `printfn "%d" x` hole's `Var` resolves to the bound NodeKey.
             yield
                 test "a let-decl + use analyses to a Let plus a Format hole referencing its NodeKey" {

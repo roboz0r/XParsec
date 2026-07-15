@@ -9,9 +9,8 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // Our own (discriminated) unions: construction, `match` deconstruction,
 // recursion over them, augmentation members, and the generic `Lst<'T>` /
 // `List<'T>` forms — plus the BCL-only library-DLL shape (static factories,
-// generic instance members) the reflection round-trips pin. These were the
-// `Rung2`/`SelfHostR3` milestone anchors; they live here under the capability
-// they exercise.
+// generic instance members) the reflection round-trips pin. They live here
+// under the capability they exercise.
 
 let private lines xs = String.concat "\n" xs
 
@@ -88,7 +87,7 @@ let private genMemberSrc =
             "        | Cons(_, t) -> 1 + t.Length"
         ]
 
-// Generic match / recursion / fold over a generic union (SelfHostR3 anchors).
+// Generic match / recursion / fold over a generic union.
 let private hdSrc =
     lines
         [

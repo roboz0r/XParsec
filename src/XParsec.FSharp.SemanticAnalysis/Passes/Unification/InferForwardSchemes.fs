@@ -14,7 +14,7 @@ open UnificationInferResolve
 open UnificationInferPat
 open UnificationInferOverload
 
-/// The annotation-derived forward-scheme pre-pass (G19 residue). `walkElems`
+/// The annotation-derived forward-scheme pre-pass. `walkElems`
 /// types class member bodies before module-level `let`s, so a class member that
 /// forward-references a sibling-module function must see a *scheme* (not the
 /// function's monomorphic binding-site TyVar) for the argument-coercion upcast
@@ -71,7 +71,7 @@ module internal UnificationInferForwardSchemes =
         | Pat.Attributed(pat = inner) -> tryArgAnnotation inner
         | _ -> ValueNone
 
-    /// Forward-reference pre-pass (G19 residue). `walkElems` types class member
+    /// Forward-reference pre-pass. `walkElems` types class member
     /// bodies (`fillClassMembers`) *before* it walks module-level `let`s, so a
     /// class member that calls a sibling-module function (`SetTree.add`) sees no
     /// scheme yet — `instantiateBinding` falls back to the function's monomorphic

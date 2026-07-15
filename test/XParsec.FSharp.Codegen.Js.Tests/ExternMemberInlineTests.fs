@@ -8,13 +8,13 @@ open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.Codegen.Common
 open XParsec.FSharp.Codegen.Js
 
-// W9 Stage 1b — CAPTURE + STORE of a concrete `(# … #)`-bodied member on an
+// CAPTURE + STORE of a concrete `(# … #)`-bodied member on an
 // intrinsic/`extern` type as a MEMBER-KEYED inline body. Pins the load-bearing
 // KEY-AGREEMENT seam: the body is stored under the FINALIZED member key
 // `TryLookupMember` resolves, which is the key a use-site `TExpr.ExternalMember.Key`
 // will carry.
 //
-// Stage 1b-elab RESOLVED the former blocker: the impl spelling
+// Elaboration RESOLVED the former blocker: the impl spelling
 // `type widget = (# "object" #) with member …` (a `TypeDefn.Abbrev` carrying
 // extensions) now ELABORATES to a real `TDecl.Type(Class)` whose members carry
 // `this`-first `(# … #)` bodies. The `harvest on real elaboration` test below
