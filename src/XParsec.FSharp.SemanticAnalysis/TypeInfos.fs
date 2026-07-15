@@ -278,6 +278,13 @@ type RecordTypeInfo
     /// the record declares an `interface … with` block. `Elaborate` projects them onto
     /// `TTypeKind.Record.interfaces`.
     member val InterfaceImpls: ClassInterfaceImplInfo[] = [||] with get, set
+    /// `[<Struct>]` record. Stamped by `registerRecordTypeDefn` from the same
+    /// struct predicate (`isValueTypeDefn`) the struct-field cycle check reads;
+    /// `Elaborate` projects it onto `TTypeKind.Record`'s `ClassValueKind` so
+    /// codegen emits a `System.ValueType`-based value type (sealed). The struct-
+    /// field cycle check consulted the CST attributes directly because this flag
+    /// did not exist; it can now read the registry.
+    member val IsValueType: bool = false with get, set
 
     interface IInterfaceImplHost with
         member this.Key = this.Key

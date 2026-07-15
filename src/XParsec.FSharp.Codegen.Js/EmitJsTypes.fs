@@ -306,7 +306,10 @@ module EmitJsTypes =
             match decl with
             | TDeclG.Type td ->
                 match td.Kind with
-                | TTypeKindG.Record(fields, recMembers, recInterfaces) ->
+                // The JS backend has no value-type concept — a `[<Struct>]` record
+                // (`valueKind = Struct`) emits as an ordinary reference object, a
+                // pre-existing documented limitation shared with struct classes.
+                | TTypeKindG.Record(fields, recMembers, recInterfaces, _) ->
                     let info =
                         {
                             Name = td.Name

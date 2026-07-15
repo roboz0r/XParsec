@@ -698,6 +698,11 @@ module NameResolutionTypeRegistration =
             let info =
                 RecordTypeInfo(name, typeParams, fieldInfos, declKey, typarConstraints, id.Key)
 
+            // `[<Struct>]` record ⇒ value type. The same struct predicate the
+            // group struct-field cycle check reads, so registry and cycle check
+            // agree.
+            info.IsValueType <- isValueTypeDefn ctx td
+
             // Validate the equality / comparison attributes against the
             // record kind (FS0382 / FS0377) and read the resolved verdicts.
             let eqV, cmpV =

@@ -649,10 +649,16 @@ and [<RequireQualifiedAccess>] TTypeKindG<'ty, 'tok> =
     /// plain record. The CLR backend emits the impl methods as `InterfaceImpl` rows;
     /// the JS backend attaches them to the record's class (local interface →
     /// attached method; capability interface → iterator / registry symbol).
+    /// `valueKind` is `Struct` for a `[<Struct>]` record (emitted as a
+    /// `System.ValueType`-based value type, sealed) and `RefType` otherwise;
+    /// projected at `Elaborate` from `RecordTypeInfo.IsValueType`, mirroring how
+    /// the class arm carries `ClassValueKind`. `RefStruct` is unreachable — a
+    /// record cannot be `[<IsByRefLike>]`.
     | Record of
         fields: EqArray<TRecordFieldG<'ty>> *
         members: EqArray<TTypeMemberG<'ty, 'tok>> *
-        interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'tok>>>
+        interfaces: EqArray<'ty * EqArray<TTypeMemberG<'ty, 'tok>>> *
+        valueKind: ClassValueKind
     /// Class type emission.
     /// `fields` are mutable instance fields (currently empty);
     /// `ctorParams` borrows the `TRecordField` shape for the primary
@@ -1110,7 +1116,7 @@ module TTypeKindG =
         match kind with
         | TTypeKindG.Class c -> c.Members
         | TTypeKindG.Union(_, members, _) -> members
-        | TTypeKindG.Record(_, members, _) -> members
+        | TTypeKindG.Record(_, members, _, _) -> members
         | TTypeKindG.Interface _
         | TTypeKindG.Enum _ -> EqArray.empty
 

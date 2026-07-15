@@ -253,11 +253,12 @@ module TastConvert =
                 EqArray.map (typeMember f) members,
                 EqArray.map (fun (ity, ms) -> f ity, EqArray.map (typeMember f) ms) interfaces
             )
-        | TTypeKindG.Record(fields, members, interfaces) ->
+        | TTypeKindG.Record(fields, members, interfaces, valueKind) ->
             TTypeKindG.Record(
                 EqArray.map (recordField f) fields,
                 EqArray.map (typeMember f) members,
-                EqArray.map (fun (ity, ms) -> f ity, EqArray.map (typeMember f) ms) interfaces
+                EqArray.map (fun (ity, ms) -> f ity, EqArray.map (typeMember f) ms) interfaces,
+                valueKind
             )
         // Enum cases carry no `'ty` (the value is a resolved literal), so the kind
         // passes through the SemType→FrozenType convert unchanged.

@@ -409,12 +409,13 @@ module Elaborate =
                 interfaces
                 |> EqArray.map (fun (ity, ms) -> f ity, ms |> EqArray.map (freezeMember f))
             )
-        | TTypeKind.Record(fields, members, interfaces) ->
+        | TTypeKind.Record(fields, members, interfaces, valueKind) ->
             TTypeKind.Record(
                 fields |> EqArray.map field,
                 members |> EqArray.map (freezeMember f),
                 interfaces
-                |> EqArray.map (fun (ity, ms) -> f ity, ms |> EqArray.map (freezeMember f))
+                |> EqArray.map (fun (ity, ms) -> f ity, ms |> EqArray.map (freezeMember f)),
+                valueKind
             )
         // Enum cases carry no `SemType` (the value is a resolved literal, not a
         // typed term), so the typar remap is a no-op.
@@ -1388,13 +1389,21 @@ module Elaborate =
             let members, interfaces =
                 elaborateHostMembers ctx (info :> IInterfaceImplHost) ext elaborateOne
 
+            // `[<Struct>]` record ⇒ value-type emission; a record is never
+            // byref-like, so the only two verdicts are `Struct` / `RefType`.
+            let valueKind =
+                if info.IsValueType then
+                    ClassValueKind.Struct
+                else
+                    ClassValueKind.RefType
+
             Some(
                 mkTypeDecl
                     name
                     info.TypeKey
                     ns
                     (EqArray.ofList declTypars)
-                    (TTypeKind.Record(fields, members, interfaces))
+                    (TTypeKind.Record(fields, members, interfaces, valueKind))
                     info.EqualitySupport
                     info.ComparisonSupport,
                 List.ofSeq env

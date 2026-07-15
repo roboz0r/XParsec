@@ -1027,7 +1027,7 @@ let recordInterfaceImplTests =
                     |> ValueOption.bind (fun d ->
                         match d with
                         | TDecl.Type {
-                                         Kind = TTypeKind.Record(_, _, ifaces)
+                                         Kind = TTypeKind.Record(_, _, ifaces, _)
                                      } -> ValueSome ifaces
                         | _ -> ValueNone
                     )

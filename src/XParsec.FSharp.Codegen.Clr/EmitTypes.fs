@@ -174,6 +174,9 @@ module EmitTypes =
             Name: string
             Typars: string list
             Fields: (string * EntityHandle * FrozenType) list
+            /// `true` for a `[<Struct>]` value-type record — drives `isValueType`
+            /// at use sites (box on `:>`, `unbox.any` on `:?>`), like the class flag.
+            IsValueType: bool
             Ctor: EntityHandle
         }
 

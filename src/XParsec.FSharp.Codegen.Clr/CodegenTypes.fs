@@ -105,6 +105,9 @@ type internal RecordDecl =
         /// User `interface … with member …` impls (same shape as `ClassDecl.Interfaces`):
         /// each pair is an implemented interface type + its already-typed member bodies.
         Interfaces: (FrozenType * Frozen.TTypeMember list) list
+        /// `Struct` for a `[<Struct>]` record (`System.ValueType` base, sealed) or
+        /// `RefType` otherwise. Records are never `RefStruct`.
+        ValueKind: ClassValueKind
     }
 
 /// A partitioned class declaration. `Fields` are the explicit `val [mutable] x: T`
@@ -195,7 +198,12 @@ type internal NominalEmissionInput =
     /// already-typed member bodies (same shape as the class / union arms): codegen
     /// emits one `InterfaceImpl` row per entry and one virtual `MethodDefinition`
     /// per member.
-    | Record of fields: Frozen.TRecordField list * interfaces: (FrozenType * Frozen.TTypeMember list) list
+    /// `isStruct` ⇒ a `[<Struct>]` value-type record: `System.ValueType` base,
+    /// a base-chain-free `.ctor`, and value-type-shaped equality/comparison bodies.
+    | Record of
+        fields: Frozen.TRecordField list *
+        interfaces: (FrozenType * Frozen.TTypeMember list) list *
+        isStruct: bool
     /// The partitioned declaration itself: the class arm needs so much of it
     /// (fields, ctor params, base, preambles, secondaries, value kind) that a
     /// re-projection would only be able to drift from it.

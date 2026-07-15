@@ -739,7 +739,7 @@ type private Renderer() =
                     push m.Name
                     push " : "
                     push (tyStr m.ReturnTy)
-            | TTypeKind.Record(fields, members, _) ->
+            | TTypeKind.Record(fields, members, _, _) ->
                 push " = { "
 
                 fields

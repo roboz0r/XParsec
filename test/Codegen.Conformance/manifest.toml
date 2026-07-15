@@ -235,3 +235,13 @@ run = ["clr", "js"]
 [[program]]
 path = "classes/preamble-fn-value.fs"
 run = ["clr", "js"]
+
+# ---------------------------------------------------------------------------------------
+# RECORDS — a [<Struct>] record. The CLR emits it as a System.ValueType-based value type;
+# JS has no value types and emits it as an ordinary reference object. The observable
+# results (construction, field reads, structural equality, `{ r with … }`) must AGREE
+# across the two, which is exactly what a conformance case pins — a per-backend test
+# could not catch a divergence in either the CLR value-type IL or the JS reference form.
+[[program]]
+path = "records/struct-record.fs"
+run = ["clr", "js"]

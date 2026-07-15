@@ -178,11 +178,15 @@ type internal ClrEncoder(env: ClrEnv) =
             encodeType (g.AddArgument()) elem
         | FTRecord(key, args) when userTypes.ContainsKey(SymbolKey.Type key) ->
             let handle = userTypes.[SymbolKey.Type key]
+            // A `[<Struct>]` record encodes as `ELEMENT_TYPE_VALUETYPE` so a signature
+            // referencing it matches its value-type `TypeDefinition`; a reference
+            // record is `ELEMENT_TYPE_CLASS`.
+            let isVt = userValueTypes.Contains(SymbolKey.Type key)
 
             if args.IsEmpty then
-                te.Type(handle, false)
+                te.Type(handle, isVt)
             else
-                let g = te.GenericInstantiation(handle, args.Length, false)
+                let g = te.GenericInstantiation(handle, args.Length, isVt)
 
                 for a in args do
                     encodeType (g.AddArgument()) a

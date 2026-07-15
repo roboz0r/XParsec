@@ -130,6 +130,12 @@ module EmitPattern =
             match env.Classes.TryGetValue(SymbolKey.Type key) with
             | true, c -> c.IsValueType
             | false, _ -> env.Provider.IsExternalValueType(SymbolKey.Type key)
+        // A user-declared `[<Struct>]` record: the `EmittedRecord.IsValueType` flag,
+        // or the provider's external value-type flag for one in a referenced package.
+        | FTRecord(key, _) ->
+            match env.Records.TryGetValue(SymbolKey.Type key) with
+            | true, r -> r.IsValueType
+            | false, _ -> env.Provider.IsExternalValueType(SymbolKey.Type key)
         | _ -> false
 
     /// Test a pattern against the value already stored in local `scrutSlot`:

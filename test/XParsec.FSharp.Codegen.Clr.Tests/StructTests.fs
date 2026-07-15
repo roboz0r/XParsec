@@ -27,6 +27,34 @@ let structTests =
     testList
         "Struct"
         [
+            // A `[<Struct>]` RECORD routes through the same value-type machinery as a
+            // struct class: `System.ValueType` base, sealed, `RegisterUserValueType`.
+            // Before the fix a struct record emitted as an ordinary reference type
+            // (record base was `Object`, no `FTRecord` value-type recognition).
+            test "a `[<Struct>]` record emits as a System.ValueType-based value type" {
+                let _, artifact = compileSourceData "StructRecordShape"
+
+                let asm = loadAssembly (Codegen.toBytes artifact)
+                let ty = asm.GetType "P"
+                Expect.isNotNull ty "the assembly contains the struct record P"
+                Expect.isTrue ty.IsValueType "P emits as a value type"
+                Expect.isTrue ty.IsSealed "a value type is sealed"
+                Expect.equal ty.BaseType typeof<System.ValueType> "P extends System.ValueType"
+
+                let fields =
+                    ty.GetFields(BindingFlags.Public ||| BindingFlags.Instance ||| BindingFlags.DeclaredOnly)
+
+                let names = fields |> Array.map (fun f -> f.Name) |> Set.ofArray
+                Expect.equal names (Set.ofList [ "X"; "Y" ]) "both record fields are present"
+            }
+
+            // End-to-end: the struct record constructs, reads its fields, and its
+            // synthesised value-type equality triple (`Equals(object)` via unbox,
+            // typed `Equals(Self)` by value, `GetHashCode`) + `{ r with … }` all run.
+            test "a `[<Struct>]` record constructs, field-reads, and compares structurally" {
+                runsDataLines [ "3"; "4"; "true"; "false"; "true"; "10"; "4" ] "StructRecordShape"
+            }
+
             test "a `[<Struct>]` type emits as a System.ValueType-based value type" {
                 let _, artifact = compileSourceData "StructShape"
 

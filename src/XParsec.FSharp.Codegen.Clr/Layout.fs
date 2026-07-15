@@ -103,7 +103,9 @@ type internal TypeSlotKind =
     | ModulePseudo
     | Interface
     | Union
-    | Record
+    /// `valueKind` selects reference vs `[<Struct>]` value type (flips the
+    /// `System.ValueType` base) — a record is always sealed and never byref-like.
+    | Record of valueKind: ClassValueKind
     /// `isSealed` reflects `[<Sealed>]`; `valueKind` selects reference vs
     /// `[<Struct>]` value type (flips sequential layout + `Sealed` + the
     /// `ValueType` base) vs `[<IsByRefLike>]` byref-like (additionally stamps the
@@ -368,13 +370,14 @@ module internal Layout =
                             Members = EqArray.toList members
                             Interfaces = [ for (ifaceTy, ms) in interfaces -> ifaceTy, EqArray.toList ms ]
                         }
-                | TTypeKindG.Record(fields, members, interfaces) ->
+                | TTypeKindG.Record(fields, members, interfaces, valueKind) ->
                     records.Add
                         {
                             Decl = td
                             Fields = EqArray.toList fields
                             Members = EqArray.toList members
                             Interfaces = [ for (ifaceTy, ms) in interfaces -> ifaceTy, EqArray.toList ms ]
+                            ValueKind = valueKind
                         }
                 // NUMERIC enum emission: a real `System.Enum` subclass.
                 // Only all-integer enums are partitioned here — string/mixed enums
@@ -879,7 +882,7 @@ module internal Layout =
                             yield! coSlotRows symbols td rd.Interfaces
                         ]
 
-                    nominalNode TypeSlotKind.Record td fields methodRows
+                    nominalNode (TypeSlotKind.Record rd.ValueKind) td fields methodRows
             ]
 
         // Per class: ctor-param backing fields, then explicit `val [mutable]`

@@ -140,7 +140,7 @@ module PlatformTypes =
             // methods like `[Symbol.iterator]`), so an unrepresentable type in one is a
             // real reject.
             match td.Kind with
-            | TTypeKindG.Record(_, members, interfaces)
+            | TTypeKindG.Record(_, members, interfaces, _)
             | TTypeKindG.Union(_, members, interfaces) ->
                 for m in members do
                     TastWalk.iterExpr iter m.Body

@@ -145,6 +145,11 @@ type internal Assembler
             let td = rd.Decl
             provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
 
+            // A `[<Struct>]` record is a project-local value type → `VALUETYPE`
+            // (not `CLASS`) in every signature, exactly as a struct class.
+            if rd.ValueKind <> ClassValueKind.RefType then
+                provider.RegisterUserValueType td.Key
+
             if not td.TypeParams.IsEmpty then
                 let shape = [ for f in rd.Fields -> f.Name, f.Type ]
                 provider.RegisterGenericRecord(td.Key, EqArray.toList td.TypeParams, shape)
@@ -1192,8 +1197,11 @@ type internal Assembler
 
             // Unions and records are always sealed (subclassing /
             // inheritance forbidden); a class opts in via `[<Sealed>]` / `[<Struct>]`.
-            | TypeSlotKind.Union
-            | TypeSlotKind.Record -> addNominalRow node (classAttrsOf true false) false
+            // A record additionally opts into value-type emission via `[<Struct>]`
+            // (`System.ValueType` base); it is never byref-like.
+            | TypeSlotKind.Union -> addNominalRow node (classAttrsOf true false) false
+            | TypeSlotKind.Record valueKind ->
+                addNominalRow node (classAttrsOf true (valueKind <> ClassValueKind.RefType)) false
 
             | TypeSlotKind.Class(isSealed, valueKind) ->
                 let isValueType = valueKind <> ClassValueKind.RefType

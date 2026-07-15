@@ -54,7 +54,7 @@ module internal NominalEmit =
         match input with
         | NominalEmissionInput.Class cd -> cd.Interfaces
         | NominalEmissionInput.Union(_, interfaces) -> interfaces
-        | NominalEmissionInput.Record(_, interfaces) -> interfaces
+        | NominalEmissionInput.Record(_, interfaces, _) -> interfaces
 
     let register
         (asm: Assembler)
@@ -139,7 +139,7 @@ module internal NominalEmit =
                     Members = emittedMembers
                 }
 
-        | NominalEmissionInput.Record(fields, _) ->
+        | NominalEmissionInput.Record(fields, _, isStruct) ->
             asm.Records.[td.Key] <-
                 {
                     Name = td.Name
@@ -149,6 +149,7 @@ module internal NominalEmit =
                             for f in fields ->
                                 f.Name, toEntity (asm.FieldDef(FieldKey.RecordField(td.Key, f.Name))), f.Type
                         ]
+                    IsValueType = isStruct
                     Ctor = toEntity (asm.MethodDef(MethodKey.NominalCtor td.Key))
                 }
 
@@ -258,6 +259,16 @@ module internal NominalEmit =
         let isGeneric = not td.TypeParams.IsEmpty
         let typarMarkers = typarMarkersOf td
 
+        // A `[<Struct>]` record: its `this` (`ldarg.0`) is a managed pointer, not
+        // an object reference, so the synthesised equality / comparison bodies take
+        // their value-type shape (unbox the `object` arg, drop the null guard on the
+        // by-value typed arg). Only records carry the flag — a struct class emits no
+        // structural triple.
+        let recordIsStruct =
+            match input with
+            | NominalEmissionInput.Record(_, _, isStruct) -> isStruct
+            | _ -> false
+
         // A reference to one of *this* type's own members (field / tag / ctor).
         // A generic type reaches it through a `MemberRef` on the open
         // self-`TypeSpec` (`Box\`1<!0>::n`);
@@ -340,7 +351,13 @@ module internal NominalEmit =
                 )
             )
 
-        | NominalEmissionInput.Record(fields, _) ->
+        | NominalEmissionInput.Record(fields, _, _) ->
+            // A `[<Struct>]` record is a value type extending `System.ValueType`,
+            // exactly as a struct class; a reference record keeps the `Object`
+            // default already in `baseTypeHandle`.
+            if recordIsStruct then
+                baseTypeHandle <- provider.ValueTypeBase
+
             let fieldHandles =
                 [
                     for f in fields -> toEntity (asm.FieldDef(FieldKey.RecordField(td.Key, f.Name)))
@@ -358,11 +375,17 @@ module internal NominalEmit =
                         selfMemberRef (UserMemberKind.RecordMember(RecordMember.Field f.Name)) fieldHandles.[i]
                 ]
 
-            let ctorBodyOffset =
-                Cil.buildBody
-                    encodeLocals
-                    bodyStream
-                    (IlIr.lower (Emit.buildRecordCtor provider.ObjectCtorRef ctorFieldRefs))
+            // A struct record's `.ctor` stores its fields with NO chained
+            // base-`.ctor` call (`System.ValueType` has no accessible ctor and
+            // value types do not chain) — the same shape as a struct class's
+            // primary ctor; a reference record chains to `Object::.ctor`.
+            let ctorBody =
+                if recordIsStruct then
+                    Emit.buildStructCtor ctorFieldRefs
+                else
+                    Emit.buildRecordCtor provider.ObjectCtorRef ctorFieldRefs
+
+            let ctorBodyOffset = Cil.buildBody encodeLocals bodyStream (IlIr.lower ctorBody)
 
             asm.AddPrepared(
                 MethodKey.NominalCtor td.Key,
@@ -922,8 +945,8 @@ module internal NominalEmit =
 
                 prepareEqualityTriple
                     (Emit.buildRecordGetHashCode support)
-                    (Emit.buildRecordEquals support)
-                    (Emit.buildRecordEqualsTyped support)
+                    (Emit.buildRecordEquals recordIsStruct support)
+                    (Emit.buildRecordEqualsTyped recordIsStruct support)
             | NominalEmissionInput.Class _ -> ()
 
         let emitsComparisonPair = td.ComparisonSupport = ComparisonVerdict.Structural
@@ -964,8 +987,8 @@ module internal NominalEmit =
                     }
 
                 prepareComparisonPair
-                    (Emit.buildRecordCompareTo cmpSupport)
-                    (Emit.buildRecordCompareToObj cmpSupport typedCompareTo)
+                    (Emit.buildRecordCompareTo recordIsStruct cmpSupport)
+                    (Emit.buildRecordCompareToObj recordIsStruct cmpSupport typedCompareTo)
             | NominalEmissionInput.Class _ -> ()
 
         // The synthesised `IStructuralFormattable.Format(IFormatSink)` (`%A`) —
