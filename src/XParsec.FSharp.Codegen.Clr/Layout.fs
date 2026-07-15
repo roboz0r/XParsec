@@ -292,6 +292,38 @@ type internal TypeNode =
         Nested: TypeNode list
     }
 
+/// One compilation unit's contribution to the assembly, as data — everything a
+/// unit produces on its own, BEFORE the single `<Module>` pseudo-type and the
+/// single Program holder are minted (both belong to the assembly, not a unit, so
+/// `Layout.combine` mints them once and `Layout.buildUnit` never does). A future
+/// multi-unit driver builds one of these per source unit and hands the list to
+/// `combine`.
+type internal UnitLayout =
+    {
+        /// This unit's placeable ROOT nodes — its namespace-level nominals, its
+        /// closures, its root-module holders (each carrying its own nested subtree)
+        /// — with the `<Module>` and Program roots deliberately absent. `combine`
+        /// concatenates these across units between the one `<Module>` head and the
+        /// one Program tail.
+        Roots: TypeNode list
+        /// This unit's contribution to the completeness check's built-key set: every
+        /// nominal, closure and holder key it built, independently of how they were
+        /// placed in the tree. `combine` adds the `<Module>` and Program keys and asks
+        /// the set question once over the whole assembly.
+        BuiltKeys: TypeSlotKey list
+        Lowered: Frozen.TDecl list
+        Plan: HolderPlan
+        Closures: EmitTypes.Closure list
+        ClosureByNode: Dictionary<Frozen.TExpr, EmitTypes.Closure>
+        Partitioned: PartitionedTypeDecls
+        /// Whether this unit carries the entry point (`Main`). A layout decision read
+        /// back by `combine` when it mints the Program holder.
+        EmitEntryPoint: bool
+        /// True iff this unit defines the `%A` structural-format interfaces
+        /// (it is `Vesper.Core`). See `AssemblyLayout.DefinesStructuralFormatInterfaces`.
+        DefinesStructuralFormatInterfaces: bool
+    }
+
 /// The planned assembly: the ranged-table rows as data, plus the lowering
 /// products the plan was computed from (computed once here, consumed by the
 /// emission passes — they must never re-derive them; see
@@ -323,6 +355,10 @@ type internal AssemblyLayout =
         /// `Format` body) all read, so the row reservation and the body emission can
         /// never disagree.
         DefinesStructuralFormatInterfaces: bool
+        /// The per-unit products this layout was combined from. Today always a
+        /// single element; the Assembler still reads the singular fields above, which
+        /// for one unit equal that unit's — a later migration moves it onto `Units`.
+        Units: UnitLayout list
     }
 
 /// The resolved handle lookup derived from the layout once: `TypeSlotKey` →
@@ -620,14 +656,21 @@ module internal Layout =
             Nested = []
         }
 
-    /// Build the emitted type HIERARCHY, and project the three ranged tables out of it.
-    /// Roots, by kind: `<Module>` → namespace-level interfaces / unions / records /
-    /// classes / enums → closures → the root modules' holders → the anonymous "Program"
-    /// holder (present only when an exe or holder-less fns exist). A module's holder is
-    /// immediately followed by the types it holds — in that same by-kind order — and by
-    /// its nested modules' holders. Reuses the existing lowering/discovery passes
-    /// unchanged and carries their products.
-    let build (symbols: ICodegenSymbols) (project: ProjectInfo) (tast: Frozen.TastFile) : AssemblyLayout =
+    /// Build ONE compilation unit's contribution to the type HIERARCHY, and its slice of
+    /// the ranged tables. By kind: namespace-level interfaces / unions / records / classes
+    /// / enums → closures → the root modules' holders. A module's holder is immediately
+    /// followed by the types it holds — in that same by-kind order — and by its nested
+    /// modules' holders. The single `<Module>` pseudo-type (TypeDef row 1) and the single
+    /// Program holder are NOT minted here: they belong to the assembly, so `combine` mints
+    /// them once around the concatenated units. The shared `ClosureNamer` is threaded in so
+    /// a multi-unit driver can keep closure TypeDef names unique assembly-wide. Reuses the
+    /// existing lowering/discovery passes unchanged and carries their products.
+    let buildUnit
+        (closureNamer: Emit.ClosureNamer)
+        (symbols: ICodegenSymbols)
+        (project: ProjectInfo)
+        (tast: Frozen.TastFile)
+        : UnitLayout =
         let lowered0 = Emit.lower tast.Decls
         // The anonymous "Program" holder's key — a module of that name in the global
         // namespace. It owns the holder-less fns + `Main` + the top-level value fields /
@@ -734,12 +777,6 @@ module internal Layout =
                     for entry in cd.StaticPreamble @ cd.InstancePreamble -> preambleRoot cd.Decl entry
             ]
 
-        // A fresh namer per build reproduces today's per-call `<closure>$N`
-        // numbering exactly; the same instance shared across multiple
-        // `discoverClosures` calls is what a later multi-file cut will use to
-        // keep closure TypeDef names unique assembly-wide.
-        let closureNamer = Emit.ClosureNamer()
-
         let closures, closureByNode =
             Emit.discoverClosures
                 closureNamer
@@ -759,22 +796,6 @@ module internal Layout =
             match project.OutputKind with
             | Exe -> true
             | Library -> false
-
-        let moduleNode =
-            {
-                Slot =
-                    {
-                        Key = TypeSlotKey.ModulePseudo
-                        Kind = TypeSlotKind.ModulePseudo
-                        Namespace = ""
-                        MetaName = "<Module>"
-                        Typars = []
-                    }
-                Enclosing = ValueNone
-                Fields = []
-                Methods = []
-                Nested = []
-            }
 
         // Each type's node carries its own field and method rows: the rows the writer
         // walks ARE the rows its range claims, since both are `List.collect`s over the
@@ -1333,10 +1354,70 @@ module internal Layout =
             )
             |> List.map holderNode
 
-        // The Program holder: its top-level value fields — leading-prefix values are
+        // The single `<Module>` pseudo-type and the single Program holder are minted by
+        // `combine`, not here — they belong to the assembly, not a unit. This unit hands
+        // over its placeable roots (namespace-level nominals, then closures, then root
+        // holders — each carrying its own subtree) and the flat key set for the
+        // completeness check.
+        {
+            Roots =
+                (nominalNodes |> List.filter (fun n -> n.Enclosing.IsNone))
+                @ closureNodes
+                @ rootHolderNodes
+            BuiltKeys =
+                [
+                    for n in nominalNodes -> n.Slot.Key
+                    for n in closureNodes -> n.Slot.Key
+                    for h in orderedHolders -> TypeSlotKey.Holder h
+                ]
+            Lowered = lowered
+            Plan = plan
+            Closures = closures
+            ClosureByNode = closureByNode
+            Partitioned = partitioned
+            EmitEntryPoint = emitEntryPoint
+            DefinesStructuralFormatInterfaces = definesStructuralFormatInterfaces
+        }
+
+    /// Assemble the units into the whole `AssemblyLayout`: PREPEND the single `<Module>`
+    /// pseudo-type (so it is TypeDef row 1 for the assembly), APPEND the single Program
+    /// holder, flatten the concatenated roots into the `TypeDef` table, and run the
+    /// completeness check ONCE over the combined set. The singular lowering products stay
+    /// exposed for the Assembler; for a single unit they are that unit's.
+    let combine (project: ProjectInfo) (units: UnitLayout list) : AssemblyLayout =
+        // Only ever a single unit today, so the one Program holder and the singular
+        // AssemblyLayout fields take that unit's data. N-unit combination — entry-unit
+        // selection, holder de-dup, cross-unit closure sharing — is not yet implemented.
+        let unit =
+            match units with
+            | [ u ] -> u
+            | _ -> failwith "Layout.combine: only single-unit combination is supported"
+
+        let plan = unit.Plan
+        let emitEntryPoint = unit.EmitEntryPoint
+
+        // The single `<Module>` pseudo-type is minted once here, not per unit, so it is
+        // TypeDef row 1 for the whole assembly no matter how many units are combined.
+        let moduleNode =
+            {
+                Slot =
+                    {
+                        Key = TypeSlotKey.ModulePseudo
+                        Kind = TypeSlotKind.ModulePseudo
+                        Namespace = ""
+                        MetaName = "<Module>"
+                        Typars = []
+                    }
+                Enclosing = ValueNone
+                Fields = []
+                Methods = []
+                Nested = []
+            }
+
+        // The single Program holder: its top-level value fields — leading-prefix values are
         // `initonly` (written by the Program `.cctor`), values after a top-level `do`
         // are plain mutable `static` (written by `Main`) — its `.cctor`, its
-        // holder-less fns, and `Main`.
+        // holder-less fns, and `Main`. Minted once here, not per unit.
         //
         // `Main` belongs to this node's method list, which is what puts it inside the
         // Program type's `MethodList` range: the row and the range that claims it are
@@ -1412,14 +1493,11 @@ module internal Layout =
             else
                 []
 
-        // The roots, by kind: `<Module>` first (it must be TypeDef row 1), then the
-        // namespace-level types, the closures, the root holders (each carrying its own
-        // subtree) and the Program holder.
+        // The roots, by kind: `<Module>` first (it must be TypeDef row 1), then the units'
+        // namespace-level types / closures / root holders (each carrying its own subtree),
+        // and the Program holder last.
         let roots =
-            moduleNode :: (nominalNodes |> List.filter (fun n -> n.Enclosing.IsNone))
-            @ closureNodes
-            @ rootHolderNodes
-            @ programNodes
+            moduleNode :: (units |> List.collect (fun u -> u.Roots)) @ programNodes
 
         // The `TypeDef` table: the pre-order flattening. Every table the writer walks is
         // a projection of it, so a type's row range and the rows in that range cannot
@@ -1432,13 +1510,12 @@ module internal Layout =
         // COMPLETENESS. Every node built above must be placed in the tree exactly once —
         // none dropped (a holder whose discovery missed it), none duplicated (a nominal
         // landing in both the roots and a module's `Nested`). Both are set questions, so
-        // ask them as such.
+        // ask them as such — once, over the whole assembly.
         let builtKeys =
             [
                 yield moduleNode.Slot.Key
-                for n in nominalNodes -> n.Slot.Key
-                for n in closureNodes -> n.Slot.Key
-                for h in orderedHolders -> TypeSlotKey.Holder h
+                for u in units do
+                    yield! u.BuiltKeys
                 for n in programNodes -> n.Slot.Key
             ]
 
@@ -1457,14 +1534,24 @@ module internal Layout =
             Types = types
             Fields = types |> List.collect (fun n -> n.Fields)
             Methods = types |> List.collect (fun n -> n.Methods)
-            Lowered = lowered
-            Plan = plan
-            Closures = closures
-            ClosureByNode = closureByNode
-            Partitioned = partitioned
-            EmitEntryPoint = emitEntryPoint
-            DefinesStructuralFormatInterfaces = definesStructuralFormatInterfaces
+            Lowered = unit.Lowered
+            Plan = unit.Plan
+            Closures = unit.Closures
+            ClosureByNode = unit.ClosureByNode
+            Partitioned = unit.Partitioned
+            EmitEntryPoint = unit.EmitEntryPoint
+            DefinesStructuralFormatInterfaces = unit.DefinesStructuralFormatInterfaces
+            Units = units
         }
+
+    /// Plan the whole assembly from one tast: build its single unit and combine it. The
+    /// ONE `ClosureNamer` is created here and threaded through `buildUnit` — a multi-unit
+    /// driver shares one across every unit so closure TypeDef names stay unique
+    /// assembly-wide. Single-unit output is byte-identical to the pre-split `build`.
+    let build (symbols: ICodegenSymbols) (project: ProjectInfo) (tast: Frozen.TastFile) : AssemblyLayout =
+        let closureNamer = Emit.ClosureNamer()
+        let unit = buildUnit closureNamer symbols project tast
+        combine project [ unit ]
 
     /// Derive every handle from the layout once: TypeDef handle = position in the
     /// pre-order flattening + 1; first-field / first-method handles by prefix-summing
