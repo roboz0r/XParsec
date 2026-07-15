@@ -595,11 +595,10 @@ module internal TsManifestTranslate =
         }
 
     /// Intern each overload signature's parameter shape into its `argSig`, KEEPING THE
-    /// FIRST of any that intern to the same `argSig` (same param count AND spelled
-    /// types). Each parameter renders through the SHARED `FrozenType` spelling grammar
-    /// (`ExternalSymbols.argTypeName`, over the same `toFrozen` translation the
-    /// `Signature.Parameters` template carries) — one renderer with the `.fsi`
-    /// contract layer, so the two producers cannot drift on overload identity.
+    /// FIRST of any that intern to the same `argSig` (same param count AND structurally
+    /// equal param types). Each parameter is the `FrozenType` from the SAME `toFrozen`
+    /// translation the `Signature.Parameters` template carries — the structural overload
+    /// identity a `MemberKey` interns directly, with no rendered-string step to drift on.
     ///
     /// DEGRADE-AND-DEDUP, never abort: two overloads that erase to one `argSig` after
     /// numeric/structural degradation (node's `number`-family and config-object
@@ -612,11 +611,7 @@ module internal TsManifestTranslate =
     /// constructor sites want identical handling — a ctor selects on ARGUMENTS ALONE
     /// (never the return type), a method's dispatch keys on the argSig — so there is one
     /// behaviour, not a per-caller collision policy.
-    let overloadArgSigs (ctx: TranslateCtx) (mem: Schema.Member) : (string list * Schema.Signature) list =
+    let overloadArgSigs (ctx: TranslateCtx) (mem: Schema.Member) : (FrozenType list * Schema.Signature) list =
         mem.Signatures
-        |> List.map (fun sg ->
-            sg.Params
-            |> List.map (fun p -> ExternalSymbols.argTypeName (toFrozen ctx p.Type)),
-            sg
-        )
+        |> List.map (fun sg -> sg.Params |> List.map (fun p -> toFrozen ctx p.Type), sg)
         |> List.distinctBy fst

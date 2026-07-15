@@ -344,18 +344,31 @@ module SymbolKeyOps =
     /// A `MemberKey` over a declaring `TypeKey`. The declaring slot is a `TypeKey` by
     /// construction: no consumer may re-check that a member's declarer is a type, because
     /// the type system already says so.
-    let memberKeyOf (decl: TypeKey) (name: string) (argSig: EqArray<string>) (kind: MemberKind) : MemberKey =
+    let memberKeyOf
+        (decl: TypeKey)
+        (name: string)
+        (argSig: EqArray<FrozenType>)
+        (methodTyparArity: int)
+        (kind: MemberKind)
+        : MemberKey =
         {
             Decl = decl
             Name = name
             ArgSig = argSig
+            MethodTyparArity = methodTyparArity
             Kind = kind
         }
 
     /// `SymbolKey.Member` over a declaring `TypeKey` — the widened `memberKeyOf`, for the
     /// IR positions that still carry the wide key.
-    let memberKey (decl: TypeKey) (name: string) (argSig: EqArray<string>) (kind: MemberKind) : SymbolKey =
-        SymbolKey.Member(memberKeyOf decl name argSig kind)
+    let memberKey
+        (decl: TypeKey)
+        (name: string)
+        (argSig: EqArray<FrozenType>)
+        (methodTyparArity: int)
+        (kind: MemberKind)
+        : SymbolKey =
+        SymbolKey.Member(memberKeyOf decl name argSig methodTyparArity kind)
 
     /// Narrow a wide `SymbolKey` to the `MemberKey` a member position REQUIRES. Only for
     /// the IR seam: the provider's own entries (`ExternalMember.Key`) are `MemberKey` by

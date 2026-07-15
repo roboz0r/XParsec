@@ -36,6 +36,7 @@ let private markerMember: ExternalMember =
               (SymbolKeyOps.typeKeyOf origin.Namespace.Dotted "Cls")
               "m"
               EqArray.empty
+              0
               MemberKind.Method
       ) with
         Signature = TestHelpers.mkSignature 0 0 marker marker

@@ -53,6 +53,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
                                 (SymbolKeyOps.typeKeyOf origin.Namespace.Dotted name)
                                 name
                                 EqArray.empty
+                                0
                                 MemberKind.Method
                         ) with
                           IsStatic = true

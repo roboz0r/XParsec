@@ -42,13 +42,13 @@ module JsNativeSymbols =
         ExternalMember.ctor
             errorTypeKey
             (ExternalSignature.make (0, 0, stringTy, errorTy))
-            (EqArray.singleton "string")
+            (EqArray.singleton stringTy)
             errorOrigin
             []
 
     /// `Error.prototype.message : string`.
     let private errorMessage: ExternalMember =
-        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf errorTypeKey "message" EqArray.empty MemberKind.Property) with
+        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf errorTypeKey "message" EqArray.empty 0 MemberKind.Property) with
             Storage = MemberStorage.Property
             Signature = ExternalSignature.make (0, 0, unitTy, stringTy)
             Origin = errorOrigin
@@ -133,7 +133,9 @@ module JsNativeSymbols =
         (parameters: FrozenType)
         (ret: FrozenType)
         : ExternalMember =
-        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey name EqArray.empty (MemberKind.InterfaceMethod declKey)) with
+        { ExternalMember.OfKey(
+              SymbolKeyOps.memberKeyOf declKey name EqArray.empty 0 (MemberKind.InterfaceMethod declKey)
+          ) with
             Storage =
                 if isProperty then
                     MemberStorage.Property

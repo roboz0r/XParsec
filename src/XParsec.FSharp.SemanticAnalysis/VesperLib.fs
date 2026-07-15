@@ -436,6 +436,7 @@ module VesperLib =
                                     Key =
                                         { m.Key with
                                             ArgSig = ExternalSymbols.argSigOfParameters sign.Parameters
+                                            MethodTyparArity = sign.MethodTyparArity
                                         }
                                     MethodTyparArity = sign.MethodTyparArity
                                 }
@@ -1112,7 +1113,7 @@ module VesperLib =
                                     MemberKind.Method
 
                             members.Add
-                                { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey memberName EqArray.empty kind) with
+                                { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey memberName EqArray.empty 0 kind) with
                                     IsStatic = isStatic
                                     Storage =
                                         if isProperty then

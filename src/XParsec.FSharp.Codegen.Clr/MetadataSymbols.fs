@@ -97,11 +97,16 @@ module private MetadataMapping =
         | 1 -> ps.[0]
         | _ -> FTTuple(EqArray.ofArray ps)
 
-    /// `(Parameters, Return)` templates for a method. `None` if any type doesn't map.
+    /// `(per-parameter templates, Return)` for a method. `None` if any type doesn't map.
+    /// The parameter templates are UNCOLLAPSED — the caller collapses them with
+    /// `frozenParams` for the `ExternalSignature.Parameters` (unit/single/tuple) and uses
+    /// the same array directly as the member key's structural `ArgSig` (one FrozenType per
+    /// value parameter, so `.Length` is the value-parameter arity). Computing them once
+    /// here is why the key needs no re-derivation and no rendered string.
     let tryMethodSignature
         (reverseCanon: Map<string, SymbolKey list>)
         (m: MethodInfo)
-        : (FrozenType * FrozenType) option =
+        : (FrozenType[] * FrozenType) option =
         let paramTys =
             m.GetParameters()
             |> Array.map (fun p -> tryBuildType reverseCanon p.ParameterType)
@@ -111,7 +116,7 @@ module private MetadataMapping =
         if retTy.IsNone || Array.exists Option.isNone paramTys then
             None
         else
-            Some(frozenParams (paramTys |> Array.map Option.get), retTy.Value)
+            Some(paramTys |> Array.map Option.get, retTy.Value)
 
     /// Method-axis generic-parameter count; `0` for a non-generic method.
     let methodTyparArityOf (m: MethodInfo) : int =
@@ -215,7 +220,7 @@ module private MetadataMapping =
     let tryCtorSignature
         (reverseCanon: Map<string, SymbolKey list>)
         (c: ConstructorInfo)
-        : (FrozenType * FrozenType) option =
+        : (FrozenType[] * FrozenType) option =
         let paramTys =
             c.GetParameters()
             |> Array.map (fun p -> tryBuildType reverseCanon p.ParameterType)
@@ -225,24 +230,7 @@ module private MetadataMapping =
         if retTy.IsNone || Array.exists Option.isNone paramTys then
             None
         else
-            Some(frozenParams (paramTys |> Array.map Option.get), retTy.Value)
-
-    /// Render a type with open typars for an `argSig` overload key: `!i` / `!!i` for
-    /// declaring/method typars, `FullName` otherwise. Never re-parsed — only disambiguates.
-    let rec openTyparSig (t: Type) : string =
-        if t.IsGenericParameter then
-            if isNull t.DeclaringMethod then
-                "!" + string t.GenericParameterPosition
-            else
-                "!!" + string t.GenericParameterPosition
-        elif t.IsGenericType && not t.IsGenericTypeDefinition then
-            let def = t.GetGenericTypeDefinition().FullName
-            let args = t.GetGenericArguments() |> Array.map openTyparSig |> String.concat ","
-            def + "<" + args + ">"
-        else
-            match t.FullName with
-            | null -> t.Name
-            | fn -> fn
+            Some(paramTys |> Array.map Option.get, retTy.Value)
 
     /// Property `ExternalSignature`: `Parameters = unit`, value type in `Return`.
     let propertySignature (declaringTyparArity: int) (valueTy: FrozenType) : ExternalSignature =
@@ -381,7 +369,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
             match MetadataMapping.tryBuildType reverseCanon f.FieldType with
             | Some valueTy ->
                 Some
-                    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey f.Name EqArray.empty MemberKind.Property) with
+                    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey f.Name EqArray.empty 0 MemberKind.Property) with
                         IsStatic = f.IsStatic
                         Storage = MemberStorage.Field
                         Signature = MetadataMapping.propertySignature arity valueTy
@@ -396,16 +384,13 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
     let methodMemberOf (declKey: TypeKey) (origin: SymbolOrigin) (arity: int) (m: MethodInfo) : ExternalMember option =
         MetadataMapping.tryMethodSignature reverseCanon m
         |> Option.map (fun (ps, ret) ->
-            let argSig =
-                m.GetParameters()
-                |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
-                |> EqArray.ofArray
-
+            let argSig = EqArray.ofArray ps
             let methodTyparArity = MetadataMapping.methodTyparArityOf m
 
-            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name argSig MemberKind.Method) with
+            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name argSig methodTyparArity MemberKind.Method) with
                 IsStatic = m.IsStatic
-                Signature = MetadataMapping.methodSignature arity methodTyparArity (ps, ret)
+                Signature =
+                    MetadataMapping.methodSignature arity methodTyparArity (MetadataMapping.frozenParams ps, ret)
                 MethodTyparArity = methodTyparArity
                 Origin = origin
                 OptionalDefaults = MetadataMapping.optionalDefaults (m.GetParameters())
@@ -422,7 +407,7 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
         : ExternalMember option =
         MetadataMapping.tryPropertySignature reverseCanon p
         |> Option.map (fun valueTy ->
-            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey p.Name EqArray.empty MemberKind.Property) with
+            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey p.Name EqArray.empty 0 MemberKind.Property) with
                 IsStatic = (not (isNull p.GetMethod) && p.GetMethod.IsStatic)
                 Storage = MemberStorage.Property
                 Signature = MetadataMapping.propertySignature arity valueTy
@@ -464,14 +449,11 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
                 MetadataMapping.tryMethodSignature reverseCanon getter
                 |> Option.map (fun (ps, ret) ->
-                    let argSig =
-                        getter.GetParameters()
-                        |> Array.map (fun ip -> MetadataMapping.openTyparSig ip.ParameterType)
-                        |> EqArray.ofArray
+                    let argSig = EqArray.ofArray ps
 
-                    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey "get_Item" argSig MemberKind.Method) with
+                    { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey "get_Item" argSig 0 MemberKind.Method) with
                         IsStatic = getter.IsStatic
-                        Signature = MetadataMapping.methodSignature arity 0 (ps, ret)
+                        Signature = MetadataMapping.methodSignature arity 0 (MetadataMapping.frozenParams ps, ret)
                         Origin = origin
                     }
                 )
@@ -489,14 +471,11 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
             |> Array.choose (fun c ->
                 MetadataMapping.tryCtorSignature reverseCanon c
                 |> Option.map (fun (ps, ret) ->
-                    let argSig =
-                        c.GetParameters()
-                        |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
-                        |> EqArray.ofArray
+                    let argSig = EqArray.ofArray ps
 
                     ExternalMember.ctor
                         declKey
-                        (MetadataMapping.methodSignature arity 0 (ps, ret))
+                        (MetadataMapping.methodSignature arity 0 (MetadataMapping.frozenParams ps, ret))
                         argSig
                         origin
                         (MetadataMapping.optionalDefaults (c.GetParameters()))
@@ -614,14 +593,11 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
                         |> Array.choose (fun c ->
                             MetadataMapping.tryCtorSignature reverseCanon c
                             |> Option.map (fun (ps, ret) ->
-                                let argSig =
-                                    c.GetParameters()
-                                    |> Array.map (fun p -> MetadataMapping.openTyparSig p.ParameterType)
-                                    |> EqArray.ofArray
+                                let argSig = EqArray.ofArray ps
 
                                 ExternalMember.ctor
                                     declKey
-                                    (MetadataMapping.methodSignature arity 0 (ps, ret))
+                                    (MetadataMapping.methodSignature arity 0 (MetadataMapping.frozenParams ps, ret))
                                     argSig
                                     origin
                                     (MetadataMapping.optionalDefaults (c.GetParameters()))

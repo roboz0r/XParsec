@@ -442,11 +442,11 @@ type ExternalMember =
     static member ctor
         (declKey: TypeKey)
         (signature: ExternalSignature)
-        (argSig: EqArray<string>)
+        (argSig: EqArray<FrozenType>)
         (origin: SymbolOrigin)
         (optionalDefaults: TConstValue list)
         : ExternalMember =
-        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey ".ctor" argSig MemberKind.Method) with
+        { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey ".ctor" argSig 0 MemberKind.Method) with
             Signature = signature
             Origin = origin
             OptionalDefaults = optionalDefaults
@@ -1390,84 +1390,17 @@ module ExternalSymbols =
     let instantiateBaseType (shape: ExternalClassShape) (declaringArgs: SemType[]) : SemType voption =
         instantiateBaseTypeFrozen shape.FrozenBaseType declaringArgs
 
-    // --- The overload-identity `argSig` spelling grammar (ONE renderer) ----
-    //
-    // A `SymbolKey.MemberKey.argSig` entry only DISAMBIGUATES same-name overloads
-    // (the same role `MetadataSymbols.openTyparSig` fills on the metadata layer), so
-    // an exotic shape rendered by name is harmless — but the spelling must be the
-    // SAME wherever a `FrozenType`-shaped member is keyed, or the front end's
-    // resolved key misses codegen's re-derived one. Both `FrozenType`-consuming
-    // producers (the `.fsi` contract extractor `VesperLib` and the TS-manifest
-    // provider) render through here; total over `FrozenType`.
-
-    /// A single parameter type's `argSig` spelling. Never reparsed — identity only.
-    let rec argTypeName (t: FrozenType) : string =
-        match t with
-        | FTConst(key, args) ->
-            let n = SymbolKeyOps.intrinsicName key
-
-            if args.IsEmpty then
-                n
-            else
-                n
-                + "<"
-                + (args |> EqArray.toList |> List.map argTypeName |> String.concat ",")
-                + ">"
-        | FTClass(key, _)
-        | FTRecord(key, _)
-        | FTUnion(key, _)
-        | FTEnum key -> SymbolKeyOps.typeMetaName key
-        | FTTuple items ->
-            "("
-            + (items |> EqArray.toList |> List.map argTypeName |> String.concat "*")
-            + ")"
-        | FTFun(a, b) -> argTypeName a + "->" + argTypeName b
-        | FTOr members ->
-            "("
-            + (members |> EqSet.toList |> List.map argTypeName |> String.concat "|")
-            + ")"
-        // A literal renders as its QUOTED constant (`LiteralConst.Render`), keeping
-        // overload identity sharp: two overloads differing only by literal value
-        // (mitt's `on(type: Key)` vs `on(type: '*')`) must mint DISTINCT `argSig`s,
-        // so this must NOT collapse to the base primitive (design §"argSigOf …
-        // quoted-value spelling").
-        | FTLiteral l -> l.Render
-        // The type-level computations render sharply so an overload differing only
-        // by one mints a distinct `argSig`.
-        | FTKeyOf t -> "keyof(" + argTypeName t + ")"
-        | FTIndexedAccess(objTy, index) -> argTypeName objTy + "[" + argTypeName index + "]"
-        | FTConditional c ->
-            "("
-            + argTypeName c.Check
-            + " extends "
-            + argTypeName c.Extends
-            + " ? "
-            + argTypeName c.WhenTrue
-            + " : "
-            + argTypeName c.WhenFalse
-            + ")"
-        | FTTypar(axis, i) ->
-            (match axis with
-             | TyparAxis.Declaring -> "!"
-             | _ -> "!!")
-            + string i
-        // A body-local typar never occurs in a member SIGNATURE (it is bound by a
-        // scheme inside the body, not by the decl whose type this is). It gets a
-        // spelling anyway, because this renderer is total over `FrozenType` by
-        // contract and identity-only — and it must never collide with a declared
-        // axis's spelling, hence the `(binder, index)` pair.
-        | FTLocalTypar(binder, i) -> "!?" + string binder + ":" + string i
-        | FTUnknown n -> n
-
     /// The per-parameter `argSig` of a frozen method signature, flattening the
     /// `.NET`-tupled parameter form: a `unit` parameter is zero arguments, a tuple
     /// is one entry per element, anything else is a single argument. Mirrors the
-    /// `argCount` decode in codegen's `ExternalMember` arm.
-    let argSigOfParameters (parameters: FrozenType) : EqArray<string> =
+    /// `argCount` decode in codegen's `ExternalMember` arm. Structural — one
+    /// `FrozenType` per value parameter, the total overload identity a `MemberKey`
+    /// interns (never a rendered string).
+    let argSigOfParameters (parameters: FrozenType) : EqArray<FrozenType> =
         match parameters with
         | FTUnit -> EqArray.empty
-        | FTTuple items -> items |> EqArray.toList |> List.map argTypeName |> EqArray.ofList
-        | single -> EqArray.singleton (argTypeName single)
+        | FTTuple items -> items
+        | single -> EqArray.singleton single
 
     // --- Contract-extraction finalize fallback ----
     //

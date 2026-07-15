@@ -279,90 +279,6 @@ module WrittenTypeName =
 /// exactly that.
 type BindingKey = { Decl: ModuleHolder; Name: string }
 
-/// A member on a type. `Decl` is a `TypeKey` — the whole point of the reshape: the
-/// three `failwithf "declaring key is not a TypeKey"` runtime checks
-/// `ClrExternalMembers` used to carry were the type system's absence, hand-rolled.
-///
-/// `ArgSig` is written in the declaring type's OPEN typars (`!0`, …) and disambiguates
-/// overloads (`GetHashCode()` vs `GetHashCode(!0)`). `EqArray` (not `list` / not
-/// `string[]`) so the containing `SymbolKey` keeps the structural `=` interning relies on.
-///
-/// TODO (method overloading): `ArgSig` is a *lossy* string rendering — it only
-/// disambiguates overloads and is **never re-parsed** (see `MetadataSymbols.openTyparSig`),
-/// and project-local `MemberKey`s are minted with placeholder contents
-/// (`LocalSymbolKey.ofMember` fills it with empty strings) because locals have no overload
-/// set yet; only its *length* (the member's value-parameter arity) carries meaning, read by
-/// codegen's external member-ref param-flatten. Real overload resolution — externals by
-/// argument-type *betterness*, and local overloaded members at all — needs argument-type
-/// identity, not a display string. The eventual shape is plausibly
-/// `ArgSig : EqArray<FrozenType>`:
-///   - The obstacle is NOT a definitional cycle. `FrozenType` already references
-///     `SymbolKey`, so it has the SAME cycle — and with `FrozenType` the cycle is one you
-///     can simply declare (`type SymbolKey = … and FrozenType = …`).
-///   - The obstacle with `SemType` is that a `TyVar` is a mutable `UnionFind` cell, and a
-///     key must NEVER carry one. `FrozenType` carries none.
-///   - The safety invariant it needs already exists: an `FTLocalTypar` in a key would carry
-///     a body-relative `NodeKey` across a unit boundary, which its own doc-comment forbids.
-///     It cannot arise here — a member's parameter type is part of its *declared signature*,
-///     never a body-local scheme — and `FrozenTypeBridge.localTyparInTemplate` already fails
-///     loud on it.
-///   - The real cost is the compile-order coupling that merging the clusters creates
-///     (everything touching keys drags the type IR in). That is a decision to take
-///     deliberately, not the impossibility this TODO used to claim.
-type MemberKey =
-    {
-        Decl: TypeKey
-        Name: string
-        ArgSig: EqArray<string>
-        Kind: MemberKind
-    }
-
-/// What kind of member a `MemberKey` denotes. `Method` and `Property` are the
-/// today-resolvable shapes; `InterfaceMethod` and `ExplicitInterfaceImpl` land their
-/// consumers with interface conformance + `(this :> iface).M()` syntax.
-and [<RequireQualifiedAccess>] MemberKind =
-    | Method
-    | Property
-    /// An abstract method on an interface; `iface` is the declaring interface's
-    /// `TypeKey`. Distinct from `Method` so a call site can resolve
-    /// the right vtable slot when several interfaces inherit a like-named
-    /// method (`IEnumerable<'T>::GetEnumerator()` vs
-    /// `IEnumerable::GetEnumerator()`).
-    | InterfaceMethod of iface: TypeKey
-    /// An explicit interface implementation on a class:
-    /// `Set<'T>::System.Collections.IEnumerable.GetEnumerator`. `iface` pins
-    /// which interface's slot is being overridden, the token codegen needs to
-    /// emit the `.override` row.
-    | ExplicitInterfaceImpl of iface: TypeKey
-
-/// Platform-agnostic, scope-unambiguous symbol identity. Strings + containment —
-/// never a CLR `EntityHandle` or `System.Type` (those are per-context and
-/// target-specific). The discriminator is the *containment chain* (namespace →
-/// module* → type → member), not the bare name, so a project-local
-/// `List` and `System.Collections.Generic.List`1` get different keys by
-/// construction. Keyed on the open generic *definition* (a `TypeKey`'s `Name`
-/// includes the `` `arity `` suffix); instantiation is the cheap per-use substitution.
-///
-/// The home ASSEMBLY is deliberately NOT here. Identity is nominal; the assembly is a
-/// physical location. Within one compilation a fully-qualified name names at most one
-/// type, and no lookup anywhere disambiguates on the assembly — so a key minted from a
-/// bare compiled name (which is all ten of the string-fed mint sites have) compares
-/// equal to one minted from a fully resolved shape, by construction rather than by
-/// assertion. Where a backend genuinely needs the physical home (an `AssemblyRef`
-/// scope, a JS import path) it reads `SymbolOrigin.Assembly` off the resolved shape.
-///
-/// There is deliberately NO `Module` case: a module appears only in HOLDER position.
-/// A standalone module symbol has no reader (`OpenScope` is kind-blind by design).
-///
-/// The type IR's NOMINAL heads (`SemType.TyClass/TyRecord/TyUnion/TyEnum` and their
-/// `FrozenType` mirrors) do NOT carry a `SymbolKey` — a nominal head is ALWAYS a type, so
-/// they carry the narrow `TypeKey` and no consumer re-narrows at run time.
-[<RequireQualifiedAccess>]
-type SymbolKey =
-    | Type of TypeKey
-    | Binding of BindingKey
-    | Member of MemberKey
-
 /// A key's name AS SHOWN TO A HUMAN — the result of `SymbolKeyOps.simpleName`, which
 /// drops the containment chain and the generic arity. A LOSSY projection OUT of an
 /// identity, and never a route back INTO one: nothing mints a key from it, and no table
@@ -671,12 +587,83 @@ type LiteralConst =
         | LiteralConst.String _ -> "string"
         | LiteralConst.Int _ -> "int"
 
-    /// The one literal SPELLING (`"GET"` quoted, `42` bare) — shared by
-    /// diagnostics and the overload-identity argSig so the two can never drift.
+    /// The one literal SPELLING (`"GET"` quoted, `42` bare) — the human-facing form
+    /// for diagnostics (`InferApp`'s allowed-literal message). Overload identity no
+    /// longer renders: a `MemberKey` argSig interns the `FTLiteral` structurally.
     member this.Render: string =
         match this with
         | LiteralConst.String s -> "\"" + s + "\""
         | LiteralConst.Int n -> string n
+
+/// A member on a type. `Decl` is a `TypeKey` — the whole point of the reshape: the
+/// three `failwithf "declaring key is not a TypeKey"` runtime checks
+/// `ClrExternalMembers` used to carry were the type system's absence, hand-rolled.
+///
+/// `ArgSig` is the member's value-parameter signature as `FrozenType`s, written in the
+/// declaring type's OPEN typars (`FTTypar(Declaring, i)`, never an instantiation — so a
+/// key minted from a `C<int>` use site equals one minted from the open declaration). It
+/// is the STRUCTURAL, value-equal form that makes a `MemberKey` a TOTAL overload identity:
+/// it disambiguates overloads by argument TYPE (`GetHashCode()` vs `GetHashCode(!0)`,
+/// `M(x:int)` vs `M(x:string)` vs `M(x:'T)`), not a lossy display string. `MethodTyparArity`
+/// is the member's OWN generic arity (`M<'a>()` vs `M<'a,'b>()` — identical empty `ArgSig`,
+/// distinct overloads), the second identity axis. Together with `Decl`/`Name`/`Kind` this
+/// is the complete identity: the declaring type's own generic arity rides `Decl`
+/// (`TypeKey.Name`'s `` `n `` suffix) and the return type is NOT an axis
+/// (return-type-only overloading is illegal). `EqArray` (not `list`) so the containing
+/// `SymbolKey` keeps the structural `=` interning relies on.
+type MemberKey =
+    {
+        Decl: TypeKey
+        Name: string
+        ArgSig: EqArray<FrozenType>
+        MethodTyparArity: int
+        Kind: MemberKind
+    }
+
+/// What kind of member a `MemberKey` denotes. `Method` and `Property` are the
+/// today-resolvable shapes; `InterfaceMethod` and `ExplicitInterfaceImpl` land their
+/// consumers with interface conformance + `(this :> iface).M()` syntax.
+and [<RequireQualifiedAccess>] MemberKind =
+    | Method
+    | Property
+    /// An abstract method on an interface; `iface` is the declaring interface's
+    /// `TypeKey`. Distinct from `Method` so a call site can resolve
+    /// the right vtable slot when several interfaces inherit a like-named
+    /// method (`IEnumerable<'T>::GetEnumerator()` vs
+    /// `IEnumerable::GetEnumerator()`).
+    | InterfaceMethod of iface: TypeKey
+    /// An explicit interface implementation on a class:
+    /// `Set<'T>::System.Collections.IEnumerable.GetEnumerator`. `iface` pins
+    /// which interface's slot is being overridden, the token codegen needs to
+    /// emit the `.override` row.
+    | ExplicitInterfaceImpl of iface: TypeKey
+
+/// Platform-agnostic, scope-unambiguous symbol identity. Strings + containment —
+/// never a CLR `EntityHandle` or `System.Type` (those are per-context and
+/// target-specific). The discriminator is the *containment chain* (namespace →
+/// module* → type → member), not the bare name, so a project-local
+/// `List` and `System.Collections.Generic.List`1` get different keys by
+/// construction. Keyed on the open generic *definition* (a `TypeKey`'s `Name`
+/// includes the `` `arity `` suffix); instantiation is the cheap per-use substitution.
+///
+/// The home ASSEMBLY is deliberately NOT here. Identity is nominal; the assembly is a
+/// physical location. Within one compilation a fully-qualified name names at most one
+/// type, and no lookup anywhere disambiguates on the assembly — so a key minted from a
+/// bare compiled name (which is all ten of the string-fed mint sites have) compares
+/// equal to one minted from a fully resolved shape, by construction rather than by
+/// assertion. Where a backend genuinely needs the physical home (an `AssemblyRef`
+/// scope, a JS import path) it reads `SymbolOrigin.Assembly` off the resolved shape.
+///
+/// There is deliberately NO `Module` case: a module appears only in HOLDER position.
+/// A standalone module symbol has no reader (`OpenScope` is kind-blind by design).
+///
+/// The type IR's NOMINAL heads (`SemType.TyClass/TyRecord/TyUnion/TyEnum` and their
+/// `FrozenType` mirrors) do NOT carry a `SymbolKey` — a nominal head is ALWAYS a type, so
+/// they carry the narrow `TypeKey` and no consumer re-narrows at run time.
+and [<RequireQualifiedAccess>] SymbolKey =
+    | Type of TypeKey
+    | Binding of BindingKey
+    | Member of MemberKey
 
 /// The immutable, *elaborated* type representation — the codomain of `freeze`
 /// and the type the TAST carries into Codegen, distinct from the mutable
@@ -694,7 +681,7 @@ type LiteralConst =
 ///
 /// NOTE (naming): `FrozenType` / `FT*` are
 /// provisional; revisit before the representation is widely consumed.
-type FrozenType =
+and FrozenType =
     /// A nominal constant in two roles (the `SemType.TyConst` declaring-typar
     /// marker role is `FTTypar`): an argless primitive / intrinsic
     /// (`FTConst(RuntimeNames.intKey, [])`) and a generic intrinsic forwarding its args

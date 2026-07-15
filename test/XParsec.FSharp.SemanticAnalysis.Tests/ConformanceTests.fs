@@ -568,7 +568,7 @@ let private mkMember
     (ret: FrozenType)
     : ExternalMember =
     { ExternalMember.OfKey(
-          SymbolKeyOps.memberKeyOf (SymbolKeyOps.qualifiedTypeKeyOfT "C" 0) name EqArray.empty MemberKind.Method
+          SymbolKeyOps.memberKeyOf (SymbolKeyOps.qualifiedTypeKeyOfT "C" 0) name EqArray.empty 0 MemberKind.Method
       ) with
         Signature = mkSignature 0 methodTyparArity parameters ret
         MethodTyparArity = methodTyparArity

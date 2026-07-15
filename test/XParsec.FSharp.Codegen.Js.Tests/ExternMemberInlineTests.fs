@@ -284,20 +284,20 @@ let tests =
 
                 // The finalized keys DISAGREE (the `argSig` axis is what separates them);
                 // never hand-rolled here — the store minted them.
-                let keyOf (paramTy: string) =
+                let keyOf (paramTy: FrozenType) =
                     match
                         overloads
-                        |> Array.tryFind (fun m -> m.Key.ArgSig |> EqArray.toList |> List.exists (fun s -> s = paramTy))
+                        |> Array.tryFind (fun m -> m.Key.ArgSig |> EqArray.toList |> List.contains paramTy)
                     with
                     | Some m -> SymbolKey.Member m.Key
                     | None ->
                         failtestf
-                            "no `Poke` overload over `%s`; argSigs: %A"
+                            "no `Poke` overload over %A; argSigs: %A"
                             paramTy
                             (overloads |> Array.map (fun m -> m.Key))
 
-                let intKey = keyOf "int"
-                let stringKey = keyOf "string"
+                let intKey = keyOf ftInt
+                let stringKey = keyOf ftString
                 Expect.notEqual intKey stringKey "the two overloads intern under distinct keys"
 
                 // Each overload's OWN body, stored under its OWN key.
@@ -347,6 +347,49 @@ let tests =
                         (collapsedKey = intKey || collapsedKey = stringKey)
                         "the collapse picks ONE overload for the whole name"
                 | ValueNone -> failtest "TryLookupMember(widget, Poke) missed"
+            }
+
+            // PRODUCER PIN (structural). Two same-name harvested member signatures that
+            // differ only by parameter TYPE must mint two DISTINCT `MemberKey`s through the
+            // exact logic `SymbolProviders.collectInlineBodies` performs (decl + name + kind
+            // + structural `FrozenType` argSig + method-typar arity). Were they to collapse
+            // to one key — the old `TryLookupMember` best-by-arity round-trip — the second
+            // harvested body would overwrite the first and one call site could never splice.
+            // Pinned STRUCTURALLY (hand-built harvested signatures) rather than via a real
+            // cross-unit declaration because two `(# … #)`-bodied same-name overloads are not
+            // DECLARABLE in one unit today: local member overloading is unrepresentable (the
+            // arity-only local key collides), the deferred follow-on this identity unblocks.
+            test "collectInlineBodies mints distinct keys for two distinct harvested overload signatures" {
+                let declKey = SymbolKeyOps.qualifiedTypeKeyOfT "widget" 0
+
+                // The exact per-member mint `collectInlineBodies` uses.
+                let mintKey (m: Frozen.TTypeMember) : SymbolKey =
+                    let kind =
+                        match m.Kind with
+                        | TMemberKind.Method -> MemberKind.Method
+                        | TMemberKind.Property -> MemberKind.Property
+
+                    SymbolKeyOps.memberKey
+                        declKey
+                        m.Name
+                        (m.Params |> EqArray.map snd)
+                        (GeneralizedTypars.count m.MethodTypeParams)
+                        kind
+
+                let kInt = mintKey (pokeMemberOf "$0 + 1" ftInt)
+                let kStr = mintKey (pokeMemberOf "$0.length" ftString)
+
+                Expect.notEqual kInt kStr "distinct param types mint distinct member keys"
+
+                // Neither overwrites the other in a by-key store — both bodies survive.
+                let byKey =
+                    System.Collections.Generic.Dictionary<SymbolKey, string>(HashIdentity.Structural)
+
+                byKey.[kInt] <- "int-body"
+                byKey.[kStr] <- "string-body"
+                Expect.equal byKey.Count 2 "both harvested bodies are retained under distinct keys"
+                Expect.equal byKey.[kInt] "int-body" "the int overload keeps its own body"
+                Expect.equal byKey.[kStr] "string-body" "the string overload keeps its own body"
             }
 
             // THE end-to-end assertion: front-end the impl `.fs` spelling and run the

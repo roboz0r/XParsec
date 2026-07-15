@@ -66,7 +66,9 @@ module internal TsManifestMembers =
         : ExternalMember list =
         overloadArgSigs ctx mem
         |> List.map (fun (argSig, sg) ->
-            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey mem.Name (EqArray.ofList argSig) kind) with
+            { ExternalMember.OfKey(
+                  SymbolKeyOps.memberKeyOf declKey mem.Name (EqArray.ofList argSig) sg.TypeParams kind
+              ) with
                 IsStatic = mem.Static
                 Signature = signatureOf ctx declTyparArity sg
                 MethodTyparArity = sg.TypeParams
@@ -93,7 +95,7 @@ module internal TsManifestMembers =
                 | None -> unitFrozen
 
             [
-                { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey mem.Name EqArray.empty MemberKind.Property) with
+                { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey mem.Name EqArray.empty 0 MemberKind.Property) with
                     IsStatic = mem.Static
                     Storage = MemberStorage.Property
                     Signature = ExternalSignature.make (declTyparArity, 0, unitFrozen, ret)

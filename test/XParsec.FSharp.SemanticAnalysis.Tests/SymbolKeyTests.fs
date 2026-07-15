@@ -237,6 +237,60 @@ let tests =
             }
         ]
 
+// The two typar axes and the method-arity axis that together make `MemberKey` a TOTAL
+// overload identity. Each case below is a real F# overload set (verified against `dotnet
+// fsi`), so a key that collapsed any one axis would silently intern two distinct overloads
+// under one identity — the exact failure the `FrozenType` argSig + `MethodTyparArity`
+// upgrade removes.
+[<Tests>]
+let memberKeyIdentity =
+    let cKey = SymbolKeyOps.qualifiedTypeKeyOfT "C" 1 // the OPEN `C<'T>`
+    let ftInt: FrozenType = FTConst(RuntimeNames.intKey, EqArray.empty)
+    let declTypar: FrozenType = FTTypar(TyparAxis.Declaring, 0)
+    let methodTypar: FrozenType = FTTypar(TyparAxis.Method, 0)
+
+    let mk (argSig: FrozenType list) (methodTyparArity: int) : MemberKey =
+        SymbolKeyOps.memberKeyOf cKey "M" (EqArray.ofList argSig) methodTyparArity MemberKind.Method
+
+    testList
+        "MemberKey overload identity"
+        [
+            // `M<'a>()` and `M<'a,'b>()` — identical (empty) value-param signature, differing
+            // ONLY in method-typar count — are legal, distinct overloads.
+            test "method-typar ARITY is an identity axis: M<'a>() <> M<'a,'b>()" {
+                Expect.notEqual (mk [] 1) (mk [] 2) "the method-typar arity alone separates them"
+            }
+
+            // On `C<'T>`: `M(x:'T)` (a DECLARING typar), `M<'U>(x:'U)` (a METHOD typar), and
+            // `M(x:int)` (concrete) are three coexisting overloads. A flat string argSig
+            // (`!0`/`!!0`/`int`) is exactly what would collapse the two typar arms; the
+            // structural `FTTypar` axis keeps them apart.
+            test "the FTTypar axis separates declaring / method / concrete param types" {
+                let mDecl = mk [ declTypar ] 0
+                let mMethod = mk [ methodTypar ] 1
+                let mConcrete = mk [ ftInt ] 0
+                Expect.notEqual mDecl mMethod "declaring-typar arg <> method-typar arg"
+                Expect.notEqual mDecl mConcrete "declaring-typar arg <> concrete int arg"
+                Expect.notEqual mMethod mConcrete "method-typar arg <> concrete int arg"
+            }
+
+            // The declaring-type typar indices are over the OPEN `C<'T>`, never a `C<int>`
+            // instantiation — so a member keyed at a `C<int>` use site (whose `'T`-typed param
+            // is STILL `FTTypar(Declaring,0)`, not `int`) equals one keyed from the open
+            // declaration, and never collapses into the concrete-`int` overload.
+            test "argSig is keyed on the OPEN declaring form, not an instantiation" {
+                Expect.equal
+                    (mk [ declTypar ] 0)
+                    (mk [ declTypar ] 0)
+                    "same key from the open declaration and a C<int> use site"
+
+                Expect.notEqual
+                    (mk [ declTypar ] 0)
+                    (mk [ ftInt ] 0)
+                    "the open-typar overload is NOT the concrete-int one"
+            }
+        ]
+
 // The DECLARING containment of a project-local type, as minted by
 // `NameResolutionTypeRegistration.stampLocalTypeKey`. A type declared inside a `module`
 // is held by that module (`TypeHolder.InModule`), not by the namespace the module sits in

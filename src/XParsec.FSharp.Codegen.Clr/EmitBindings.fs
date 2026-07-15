@@ -166,6 +166,7 @@ module EmitBindings =
                         (nominalTypeKey "use-dispose receiver" varTy)
                         "Dispose"
                         EqArray.empty
+                        0
                         MemberKind.Method
                 )
             | Disposal.ViaCapability slot -> emitExternalDispose slot

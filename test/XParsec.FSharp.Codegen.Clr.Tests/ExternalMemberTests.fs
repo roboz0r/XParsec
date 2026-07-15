@@ -108,7 +108,10 @@ let tests =
                             "EqualityComparer`1"
                             "the arity is spelled only when the metadata name is RENDERED"
 
-                        Expect.equal (EqArray.toList argSig) [ "!0" ] "GetHashCode(T) argSig is the declaring typar"
+                        Expect.equal
+                            (EqArray.toList argSig)
+                            [ FrozenType.FTTypar(TyparAxis.Declaring, 0) ]
+                            "GetHashCode(T) argSig is the declaring typar"
                     | other -> failtestf "unexpected GetHashCode key %A" other
 
                     // The `Default` static property — receiver dropped (ValueNone),
@@ -249,7 +252,10 @@ let tests =
                             "EqualityComparer`1"
                             "the arity is spelled only when the metadata name is RENDERED"
 
-                        Expect.equal (EqArray.toList argSig) [ "!0" ] "GetHashCode(T) argSig is the declaring typar"
+                        Expect.equal
+                            (EqArray.toList argSig)
+                            [ FrozenType.FTTypar(TyparAxis.Declaring, 0) ]
+                            "GetHashCode(T) argSig is the declaring typar"
                     | other -> failtestf "unexpected GetHashCode key %A" other
 
                     match inner with

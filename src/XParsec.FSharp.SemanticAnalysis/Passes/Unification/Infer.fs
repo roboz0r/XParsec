@@ -148,7 +148,7 @@ module UnificationInfer =
     /// `ValueNone` only for a compile that names no disposable capability at all.
     and private capabilityDisposeSlot (ctx: PassContext) : SymbolKey voption =
         match ctx.CapabilityIds.Disposable with
-        | ValueSome disp -> ValueSome(SymbolKeyOps.memberKey disp.Key "Dispose" EqArray.empty MemberKind.Method)
+        | ValueSome disp -> ValueSome(SymbolKeyOps.memberKey disp.Key "Dispose" EqArray.empty 0 MemberKind.Method)
         | ValueNone -> ValueNone
 
     /// Resolve the disposal path of a `use` binder of *external* (BCL) type.
@@ -236,7 +236,7 @@ module UnificationInfer =
                 |> Array.exists (fun m -> m.Name = "Dispose" && not m.IsStatic && m.Kind = ClassMemberKind.Method)
 
             if hasDispose then
-                ValueSome(SymbolKeyOps.memberKey info.TypeKey "Dispose" EqArray.empty MemberKind.Method)
+                ValueSome(SymbolKeyOps.memberKey info.TypeKey "Dispose" EqArray.empty 0 MemberKind.Method)
             else
                 ValueNone
         | _ -> ValueNone

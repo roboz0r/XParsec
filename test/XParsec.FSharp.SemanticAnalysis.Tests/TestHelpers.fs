@@ -100,7 +100,7 @@ let mkSignature
 /// `MemberKey`, so `Name` is derived from the key and the two cannot disagree.
 let mkMember (name: string) : ExternalMember =
     { ExternalMember.OfKey(
-          SymbolKeyOps.memberKeyOf (SymbolKeyOps.qualifiedTypeKeyOfT "C" 0) name EqArray.empty MemberKind.Method
+          SymbolKeyOps.memberKeyOf (SymbolKeyOps.qualifiedTypeKeyOfT "C" 0) name EqArray.empty 0 MemberKind.Method
       ) with
         IsStatic = true
         Signature =

@@ -131,6 +131,7 @@ let tests =
                         (SymbolKeyOps.typeKeyOf "Tests" "Widget")
                         "Poke"
                         EqArray.empty
+                        0
                         MemberKind.Method
 
                 cached.TryLookupMemberByKey key |> ignore

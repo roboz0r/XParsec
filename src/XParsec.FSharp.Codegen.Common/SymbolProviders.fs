@@ -105,16 +105,17 @@ module SymbolProviders =
     /// OWNED, not reconstructed, which is what a multi-file unit (no `.fsi` to recover a
     /// name against) needs.
     ///
-    /// The member half is harvested here, and its key is RESOLVED — `TryLookupMember`
-    /// against the same provider stack the consumer uses — because a member's identity
-    /// includes an `argSig` this unit does not own the spelling of. Resolving it ONCE, at
-    /// collection, is what makes the stored key agree with the use-site
-    /// `TExpr.ExternalMember.Key`; hand-rolling a `MemberKey` here would risk a silent
-    /// disagreement. A member whose type the provider does not publish is dropped.
-    let private collectInlineBodies
-        (ctx: PassContext)
-        (tast: Frozen.TastFile)
-        : Frozen.TInlineValue list * Frozen.TInlineValue list =
+    /// The member half is harvested here, and its total `MemberKey` is minted DIRECTLY
+    /// from the frozen member `m`: at freeze `m.Params` are already `FrozenType`s and
+    /// `m.MethodTypeParams` its own generic arity, so the structural, value-equal key is
+    /// in hand with no re-derivation. A name-lookup round-trip (`TryLookupMember`) would
+    /// collapse a same-name overload set to a single best-by-arity pick and lose every
+    /// sibling body — the second harvested body would overwrite the first under one key
+    /// and neither of the others would ever get a body. Because `MemberKey` is now a total
+    /// overload identity there is no rendered `argSig` for producer and use site to
+    /// disagree on; the key `m` mints here is the same one an external entry / use site
+    /// mints from the same frozen signature by construction.
+    let private collectInlineBodies (tast: Frozen.TastFile) : Frozen.TInlineValue list * Frozen.TInlineValue list =
         let values = tast.InlineBodies |> EqArray.toList
 
         let members =
@@ -130,19 +131,20 @@ module SymbolProviders =
                         for m in TTypeKindG.members tdecl.Kind do
                             match harvestMemberBody m with
                             | Some body ->
-                                // The store is addressed by the key the decl already carries.
-                                // Re-deriving one from the rendered name would flatten the
-                                // holder chain (a module-held type comes back namespace-held),
-                                // and buys nothing: the provider projects the key to its own
-                                // index spelling internally.
-                                match ctx.Provider.TryLookupMember(tdecl.Key, m.Name) with
-                                | ValueSome mem ->
-                                    yield
-                                        {
-                                            Key = SymbolKey.Member mem.Key
-                                            Body = body
-                                        }
-                                | ValueNone -> ()
+                                let kind =
+                                    match m.Kind with
+                                    | TMemberKind.Method -> MemberKind.Method
+                                    | TMemberKind.Property -> MemberKind.Property
+
+                                let key =
+                                    SymbolKeyOps.memberKey
+                                        tdecl.TypeKey
+                                        m.Name
+                                        (m.Params |> EqArray.map snd)
+                                        (GeneralizedTypars.count m.MethodTypeParams)
+                                        kind
+
+                                yield { Key = key; Body = body }
                             | None -> ()
                     | _ -> ()
             ]
@@ -195,10 +197,10 @@ module SymbolProviders =
                             // consumer. `manifest.Name` is the home assembly the keys are
                             // rooted at, the same one `ReferencedProject.wrap` stamps onto
                             // the package's symbols, so the two agree by construction.
-                            let ctx, tast =
+                            let _, tast =
                                 Pipeline.analyseWithContextFor manifest.Name provider parsed.Input parsed.Lexed f
 
-                            let values, members = collectInlineBodies ctx tast
+                            let values, members = collectInlineBodies tast
 
                             acc.AddRange values
                             memberAcc.AddRange members

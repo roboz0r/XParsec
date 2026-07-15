@@ -148,13 +148,16 @@ combined with `inherit` or an augmentation block).
 
 **Found while closing 5/6 — not in this review, all real:**
 
-- **The PRODUCER side has the same overload collapse.** `SymbolProviders.collectInlineBodies`
-  (`Codegen.Common/SymbolProviders.fs:138`) interns a harvested member body under a key it
-  gets from `TryLookupMember(tdecl.Key, m.Name)` — the best-by-arity pick. Two same-named
-  `(# … #)`-bodied member overloads therefore intern under ONE key and the second body
-  silently overwrites the first. No correctness in the lookup can recover a body that was
-  never stored. The honest fix is to select off `TryLookupMembers` by the harvested params'
-  `argSigOfParameters` spelling.
+- **The PRODUCER side has the same overload collapse. RESOLVED** — but not by the fix this
+  note proposed (select off `TryLookupMembers` by a rendered `argSigOfParameters` spelling,
+  which keeps a lossy string identity). The root cause was that `MemberKey` was not a total
+  overload identity: its `ArgSig` was a lossy string and a local key filled it with
+  placeholders. `MemberKey.ArgSig` is now `EqArray<FrozenType>` with a `MethodTyparArity` axis
+  — a structural, value-equal identity — so `collectInlineBodies` mints the total key DIRECTLY
+  from the frozen harvested member (`m.Params` are already `FrozenType`), with no
+  `TryLookupMember` round-trip to collapse. Local by-type overload RESOLUTION (declaring two
+  local `(# … #)` overloads at all) remains the deferred follow-on this identity change
+  unblocks; the producer mint is pinned structurally in `ExternMemberInlineTests`.
   (`TestHelpers.mkMember`'s member-keyed-as-a-binding, the other hazard once recorded here, is
   RESOLVED — finding 6's narrowing forced it to a `memberKeyOf` re-key.)
 
