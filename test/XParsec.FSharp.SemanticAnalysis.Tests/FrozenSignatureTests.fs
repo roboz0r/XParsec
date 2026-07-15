@@ -107,13 +107,13 @@ let tests =
                 match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Box")) with
                 | ValueSome(ExternalTypeShape.Record(1, fields, origin)) ->
                     Expect.equal (fields |> Array.map (fun f -> f.Name)) [| "value" |] "Box field names"
-                    Expect.equal origin.Assembly (Some asm) "Box carries home-assembly origin"
+                    Expect.equal origin.Assembly asm "Box carries home-assembly origin"
                 | other -> failtestf "Box did not project as a generic Record: %A" other
 
                 match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Opt")) with
                 | ValueSome(ExternalTypeShape.Union(1, cases, _, origin)) ->
                     Expect.equal (cases |> Array.map (fun c -> c.Name)) [| "Nope"; "Just" |] "Opt case names"
-                    Expect.equal origin.Assembly (Some asm) "Opt carries home-assembly origin"
+                    Expect.equal origin.Assembly asm "Opt carries home-assembly origin"
                 | other -> failtestf "Opt did not project as a generic Union: %A" other
             }
 

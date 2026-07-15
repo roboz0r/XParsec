@@ -91,7 +91,7 @@ let tests =
                         | ValueSome(ExternalTypeShape.Class info) ->
                             Expect.equal
                                 info.Origin.Assembly
-                                (Some "A")
+                                "A"
                                 "the key B minted resolves, through the stack, to a shape homed in package A"
                         | other -> failtestf "the minted key must resolve to A's Box class shape, got %A" other
                     | other -> failtestf "theBox scheme should be an FTClass, got %A" other

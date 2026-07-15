@@ -49,11 +49,11 @@ module CodegenSymbols =
                 match provider.TryLookup name with
                 | ValueNone -> ValueNone
                 | ValueSome sym ->
-                    match sym.Origin.Assembly with
+                    match sym.Origin.Home with
                     // A project-local symbol (no home assembly) the provider never owns:
                     // mirror the old `emitExternalCall` guard and let the caller fall back.
-                    | None -> ValueNone
-                    | Some _ ->
+                    | Origin.Unstamped -> ValueNone
+                    | Origin.InAssembly _ ->
                         let os = Inline.openMethodSignature sym
 
                         ValueSome

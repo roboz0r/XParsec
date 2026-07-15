@@ -41,17 +41,24 @@ module JsExternalMembers =
     /// names no home cannot be imported at all, so it fails loudly rather than emitting a
     /// dangling reference.
     let assemblyOf (provider: IExternalSymbolProvider) (key: SymbolKey) (what: string) : string =
+        // A shape whose home is unstamped names no importable module — the local/external
+        // verdict is already past, so a `ValueNone` here is a real failure, not a fall-back.
+        let homeName (o: SymbolOrigin) : string voption =
+            match o.Home with
+            | Origin.InAssembly a -> ValueSome a.Name
+            | Origin.Unstamped -> ValueNone
+
         let home =
             match provider.TryLookupType key with
             | ValueSome(ExternalTypeShape.Union(_, _, _, o))
             | ValueSome(ExternalTypeShape.Record(_, _, o))
-            | ValueSome(ExternalTypeShape.Enum(_, o)) -> o.Assembly
-            | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Assembly
-            | _ -> None
+            | ValueSome(ExternalTypeShape.Enum(_, o)) -> homeName o
+            | ValueSome(ExternalTypeShape.Class shape) -> homeName shape.Origin
+            | _ -> ValueNone
 
         match home with
-        | Some a -> a
-        | None -> failwithf "EmitJs: %s has no resolvable home assembly (key %A)" what key
+        | ValueSome a -> a
+        | ValueNone -> failwithf "EmitJs: %s has no resolvable home assembly (key %A)" what key
 
     /// The declaring type's `ExternalClassFlags`, resolved through the provider
     /// (`TryLookupType` → `Class` shape → `Flags`) in ONE lookup — the

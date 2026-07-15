@@ -408,12 +408,12 @@ type internal ClrEnv
             | _ -> 0
         | _ -> 0
 
-    let externalAsmRef (asm: string option) : EntityHandle =
-        match asm with
-        | None ->
+    let externalAsmRef (origin: Origin) : EntityHandle =
+        match origin with
+        | Origin.Unstamped ->
             failwith
                 "ClrProvider: an external symbol carries no home assembly (project-local symbols are resolved before the provider)."
-        | Some simpleName ->
+        | Origin.InAssembly(AssemblyName simpleName) ->
             let an =
                 match references.TryFind simpleName with
                 | Some an -> an
@@ -454,7 +454,7 @@ type internal ClrEnv
     let rec externalModuleRef (origin: SymbolOrigin) (m: ModuleKey) : EntityHandle =
         match m.Holder with
         | ModuleHolder.InModule parent -> toEntity (ctx.TypeRef(externalModuleRef origin parent, "", m.Name))
-        | ModuleHolder.InNamespace ns -> toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, ns.Dotted, m.Name))
+        | ModuleHolder.InNamespace ns -> toEntity (ctx.TypeRef(externalAsmRef origin.Home, ns.Dotted, m.Name))
 
     let rec externalClassRef (key: SymbolKey) : EntityHandle voption =
         match lookupTypeByKey key with
@@ -469,7 +469,7 @@ type internal ClrEnv
 
             match key, lookupClassShape key with
             | SymbolKey.Type t, ValueSome info ->
-                let asm = externalAsmRef info.Origin.Assembly
+                let asm = externalAsmRef info.Origin.Home
 
                 // A nested type's `TypeRef` (`List`1+Enumerator`, the duck-typed struct
                 // enumerator) must chain through the enclosing type's `TypeRef` as its
@@ -515,7 +515,12 @@ type internal ClrEnv
     /// `Vesper.Ref`1`) is reconciled once inside `lookupTypeByKey`.
     let externalRecordShape (key: SymbolKey) (arity: int) : (ExternalFieldShape[] * SymbolOrigin) voption =
         match lookupTypeByKey key with
-        | ValueSome(ExternalTypeShape.Record(a, fields, origin)) when a = arity && origin.Assembly.IsSome ->
+        | ValueSome(ExternalTypeShape.Record(a, fields, origin)) when
+            a = arity
+            && (match origin.Home with
+                | Origin.InAssembly _ -> true
+                | Origin.Unstamped -> false)
+            ->
             ValueSome(fields, origin)
         | _ -> ValueNone
 
@@ -530,7 +535,7 @@ type internal ClrEnv
             // suffix, which the key renders from its own `TyparArity`.
             let simple = SymbolKeyOps.typeSegmentName t
 
-            ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, t.Namespace.Dotted, simple)), fields)
+            ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Home, t.Namespace.Dotted, simple)), fields)
         | _ -> ValueNone
 
     /// Referenced-assembly union shape by `SymbolKey` + arity — the mirror of
@@ -538,7 +543,12 @@ type internal ClrEnv
     /// The bare-vs-arity-suffixed registration split is reconciled once inside `lookupTypeByKey`.
     let externalUnionShape (key: SymbolKey) (arity: int) : (ExternalCaseShape[] * SymbolOrigin) voption =
         match lookupTypeByKey key with
-        | ValueSome(ExternalTypeShape.Union(a, cases, _, origin)) when a = arity && origin.Assembly.IsSome ->
+        | ValueSome(ExternalTypeShape.Union(a, cases, _, origin)) when
+            a = arity
+            && (match origin.Home with
+                | Origin.InAssembly _ -> true
+                | Origin.Unstamped -> false)
+            ->
             ValueSome(cases, origin)
         | _ -> ValueNone
 
@@ -547,7 +557,7 @@ type internal ClrEnv
         | SymbolKey.Type t, ValueSome(cases, origin) ->
             let simple = SymbolKeyOps.typeSegmentName t
 
-            ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Assembly, t.Namespace.Dotted, simple)), cases)
+            ValueSome(toEntity (ctx.TypeRef(externalAsmRef origin.Home, t.Namespace.Dotted, simple)), cases)
         | _ -> ValueNone
 
     // While encoding a closure's own members (Invoke / .ctor /

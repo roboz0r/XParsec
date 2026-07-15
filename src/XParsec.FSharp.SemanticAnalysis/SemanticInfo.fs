@@ -20,25 +20,44 @@ type AssemblyName =
 /// qualified name names at most one type. The assembly is a *function of* the identity,
 /// carried on the resolved SHAPE (`SymbolOrigin`) and consulted only where a backend
 /// needs a physical location (a CLR `AssemblyRef` scope, a JS import path).
-/// `Local` is the compilation being analysed, plus the front-end-only / contract-scrape
-/// paths that have no home assembly at all.
+/// `Unstamped` is the "no home / placeholder" state: the compilation being analysed,
+/// plus the front-end-only / contract-scrape paths that have no home assembly at all,
+/// and the pre-stamp placeholder a stamping wrapper (`ExternalSymbolProviders.stack`,
+/// `ReferencedProject.wrap`) overwrites before the shape reaches a backend.
 [<RequireQualifiedAccess>]
 type Origin =
-    | Local
+    | Unstamped
     | InAssembly of asm: AssemblyName
 
-    /// The home-assembly `option` this `Origin` denotes — the shape codegen's
-    /// local-vs-external branch reads.
-    member this.AsmOption: string option =
+    /// The home assembly's simple name. TOTAL only on a stamped origin: an `Unstamped`
+    /// origin has no home, so asking for one is a bug — the stamping wrapper must
+    /// overwrite it first. The throw makes that contract loud rather than papering it
+    /// over with a `None` a consumer silently swallows.
+    member this.Assembly: string =
         match this with
-        | Origin.Local -> None
-        | Origin.InAssembly a -> Some a.Name
+        | Origin.Unstamped ->
+            failwith
+                "SymbolOrigin: asked for the assembly of an unstamped origin (the stamping wrapper must overwrite it first)"
+        | Origin.InAssembly a -> a.Name
 
-    /// `None` ⇒ `Local`; `Some name` ⇒ `InAssembly`. The single home for the rule.
-    static member OfOption(asm: string option) : Origin =
-        match asm with
-        | None -> Origin.Local
-        | Some a -> Origin.InAssembly(AssemblyName a)
+/// A standalone utility (wired to NOTHING in the compile chain) for a caller that holds
+/// a genuinely anonymous origin and wants a stable, deterministic name for it.
+module AnonymousOrigin =
+    /// Deterministic, collision-resistant assembly name from arbitrary content.
+    /// NOT called anywhere in the compile chain — a utility a caller with a genuinely
+    /// anonymous origin opts into for a stable name. The `$anon.` prefix guarantees no
+    /// clash with a real assembly/module name (a real assembly simple name never begins
+    /// with `$`; cf. the `@struct` synthetic home in `TsManifestTypes`).
+    let nameOfContent (content: string) : AssemblyName =
+        // FNV-1a over the UTF-8 bytes — a stable, non-cryptographic content hash that,
+        // unlike `String.GetHashCode`, is identical across runs, processes and platforms.
+        let mutable h = 0xcbf29ce484222325UL
+        let bytes = System.Text.Encoding.UTF8.GetBytes content
+
+        for b in bytes do
+            h <- (h ^^^ uint64 b) * 0x100000001b3UL
+
+        AssemblyName(sprintf "$anon.%016x" h)
 
 /// A namespace — the root holder. `Path` is SEGMENTED (`["System"; "Collections"]`),
 /// never a dotted string: the prefix relations the codebase needs (`StartsWith(ns + ".")`)
@@ -310,14 +329,16 @@ type SymbolOrigin =
     }
 
     /// The home-assembly simple name keyed into a `ProjectInfo`'s resolved reference
-    /// set; `None` ⇒ defined in the project being compiled.
-    member this.Assembly: string option = this.Home.AsmOption
+    /// set. TOTAL only on a stamped origin — throws on an `Unstamped` home. A consumer
+    /// that needs the local-vs-external distinction matches `this.Home` cases
+    /// (`Origin.Unstamped` vs `Origin.InAssembly`), never a nullable.
+    member this.Assembly: string = this.Home.Assembly
 
     /// The default carried by symbols that don't (yet) record an origin —
-    /// project-local, global namespace.
+    /// project-local / pre-stamp placeholder, global namespace.
     static member Empty =
         {
-            Home = Origin.Local
+            Home = Origin.Unstamped
             Namespace = NamespaceKey.Global
         }
 

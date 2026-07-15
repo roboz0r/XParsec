@@ -46,7 +46,7 @@ type JsValueRef =
         /// `ValueNone` for a node the front end left unkeyed: `addRef` has nothing to
         /// import and fails loudly.
         Key: SymbolKey voption
-        /// The home module the export is imported from. `Origin.Local` is unimportable.
+        /// The home module the export is imported from. `Origin.Unstamped` is unimportable.
         Home: Origin
         Form: ImportForm
     }
@@ -108,7 +108,7 @@ module JsImports =
     /// collision-free). Fails loudly for a package with no authored runtime module.
     let addRef (imports: JsImports) (compiledName: string) (ref: JsValueRef) : string =
         // An external value is a BINDING whose resolved shape names a home module. A
-        // project-local binding (`Origin.Local`) has no module to import from, so it is
+        // project-local binding (`Origin.Unstamped`) has no module to import from, so it is
         // unsupported here — the same error a non-binding key gets, stated once.
         let unsupported () =
             failwithf "JS codegen: unsupported external value '%s' (key %A)" compiledName ref.Key
@@ -119,7 +119,7 @@ module JsImports =
             | _ -> unsupported ()
 
         match ref.Home with
-        | Origin.Local -> unsupported ()
+        | Origin.Unstamped -> unsupported ()
         // A GLOBAL pack's export (its home is a `TsGlobalHomes.isGlobalHome`) is
         // provided by the JS runtime intrinsically: emit its BARE export name, record
         // NO import. Global rides the HOME, so this is decided by the resolved shape's

@@ -345,7 +345,13 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
     /// the key.
     let originOf (t: Type) : SymbolOrigin =
         {
-            Home = Origin.OfOption(t.Assembly.GetName().Name |> Option.ofObj)
+            // A reflected type always has a home assembly; a null simple name is
+            // pathological (a nameless dynamic assembly), so fail loudly rather than
+            // fabricate one — nothing downstream can import from a nameless home.
+            Home =
+                match t.Assembly.GetName().Name with
+                | null -> failwithf "MetadataSymbols: reflected type '%s' has a null assembly simple name" t.FullName
+                | name -> Origin.InAssembly(AssemblyName name)
             Namespace =
                 SymbolKeyOps.namespaceKey (
                     match t.Namespace with

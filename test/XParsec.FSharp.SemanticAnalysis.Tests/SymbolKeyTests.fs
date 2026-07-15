@@ -235,6 +235,28 @@ let tests =
                     "f"
                     "qualifiedName drops the empty holder rather than emitting a leading dot"
             }
+
+            // `Origin.Assembly` is TOTAL only on a stamped origin. An `Unstamped` origin has
+            // no home, so asking for one is a contract violation the accessor makes LOUD —
+            // the stamping wrapper must overwrite it first. This pins that throw so a future
+            // change that silently returned a placeholder would break the test.
+            test "an unstamped origin throws when asked for its assembly" {
+                Expect.throws
+                    (fun () -> Origin.Unstamped.Assembly |> ignore)
+                    "Origin.Unstamped has no home assembly"
+
+                let unstamped = SymbolOrigin.Empty
+
+                Expect.throws
+                    (fun () -> unstamped.Assembly |> ignore)
+                    "SymbolOrigin.Empty is unstamped, so its assembly is unaskable"
+
+                // ...but a stamped origin answers plainly.
+                Expect.equal
+                    (Origin.InAssembly(AssemblyName "Vesper.Core")).Assembly
+                    "Vesper.Core"
+                    "a stamped origin returns its home assembly name"
+            }
         ]
 
 // The two typar axes and the method-arity axis that together make `MemberKey` a TOTAL

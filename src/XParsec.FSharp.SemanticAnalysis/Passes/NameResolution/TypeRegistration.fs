@@ -213,11 +213,18 @@ module NameResolutionTypeRegistration =
     ///     own), and an `Opaque` refuses to become a `SemType` at all. If `Abbrev` ever
     ///     learns its origin, it becomes a competing claim here.
     let private externalClaimant (shape: ExternalTypeShape) : string option =
+        // A stamped home is a claim (its assembly name); an unstamped home makes none —
+        // matched off the `Origin` cases, never a nullable read of `.Assembly`.
+        let homeName (o: SymbolOrigin) : string option =
+            match o.Home with
+            | Origin.InAssembly a -> Some a.Name
+            | Origin.Unstamped -> None
+
         match shape with
-        | ExternalTypeShape.Class info -> info.Origin.Assembly
+        | ExternalTypeShape.Class info -> homeName info.Origin
         | ExternalTypeShape.Record(origin = o)
         | ExternalTypeShape.Union(origin = o)
-        | ExternalTypeShape.Enum(origin = o) -> o.Assembly
+        | ExternalTypeShape.Enum(origin = o) -> homeName o
         | ExternalTypeShape.Intrinsic _
         | ExternalTypeShape.IntrinsicInterface _
         | ExternalTypeShape.Abbrev _

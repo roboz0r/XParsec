@@ -83,12 +83,10 @@ module FrozenSignature =
     /// provider view. `assemblyName` is this unit's home assembly — a file-N entity is
     /// the same assembly as N+1, so it rides every entry's `Origin`.
     let toProvider (assemblyName: string) (frozen: Frozen.TastFile) : IExternalSymbolProvider =
-        // Home origin for an entity in namespace `ns`. `Assembly = Some assemblyName`
-        // (the `string option` the type carries today; a `Some name` is forward-
-        // compatible with the later narrowing to a required `string`).
+        // Home origin for an entity in namespace `ns`: this frozen signature's assembly.
         let originIn (ns: NamespaceKey) : SymbolOrigin =
             {
-                Home = Origin.OfOption(Some assemblyName)
+                Home = Origin.InAssembly(AssemblyName assemblyName)
                 Namespace = ns
             }
 

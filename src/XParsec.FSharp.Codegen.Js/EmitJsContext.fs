@@ -190,9 +190,10 @@ module EmitJsContext =
                 // The shape the provider resolved is what knows WHERE the union lives —
                 // the key names only WHAT it is.
                 let home =
-                    match origin.Assembly with
-                    | Some asm -> ValueSome asm
-                    | None -> failwithf "EmitJs: external union '%s' has no home assembly (key %A)" baseName key
+                    match origin.Home with
+                    | Origin.InAssembly a -> ValueSome a.Name
+                    | Origin.Unstamped ->
+                        failwithf "EmitJs: external union '%s' has no home assembly (key %A)" baseName key
 
                 let info, _ =
                     buildUnionInfo home baseName [ for c in cases -> c.Name, List.ofArray c.FieldNames ]
@@ -362,7 +363,7 @@ module EmitJsContext =
         | ValueNone ->
             {
                 Key = key
-                Home = Origin.Local
+                Home = Origin.Unstamped
                 Form = ImportForm.Named
             }
 
