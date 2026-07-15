@@ -245,6 +245,12 @@ values and curried/tupled/mixed functions). Outstanding:
   *invokes* a function-valued external rather than requiring `ValRepr` groups. Add a
   point-free case to the parity matrix once the model is fixed (it is deliberately
   absent now — it would assert the wrong thing until this is settled).
+  **RESOLVED (arity-0 model accepted):** a point-free binding is a function-valued
+  property (arity 0), matching F#'s `ValReprInfo`. Step-B work: make the `.fsi`
+  extractor stop over-stating arity for point-free sigs so extractor / frozen /
+  DLL-metadata agree on arity-0, and ensure codegen's external-call path *invokes* a
+  function-valued external rather than requiring `ValRepr` groups. Add the point-free
+  parity case then.
 - **Projection coverage boundaries (fail-safe, close when the corpus needs them):**
   union-case `IsRequireQualifiedAccess` is hardcoded `false` (RQA union cases resolve
   bare — over-lenient); enum types are left unregistered (consumer falls back to nominal
