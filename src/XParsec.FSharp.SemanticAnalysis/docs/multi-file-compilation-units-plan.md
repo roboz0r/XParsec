@@ -228,6 +228,32 @@ ever consulted for the owning unit's own bodies, so they never flatten (constrai
   dependency analysis; a pure optimization over the linear model. The parallel-able DAG
   already exists at *package* granularity.
 
+## Known open items from 0b+A (resolve before Step B consumes the projection)
+
+The freeze side tables + `FrozenSignature.toProvider` projection landed correct for
+*saturated* bindings (parity with the `.fsi` extractor is tested for mono/generic
+values and curried/tupled/mixed functions). Outstanding:
+
+- **Point-free / eta-reduced ValRepr (OPEN SEMANTIC QUESTION).** A binding with no
+  syntactic lambda spine (`let compose = f >> g`) freezes to `ValRepr = ValueNone`
+  (arity-0), because `peelValRepr` reads syntactic lambdas, not the type. This likely
+  MATCHES F#'s `ValReprInfo` rule (arity comes from written parameters, so a point-free
+  module binding compiles to a function-typed property, arity 0) — meaning the current
+  behavior may be right and the `.fsi` extractor's full-arity reconstruction is the
+  over-stater. Resolution: decide the point-free arity model, make extractor / frozen /
+  DLL-metadata agree (probably arity-0), and ensure codegen's external-call path
+  *invokes* a function-valued external rather than requiring `ValRepr` groups. Add a
+  point-free case to the parity matrix once the model is fixed (it is deliberately
+  absent now — it would assert the wrong thing until this is settled).
+- **Projection coverage boundaries (fail-safe, close when the corpus needs them):**
+  union-case `IsRequireQualifiedAccess` is hardcoded `false` (RQA union cases resolve
+  bare — over-lenient); enum types are left unregistered (consumer falls back to nominal
+  `TyConst`); interface member surfaces publish name/arity but not decurried members;
+  member-level accessibility is not captured (a `member private` leaks — the `.fsi`
+  extractor is public-only here). All over-export / over-accept — safe for resolution,
+  never a miscompile. Each closes when the cross-file VesperCore corpus actually
+  references it.
+
 ## To verify during implementation
 
 - Enumerate the exact provider methods each resolution/codegen call site hits for a

@@ -295,4 +295,38 @@ module Freeze =
                 Diagnostics = List.ofSeq ctx.Diagnostics
             }
 
-        TastConvert.file (freezeTy (schemeBinders ctx)) frozen
+        let converted = TastConvert.file (freezeTy (schemeBinders ctx)) frozen
+
+        // The SOURCE `ValRepr` grouping, computed now the lambda spine is FROZEN
+        // (`peelValRepr`) — backend-neutral, read by both the codegen boundary and
+        // the file→file signature projection so neither recomputes it. A module
+        // function's spine survives in `Decls`; an inline binding's rides
+        // `InlineBodies` (Freeze partitioned it out of `Decls`). A plain value has no
+        // lambda groups and records an empty-`Groups` entry — the projection reads
+        // that as "not a function" (`ExternalSymbol.ValRepr = ValueNone`).
+        let bindingValReprs =
+            let d = System.Collections.Generic.Dictionary<NodeKey, Frozen.ValRepr>()
+
+            let record (k: NodeKey) (value: Frozen.TExpr) =
+                let typars =
+                    match Map.tryFind k converted.BindingTyparArities with
+                    | Some n -> n
+                    | None -> 0
+
+                d.[k] <- fst (TastLower.valReprOf typars value)
+
+            for decl in converted.Decls do
+                match decl with
+                | Frozen.TDecl.Let(Frozen.TPat.NamedSimple(k, _, _), value, _, _) -> record k value
+                | _ -> ()
+
+            for iv in converted.InlineBodies do
+                match iv.Body.Decl with
+                | Frozen.TDecl.Let(Frozen.TPat.NamedSimple(k, _, _), value, _, _) -> record k value
+                | _ -> ()
+
+            d |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq
+
+        { converted with
+            BindingValReprs = bindingValReprs
+        }

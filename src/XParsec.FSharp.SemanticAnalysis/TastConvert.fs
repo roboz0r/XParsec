@@ -305,6 +305,19 @@ module TastConvert =
             ParamAttrs = ib.ParamAttrs
         }
 
+    let argGroup (f: 'a -> 'b) (g: ArgGroupG<'a, 'tok>) : ArgGroupG<'b, 'tok> =
+        match g with
+        | ArgGroupG.GUnit ty -> ArgGroupG.GUnit(f ty)
+        | ArgGroupG.GSimple(slot, ty) -> ArgGroupG.GSimple(slot, f ty)
+        | ArgGroupG.GTuple p -> ArgGroupG.GTuple(pat f p)
+
+    let valRepr (f: 'a -> 'b) (vr: ValReprG<'a, 'tok>) : ValReprG<'b, 'tok> =
+        {
+            Typars = vr.Typars
+            Groups = vr.Groups |> List.map (argGroup f)
+            ResultTy = f vr.ResultTy
+        }
+
     let inlineValue (f: 'a -> 'b) (iv: TInlineValueG<'a, 'tok>) : TInlineValueG<'b, 'tok> =
         {
             Key = iv.Key
@@ -325,4 +338,11 @@ module TastConvert =
             ClosureReprs = tf.ClosureReprs
             FunVerdicts = tf.FunVerdicts
             GenericFnSchemes = tf.GenericFnSchemes
+            // `'ty`-free snapshot fields carried verbatim, like `IntrinsicReprKeys`.
+            Accessibility = tf.Accessibility
+            BindingTyparArities = tf.BindingTyparArities
+            // Generic in `'ty`; converted per-entry. Empty pre-freeze (`Freeze.run`
+            // fills the frozen table from the frozen lambda spines), so this is an
+            // identity on the empty map on the one path that runs it.
+            BindingValReprs = tf.BindingValReprs |> Map.map (fun _ vr -> valRepr f vr)
         }

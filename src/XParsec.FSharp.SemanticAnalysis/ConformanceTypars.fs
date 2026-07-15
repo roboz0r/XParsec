@@ -72,10 +72,19 @@ module ConformanceTypars =
     /// `FTTypar(Method, i)` denote the same single axis. Normalizing both lets a
     /// structural equality line the positions up. (A module-level binding can never
     /// reference a real declaring-type typar, so this conflates nothing.)
-    let rec normAxis (t: FrozenType) : FrozenType =
+    let rec normAxisTo (axis: TyparAxis) (t: FrozenType) : FrozenType =
         match t with
-        | FTTypar(_, i) -> FTTypar(TyparAxis.Method, i)
-        | t -> FrozenType.mapChildren normAxis t
+        | FTTypar(_, i) -> FTTypar(axis, i)
+        | t -> FrozenType.mapChildren (normAxisTo axis) t
+
+    let normAxis (t: FrozenType) : FrozenType = normAxisTo TyparAxis.Method t
+
+    /// Land a FREE value/function's single typar axis on `Declaring` — the axis
+    /// `ExternalSymbol.Scheme` / `instantiateDeclaring` require. The frozen→provider
+    /// projection remaps a module binding's `FTTypar(Method, i)` here: a module
+    /// binding has no enclosing generic type, so every typar it carries IS that one
+    /// axis, and `Declaring` is the convention every provider scheme speaks.
+    let toDeclaringAxis (t: FrozenType) : FrozenType = normAxisTo TyparAxis.Declaring t
 
     /// True iff the `.fsi`-declared and `.fs`-inferred schemes are α-equivalent WITH
     /// typar order. Because `FTTypar` is positional (its index IS the quantification

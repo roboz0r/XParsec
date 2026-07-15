@@ -24,6 +24,33 @@ module Elaborate =
     // A declaring-type typar becomes a `TyConst "'A"` marker the backend's
     // typar encoder maps to a generic-parameter index.
 
+    /// Classify a CST accessibility keyword token (`private` / `internal` /
+    /// `public`, or its absence) into the token-free `Accessibility`. An unmarked
+    /// declaration is `Public` — the F# default. The impl-side CST carries the bare
+    /// keyword token (`SyntaxToken voption`); its `.Token` discriminates.
+    let private accessibilityOfToken (tok: SyntaxToken voption) : Accessibility =
+        match tok with
+        | ValueSome t when t.Token = Token.KWPrivate -> Accessibility.Private
+        | ValueSome t when t.Token = Token.KWInternal -> Accessibility.Internal
+        | _ -> Accessibility.Public
+
+    /// The declared `access` keyword token of a `type` definition, off its
+    /// `TypeName`. Every `TypeName`-headed `TypeDefn` variant carries it; the
+    /// remainder (a bare delegate/exception form) reports absence (⇒ `Public`).
+    let private typeDefnAccessToken (td: TypeDefn<SyntaxToken>) : SyntaxToken voption =
+        let ofTn (TypeName(_, access, _, _, _, _)) = access
+
+        match td with
+        | TypeDefn.Anon(typeName = tn)
+        | TypeDefn.Interface(typeName = tn)
+        | TypeDefn.Class(typeName = tn)
+        | TypeDefn.Struct(typeName = tn)
+        | TypeDefn.Union(typeName = tn)
+        | TypeDefn.Record(typeName = tn)
+        | TypeDefn.Enum(typeName = tn)
+        | TypeDefn.Abbrev(typeName = tn) -> ofTn tn
+        | _ -> ValueNone
+
     /// The `i`-th curried parameter of an elaborated `let`-body (a nest of
     /// `Lambda`s): its binder `NodeKey` and the lambda's body (the parameter's
     /// scope). `ValueNone` if the body has fewer than `i+1` lambdas, or the
@@ -1810,7 +1837,12 @@ module Elaborate =
                             // The holder is the containment chain itself, so the binding's
                             // `SymbolKey` is a direct construction downstream
                             // (`ModuleBindingInfo.Key`), never a dotted-string re-parse.
-                            ctx.Bindings.ModuleMembers.[CstKeys.ofBinding b] <- { Holder = h; Name = compiledNm }
+                            let info: ModuleBindingInfo = { Holder = h; Name = compiledNm }
+                            ctx.Bindings.ModuleMembers.[CstKeys.ofBinding b] <- info
+                            // Capture the binding's declared accessibility under its own
+                            // `SymbolKey` (honestly — the file→file projection thresholds
+                            // it internal-or-better, the `.fsi` extractor public-only).
+                            ctx.Bindings.Accessibility.[info.Key] <- accessibilityOfToken b.access
                         | ValueNone -> ()
                     // A top-level (implicit-Program-module) binding records no
                     // `ModuleBindingInfo`; stash its source name so the backend can
@@ -1891,6 +1923,12 @@ module Elaborate =
                     // call-site phantom-typar solve (`EmitCall`).
                     recordGenericFnScheme ctx b quantEnv
 
+                    // Record the binding's typar-axis WIDTH at this single index-minting
+                    // point (`quantEnv` IS the method-axis order), keyed the same as
+                    // `ModuleMembers` (the TPat binder key = `CstKeys.ofBinding b`). The
+                    // frozen→provider projection reads it for `ExternalSymbol.TyparArity`.
+                    ctx.Bindings.BindingTyparArities.[CstKeys.ofBinding b] <- List.length quantEnv
+
                     // Drop an E1 format-literal alias binding (`let fmt : Format<…> =
                     // "%d"`): its value froze to a `New PrintfFormat` that is dead —
                     // every use const-propagates the literal (`PrintfFormatLiterals`),
@@ -1903,7 +1941,18 @@ module Elaborate =
         | ModuleElem.Expression e ->
             let eT = translateExpr ctx e
             [ TDecl.Expression(eT, typeOfKey ctx (CstKeys.ofExpr e)), [] ]
-        | ModuleElem.Type defs -> defs |> Seq.choose (tryTypeDecl ctx c) |> List.ofSeq
+        | ModuleElem.Type defs ->
+            [
+                for td in defs do
+                    match tryTypeDecl ctx c td with
+                    | Some((TDecl.Type tdecl, _) as result) ->
+                        // Capture the type's declared accessibility under its own key,
+                        // so the file→file projection can drop a `type private T`.
+                        ctx.Bindings.Accessibility.[SymbolKey.Type tdecl.TypeKey] <- accessibilityOfToken (typeDefnAccessToken td)
+                        yield result
+                    | Some result -> yield result
+                    | None -> ()
+            ]
         | _ -> []
 
     /// The first half of the split Elaborate pass: translate
@@ -1996,6 +2045,17 @@ module Elaborate =
             // minted in this pass. Read by the call-site phantom-typar solve.
             GenericFnSchemes =
                 ctx.GenericFnSchemes.AsDictionary()
+                |> Seq.map (fun kv -> kv.Key, kv.Value)
+                |> Map.ofSeq
+            // The captured accessibility fact, snapshotted like `IntrinsicReprKeys`.
+            Accessibility =
+                System.Collections.Generic.Dictionary(ctx.Bindings.Accessibility)
+                :> System.Collections.Generic.IReadOnlyDictionary<_, _>
+            // The `ValRepr` grouping is a FREEZE product (it reads the frozen lambda
+            // spine) — empty here, filled by `Freeze.run`.
+            BindingValReprs = Map.empty
+            BindingTyparArities =
+                ctx.Bindings.BindingTyparArities
                 |> Seq.map (fun kv -> kv.Key, kv.Value)
                 |> Map.ofSeq
         }

@@ -21,6 +21,7 @@
     <Compile Include="FrozenTypeTests.fs" />
     <Compile Include="MkUnionTests.fs" />
     <Compile Include="ExternalSignatureOracleTests.fs" />
+    <Compile Include="FrozenSignatureTests.fs" />
     <Compile Include="ExpansionTests.fs" />
     <Compile Include="CoverageTests.fs" />
     <Compile Include="GeneralisationTests.fs" />

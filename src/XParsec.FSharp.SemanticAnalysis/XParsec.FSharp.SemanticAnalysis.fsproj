@@ -37,6 +37,7 @@
     <Compile Include="ReferencedProject.fs" />
     <Compile Include="ConformancePass.fs" />
     <Compile Include="ConformanceTypars.fs" />
+    <Compile Include="FrozenSignature.fs" />
     <Compile Include="Intrinsics.fs" />
     <Compile Include="TypeInfos.fs" />
     <Compile Include="TypeRegistry.fs" />

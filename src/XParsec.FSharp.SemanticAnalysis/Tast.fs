@@ -1078,6 +1078,29 @@ type TastFileG<'ty, 'tok> =
         ///
         /// EMPTY pre-freeze: the SemType tree still carries the templates in `Decls`.
         InlineBodies: EqArray<TInlineValueG<'ty, 'tok>>
+        /// Declared accessibility of each EXPORTED entity (type / member / module
+        /// value / inline value), keyed by its `SymbolKey`. Stored HONESTLY (not
+        /// pre-thresholded): the file→file projection applies internal-or-better, the
+        /// `.fsi` extractor public-only, over the SAME fact. Captured by `Elaborate`
+        /// from the CST `access` tokens. A key ABSENT here is `Public` (the F# default
+        /// for an unmarked declaration). `SymbolKey`-keyed and `'ty`-free — carried
+        /// verbatim across the freeze, modeled on `IntrinsicReprKeys`.
+        Accessibility: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, Accessibility>
+        /// A module binding's SOURCE `ValRepr` (curried / tupled group structure),
+        /// keyed by the binding's headPat `NodeKey`. Computed UPSTREAM at FREEZE
+        /// (`TastLower.peelValRepr`, while the lambda spine is intact) — backend-neutral,
+        /// so the codegen boundary and the file→file signature projection read ONE
+        /// grouping. A value (no lambda groups) records an empty-`Groups` entry, which
+        /// the projection reads as "not a function" (`ExternalSymbol.ValRepr = ValueNone`).
+        /// EMPTY pre-freeze — `Freeze.run` fills it. Lives here, not on
+        /// `ModuleBindingInfo`, because `ValReprG` is defined in this file (a
+        /// compile-order wall: `ModuleBindingInfo` in `SideTypes.fs` precedes it).
+        BindingValReprs: Map<NodeKey, ValReprG<'ty, 'tok>>
+        /// A module binding's single value/function typar-axis width, minted where the
+        /// method-axis indices are minted (`Elaborate.mkMethodQuantEnv`). Keyed by the
+        /// binding's headPat `NodeKey`; the projection reads it for
+        /// `ExternalSymbol.TyparArity` and to size each binding's frozen `ValRepr`.
+        BindingTyparArities: Map<NodeKey, int>
     }
 
 // Central monomorphic SemType aliases. Every consumer today speaks `SemType`;

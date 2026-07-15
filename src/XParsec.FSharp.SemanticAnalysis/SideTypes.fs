@@ -30,6 +30,19 @@ type Diagnostic =
         Severity: Severity
     }
 
+/// Declared accessibility of an EXPORTED entity — a token-free 3-state stored
+/// HONESTLY (never pre-thresholded), so the two export filters read ONE fact: the
+/// cross-package `.fsi` extractor keeps public-only, the intra-assembly file→file
+/// projection keeps internal-or-better (same-assembly visible). The CST
+/// `Access<_>` keyword token is classified into this at the Elaborate populate
+/// site and threaded to freeze on `TastFile.Accessibility`. An entity ABSENT from
+/// that table is `Public` — the F# default for an unmarked declaration.
+[<RequireQualifiedAccess>]
+type Accessibility =
+    | Public
+    | Internal
+    | Private
+
 /// Where a module-level `let` should be emitted: a *named* holder type (an F#
 /// module compiles to a static class) rather than the anonymous "Program" holder
 /// the backend uses for top-level functions. Recorded for every binding inside a
