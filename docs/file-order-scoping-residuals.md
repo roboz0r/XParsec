@@ -366,22 +366,45 @@ rather than the registry. The cycle detection is correct; the emission gap is re
 untouched. Fixing it means putting `IsValueType` on the record/union infos and honouring it
 in both backends.
 
+Scope split: it is CLR-only (JS has no value types — it ignores `ClassValueKind` entirely, so
+struct kinds already emit as reference objects there; a pre-existing, documented JS limitation).
+**Struct records** are the tractable half — route them through the existing struct-class
+value-type machinery (`RegisterUserValueType`, `System.ValueType` base). **Struct unions** are
+designed separately in `src/XParsec.FSharp.SemanticAnalysis/docs/struct-union-layout-plan.md`
+(the union already emits flat — `_tag` + per-case fields — so a struct union reuses that shape as
+a value type; the overlapping optimization in `brainstorm-du-layout.md` is deferred perf).
+
 ---
 
-## Residual 4 — record augmentation members are unreachable by dot-access
-
-`InferRecordAccess.resolveFieldStep`'s `TyRecord` arm consults `info.Fields` and never
-`info.Members`. So:
+## Residual 4 — record instance members are unreachable by dot-access
 
 ```fsharp
 type Foo = { a: int }
     with member this.Bar () = 1
-// v.Bar()  =>  "Type 'Foo' has no field 'Bar'"
+// v.Bar()  =>  codegen CRASH
 ```
 
-Pre-existing, orthogonal to the scoping work, found while pinning the duplicate-type
-member-lookup diagnostic. The diagnostic is at least clean (no crash), but the member is
-simply not reachable.
+**Bigger than first recorded, and it is a crash, not a clean diagnostic** (verified end to
+end). Inference emits "Type 'Foo' has no field 'Bar'" AND elaboration lowers the unresolved
+dot-access to a `FieldGet`, which codegen then `failwith`s on (`EmitResolve.resolveRecordField`,
+via an `App` whose callee is a `FieldGet`). The earlier note ("clean, no crash") only exercised
+inference.
+
+It is a `TyRecord`-shaped hole through the whole local-nominal member-dispatch pipeline, not one
+inference arm — records were wired for field access (and interface dispatch via a `:>` coercion,
+which is why `(r :> IRank).Rank()` works) but never for instance-member dispatch. `TyClass`/
+`TyUnion` are handled at each site; `TyRecord` is not:
+- `InferRecordAccess.resolveFieldStep` `TyRecord` arm (consults `info.Fields`, never
+  `info.Members`; `RecordTypeInfo.Members` does exist);
+- Elaborate `nominalDeclKey`, `tryClassMemberByKey`, `translateDotLookup`, `fieldStep`,
+  `(|InstanceMethodCall|_|)`, `(|ClassChainMethod|_|)` — all class/union-only; a record receiver
+  falls to a `FieldGet` catch-all;
+- codegen MethodCall/PropertyGet against a record receiver — unverified on both backends.
+
+Closing it means threading `TyRecord` through inference + ~6 elaboration sites + the member-key
+registry lookup, then verifying member-call emission on a record receiver across both backends —
+mirroring the `TyUnion` path, which is the closest precedent at every site. A feature, not a
+resolution-only edit. Pairs naturally with the union augmentation-member work.
 
 ---
 
