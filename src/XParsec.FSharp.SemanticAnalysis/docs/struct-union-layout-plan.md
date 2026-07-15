@@ -1,8 +1,8 @@
 # Plan: `[<Struct>]` discriminated unions (correct-first)
 
-Ephemeral. Delete once landed. Part of Residual 3 (`docs/file-order-scoping-residuals.md`):
-struct records land in their own change (simpler — no tag/factory/default); this plan is the
-struct **union** half, which needs designing before it is attempted.
+Ephemeral. Delete once landed. Struct **records** already emit as `System.ValueType`-based value
+types (through the existing value-type machinery — record equality/comparison gained value-type IL
+variants); this plan is the struct **union** half, which needs designing before it is attempted.
 
 Relationship to `brainstorm-du-layout.md`: that doc designs the PERFORMANCE-optimal overlapping
 "split payload" layout. This plan deliberately does NOT implement it first. See "Layout choice".
