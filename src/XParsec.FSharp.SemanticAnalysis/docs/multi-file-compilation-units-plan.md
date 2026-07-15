@@ -191,10 +191,29 @@ out naturally once a real second consumer exists.
       machinery (`Emit.fs:76-80`, `buildVarLoad`, `discoverClosures` non-captured set); its only new
       work is a pinned-field analysis for values read by surviving static fns / member cctors.
   Must land BEFORE C7.
-- **C7** — `Codegen.compileUnits` entry (composite provider = units' views ++ external; merged
-  reprs) driving the multi-tast `Assembler`; single-`tast` `compile` becomes `compileUnits [one]`.
-  **The semantic change is PROVEN here**: a two-unit CLR fixture (unit 2 calls unit 1's fn, builds
-  its record, and a generic fn) compiles and runs, exercising the home-local branch + `combine`.
+- **C7 (DONE — partial proof; a front-end gap found).** `Codegen.compileUnits (symbols) (project)
+  (tasts)` + `compileUnitsWithBclReferences` added; `assemble` takes a `tasts` list; single-`tast`
+  `compile` delegates as `compileUnits … [one]`. Surface: the caller composes
+  `composite(views ++ external)` and hands codegen the already-composed provider + bare
+  `Frozen.TastFile list` (Codegen stays agnostic of the front-end `FrozenUnit`). New test
+  `CrossFileUnitsTests.fs` compiles TWO files into one assembly and RUNS it: unit 2 calls unit 1's
+  module fn + generic fn → stdout `24`, and the PE carries no self-`AssemblyRef` (the cross-file
+  call re-homed to a LOCAL `MethodDef`). **The N-unit codegen machinery needed ZERO changes — it was
+  correct.**
+
+  **FINDING — cross-file NOMINAL (record/union) use is blocked UPSTREAM in the front end**, not in
+  codegen. A prior unit's `FrozenSignature.toProvider` view projects a nominal's SHAPE, but no USE
+  SITE consults the provider for a nominal's own shape — they read only the analysing unit's LOCAL
+  `TypeRegistry`: record construction (`InferRecordAccess.inferRecord` → `TypeRegistry.tryRecord` /
+  `findUniqueRecordByFieldSet`), record field read (`resolveFieldStep` `TyRecord` arm →
+  `tryRecordByKey ctx.Types`), union-case construction (local `CtorIndex`). So no record/union is
+  usable across units today; only module fns + generic fns resolve. (The earlier "Verified working:
+  file N's TYPE resolves" claim was too strong — the type NAME binds, but the nominal cannot be
+  CONSTRUCTED / field-read / matched cross-file; `AssemblyUnitsTests` only filtered "Unresolved"
+  errors so never caught it.) Closing it is a FRONT-END cut (wire use-site nominal resolution to the
+  composite provider, or project prior-unit nominals into the consuming unit's `TypeRegistry`) — it
+  is the real content of the "Projection coverage boundaries" open item below, now on the critical
+  path for a records-bearing corpus.
 
 ### Open items to close during Step C/D (see "Known open items" section below for detail)
 
