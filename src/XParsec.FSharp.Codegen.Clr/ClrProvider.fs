@@ -52,6 +52,10 @@ type ClrProvider
     /// predicted `TypeDefinition` handle) before its row is added.
     member _.RegisterUserType(key: SymbolKey, handle: EntityHandle) : unit = env.UserTypes.[key] <- handle
 
+    /// Register a module-level function emitted into this assembly (by its `ValueKey`) so a
+    /// cross-file call to it resolves to its local `MethodDef` rather than an external member ref.
+    member _.RegisterLocalModuleFn(key: SymbolKey, handle: EntityHandle) : unit = env.LocalModuleFns.[key] <- handle
+
     /// Record a project-local `[<Struct>]` value type so `encodeType` emits it as
     /// `ELEMENT_TYPE_VALUETYPE`.
     member _.RegisterUserValueType(key: SymbolKey) : unit = env.UserValueTypes.Add key |> ignore

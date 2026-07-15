@@ -94,6 +94,54 @@ driver yet. Remaining:
   `TestHelpers.fs` (`buildPackage` ~:310, `vesperCoreDll` ~:129) and route those through it. The
   single-`source` `ClrDriver.compile` stays for script/fragment callers.
 
+### Step C decomposition (post-investigation, 2026-07-15)
+
+A read-only investigation refined the Step C shape. Three findings reshape the plan above:
+
+1. **Home-local is mostly automatic.** Local types, construction, member dispatch, and pattern
+   matches already resolve through the SymbolKey-keyed registries FIRST (`ClrEncoder.encodeType`,
+   `EmitResolve`/`EmitConstruct`/`EmitMember`/`EmitPattern`), falling to `externalAsmRef` only on a
+   miss. Once **Bind** populates those registries for every unit, cross-file nominal use resolves
+   to local handles with **no new code**. The *only* genuine home-local seam is a cross-file
+   **module-function call** (`f a b` freezes to `External`, bypassing the registries): it needs one
+   new branch in `ClrRecipes.emitExternalCall` (`:412`) plus one new `localModuleFns` registry on
+   `ClrEnv`, keyed by the fn's `ValueKey`. `externalAsmRef` keeps firing for genuinely-external
+   (package) symbols, unchanged.
+2. **`Layout.build` reads NodeKey-keyed tables** (`HolderPlan.create` → `ModuleMembers`/
+   `TopLevelNames`/`GenericFnSchemes`; `discoverClosures` → `FunVerdicts`/`ClosureReprs`), so it is
+   NOT decl-only and cannot naively span a tast list. Resolution: split it into **`buildUnit`**
+   (per unit, reads that unit's own NodeKey tables) + **`combine`** (concatenates the per-unit row
+   nodes into one global layout — the NodeKey reads stay confined to `buildUnit`; `combine` and
+   `deriveHandles` touch no NodeKey table). The global handle/prefix-sum space is built by
+   `combine`.
+3. **Three single-tast assumptions** the combine must fix: (a) one `<Module>` + one Program holder
+   per tast → `combine` emits exactly one `<Module>` and routes Program/`Main` content to a single
+   entry unit; (b) closure names collide (`<closure>$0` per unit) → thread a base counter across
+   units; (c) same-named `module M` split across files collides at the holder key — **surfaces in
+   Step C** (not Step D). Default: a fail-safe guard (throw on collision), deferring real
+   holder-merging until the corpus needs it.
+
+**Decision: NO `Codegen.Common` factoring for Step C.** Bind/prepare is an SRM artifact, not
+backend-agnostic (JS has no bind phase — it concatenates per-unit statements). Everything stays in
+`Codegen.Clr`; `compileUnits` takes `AssemblyUnits.FrozenUnit`/`Frozen.TastFile list` directly. The
+shared shape is deferred to a possible future **Step E (multi-file `Codegen.Js`)**, where it falls
+out naturally once a real second consumer exists.
+
+**Ordered cuts (each builds green + committed separately; behavior-preserving through C5):**
+
+- **C2** — merge `IntrinsicReprKeys` across units (Clr-local helper; single-unit = identity).
+- **C3** — `localModuleFns` registry on `ClrEnv` + `RegisterLocalModuleFn` + dormant home-local
+  branch in `emitExternalCall` (empty registry ⇒ identical to today).
+- **C4** — split `Layout.build` → `buildUnit` + `combine` with a 1-unit shim (byte-identical);
+  thread the closure-counter base (defaulting to 0).
+- **C5** — Assembler loops `layout.Units`, fresh `EmitContext` per unit (shared nominal registries
+  + ctx + provider; per-unit NodeKey dicts). *Highest risk — the invasive one.*
+- **C6** — Bind registers all units' nominals + module fns; `combine` accepts N units (one
+  `<Module>`, entry-unit Program, holder de-dup guard, closure-counter chaining). **The semantic
+  change lands here.**
+- **C7** — `Codegen.compileUnits` entry (composite provider + merged reprs); single-`tast`
+  `compile` becomes `compileUnits [oneUnit]`.
+
 ### Open items to close during Step C/D (see "Known open items" section below for detail)
 
 - **Point-free ValRepr — model RESOLVED as arity-0** (a point-free `let compose = f >> g` is a

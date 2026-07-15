@@ -325,8 +325,8 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     /// assembly (a project-local symbol the provider never sees), in which case the caller falls back to
     /// its hard error.
     let emitExternalCall (declModule: ModuleKey) (name: string) (fnTy: FrozenType) : CallRecipe voption =
-        let compiledFullName =
-            SymbolKeyOps.qualifiedName (SymbolKeyOps.valueKey (ModuleHolder.InModule declModule) name)
+        let valueKey = SymbolKeyOps.valueKey (ModuleHolder.InModule declModule) name
+        let compiledFullName = SymbolKeyOps.qualifiedName valueKey
 
         match symbols.TryLookupOpenSignature compiledFullName with
         | ValueNone -> ValueNone
@@ -407,21 +407,30 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
 
                 s
 
-            // The declaring module's holder `TypeRef` is scoped by the home the resolved
-            // symbol carries (`openSig.Origin`) — the key alone names no assembly.
-            let parent = env.ExternalModuleRef(openSig.Origin, declModule)
-            let memberRef = toEntity (ctx.MemberRef(parent, name, msig))
+            // A module function whose home is this compilation's OWN assembly resolves to its
+            // local `MethodDef`, not an `AssemblyRef`-based `MemberRef`. Probe the home-local
+            // registry first; on a miss (a genuinely-external / package symbol) mint the external
+            // member ref scoped by the home the resolved symbol carries (`openSig.Origin`) — the
+            // key alone names no assembly. The mono arm `call`s the base handle directly; the
+            // generic arm uses it as the `MethodSpec.Method` base (SRM accepts a `MethodDef`
+            // there), so only the base handle swaps — all signature / typar recovery is identical.
+            let callBase =
+                match env.LocalModuleFns.TryGetValue valueKey with
+                | true, defHandle -> defHandle
+                | _ ->
+                    let parent = env.ExternalModuleRef(openSig.Origin, declModule)
+                    toEntity (ctx.MemberRef(parent, name, msig))
 
             let callHandle =
                 if methodTyparArity = 0 then
-                    memberRef
+                    callBase
                 elif List.isEmpty openSig.Constraints then
                     // Use-site instantiation: match the open template (its `FTTypar(Method, i)`) against
                     // the call's concrete type, recovering each method arg by its index. No phantom
                     // constraint typars, so every method typar is signature-reachable.
                     let _, methodArgs = recoverOpenTypars 0 methodTyparArity openSig.Signature fnTy
 
-                    methodSpec memberRef methodArgs
+                    methodSpec callBase methodArgs
                 else
                     // The EXTERNAL analogue of the
                     // project-local phantom-typar solve (`EmitCall.buildAppCall`). The open
@@ -454,7 +463,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                                         compiledFullName
                         ]
 
-                    methodSpec memberRef methodArgs
+                    methodSpec callBase methodArgs
 
             // `Grouped` carries the SOURCE grouping (the walker consumes
             // `groups.Length` spine elements and flattens each) AND the FLAT pop count

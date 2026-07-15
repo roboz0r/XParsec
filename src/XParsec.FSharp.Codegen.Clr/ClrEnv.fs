@@ -371,6 +371,13 @@ type internal ClrEnv
     /// simple/arity name).
     let userTypes = Dictionary<SymbolKey, EntityHandle>()
 
+    /// Module-level functions whose home is *this* compilation's own assembly, by their
+    /// `ValueKey` → local `MethodDef` handle. A cross-file module-function call freezes to
+    /// `External` and would otherwise mint an `AssemblyRef`-based `MemberRef`; a home-assembly
+    /// function must instead resolve to its LOCAL `MethodDef`. `emitExternalCall` probes this
+    /// first and falls back to the external member-ref on a miss.
+    let localModuleFns = Dictionary<SymbolKey, EntityHandle>()
+
     /// Project-local `[<Struct>]` value-type keys.
     /// `encodeType` reads this to emit a user struct as `ELEMENT_TYPE_VALUETYPE`
     /// rather than `ELEMENT_TYPE_CLASS` in every signature.
@@ -634,6 +641,7 @@ type internal ClrEnv
     member _.EHashCodeToHashCode = eHashCodeToHashCode
 
     member _.UserTypes = userTypes
+    member _.LocalModuleFns = localModuleFns
     member _.UserValueTypes = userValueTypes
     member _.GenericUnions = genericUnions
     member _.GenericRecords = genericRecords
