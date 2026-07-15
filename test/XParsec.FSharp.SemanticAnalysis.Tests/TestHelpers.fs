@@ -46,13 +46,13 @@ let realProvider: Lazy<IExternalSymbolProvider> =
 // construction *and* `| TyUnion("X", args)` match sites compile unchanged. A file
 // gets these only when it `open`s `TestHelpers` after `open …SemanticAnalysis`.
 let TyUnion (name: string, args: EqArray<SemType>) =
-    SemType.TyUnion(SymbolKeyOps.qualifiedTypeKeyOfT name args.Length, args)
+    SemType.TyUnion(SymbolKeyOps.qualifiedTypeKeyOf name args.Length, args)
 
 let TyRecord (name: string, args: EqArray<SemType>) =
-    SemType.TyRecord(SymbolKeyOps.qualifiedTypeKeyOfT name args.Length, args)
+    SemType.TyRecord(SymbolKeyOps.qualifiedTypeKeyOf name args.Length, args)
 
 let TyClass (name: string, args: EqArray<SemType>) =
-    SemType.TyClass(SymbolKeyOps.qualifiedTypeKeyOfT name args.Length, args)
+    SemType.TyClass(SymbolKeyOps.qualifiedTypeKeyOf name args.Length, args)
 
 // The arity-qualified qualified name (`Microsoft.FSharp.Core.Result`2`,
 // `Choice`2`) — the new canonical convention. Assertions that pinned the old
@@ -101,7 +101,7 @@ let mkSignature
 /// `MemberKey`, so `Name` is derived from the key and the two cannot disagree.
 let mkMember (name: string) : ExternalMember =
     { ExternalMember.OfKey(
-          SymbolKeyOps.memberKeyOf (SymbolKeyOps.qualifiedTypeKeyOfT "C" 0) name EqArray.empty 0 MemberKind.Method
+          SymbolKeyOps.memberKeyOf (SymbolKeyOps.qualifiedTypeKeyOf "C" 0) name EqArray.empty 0 MemberKind.Method
       ) with
         IsStatic = true
         Signature =

@@ -77,7 +77,7 @@ module NameResolutionTypeHeadStamp =
         // the extractor stamped on the shape (`SymbolKeyOps.intrinsicCanonKey`, the same
         // mint off the same arity-suffixed compiled name), so the stamp and the shape agree.
         | ExternalTypeShape.Intrinsic _
-        | ExternalTypeShape.Opaque _ -> SymbolKeyOps.qualifiedTypeKeyOfT compiled arity
+        | ExternalTypeShape.Opaque _ -> SymbolKeyOps.qualifiedTypeKeyOf compiled arity
 
     /// Resolve `name` (possibly dotted) as an external *type* at exactly `arity` —
     /// the receiver's type-arg count, supplied by the enclosing `Expr.TypeApp`

@@ -1232,15 +1232,15 @@ module ExternalSymbols =
         let resolveAnchor (lookup: string) (bclFace: string voption) : RuntimeNames.CapabilityIdentity voption =
             match provider.TryLookupType lookup with
             | ValueSome(ExternalTypeShape.Intrinsic { Id = { Platform = Some fqn } }) ->
-                ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOfT fqn 0))
+                ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf fqn 0))
             | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
                 ValueSome
                     {
-                        RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOfT platform 0
-                        RuntimeNames.CapabilityIdentity.CanonKey = ValueSome(SymbolKeyOps.qualifiedTypeKeyOfT lookup 0)
+                        RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOf platform 0
+                        RuntimeNames.CapabilityIdentity.CanonKey = ValueSome(SymbolKeyOps.qualifiedTypeKeyOf lookup 0)
                     }
             | ValueSome(ExternalTypeShape.Class _) ->
-                let canonKey = SymbolKeyOps.qualifiedTypeKeyOfT lookup 0
+                let canonKey = SymbolKeyOps.qualifiedTypeKeyOf lookup 0
 
                 match bclFace with
                 | ValueSome bcl when shimConfirms bcl lookup ->
@@ -1249,7 +1249,7 @@ module ExternalSymbols =
                     // `CanonKey` = canonical). `capabilityCanonKey` then folds either spelling → canon.
                     ValueSome
                         {
-                            RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOfT bcl 0
+                            RuntimeNames.CapabilityIdentity.Key = SymbolKeyOps.qualifiedTypeKeyOf bcl 0
                             RuntimeNames.CapabilityIdentity.CanonKey = ValueSome canonKey
                         }
                 | _ -> ValueSome(ofKey canonKey)

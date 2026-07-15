@@ -36,7 +36,7 @@ let tests =
 
                 // External ref minted from a qualified compiled name alone — no assembly
                 // in hand (the string-fed codegen / metadata path).
-                let viaQualified = SymbolKeyOps.qualifiedTypeKeyOfT "Vesper.Collections.List" 1
+                let viaQualified = SymbolKeyOps.qualifiedTypeKeyOf "Vesper.Collections.List" 1
 
                 // The SAME type resolved from a shape homed in a DIFFERENT assembly. The
                 // home is not part of the identity, so this is the same key — the fact the
@@ -59,7 +59,7 @@ let tests =
                 let viaOrigin =
                     SymbolKeyOps.externalTypeKeyOf (originIn "Vesper.Core" "Vesper") "Vesper.Ref" 1
 
-                let viaQualified = SymbolKeyOps.qualifiedTypeKeyOfT "Vesper.Ref" 1
+                let viaQualified = SymbolKeyOps.qualifiedTypeKeyOf "Vesper.Ref" 1
 
                 let viaOtherHome =
                     SymbolKeyOps.externalTypeKeyOf (originIn "Other.Asm" "Vesper") "Vesper.Ref" 1
@@ -80,7 +80,7 @@ let tests =
 
                 let viaOrigin = SymbolKeyOps.externalTypeKeyOf blanket "Vesper.Collections.seq" 1
 
-                let viaQualified = SymbolKeyOps.qualifiedTypeKeyOfT "Vesper.Collections.seq" 1
+                let viaQualified = SymbolKeyOps.qualifiedTypeKeyOf "Vesper.Collections.seq" 1
 
                 Expect.equal viaOrigin viaQualified "both external mint paths agree"
 
@@ -121,7 +121,7 @@ let tests =
                 // A nested type's arity is spelled by the segment that OWNS it, so a caller's
                 // single `arity` — the shape's total — must not be re-appended to the inner.
                 Expect.equal
-                    (SymbolKeyOps.qualifiedTypeKeyOfT "N.List`1+Enumerator" 1
+                    (SymbolKeyOps.qualifiedTypeKeyOf "N.List`1+Enumerator" 1
                      |> SymbolKeyOps.typeMetaName)
                     "N.List`1+Enumerator"
                     "the arity is already spelled by the outer; it is not re-appended to the inner"
@@ -174,7 +174,7 @@ let tests =
                 // ...and a mint that is HANDED an arity for it must not invent a suffix the
                 // renderer cannot spell, or the key would stop equalling the contract's.
                 Expect.equal
-                    (SymbolKeyOps.qualifiedTypeKeyOfT ("Vesper." + RuntimeNames.arrayContractName) 1)
+                    (SymbolKeyOps.qualifiedTypeKeyOf ("Vesper." + RuntimeNames.arrayContractName) 1)
                     arr
                     "an escaped name takes no arity, however it is minted"
             }
@@ -244,7 +244,7 @@ let tests =
 // upgrade removes.
 [<Tests>]
 let memberKeyIdentity =
-    let cKey = SymbolKeyOps.qualifiedTypeKeyOfT "C" 1 // the OPEN `C<'T>`
+    let cKey = SymbolKeyOps.qualifiedTypeKeyOf "C" 1 // the OPEN `C<'T>`
     let ftInt: FrozenType = FTConst(RuntimeNames.intKey, EqArray.empty)
     let declTypar: FrozenType = FTTypar(TyparAxis.Declaring, 0)
     let methodTypar: FrozenType = FTTypar(TyparAxis.Method, 0)

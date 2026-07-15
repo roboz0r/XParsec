@@ -695,7 +695,7 @@ module UnificationEngineCore =
                 // qualified name is this same mint).
                 ExternalSymbols.instantiateInterfaces shape (args.AsSpan().ToArray())
                 |> Array.toList
-                |> List.map (fun (n, ta) -> TyClass(SymbolKeyOps.qualifiedTypeKeyOfT n ta.Length, EqArray.ofArray ta))
+                |> List.map (fun (n, ta) -> TyClass(SymbolKeyOps.qualifiedTypeKeyOf n ta.Length, EqArray.ofArray ta))
             | _ -> []
 
     /// Find the instantiation of `src` (or one of its bases / interfaces) whose

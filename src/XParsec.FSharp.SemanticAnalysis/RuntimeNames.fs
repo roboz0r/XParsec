@@ -276,7 +276,7 @@ module RuntimeNames =
         /// comparing. For consumers holding the rendered interface name from
         /// `ExternalSymbols.instantiateInterfaces` rather than a `TypeKey`.
         member this.MatchesName(name: string) : bool =
-            this.Matches(SymbolKeyOps.qualifiedTypeKeyOfT name 0)
+            this.Matches(SymbolKeyOps.qualifiedTypeKeyOf name 0)
 
     /// The five language-capability identities, resolved once per compilation
     /// (`PassContext`) THROUGH THE PROVIDER (`ExternalSymbols.resolveCapabilities`).

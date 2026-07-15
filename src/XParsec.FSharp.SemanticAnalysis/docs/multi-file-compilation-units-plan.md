@@ -1,9 +1,11 @@
 # Multi-file compilation units — design plan
 
-*Depends on [inline-body-freeze-thaw-plan](inline-body-freeze-thaw-plan.md): the
-intra-assembly file-N→N+1 provider stack requires `IExternalSymbolProvider` to speak
-only `FrozenType`, inline bodies included — otherwise file N+1's splice mutates file
-N's live `SemType` cells (backward flow). That prerequisite lands first.*
+*The freeze/thaw prerequisite is in place: the intra-assembly file-N→N+1 provider stack
+requires `IExternalSymbolProvider` to speak only `FrozenType`, inline bodies included —
+otherwise file N+1's splice mutates file N's live `SemType` cells (backward flow). The
+inline-body channel now freezes end to end (`Freeze.run` → `ExternalSymbol.InlineBody` →
+`Inline.thawBody`, the single immutable→mutable seam on the consumer's side); the code is
+its record.*
 
 ## Problem
 
@@ -101,9 +103,9 @@ shape:
   home-stamped via `ctx.AssemblyName` (`LocalSymbolKey.ofType`). The file-level stack
   needs a **compose-without-re-origin** variant so N+1 mints the identical key.
 - **Same-assembly `let inline` bodies** ride the inline channel as cross-package
-  inline bodies do — but as **frozen** bodies thawed at the splice, per
-  [inline-body-freeze-thaw-plan](inline-body-freeze-thaw-plan.md). A `SemType` body
-  here would let file N+1 mutate file N's cells; the prerequisite closes that.
+  inline bodies do — but as **frozen** bodies thawed at the splice (`Inline.thawBody`).
+  A `SemType` body here would let file N+1 mutate file N's cells; the frozen channel
+  closes that.
 
 ## The one genuinely new component
 
@@ -132,9 +134,8 @@ separately retain.
    tables across files.
 3. **Compose-without-re-origin** for the file-level stack (above). `ExternalSymbols.stack`
    already takes a `voption` origin, so this is `stack ValueNone …`, not a new variant.
-4. **Inline bodies cross the boundary frozen**, thawed at the splice —
-   [inline-body-freeze-thaw-plan](inline-body-freeze-thaw-plan.md). A `SemType` body
-   would reintroduce backward flow.
+4. **Inline bodies cross the boundary frozen**, thawed at the splice
+   (`Inline.thawBody`). A `SemType` body would reintroduce backward flow.
 5. **Diagnostics resolve in-unit.** `Diagnostic` carries only a `NodeKey` offset and no
    file identity (`SideTypes.fs:27`). Each unit's diagnostics must be paired with that
    unit's `input`/`lexed` and rendered at the unit boundary; flattening N units' bare

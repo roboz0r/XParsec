@@ -29,11 +29,11 @@ let private groundArgs: SemType[] =
     [|
         TyConst(RuntimeNames.intKey, EqArray.empty)
         TyConst(RuntimeNames.stringKey, EqArray.empty)
-        TyClass(SymbolKeyOps.qualifiedTypeKeyOfT "Test.Widget" 0, EqArray.empty)
+        TyClass(SymbolKeyOps.qualifiedTypeKeyOf "Test.Widget" 0, EqArray.empty)
     |]
 
-let private kRec = SymbolKeyOps.qualifiedTypeKeyOfT "Test.Box" 1
-let private kUnion = SymbolKeyOps.qualifiedTypeKeyOfT "Test.Option" 1
+let private kRec = SymbolKeyOps.qualifiedTypeKeyOf "Test.Box" 1
+let private kUnion = SymbolKeyOps.qualifiedTypeKeyOf "Test.Option" 1
 
 /// A declaring-typar `i` as a template leaf, and the ground `SemType` it must
 /// realise to (`groundArgs.[i]`). Pairing them keeps each oracle case honest:

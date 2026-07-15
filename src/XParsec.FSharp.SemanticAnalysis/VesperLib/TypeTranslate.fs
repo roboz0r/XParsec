@@ -456,7 +456,7 @@ module VesperLibTypeTranslate =
         let key (arity: int) : TypeKey =
             match ExtractCtx.tryTypeKey ctx compiled with
             | ValueSome k -> k
-            | ValueNone -> SymbolKeyOps.qualifiedTypeKeyOfT compiled arity
+            | ValueNone -> SymbolKeyOps.qualifiedTypeKeyOf compiled arity
 
         match ExtractCtx.shapeOf ctx compiled with
         | ValueSome(ExternalTypeShape.Union _) -> FTUnion(key args.Length, args)

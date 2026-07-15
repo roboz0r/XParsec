@@ -485,7 +485,7 @@ module VesperLib =
                     | true, ExternalTypeShape.Class shape -> shape.TyparArity
                     | _ -> 0
 
-                let declKey = SymbolKeyOps.qualifiedTypeKeyOfT k arity
+                let declKey = SymbolKeyOps.qualifiedTypeKeyOf k arity
 
                 let ctorMembers =
                     [
@@ -1048,9 +1048,9 @@ module VesperLib =
             // Split the qualified compiled name into the declaring `TypeKey`
             // (ns, simple name) so each member carries its identity. The same split
             // the finalize-pass ctor loop applies — both route through the shared
-            // `qualifiedTypeKeyOfT` so the `.ctor` and ordinary members of a type
+            // `qualifiedTypeKeyOf` so the `.ctor` and ordinary members of a type
             // carry the identical declaring key.
-            let declKey = SymbolKeyOps.qualifiedTypeKeyOfT compiled arity
+            let declKey = SymbolKeyOps.qualifiedTypeKeyOf compiled arity
 
             let members = ResizeArray<ExternalMember>()
             // The per-member signature CSTs, index-aligned with `members`;

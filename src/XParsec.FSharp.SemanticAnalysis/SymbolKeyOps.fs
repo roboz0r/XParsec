@@ -457,17 +457,17 @@ module SymbolKeyOps =
 
     /// Mint a nominal type key from a fully-qualified compiled name: the last `.`
     /// segment is the simple name, the prefix the namespace.
-    let qualifiedTypeKeyOfT (compiled: string) (arity: int) : TypeKey =
+    let qualifiedTypeKeyOf (compiled: string) (arity: int) : TypeKey =
         let ns, simple = splitLastDot compiled
         withArity arity (typeKeyOf ns simple)
 
-    /// `qualifiedTypeKeyOfT` as a `SymbolKey`. THE mint for a fully-qualified compiled
+    /// `qualifiedTypeKeyOf` as a `SymbolKey`. THE mint for a fully-qualified compiled
     /// name held as a string — a platform repr, a fixed printf-sink name, a codegen
     /// bridge name, a metadata/contract scrape. Passing arity 0 for an already-suffixed
     /// generic name is lossless: the suffix is PARSED into `TyparArity`, so the key is the
     /// same one the caller would get by handing the bare name and the count.
     let qualifiedTypeKey (compiled: string) (arity: int) : SymbolKey =
-        SymbolKey.Type(qualifiedTypeKeyOfT compiled arity)
+        SymbolKey.Type(qualifiedTypeKeyOf compiled arity)
 
     /// Mint a nominal type key for an external type from its resolved shape's `origin`
     /// + the matched compiled name + arity. EVERY external-type producer (`Translate`,
@@ -480,7 +480,7 @@ module SymbolKeyOps =
     /// `name = "Collections.seq"` and broke capability-key matching.
     let externalTypeKeyOf (origin: SymbolOrigin) (compiled: string) (arity: int) : TypeKey =
         if compiled.IndexOf '.' >= 0 then
-            qualifiedTypeKeyOfT compiled arity
+            qualifiedTypeKeyOf compiled arity
         else
             withArity arity (typeKeyOf origin.Namespace.Dotted compiled)
 
@@ -495,5 +495,5 @@ module SymbolKeyOps =
     /// (`TypeHeadStamp.useSiteTypeKey`'s `Intrinsic` arm) and the same one
     /// `TypeRegistry.IntrinsicKeys` stamps for a self-compiled intrinsic, so all three
     /// compare EQUAL by construction — no arity-blind matcher stands between them.
-    /// (Arity 0 to `qualifiedTypeKeyOfT`: the count is already spelled in `compiled`.)
-    let intrinsicCanonKey (compiled: string) : TypeKey = qualifiedTypeKeyOfT compiled 0
+    /// (Arity 0 to `qualifiedTypeKeyOf`: the count is already spelled in `compiled`.)
+    let intrinsicCanonKey (compiled: string) : TypeKey = qualifiedTypeKeyOf compiled 0

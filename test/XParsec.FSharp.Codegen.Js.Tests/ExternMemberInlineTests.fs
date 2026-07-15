@@ -360,7 +360,7 @@ let tests =
             // DECLARABLE in one unit today: local member overloading is unrepresentable (the
             // arity-only local key collides), the deferred follow-on this identity unblocks.
             test "collectInlineBodies mints distinct keys for two distinct harvested overload signatures" {
-                let declKey = SymbolKeyOps.qualifiedTypeKeyOfT "widget" 0
+                let declKey = SymbolKeyOps.qualifiedTypeKeyOf "widget" 0
 
                 // The exact per-member mint `collectInlineBodies` uses.
                 let mintKey (m: Frozen.TTypeMember) : SymbolKey =
