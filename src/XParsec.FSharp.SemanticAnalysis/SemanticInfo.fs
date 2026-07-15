@@ -29,16 +29,23 @@ type Origin =
     | Unstamped
     | InAssembly of asm: AssemblyName
 
-    /// The home assembly's simple name. TOTAL only on a stamped origin: an `Unstamped`
-    /// origin has no home, so asking for one is a bug — the stamping wrapper must
-    /// overwrite it first. The throw makes that contract loud rather than papering it
-    /// over with a `None` a consumer silently swallows.
-    member this.Assembly: string =
+    /// The home assembly's simple name, or `ValueNone` on an `Unstamped` origin (no
+    /// home: the compilation being analysed, a front-end-only / contract-scrape path, or
+    /// a pre-stamp placeholder a stamping wrapper overwrites). TOTAL — the caller decides
+    /// what "no home" means (fall back to local, or fail with its OWN import-path
+    /// message), rather than a throwing accessor deciding for every consumer.
+    member this.AssemblyOption: string voption =
         match this with
-        | Origin.Unstamped ->
-            failwith
-                "SymbolOrigin: asked for the assembly of an unstamped origin (the stamping wrapper must overwrite it first)"
-        | Origin.InAssembly a -> a.Name
+        | Origin.Unstamped -> ValueNone
+        | Origin.InAssembly a -> ValueSome a.Name
+
+    /// Whether this origin names a home assembly — the local-vs-external discriminator a
+    /// backend guard reads (`InAssembly _` ⇒ external / importable, `Unstamped` ⇒
+    /// project-local).
+    member this.IsStamped: bool =
+        match this with
+        | Origin.Unstamped -> false
+        | Origin.InAssembly _ -> true
 
 /// A standalone utility (wired to NOTHING in the compile chain) for a caller that holds
 /// a genuinely anonymous origin and wants a stable, deterministic name for it.
@@ -327,12 +334,6 @@ type SymbolOrigin =
         Home: Origin
         Namespace: NamespaceKey
     }
-
-    /// The home-assembly simple name keyed into a `ProjectInfo`'s resolved reference
-    /// set. TOTAL only on a stamped origin — throws on an `Unstamped` home. A consumer
-    /// that needs the local-vs-external distinction matches `this.Home` cases
-    /// (`Origin.Unstamped` vs `Origin.InAssembly`), never a nullable.
-    member this.Assembly: string = this.Home.Assembly
 
     /// The default carried by symbols that don't (yet) record an origin —
     /// project-local / pre-stamp placeholder, global namespace.
@@ -671,7 +672,7 @@ and [<RequireQualifiedAccess>] MemberKind =
 /// bare compiled name (which is all ten of the string-fed mint sites have) compares
 /// equal to one minted from a fully resolved shape, by construction rather than by
 /// assertion. Where a backend genuinely needs the physical home (an `AssemblyRef`
-/// scope, a JS import path) it reads `SymbolOrigin.Assembly` off the resolved shape.
+/// scope, a JS import path) it reads `SymbolOrigin.Home.AssemblyOption` off the resolved shape.
 ///
 /// There is deliberately NO `Module` case: a module appears only in HOLDER position.
 /// A standalone module symbol has no reader (`OpenScope` is kind-blind by design).

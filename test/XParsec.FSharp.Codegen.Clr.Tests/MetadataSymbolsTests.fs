@@ -236,7 +236,7 @@ let tests =
                 | ValueSome(ExternalTypeShape.Class a), ValueSome(ExternalTypeShape.Class b) ->
                     Expect.equal a.TyparArity b.TyparArity "same arity"
                     Expect.equal a.IsInterface b.IsInterface "same interface-ness"
-                    Expect.equal a.Origin.Assembly b.Origin.Assembly "same origin assembly"
+                    Expect.equal a.Origin.Home.AssemblyOption b.Origin.Home.AssemblyOption "same origin assembly"
                 | other -> failtestf "expected both leaves to resolve %s as a Class, got %A" eqComparer other
             }
 
@@ -293,7 +293,7 @@ let tests =
                         // facade), not System.Private.CoreLib (the runtime impl). This also
                         // proves MetadataLoadContext finds a core assembly when System.Object
                         // lives in System.Runtime.dll rather than System.Private.CoreLib.
-                        Expect.equal info.Origin.Assembly "System.Runtime" "REF identity, not the impl"
+                        Expect.equal info.Origin.Home.AssemblyOption (ValueSome "System.Runtime") "REF identity, not the impl"
                     | other -> failtestf "expected StringBuilder as a Class shape, got %A" other
             }
         ]

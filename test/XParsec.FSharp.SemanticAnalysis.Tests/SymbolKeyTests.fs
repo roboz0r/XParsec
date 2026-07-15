@@ -236,25 +236,28 @@ let tests =
                     "qualifiedName drops the empty holder rather than emitting a leading dot"
             }
 
-            // `Origin.Assembly` is TOTAL only on a stamped origin. An `Unstamped` origin has
-            // no home, so asking for one is a contract violation the accessor makes LOUD —
-            // the stamping wrapper must overwrite it first. This pins that throw so a future
-            // change that silently returned a placeholder would break the test.
-            test "an unstamped origin throws when asked for its assembly" {
-                Expect.throws
-                    (fun () -> Origin.Unstamped.Assembly |> ignore)
+            // `Origin.AssemblyOption` is TOTAL: an `Unstamped` origin has no home, so it
+            // answers `ValueNone` rather than throwing — the caller decides what "no home"
+            // means. This pins that a stamped origin surfaces its home name and an unstamped
+            // one surfaces the honest absence, so a future change that fabricated a
+            // placeholder home would break the test.
+            test "an unstamped origin has no home assembly, a stamped one has its name" {
+                Expect.equal
+                    Origin.Unstamped.AssemblyOption
+                    ValueNone
                     "Origin.Unstamped has no home assembly"
 
                 let unstamped = SymbolOrigin.Empty
 
-                Expect.throws
-                    (fun () -> unstamped.Assembly |> ignore)
-                    "SymbolOrigin.Empty is unstamped, so its assembly is unaskable"
+                Expect.equal
+                    unstamped.Home.AssemblyOption
+                    ValueNone
+                    "SymbolOrigin.Empty is unstamped, so it names no home assembly"
 
                 // ...but a stamped origin answers plainly.
                 Expect.equal
-                    (Origin.InAssembly(AssemblyName "Vesper.Core")).Assembly
-                    "Vesper.Core"
+                    (Origin.InAssembly(AssemblyName "Vesper.Core")).AssemblyOption
+                    (ValueSome "Vesper.Core")
                     "a stamped origin returns its home assembly name"
             }
         ]

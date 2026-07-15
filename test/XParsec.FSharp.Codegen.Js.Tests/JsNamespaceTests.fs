@@ -185,8 +185,8 @@ let tests =
                         match (es2015Provider :> IExternalSymbolStore).TryLookupType(SymbolKey.Type key) with
                         | ValueSome(ExternalTypeShape.Class info) ->
                             Expect.equal
-                                info.Origin.Assembly
-                                "es2015"
+                                info.Origin.Home.AssemblyOption
+                                (ValueSome "es2015")
                                 "the key B minted resolves against the mounted pack to a shape homed in es2015"
                         | other -> failtestf "the homed ref must resolve to es2015's Widget class shape, got %A" other
                     | other -> failtestf "theWidget scheme should be an FTClass, got %A" other

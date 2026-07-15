@@ -36,24 +36,19 @@ module JsExternalMembers =
     /// THE `key -> home assembly` oracle for an external type — the module its exports are
     /// imported from. A `SymbolKey` is a nominal identity and carries no home, so the only
     /// answer is the one the provider stamped on the type's RESOLVED SHAPE
-    /// (`SymbolOrigin.Assembly`). Consulted strictly PAST the local/external verdict (which
+    /// (`SymbolOrigin.Home.AssemblyOption`). Consulted strictly PAST the local/external verdict (which
     /// the emitted-type tables make, not the key): a type that is external but whose shape
     /// names no home cannot be imported at all, so it fails loudly rather than emitting a
     /// dangling reference.
     let assemblyOf (provider: IExternalSymbolProvider) (key: SymbolKey) (what: string) : string =
         // A shape whose home is unstamped names no importable module — the local/external
         // verdict is already past, so a `ValueNone` here is a real failure, not a fall-back.
-        let homeName (o: SymbolOrigin) : string voption =
-            match o.Home with
-            | Origin.InAssembly a -> ValueSome a.Name
-            | Origin.Unstamped -> ValueNone
-
         let home =
             match provider.TryLookupType key with
             | ValueSome(ExternalTypeShape.Union(_, _, _, o))
             | ValueSome(ExternalTypeShape.Record(_, _, o))
-            | ValueSome(ExternalTypeShape.Enum(_, o)) -> homeName o
-            | ValueSome(ExternalTypeShape.Class shape) -> homeName shape.Origin
+            | ValueSome(ExternalTypeShape.Enum(_, o)) -> o.Home.AssemblyOption
+            | ValueSome(ExternalTypeShape.Class shape) -> shape.Origin.Home.AssemblyOption
             | _ -> ValueNone
 
         match home with

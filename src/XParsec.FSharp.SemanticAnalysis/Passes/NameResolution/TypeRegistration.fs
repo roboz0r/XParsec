@@ -214,7 +214,7 @@ module NameResolutionTypeRegistration =
     ///     learns its origin, it becomes a competing claim here.
     let private externalClaimant (shape: ExternalTypeShape) : string option =
         // A stamped home is a claim (its assembly name); an unstamped home makes none —
-        // matched off the `Origin` cases, never a nullable read of `.Assembly`.
+        // matched off the `Origin` cases into a `string option` (this claimant's container).
         let homeName (o: SymbolOrigin) : string option =
             match o.Home with
             | Origin.InAssembly a -> Some a.Name
