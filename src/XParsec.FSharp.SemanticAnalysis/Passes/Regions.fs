@@ -167,6 +167,8 @@ module Regions =
         | TyConst(key, _) ->
             let name = SymbolKeyOps.intrinsicName key
 
+            // Names arrive dealiased (`single`→`float32`, `double`→`float`), so only the
+            // canonical spellings are listed.
             match name with
             | "int"
             | "int64"
@@ -174,12 +176,9 @@ module Regions =
             | "float"
             | "float32"
             | "decimal"
-            | "single"
-            | "double"
             | "bool"
             | "unit"
-            | "string"
-            | "seq<int>" -> false
+            | "string" -> false
             | _ -> true
         | TyFun _
         | TyTuple _ -> true

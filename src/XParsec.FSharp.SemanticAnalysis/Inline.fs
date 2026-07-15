@@ -148,20 +148,18 @@ module Inline =
     /// typar) matches unconditionally, which is what makes it a user catch-all
     /// whether or not the operand was ever pinned.
     ///
-    /// `TyConst`s compare by intrinsic NAME, with no alias canonicalisation, because there
-    /// are no aliases left to canonicalise: an intrinsic ABBREVIATION (`type single =
+    /// `TyConst`s compare by exact `SymbolKey` identity — the same `=` the nominal arms
+    /// below (`TyRecord`/`TyUnion`/`TyClass`) use — with no alias canonicalisation, because
+    /// there are no aliases left to canonicalise: an intrinsic ABBREVIATION (`type single =
     /// float32`, `type int32 = int` — every prim-types alias whose right-hand side is not
     /// itself a `(# … #)` binding) is registered in `AbbreviationTypes` and expanded eagerly
     /// by `Translate.resolveBareTypeName`. Both the operand's type and the clause's required
-    /// type pass through it, so both sides arrive here already canonical. A canonicalising
-    /// table here would be an identity map that still had to be kept in step with the
-    /// prim-types contract.
+    /// type pass through it, so both sides arrive here already canonical, and a name compare
+    /// would only be a lossy `=` that drops the identity's declaring namespace.
     let rec private staticOptTypesMatch (a: SemType) (b: SemType) : bool =
         match a, b with
         | TyVar x, TyVar y -> System.Object.ReferenceEquals(UnionFind.find x, UnionFind.find y)
-        | TyConst(k1, xs), TyConst(k2, ys) ->
-            SymbolKeyOps.intrinsicName k1 = SymbolKeyOps.intrinsicName k2
-            && EqArray.forall2 staticOptTypesMatch xs ys
+        | TyConst(k1, xs), TyConst(k2, ys) -> k1 = k2 && EqArray.forall2 staticOptTypesMatch xs ys
         | TyFun(a1, r1), TyFun(a2, r2) -> staticOptTypesMatch a1 a2 && staticOptTypesMatch r1 r2
         | TyTuple xs, TyTuple ys -> EqArray.forall2 staticOptTypesMatch xs ys
         | TyRecord(n1, xs), TyRecord(n2, ys)
@@ -171,19 +169,18 @@ module Inline =
 
     /// Approximate `when ^T : struct` for the value-type primitives the operator
     /// surface can reach; anything else is treated as non-struct. Full struct
-    /// detection on user types awaits the attribute walker.
+    /// detection on user types awaits the attribute walker. Names arrive dealiased
+    /// (`int32`→`int`, `single`→`float32`, `double`→`float`), so only the canonical
+    /// spellings are listed.
     let private isStructType (t: SemType) : bool =
         match t with
         | TyConst(key, _) ->
             match SymbolKeyOps.intrinsicName key with
             | "int"
-            | "int32"
             | "int64"
             | "byte"
-            | "uint8"
             | "float"
-            | "double"
-            | "float64"
+            | "float32"
             | "bool"
             | "char"
             | "decimal" -> true

@@ -1164,7 +1164,7 @@ module Unification =
             match zonk arg with
             | TyClass(k, _)
             | TyRecord(k, _)
-            | TyUnion(k, _) -> SymbolKeyOps.typeMetaName k = SymbolKeyOps.typeMetaName info.TypeKey
+            | TyUnion(k, _) -> k = info.TypeKey
             | _ -> false
 
         // Does the type implement `cap<Self>` among its resolved interface impls?

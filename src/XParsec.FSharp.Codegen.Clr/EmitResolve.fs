@@ -281,10 +281,7 @@ module EmitResolve =
         // `IEnumerator`1<int>.MoveNext()` is really `IEnumerator::MoveNext()` on
         // the non-generic base, which the recover path mints correctly (declTyparArity
         // 0). Gate on declaring-key == receiver-key.
-        | FTClass(rKey, args) when
-            args.Length > 0
-            && SymbolKeyOps.typeMetaName declKey = SymbolKeyOps.typeMetaName rKey
-            ->
+        | FTClass(rKey, args) when args.Length > 0 && declKey = rKey ->
             env.Provider.ExternalMemberRefOn(key, receiverTy, isProperty, false, memberTy)
         | _ -> env.Provider.ExternalMemberRef(key, isProperty, false, memberTy)
 
