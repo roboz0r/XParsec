@@ -354,7 +354,12 @@ with `let`s). The positional field ctor covers the identity case — which is wh
 `ListEnumerator` works and why a blanket rejection of secondary ctors was wrong — but not this
 one. Distinguishing them needs each `TCtorFieldInit` checked against the ctor's params.
 
-## Residual 3 — `[<Struct>]` records and unions emit as reference types
+## Residual 3 — `[<Struct>]` records and unions emit as reference types — records **LANDED**
+
+Records are done (`dd9bfdc5`): a `[<Struct>]` record emits as a `System.ValueType`-based value
+type through the existing value-type machinery (record equality/comparison gained value-type IL
+variants — the one part struct classes shared no code). Unions remain, per the plan below.
+
 
 A `[<Struct>]` **record or union** registers as an ordinary `RecordTypeInfo` /
 `UnionTypeInfo` with **no value-type flag** — only `ClassTypeInfo` has `IsValueType`. So a
