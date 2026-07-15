@@ -7,6 +7,113 @@ inline-body channel now freezes end to end (`Freeze.run` → `ExternalSymbol.Inl
 `Inline.thawBody`, the single immutable→mutable seam on the consumer's side); the code is
 its record.*
 
+## Status — Phase 1 progress (session handoff)
+
+**Foundation + front end are DONE and committed on `semantic-analysis`; Step C (codegen
+iterates units) and Step D (multi-file driver + delete concat) remain.** Everything below
+was reviewed (diff + independent build + SA/Codegen.Clr/Codegen.Js suites) before commit.
+All three suites are green: **SA 1019, Codegen.Clr 1341, Codegen.Js 401.**
+
+### Landed (commit → what)
+
+- **`e5824378`** — `ModuleMemberInfo` → `ModuleBindingInfo` rename (it sits over
+  `BindingKey`/`SymbolKey.Binding`; "Member" collided with the type-member world).
+- **`7f094a42`** — **freeze-time enrichment side tables** + **the projection**:
+  - `type Accessibility = Public | Internal | Private` (`SideTypes.fs`), stored honestly
+    on a `SymbolKey -> Accessibility` table on `TastFileG` (`Tast.fs`), populated from the
+    CST access token at `Elaborate`. Two thresholds read it: `.fsi` = public-only,
+    intra-assembly = internal-or-better.
+  - `BindingValReprs` (module-function compiled arity, computed at freeze via
+    `TastLower.valReprOf`) and `BindingTyparArities` (typar-axis width) side tables on
+    `TastFileG`.
+  - `FrozenSignature.toProvider (assemblyName) (frozen) : IExternalSymbolProvider`
+    (`FrozenSignature.fs`) — walks a frozen file, emits `ExternalTypeShape`/`ExternalSymbol`/
+    `ExternalMember` with home origin, internal-or-better filter, frozen inline bodies,
+    scheme axis normalized to Declaring via `ConformanceTypars.toDeclaringAxis`. Parity-
+    tested vs the `.fsi` extractor for saturated mono/generic values + curried/tupled/mixed
+    functions.
+- **`c9b5db83`** — **`SymbolOrigin` no-home rework**: `type Origin = Unstamped | InAssembly of
+  AssemblyName` (`Local` → `Unstamped`; the ambiguous `string option` is gone). Plus
+  `AnonymousOrigin.nameOfContent` (FNV-1a, `$anon.`-prefixed), wired to nothing.
+- **`1a1e2157`** — **`AssemblyUnits`** (`AssemblyUnits.fs`), the multi-file **front-end**
+  pipeline (no codegen): `analyseAssembly (assemblyName) (external) (files: (path*source) list)
+  : Result<FrozenUnit, UnitError> list` — parse each file on its own, analyse against
+  `composite(prior views nearest-first ++ [external])`, project via `FrozenSignature.toProvider`,
+  push. `FrozenUnit = { Path; Input; Lexed; Frozen; View }`. `consolidatedDiagnostics` anchors
+  each unit's `NodeKey` diagnostics to that unit's own `(path, line, col)`.
+- **`b48ea5d5`** (review F1) — `Origin.AssemblyOption : string voption` + `Origin.IsStamped`
+  replace the throwing accessor; the five open-coded local/external matches collapse onto them.
+- **`367800cf`** (review F2–F5) — de-dup: shared `Pipeline.parse code source`;
+  `ExternalSymbols.tupledParams`/`unitFrozen`; `ExternalSymbolProviders.KeyedLeaf.ofNamedWithMembers`
+  (wires the by-name overload scan internally — no projection re-copies it);
+  `AssemblyUnits` uses `LineIndex` for positions.
+
+### Verified working
+
+Cross-file name resolution is proven end-to-end at the front end (`AssemblyUnitsTests.fs`):
+file N+1 resolves file N's type + saturated function both **qualified** and via **`open`-ed
+bare** reference; **forward-only** scoping holds; **nearest-file-wins** compose ordering
+(checked on differing schemes — order, not identity); per-unit diagnostic anchoring; offset-0
+non-collision. This validates the thesis: a file's frozen output projects a provider view that
+later files resolve by name, home-stamped, riding the existing same-assembly-is-not-a-clash rule
+in `TypeRegistration.diagnoseExternalClaim`.
+
+### Anchor corrections (early sections below have STALE line numbers — trust these)
+
+- `NodeKey` struct: `NodeKey.fs` (~154), still single-string `offset:32`, no `FileId`.
+- `PassContext.Input`/`Lexed`: `PassContext.fs` (~568), singular (NOT `SideTables.fs:1523`).
+- Provider interfaces: `IExternalSymbolProvider` `ExternalSymbols.fs:996`; `ICodegenSymbols`
+  `ExternalSymbols.fs:1043` (NOT `CodegenSymbols.fs`).
+- `.fsi` `isAccessible`: `VesperLib.fs:593` (public-only).
+- Production analyse seams: `Pipeline.analyseFor` / `analyseForSelfHost`.
+- `Diagnostic`: `SideTypes.fs:25`, `{ Key: NodeKey; ... }` — no file identity (that's why
+  diagnostics anchor in-unit).
+
+### Next — Step C, then Step D
+
+`FrozenSignature`/`AssemblyUnits` are **front-end only**; nothing wires them into codegen or a
+driver yet. Remaining:
+
+- **Step C — codegen iterates units** (the invasive one). The `Assembler`
+  (`Codegen.Clr/Assembler.fs`) is built around a single `tast: Frozen.TastFile`; make emission
+  consume a *sequence* of frozen units into one shared assembly/`MetadataContext`: a **Bind**
+  pass over ALL units into shared name/`SymbolKey` registries, then a **Prepare** pass **per
+  unit** with that unit's `NodeKey`-keyed tables (never flattened). The **home-assembly local
+  branch**: 0a made origins name-comparable, so a cross-file symbol whose home = the project's
+  own assembly resolves to a **local** `TypeDef`/handle instead of an `AssemblyRef` — the seam
+  is `ClrEnv.externalAsmRef` / `externalModuleRef` (~`ClrEnv.fs:411/454`), which today
+  `failwith`/`AssemblyRef` on any stamped home. Factor the backend-agnostic shape ("a
+  compilation is an ordered sequence of frozen units" + bind-all-then-prepare) into
+  **`Codegen.Common`** so `Codegen.Js` shares it. **Recommended: open with a read-only
+  investigation** (map the `Assembler` Bind/Prepare structure, the local-vs-external handle
+  resolution, the real Common-vs-Clr split), then decompose into small cuts — the pattern used
+  for BindingKey / 0a / Step B worked well. Fold in the two open items below as cross-file calls
+  exercise them.
+- **Step D — multi-file driver + delete concat.** `ClrDriver` gains a multi-file entry routing
+  through `AssemblyUnits` + Step-C codegen; **delete** the `String.concat "\n\n"` in
+  `TestHelpers.fs` (`buildPackage` ~:310, `vesperCoreDll` ~:129) and route those through it. The
+  single-`source` `ClrDriver.compile` stays for script/fragment callers.
+
+### Open items to close during Step C/D (see "Known open items" section below for detail)
+
+- **Point-free ValRepr — model RESOLVED as arity-0** (a point-free `let compose = f >> g` is a
+  function-valued property, arity 0, matching F#'s `ValReprInfo`). Implement: make the `.fsi`
+  extractor stop over-stating arity for point-free sigs so extractor/frozen/DLL-metadata agree,
+  and make codegen's external-call path *invoke* a function-valued external rather than requiring
+  `ValRepr` groups. Add the point-free parity case then.
+- **Projection coverage boundaries** (fail-safe, close when the corpus references them): RQA
+  union cases (`IsRequireQualifiedAccess` hardcoded `false`), enums unregistered, interface
+  members not decurried, member-level accessibility not captured.
+
+### Working conventions for this workstream
+
+Build/test ONLY via `./claude_tools.cmd -Action Build` / `-Action Test -TestProject "..."` (not
+raw `dotnet`). Prefer small agent cuts (large contexts take shortcuts — the point-free `ValRepr`
+hole slipped in that way and was caught in review). Instruct mirror-shaped agents to *factor, not
+copy* (a duplication pass crept in and was cleaned in `b48ea5d5`/`367800cf`). Gatekeeper every
+agent diff: read it, run the suites independently, check for duplication, THEN commit — the user
+authorized committing in steps for this workstream with short messages.
+
 ## Problem
 
 Semantic analysis of a package's implementation currently concatenates every
