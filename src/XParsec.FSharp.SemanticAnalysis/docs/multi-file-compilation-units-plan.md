@@ -115,11 +115,24 @@ A read-only investigation refined the Step C shape. Three findings reshape the p
    `deriveHandles` touch no NodeKey table). The global handle/prefix-sum space is built by
    `combine`.
 3. **Three single-tast assumptions** the combine must fix: (a) one `<Module>` + one Program holder
-   per tast → `combine` emits exactly one `<Module>` and routes Program/`Main` content to a single
-   entry unit; (b) closure names collide (`<closure>$0` per unit) → thread a base counter across
-   units; (c) same-named `module M` split across files collides at the holder key — **surfaces in
-   Step C** (not Step D). Default: a fail-safe guard (throw on collision), deferring real
-   holder-merging until the corpus needs it.
+   per tast → `combine` emits exactly one `<Module>`, and the **entry unit is the LAST file**: only
+   the last file may carry top-level expressions (bare `do`-style exprs), which become the synthetic
+   Program holder + IL entry point. A non-last file with top-level expressions is an ERROR (combine
+   rejects it); a library has no Program holder. The Program holder's emitted IL name MUST use a
+   reserved-character convention (`<…>` / `$`, like `<Module>` and `<closure>$N`) so it can never
+   collide with a source-declared type/module name; reconcile the exact name (current "Program"
+   holder vs. a `Program$0`) while keeping the single-file path byte-identical. (b) closure
+   names collide (`<closure>$0` per unit) → extract naming into a SHARED
+   policy function (a single seam), threading one namer across units so names are assembly-globally
+   unique. The name is the closure's `TypeDef` key, so the policy needs global uniqueness AND
+   totality (every node, incl. anonymous lambdas). Default stays the counter scheme (unique + total);
+   F#'s debuggable `<bound-name>@<line>` is a future drop-in policy in that one function, NOT the
+   default — it is neither globally unique (same line across files) nor total (anonymous lambdas have
+   no bound name). (c) same-named `module M` split across files: same FQN is a FRONT-END
+   duplicate-definition error, NOT a codegen holder-merge. `combine` keeps only a fail-safe assertion
+   (should be unreachable). VERIFY the same-assembly-is-not-a-clash rule in
+   `TypeRegistration.diagnoseExternalClaim` (which enables cross-file resolution) does not silently
+   permit a genuine duplicate-module redefinition — close that gap upstream if it does (a C6 check).
 
 **Decision: NO `Codegen.Common` factoring for Step C.** Bind/prepare is an SRM artifact, not
 backend-agnostic (JS has no bind phase — it concatenates per-unit statements). Everything stays in

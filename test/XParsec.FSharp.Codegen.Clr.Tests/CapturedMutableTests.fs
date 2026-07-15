@@ -297,6 +297,7 @@ let tests =
 
                 let closures, _ =
                     Emit.discoverClosures
+                        (Emit.ClosureNamer())
                         eligible
                         moduleValueKeys
                         typarsMap

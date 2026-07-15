@@ -746,7 +746,40 @@ module EmitClosures =
 
         stackNodes
 
+    /// Mints the `TypeDef` name for each discovered closure. The name IS the
+    /// closure's slot key (`TypeSlotKey.Closure name` / `closureByName`),
+    /// resolved assembly-wide by name — so one `ClosureNamer` threaded across
+    /// every `discoverClosures` call is what keeps those keys unique across the
+    /// whole assembly.
+    ///
+    /// The default policy names closures `<closure>$0`, `<closure>$1`, … in
+    /// discovery order and IGNORES the source context it is handed. F#'s own
+    /// `<bound-name>@<line>` scheme (debuggable) is deliberately NOT the default:
+    /// because the name is the global TypeDef key it must be (1) UNIQUE across
+    /// files — the same `let f = fun…` source line recurs in every compilation
+    /// unit — and (2) TOTAL — an anonymous lambda has no bound name at all.
+    /// `<bound-name>@<line>` satisfies neither without an added disambiguator and
+    /// an anonymous-lambda fallback, so the monotonic counter is the
+    /// correct-by-construction default. `NextName` still receives the closure
+    /// node and its enclosing binder so a richer, debuggable policy can later be
+    /// slotted in here alone.
+    type ClosureNamer() =
+        let mutable counter = 0
+
+        /// Return the next closure name, then advance (return-current-then-
+        /// increment — the exact timing the inline counter had). `node` is the
+        /// closure's source expression (its `NodeKey`/offset recoverable via
+        /// `NodeKey.ofToken (TastWalk.exprTok node) …`); `selfKey` is the
+        /// enclosing `let f = fun…` binder (`ValueNone` for an anonymous lambda).
+        /// Both are the context a `<bound-name>@<line>` policy would need; the
+        /// counter policy ignores them.
+        member _.NextName(_node: Frozen.TExpr, _selfKey: NodeKey voption) : string =
+            let name = sprintf "<closure>$%d" counter
+            counter <- counter + 1
+            name
+
     let discoverClosures
+        (namer: ClosureNamer)
         (staticFnKeys: HashSet<NodeKey>)
         (moduleValueKeys: HashSet<NodeKey>)
         (staticFnTypars: IReadOnlyDictionary<NodeKey, int>)
@@ -757,7 +790,6 @@ module EmitClosures =
         : Closure list * Dictionary<Frozen.TExpr, Closure> =
         let order = ResizeArray<Frozen.TExpr>()
         let lookup = Dictionary<Frozen.TExpr, Closure>(HashIdentity.Reference)
-        let mutable counter = 0
 
         // Source lambdas threaded through a constrained `Fun`2`/`Fun`3`
         // slot — eligible for the value-struct closure shape, mapped to their flat
@@ -901,7 +933,7 @@ module EmitClosures =
                 let c =
                     {
                         Node = e
-                        Name = sprintf "<closure>$%d" counter
+                        Name = namer.NextName(e, selfKey)
                         ParamKey = p
                         ParamTy = pty
                         ParamPat = paramPat
@@ -917,7 +949,6 @@ module EmitClosures =
                         ExtraParams = extraParams
                     }
 
-                counter <- counter + 1
                 lookup.[e] <- c
                 order.Add e
 

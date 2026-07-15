@@ -33,6 +33,7 @@ module Emit =
     type EmitContext = EmitTypes.EmitContext
     type PreambleStep = EmitTypes.PreambleStep
     type CtorChain = EmitTypes.CtorChain
+    type ClosureNamer = EmitClosures.ClosureNamer
 
     let closureIsCached = EmitTypes.closureIsCached
 

@@ -734,8 +734,15 @@ module internal Layout =
                     for entry in cd.StaticPreamble @ cd.InstancePreamble -> preambleRoot cd.Decl entry
             ]
 
+        // A fresh namer per build reproduces today's per-call `<closure>$N`
+        // numbering exactly; the same instance shared across multiple
+        // `discoverClosures` calls is what a later multi-file cut will use to
+        // keep closure TypeDef names unique assembly-wide.
+        let closureNamer = Emit.ClosureNamer()
+
         let closures, closureByNode =
             Emit.discoverClosures
+                closureNamer
                 plan.StaticFnKeys
                 plan.ModuleValueKeys
                 plan.StaticFnTypars
