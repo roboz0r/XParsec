@@ -795,7 +795,7 @@ module NameResolutionScope =
             | ValueSome name ->
                 match tryClassifyExternalType ctx (arityProbes types.Length) name with
                 | ValueSome hit when hit.Shape.TyparArity = types.Length ->
-                    let key = useSiteTypeKey hit.Compiled types.Length hit.Shape
+                    let key = useSiteTypeKey ctx hit.Compiled types.Length hit.Shape
                     ctx.Resolution.ResolvedType.Set(CstKeys.ofExpr receiver, key)
 
                     match hit.Shape with

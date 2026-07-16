@@ -36,6 +36,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
               else
                   ValueNone
 
+          member _.TryResolveTypeName(_: string) = ValueNone
           member _.TryLookupUnionCase _ = ValueNone
           member _.TryRecordsWithField _ = [||]
           member _.AmbientOpenPrefixes = []

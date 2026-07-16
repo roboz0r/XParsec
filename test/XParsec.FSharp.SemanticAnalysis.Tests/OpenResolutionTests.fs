@@ -37,6 +37,8 @@ let private provider: IExternalSymbolProvider =
               else
                   ValueNone
 
+          member _.TryResolveTypeName(_: string) = ValueNone
+
           // `Color` is `[<RequireQualifiedAccess>]` (its case `Red` carries the flag);
           // `Hue` is an ordinary union (`Blue` does not). Drives the RQA-suppression
           // tests below.

@@ -263,12 +263,11 @@ module internal UnificationInferCtor =
             match ctx.Resolution.ResolvedType.TryGetValue(CstKeys.ofExpr fn) with
             | ValueSome declTypeKey ->
                 match ctx.Provider.TryLookupType(SymbolKey.Type declTypeKey) with
-                | ValueSome(ExternalTypeShape.Class info) ->
+                | ValueSome(ExternalTypeShape.Class _) ->
                     // Mint the ctor's result with the resolved type's identity via
                     // `externalClassTy` (canon `TyConst` for a platform repr, else the
                     // external `TyClass`); the `.ctor` lookup is key-addressed.
-                    let receiverTy =
-                        externalClassTy ctx (SymbolKeyOps.typeMetaName declTypeKey) info 0 EqArray.empty
+                    let receiverTy = externalClassTy ctx declTypeKey EqArray.empty
 
                     ValueSome(
                         inferExternalCtorOn infer ctx key (SymbolKey.Type declTypeKey) EqArray.empty receiverTy args.[0]

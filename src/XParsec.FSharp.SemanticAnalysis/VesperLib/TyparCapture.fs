@@ -551,6 +551,7 @@ module VesperLibTyparCapture =
                                 | true, sym -> ValueSome sym
                                 | _ -> ValueNone
                         TryLookupType = fun name -> typeKeyOfName name |> ValueOption.bind typeShapeByKey
+                        TryResolveTypeName = typeKeyOfName
                         TryLookupUnionCase =
                             fun caseName ->
                                 match unionCaseIndex.TryGetValue caseName with

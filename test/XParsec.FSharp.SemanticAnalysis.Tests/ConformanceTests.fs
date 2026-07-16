@@ -454,6 +454,7 @@ let private contractProvider (entries: (string * ExternalSymbol) list) : IExtern
               | None -> ValueNone
 
           member _.TryLookupType(_: string) = ValueNone
+          member _.TryResolveTypeName(_: string) = ValueNone
           member _.TryLookupUnionCase _ = ValueNone
           member _.TryRecordsWithField _ = [||]
           member _.AmbientOpenPrefixes = []
@@ -584,6 +585,7 @@ let private memberContractProvider (overloads: ExternalMember list) : IExternalS
       interface IExternalSymbolResolver with
           member _.TryLookup _ = ValueNone
           member _.TryLookupType(_: string) = ValueNone
+          member _.TryResolveTypeName(_: string) = ValueNone
           member _.TryLookupUnionCase _ = ValueNone
           member _.TryRecordsWithField _ = [||]
           member _.AmbientOpenPrefixes = []

@@ -124,6 +124,7 @@ let tests =
                               if name = "myId" then ValueSome myIdSymbol else ValueNone
 
                           member _.TryLookupType(_: string) = ValueNone
+                          member _.TryResolveTypeName(_: string) = ValueNone
                           member _.TryLookupUnionCase _ = ValueNone
                           member _.TryRecordsWithField _ = [||]
                           member _.AmbientOpenPrefixes = []

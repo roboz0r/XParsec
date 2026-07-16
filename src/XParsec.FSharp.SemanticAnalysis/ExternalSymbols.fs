@@ -882,6 +882,20 @@ type IExternalSymbolResolver =
     /// consumer holding a resolved `SymbolKey` uses instead).
     abstract TryLookupType: name: string -> ExternalTypeShape voption
 
+    /// The REGISTERED identity key for a written (possibly dotted) type name,
+    /// resolved through the SAME containment canonicalizer as `TryLookupType`.
+    /// The key-carrying twin of `TryLookupType`: a use site that resolved a
+    /// module-held type by its DOTTED source spelling needs the producer's own
+    /// `InModule`-holder key, which no re-cut from the name can reconstruct
+    /// (`SymbolKeyOps.externalTypeKeyOf` would flatten the module segment into the
+    /// namespace). A provider whose types hold a module chain (the frozen impl
+    /// projection, the `.fsi` contract extractor) answers from the same index it
+    /// resolves `TryLookupType` through; the bare-IL population (metadata /
+    /// JS-native / TS-manifest / test fakes) has no module chains, so it returns
+    /// `ValueNone` and the use site's re-cut stays the exact, correct fallback.
+    /// `ValueNone` on the same terms as `TryLookupType` (unknown name).
+    abstract TryResolveTypeName: name: string -> SymbolKey voption
+
     /// Reverse case-name lookup: a (bare) union-case name → its declaring
     /// union's compiled name, the union's typar arity, and the case shape. The
     /// mirror of `TryLookupMember` for union construction: it lets a consumer

@@ -135,16 +135,17 @@ module internal UnificationTranslate =
     /// partition is needed: `reverseCanon` carries only intrinsic (`TyConst`) canons (the
     /// `TyparCapture` reverse fold omits capability interfaces), so an interface simply
     /// misses the lookup and keeps its `TyClass` form via the fall-through arm.
-    let externalClassTy
-        (ctx: PassContext)
-        (compiled: string)
-        (info: ExternalClassShape)
-        (arity: int)
-        (args: EqArray<SemType>)
-        : SemType =
-        match ctx.IntrinsicReverseCanon.Value.TryGetValue compiled with
+    let externalClassTy (ctx: PassContext) (key: TypeKey) (args: EqArray<SemType>) : SemType =
+        // The nominal identity is the RESOLVED `key` itself, built on directly — never
+        // re-cut from its rendered name. `typeMetaName`/`externalTypeKeyOf` round-trip only
+        // on the `InNamespace`/`InType` sublattice, so re-minting an `InModule` key through
+        // its `+`-metadata name would flatten the module holder into an `InType` class holder
+        // (an unequal identity). The reverse-canon probe still keys on the metadata NAME (its
+        // platform-repr entries — `System.Exception` → `exn` — are all bare-IL/`InNamespace`,
+        // where name and key agree).
+        match ctx.IntrinsicReverseCanon.Value.TryGetValue(SymbolKeyOps.typeMetaName key) with
         | true, (canon :: _) -> TyConst(canon, args)
-        | _ -> TyClass(SymbolKeyOps.externalTypeKeyOf info.Origin compiled arity, args)
+        | _ -> TyClass(key, args)
 
     /// DEBUG-only witness for a DOTTED written head that neither the store face nor the
     /// project-local claim answered. It guards the premise `unresolvedHeadTy` rests on: that
@@ -648,20 +649,23 @@ module internal UnificationTranslate =
             // parameters to apply them to.
             | ValueNone -> unresolvedHeadTy ctx diagKey name (TyConst(RuntimeNames.opaqueKey name, EqArray.empty))
 
-    /// Build the annotation `SemType` from a resolved external shape + its matched
-    /// compiled name. Shared by both resolution faces (the stamped store-face read
-    /// and the by-name resolver read), so the identity a written type annotation
-    /// resolves to is minted in exactly one place. `None` for an `Opaque` residue,
-    /// which has no kind a type annotation can take.
+    /// Build the annotation `SemType` from a resolved external shape addressed by the
+    /// RESOLVED identity key `symKey`. Shared by both resolution faces (the stamped
+    /// store-face read and the by-name resolver read), so the identity a written type
+    /// annotation resolves to is minted in exactly one place. `None` for an `Opaque`
+    /// residue, which has no kind a type annotation can take.
+    ///
+    /// The nominal identity is `symKey` DIRECTLY — never a re-cut from its rendered name.
+    /// `typeMetaName`/`externalTypeKeyOf` round-trip only on the `InNamespace`/`InType`
+    /// sublattice, so re-minting an `InModule` key through its `+`-metadata name would flatten
+    /// the module holder into an `InType` class holder: an unequal identity that misses the
+    /// by-key store and mismatches the key construction pins via `ExternalRecordCandidate`.
     and private buildExternalTy
         (ctx: PassContext)
-        (compiled: string)
+        (symKey: TypeKey)
         (shape: ExternalTypeShape)
-        (arity: int)
         (translatedArgs: EqArray<SemType>)
         : SemType option =
-        // Mint the nominal's `SymbolKey` from the resolved shape's origin + the
-        // matched compiled name. `asm = Some` marks it external.
         match shape with
         // A referenced intrinsic — scalar (`exn = (# "System.Exception" #)`)
         // or heritable class: NON-transparent, its NOMINAL IDENTITY is the
@@ -680,24 +684,18 @@ module internal UnificationTranslate =
         // canon (`System.Exception` → `exn`, `System.Object` → `obj`,
         // `System.Int32` → `int`) resolves to the canon `TyConst`; capability
         // INTERFACES keep their `TyClass` form. See `externalClassTy`.
-        | ExternalTypeShape.Class info -> Some(externalClassTy ctx compiled info arity translatedArgs)
-        // A capability interface (`disposable`) is a `TyClass` CONSTRAINT — its
-        // value identity key is origin-homed exactly as a `Class`'s (the reverse
-        // map holds no interface canons, so `externalClassTy`'s reverse hit never
-        // fires for it; this bypasses that check and mints the `TyClass` directly).
-        | ExternalTypeShape.IntrinsicInterface iface ->
-            Some(TyClass(SymbolKeyOps.externalTypeKeyOf iface.Origin compiled arity, translatedArgs))
-        | ExternalTypeShape.Record(origin = origin) ->
-            Some(TyRecord(SymbolKeyOps.externalTypeKeyOf origin compiled arity, translatedArgs))
-        | ExternalTypeShape.Union(origin = origin) ->
-            Some(TyUnion(SymbolKeyOps.externalTypeKeyOf origin compiled arity, translatedArgs))
-        // An external enum type annotation `(x: E)` → the nominal
-        // `TyEnum key` (no args — enums are never generic), keyed off
-        // the same `externalTypeKey origin key 0` an `E.Ci` use site
-        // mints, so the annotation and the case access unify. The
-        // enum is a DISTINCT nominal (NOT its underlying int/string),
-        // exactly like the authored `TyEnum`.
-        | ExternalTypeShape.Enum(origin = origin) -> Some(TyEnum(SymbolKeyOps.externalTypeKeyOf origin compiled 0))
+        | ExternalTypeShape.Class _ -> Some(externalClassTy ctx symKey translatedArgs)
+        // A capability interface (`disposable`) is a `TyClass` CONSTRAINT — the reverse
+        // map holds no interface canons, so it never hits `externalClassTy`'s canon path;
+        // its value identity is the resolved key directly.
+        | ExternalTypeShape.IntrinsicInterface _ -> Some(TyClass(symKey, translatedArgs))
+        | ExternalTypeShape.Record _ -> Some(TyRecord(symKey, translatedArgs))
+        | ExternalTypeShape.Union _ -> Some(TyUnion(symKey, translatedArgs))
+        // An external enum type annotation `(x: E)` → the nominal `TyEnum key` (no args —
+        // enums are never generic), keyed off the SAME resolved identity an `E.Ci` use site
+        // mints, so the annotation and the case access unify. The enum is a DISTINCT nominal
+        // (NOT its underlying int/string), exactly like the authored `TyEnum`.
+        | ExternalTypeShape.Enum _ -> Some(TyEnum(symKey))
         // A transparent abbreviation dealiases to its body: `int32 =
         // int` (`int = (# "System.Int32" #)`) resolves to `TyConst
         // "int"`, the form codegen actually encodes — without this an
@@ -722,18 +720,17 @@ module internal UnificationTranslate =
     /// key-addressed store-face read shared by every consumer holding a
     /// NameResolution-minted `SymbolKey` (the stamped annotation path, the by-name
     /// hatch, and the generic-ctor stamp read), so the `SemType` a resolved head
-    /// yields is minted in exactly one place. `qualifiedName` recovers the compiled
-    /// name the shape builder needs from the key (identity-preserving: the key was
-    /// minted from the same compiled name, so the round-trip is exact). An
-    /// arity-mismatched shape is rejected (a generic type referenced at the wrong
-    /// arity isn't this type, and guards the abbrev/record builders against a
+    /// yields is minted in exactly one place. `buildExternalTy` mints the nominal on
+    /// `symKey` DIRECTLY, so a module-held key's identity survives (no round-trip through
+    /// its rendered name). An arity-mismatched shape is rejected (a generic type referenced
+    /// at the wrong arity isn't this type, and guards the abbrev/record builders against a
     /// wrong-length arg array).
     and tryExternalTypeOfKey (ctx: PassContext) (symKey: TypeKey) (translatedArgs: EqArray<SemType>) : SemType voption =
         let arity = translatedArgs.Length
 
         match ctx.Provider.TryLookupType(SymbolKey.Type symKey) with
         | ValueSome shape when shape.TyparArity = arity ->
-            match buildExternalTy ctx (SymbolKeyOps.typeMetaName symKey) shape arity translatedArgs with
+            match buildExternalTy ctx symKey shape translatedArgs with
             | Some ty -> ValueSome ty
             | None -> ValueNone
         | _ -> ValueNone

@@ -57,25 +57,36 @@ module NameResolutionTypeHeadStamp =
                 struct (candidate, arity)
             ]
 
-    /// Mint the use-site `TypeKey` from the matched shape's origin + compiled name.
-    /// Class/Union/Record/Enum carry the home assembly + namespace; the origin-less
-    /// shapes fall back to splitting the qualified compiled name. Mirrors
-    /// `Translate`'s nominal mint, so the stamped key round-trips through the
-    /// key-addressed store face.
-    let useSiteTypeKey (compiled: string) (arity: int) (shape: ExternalTypeShape) : TypeKey =
+    /// Mint the use-site `TypeKey` for a resolved external type head.
+    ///
+    /// A NOMINAL head (Class/IntrinsicInterface/Record/Union/Enum) prefers the producer's
+    /// REGISTERED key — surfaced by the resolver's `TryResolveTypeName` for the SAME
+    /// `compiled` spelling that hit — over a key re-cut from that spelling. Only the
+    /// registered key preserves an `InModule` holder chain: a module-held cross-unit type
+    /// written by its dotted source name (`Test.A.M.R`) has canonical key `{InModule M in
+    /// Test.A, R}`, but `externalTypeKeyOf` would flatten the module segment into the
+    /// namespace (`{InNamespace Test.A.M, R}`) — an unequal identity that mismatches the one
+    /// construction pins via `ExternalRecordCandidate.TypeKey`. The bare-IL population
+    /// returns `ValueNone` (no module chains), so the origin-homed re-cut stays the exact
+    /// fallback there.
+    ///
+    /// The non-nominal shapes never consult the resolver: an Abbrev dealiases on read, and an
+    /// intrinsic's identity is the canon keyed off the compiled name — identical by
+    /// construction to the canon the extractor stamped (`SymbolKeyOps.intrinsicCanonKey`), so
+    /// the stamp and the shape agree without a registered-key detour.
+    let useSiteTypeKey (ctx: PassContext) (compiled: string) (arity: int) (shape: ExternalTypeShape) : TypeKey =
+        let nominal (origin: SymbolOrigin) : TypeKey =
+            match ctx.Resolver.TryResolveTypeName compiled with
+            | ValueSome(SymbolKey.Type t) -> t
+            | _ -> SymbolKeyOps.externalTypeKeyOf origin compiled arity
+
         match shape with
-        | ExternalTypeShape.Class info -> SymbolKeyOps.externalTypeKeyOf info.Origin compiled arity
-        // A capability interface's VALUE identity key is origin-homed exactly as a
-        // `Class`'s: the origin supplies the namespace for a BARE compiled name.
-        | ExternalTypeShape.IntrinsicInterface s -> SymbolKeyOps.externalTypeKeyOf s.Origin compiled arity
+        | ExternalTypeShape.Class info -> nominal info.Origin
+        | ExternalTypeShape.IntrinsicInterface s -> nominal s.Origin
         | ExternalTypeShape.Record(origin = o)
         | ExternalTypeShape.Union(origin = o)
-        | ExternalTypeShape.Enum(origin = o) -> SymbolKeyOps.externalTypeKeyOf o compiled arity
+        | ExternalTypeShape.Enum(origin = o) -> nominal o
         | ExternalTypeShape.Abbrev _
-        // An intrinsic's identity is the canon, keyed off the compiled name — the optional
-        // base/ctor surface does not change the key. Identical by construction to the canon
-        // the extractor stamped on the shape (`SymbolKeyOps.intrinsicCanonKey`, the same
-        // mint off the same arity-suffixed compiled name), so the stamp and the shape agree.
         | ExternalTypeShape.Intrinsic _
         | ExternalTypeShape.Opaque _ -> SymbolKeyOps.qualifiedTypeKeyOf compiled arity
 
@@ -89,7 +100,7 @@ module NameResolutionTypeHeadStamp =
             (arityProbes arity)
             (fun key a shape ->
                 if shape.TyparArity = a then
-                    ValueSome(useSiteTypeKey key a shape)
+                    ValueSome(useSiteTypeKey ctx key a shape)
                 else
                     ValueNone
             )

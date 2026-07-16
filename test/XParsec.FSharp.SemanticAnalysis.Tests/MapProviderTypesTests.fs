@@ -102,6 +102,7 @@ let private fake: IExternalSymbolProvider =
                   ValueNone
 
           member _.TryLookupType(name: string) = typeByName name
+          member _.TryResolveTypeName(_: string) = ValueNone
 
           member _.TryLookupUnionCase caseName =
               if caseName = "C" then

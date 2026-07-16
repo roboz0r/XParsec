@@ -31,6 +31,7 @@ module ExternalSymbolProviders =
         {
             TryLookup: string -> ExternalSymbol voption
             TryLookupType: string -> ExternalTypeShape voption
+            TryResolveTypeName: string -> SymbolKey voption
             TryLookupUnionCase: string -> ExternalUnionCase voption
             TryRecordsWithField: string -> ExternalRecordCandidate[]
             AmbientOpenPrefixes: string list
@@ -49,6 +50,7 @@ module ExternalSymbolProviders =
             {
                 TryLookup = fun _ -> ValueNone
                 TryLookupType = fun _ -> ValueNone
+                TryResolveTypeName = fun _ -> ValueNone
                 TryLookupUnionCase = fun _ -> ValueNone
                 TryRecordsWithField = fun _ -> [||]
                 AmbientOpenPrefixes = []
@@ -148,6 +150,7 @@ module ExternalSymbolProviders =
           interface IExternalSymbolResolver with
               member _.TryLookup name = named.TryLookup name
               member _.TryLookupType(name: string) = named.TryLookupType name
+              member _.TryResolveTypeName(name: string) = named.TryResolveTypeName name
               member _.TryLookupUnionCase caseName = named.TryLookupUnionCase caseName
               member _.TryRecordsWithField fieldName = named.TryRecordsWithField fieldName
               member _.AmbientOpenPrefixes = named.AmbientOpenPrefixes
@@ -334,6 +337,15 @@ module ExternalSymbolProviders =
 
               member _.TryLookupType(name: string) =
                   firstHit (fun s -> s.TryLookupType name) |> ValueOption.map stampType
+
+              // First source that knows the name wins, exactly as `TryLookupType`.
+              // NO origin re-home: a `SymbolKey` is a pure identity that carries its
+              // own namespace, so it is never re-stamped to the package origin (the
+              // same reason `stampRecordCandidate` re-homes a candidate's `Origin` but
+              // leaves its `TypeKey` untouched — construction identity and this key must
+              // agree, and neither is re-homed).
+              member _.TryResolveTypeName(name: string) =
+                  firstHit (fun s -> s.TryResolveTypeName name)
 
               // First source that knows a case of this name wins; re-stamp the
               // package origin onto the result exactly as `TryLookupType` does for
@@ -535,6 +547,10 @@ module ExternalSymbolProviders =
               member _.TryLookupType(name: string) =
                   inner.TryLookupType name |> ValueOption.map mapShape
 
+              // A `SymbolKey` is pure identity — no `FrozenType` surface to
+              // variance-map — so this decorator passes it straight through.
+              member _.TryResolveTypeName(name: string) = inner.TryResolveTypeName name
+
               member _.TryLookupUnionCase caseName =
                   inner.TryLookupUnionCase caseName
                   |> ValueOption.map (fun uc -> { uc with Case = mapCase uc.Case })
@@ -601,6 +617,7 @@ module ExternalSymbolProviders =
                   inner.TryLookup name |> ValueOption.map stampSymbol
 
               member _.TryLookupType(name: string) = inner.TryLookupType name
+              member _.TryResolveTypeName(name: string) = inner.TryResolveTypeName name
               member _.TryLookupUnionCase caseName = inner.TryLookupUnionCase caseName
               member _.TryRecordsWithField fieldName = inner.TryRecordsWithField fieldName
               member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
@@ -638,6 +655,7 @@ module ExternalSymbolProviders =
     let memoize (inner: IExternalSymbolProvider) : IExternalSymbolProvider =
         let symbols = ConcurrentDictionary<string, ExternalSymbol voption>()
         let typesByName = ConcurrentDictionary<string, ExternalTypeShape voption>()
+        let typeKeysByName = ConcurrentDictionary<string, SymbolKey voption>()
         let typesByKey = ConcurrentDictionary<SymbolKey, ExternalTypeShape voption>()
 
         let members =
@@ -661,6 +679,9 @@ module ExternalSymbolProviders =
 
               member _.TryLookupType(name: string) =
                   typesByName.GetOrAdd(name, (fun n -> inner.TryLookupType n))
+
+              member _.TryResolveTypeName(name: string) =
+                  typeKeysByName.GetOrAdd(name, (fun n -> inner.TryResolveTypeName n))
 
               member _.TryLookupUnionCase caseName =
                   unionCases.GetOrAdd(caseName, (fun n -> inner.TryLookupUnionCase n))

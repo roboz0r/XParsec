@@ -535,21 +535,16 @@ module N =
                 Expect.isEmpty (unresolvedErrors all.[1]) "resolution survives colliding raw offsets"
             }
 
-            ptest "cross-unit MODULE-HELD type: annotation identity matches construction identity" {
-                // INCOMPLETE residual of the type-annotation-by-`open` fix. The frozen
-                // provider now RESOLVES a module-held type's dotted spelling (no "not defined"),
-                // but the identity a use site MINTS for it splits by resolution path:
+            test "cross-unit MODULE-HELD type: annotation identity matches construction identity" {
+                // A module-held type's identity agrees across resolution paths:
                 //   * construction / field-set (`{ X = 1 }`) pins the REGISTERED `InModule` key,
                 //     carried structurally on `ExternalRecordCandidate.TypeKey`;
                 //   * annotation (`r : R`) goes through NameResolution's `useSiteTypeKey`, which
-                //     re-cuts the matched dotted spelling with `externalTypeKeyOf` — and
-                //     `typeKeyOf` cannot recover a module chain from a dotted name, so it lands
-                //     the type in a flattened `InNamespace` holder (`{InNamespace Test.A.M, R}`).
-                // The two keys are structurally distinct, so `let r : R = { X = 1 }` unifies the
-                // annotation against the literal and reports a TYPE MISMATCH. It flips green once
-                // the annotation stamp carries the REGISTERED key the provider resolved (rather
-                // than re-minting from the name) — a consumer-side change (`useSiteTypeKey` /
-                // `ResolvedTypeHead`), outside the pure-projection scope of the current fix.
+                //     stamps the SAME registered key the provider resolved (surfaced by the
+                //     resolver's `TryResolveTypeName`) rather than re-cutting the dotted spelling
+                //     into a flattened `InNamespace` holder.
+                // So `let r : R = { X = 1 }` unifies the annotation against the literal with a
+                // matching identity — no type mismatch.
                 let file1 =
                     "\
 namespace Test.A

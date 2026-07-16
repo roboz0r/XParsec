@@ -401,9 +401,10 @@ module FrozenSignature =
         // containment canonicalizer. `typesByName` holds the canonical `typeMetaName`
         // rendering (`Test.A.M+T` for a module-held type); `tryDottedModuleHeld` adds the
         // fallback for the spelling that is NOT that rendering — the DOTTED source form
-        // (`Test.A.M.T`), resolved through the declared module holders. Both store faces
-        // (name AND key) reunite on this, so a consumer's dotted spelling and the identity
-        // a re-cut key renders back to (see `typeShapeByKey`) reach the same registered key.
+        // (`Test.A.M.T`), resolved through the declared module holders. It backs BOTH the
+        // by-name shape face (`typeShapeByName`) and the resolver's `TryResolveTypeName`, so
+        // a use site stamps the producer's own key rather than a flattened re-cut — which is
+        // why the store face reads its key-addressed index directly (no re-cut key arrives).
         let resolveNameToKey (name: string) : SymbolKey voption =
             let exact (probe: string) =
                 match typesByName.TryGetValue probe with
@@ -417,32 +418,19 @@ module FrozenSignature =
 
             SymbolKeyOps.tryDottedModuleHeld exact moduleHolder name
 
-        // Key-addressed lookup with the module-held containment fallback. A consumer that
-        // resolved a module-held type by its DOTTED spelling and minted a key from that
-        // spelling holds a FLATTENED key: `typeKeyOf` cannot recover the module chain from a
-        // dotted name, so it lands the type directly in the (over-long) namespace —
-        // `{InNamespace Test.A.M, T}` where the registered identity is `{InModule M in
-        // Test.A, T}`. That flattened key renders back to the same dotted `Test.A.M.T` (an
-        // `InNamespace` holder spells with `.`, no module `+`), so rendering it and
-        // re-resolving through the shared containment reunites it with the registered key. A
-        // key that names nothing still misses.
-        let byKeyCanonical (dict: Dictionary<SymbolKey, 'v>) (key: SymbolKey) : 'v voption =
-            match dict.TryGetValue key with
+        // The store face is addressed by the REGISTERED key directly: NameResolution stamps
+        // the producer's own key (surfaced by the resolver's `TryResolveTypeName`, which
+        // shares `resolveNameToKey`), so a flattened re-cut key never reaches this index and
+        // a plain dictionary lookup is exact. A key that names nothing misses.
+        let typeShapeByKey (key: SymbolKey) : ExternalTypeShape voption =
+            match shapesByKey.TryGetValue key with
             | true, v -> ValueSome v
-            | _ ->
-                match key with
-                | SymbolKey.Type t ->
-                    match resolveNameToKey (SymbolKeyOps.typeMetaName t) with
-                    | ValueSome regKey ->
-                        match dict.TryGetValue regKey with
-                        | true, v -> ValueSome v
-                        | _ -> ValueNone
-                    | ValueNone -> ValueNone
-                | _ -> ValueNone
+            | _ -> ValueNone
 
-        let typeShapeByKey (key: SymbolKey) : ExternalTypeShape voption = byKeyCanonical shapesByKey key
-
-        let typeMembersByKey (key: SymbolKey) : ResizeArray<ExternalMember> voption = byKeyCanonical membersByKey key
+        let typeMembersByKey (key: SymbolKey) : ResizeArray<ExternalMember> voption =
+            match membersByKey.TryGetValue key with
+            | true, v -> ValueSome v
+            | _ -> ValueNone
 
         let typeShapeByName (name: string) : ExternalTypeShape voption =
             match resolveNameToKey name with
@@ -458,6 +446,7 @@ module FrozenSignature =
                             | true, sym -> ValueSome sym
                             | _ -> ValueNone
                     TryLookupType = typeShapeByName
+                    TryResolveTypeName = resolveNameToKey
                     TryLookupUnionCase =
                         fun caseName ->
                             match unionCaseIndex.TryGetValue caseName with
