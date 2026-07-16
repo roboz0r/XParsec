@@ -998,16 +998,16 @@ module internal NominalEmit =
         // arg, threading the type's fields through `EmitStructuralFormat.buildRecordFormat` /
         // `buildUnionFormat` (the same field-handle resolution `structuralFields`
         // uses, so a generic type routes through its self-`TypeSpec` `MemberRef`s).
+        // Every record / union, unconditionally — including `Vesper.Core`'s own. The
+        // interface resolves local-or-external like any nominal
+        // (`ClrEnv.coreInterfaceEntity`), so Core implements its OWN `TypeDef` rather than
+        // an `AssemblyRef` to itself; nothing here asks which assembly it is. Mirrors
+        // `LayoutNodes.formatRows`, which reserves the row on the same terms.
         let emitsStructuralFormat =
-            // Suppressed in the assembly that *defines* the interfaces (Vesper.Core):
-            // its own records would otherwise reference `IStructuralFormattable`
-            // through an external `AssemblyRef` to Core itself (see
-            // `Assembler.DefinesStructuralFormatInterfaces`).
-            not asm.DefinesStructuralFormatInterfaces
-            && match input with
-               | NominalEmissionInput.Union _
-               | NominalEmissionInput.Record _ -> true
-               | NominalEmissionInput.Class _ -> false
+            match input with
+            | NominalEmissionInput.Union _
+            | NominalEmissionInput.Record _ -> true
+            | NominalEmissionInput.Class _ -> false
 
         if emitsStructuralFormat then
             let formatIr =

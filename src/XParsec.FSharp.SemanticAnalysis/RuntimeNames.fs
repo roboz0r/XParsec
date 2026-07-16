@@ -68,12 +68,19 @@ module RuntimeNames =
     let vesperRefKey: TypeKey = SymbolKeyOps.typeKeyOfArity "Vesper" "Ref" 1
 
     /// Canonical identity for the `%A` structural-format interface
-    /// `Vesper.IStructuralFormattable` (non-generic). Recogniser-only —
-    /// `isStructuralFormattableKey` gates whether *this* compilation is `Vesper.Core`
-    /// itself (then the per-type `Format` synthesis is suppressed; see codegen `Layout` /
-    /// `Assembler`), so `private`.
-    let private structuralFormattableKey: TypeKey =
+    /// `Vesper.IStructuralFormattable` (non-generic) — the `InterfaceImpl` the
+    /// synthesised per-record/union `Format` declares. A CLR-backend concern: the JS
+    /// backend renders `%A` through hole-directed renderers and has no such interface.
+    /// The backend resolves it like any other nominal — its own `TypeDef` when compiling
+    /// `Vesper.Core`, a `TypeRef` through Core's `AssemblyRef` downstream — so nothing
+    /// asks "am I Core?".
+    let structuralFormattableKey: TypeKey =
         SymbolKeyOps.typeKeyOf "Vesper" "IStructuralFormattable"
+
+    /// Canonical identity for `Vesper.IFormatSink` (non-generic) — the parameter type of
+    /// the synthesised `Format`. Resolved local-or-external exactly as
+    /// [`structuralFormattableKey`].
+    let formatSinkKey: TypeKey = SymbolKeyOps.typeKeyOf "Vesper" "IFormatSink"
 
     /// Canonical identity for `PrintfFormat<'Printer,'State,'Residue,'Result>` (arity 4) —
     /// the type a format literal freezes to (`PrintfSpec.printfFormatName`). The FSharp.Core
@@ -340,14 +347,6 @@ module RuntimeNames =
     /// `Empty`/`Cons` cases from bare-ctor-name resolution.
     let isVesperListName (compiledName: string) : bool =
         compiledName = SymbolKeyOps.typeMetaName vesperListKey
-
-    /// True iff `k` denotes the `%A` structural-format interface
-    /// `Vesper.IStructuralFormattable`. The single source the codegen `Layout` and
-    /// `Assembler` both consult to detect *this* compilation defining the interface
-    /// (⇒ it is `Vesper.Core`, so suppress per-type `Format` synthesis); the two
-    /// must agree, so they share this recogniser rather than each re-spelling the
-    /// qualified name.
-    let isStructuralFormattableKey (k: TypeKey) : bool = k = structuralFormattableKey
 
     /// True iff `k` denotes `PrintfFormat<'Printer,'State,'Residue,'Result>` — the
     /// format type a `printf` / `sprintf` literal freezes to; replaces the inline

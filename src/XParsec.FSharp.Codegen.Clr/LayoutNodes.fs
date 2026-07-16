@@ -203,21 +203,20 @@ module internal LayoutNodes =
         | _ -> []
 
     /// The synthesised `IStructuralFormattable.Format` row (`%A`). Emitted for
-    /// *every* record / union — `%A` is orthogonal to the equality / comparison
-    /// verdicts (it renders a value's structure, never depending on whether the type
-    /// supports `=` / `<`). A new virtual slot bound to the `InterfaceImpl` by name +
-    /// signature, like the typed `Equals(Self)`.
-    let private formatRows (definesInterfaces: bool) (td: Frozen.TTypeDecl) : MethodRow list =
-        if definesInterfaces then
-            []
-        else
-            [
-                {
-                    Key = MethodKey.FmtFormat td.Key
-                    Name = "Format"
-                    Attrs = ifaceEqualsAttrs
-                }
-            ]
+    /// *every* record / union, unconditionally — `%A` is orthogonal to the equality /
+    /// comparison verdicts (it renders a value's structure, never depending on whether the
+    /// type supports `=` / `<`), and the interface resolves local-or-external like any
+    /// nominal (`ClrEnv.coreInterfaceEntity`), so even `Vesper.Core`'s own records get a
+    /// row. A new virtual slot bound to the `InterfaceImpl` by name + signature, like the
+    /// typed `Equals(Self)`.
+    let private formatRows (td: Frozen.TTypeDecl) : MethodRow list =
+        [
+            {
+                Key = MethodKey.FmtFormat td.Key
+                Name = "Format"
+                Attrs = ifaceEqualsAttrs
+            }
+        ]
 
     /// The capability co-slot rows, in `NominalEmit` emission order. `CapabilityCoSlots.required`
     /// is a pure function of the type's implemented interfaces, and `NominalEmit` prepares
@@ -297,10 +296,10 @@ module internal LayoutNodes =
     // ---- Per-kind node builders ------------------------------------------------------
     //
     // One `TypeNode list` per partition slice (plus the discovered closures). Each maps a
-    // slice to its by-kind rows and is a pure function of that slice + the two ambient
-    // facts a nominal row needs (`symbols` for co-slots, `definesStructuralFormatInterfaces`
-    // for the `%A` row). `buildUnit` calls them in the by-kind order the `TypeDef` table
-    // has always used; nothing here reads unit-wide or later-derived state.
+    // slice to its by-kind rows and is a pure function of that slice + the one ambient fact
+    // a nominal row needs (`symbols`, for co-slots). `buildUnit` calls them in the by-kind
+    // order the `TypeDef` table has always used; nothing here reads unit-wide or
+    // later-derived state.
 
     let buildInterfaceNodes (interfaces: (Frozen.TTypeDecl * Frozen.TAbstractMethod list) list) : TypeNode list =
         [
@@ -323,11 +322,7 @@ module internal LayoutNodes =
 
     /// Per union: `_tag` + every case's payload fields; nullary `.ctor`,
     /// case factories, members, [equality triple], [comparison pair].
-    let buildUnionNodes
-        (symbols: ICodegenSymbols)
-        (definesStructuralFormatInterfaces: bool)
-        (unions: UnionDecl list)
-        : TypeNode list =
+    let buildUnionNodes (symbols: ICodegenSymbols) (unions: UnionDecl list) : TypeNode list =
         [
             for ud in unions ->
                 let td = ud.Decl
@@ -374,18 +369,14 @@ module internal LayoutNodes =
 
                         yield! equalityRows td
                         yield! comparisonRows td
-                        yield! formatRows definesStructuralFormatInterfaces td
+                        yield! formatRows td
                         yield! coSlotRows symbols td ud.Interfaces
                     ]
 
                 nominalNode TypeSlotKind.Union td fields methodRows
         ]
 
-    let buildRecordNodes
-        (symbols: ICodegenSymbols)
-        (definesStructuralFormatInterfaces: bool)
-        (records: RecordDecl list)
-        : TypeNode list =
+    let buildRecordNodes (symbols: ICodegenSymbols) (records: RecordDecl list) : TypeNode list =
         [
             for rd in records ->
                 let td = rd.Decl
@@ -415,7 +406,7 @@ module internal LayoutNodes =
 
                         yield! equalityRows td
                         yield! comparisonRows td
-                        yield! formatRows definesStructuralFormatInterfaces td
+                        yield! formatRows td
                         yield! coSlotRows symbols td rd.Interfaces
                     ]
 

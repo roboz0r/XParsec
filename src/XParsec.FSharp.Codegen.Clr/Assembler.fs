@@ -694,17 +694,6 @@ type internal Assembler
     /// row space live on the Assembler and are shared across units.
     member _.Units: UnitEmit list = units
 
-    /// True when *this* compilation defines the `%A` structural-format interfaces
-    /// (`Vesper.IStructuralFormattable` / `IFormatSink`) — i.e. it is `Vesper.Core`.
-    /// Then the per-type `Format` synthesis (NominalEmit) is suppressed: a Core
-    /// record (the `[<ReferenceEquality>]` `Ref` cell) would otherwise reference
-    /// the interface through an `AssemblyRef` to Core *itself*, which `refRequired`
-    /// rejects. Core's internal cells need no `%A`; every downstream assembly
-    /// resolves the interface externally via `vesperCoreRef`, as before. Read off
-    /// the layout (computed once in `Layout.build`) so the `Format`-row reservation
-    /// and this body-emission gate share one source of truth.
-    member _.DefinesStructuralFormatInterfaces = layout.DefinesStructuralFormatInterfaces
-
     /// The emission-side symbol view — `NominalEmit` derives a nominal's capability
     /// co-slots from it (`CapabilityCoSlots.required`) exactly as `Layout` did when it
     /// reserved their rows.

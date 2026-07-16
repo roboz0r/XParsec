@@ -233,19 +233,6 @@ type internal ClrEnv
     let eFormatter =
         lazy (toEntity (ctx.TypeRef(vesperRef.Value, "Vesper", "Formatter")))
 
-    // The `%A` structural-format interfaces. Owned by `Vesper.Core`: the synthesised
-    // `Format` implements a Core-owned interface, so a record-bearing program links
-    // only `Vesper.Core` — never `Vesper.Printf` (where only the layout *engine*,
-    // `RuntimeFormatState`, lives, implementing this same Core `IFormatSink`).
-    // `IStructuralFormattable` is the `InterfaceImpl` a synthesised record/DU declares;
-    // `IFormatSink` is its `Format` param type. Both resolve against `vesperCoreRef`,
-    // like `Vesper.Fun`.
-    let eStructuralFormattable =
-        lazy (toEntity (ctx.TypeRef(vesperCoreRef.Value, "Vesper", "IStructuralFormattable")))
-
-    let eFormatSink =
-        lazy (toEntity (ctx.TypeRef(vesperCoreRef.Value, "Vesper", "IFormatSink")))
-
     let eDecimal = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Decimal")))
 
     let eException = lazy (toEntity (ctx.TypeRef(coreRef.Value, "System", "Exception")))
@@ -370,6 +357,33 @@ type internal ClrEnv
     /// can reference the type before its row is added (was string-keyed by
     /// simple/arity name).
     let userTypes = Dictionary<SymbolKey, EntityHandle>()
+
+    // The `%A` structural-format interfaces. Owned by `Vesper.Core`: the synthesised
+    // `Format` implements a Core-owned interface, so a record-bearing program links only
+    // `Vesper.Core` — never `Vesper.Printf` (where only the layout *engine*,
+    // `RuntimeFormatState`, lives, implementing this same Core `IFormatSink`).
+    // `IStructuralFormattable` is the `InterfaceImpl` a synthesised record/DU declares;
+    // `IFormatSink` is its `Format` param type.
+    //
+    // LOCAL-FIRST, like any other nominal. When THIS compilation is `Vesper.Core` the
+    // interface is one of its OWN `TypeDef`s — `Assembler.buildPrelude` registers
+    // interfaces in `userTypes` precisely so one Core interface can name another in a
+    // member signature — so Core's own records implement that `TypeDef` instead of an
+    // `AssemblyRef` to themselves (which `refRequired` rejects).
+    //
+    // A function, not a `lazy`: the answer depends on `userTypes`, which fills per unit in
+    // `buildPrelude`, so a value forced too early would cache the wrong side. `ctx.TypeRef`
+    // dedupes by (scope, ns, name), so re-probing mints no extra row.
+    let coreInterfaceEntity (key: TypeKey) (name: string) : EntityHandle =
+        match userTypes.TryGetValue(SymbolKey.Type key) with
+        | true, h -> h
+        | _ -> toEntity (ctx.TypeRef(vesperCoreRef.Value, "Vesper", name))
+
+    let eStructuralFormattable () =
+        coreInterfaceEntity RuntimeNames.structuralFormattableKey "IStructuralFormattable"
+
+    let eFormatSink () =
+        coreInterfaceEntity RuntimeNames.formatSinkKey "IFormatSink"
 
     /// Module-level functions whose home is *this* compilation's own assembly, by their
     /// `ValueKey` → local `MethodDef` handle. A cross-file module-function call freezes to
@@ -622,8 +636,8 @@ type internal ClrEnv
     member _.EStringBuilder = eStringBuilder
     member _.EConsole = eConsole
     member _.EFormatter = eFormatter
-    member _.EStructuralFormattable = eStructuralFormattable
-    member _.EFormatSink = eFormatSink
+    member _.EStructuralFormattable() = eStructuralFormattable ()
+    member _.EFormatSink() = eFormatSink ()
     member _.EDecimal = eDecimal
     member _.EException = eException
     member _.EEqualityComparer1 = eEqualityComparer1

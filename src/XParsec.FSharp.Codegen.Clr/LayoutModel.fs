@@ -333,9 +333,6 @@ type internal UnitLayout =
         /// `combine` stamps it TRUE on the single entry unit (an executable's last file)
         /// and FALSE on all others, so `PrepareMain` fires exactly once.
         EmitEntryPoint: bool
-        /// True iff this unit defines the `%A` structural-format interfaces
-        /// (it is `Vesper.Core`). See `AssemblyLayout.DefinesStructuralFormatInterfaces`.
-        DefinesStructuralFormatInterfaces: bool
     }
 
 /// The planned assembly: the ranged-table rows as data, plus the lowering
@@ -357,13 +354,6 @@ type internal AssemblyLayout =
         /// The Program slot's presence is a layout decision: exe (`Main`) or
         /// holder-less fns. True iff some unit carries the entry point.
         EmitEntryPoint: bool
-        /// True iff *this* compilation defines the `%A` structural-format interfaces
-        /// (it is `Vesper.Core`). Computed once here from `Partitioned.Interfaces`;
-        /// the single source `formatRows` (suppress the `Format` row) and
-        /// `Assembler.DefinesStructuralFormatInterfaces` / `NominalEmit` (suppress the
-        /// `Format` body) all read, so the row reservation and the body emission can
-        /// never disagree.
-        DefinesStructuralFormatInterfaces: bool
         /// The per-unit products this layout was combined from — one per source file.
         /// Every per-unit datum the emission passes need (lowered decls, holder plan,
         /// closures, partition, closure verdicts, the entry flag) lives here, keyed so a

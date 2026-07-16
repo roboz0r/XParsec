@@ -810,8 +810,10 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             NormalizePrecision = staticIntToInt "NormalizePrecision"
         }
 
-    let eFormatSink = env.EFormatSink
-    let eStructuralFormattable = env.EStructuralFormattable
+    // Local-or-external, resolved per call (see `ClrEnv.coreInterfaceEntity`): Core's own
+    // `TypeDef` when compiling Core, else the `TypeRef` through Core's `AssemblyRef`.
+    let eFormatSink () = env.EFormatSink()
+    let eStructuralFormattable () = env.EStructuralFormattable()
 
     /// The `IFormatSink` member refs the synthesised `Format` body calls. Built
     /// once (the handles are type-independent); each is `instance void` on
@@ -833,7 +835,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
                         )
                     )
 
-                toEntity (ctx.MemberRef(eFormatSink.Value, name, s))
+                toEntity (ctx.MemberRef(eFormatSink (), name, s))
 
              let nullary (name: string) = sinkMember name 0 ignore
 
@@ -865,7 +867,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
             .Parameters(
                 1,
                 (fun (ret: ReturnTypeEncoder) -> ret.Void()),
-                (fun (pars: ParametersEncoder) -> pars.AddParameter().Type().Type(eFormatSink.Value, false))
+                (fun (pars: ParametersEncoder) -> pars.AddParameter().Type().Type(eFormatSink (), false))
             )
 
         s
@@ -1025,7 +1027,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
     member _.BuildFormatHandles() = buildFormatHandles ()
     member _.FormatSinkHandles = formatSinkHandles.Value
     member _.StructuralFormatSignature() = structuralFormatSignature ()
-    member _.StructuralFormattableInterface = eStructuralFormattable.Value
+    member _.StructuralFormattableInterface = eStructuralFormattable ()
 
     member _.EqualityComparerDefault elem = equalityComparerDefault elem
     member _.EqualityComparerEquals elem = equalityComparerEquals elem
