@@ -745,4 +745,85 @@ type IdInt() =
                         "cross-unit interface dispatch + conformance resolve the abstract method (diagnostics: %A)"
                         f2.Frozen.Diagnostics)
             }
+
+            // --- the enclosing-namespace rule, both directions ---------------------------
+            //
+            // F# makes a prior file's namespace-direct type bare-visible through an implicit
+            // open of the CONSUMER's own `namespace N` header (`ImplicitlyOpenOwnNamespace`,
+            // `CheckDeclarations.fs:355` — "Inside "namespace X.Y.Z" there is an implicit open
+            // of "X.Y.Z""). A prior file contributes only its root NAME
+            // (`AddLocalRootModuleOrNamespace`), never its contents — a producer never says
+            // "open me". Vesper mints that implicit open in `CstWalk.addNamespacePrefix`.
+            //
+            // The pair below pins both directions, which is what makes the rule falsifiable:
+            // publishing a unit's declared namespaces as `AmbientOpenPrefixes` would pass the
+            // SAME-namespace test while silently failing the DIFFERENT-namespace one.
+
+            test "SAME-namespace later file resolves a prior unit's type by BARE name (no open)" {
+                // The consumer declares the SAME namespace as the producer, so its own header
+                // implicitly opens `Test.A` and `Widget` resolves unqualified — with no `open`
+                // written and nothing published by unit 1's view. This is the case `Vesper.Core`
+                // relies on: every Core file is `namespace Vesper`, so `compiler-attributes.fs`
+                // reaches `prim-types-attr.fs`'s `Attribute` this way.
+                let file1 =
+                    "\
+namespace Test.A
+
+type Widget = { X: int }
+"
+
+                let file2 =
+                    "\
+namespace Test.A
+
+module N =
+    let h (w: Widget) : int = w.X
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    |> units
+
+                let f2 = all.[1]
+
+                Expect.isEmpty
+                    (f2.Frozen.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))
+                    (sprintf
+                        "a same-namespace later file resolves a prior unit's type bare (diagnostics: %A)"
+                        f2.Frozen.Diagnostics)
+            }
+
+            test "DIFFERENT-namespace later file does NOT resolve a prior unit's type by bare name" {
+                // The consumer declares a DIFFERENT namespace and writes no `open`, so `Test.A`
+                // is not in its scope and `Widget` must not resolve. Its own header opens only
+                // `Test.B`. Guards the leak that a producer-published ambient reintroduces: with
+                // unit 1's view publishing `Test.A` as `AmbientOpenPrefixes`, this resolved
+                // clean — an implicit `open Test.A` no source line asked for.
+                let file1 =
+                    "\
+namespace Test.A
+
+type Widget = { X: int }
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+module N =
+    let h (w: Widget) : int = w.X
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    |> units
+
+                let f2 = all.[1]
+
+                Expect.isNonEmpty
+                    (definitionErrors f2)
+                    (sprintf
+                        "a bare prior-unit type in an UNOPENED different namespace must not resolve (diagnostics: %A)"
+                        f2.Frozen.Diagnostics)
+            }
         ]

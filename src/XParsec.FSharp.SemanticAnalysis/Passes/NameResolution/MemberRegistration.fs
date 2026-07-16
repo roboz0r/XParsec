@@ -871,9 +871,17 @@ module NameResolutionMemberRegistration =
                 | ValueNone ->
                     // A referenced heritable primitive (`exn`, or a prior compilation unit's
                     // `(# class … #)` base like `Attribute`): the provider publishes it as an
-                    // `Intrinsic` with a class surface. Resolve it (bare/ambient-opens, scanning
-                    // past a non-intrinsic hit) and branch on whether the CONTRACT declares a
-                    // ctor:
+                    // `Intrinsic` with a class surface. `inherit X` is a name WRITTEN AT A SITE, so
+                    // it resolves through the SAME opens-aware engine every other written type head
+                    // uses (`tryPickExternalType` over `ctx.Resolution.OpenScope`) — the file's
+                    // explicit `open`s, then the implicit open of its own `namespace N` header
+                    // (`CstWalk.addNamespacePrefix`, F#'s `ImplicitlyOpenOwnNamespace`), then the
+                    // ambient prelude. That implicit open is what resolves a SAME-namespace prior
+                    // unit's base (`Vesper.Core`'s `compiler-attributes.fs` inheriting
+                    // `prim-types-attr.fs`'s `Attribute`): the fact lives in the CONSUMER's scope,
+                    // never in a producer-published ambient. `pick` returning `ValueNone` scans past
+                    // a non-intrinsic hit to the next candidate. Then branch on whether the CONTRACT
+                    // declares a ctor:
                     //   * WITH ctors (`exn`'s `new: string -> exn` / `new: unit -> exn`): admit
                     //     the intrinsic CANON as a `TyConst` base, so `fillBaseCtorCall` checks
                     //     the base-`.ctor` args against the contract ctor set (and REJECTS a
@@ -889,7 +897,7 @@ module NameResolutionMemberRegistration =
                             ValueSome(struct (id, surface))
                         | _ -> ValueNone
 
-                    match ExternalSymbols.tryPickRuntimeType ctx.Resolver heritableIntrinsic name with
+                    match tryPickExternalType ctx (arityProbes targs.Length) (fun _ _ -> heritableIntrinsic) name with
                     | ValueSome(struct (id, surface)) when surface.Members |> Array.exists (fun m -> m.Name = ".ctor") ->
                         ValueSome(TyConst(SymbolKey.Type id.Canon, EqArray.ofList targs))
                     | ValueSome(struct (id, _)) ->

@@ -70,19 +70,6 @@ module FrozenSignature =
         let membersByKey = Dictionary<SymbolKey, ResizeArray<ExternalMember>>()
         let typesByName = Dictionary<string, SymbolKey>(System.StringComparer.Ordinal)
 
-        // The namespaces this unit declares types DIRECTLY in — published as the view's
-        // `AmbientOpenPrefixes` so a later file in the SAME namespace resolves a prior
-        // file's namespace-direct type / primitive by BARE name through the paths that
-        // consult only the provider's ambient (not the consumer's own open scope): the
-        // `inherit` base-type resolver (`tryPickRuntimeType`) and the well-known-intrinsic
-        // bag (`IntrinsicSet.get`, which types `()` / `int` literals). It is the same
-        // ambient the `.fsi` contract provider publishes for a referenced package's
-        // manifest namespace (`ReferencedProject.wrap`). Only a namespace-DIRECT type is
-        // exposed — a module-held type (`Test.A.M.T`) is keyed under its module holder, so a
-        // bare name resolves to `Namespace.T`, never `Namespace.M.T`, keeping cross-namespace
-        // module members behind their explicit `open`.
-        let declaredNamespaces = HashSet<string>(System.StringComparer.Ordinal)
-
         let unionCaseIndex =
             Dictionary<string, ExternalUnionCase>(System.StringComparer.Ordinal)
 
@@ -235,7 +222,6 @@ module FrozenSignature =
                 let key = SymbolKey.Type typeKey
                 let arity = td.TypeParams.Length
                 let origin = originIn typeKey.Namespace
-                declaredNamespaces.Add typeKey.Namespace.Dotted |> ignore
 
                 // Index the enclosing module chain so a written `A.M.T` for this type
                 // resolves through containment. An `InType`-nested type contributes no module
@@ -467,8 +453,6 @@ module FrozenSignature =
         for KeyValue(key, repr) in frozen.IntrinsicReprKeys do
             match key with
             | SymbolKey.Type typeKey ->
-                declaredNamespaces.Add typeKey.Namespace.Dotted |> ignore
-
                 let shape =
                     if frozen.HeritableIntrinsicBases.ContainsKey key then
                         ExternalTypeShape.Intrinsic
@@ -573,15 +557,21 @@ module FrozenSignature =
                             match recordFieldIndex.TryGetValue fieldName with
                             | true, buf -> buf.ToArray()
                             | _ -> [||]
-                    // The namespaces this unit declares types directly in (a same-namespace
-                    // later file's bare-name bridge for the ambient-only resolvers). A
-                    // `[<AutoOpen>]` module surface is still not published.
-                    AmbientOpenPrefixes =
-                        [
-                            for ns in declaredNamespaces do
-                                if ns.Length > 0 then
-                                    ns
-                        ]
+                    // A frozen impl unit publishes no `[<AutoOpen>]` surface, so it contributes
+                    // no ambient. `AmbientOpenPrefixes` means the implicit PRELUDE — a
+                    // package's `[<AutoOpen>]` modules plus its manifest namespace
+                    // (`ReferencedProject.wrap`), i.e. `open Vesper.ArithmeticOperators; open
+                    // Vesper` — and a producer never gets to say "open me" beyond that.
+                    //
+                    // A later file in the SAME namespace reaches this unit's namespace-direct
+                    // types by BARE name through its OWN scope, not through anything published
+                    // here: its `namespace N` header implicitly opens `N`
+                    // (`CstWalk.addNamespacePrefix`, F#'s `ImplicitlyOpenOwnNamespace` —
+                    // `CheckDeclarations.fs:355`). Publishing this unit's declared namespaces
+                    // instead would hand every LATER file an implicit `open` of them whatever
+                    // namespace it declares, which is not F#: there, a prior file contributes
+                    // only its root NAME (`AddLocalRootModuleOrNamespace`), never its contents.
+                    AmbientOpenPrefixes = []
                     IntrinsicReverseCanon = intrinsicReverse
                     IntrinsicForwardRepr = intrinsicForward
                 }

@@ -1211,7 +1211,7 @@ module ExternalSymbols =
     /// nominal-identity read. Resolve a bare runtime
     /// repr string (`"Error"`) to the concrete `ExternalTypeShape` it names over the
     /// *assembled* composite: probe the bare name, then each `AmbientOpenPrefixes` entry
-    /// (`Error` ⇒ `Vesper.Error`), exactly how an intrinsic base name freezes. The repr
+    /// (`Error` ⇒ `Vesper.Error`). The repr
     /// is a layer-2 name (`JsNativeSymbols.Error` on JS, `MetadataSymbols` on CLR) only
     /// in scope on the composite, so this resolves lazily there rather than at per-package
     /// harvest. `ValueNone` when the repr is a JS *primitive tag* (`"number"`, `"boolean"`)
@@ -1219,7 +1219,17 @@ module ExternalSymbols =
     /// Free function (not a new `IExternalSymbolProvider` member): it derives purely from
     /// the existing `TryLookupType` / `AmbientOpenPrefixes` window, so it adds no interface
     /// churn while keeping the provider the one seam to the outside.
-    /// The chooser-based core of the ambient probe: the bare name, then each
+    ///
+    /// **A `(# "…" #)` REPR STRING ONLY — never a name written in source.** A repr is minted
+    /// by the compiler and is not opens-sensitive, so the prelude window is the whole of its
+    /// scope and there is no consumer `OpenScope` to consult (the JS/CLR codegen callers hold
+    /// no `PassContext`). A name a USER WROTE — an `inherit` base, a type annotation — must
+    /// instead go through `NameResolutionTypeHeadStamp.tryPickExternalType`, which resolves
+    /// over the file's own `OpenScope`: its explicit `open`s, the implicit open of its
+    /// `namespace N` header, then the ambient. Resolving a written name here would see only
+    /// the prelude and miss every `open` in the file.
+    ///
+    /// The chooser-based core: the bare name, then each
     /// `AmbientOpenPrefixes` candidate, returning the first shape `choose` ACCEPTS —
     /// a rejected shape does not stop the scan. That continuation matters when
     /// several providers are composited and an earlier prefix resolves the same
