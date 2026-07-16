@@ -98,6 +98,19 @@ lands as its own small cut, built + committed separately, with a targeted cross-
 Expect the swap to reveal slices iteratively; do not assume the list is exhaustive until the
 concat is actually gone and both suites are green.
 
+## Post-completion follow-up (revisit once the concat is gone)
+
+The consumer-side registered-key fix adds `IExternalSymbolResolver.TryResolveTypeName : name ->
+SymbolKey voption` (a key-carrying by-name resolver, so the annotation stamp reads the
+producer's registered key instead of re-cutting a flattened one). That leaves the older
+`TryLookupType : name -> ExternalTypeShape voption` returning a shape WITHOUT its identity —
+the very shape-without-key smell that forced the flattened-key re-cut in the first place. **Once
+Step D is complete (concat deleted, all slices landed), take another look at `TryLookupType`:**
+keep it as-is, or refactor it to carry its key (the "Option B" shape — every hit returns
+`{ Key; Shape }`), or delete it if `TryResolveTypeName` + the store-face key lookup subsume
+every caller. Deferred deliberately — not worth the wide blast radius mid-cluster; reassess when
+the surface has settled.
+
 ## Working conventions (same as the multi-file workstream)
 
 Build/test ONLY via `./claude_tools.cmd -Action Build` / `-Action Test -TestProject "…"`. Do
