@@ -124,20 +124,20 @@ let vesperCoreDll: Lazy<string> =
          //
          // NOT migrated to the per-file multi-file driver (`ClrDriver.compileAssemblyWith`):
          // the type-annotation-by-`open` gap (a DOTTED module-held type name in annotation
-         // position) is now resolved, but Vesper.Core's cross-file dependencies are a
-         // DIFFERENT, still-open set of PROJECTION-COVERAGE boundaries the frozen provider
-         // does not yet emit — so a split still fails to resolve them:
-         //   * INTRINSICS — `FrozenSignature.toProvider` publishes only the intrinsic REPR
-         //     axes (`IntrinsicReprKeys`), not a `TryLookupType` type SHAPE, so a prior file's
-         //     `unit` / `int` / `string` / `obj` annotation reports "The type '…' is not
-         //     defined" (`TTypeKindG` has no intrinsic case — cross-unit plan item 5's sibling).
+         // position) is now resolved, and INTRINSICS now project as `TryLookupType` shapes
+         // (`FrozenSignature.toProvider` publishes each `IntrinsicReprKeys` entry as an
+         // `ExternalTypeShape.Intrinsic`), but two PROJECTION-COVERAGE boundaries the frozen
+         // provider does not yet emit still block a split:
          //   * INTERFACE MEMBERS — the `Interface` arm publishes name+arity but DEFERS the
          //     member set, so `core-types.fs`'s `interface Vesper.Fun with member _.Invoke`
          //     fails "does not define a member 'Invoke'" (cross-unit plan item 6).
          //   * BASE TYPES — `compiler-attributes.fs`'s `inherit Attribute` cannot resolve the
-         //     prior-file base class cross-unit ("Cannot inherit from unknown type 'Attribute'").
-         // Each closes on its own projection slice, independent of item 1; until they land the
-         // concat keeps every file in one PassContext so a bare prior-file type name binds.
+         //     prior-file HERITABLE-intrinsic base cross-unit ("Cannot inherit from unknown
+         //     type 'Attribute'"): the consumer needs `Attribute` published as `Intrinsic
+         //     { Class = ValueSome _ }`, but `(# class … #)` heritability is not on the frozen
+         //     tree (`HeritableExternBases` is a `ctx.Types` set, never snapshotted).
+         // Until they land the concat keeps every file in one PassContext so a bare prior-file
+         // type name binds.
          let implFiles =
              match ReferencedProject.loadManifest vesperCoreManifest with
              | Ok m -> ReferencedProject.resolveImpl None m

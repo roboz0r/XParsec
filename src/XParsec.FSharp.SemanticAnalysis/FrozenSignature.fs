@@ -376,6 +376,31 @@ module FrozenSignature =
                 | _ -> ()
             | _ -> ()
 
+        // --- intrinsic / primitive type shapes ----------------------------------------
+        // An intrinsic-repr primitive (`type int = (# "System.Int32" #)`) is an
+        // `ILIntrinsic` abbrev, kept OUT of `Decls` — the type-decl loop above never
+        // sees it. Its identity + repr ride `IntrinsicReprKeys` (a home unit's key IS its
+        // contract-stamped canon). Publish each as an `ExternalTypeShape.Intrinsic` — the
+        // SAME nominal shape the `.fsi` extractor mints (`VesperLib.registerIntrinsic`) —
+        // so a later file's `unit` / `int` / `obj` annotation resolves the name and its
+        // canon reconciles through `TryLookupType key` (`EngineCore.canonKey` tier 2).
+        // `platform` is always `Some`: a home unit holds its own `(# … #)` repr. A
+        // heritable primitive's class surface (`obj`/`exn` base + `.ctor`s) is NOT
+        // recoverable from the frozen impl (the `.fs` binds only the repr), so it
+        // projects scalar — enough for an annotation; an `inherit obj` would need the
+        // `.fsi` extractor's faced shape.
+        for KeyValue(key, repr) in frozen.IntrinsicReprKeys do
+            match key with
+            | SymbolKey.Type typeKey ->
+                shapesByKey.[key] <-
+                    ExternalTypeShape.Intrinsic(IntrinsicShape.Scalar(typeKey, typeKey.TyparArity, Some repr))
+
+                let name = SymbolKeyOps.typeMetaName typeKey
+
+                if not (typesByName.ContainsKey name) then
+                    typesByName.[name] <- key
+            | _ -> ()
+
         // --- intrinsic axes -----------------------------------------------------------
         // The FORWARD `{ canon -> platform-repr }` axis IS this unit's own
         // `IntrinsicReprKeys` (identity-keyed, the frozen face). The REVERSE
