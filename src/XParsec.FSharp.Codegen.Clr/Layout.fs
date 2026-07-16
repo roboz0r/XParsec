@@ -21,12 +21,14 @@ module internal Layout =
         (closureNamer: Emit.ClosureNamer)
         (symbols: ICodegenSymbols)
         (project: ProjectInfo)
-        // Whether the WHOLE assembly (any unit) defines the `%A` structural-format
-        // interfaces — decided once by `buildMany` and threaded in so the per-type `Format`
-        // ROW reservation (below) reads the SAME assembly-wide fact the body emission does
-        // (`Assembler.DefinesStructuralFormatInterfaces`). A per-unit computation drifts when
-        // the interface-defining unit and a record-bearing unit are different files: the row
-        // would be reserved but the body suppressed, leaving the `Format` row un-prepared.
+        // Whether the `%A` structural-format interfaces have been declared by THIS unit or a
+        // PRIOR one — `buildMany` folds it forward in declaration order. It gates the per-type
+        // `Format` ROW reservation (below): the assembly that defines the interfaces
+        // (`Vesper.Core`) gets no row/body for its own records (they'd else reference
+        // `IStructuralFormattable` through an `AssemblyRef` to Core itself). The manifest
+        // declares the interface ahead of every implementing record/union (asserted in
+        // `buildMany`), so by any record-bearing unit this equals the assembly-wide answer the
+        // body-emission gate reads — reservation and emission never drift.
         (assemblyDefinesStructuralFormat: bool)
         (tast: Frozen.TastFile)
         : UnitLayout =
@@ -553,28 +555,61 @@ module internal Layout =
     /// closure TypeDef names stay unique assembly-wide across files. `combine` selects the
     /// entry unit, rejects top-level code outside it, and mints the shared `<Module>` /
     /// Program roots once. Single-unit output is byte-identical to the pre-split `build`.
+    /// Does this unit DECLARE the `%A` structural-format interfaces (it is `Vesper.Core`'s
+    /// `structural-format` file)?
+    let private unitDefinesStructuralFormat (tast: Frozen.TastFile) : bool =
+        tast.Decls
+        |> EqArray.toList
+        |> List.exists (function
+            | TDeclG.Type td -> RuntimeNames.isStructuralFormattableKey td.TypeKey
+            | _ -> false)
+
+    /// Does this unit declare a record or union — a type that would carry a synthesised
+    /// `%A` `Format`?
+    let private unitHasFormattable (tast: Frozen.TastFile) : bool =
+        tast.Decls
+        |> EqArray.toList
+        |> List.exists (function
+            | TDeclG.Type td ->
+                match td.Kind with
+                | TTypeKindG.Record _
+                | TTypeKindG.Union _ -> true
+                | _ -> false
+            | _ -> false)
+
     let buildMany (symbols: ICodegenSymbols) (project: ProjectInfo) (tasts: Frozen.TastFile list) : AssemblyLayout =
         let closureNamer = Emit.ClosureNamer()
 
-        // The assembly that *defines* the `%A` structural-format interfaces (`Vesper.Core`)
-        // gets NO per-type `Format` row / body — its own records would otherwise reference
-        // `IStructuralFormattable` through an external `AssemblyRef` to Core itself. This is
-        // an ASSEMBLY-wide fact (any unit declaring the interface counts), decided once here
-        // over every unit's decls and threaded into each `buildUnit` for the row reservation
-        // — the SAME source of truth the body-emission gate reads, so a reserved `Format` row
-        // can never go un-prepared across a multi-file split.
-        let assemblyDefinesStructuralFormat =
+        // The assembly that DEFINES the `%A` interfaces (`Vesper.Core`) gets no per-type
+        // `Format` row / body — its own records would otherwise reference `IStructuralFormattable`
+        // through an `AssemblyRef` to Core itself. Fold that fact forward in DECLARATION ORDER:
+        // a unit's flag is true once the defining unit has been reached (this unit or a prior
+        // one). The manifest declares the interface ahead of every implementing record/union, so
+        // by any record-bearing unit the flag equals the assembly-wide answer the body-emission
+        // gate reads — no drift, no global lookahead.
+        let units, _ =
             tasts
-            |> List.exists (fun t ->
-                t.Decls
-                |> EqArray.toList
-                |> List.exists (fun d ->
-                    match d with
-                    | TDeclG.Type td -> RuntimeNames.isStructuralFormattableKey td.TypeKey
-                    | _ -> false))
+            |> List.mapFold
+                (fun seenDefiner tast ->
+                    let definesSoFar = seenDefiner || unitDefinesStructuralFormat tast
+                    buildUnit closureNamer symbols project definesSoFar tast, definesSoFar)
+                false
 
-        let units =
-            tasts |> List.map (buildUnit closureNamer symbols project assemblyDefinesStructuralFormat)
+        // The forward fold above is correct only if the defining unit precedes every record /
+        // union that implements the interface — otherwise a record ahead of the definer reserves
+        // a `Format` row (flag not yet set) that body emission then suppresses (the assembly-wide
+        // gate IS set), and the reserved row goes un-prepared. Enforce the declaration order with
+        // a pointed error rather than that downstream failure.
+        match List.tryFindIndex unitDefinesStructuralFormat tasts with
+        | Some definerIndex ->
+            match List.tryFindIndex unitHasFormattable tasts with
+            | Some formattableIndex when formattableIndex < definerIndex ->
+                failwithf
+                    "Layout: the %%A structural-format interfaces (unit %d) must be declared before any record/union that implements them (one appears at unit %d) — reorder the manifest so structural-format precedes them"
+                    definerIndex
+                    formattableIndex
+            | _ -> ()
+        | None -> ()
 
         combine project units
 

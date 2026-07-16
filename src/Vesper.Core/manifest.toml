@@ -27,7 +27,11 @@ description = "Minimal language fundamentals: unit, IFunc, cons-list, operators.
 
 # .fsi files in compile order — fed to the parser one at a time, accumulating
 # declarations. prim-types-min first (defines int/bool/array/`Fun`/`unit`);
-# core-types before the operator files; everything else depends only on the
+# structural-format before core-types — the `%A` interfaces must be declared before
+# the records/unions that implement them, so the per-file build never lays out a
+# record's synthesised `Format` ahead of the interface's own unit (codegen asserts
+# this order). structural-format depends only on the BCL primitives, so it moves up
+# freely. core-types before the operator files; everything else depends only on the
 # BCL primitives. `List.fold`'s arrow signature desugars to `Vesper.Fun`.
 files = [
     "prim-types-min.fsi",
@@ -42,9 +46,9 @@ files = [
     "prim-types-nd-array.fsi",
     "prim-types-attr.fsi",
     "compiler-attributes.fsi",
+    "structural-format.fsi",
     "core-types.fsi",
     "capabilities.fsi",
-    "structural-format.fsi",
     "ops-platform.fsi",
     "ops-std.fsi",
     "int-comparison.fsi",
@@ -107,9 +111,9 @@ impl = [
     "prim-types-nd-array.fs",
     "prim-types-attr.fs",
     "compiler-attributes.fs",
+    "structural-format.fs",
     "core-types.fs",
     "capabilities.fs",
-    "structural-format.fs",
 ]
 
 # Per-target `.fs` bodies the codegen inline-body loader reads across the package
