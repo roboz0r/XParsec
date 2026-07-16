@@ -46,6 +46,8 @@
     <Compile Include="Emit.fs" />
     <Compile Include="HolderPlan.fs" />
     <Compile Include="CodegenTypes.fs" />
+    <Compile Include="LayoutModel.fs" />
+    <Compile Include="LayoutNodes.fs" />
     <Compile Include="Layout.fs" />
     <Compile Include="Materialise.fs" />
     <Compile Include="AssemblerScaffold.fs" />
