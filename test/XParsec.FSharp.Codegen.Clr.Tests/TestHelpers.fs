@@ -121,6 +121,19 @@ let vesperCoreDll: Lazy<string> =
          // (`string`, …) resolve from Core's own `.fs` rather than the codegen
          // bootstrap. Each file declares disjoint types under `namespace Vesper`;
          // joined with blank lines so each `namespace Vesper` starts a fresh block.
+         //
+         // NOT YET migrated to the per-file multi-file driver
+         // (`ClrDriver.compileAssemblyWith`): Vesper.Core leans pervasively on cross-file
+         // type NAMES in declaration / annotation position — `prim-types-int.fs` writes
+         // `type int32 = int` over `int` from `prim-types-min.fs`, `compiler-attributes.fs`
+         // inherits `Attribute`, `core-types.fs` calls `Vesper.Fun`'s members, and
+         // `structural-format.fs` annotates member signatures with `string` / `unit` /
+         // `int` / `obj` — all defined in prior files. Bare type heads in annotation
+         // position are not stamped external, so `Translate.resolveNamedGeneric` never
+         // consults the prior units' composed views and reports "The type 'int' is not
+         // defined". That is the type-annotation-by-`open` resolution gap, which is
+         // scheduled to land immediately after this multi-file work; until it does, the
+         // concat keeps every file in one PassContext so a bare prior-file type name binds.
          let implFiles =
              match ReferencedProject.loadManifest vesperCoreManifest with
              | Ok m -> ReferencedProject.resolveImpl None m
@@ -307,6 +320,17 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
 
                  let dir = IO.Path.GetDirectoryName manifestPath
 
+                 // NOT YET migrated to the per-file multi-file driver
+                 // (`ClrDriver.compileAssemblyWith Pipeline.analyseForSelfHost`): the
+                 // Vesper packages lean on cross-file type NAMES in declaration /
+                 // annotation position (member-signature return / parameter types, base
+                 // types, type aliases) whose declarations live in a prior file — see the
+                 // detailed note on `vesperCoreDll`. Bare type heads in annotation position
+                 // are not stamped external, so `Translate.resolveNamedGeneric` never
+                 // consults the prior units' composed views ("The type 'int' is not
+                 // defined"). That type-annotation-by-`open` gap lands immediately after
+                 // this multi-file work; until it does, the concat keeps every file in one
+                 // PassContext so a bare prior-file type name binds.
                  let src =
                      manifest.Impl
                      |> List.map (fun rel -> IO.File.ReadAllText(IO.Path.Combine(dir, rel)))

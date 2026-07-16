@@ -27,43 +27,30 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // local `CtorIndex` — `Unresolved identifier`) remains blocked UPSTREAM; the codegen N-unit
 // machinery it would feed is already in place and shared-registry resolved.
 
-/// Compile a two-file assembly through the multi-unit front end + `compileUnits`, asserting
-/// each unit analysed clean. Returns the emitted PE bytes.
+/// Compile a two-file assembly through the shared multi-file driver seam
+/// (`ClrDriver.compileAssemblyWith`), which analyses each file against the composed prior
+/// views, gates on front-end errors, composes `views ++ external`, and emits ONE PE.
+/// Returns the emitted PE bytes.
 let private compileTwoUnits (asmName: string) (unit1: string) (unit2: string) : byte[] =
     // The external surface (operators, `printfn`, the Vesper primitives) both the front end
     // resolves against and codegen threads through — the SAME provider the single-file
     // `compileSource` path uses, so the units resolve `+` / `printfn` identically.
     let external = ClrSymbolProviders.buildContract defaultManifests
-
-    let results =
-        analyseAssembly asmName external [ "unit1.fs", unit1; "unit2.fs", unit2 ]
-
-    let units =
-        results
-        |> List.map (
-            function
-            | Ok u -> u
-            | Error e -> failtestf "unit %s failed to parse: %A" e.Path e.Diagnostics
-        )
+    let project = withCore (ProjectInfo.defaults asmName)
 
     // Forward-only scoping is proven by unit 2 (which sees unit 1) analysing clean: its
-    // references to unit 1's fn / generic resolve through unit 1's projected view.
-    for u in units do
-        let errs =
-            u.Frozen.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
-
-        Expect.isEmpty errs (sprintf "unit %s analysed with errors: %A" u.Path errs)
-
-    // The composite codegen provider: each unit's projected view (so a cross-file call finds
-    // the prior unit's exported open signature, which `emitExternalCall` re-homes to the local
-    // `MethodDef`) ahead of the external stack (inline bodies + package symbols).
-    let symbols =
-        ExternalSymbolProviders.composite ([ for u in units -> u.View ] @ [ external ])
-
-    let tasts = [ for u in units -> u.Frozen ]
-    let project = withCore (ProjectInfo.defaults asmName)
-    let artifact = Codegen.compileUnits symbols project tasts
-    Codegen.toBytes artifact
+    // references to unit 1's fn / generic resolve through unit 1's projected view. A parse
+    // or analysis error surfaces here anchored to its own unit.
+    match
+        ClrDriver.compileAssemblyWith
+            Pipeline.analyseFor
+            []
+            external
+            project
+            [ "unit1.fs", unit1; "unit2.fs", unit2 ]
+    with
+    | Ok artifact -> Codegen.toBytes artifact
+    | Error diags -> failtestf "cross-file compile failed: %A" diags
 
 [<Tests>]
 let tests =

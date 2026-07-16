@@ -425,4 +425,96 @@ module N =
                 // yet file 2 resolves file 1's `f` — the separate-unit invariant holds.
                 Expect.isEmpty (unresolvedErrors all.[1]) "resolution survives colliding raw offsets"
             }
+
+            // The two cross-unit resolution gaps that are OVER-PERMISSIVE today: an
+            // INVALID program wrongly resolves (never a miscompile). Each asserts the
+            // CORRECT, rejecting behaviour, so it is RED until the gap closes — `ptest`
+            // keeps it PENDING (not failing) meanwhile, and it flips to a real pass when
+            // the named gap lands.
+
+            ptest "RQA record is NOT bare-constructible across units (RequireQualifiedAccess honoured)" {
+                // unit 1 marks a record `[<RequireQualifiedAccess>]`; unit 2 `open`s the
+                // module and builds it with a BARE field-set literal. F# requires the
+                // qualifier for an RQA record, so bare construction must NOT resolve — an
+                // error. It is wrongly ACCEPTED today because the frozen tree does not model
+                // `[<RequireQualifiedAccess>]` (`FrozenSignature` hardcodes
+                // `IsRequireQualifiedAccess = false`), so the projected record is offered to
+                // the bare field-set reverse index. Flips green once the RQA flag is threaded
+                // through freeze into the projection and honoured in the bare-construction
+                // candidate filter (`ExternalRecordCandidate.IsRequireQualifiedAccess`).
+                let file1 =
+                    "\
+namespace Test.A
+
+module M =
+    [<RequireQualifiedAccess>]
+    type R = { X: int; Y: int }
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+open Test.A.M
+
+module N =
+    let bare = { X = 1; Y = 2 }
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    |> units
+
+                let f2 = all.[1]
+
+                let errs =
+                    f2.Frozen.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+                Expect.isNonEmpty
+                    errs
+                    (sprintf
+                        "bare construction of a cross-unit RQA record must be rejected (diagnostics: %A)"
+                        f2.Frozen.Diagnostics)
+            }
+
+            ptest "record in an UNOPENED namespace is NOT bare-constructible across units (ambient-scope gate)" {
+                // unit 1 declares a record; unit 2 does NOT `open` its module, yet builds it
+                // with a BARE field-set literal matching its fields. F#'s unqualified field
+                // index (`eFieldLabels`) holds only `open`-ed records, so without the `open`
+                // the bare literal must NOT resolve — an error. It is wrongly ACCEPTED today:
+                // `recordFieldSetVerdict` unions ALL provider `TryRecordsWithField` candidates
+                // with no ambient-open / scope filter. Flips green once provider candidates are
+                // gated by the ambient-open scope the pipeline already threads
+                // (`AmbientOpenPrefixes`).
+                let file1 =
+                    "\
+namespace Test.A
+
+module M =
+    type R = { X: int; Y: int }
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+module N =
+    let bare = { X = 1; Y = 2 }
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    |> units
+
+                let f2 = all.[1]
+
+                let errs =
+                    f2.Frozen.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
+
+                Expect.isNonEmpty
+                    errs
+                    (sprintf
+                        "bare construction of a cross-unit record without the `open` must be rejected (diagnostics: %A)"
+                        f2.Frozen.Diagnostics)
+            }
         ]

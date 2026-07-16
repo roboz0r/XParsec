@@ -60,13 +60,22 @@ module AssemblyUnits =
             Col: int
         }
 
-    /// Analyse a multi-file assembly in manifest order. Each file resolves the ones
-    /// BEFORE it — the prior file views composed nearest-first, then the external
-    /// provider last — so a name a nearer file re-declares shadows a farther one's, and
-    /// the external surface is the final fallback. Returns one `Result` per file, in
-    /// order: `Ok` for an analysed unit (carrying its view), `Error` for a parse failure.
-    /// A failed file contributes no view; the files after it compose over the survivors.
-    let analyseAssembly
+    /// The per-file front-end seam: analyse+freeze one parsed file against a composed
+    /// provider. `Pipeline.analyseFor` (a package/FSharp.Core consumer) and
+    /// `Pipeline.analyseForSelfHost` (a BCL-only self-host package) both have this exact
+    /// shape, so a multi-file assembly can be driven through either front end.
+    type AnalyseUnit =
+        string -> IExternalSymbolProvider -> string -> Lexed -> ImplementationFile<SyntaxToken> -> Frozen.TastFile
+
+    /// Analyse a multi-file assembly in manifest order through a chosen front end. Each
+    /// file resolves the ones BEFORE it — the prior file views composed nearest-first,
+    /// then the external provider last — so a name a nearer file re-declares shadows a
+    /// farther one's, and the external surface is the final fallback. Returns one `Result`
+    /// per file, in order: `Ok` for an analysed unit (carrying its view), `Error` for a
+    /// parse failure. A failed file contributes no view; the files after it compose over
+    /// the survivors.
+    let analyseAssemblyWith
+        (analyse: AnalyseUnit)
         (assemblyName: string)
         (external: IExternalSymbolProvider)
         (files: (string * string) list)
@@ -84,7 +93,7 @@ module AssemblyUnits =
                 let composed =
                     ExternalSymbolProviders.composite ((List.rev priorViews) @ [ external ])
 
-                let frozen = Pipeline.analyseFor assemblyName composed source lexed file
+                let frozen = analyse assemblyName composed source lexed file
                 let view = FrozenSignature.toProvider assemblyName frozen
 
                 // Push this file's view so LATER files can resolve its exports. It rides
@@ -104,28 +113,41 @@ module AssemblyUnits =
 
         List.ofSeq results
 
-    /// Every unit's diagnostics, each anchored to ITS OWN unit: path + (line, col)
-    /// resolved against that unit's `Input`. Offsets are per-unit, so a file-2 diagnostic
-    /// resolves against file 2's text and carries file 2's path — bare diagnostics are
-    /// never flattened across units. Position resolution is `XParsec`'s canonical
-    /// `LineIndex` (the same resolver `Debug.fs` uses), built ONCE per unit; a
-    /// counter-minted `NodeKey` (no source position) anchors at the file head `(1, 1)`.
-    let consolidatedDiagnostics (units: FrozenUnit list) : AnchoredDiagnostic list =
+    /// Analyse a multi-file assembly through the default (package/FSharp.Core consumer)
+    /// front end, `Pipeline.analyseFor`. The self-host front end is reached by passing
+    /// `Pipeline.analyseForSelfHost` to `analyseAssemblyWith` directly.
+    let analyseAssembly
+        (assemblyName: string)
+        (external: IExternalSymbolProvider)
+        (files: (string * string) list)
+        : Result<FrozenUnit, UnitError> list =
+        analyseAssemblyWith Pipeline.analyseFor assemblyName external files
+
+    /// Anchor a unit's bare diagnostics to a `path` + its own `source`: each diagnostic's
+    /// (line, col) is resolved against THAT text via `XParsec`'s canonical `LineIndex`
+    /// (the same resolver `Debug.fs` uses), built ONCE. A counter-minted `NodeKey` (no
+    /// source position) anchors at the file head `(1, 1)`. Offsets are per-unit, so this
+    /// is only ever called with a diagnostic and the source it was produced against —
+    /// bare diagnostics are never flattened across units and resolved later.
+    let anchorDiagnostics (path: string) (source: string) (diagnostics: Diagnostic list) : AnchoredDiagnostic list =
+        let lineIndex = XParsec.LineIndex.OfString source
+
         [
-            for u in units do
-                let lineIndex = XParsec.LineIndex.OfString u.Input
+            for d in diagnostics do
+                let struct (line, col) =
+                    if not d.Key.IsSourcePosition then
+                        struct (1, 1)
+                    else
+                        lineIndex.GetLineCol(min d.Key.Offset source.Length)
 
-                for d in u.Frozen.Diagnostics do
-                    let struct (line, col) =
-                        if not d.Key.IsSourcePosition then
-                            struct (1, 1)
-                        else
-                            lineIndex.GetLineCol(min d.Key.Offset u.Input.Length)
-
-                    {
-                        Path = u.Path
-                        Diagnostic = d
-                        Line = line
-                        Col = col
-                    }
+                {
+                    Path = path
+                    Diagnostic = d
+                    Line = line
+                    Col = col
+                }
         ]
+
+    /// Every analysed unit's diagnostics, each anchored to ITS OWN unit (path + source).
+    let consolidatedDiagnostics (units: FrozenUnit list) : AnchoredDiagnostic list =
+        [ for u in units do yield! anchorDiagnostics u.Path u.Input u.Frozen.Diagnostics ]
