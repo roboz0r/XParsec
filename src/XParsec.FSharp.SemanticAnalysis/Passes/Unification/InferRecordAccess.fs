@@ -238,6 +238,36 @@ module internal UnificationInferRecordAccess =
         scan root.Constraints
 
     and resolveFieldStep (ctx: PassContext) (diagKey: NodeKey) (rTy: SemType) (memberName: string) : SemType =
+        // Commit a resolved external instance member `m` whose signature is written
+        // over ITS declaring type's typars, instantiated with `memberArgs`: the
+        // receiver's own args for an own member; the supertype's args-as-reached for
+        // an INHERITED one (`Base<int>`'s `[int]` for a `Child : Base<int>`).
+        // This is the COMMIT of a single-candidate member (no overload set to pick
+        // from), so freshen the method typars per use site exactly as the
+        // multi-candidate `commitExternalOverload` does — NOT the open,
+        // marker-preserving `openSignature`. A generic instance method called at two
+        // instantiations would otherwise share one inert `TyTypar(Method,_)` that no
+        // per-call solution can touch (rigid-vs-concrete mismatch); a non-generic
+        // member is byte-identical either way.
+        // Hoisted to `resolveFieldStep` scope so the external `TyClass`, `TyUnion`,
+        // and record-member-fallback arms all commit through ONE helper (no copy).
+        let commitExternalMember (m: ExternalMember) (memberArgs: EqArray<SemType>) : SemType =
+            let memberSig =
+                ExternalSymbols.instantiateSignature m (memberArgs.AsSpan().ToArray()) ctx.CurrentLevel
+
+            ctx.Resolution.ExternalAccess.Set(
+                diagKey,
+                {
+                    Key = SymbolKey.Member m.Key
+                    IsStatic = false
+                    Storage = m.Storage
+                    Signature = memberSig
+                    OptionalDefaults = m.OptionalDefaults
+                }
+            )
+
+            memberSig
+
         match resolveStep rTy with
         | TyRecord(recKey, args) ->
             match TypeRegistry.tryRecordByKey ctx.Types recKey with
@@ -249,8 +279,41 @@ module internal UnificationInferRecordAccess =
                 // record's augmentation member rather than falling to a field-miss.
                 | None -> resolveLocalInstanceMember ctx diagKey info.Name info.TypeParams args info.Members memberName
             | ValueNone ->
-                let (DisplayName shown) = SymbolKeyOps.typeSimpleName recKey
-                errorTy ctx diagKey (sprintf "Unknown record type '%s'" shown)
+                // Not a project-local record — an *external* one (a record declared in a
+                // prior unit / referenced package). Records are the last nominal kind to
+                // gain a provider fallback; mirror the external `TyUnion`/`TyClass` arms.
+                let recQual = SymbolKeyOps.typeMetaName recKey
+
+                match ctx.Provider.TryLookupType(SymbolKey.Type recKey) with
+                | ValueSome(ExternalTypeShape.Record(_, fieldShapes, _)) ->
+                    match fieldShapes |> Array.tryFind (fun f -> f.Name = memberName) with
+                    | Some fieldShape ->
+                        // CRITICAL: a field read must NOT stamp `ExternalAccess`. The
+                        // Elaborate dispatcher fires its `& ExternalAccess ctx info` arm
+                        // (`ElaborateExpr.fs:289`) BEFORE the local `translateDotLookup` arm
+                        // (`:310`), lowering a stamped node to `TExpr.ExternalMember` (a
+                        // property / method call). A record FIELD must stay UNSTAMPED so it
+                        // falls through to `translateDotLookup`'s `TyRecord` arm, which emits
+                        // `TExpr.FieldGet(receiver, name, ty)` by name (`Access.fs:178`);
+                        // cross-file `recKey` re-homes to a local `TypeDef` and codegen emits
+                        // `ldfld`. Stamping here would misroute the field to the member path.
+                        // Only the field-MISS→member fallback below stamps (that IS a member).
+                        FrozenTypeBridge.instantiateDeclaring fieldShape.Frozen (args.AsSpan().ToArray())
+                    | None ->
+                        // Not a field — an external record also carries augmentation members.
+                        // Resolve it as a MEMBER and stamp `ExternalAccess` (correct here: this
+                        // IS a member, lowered by the `:289` dispatcher arm), exactly as the
+                        // external `TyUnion` arm does.
+                        match ctx.Provider.TryLookupMember(SymbolKey.Type recKey, memberName) with
+                        | ValueSome m when not m.IsStatic -> commitExternalMember m args
+                        | _ ->
+                            errorTy
+                                ctx
+                                diagKey
+                                (sprintf "Type '%s' has no field or member '%s'" recQual memberName)
+                | _ ->
+                    let (DisplayName shown) = SymbolKeyOps.typeSimpleName recKey
+                    errorTy ctx diagKey (sprintf "Unknown record type '%s'" shown)
         | TyClass(clsKey, args) ->
             // Resolve by the (arity-qualified) key, not the bare name: an
             // arity-overloaded receiver (`Fun\`2`/`Fun\`3`) does not resolve by bare name, so a
@@ -279,34 +342,6 @@ module internal UnificationInferRecordAccess =
                 // access). Resolve the instance member through the provider and
                 // record it for Elaborate.
                 let clsQual = SymbolKeyOps.typeMetaName clsKey
-
-                // Commit a resolved external instance member `m` whose signature is written
-                // over ITS declaring type's typars, instantiated with `memberArgs`: the
-                // receiver's own args for an own member; the supertype's args-as-reached for
-                // an INHERITED one (`Base<int>`'s `[int]` for a `Child : Base<int>`).
-                // This is the COMMIT of a single-candidate member (no overload set to pick
-                // from), so freshen the method typars per use site exactly as the
-                // multi-candidate `commitExternalOverload` does — NOT the open,
-                // marker-preserving `openSignature`. A generic instance method called at two
-                // instantiations would otherwise share one inert `TyTypar(Method,_)` that no
-                // per-call solution can touch (rigid-vs-concrete mismatch); a non-generic
-                // member is byte-identical either way.
-                let commitExternalMember (m: ExternalMember) (memberArgs: EqArray<SemType>) : SemType =
-                    let memberSig =
-                        ExternalSymbols.instantiateSignature m (memberArgs.AsSpan().ToArray()) ctx.CurrentLevel
-
-                    ctx.Resolution.ExternalAccess.Set(
-                        diagKey,
-                        {
-                            Key = SymbolKey.Member m.Key
-                            IsStatic = false
-                            Storage = m.Storage
-                            Signature = memberSig
-                            OptionalDefaults = m.OptionalDefaults
-                        }
-                    )
-
-                    memberSig
 
                 match ctx.Provider.TryLookupMember(SymbolKey.Type clsKey, memberName) with
                 | ValueSome m when not m.IsStatic -> commitExternalMember m args
@@ -360,25 +395,10 @@ module internal UnificationInferRecordAccess =
                 let unionQual = SymbolKeyOps.typeMetaName unionKey
 
                 match ctx.Provider.TryLookupMember(SymbolKey.Type unionKey, memberName) with
-                | ValueSome m when not m.IsStatic ->
-                    // Single-candidate commit — freshen method typars per use site, as the
-                    // external-`TyClass` arm above (shared defect: `openSignature` leaves an
-                    // inert method-typar marker that cross-contaminates across call sites).
-                    let memberSig =
-                        ExternalSymbols.instantiateSignature m (args.AsSpan().ToArray()) ctx.CurrentLevel
-
-                    ctx.Resolution.ExternalAccess.Set(
-                        diagKey,
-                        {
-                            Key = SymbolKey.Member m.Key
-                            IsStatic = false
-                            Storage = m.Storage
-                            Signature = memberSig
-                            OptionalDefaults = m.OptionalDefaults
-                        }
-                    )
-
-                    memberSig
+                // Single-candidate commit through the shared `commitExternalMember` helper —
+                // freshen method typars per use site (shared defect: `openSignature` leaves an
+                // inert method-typar marker that cross-contaminates across call sites).
+                | ValueSome m when not m.IsStatic -> commitExternalMember m args
                 | _ ->
                     // The provider knows the union but not this member → a real
                     // member miss; otherwise the type itself is unknown.

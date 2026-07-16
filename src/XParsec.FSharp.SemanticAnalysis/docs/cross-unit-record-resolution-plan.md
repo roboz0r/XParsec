@@ -138,12 +138,18 @@ ExternalTypeShape.Record(arity, fields, origin)` (each `ExternalFieldShape` carr
 `ExternalSymbols.fs:157`). The reverse index is only the *unqualified* entry point.
 
 1. **Field read** — `resolveFieldStep` `TyRecord` arm (`InferRecordAccess.fs:242`) gains a
-   provider fallback mirroring the sibling `TyClass` arm below it: on `tryRecordByKey` miss,
-   `ctx.Provider.TryLookupType(SymbolKey.Type recKey)` → `Record` shape, find the field by
-   name, `instantiateFieldType` with `args`, and **stamp `ExternalAccess`** (as the class/union
-   arms do) so Elaborate/codegen emit the cross-unit field load. A record also carries instance
-   members — route a field-name miss through the same external-member path the `TyClass` arm
-   uses, so `r.Bar` reaches an augmentation member.
+   provider fallback mirroring the sibling `TyUnion` arm: on `tryRecordByKey` miss,
+   `ctx.Provider.TryLookupType(SymbolKey.Type recKey)` → `Record` shape, find the field by name,
+   `FrozenTypeBridge.instantiateDeclaring fieldShape.Frozen args`. **A field read must NOT stamp
+   `ExternalAccess`** — verified against the Elaborate dispatcher (`ElaborateExpr.fs:289`): the
+   `& ExternalAccess ctx info` arm fires BEFORE the local `translateDotLookup` arm (`:310`) and
+   lowers to `TExpr.ExternalMember` (a property/method), so stamping would misroute a field to
+   the member path. Unstamped, the node falls through to `translateDotLookup`'s `TyRecord` arm,
+   which emits `TExpr.FieldGet(receiver, name, ty)` by name off the receiver's type
+   (`Access.fs:178`); cross-file, `recKey` re-homes to a local `TypeDef` and codegen emits
+   `ldfld` — no Elaborate/codegen change. A field-name **miss** falls back to an augmentation
+   **member**: `TryLookupMember` + commit + **stamp `ExternalAccess`** (exactly the `TyUnion`
+   arm), which the `:289` dispatcher then lowers — also no Elaborate change.
 2. **Qualified / annotated construction** — `inferRecord` with a qualifier or an expected record
    type: resolve the key through the provider by name / expected-type (F#'s `tryTcrefOfAppTy`
    short-circuit), then unify initializers against the frozen field types. Same by-key shape
@@ -197,8 +203,12 @@ namespace is wrongly resolvable bare until this is gated. The demonstration test
 - **R2** — `FrozenSignature.toProvider` builds a field-name → `ExternalRecordCandidate[]` index
   from the frozen records and answers `TryRecordsWithField`; the `stack`/`composite` seams union
   it (mirror the `TryLookupUnionCase` wiring). Parity-test the index vs a known frozen record.
-- **R3** — record **field read**: provider fallback in `resolveFieldStep`'s `TyRecord` arm
-  (+ `ExternalAccess` stamp, + external instance-member route). Cross-package field-read test.
+- **R3** — record **field read**: provider fallback in `resolveFieldStep`'s `TyRecord` arm,
+  mirroring the `TyUnion` arm. Field found → return type, NO `ExternalAccess` stamp; field miss →
+  augmentation member (`TryLookupMember` + commit + stamp). Factor the member-commit if it would
+  duplicate `TyUnion`/`TyClass` (`commitExternalMember`). SA-level cross-file field-read test +
+  a cross-file runtime test (unit 1 factory returns the record, unit 2 reads `.X`) via
+  `compileUnits` — the latter is where any codegen `ldfld` gap would surface.
 - **R4** — record **qualified / annotated construction** through the provider (`inferRecord`).
   Cross-package qualified-literal test.
 - **R5** — rewrite `findUniqueRecordByFieldSet` to intersection + count tie-break over

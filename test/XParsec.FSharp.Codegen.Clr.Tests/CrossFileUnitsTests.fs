@@ -18,18 +18,14 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // own (home-stamped) assembly name, the loader would fault on a nonexistent `AssemblyRef`.
 // `peAssemblyRefs` pins that structurally too — the own name is never in the ref table.
 //
-// SCOPE NOTE — cross-file NOMINAL-TYPE use (the plan's "builds its record" surface) is NOT
-// exercised here because it is blocked UPSTREAM, in the front end, independently of this
-// codegen cut: the `FrozenSignature.toProvider` view a prior unit projects covers cross-file
-// FUNCTION resolution, but a use site never consults the provider for a nominal's own SHAPE.
-// Record construction (`InferRecordAccess.inferRecord`) and record field access
-// (`resolveFieldStep`, the `TyRecord` arm) resolve only through the analysing unit's LOCAL
-// `TypeRegistry`; union-case construction resolves through the local `CtorIndex`. So unit 2
-// cannot build unit 1's record (`No record type matches the field set`), read its field
-// (`Unknown record type`), or build its union case (`Unresolved identifier`). That front-end
-// projection-coverage boundary must close before the record/union third of the proof can
-// land; the codegen N-unit machinery it would feed is already in place and shared-registry
-// resolved.
+// SCOPE NOTE — cross-file record FIELD READ is now exercised (see the field-read test below):
+// R3 gave `resolveFieldStep`'s `TyRecord` arm a provider fallback, so unit 2 reads a field of
+// unit 1's record through the `FrozenSignature.toProvider` view and codegen re-homes the
+// receiver's cross-file `recKey` to the LOCAL `TypeDef`, emitting `ldfld`. Cross-file record
+// CONSTRUCTION (`InferRecordAccess.inferRecord` — `No record type matches the field set`) and
+// union-case construction (the local `CtorIndex` — `Unresolved identifier`) remain blocked
+// UPSTREAM pending R4/R5; the codegen N-unit machinery they would feed is already in place and
+// shared-registry resolved.
 
 /// Compile a two-file assembly through the multi-unit front end + `compileUnits`, asserting
 /// each unit analysed clean. Returns the emitted PE bytes.
@@ -116,5 +112,49 @@ printfn \"%d\" (s + e)
 
                 Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
                 Expect.equal actual "24" "cross-file module fn + generic fn combine to 24"
+            }
+
+            test "two units run: unit 2 reads a record FIELD declared in unit 1 (ldfld re-homes local)" {
+                // R3 end-to-end: unit 1 declares a record and a factory returning it; unit 2
+                // reads `.X` off the factory result and prints it. The field read resolves
+                // through unit 1's projected provider view (no local `TypeRegistry` entry), and
+                // codegen re-homes the receiver's cross-file `recKey` to the LOCAL `TypeDef` so
+                // it emits a plain `ldfld` — THIS run is where any codegen `ldfld` gap surfaces.
+                let unit1 =
+                    "\
+namespace CrossFile
+
+module Lib =
+    type R = { X: int }
+
+    let make () : R = { X = 42 }
+"
+
+                // Unit 2 (entry, last): reads unit 1's record field cross-file, then prints.
+                let unit2 =
+                    "\
+open CrossFile.Lib
+
+let r = make ()
+printfn \"%d\" r.X
+"
+
+                let asmName = "CrossFileFieldRead"
+                let bytes = compileTwoUnits asmName unit1 unit2
+
+                // The record field read re-homed to a LOCAL `ldfld`: the compilation never
+                // references ITSELF as an external assembly (a wrong resolution — treating the
+                // field as an external member ref — would emit that ref and the loader faults).
+                let refs = peAssemblyRefs bytes
+
+                Expect.isFalse
+                    (refs |> List.contains asmName)
+                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+
+                let exitCode, output = runEntryPoint bytes
+                let actual = output.Replace("\r", "").Trim()
+
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
+                Expect.equal actual "42" "cross-file record field read prints the field value"
             }
         ]

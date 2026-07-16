@@ -230,6 +230,60 @@ module B =
                     "file 1 contributes no diagnostics"
             }
 
+            test "file 2 reads a record FIELD declared in file 1 (cross-unit provider fallback)" {
+                // R3: a record field read on a receiver whose record type is declared in a
+                // PRIOR unit. Unit 1 declares `R = { X: int }` and a factory returning it;
+                // unit 2 reads `.X`. Before R3 this errored "Unknown record type 'R'" because
+                // `resolveFieldStep`'s `TyRecord` arm never consulted the provider on a local
+                // miss — records were the one nominal kind with no provider field-read path.
+                let file1 =
+                    "\
+namespace Test.A
+
+module M =
+    type R = { X: int }
+
+    let make () : R = { X = 42 }
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+open Test.A.M
+
+module N =
+    let r = make ()
+    let z = r.X
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    |> units
+
+                let f2 = all.[1]
+
+                // No provider-miss field-read error leaked (the pre-R3 failure mode).
+                let unknownRecord =
+                    f2.Frozen.Diagnostics
+                    |> List.filter (fun d -> d.Severity = Severity.Error && d.Message.Contains "Unknown record")
+
+                Expect.isEmpty
+                    unknownRecord
+                    (sprintf "cross-unit field read must not error 'Unknown record' (diagnostics: %A)" f2.Frozen.Diagnostics)
+
+                Expect.isEmpty
+                    (unresolvedErrors f2)
+                    (sprintf "cross-unit field read resolves clean (diagnostics: %A)" f2.Frozen.Diagnostics)
+
+                // The read types as `int`: `z`'s exported scheme is the field's type,
+                // resolved through the provider's frozen record shape.
+                match (f2.View :> IExternalSymbolResolver).TryLookup "Test.B.N.z" with
+                | ValueSome sym ->
+                    Expect.equal sym.Scheme (FTConst(RuntimeNames.intKey, EqArray.empty)) "r.X types as int cross-unit"
+                | ValueNone -> failtest "file 2 did not export z"
+            }
+
             test "same offset-0 decl in both files does not break resolution" {
                 // Both files open with `namespace` at offset 0 and a decl at identical
                 // early offsets; because each unit owns its own Lexed/PassContext the keys
