@@ -329,4 +329,82 @@ module M =
                 // Guard against a vacuous pass: the whole matrix must have been exercised.
                 Expect.isGreaterThanOrEqual checked' 7 "all parity bindings compared"
             }
+
+            // --- reverse record-field index (`TryRecordsWithField`) ---------------------
+            //
+            // The record analogue of the union-case index: a `field-name -> [records]`
+            // MULTIMAP. Asserts the resolver face only, against each candidate's identity
+            // (`RecordName` / `TyparArity` / `FieldNames`), never object identity.
+
+            test "TryRecordsWithField indexes each record under every field name" {
+                let src =
+                    "\
+namespace Test.RF
+
+module M =
+    type R = { X: int; Y: int }
+"
+
+                let frozen = analyseFrozen src
+                let resolver = FrozenSignature.toProvider asm frozen :> IExternalSymbolResolver
+                let rName = SymbolKeyOps.typeMetaName(typeKeyOf frozen "R")
+
+                for field in [ "X"; "Y" ] do
+                    match resolver.TryRecordsWithField field with
+                    | [| c |] ->
+                        Expect.equal c.RecordName rName (sprintf "field %s -> R's compiled name" field)
+                        Expect.equal c.TyparArity 0 "R is monomorphic"
+                        Expect.equal c.FieldNames [| "X"; "Y" |] "R's field names"
+                    | other -> failtestf "field %s did not resolve to exactly one record: %A" field other
+
+                Expect.equal (resolver.TryRecordsWithField "Z") [||] "unknown field 'Z' has no candidates"
+            }
+
+            test "TryRecordsWithField reports a generic record's typar arity" {
+                let src =
+                    "\
+namespace Test.RF
+
+module M =
+    type Box<'T> = { Value: 'T }
+"
+
+                let frozen = analyseFrozen src
+                let resolver = FrozenSignature.toProvider asm frozen :> IExternalSymbolResolver
+
+                match resolver.TryRecordsWithField "Value" with
+                | [| c |] ->
+                    Expect.equal c.RecordName (SymbolKeyOps.typeMetaName(typeKeyOf frozen "Box")) "Box's compiled name"
+                    Expect.equal c.TyparArity 1 "Box has one typar"
+                | other -> failtestf "field Value did not resolve to exactly one record: %A" other
+            }
+
+            test "TryRecordsWithField returns ALL records sharing a field name (multimap append)" {
+                let src =
+                    "\
+namespace Test.RF
+
+module M =
+    type A = { Shared: int; OnlyA: int }
+    type B = { Shared: int; OnlyB: int }
+"
+
+                let frozen = analyseFrozen src
+                let resolver = FrozenSignature.toProvider asm frozen :> IExternalSymbolResolver
+                let aName = SymbolKeyOps.typeMetaName(typeKeyOf frozen "A")
+                let bName = SymbolKeyOps.typeMetaName(typeKeyOf frozen "B")
+
+                let shared =
+                    resolver.TryRecordsWithField "Shared"
+                    |> Array.map (fun c -> c.RecordName)
+                    |> Array.sort
+
+                Expect.equal shared (Array.sort [| aName; bName |]) "'Shared' resolves to BOTH records, not first-wins"
+
+                // The record-specific fields still pin their single owner.
+                Expect.equal
+                    (resolver.TryRecordsWithField "OnlyA" |> Array.map (fun c -> c.RecordName))
+                    [| aName |]
+                    "'OnlyA' resolves to A alone"
+            }
         ]

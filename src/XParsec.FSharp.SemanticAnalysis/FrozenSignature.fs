@@ -73,6 +73,14 @@ module FrozenSignature =
         let unionCaseIndex =
             Dictionary<string, ExternalUnionCase>(System.StringComparer.Ordinal)
 
+        // The record analogue of `unionCaseIndex`: a `field-name -> [records declaring
+        // it]` MULTIMAP (F#'s `eFieldLabels`). Unlike the union-case index this is NOT
+        // first-wins — a field name is deliberately shared across records, so each record
+        // ADDS its candidate to the bucket (the unqualified record-literal resolver
+        // intersects the per-field buckets to pin the type).
+        let recordFieldIndex =
+            Dictionary<string, ResizeArray<ExternalRecordCandidate>>(System.StringComparer.Ordinal)
+
         let symbols = Dictionary<string, ExternalSymbol>(System.StringComparer.Ordinal)
 
         // --- member projection --------------------------------------------------------
@@ -193,6 +201,31 @@ module FrozenSignature =
                     register
                         (ExternalTypeShape.Record(arity, fieldShapes, origin))
                         (ValueSome(membersOf typeKey arity members))
+
+                    // One candidate per record, appended to EVERY field's bucket (the
+                    // multimap append — a shared field name keeps both records live).
+                    // Only internal-or-better exported records reach here (`when exported
+                    // td.Key`), so accessibility is already filtered. RQA is hardcoded
+                    // `false`: the frozen tree does not model record RQA (same gap as the
+                    // union-case index above), so a cross-unit `[<RequireQualifiedAccess>]`
+                    // record is wrongly constructible bare until RQA is threaded through
+                    // freeze (plan R6).
+                    let candidate: ExternalRecordCandidate =
+                        {
+                            RecordName = SymbolKeyOps.typeMetaName typeKey
+                            TyparArity = arity
+                            Origin = origin
+                            FieldNames = [| for f in fields -> f.Name |]
+                            IsRequireQualifiedAccess = false
+                        }
+
+                    for f in fields do
+                        match recordFieldIndex.TryGetValue f.Name with
+                        | true, buf -> buf.Add candidate
+                        | _ ->
+                            let buf = ResizeArray<ExternalRecordCandidate>()
+                            buf.Add candidate
+                            recordFieldIndex.[f.Name] <- buf
 
                 | Frozen.TTypeKind.Union(cases, members, _) ->
                     let caseArr = [| for c in cases -> c |]
@@ -357,6 +390,11 @@ module FrozenSignature =
                             match unionCaseIndex.TryGetValue caseName with
                             | true, hit -> ValueSome hit
                             | _ -> ValueNone
+                    TryRecordsWithField =
+                        fun fieldName ->
+                            match recordFieldIndex.TryGetValue fieldName with
+                            | true, buf -> buf.ToArray()
+                            | _ -> [||]
                     // A frozen impl unit publishes no `[<AutoOpen>]` surface (yet).
                     AmbientOpenPrefixes = []
                     IntrinsicReverseCanon = intrinsicReverse
