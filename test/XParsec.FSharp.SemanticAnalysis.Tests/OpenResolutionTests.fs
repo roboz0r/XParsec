@@ -56,6 +56,7 @@ let private provider: IExternalSymbolProvider =
               | "Blue" -> mk "Tests.Hue" false "Blue"
               | _ -> ValueNone
 
+          member _.TryRecordsWithField _ = [||]
           member _.AmbientOpenPrefixes = []
       interface IExternalSymbolStore with
           member _.TryLookupType(_: SymbolKey) = ValueNone

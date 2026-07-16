@@ -116,6 +116,7 @@ let private fake: IExternalSymbolProvider =
               else
                   ValueNone
 
+          member _.TryRecordsWithField _ = [||]
           member _.AmbientOpenPrefixes = [ "Amb" ]
       interface IExternalSymbolStore with
           member _.TryLookupType(key: SymbolKey) =

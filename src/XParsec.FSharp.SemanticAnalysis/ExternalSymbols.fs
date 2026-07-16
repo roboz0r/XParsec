@@ -270,6 +270,40 @@ type ExternalUnionCase =
         | ValueNone -> not uc.IsRequireQualifiedAccess
         | ValueSome q -> SymbolKeyOps.shortName uc.UnionName = q
 
+/// One hit from the per-field reverse index (`IExternalSymbolProvider.TryRecordsWithField`):
+/// a record that declares the queried field, named by its identity plus everything the
+/// unqualified record-literal / record-pattern resolver needs to intersect and tie-break.
+/// A record rather than a wide tuple — exactly the `ExternalUnionCase` rationale — so the
+/// record's `Origin` and RQA flag ride alongside its name/arity without re-threading every
+/// consumer: a resolver that picks this candidate has the data to mint its
+/// `SymbolKey.TypeKey` in hand, rather than recovering it via a second `TryLookupType`
+/// round-trip. Field *types* are deliberately NOT here — they come from the by-key shape
+/// path (`TryLookupType key -> ExternalTypeShape.Record`) at construction; this index only
+/// answers identity.
+type ExternalRecordCandidate =
+    {
+        /// The record's compiled (arity-suffixed) name — the `TypeKey` source.
+        RecordName: string
+        /// The record's declared typar arity (one fresh TyVar per slot at a use site).
+        TyparArity: int
+        /// Where the record is declared — assembly + namespace. `SymbolOrigin.Empty`
+        /// for providers that don't model origins; `ExternalSymbolProviders.stack`
+        /// re-stamps the package origin, mirroring how it stamps the
+        /// `ExternalTypeShape.Record` the candidate was indexed from.
+        Origin: SymbolOrigin
+        /// Every declared field name — enough for BOTH the per-field intersection and
+        /// the count tie-break ("fields determine a unique record type"). Field *types*
+        /// come from the by-key shape path at construction, not from here.
+        FieldNames: string[]
+        /// True when the record is `[<RequireQualifiedAccess>]`: F#'s
+        /// `isILOrRequiredQualifiedAccess` guard excludes such records from bare
+        /// field-set resolution (`{ X = … }` must be qualified). The field is the seam;
+        /// the frozen tree does not yet model record RQA, so producers currently hardcode
+        /// `false` until it is threaded through the freeze — a cross-unit RQA record is
+        /// wrongly constructible bare until then.
+        IsRequireQualifiedAccess: bool
+    }
+
 /// The immutable, two-axis member descriptor: a
 /// member's tupled `(Parameters, Return)` as `FrozenType` templates. `Parameters`
 /// is the .NET-tupled argument type (`N ≥ 2` → one `FTTuple`; 0 params →
@@ -850,6 +884,16 @@ type IExternalSymbolResolver =
     /// the short-name type index uses); providers that don't model unions return
     /// `ValueNone`.
     abstract TryLookupUnionCase: caseName: string -> ExternalUnionCase voption
+
+    /// The per-field reverse index (F#'s `eFieldLabels` analogue): a field name →
+    /// every record declaring a field of that name. Unqualified record-literal /
+    /// record-pattern resolution intersects these per-field sets to pin the type
+    /// (`{ X = …; Y = … }` resolves to the record at the intersection). `[||]` = no
+    /// record here; providers not backed by Vesper TAST (metadata / JS-native /
+    /// TS-manifest / test fakes) return `[||]`, exactly as F# reverse-indexes only F#
+    /// record tycons and never imported IL. RQA records are excluded from the index at
+    /// the source that builds it (F#'s `isILOrRequiredQualifiedAccess` guard).
+    abstract TryRecordsWithField: fieldName: string -> ExternalRecordCandidate[]
 
     /// The *ambient* (implicit) open-prefix set this provider contributes — the
     /// prelude / referenced-contract `[<AutoOpen>]` modules. The pipeline seeds

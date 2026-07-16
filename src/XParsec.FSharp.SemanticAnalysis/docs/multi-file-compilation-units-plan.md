@@ -92,7 +92,11 @@ driver yet. Remaining:
 - **Step D — multi-file driver + delete concat.** `ClrDriver` gains a multi-file entry routing
   through `AssemblyUnits` + Step-C codegen; **delete** the `String.concat "\n\n"` in
   `TestHelpers.fs` (`buildPackage` ~:310, `vesperCoreDll` ~:129) and route those through it. The
-  single-`source` `ClrDriver.compile` stays for script/fragment callers.
+  single-`source` `ClrDriver.compile` stays for script/fragment callers. **Also add the two
+  deferred-incompleteness demonstration tests from `cross-unit-record-resolution-plan.md`** (bare
+  construction of a cross-unit RQA record wrongly accepted; a cross-unit record in an unopened
+  namespace wrongly resolvable bare) — written to assert the CORRECT behaviour, so they are red
+  until the RQA-threading (R6) and ambient-scope gate land, then flip green.
 
 ### Step C decomposition (post-investigation, 2026-07-15)
 
@@ -213,7 +217,10 @@ out naturally once a real second consumer exists.
   errors so never caught it.) Closing it is a FRONT-END cut (wire use-site nominal resolution to the
   composite provider, or project prior-unit nominals into the consuming unit's `TypeRegistry`) — it
   is the real content of the "Projection coverage boundaries" open item below, now on the critical
-  path for a records-bearing corpus.
+  path for a records-bearing corpus. **Designed + scoped as a separate, independently-landable plan:
+  `cross-unit-record-resolution-plan.md`** (records are the only blocked kind — unions/classes already
+  have provider paths; the fix mirrors F#'s `eFieldLabels` + `BuildFieldMap`). Land it against the
+  single-file pipeline; multi-file resumes at Step D once it lands.
 
 ### Open items to close during Step C/D (see "Known open items" section below for detail)
 

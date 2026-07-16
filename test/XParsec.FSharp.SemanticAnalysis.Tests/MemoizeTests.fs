@@ -47,6 +47,7 @@ type private CountingProvider(name: string) =
 
         member this.TryLookupType(n: string) = this.TypeByName n
         member _.TryLookupUnionCase _ = ValueNone
+        member _.TryRecordsWithField _ = [||]
         member _.AmbientOpenPrefixes = []
 
     interface IExternalSymbolStore with

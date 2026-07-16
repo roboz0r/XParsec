@@ -32,6 +32,7 @@ module ExternalSymbolProviders =
             TryLookup: string -> ExternalSymbol voption
             TryLookupType: string -> ExternalTypeShape voption
             TryLookupUnionCase: string -> ExternalUnionCase voption
+            TryRecordsWithField: string -> ExternalRecordCandidate[]
             AmbientOpenPrefixes: string list
             /// `(declaring type's qualified compiled name, member name)`.
             TryLookupMember: string * string -> ExternalMember voption
@@ -49,6 +50,7 @@ module ExternalSymbolProviders =
                 TryLookup = fun _ -> ValueNone
                 TryLookupType = fun _ -> ValueNone
                 TryLookupUnionCase = fun _ -> ValueNone
+                TryRecordsWithField = fun _ -> [||]
                 AmbientOpenPrefixes = []
                 TryLookupMember = fun _ -> ValueNone
                 TryLookupMembers = fun _ -> [||]
@@ -147,6 +149,7 @@ module ExternalSymbolProviders =
               member _.TryLookup name = named.TryLookup name
               member _.TryLookupType(name: string) = named.TryLookupType name
               member _.TryLookupUnionCase caseName = named.TryLookupUnionCase caseName
+              member _.TryRecordsWithField fieldName = named.TryRecordsWithField fieldName
               member _.AmbientOpenPrefixes = named.AmbientOpenPrefixes
           interface IExternalSymbolStore with
               member _.TryLookupType(key: SymbolKey) = leaf.TypeShapeByKey key
@@ -314,6 +317,15 @@ module ExternalSymbolProviders =
             | ValueNone -> id
             | ValueSome o -> fun (uc: ExternalUnionCase) -> { uc with Origin = o }
 
+        // Same as `stampUnionCase` for the reverse FIELD index: a candidate is looked up
+        // off a `Record` shape the extractor recorded with `SymbolOrigin.Empty`, so re-home
+        // it onto the package origin — its origin must agree with what `TryLookupType`
+        // reports for the same record.
+        let stampRecordCandidate =
+            match stampOrigin with
+            | ValueNone -> id
+            | ValueSome o -> fun (c: ExternalRecordCandidate) -> { c with Origin = o }
+
         { new IExternalSymbolProvider
 
           interface IExternalSymbolResolver with
@@ -330,6 +342,19 @@ module ExternalSymbolProviders =
               member _.TryLookupUnionCase caseName =
                   firstHit (fun s -> s.TryLookupUnionCase caseName)
                   |> ValueOption.map stampUnionCase
+
+              // UNION, not first-hit-wins: a field name can recur across records in
+              // DIFFERENT packages, and unqualified record resolution must intersect over
+              // every candidate, so a later source's records add to an earlier source's
+              // hit rather than being shadowed (unlike a union CASE, whose declaring union
+              // lives in one assembly). Re-home each candidate's origin exactly as
+              // `TryLookupUnionCase` does for its reverse hit.
+              member _.TryRecordsWithField fieldName =
+                  [|
+                      for s in sources do
+                          for c in s.TryRecordsWithField fieldName do
+                              stampRecordCandidate c
+                  |]
 
               member _.AmbientOpenPrefixes = ambient
           interface IExternalSymbolStore with
@@ -514,6 +539,11 @@ module ExternalSymbolProviders =
                   inner.TryLookupUnionCase caseName
                   |> ValueOption.map (fun uc -> { uc with Case = mapCase uc.Case })
 
+              // An `ExternalRecordCandidate` carries only identity + field NAMES, no
+              // `FrozenType` surface to variance-map (field types ride the by-key shape
+              // path), so this decorator passes it straight through.
+              member _.TryRecordsWithField fieldName = inner.TryRecordsWithField fieldName
+
               member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
           interface IExternalSymbolStore with
               member _.TryLookupType(key: SymbolKey) =
@@ -572,6 +602,7 @@ module ExternalSymbolProviders =
 
               member _.TryLookupType(name: string) = inner.TryLookupType name
               member _.TryLookupUnionCase caseName = inner.TryLookupUnionCase caseName
+              member _.TryRecordsWithField fieldName = inner.TryRecordsWithField fieldName
               member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
           interface IExternalSymbolStore with
               member _.TryLookupType(key: SymbolKey) = inner.TryLookupType key
@@ -619,6 +650,7 @@ module ExternalSymbolProviders =
 
         let indexSigs = ConcurrentDictionary<SymbolKey, (FrozenType * FrozenType) list>()
         let unionCases = ConcurrentDictionary<string, ExternalUnionCase voption>()
+        let recordsByField = ConcurrentDictionary<string, ExternalRecordCandidate[]>()
         let symbolsByKey = ConcurrentDictionary<SymbolKey, ExternalSymbol voption>()
 
         { new IExternalSymbolProvider
@@ -632,6 +664,9 @@ module ExternalSymbolProviders =
 
               member _.TryLookupUnionCase caseName =
                   unionCases.GetOrAdd(caseName, (fun n -> inner.TryLookupUnionCase n))
+
+              member _.TryRecordsWithField fieldName =
+                  recordsByField.GetOrAdd(fieldName, (fun n -> inner.TryRecordsWithField n))
 
               member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
           interface IExternalSymbolStore with

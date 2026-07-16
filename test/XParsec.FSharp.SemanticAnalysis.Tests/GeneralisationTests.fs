@@ -125,6 +125,7 @@ let tests =
 
                           member _.TryLookupType(_: string) = ValueNone
                           member _.TryLookupUnionCase _ = ValueNone
+                          member _.TryRecordsWithField _ = [||]
                           member _.AmbientOpenPrefixes = []
                       interface IExternalSymbolStore with
                           member _.TryLookupType(_: SymbolKey) = ValueNone

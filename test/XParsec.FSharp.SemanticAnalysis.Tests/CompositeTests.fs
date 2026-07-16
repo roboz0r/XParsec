@@ -37,6 +37,7 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
                   ValueNone
 
           member _.TryLookupUnionCase _ = ValueNone
+          member _.TryRecordsWithField _ = [||]
           member _.AmbientOpenPrefixes = []
       interface IExternalSymbolStore with
           member _.TryLookupType(key: SymbolKey) =

@@ -752,6 +752,9 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
         member _.TryLookup _ = ValueNone
         member this.TryLookupType(name: string) = this.LookupTypeByName name
         member _.TryLookupUnionCase _ = ValueNone
+        // A metadata leaf scrapes IL, never F# record tycons, so it never contributes to
+        // the reverse field index (F#'s `isILOrRequiredQualifiedAccess` excludes IL too).
+        member _.TryRecordsWithField _ = [||]
         member _.AmbientOpenPrefixes = []
 
     interface IExternalSymbolStore with
