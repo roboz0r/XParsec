@@ -355,22 +355,21 @@ module VesperLibTyparCapture =
         ///     key it mints is then looked up in the identity index, so the key returned is
         ///     always the REGISTERED one and a spelling that names nothing resolves to nothing.
         let tryTypeKey (ctx: ExtractCtx) (probe: string) : TypeKey voption =
-            match ctx.TypeKeys.TryGetValue probe with
-            | true, key -> ValueSome key
-            | _ ->
-                let dot = probe.LastIndexOf '.'
+            // The written-name → registered-key containment algorithm is shared with the
+            // frozen-impl projector (`FrozenSignature.typeShapeByName`) — the ONE
+            // canonicalizer that inverts `typeMetaName`'s dotted flattening through the
+            // declared holders, never a re-cut string.
+            let exact (name: string) =
+                match ctx.TypeKeys.TryGetValue name with
+                | true, key -> ValueSome key
+                | _ -> ValueNone
 
-                if dot <= 0 || dot = probe.Length - 1 then
-                    ValueNone
-                else
-                    match ctx.ModuleHolders.TryGetValue(probe.Substring(0, dot)) with
-                    | true, holder ->
-                        let candidate = SymbolKeyOps.typeKeyOfSegment holder (probe.Substring(dot + 1))
+            let moduleHolder (path: string) =
+                match ctx.ModuleHolders.TryGetValue path with
+                | true, holder -> ValueSome holder
+                | _ -> ValueNone
 
-                        match ctx.TypeKeys.TryGetValue(SymbolKeyOps.typeMetaName candidate) with
-                        | true, key -> ValueSome key
-                        | _ -> ValueNone
-                    | _ -> ValueNone
+            SymbolKeyOps.tryDottedModuleHeld exact moduleHolder probe
 
         /// Provider over the extracted symbol / type-shape tables, exposing
         /// `ctx.AutoOpenPrefixes` as its ambient. The pipeline seeds the

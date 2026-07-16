@@ -232,6 +232,41 @@ module SymbolKeyOps =
 
             k
 
+    /// Resolve a WRITTEN dotted type name against a compiled-name identity index whose keys
+    /// are the canonical `typeMetaName` renderings, falling back through module CONTAINMENT
+    /// for the one spelling that is NOT that rendering: the DOTTED source form of a
+    /// module-held type (`Test.A.M.T` for `T` in `module M`), whose canonical key spells
+    /// `Test.A.M+T`. On an exact-index miss, split the LAST dot — if the prefix names a
+    /// module this unit declares (`moduleHolder`), the suffix is the type that module holds:
+    /// mint the candidate key under that holder, render it, and re-look-it-up in the index,
+    /// so the value returned is ALWAYS the registered one and a spelling that names nothing
+    /// resolves to nothing.
+    ///
+    /// This is exactly F#'s name-resolution question — "what does `A.B.C` denote when `A.B`
+    /// is a module?" — stated ONCE for both signature projectors into the provider surface:
+    /// the `.fsi` contract extractor (`VesperLib.ExtractCtx.tryTypeKey`, index value
+    /// `TypeKey`) and the frozen-impl projector (`FrozenSignature.typeShapeByName`, index
+    /// value `SymbolKey`), which differ only in the index's value type (`'T`). A type NESTED
+    /// IN A TYPE (`Outer.Inner`, `TypeHolder.InType`) is deliberately NOT reached: only
+    /// module holders are indexed, matching both callers — the `InType` extension point when
+    /// the corpus needs a written `Outer.Inner` cross-unit name.
+    let tryDottedModuleHeld
+        (exact: string -> 'T voption)
+        (moduleHolder: string -> TypeHolder voption)
+        (probe: string)
+        : 'T voption =
+        match exact probe with
+        | ValueSome _ as hit -> hit
+        | ValueNone ->
+            let dot = probe.LastIndexOf '.'
+
+            if dot <= 0 || dot = probe.Length - 1 then
+                ValueNone
+            else
+                match moduleHolder (probe.Substring(0, dot)) with
+                | ValueSome holder -> exact (typeMetaName (typeKeyOfSegment holder (probe.Substring(dot + 1))))
+                | ValueNone -> ValueNone
+
     /// Mint a type key under a HOLDER from a BARE source name and its arity as an INT — for
     /// a producer that holds the containment AND the count (a declared typar list): the
     /// contract extractor's module chain, local registration. It must never pack the count

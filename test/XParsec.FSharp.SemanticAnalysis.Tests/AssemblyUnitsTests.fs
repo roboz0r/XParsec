@@ -28,6 +28,18 @@ let private unresolvedErrors (u: FrozenUnit) : Diagnostic list =
     u.Frozen.Diagnostics
     |> List.filter (fun d -> d.Severity = Severity.Error && d.Message.Contains "Unresolved")
 
+/// A unit's TYPE-RESOLUTION-miss errors, both message families. An unresolved VALUE name
+/// is phrased "Unresolved …"; a TYPE name that fails to resolve in annotation / signature
+/// position is phrased "The type '…' is not defined" (`PassContext.Error`). A faithful
+/// cross-unit type-resolution check must catch BOTH — filtering only "Unresolved" let an
+/// annotation-position type miss pass silently (a false green).
+let private definitionErrors (u: FrozenUnit) : Diagnostic list =
+    u.Frozen.Diagnostics
+    |> List.filter (fun d ->
+        d.Severity = Severity.Error
+        && (d.Message.Contains "Unresolved" || d.Message.Contains "is not defined")
+    )
+
 // --- shared file-1 export surface: a type T and a saturated function f -----------------
 
 let private file1Qualified =
@@ -65,8 +77,8 @@ module N =
                 let f2 = all.[1]
 
                 Expect.isEmpty
-                    (unresolvedErrors f2)
-                    (sprintf "file 2 has no unresolved-symbol errors (diagnostics: %A)" f2.Frozen.Diagnostics)
+                    (definitionErrors f2)
+                    (sprintf "file 2 has no unresolved/undefined-type errors (diagnostics: %A)" f2.Frozen.Diagnostics)
             }
 
             test "file 2 resolves file 1's exports through an OPEN-ed bare reference" {
@@ -90,7 +102,7 @@ module N =
                 let f2 = all.[1]
 
                 Expect.isEmpty
-                    (unresolvedErrors f2)
+                    (definitionErrors f2)
                     (sprintf "opened bare reference resolves through the view (diagnostics: %A)" f2.Frozen.Diagnostics)
             }
 
@@ -405,6 +417,103 @@ module N =
                         f2.Frozen.Diagnostics)
             }
 
+            test "file 2 ANNOTATES a value + parameter with a record type declared in file 1" {
+                // Value-position + parameter-position annotation of a prior-unit record:
+                // `let h (r : R) = r` and `let g (r : R) : int = r.X`, `R` opened from file 1.
+                // The annotation type head is name-resolved + stamped external, and its dotted
+                // open-expansion (`Test.A.M.R`) resolves through the frozen provider's
+                // module-containment fallback to unit 1's record shape. Before that fallback the
+                // dotted spelling missed the `+`-keyed identity index and the annotation errored
+                // "The type 'R' is not defined".
+                //
+                // The annotations here are PURE (parameter type + field read): the head resolves
+                // to one identity used consistently, so there is no error at all. A form that
+                // also CONSTRUCTS the record (`let r : R = { X = 1 }`) does NOT belong here — see
+                // the `ptest` below: construction pins the registered `InModule` identity while
+                // the annotation carries the re-cut flattened one, and they disagree.
+                let file1 =
+                    "\
+namespace Test.A
+
+module M =
+    type R = { X: int }
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+open Test.A.M
+
+module N =
+    let h (r : R) : R = r
+    let g (r : R) : int = r.X
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    |> units
+
+                let f2 = all.[1]
+
+                Expect.isEmpty
+                    (definitionErrors f2)
+                    (sprintf
+                        "value/parameter annotation of a cross-unit record resolves clean (diagnostics: %A)"
+                        f2.Frozen.Diagnostics)
+
+                // Honest guard: a pure annotation must raise NO error at all (a hidden
+                // unification mismatch would slip past `definitionErrors`, which filters only
+                // the not-defined / unresolved families).
+                Expect.isEmpty
+                    (f2.Frozen.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))
+                    (sprintf "pure cross-unit annotation raises no error (diagnostics: %A)" f2.Frozen.Diagnostics)
+            }
+
+            test "file 2's MEMBER signature annotates a type declared in file 1" {
+                // Member-signature return + constructor-parameter annotation of a prior-unit
+                // type: a class in file 2 captures a `T` (ctor param annotation) and returns it
+                // from a member (return annotation). Both annotation heads are prior-unit type
+                // names brought in by `open`, resolved through the same module-containment
+                // fallback.
+                let file1 =
+                    "\
+namespace Test.A
+
+module M =
+    type T = { value: int }
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+open Test.A.M
+
+module N =
+    type Box(t: T) =
+        member _.Get() : T = t
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    |> units
+
+                let f2 = all.[1]
+
+                Expect.isEmpty
+                    (definitionErrors f2)
+                    (sprintf
+                        "member-signature annotation of a cross-unit type resolves clean (diagnostics: %A)"
+                        f2.Frozen.Diagnostics)
+
+                // Ctor param + member return both annotate the SAME prior-unit type, so their
+                // one (flattened) identity is used consistently — no error at all.
+                Expect.isEmpty
+                    (f2.Frozen.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))
+                    (sprintf "member-signature annotation raises no error (diagnostics: %A)" f2.Frozen.Diagnostics)
+            }
+
             test "same offset-0 decl in both files does not break resolution" {
                 // Both files open with `namespace` at offset 0 and a decl at identical
                 // early offsets; because each unit owns its own Lexed/PassContext the keys
@@ -424,6 +533,52 @@ module N =
                 // Both files carry a binding whose NodeKey offset is small/overlapping,
                 // yet file 2 resolves file 1's `f` — the separate-unit invariant holds.
                 Expect.isEmpty (unresolvedErrors all.[1]) "resolution survives colliding raw offsets"
+            }
+
+            ptest "cross-unit MODULE-HELD type: annotation identity matches construction identity" {
+                // INCOMPLETE residual of the type-annotation-by-`open` fix. The frozen
+                // provider now RESOLVES a module-held type's dotted spelling (no "not defined"),
+                // but the identity a use site MINTS for it splits by resolution path:
+                //   * construction / field-set (`{ X = 1 }`) pins the REGISTERED `InModule` key,
+                //     carried structurally on `ExternalRecordCandidate.TypeKey`;
+                //   * annotation (`r : R`) goes through NameResolution's `useSiteTypeKey`, which
+                //     re-cuts the matched dotted spelling with `externalTypeKeyOf` — and
+                //     `typeKeyOf` cannot recover a module chain from a dotted name, so it lands
+                //     the type in a flattened `InNamespace` holder (`{InNamespace Test.A.M, R}`).
+                // The two keys are structurally distinct, so `let r : R = { X = 1 }` unifies the
+                // annotation against the literal and reports a TYPE MISMATCH. It flips green once
+                // the annotation stamp carries the REGISTERED key the provider resolved (rather
+                // than re-minting from the name) — a consumer-side change (`useSiteTypeKey` /
+                // `ResolvedTypeHead`), outside the pure-projection scope of the current fix.
+                let file1 =
+                    "\
+namespace Test.A
+
+module M =
+    type R = { X: int }
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+open Test.A.M
+
+module N =
+    let r : R = { X = 1 }
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    |> units
+
+                let f2 = all.[1]
+
+                Expect.isEmpty
+                    (f2.Frozen.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))
+                    (sprintf
+                        "annotation + construction of a cross-unit module-held record agree on identity (diagnostics: %A)"
+                        f2.Frozen.Diagnostics)
             }
 
             // The two cross-unit resolution gaps that are OVER-PERMISSIVE today: an

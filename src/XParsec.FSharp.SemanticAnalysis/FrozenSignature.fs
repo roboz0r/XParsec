@@ -83,6 +83,33 @@ module FrozenSignature =
 
         let symbols = Dictionary<string, ExternalSymbol>(System.StringComparer.Ordinal)
 
+        // The frozen twin of `ExtractCtx.ModuleHolders`: the DOTTED path of a module this
+        // unit declares -> the `TypeHolder` a type it holds sits in. A frozen impl carries
+        // no standalone module decls (a module is implicit in its types' holder keys), so
+        // this is populated from the containment chain of each registered type. It exists so
+        // a WRITTEN dotted name for a module-held type (`Test.A.M.T`, whose canonical
+        // `typeMetaName` spells `Test.A.M+T`) resolves through the declared containment via
+        // the shared `SymbolKeyOps.tryDottedModuleHeld` — the same canonicalizer the `.fsi`
+        // provider's `tryTypeKey` uses — instead of missing the dotted-vs-`+` divide.
+        //
+        // A module's index path is its COMPILED chain (`moduleFullName`), which equals the
+        // SOURCE spelling for an un-suffixed module — what a use site writes. A
+        // `[<CompilationRepresentation(ModuleSuffix)>]`/name-collision `…Module` module would
+        // diverge (the `.fsi` extractor keys the source path because it still holds the
+        // source names; the frozen tree has only the compiled chain), the same extension
+        // point as an `InType`-nested written name below.
+        let moduleHolders = Dictionary<string, TypeHolder>(System.StringComparer.Ordinal)
+
+        let rec registerModuleHolder (m: ModuleKey) =
+            let path = SymbolKeyOps.moduleFullName m
+
+            if not (moduleHolders.ContainsKey path) then
+                moduleHolders.[path] <- TypeHolder.InModule m
+
+            match m.Holder with
+            | ModuleHolder.InModule parent -> registerModuleHolder parent
+            | ModuleHolder.InNamespace _ -> ()
+
         // --- member projection --------------------------------------------------------
         // A type member's frozen `Params` / `ReturnTy` already carry the declaring
         // type's typars as `FTTypar(Declaring,i)` and its own as `FTTypar(Method,j)`
@@ -157,6 +184,14 @@ module FrozenSignature =
                 let key = SymbolKey.Type typeKey
                 let arity = td.TypeParams.Length
                 let origin = originIn typeKey.Namespace
+
+                // Index the enclosing module chain so a written `A.M.T` for this type
+                // resolves through containment. An `InType`-nested type contributes no module
+                // holder — a written `Outer.Inner` cross-unit name is the extension point.
+                match typeKey.Holder with
+                | TypeHolder.InModule m -> registerModuleHolder m
+                | TypeHolder.InNamespace _
+                | TypeHolder.InType _ -> ()
 
                 let register (shape: ExternalTypeShape) (members: ResizeArray<ExternalMember> voption) =
                     shapesByKey.[key] <- shape
@@ -361,20 +396,58 @@ module FrozenSignature =
             |> Map.ofSeq
 
         // --- provider assembly --------------------------------------------------------
-        let typeShapeByKey (key: SymbolKey) : ExternalTypeShape voption =
-            match shapesByKey.TryGetValue key with
-            | true, s -> ValueSome s
-            | _ -> ValueNone
 
-        let typeMembersByKey (key: SymbolKey) : ResizeArray<ExternalMember> voption =
-            match membersByKey.TryGetValue key with
-            | true, ms -> ValueSome ms
-            | _ -> ValueNone
+        // Written type name -> the REGISTERED identity key, through the ONE shared
+        // containment canonicalizer. `typesByName` holds the canonical `typeMetaName`
+        // rendering (`Test.A.M+T` for a module-held type); `tryDottedModuleHeld` adds the
+        // fallback for the spelling that is NOT that rendering — the DOTTED source form
+        // (`Test.A.M.T`), resolved through the declared module holders. Both store faces
+        // (name AND key) reunite on this, so a consumer's dotted spelling and the identity
+        // a re-cut key renders back to (see `typeShapeByKey`) reach the same registered key.
+        let resolveNameToKey (name: string) : SymbolKey voption =
+            let exact (probe: string) =
+                match typesByName.TryGetValue probe with
+                | true, key -> ValueSome key
+                | _ -> ValueNone
+
+            let moduleHolder (path: string) =
+                match moduleHolders.TryGetValue path with
+                | true, holder -> ValueSome holder
+                | _ -> ValueNone
+
+            SymbolKeyOps.tryDottedModuleHeld exact moduleHolder name
+
+        // Key-addressed lookup with the module-held containment fallback. A consumer that
+        // resolved a module-held type by its DOTTED spelling and minted a key from that
+        // spelling holds a FLATTENED key: `typeKeyOf` cannot recover the module chain from a
+        // dotted name, so it lands the type directly in the (over-long) namespace —
+        // `{InNamespace Test.A.M, T}` where the registered identity is `{InModule M in
+        // Test.A, T}`. That flattened key renders back to the same dotted `Test.A.M.T` (an
+        // `InNamespace` holder spells with `.`, no module `+`), so rendering it and
+        // re-resolving through the shared containment reunites it with the registered key. A
+        // key that names nothing still misses.
+        let byKeyCanonical (dict: Dictionary<SymbolKey, 'v>) (key: SymbolKey) : 'v voption =
+            match dict.TryGetValue key with
+            | true, v -> ValueSome v
+            | _ ->
+                match key with
+                | SymbolKey.Type t ->
+                    match resolveNameToKey (SymbolKeyOps.typeMetaName t) with
+                    | ValueSome regKey ->
+                        match dict.TryGetValue regKey with
+                        | true, v -> ValueSome v
+                        | _ -> ValueNone
+                    | ValueNone -> ValueNone
+                | _ -> ValueNone
+
+        let typeShapeByKey (key: SymbolKey) : ExternalTypeShape voption = byKeyCanonical shapesByKey key
+
+        let typeMembersByKey (key: SymbolKey) : ResizeArray<ExternalMember> voption = byKeyCanonical membersByKey key
 
         let typeShapeByName (name: string) : ExternalTypeShape voption =
-            match typesByName.TryGetValue name with
-            | true, key -> typeShapeByKey key
-            | _ -> ValueNone
+            match resolveNameToKey name with
+            | ValueSome key -> typeShapeByKey key
+            | ValueNone -> ValueNone
 
         ExternalSymbolProviders.ofKeyedLeaf (
             ExternalSymbolProviders.KeyedLeaf.ofNamedWithMembers
