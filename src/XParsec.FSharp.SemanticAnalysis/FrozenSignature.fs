@@ -212,7 +212,7 @@ module FrozenSignature =
                     // freeze (plan R6).
                     let candidate: ExternalRecordCandidate =
                         {
-                            RecordName = SymbolKeyOps.typeMetaName typeKey
+                            TypeKey = typeKey
                             TyparArity = arity
                             Origin = origin
                             FieldNames = [| for f in fields -> f.Name |]

@@ -270,7 +270,9 @@ module N =
 
                 Expect.isEmpty
                     unknownRecord
-                    (sprintf "cross-unit field read must not error 'Unknown record' (diagnostics: %A)" f2.Frozen.Diagnostics)
+                    (sprintf
+                        "cross-unit field read must not error 'Unknown record' (diagnostics: %A)"
+                        f2.Frozen.Diagnostics)
 
                 Expect.isEmpty
                     (unresolvedErrors f2)
@@ -282,6 +284,125 @@ module N =
                 | ValueSome sym ->
                     Expect.equal sym.Scheme (FTConst(RuntimeNames.intKey, EqArray.empty)) "r.X types as int cross-unit"
                 | ValueNone -> failtest "file 2 did not export z"
+            }
+
+            test "file 2 CONSTRUCTS a record declared in file 1 — bare + qualified (cross-unit provider)" {
+                // R4b-2: a record LITERAL whose record type is declared in a PRIOR unit.
+                // Unit 1 declares `R = { X: int; Y: int }`; unit 2 builds it two ways — bare
+                // `{ X = 1; Y = 2 }` (resolved through the provider field-set reverse index)
+                // and qualified `{ R.X = 3; R.Y = 4 }` (local `tryRecord` miss → the qualified
+                // external filter). Before R4b-2 both errored "No record type matches the field
+                // set" because `recordFieldSetVerdict` never consulted the provider.
+                let file1 =
+                    "\
+namespace Test.A
+
+module M =
+    type R = { X: int; Y: int }
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+open Test.A.M
+
+module N =
+    let bare = { X = 1; Y = 2 }
+    let qualified = { R.X = 3; R.Y = 4 }
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    |> units
+
+                let f2 = all.[1]
+
+                let recordErrors =
+                    f2.Frozen.Diagnostics
+                    |> List.filter (fun d ->
+                        d.Severity = Severity.Error
+                        && (d.Message.Contains "Unknown record"
+                            || d.Message.Contains "No record type matches"
+                            || d.Message.Contains "Field set is ambiguous")
+                    )
+
+                Expect.isEmpty
+                    recordErrors
+                    (sprintf "cross-unit record construction must resolve clean (diagnostics: %A)" f2.Frozen.Diagnostics)
+
+                Expect.isEmpty
+                    (unresolvedErrors f2)
+                    (sprintf
+                        "cross-unit record construction has no unresolved symbols (diagnostics: %A)"
+                        f2.Frozen.Diagnostics)
+
+                // Both literals type as `R` (an `FTRecord` whose type key's simple name is R),
+                // proving the construction resolved to unit 1's record, not a fresh TyVar.
+                let expectRecordR (name: string) =
+                    match (f2.View :> IExternalSymbolResolver).TryLookup name with
+                    | ValueSome sym ->
+                        match sym.Scheme with
+                        | FTRecord(key, _) ->
+                            let (DisplayName shown) = SymbolKeyOps.typeSimpleName key
+                            Expect.equal shown "R" (sprintf "%s types as record R cross-unit" name)
+                        | other -> failtestf "%s expected to type as record R, got %A" name other
+                    | ValueNone -> failtestf "file 2 did not export %s" name
+
+                expectRecordR "Test.B.N.bare"
+                expectRecordR "Test.B.N.qualified"
+            }
+
+            test "file 2 PATTERN-MATCHES a record declared in file 1 (cross-unit provider)" {
+                // R4b-2 pattern position: the record-literal arm of `inferPat` routes through
+                // the SAME shared resolver, so a `{ X = x; Y = y }` pattern resolves to unit 1's
+                // record by field set cross-unit.
+                let file1 =
+                    "\
+namespace Test.A
+
+module M =
+    type R = { X: int; Y: int }
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+open Test.A.M
+
+module N =
+    let sum () : int =
+        let r = { X = 20; Y = 22 }
+
+        match r with
+        | { X = x; Y = y } -> x + y
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    |> units
+
+                let f2 = all.[1]
+
+                let patternErrors =
+                    f2.Frozen.Diagnostics
+                    |> List.filter (fun d ->
+                        d.Severity = Severity.Error
+                        && (d.Message.Contains "Unknown record"
+                            || d.Message.Contains "No record type matches"
+                            || d.Message.Contains "has no field")
+                    )
+
+                Expect.isEmpty
+                    patternErrors
+                    (sprintf "cross-unit record pattern must resolve clean (diagnostics: %A)" f2.Frozen.Diagnostics)
+
+                Expect.isEmpty
+                    (unresolvedErrors f2)
+                    (sprintf
+                        "cross-unit record pattern has no unresolved symbols (diagnostics: %A)"
+                        f2.Frozen.Diagnostics)
             }
 
             test "same offset-0 decl in both files does not break resolution" {

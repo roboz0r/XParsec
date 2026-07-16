@@ -282,8 +282,15 @@ type ExternalUnionCase =
 /// answers identity.
 type ExternalRecordCandidate =
     {
-        /// The record's compiled (arity-suffixed) name — the `TypeKey` source.
-        RecordName: string
+        /// The record's REAL identity — the exact `TypeKey` the declaring unit minted
+        /// (a module-held record's `InModule` holder chain, which no compiled-name
+        /// string can reconstruct: `externalTypeKeyOf` would re-cut the `+`-mangled
+        /// module segment as an `InType` class holder, yielding a key with the same
+        /// metadata NAME but an unequal identity — one that MISSES both the by-key shape
+        /// store and codegen's `env.Records` local re-home). Carried whole so both the
+        /// `TyRecord` node identity (cross-file re-homing to a local `TypeDef`) and the
+        /// by-key field-shape lookup use the producer's authoritative key.
+        TypeKey: TypeKey
         /// The record's declared typar arity (one fresh TyVar per slot at a use site).
         TyparArity: int
         /// Where the record is declared — assembly + namespace. `SymbolOrigin.Empty`

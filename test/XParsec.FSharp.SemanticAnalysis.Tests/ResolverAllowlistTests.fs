@@ -37,6 +37,13 @@ let tests =
                             // the one head with no `Type` node to carry a stamp) and the
                             // DEBUG-only stamping-gap witness.
                             "Passes/Unification/Translate.fs"
+                            // The record field-set reverse index (`TryRecordsWithField`): a
+                            // bare `{ X = … }` literal has NO written record identity to
+                            // resolve in NameResolution — the record is determined by the
+                            // field-set intersection computed at inference — so this is a
+                            // genuine spelling reach with no stampable node, the sibling of
+                            // Scope's `TryLookupUnionCase` bare reverse index.
+                            "Passes/Unification/InferResolve.fs"
                         ]
 
                 let readers =

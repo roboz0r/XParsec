@@ -18,14 +18,14 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 // own (home-stamped) assembly name, the loader would fault on a nonexistent `AssemblyRef`.
 // `peAssemblyRefs` pins that structurally too — the own name is never in the ref table.
 //
-// SCOPE NOTE — cross-file record FIELD READ is now exercised (see the field-read test below):
-// R3 gave `resolveFieldStep`'s `TyRecord` arm a provider fallback, so unit 2 reads a field of
-// unit 1's record through the `FrozenSignature.toProvider` view and codegen re-homes the
-// receiver's cross-file `recKey` to the LOCAL `TypeDef`, emitting `ldfld`. Cross-file record
-// CONSTRUCTION (`InferRecordAccess.inferRecord` — `No record type matches the field set`) and
-// union-case construction (the local `CtorIndex` — `Unresolved identifier`) remain blocked
-// UPSTREAM pending R4/R5; the codegen N-unit machinery they would feed is already in place and
-// shared-registry resolved.
+// SCOPE NOTE — cross-file record FIELD READ and CONSTRUCTION are both now exercised (see the
+// field-read and construction tests below): R3 gave `resolveFieldStep`'s `TyRecord` arm a
+// provider fallback (unit 2 reads a field of unit 1's record), and R4b-2 gave
+// `recordFieldSetVerdict` the same provider path (unit 2 BUILDS unit 1's record via a bare
+// field-set literal). In both cases codegen re-homes the receiver's / literal's cross-file
+// `recKey` to the LOCAL `TypeDef`, emitting `ldfld` / `newobj`. Union-case construction (the
+// local `CtorIndex` — `Unresolved identifier`) remains blocked UPSTREAM; the codegen N-unit
+// machinery it would feed is already in place and shared-registry resolved.
 
 /// Compile a two-file assembly through the multi-unit front end + `compileUnits`, asserting
 /// each unit analysed clean. Returns the emitted PE bytes.
@@ -156,5 +156,49 @@ printfn \"%d\" r.X
 
                 Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
                 Expect.equal actual "42" "cross-file record field read prints the field value"
+            }
+
+            test "two units run: unit 2 CONSTRUCTS a record declared in unit 1 (newobj re-homes local)" {
+                // R4b-2 end-to-end: unit 1 declares a record; unit 2 BUILDS it with a bare
+                // field-set literal `{ X = …; Y = … }`, reads a field, and prints it. The
+                // construction resolves through unit 1's projected provider view (no local
+                // `TypeRegistry` entry — `recordFieldSetVerdict` unions the provider's
+                // `TryRecordsWithField` candidates), and codegen re-homes the literal's
+                // cross-file `recKey` to the LOCAL `TypeDef` so it emits a plain `newobj` —
+                // THIS run is where any codegen `newobj` gap would surface.
+                let unit1 =
+                    "\
+namespace CrossFile
+
+module Lib =
+    type R = { X: int; Y: int }
+"
+
+                // Unit 2 (entry, last): builds unit 1's record cross-file, reads a field, prints.
+                let unit2 =
+                    "\
+open CrossFile.Lib
+
+let r = { X = 20; Y = 22 }
+printfn \"%d\" (r.X + r.Y)
+"
+
+                let asmName = "CrossFileRecordCons"
+                let bytes = compileTwoUnits asmName unit1 unit2
+
+                // The record construction re-homed to a LOCAL `newobj`: the compilation never
+                // references ITSELF as an external assembly (a wrong resolution — treating the
+                // ctor as an external member ref — would emit that ref and the loader faults).
+                let refs = peAssemblyRefs bytes
+
+                Expect.isFalse
+                    (refs |> List.contains asmName)
+                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+
+                let exitCode, output = runEntryPoint bytes
+                let actual = output.Replace("\r", "").Trim()
+
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
+                Expect.equal actual "42" "cross-file record construction builds and reads the record"
             }
         ]

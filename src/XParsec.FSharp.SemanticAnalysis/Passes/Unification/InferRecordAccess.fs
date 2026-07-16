@@ -61,52 +61,34 @@ module internal UnificationInferRecordAccess =
 
         let names = pairs |> List.map (fun (_, n, _) -> n)
 
-        let candidate =
-            match qualifier with
-            | Some typeName ->
-                match TypeRegistry.tryRecord ctx.Types (ctx.UseSiteAt key) typeName with
-                | ValueSome info -> ValueSome info
-                | ValueNone ->
-                    ctx.Error(key, sprintf "Unknown record type qualifier: %s" typeName)
-                    ValueNone
-            | None ->
-                let cand, count = findUniqueRecordByFieldSet ctx (ctx.UseSiteAt key) names
-
-                match cand with
-                | ValueSome _ -> cand
-                | ValueNone ->
-                    if count = 0 then
-                        ctx.Error(key, sprintf "No record type matches the field set: %s" (String.concat ", " names))
-                    else
-                        ctx.Error(
-                            key,
-                            sprintf
-                                "Field set is ambiguous (%d candidate record types); add a qualifier or annotation"
-                                count
-                        )
-
-                    ValueNone
-
-        match candidate with
+        // The SAME shared resolver + construction shape the record arm of `inferPat` uses,
+        // so the local|external and qualified|bare branching lives in one place. Construction
+        // resolves ONLY on an exact field-set match (`resolveRecordFor`); a superset-only /
+        // ambiguous set is a diagnosed miss, byte-identical to the old exact-set-equality.
+        match resolveRecordFor ctx key (ctx.UseSiteAt key) qualifier names with
         | ValueNone ->
             for _, _, e in pairs do
                 infer ctx e |> ignore
 
             TyVar(freshTyVar ctx)
-        | ValueSome info ->
-            // Fresh typars per literal so independent literals get independent
-            // vars; each initialiser unifies against the field type *under this
-            // substitution*, pinning a `'a` field to the initialiser's type.
-            let args, subst = freshNamedInstance ctx info.TypeParams
+        | ValueSome r ->
+            // Fresh typars per literal so independent literals get independent vars; each
+            // initialiser unifies against the field type resolved under this literal's
+            // instantiation, pinning a `'a` field to the initialiser's type.
+            let struct (recKey, args, fieldTypeOf) = recordConstructionOf ctx r
 
             for _, fieldName, e in pairs do
                 let eTy = infer ctx e
 
-                match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
-                | Some field -> unify ctx (CstKeys.ofExpr e) eTy (substituteWith subst field.Type)
-                | None -> ctx.Error(CstKeys.ofExpr e, sprintf "Type '%s' has no field '%s'" info.Name fieldName)
+                match fieldTypeOf fieldName with
+                | ValueSome fieldTy -> unify ctx (CstKeys.ofExpr e) eTy fieldTy
+                | ValueNone ->
+                    ctx.Error(
+                        CstKeys.ofExpr e,
+                        sprintf "Type '%s' has no field '%s'" (resolvedRecordDisplayName r) fieldName
+                    )
 
-            TyRecord(info.TypeKey, args)
+            TyRecord(recKey, args)
 
     and inferRecordClone
         (infer: Infer)
@@ -306,11 +288,7 @@ module internal UnificationInferRecordAccess =
                         // external `TyUnion` arm does.
                         match ctx.Provider.TryLookupMember(SymbolKey.Type recKey, memberName) with
                         | ValueSome m when not m.IsStatic -> commitExternalMember m args
-                        | _ ->
-                            errorTy
-                                ctx
-                                diagKey
-                                (sprintf "Type '%s' has no field or member '%s'" recQual memberName)
+                        | _ -> errorTy ctx diagKey (sprintf "Type '%s' has no field or member '%s'" recQual memberName)
                 | _ ->
                     let (DisplayName shown) = SymbolKeyOps.typeSimpleName recKey
                     errorTy ctx diagKey (sprintf "Unknown record type '%s'" shown)

@@ -28,6 +28,133 @@ module internal UnificationInferPat =
             ctx.ListLiterals.Add(UnionFind.find tv, elemTy)
             TyVar tv
 
+    /// The record's own simple (segment) name — `info.Name` locally, the innermost type
+    /// segment for an external record. It drives BOTH the "Type '%s' has no field '%s'"
+    /// diagnostic and the qualified-literal qualifier match (`R` in `{ R.X = … }`). Taken
+    /// off the real `TypeKey` via `typeSimpleName`, NOT `shortName` of the compiled meta
+    /// name: a module-held record's metadata name is `+`-mangled (`Test.A.M+R`) and
+    /// `shortName` strips only the arity suffix, so it would yield `M+R` and never match
+    /// the written `R`.
+    let resolvedRecordDisplayName (r: ResolvedRecord) : string =
+        match r with
+        | LocalRecord info -> info.Name
+        | ExternalRecord candidate ->
+            let (DisplayName shown) = SymbolKeyOps.typeSimpleName candidate.TypeKey
+            shown
+
+    /// The record a literal / pattern resolves to, OR `ValueNone` with the appropriate
+    /// diagnostic emitted — the ONE resolver both `inferRecord` (expr) and the record arm
+    /// of `inferPat` route through, so the local|external and qualified|bare branching is
+    /// not duplicated across the two call sites. All diagnostics live here; the message
+    /// text is IDENTICAL to the historical local-only path so local behaviour stays
+    /// byte-identical.
+    ///
+    /// CONSTRUCTION resolves ONLY on `ExactMatch` — a superset-only or ambiguous field set
+    /// is an ERROR, exactly as the old exact-set-equality rejected supersets. Vesper has no
+    /// missing-field check, so resolving a superset would silently build a record with unset
+    /// fields; `PartialMatches` is consumed here only to compute the no-match-vs-ambiguous
+    /// count and to filter by a qualifier (LSP is the other, future reader).
+    let resolveRecordFor
+        (ctx: PassContext)
+        (diagKey: NodeKey)
+        (useSite: UseSite)
+        (qualifier: string option)
+        (names: string list)
+        : ResolvedRecord voption =
+        match qualifier with
+        | Some typeName ->
+            match TypeRegistry.tryRecord ctx.Types useSite typeName with
+            | ValueSome info -> ValueSome(LocalRecord info)
+            | ValueNone ->
+                // Local miss on a qualified record: filter the field-set candidates by
+                // short name == qualifier (mirrors `ExternalUnionCase` qualifier matching).
+                // A unique survivor is the external record named; otherwise the historical
+                // "Unknown record type qualifier" error, unchanged for the local case.
+                match
+                    (recordFieldSetVerdict ctx useSite names).PartialMatches
+                    |> List.filter (fun r -> resolvedRecordDisplayName r = typeName)
+                with
+                | [ only ] -> ValueSome only
+                | _ ->
+                    ctx.Error(diagKey, sprintf "Unknown record type qualifier: %s" typeName)
+                    ValueNone
+        | None ->
+            let verdict = recordFieldSetVerdict ctx useSite names
+
+            match verdict.ExactMatch with
+            | ValueSome r -> ValueSome r
+            | ValueNone ->
+                // Count is the number of records whose field set EQUALS the typed set (what
+                // the old exact-set-equality loop counted), disambiguating "no match" (0)
+                // from "ambiguous" (>1) — NOT `PartialMatches.Length`, which also holds
+                // supersets.
+                let nameSet = Set.ofList names
+
+                let count =
+                    verdict.PartialMatches
+                    |> List.filter (fun r -> resolvedRecordFieldNames r = nameSet)
+                    |> List.length
+
+                if count = 0 then
+                    ctx.Error(diagKey, sprintf "No record type matches the field set: %s" (String.concat ", " names))
+                else
+                    ctx.Error(
+                        diagKey,
+                        sprintf
+                            "Field set is ambiguous (%d candidate record types); add a qualifier or annotation"
+                            count
+                    )
+
+                ValueNone
+
+    /// The construction shape of a resolved record — its `TyRecord` key, the fresh type
+    /// args to instantiate it at, and a per-field-name type resolver — with the
+    /// local|external field-type branch factored into ONE place (both call sites unify
+    /// each initialiser / sub-pattern against `fieldTypeOf name`).
+    ///
+    /// Local records instantiate their `RecordTypeInfo` typars fresh and substitute; an
+    /// external record reads its frozen field shapes by key and instantiates the template
+    /// with the receiver's args. DEFERRED (consistent with external unions): an external
+    /// record with an explicitly `obj`-typed field skips `wrapObjArg` boxing because
+    /// `translateRecord`/`recordFieldTy` (`Resolve.fs`) is `LocalRecord`-only — the exact
+    /// existing limitation for external union cases (`unionCaseFieldTys`). Reified generics
+    /// and concrete fields are unaffected.
+    let recordConstructionOf
+        (ctx: PassContext)
+        (r: ResolvedRecord)
+        : struct (TypeKey * EqArray<SemType> * (string -> SemType voption)) =
+        match r with
+        | LocalRecord info ->
+            let args, subst = freshNamedInstance ctx info.TypeParams
+
+            let fieldTypeOf (name: string) =
+                match info.Fields |> Array.tryFind (fun f -> f.Name = name) with
+                | Some f -> ValueSome(substituteWith subst f.Type)
+                | None -> ValueNone
+
+            struct (info.TypeKey, args, fieldTypeOf)
+        | ExternalRecord candidate ->
+            let key = resolvedRecordTypeKey (ExternalRecord candidate)
+
+            let fieldShapes =
+                match ctx.Provider.TryLookupType(SymbolKey.Type key) with
+                | ValueSome(ExternalTypeShape.Record(_, fs, _)) -> fs
+                | _ -> [||]
+
+            // Precompute the args array once (not per field): one fresh TyVar per declared
+            // typar slot, instantiating each field's `FTTypar(Declaring,i)` template.
+            let args =
+                EqArray.ofArray [| for _ in 1 .. candidate.TyparArity -> TyVar(freshTyVar ctx) |]
+
+            let argsArr = args.AsSpan().ToArray()
+
+            let fieldTypeOf (name: string) =
+                match fieldShapes |> Array.tryFind (fun f -> f.Name = name) with
+                | Some f -> ValueSome(FrozenTypeBridge.instantiateDeclaring f.Frozen argsArr)
+                | None -> ValueNone
+
+            struct (key, args, fieldTypeOf)
+
     let rec inferPat (ctx: PassContext) (p: Pat<SyntaxToken>) : SemType =
         // Each pattern node gets its own TypeVar keyed on its NodeKey; for
         // compound patterns the outer TypeVar is linked to the underlying
@@ -446,51 +573,7 @@ module internal UnificationInferPat =
 
             let names = pairs |> List.map (fun (_, n, _) -> n)
 
-            let candidate =
-                match qualifier with
-                | Some typeName ->
-                    match TypeRegistry.tryRecord ctx.Types (ctx.UseSiteAt key) typeName with
-                    | ValueSome info -> ValueSome info
-                    | ValueNone ->
-                        ctx.Diagnostics.Add
-                            {
-                                Key = key
-                                Message = sprintf "Unknown record type qualifier: %s" typeName
-                                Code = ""
-                                Severity = Severity.Error
-                            }
-
-                        ValueNone
-                | None ->
-                    let cand, count = findUniqueRecordByFieldSet ctx (ctx.UseSiteAt key) names
-
-                    match cand with
-                    | ValueSome _ -> cand
-                    | ValueNone ->
-                        if count = 0 then
-                            ctx.Diagnostics.Add
-                                {
-                                    Key = key
-                                    Message =
-                                        sprintf "No record type matches the field set: %s" (String.concat ", " names)
-                                    Code = ""
-                                    Severity = Severity.Error
-                                }
-                        else
-                            ctx.Diagnostics.Add
-                                {
-                                    Key = key
-                                    Message =
-                                        sprintf
-                                            "Field set is ambiguous (%d candidate record types); add a qualifier or annotation"
-                                            count
-                                    Code = ""
-                                    Severity = Severity.Error
-                                }
-
-                        ValueNone
-
-            match candidate with
+            match resolveRecordFor ctx key (ctx.UseSiteAt key) qualifier names with
             | ValueNone ->
                 // Walk sub-patterns so binders register as free TyVars.
                 for _, _, sub in pairs do
@@ -498,24 +581,21 @@ module internal UnificationInferPat =
 
                 let nodeTv = freshTv ctx key
                 TyVar nodeTv
-            | ValueSome info ->
-                let args, subst = freshNamedInstance ctx info.TypeParams
+            | ValueSome r ->
+                let struct (recKey, args, fieldTypeOf) = recordConstructionOf ctx r
 
                 for _, fieldName, sub in pairs do
                     let subTy = inferPat ctx sub
 
-                    match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
-                    | Some field -> unify ctx (CstKeys.ofPat sub) subTy (substituteWith subst field.Type)
-                    | None ->
-                        ctx.Diagnostics.Add
-                            {
-                                Key = CstKeys.ofPat sub
-                                Message = sprintf "Type '%s' has no field '%s'" info.Name fieldName
-                                Code = ""
-                                Severity = Severity.Error
-                            }
+                    match fieldTypeOf fieldName with
+                    | ValueSome fieldTy -> unify ctx (CstKeys.ofPat sub) subTy fieldTy
+                    | ValueNone ->
+                        ctx.Error(
+                            CstKeys.ofPat sub,
+                            sprintf "Type '%s' has no field '%s'" (resolvedRecordDisplayName r) fieldName
+                        )
 
-                let recTy = TyRecord(info.TypeKey, args)
+                let recTy = TyRecord(recKey, args)
                 let nodeTv = freshTv ctx key
                 nodeTv.Link <- ValueSome recTy
                 recTy

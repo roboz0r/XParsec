@@ -164,15 +164,17 @@ module internal UnificationInferResolve =
         | LocalRecord of RecordTypeInfo
         | ExternalRecord of ExternalRecordCandidate
 
-    /// The nominal identity a candidate dedups by. `LocalRecord` already carries the `TypeKey`
-    /// `stampLocalTypeKey` minted; `ExternalRecord` mints the SAME key an external construction
-    /// would, from the candidate's origin + compiled name + arity. The external arm is never
-    /// reached in R4a (the core produces only `LocalRecord`s) — a real mint, not a placeholder,
-    /// keeps the R4b `TypeKey` dedup honest without a second edit.
+    /// The nominal identity a candidate dedups by — and, for construction, the identity the
+    /// `TyRecord` node carries so cross-file it re-homes to the local `TypeDef` and its
+    /// field shapes resolve by key. `LocalRecord` carries the `TypeKey` `stampLocalTypeKey`
+    /// minted; `ExternalRecord` carries the producer's REAL key verbatim (`c.TypeKey`) —
+    /// NOT a key re-minted from the compiled name, which would re-cut a module-held record's
+    /// `+`-mangled segment as an `InType` class holder and yield a same-named but UNEQUAL key
+    /// that misses both the by-key shape store and codegen's local record re-home.
     let resolvedRecordTypeKey (r: ResolvedRecord) : TypeKey =
         match r with
         | LocalRecord info -> info.TypeKey
-        | ExternalRecord c -> SymbolKeyOps.externalTypeKeyOf c.Origin c.RecordName c.TyparArity
+        | ExternalRecord c -> c.TypeKey
 
     /// The candidate's declared field-name set — the axis BOTH the intersection (declared ⊇
     /// typed set) and the exact-match test (declared = typed set) compare over.
@@ -217,16 +219,37 @@ module internal UnificationInferResolve =
             let candidates =
                 [
                     for info in TypeRegistry.recordsWithField ctx.Types useSite first -> LocalRecord info
+                    // Provider candidates join LOCAL-FIRST: on a `TypeKey` collision the
+                    // local record wins (local is authoritative for the compiling unit) —
+                    // the classifier's first-occurrence dedup and the `byKey` fill below
+                    // both keep the earlier (local) entry, so ordering local-first suffices.
+                    //
+                    // The ambient-scope / `open` filter on provider candidates is DEFERRED:
+                    // Phase 1 ships "any provider record with the field" — over-permissive
+                    // (a cross-unit record in an unopened namespace is wrongly resolvable
+                    // bare), never a miscompile — until the ambient-scope gate lands. See the
+                    // plan's "Visibility / open scoping" decision.
+                    // The field-name reverse index is a genuine spelling reach with no
+                    // stampable node: a bare `{ X = … }` field set has no written record
+                    // identity to resolve in NameResolution — the verdict IS the field-set
+                    // intersection computed here at inference. So it reads the resolver face
+                    // (allowlisted in `ResolverAllowlistTests`), the sibling of the
+                    // `TryLookupUnionCase` bare reverse index NameResolution reads.
+                    for cand in ctx.Resolver.TryRecordsWithField first -> ExternalRecord cand
                 ]
 
             // Keyed by `TypeKey`, which supports equality but NOT comparison (so a
             // `Dictionary`, not a `Map`), to map the classifier's key verdict back to the
-            // `ResolvedRecord`s. First-field candidates already have unique keys (a record
-            // declares each field once), matching the classifier's first-occurrence dedup.
+            // `ResolvedRecord`s. Keep the FIRST occurrence per key (guarded add) so a key
+            // present both locally and via a provider maps back to the LOCAL record — the
+            // same first-occurrence dedup the classifier applies.
             let byKey = Dictionary<TypeKey, ResolvedRecord>()
 
             for r in candidates do
-                byKey.[resolvedRecordTypeKey r] <- r
+                let key = resolvedRecordTypeKey r
+
+                if not (byKey.ContainsKey key) then
+                    byKey.[key] <- r
 
             let classification =
                 RecordFieldClassifier.classifyRecordCandidates
@@ -237,42 +260,6 @@ module internal UnificationInferResolve =
                 ExactMatch = classification.ExactKey |> ValueOption.map (fun key -> byKey.[key])
                 PartialMatches = classification.PartialKeys |> List.map (fun key -> byKey.[key])
             }
-
-    /// Field set match is order-insensitive. The returned count disambiguates the "no match" (0)
-    /// vs "ambiguous" (>1) diagnostic paths. The candidates are the records in scope at
-    /// `useSite`: a field name whose only declaring record sits BELOW the literal names no
-    /// record label there, so the literal matches nothing (F#'s verdict).
-    ///
-    /// A THIN wrapper over `recordFieldSetVerdict` preserving the historical
-    /// `(RecordTypeInfo voption * int)` shape so `inferRecord` / `inferPat` are untouched by
-    /// R4a. The count MUST be the number of records whose field set EQUALS the typed set (what
-    /// the former exact-set-equality loop counted), NOT `PartialMatches.Length`, which now also
-    /// holds supersets.
-    ///
-    /// BYTE-IDENTICAL to that loop: any record R with `R.Fields = nameSet` declares every typed
-    /// field, so R sits in every per-field candidate set ⇒ in `PartialMatches`; R also declared
-    /// `first`, so it was in the old first-field candidate set too. So the set of exact-set
-    /// matches is unchanged old vs new — only the (wrapper-unused) `PartialMatches` supersets are
-    /// new. Hence `ValueSome`/`1`, `ValueNone`/`0`, and `ValueNone`/`count>1` all fire exactly as
-    /// before.
-    let findUniqueRecordByFieldSet
-        (ctx: PassContext)
-        (useSite: UseSite)
-        (names: string list)
-        : RecordTypeInfo voption * int =
-        let verdict = recordFieldSetVerdict ctx useSite names
-
-        match verdict.ExactMatch with
-        | ValueSome(LocalRecord info) -> ValueSome info, 1
-        | _ ->
-            let nameSet = Set.ofList names
-
-            let exactSetMatches =
-                verdict.PartialMatches
-                |> List.filter (fun r -> resolvedRecordFieldNames r = nameSet)
-                |> List.length
-
-            ValueNone, exactSetMatches
 
     /// `Circle(r)` parses as `Circle (EnclosedBlock r)`; `Rectangle(w, h)`
     /// as `Circle (EnclosedBlock (Tuple [w; h]))`. v1 supports the
