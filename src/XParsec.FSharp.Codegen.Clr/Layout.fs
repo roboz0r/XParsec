@@ -21,6 +21,13 @@ module internal Layout =
         (closureNamer: Emit.ClosureNamer)
         (symbols: ICodegenSymbols)
         (project: ProjectInfo)
+        // Whether the WHOLE assembly (any unit) defines the `%A` structural-format
+        // interfaces — decided once by `buildMany` and threaded in so the per-type `Format`
+        // ROW reservation (below) reads the SAME assembly-wide fact the body emission does
+        // (`Assembler.DefinesStructuralFormatInterfaces`). A per-unit computation drifts when
+        // the interface-defining unit and a record-bearing unit are different files: the row
+        // would be reserved but the body suppressed, leaving the `Format` row un-prepared.
+        (assemblyDefinesStructuralFormat: bool)
         (tast: Frozen.TastFile)
         : UnitLayout =
         let lowered0 = Emit.lower tast.Decls
@@ -71,18 +78,6 @@ module internal Layout =
         // published as `Partitioned`, so closure discovery and `buildMember` walk the
         // same node objects — closure node identity (`HashIdentity.Reference`) demands it.
         let partitioned = LayoutNodes.partitionTypeDecls tast.Decls
-
-        // The assembly that *defines* the `%A` structural-format interfaces
-        // (`Vesper.Core`) does not get the per-type `Format` row / body — its own
-        // records would otherwise reference `IStructuralFormattable` through an
-        // external `AssemblyRef` to Core itself. Computed once here and published on
-        // `AssemblyLayout`: this is the *single* source the row reservation
-        // (`formatRows`, below) and the body emission (`NominalEmit`, via
-        // `Assembler.DefinesStructuralFormatInterfaces`) both read — so a reserved
-        // `Format` row can never go un-prepared (the failure mode if the two drifted).
-        let definesStructuralFormatInterfaces =
-            partitioned.Interfaces
-            |> List.exists (fun (td, _) -> RuntimeNames.isStructuralFormattableKey td.TypeKey)
 
         // Closure-discovery roots from every (expanded) member body and class-preamble
         // expression, each tagged with its declaring type's typar count (0 ⇒
@@ -152,10 +147,10 @@ module internal Layout =
         let interfaceNodes = LayoutNodes.buildInterfaceNodes partitioned.Interfaces
 
         let unionNodes =
-            LayoutNodes.buildUnionNodes symbols definesStructuralFormatInterfaces partitioned.Unions
+            LayoutNodes.buildUnionNodes symbols assemblyDefinesStructuralFormat partitioned.Unions
 
         let recordNodes =
-            LayoutNodes.buildRecordNodes symbols definesStructuralFormatInterfaces partitioned.Records
+            LayoutNodes.buildRecordNodes symbols assemblyDefinesStructuralFormat partitioned.Records
 
         let classNodes = LayoutNodes.buildClassNodes symbols partitioned.Classes
         let enumNodes = LayoutNodes.buildEnumNodes partitioned.Enums
@@ -316,7 +311,7 @@ module internal Layout =
             // The entry flag is the whole-assembly OutputKind decision, made by `combine`
             // (an executable's LAST file is the entry unit); a file cannot know it alone.
             EmitEntryPoint = false
-            DefinesStructuralFormatInterfaces = definesStructuralFormatInterfaces
+            DefinesStructuralFormatInterfaces = assemblyDefinesStructuralFormat
         }
 
     /// Assemble the units into the whole `AssemblyLayout`: PREPEND the single `<Module>`
@@ -560,7 +555,27 @@ module internal Layout =
     /// Program roots once. Single-unit output is byte-identical to the pre-split `build`.
     let buildMany (symbols: ICodegenSymbols) (project: ProjectInfo) (tasts: Frozen.TastFile list) : AssemblyLayout =
         let closureNamer = Emit.ClosureNamer()
-        let units = tasts |> List.map (buildUnit closureNamer symbols project)
+
+        // The assembly that *defines* the `%A` structural-format interfaces (`Vesper.Core`)
+        // gets NO per-type `Format` row / body — its own records would otherwise reference
+        // `IStructuralFormattable` through an external `AssemblyRef` to Core itself. This is
+        // an ASSEMBLY-wide fact (any unit declaring the interface counts), decided once here
+        // over every unit's decls and threaded into each `buildUnit` for the row reservation
+        // — the SAME source of truth the body-emission gate reads, so a reserved `Format` row
+        // can never go un-prepared across a multi-file split.
+        let assemblyDefinesStructuralFormat =
+            tasts
+            |> List.exists (fun t ->
+                t.Decls
+                |> EqArray.toList
+                |> List.exists (fun d ->
+                    match d with
+                    | TDeclG.Type td -> RuntimeNames.isStructuralFormattableKey td.TypeKey
+                    | _ -> false))
+
+        let units =
+            tasts |> List.map (buildUnit closureNamer symbols project assemblyDefinesStructuralFormat)
+
         combine project units
 
     /// Plan the whole assembly from one tast — `buildMany` over a singleton unit list.
