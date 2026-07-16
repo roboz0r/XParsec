@@ -156,36 +156,127 @@ module internal UnificationInferResolve =
         | Some c -> ValueSome c
         | None -> ValueNone
 
-    /// Field set match is order-insensitive. candidateCount disambiguates the
-    /// "no match" vs "ambiguous" diagnostic paths. The candidates are the records in scope
-    /// at `useSite`: a field name whose only declaring record sits BELOW the literal names
-    /// no record label there, so the literal matches nothing (F#'s verdict).
+    /// The local|external record identity a field set resolves to. `ExternalRecord` is UNUSED
+    /// in R4a — the local-only verdict core (`recordFieldSetVerdict`) never mints one; it is
+    /// present now so the verdict type is stable across R4a and R4b, where provider candidates
+    /// join the core and `ExternalRecord`s first appear.
+    type ResolvedRecord =
+        | LocalRecord of RecordTypeInfo
+        | ExternalRecord of ExternalRecordCandidate
+
+    /// The nominal identity a candidate dedups by. `LocalRecord` already carries the `TypeKey`
+    /// `stampLocalTypeKey` minted; `ExternalRecord` mints the SAME key an external construction
+    /// would, from the candidate's origin + compiled name + arity. The external arm is never
+    /// reached in R4a (the core produces only `LocalRecord`s) — a real mint, not a placeholder,
+    /// keeps the R4b `TypeKey` dedup honest without a second edit.
+    let resolvedRecordTypeKey (r: ResolvedRecord) : TypeKey =
+        match r with
+        | LocalRecord info -> info.TypeKey
+        | ExternalRecord c -> SymbolKeyOps.externalTypeKeyOf c.Origin c.RecordName c.TyparArity
+
+    /// The candidate's declared field-name set — the axis BOTH the intersection (declared ⊇
+    /// typed set) and the exact-match test (declared = typed set) compare over.
+    let resolvedRecordFieldNames (r: ResolvedRecord) : Set<string> =
+        match r with
+        | LocalRecord info -> info.Fields |> Array.map (fun f -> f.Name) |> Set.ofArray
+        | ExternalRecord c -> Set.ofArray c.FieldNames
+
+    /// A pure field-set verdict, no diagnostics — the checker wrapper below owns every
+    /// `ctx.Error`. `PartialMatches` = every record whose declared field set ⊇ the typed set
+    /// (the per-field candidate intersection, deduped by `TypeKey`) — F#'s `BuildFieldMap`
+    /// intersection and the future LSP-completion set; it is R4b/Phase-2-facing and the R4a
+    /// wrapper does not read it. `ExactMatch` = the UNIQUE `PartialMatch` whose field set EQUALS
+    /// the typed set (a superset of equal size ⟺ an equal set, so this subsumes F#'s field-count
+    /// tie-break).
+    type RecordFieldSetVerdict =
+        {
+            ExactMatch: ResolvedRecord voption
+            PartialMatches: ResolvedRecord list
+        }
+
+    /// The verdict for the typed field set `names` at `useSite`, LOCAL candidates only (R4b
+    /// unions provider `TryRecordsWithField` candidates in here). A record survives to
+    /// `PartialMatches` iff it declares EVERY typed field: seed with the first field's
+    /// `recordsWithField` candidates and keep those present (by `TypeKey`) in every other
+    /// field's candidate set — the intersection F#'s `BuildFieldMap` takes. `recordsWithField`
+    /// already visibility-scopes each per-field set to `useSite`, so the intersection stays
+    /// visibility-correct (a record whose declaring site sits below the use names nothing).
+    /// Candidates are deduped by `TypeKey`: a no-op for the local index (a record declares each
+    /// field once) but the invariant R4b's local ∪ provider union relies on.
+    let recordFieldSetVerdict (ctx: PassContext) (useSite: UseSite) (names: string list) : RecordFieldSetVerdict =
+        match names with
+        | [] -> { ExactMatch = ValueNone; PartialMatches = [] }
+        | first :: rest ->
+            let restKeySets =
+                rest
+                |> List.map (fun name ->
+                    let keys = HashSet<TypeKey>()
+
+                    for info in TypeRegistry.recordsWithField ctx.Types useSite name do
+                        keys.Add info.TypeKey |> ignore
+
+                    keys)
+
+            let seen = HashSet<TypeKey>()
+
+            let partialMatches =
+                [ for info in TypeRegistry.recordsWithField ctx.Types useSite first do
+                      let candidate = LocalRecord info
+                      let key = resolvedRecordTypeKey candidate
+
+                      if
+                          (restKeySets |> List.forall (fun keys -> keys.Contains key))
+                          && seen.Add key
+                      then
+                          candidate ]
+
+            let nameSet = Set.ofList names
+
+            let exactMatch =
+                match partialMatches |> List.filter (fun r -> resolvedRecordFieldNames r = nameSet) with
+                | [ only ] -> ValueSome only
+                | _ -> ValueNone
+
+            {
+                ExactMatch = exactMatch
+                PartialMatches = partialMatches
+            }
+
+    /// Field set match is order-insensitive. The returned count disambiguates the "no match" (0)
+    /// vs "ambiguous" (>1) diagnostic paths. The candidates are the records in scope at
+    /// `useSite`: a field name whose only declaring record sits BELOW the literal names no
+    /// record label there, so the literal matches nothing (F#'s verdict).
+    ///
+    /// A THIN wrapper over `recordFieldSetVerdict` preserving the historical
+    /// `(RecordTypeInfo voption * int)` shape so `inferRecord` / `inferPat` are untouched by
+    /// R4a. The count MUST be the number of records whose field set EQUALS the typed set (what
+    /// the former exact-set-equality loop counted), NOT `PartialMatches.Length`, which now also
+    /// holds supersets.
+    ///
+    /// BYTE-IDENTICAL to that loop: any record R with `R.Fields = nameSet` declares every typed
+    /// field, so R sits in every per-field candidate set ⇒ in `PartialMatches`; R also declared
+    /// `first`, so it was in the old first-field candidate set too. So the set of exact-set
+    /// matches is unchanged old vs new — only the (wrapper-unused) `PartialMatches` supersets are
+    /// new. Hence `ValueSome`/`1`, `ValueNone`/`0`, and `ValueNone`/`count>1` all fire exactly as
+    /// before.
     let findUniqueRecordByFieldSet
         (ctx: PassContext)
         (useSite: UseSite)
         (names: string list)
         : RecordTypeInfo voption * int =
-        match names with
-        | [] -> ValueNone, 0
-        | first :: _ ->
-            let candidates = TypeRegistry.recordsWithField ctx.Types useSite first
+        let verdict = recordFieldSetVerdict ctx useSite names
+
+        match verdict.ExactMatch with
+        | ValueSome(LocalRecord info) -> ValueSome info, 1
+        | _ ->
             let nameSet = Set.ofList names
-            let mutable firstHit = Unchecked.defaultof<RecordTypeInfo>
-            let mutable count = 0
 
-            for info in candidates do
-                let declared = info.Fields |> Array.map (fun f -> f.Name) |> Set.ofArray
+            let exactSetMatches =
+                verdict.PartialMatches
+                |> List.filter (fun r -> resolvedRecordFieldNames r = nameSet)
+                |> List.length
 
-                if declared = nameSet then
-                    if count = 0 then
-                        firstHit <- info
-
-                    count <- count + 1
-
-            if count = 1 then
-                ValueSome firstHit, 1
-            else
-                ValueNone, count
+            ValueNone, exactSetMatches
 
     /// `Circle(r)` parses as `Circle (EnclosedBlock r)`; `Rectangle(w, h)`
     /// as `Circle (EnclosedBlock (Tuple [w; h]))`. v1 supports the

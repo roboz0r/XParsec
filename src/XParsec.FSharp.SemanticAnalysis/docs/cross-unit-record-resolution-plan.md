@@ -150,15 +150,43 @@ ExternalTypeShape.Record(arity, fields, origin)` (each `ExternalFieldShape` carr
    `ldfld` — no Elaborate/codegen change. A field-name **miss** falls back to an augmentation
    **member**: `TryLookupMember` + commit + **stamp `ExternalAccess`** (exactly the `TyUnion`
    arm), which the `:289` dispatcher then lowers — also no Elaborate change.
-2. **Qualified / annotated construction** — `inferRecord` with a qualifier or an expected record
-   type: resolve the key through the provider by name / expected-type (F#'s `tryTcrefOfAppTy`
-   short-circuit), then unify initializers against the frozen field types. Same by-key shape
-   path as (1).
-3. **Unqualified field-set construction** — `findUniqueRecordByFieldSet` unions
-   **local `recordsWithField` ∪ provider `TryRecordsWithField`** candidates, runs the
-   intersection + tie-break, and the chosen key flows through path (2). Pattern position
-   (`InferPat.fs:465`) shares `findUniqueRecordByFieldSet`, so record *patterns* resolve
-   cross-unit by the same change.
+2. **Construction — qualified and unqualified, ONE path** (former R4+R5, merged). `inferRecord`
+   takes **no expected type** (Infer.fs:105), so construction is bottom-up and an annotation only
+   unifies against the result afterward — "annotated construction" is not a separate mechanism.
+   Both the bare `{ X = … }` and qualified `{ R.X = … }` forms resolve through the **same** field
+   label index:
+   - Compute candidate `ResolvedRecord`s from the field set: local `recordsWithField` ∪ provider
+     `TryRecordsWithField`, deduped by `TypeKey`, intersected per field.
+   - **Qualifier path stays name-resolution** (F#/today): `tryRecord ctx.Types` first (LOCAL,
+     byte-identical — do not route local qualified records through the field-set filter, which
+     would change the mistyped-field diagnostic from "Type R has no field Q" to "no record
+     matches"). On a local miss, THEN filter the field-set candidates by name==qualifier → external
+     record. External-qualified is new, so its diagnostic is a fresh path (no regression), and the
+     candidates carry `RecordName`, so no opens-aware name→key resolution is needed.
+   - Apply the `ExactMatch` / `PartialMatches` verdict (below) → resolve or diagnose.
+   - Construct from the chosen `ResolvedRecord`: local → the existing `RecordTypeInfo` path;
+     external → fresh args + `FrozenTypeBridge.instantiateDeclaring` per field template, unify each
+     initializer, return `TyRecord(extRecKey, args)`.
+
+   Pattern position (`InferPat.fs:465`) shares `findUniqueRecordByFieldSet`, so record *patterns*
+   resolve cross-unit by the same change. **Elaborate/codegen need no change** for the common case:
+   `translateRecord` emits `TExpr.RecordCons(fields, ty, tok)` carrying identity on `ty`, and
+   cross-file `recKey` re-homes to a local ctor. One deferred gap (below): `recordFieldTy`
+   (`Resolve.fs:333`) is `LocalRecord`-only, so an external record with an explicitly `obj`-typed
+   field skips `wrapObjArg` boxing — the *exact* existing limitation for external unions
+   (`unionCaseFieldTys`, "Empty for an external union", `Resolve.fs:344`). Reified generics and
+   concrete fields are unaffected; defer with a comment, consistent with unions.
+
+   **The verdict** (pure core, no diagnostics): `{ ExactMatch: ResolvedRecord option;
+   PartialMatches: ResolvedRecord list }`. PartialMatches = every record whose field set ⊇ the
+   typed set (the intersection, deduped by `TypeKey`) — the LSP suggestion set. ExactMatch =
+   `Some r` iff a *unique* PartialMatch has a field set **equal** to the typed set (which subsumes
+   F#'s count tie-break: a superset with equal size ⟺ equal set). The checker wrapper owns all
+   `ctx.Error`: `ExactMatch=Some`→resolve; else single-superset PartialMatch→resolve + defer the
+   missing-field error (F# parity); else empty→"no record matches"; else→ambiguous. `ResolvedRecord`
+   is a local|external unifier (`LocalRecord of RecordTypeInfo | ExternalRecord of
+   ExternalRecordCandidate`) so construction dispatches on it. The pure core (dedup/intersect/
+   classify) is what makes Phase-2 LSP a no-new-resolution add-on: it reads `PartialMatches`.
 
 ### RQA coupling (a real dependency)
 
@@ -209,16 +237,26 @@ namespace is wrongly resolvable bare until this is gated. The demonstration test
   duplicate `TyUnion`/`TyClass` (`commitExternalMember`). SA-level cross-file field-read test +
   a cross-file runtime test (unit 1 factory returns the record, unit 2 reads `.X`) via
   `compileUnits` — the latter is where any codegen `ldfld` gap would surface.
-- **R4** — record **qualified / annotated construction** through the provider (`inferRecord`).
-  Cross-package qualified-literal test.
-- **R5** — rewrite `findUniqueRecordByFieldSet` to intersection + count tie-break over
-  local ∪ provider candidates; wire the chosen key to R4's construction path; pattern position
-  falls out (`InferPat`). Cross-package bare-literal + record-pattern tests; keep a local-only
-  regression test proving the intersection rewrite is byte-identical to the old equality path
-  for single-record-per-field-set cases. **Dedup candidates by `TypeKey`** during intersection —
-  `stack.TryRecordsWithField` concatenates across sources without deduping (mirrors nothing F#
-  skips; F#'s `eFieldLabels` lookup `ListSet.setify`s by tycon), so a record reachable through two
-  compose layers must not count twice.
+- **R4 (construction — folds former R5)** — record construction through the provider, ONE cut for
+  both qualified and unqualified. Introduce `ResolvedRecord` (`LocalRecord of RecordTypeInfo |
+  ExternalRecord of ExternalRecordCandidate`) and the pure verdict core `{ ExactMatch;
+  PartialMatches }` (local `recordsWithField` ∪ provider `TryRecordsWithField`, deduped by
+  `TypeKey`, intersected). Rewrite `findUniqueRecordByFieldSet` from exact-set-equality to the
+  intersection verdict; the qualifier (when present) filters candidates by name. `inferRecord`
+  constructs from the chosen `ResolvedRecord` (local path unchanged; external via
+  `FrozenTypeBridge.instantiateDeclaring`). Pattern position (`InferPat.fs:465`) falls out. Keep a
+  local-only regression test proving byte-identical resolution for single-record-per-field-set
+  cases. **Dedup candidates by `TypeKey`** — `stack.TryRecordsWithField` concatenates across
+  sources without deduping (F#'s `eFieldLabels` lookup `ListSet.setify`s by tycon), so a record
+  reachable through two compose layers must not count twice. External-`obj`-field boxing deferred
+  (comment, consistent with unions). Tests: SA-level cross-file bare + qualified construction +
+  record pattern; cross-file runtime (unit 2 builds unit 1's record, RUN).
+  *Implemented as two green commits (highest-risk cut):* **R4a** — pure refactor of
+  `findUniqueRecordByFieldSet` to the `ResolvedRecord`/`{ ExactMatch; PartialMatches }` verdict,
+  LOCAL candidates only, proven byte-identical by the existing suite + a regression test; factor the
+  per-field-type resolution so `inferRecord` and `inferPat` stop duplicating the local branch.
+  **R4b** — add provider candidates to the core (∪, `TypeKey` dedup), external construction
+  (`instantiateDeclaring`), and the qualifier-as-filter; the new cross-file tests land here.
 - **R6 (optional, follow-up)** — thread RQA into the frozen tree; flip `TryRecordsWithField` to
   exclude RQA records; close the union-case RQA gap in the same cut.
 
