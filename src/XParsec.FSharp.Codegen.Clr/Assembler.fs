@@ -24,22 +24,17 @@ type private UnitPrelude =
         Verdict: ClosureVerdictRewrite.Rewrite
     }
 
-/// The per-unit emission state the Bind / Prepare passes consume. A FRESH one per unit
-/// keeps the NodeKey-keyed tables (`StaticMethods`/`ModuleValueFields`/`MainInitValues`)
-/// and the reference-keyed closure tables from colliding across files. The nominal
-/// registries, the field-handle map and the ONE combined row space are SHARED — they
-/// live on the `Assembler` itself, keyed by `SymbolKey` / name / `FieldKey`.
+/// The per-unit emission state the Bind / Prepare passes consume. `EmitCtx` is a FRESH
+/// `EmitContext` per unit — its NodeKey-keyed tables (`StaticMethods` / `ModuleValues` /
+/// `MainInitValues`) and reference-keyed closure tables are file-local, so they never
+/// collide across units; its nominal registries, the field-handle map and the ONE combined
+/// row space are the SHARED ones on the `Assembler`. The Bind / Prepare passes reach every
+/// per-unit table THROUGH `EmitCtx`; `Layout` and `Verdict` are the only two things they
+/// need that `EmitContext` deliberately does not carry.
 type internal UnitEmit =
     {
         Layout: UnitLayout
-        CtorHandleByNode: Dictionary<Frozen.TExpr, EntityHandle>
-        CachedClosureFieldByNode: Dictionary<Frozen.TExpr, EntityHandle>
-        ClosureValueTypeByNode: Dictionary<Frozen.TExpr, FrozenType>
-        ClosureTypeDefByNode: Dictionary<Frozen.TExpr, EntityHandle>
         Verdict: ClosureVerdictRewrite.Rewrite
-        StaticMethods: Dictionary<NodeKey, Emit.StaticMethodRef>
-        ModuleValueFields: Dictionary<NodeKey, EntityHandle>
-        MainInitValues: Dictionary<NodeKey, EntityHandle>
         EmitCtx: Emit.EmitContext
     }
 
@@ -271,7 +266,9 @@ type internal Assembler
         for fn in plan.StaticFns do
             match fn.Holder with
             | Some _ ->
-                let localMethodDef = toEntity (layoutHandles.MethodDefOf(MethodKey.StaticFn fn.SymbolKey))
+                let localMethodDef =
+                    toEntity (layoutHandles.MethodDefOf(MethodKey.StaticFn fn.SymbolKey))
+
                 provider.RegisterLocalModuleFn(fn.SymbolKey, localMethodDef)
             | None -> ()
 
@@ -292,11 +289,13 @@ type internal Assembler
                     handle
                 )
 
-        let ctorHandleByNode = Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
+        let ctorHandleByNode =
+            Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
 
         // A non-capturing, monomorphic closure's cached singleton field: its
         // construction sites `ldsfld` this instead of `newobj`ing.
-        let cachedClosureFieldByNode = Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
+        let cachedClosureFieldByNode =
+            Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
 
         // A captureless `Stack` (value-struct) closure's synthetic encodable `FrozenType`
         // (the by-value local + the constrained-slot `MethodSpec` type-argument) and its
@@ -306,8 +305,11 @@ type internal Assembler
         // slot, and that slot's field is in the up-front field pass. `BindClosures` reads
         // these already-minted entries rather than re-minting (`RegisterStackClosure-
         // ValueType` is single-shot — it fails on a duplicate `<closure>` key).
-        let closureValueTypeByNode = Dictionary<Frozen.TExpr, FrozenType>(HashIdentity.Reference)
-        let closureTypeDefByNode = Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
+        let closureValueTypeByNode =
+            Dictionary<Frozen.TExpr, FrozenType>(HashIdentity.Reference)
+
+        let closureTypeDefByNode =
+            Dictionary<Frozen.TExpr, EntityHandle>(HashIdentity.Reference)
 
         for c in closures do
             if c.IsValueStruct then
@@ -554,14 +556,7 @@ type internal Assembler
 
         {
             Layout = unit
-            CtorHandleByNode = pre.CtorHandleByNode
-            CachedClosureFieldByNode = pre.CachedClosureFieldByNode
-            ClosureValueTypeByNode = pre.ClosureValueTypeByNode
-            ClosureTypeDefByNode = pre.ClosureTypeDefByNode
             Verdict = pre.Verdict
-            StaticMethods = staticMethods
-            ModuleValueFields = moduleValueFields
-            MainInitValues = mainInitValues
             EmitCtx = emitCtx
         }
 
@@ -741,12 +736,14 @@ type internal Assembler
     member this.BindClosures(u: UnitEmit) =
         for c in u.Layout.Closures do
             if c.Typars = 0 then
-                u.CtorHandleByNode.[c.Node] <- toEntity (layoutHandles.MethodDefOf(MethodKey.ClosureCtor c.Name))
+                u.EmitCtx.CtorHandleByNode.[c.Node] <-
+                    toEntity (layoutHandles.MethodDefOf(MethodKey.ClosureCtor c.Name))
 
             // A non-capturing, monomorphic closure is cached: the construction site
             // `ldsfld`s its singleton field instead of `newobj`ing.
             if Emit.closureIsCached c then
-                u.CachedClosureFieldByNode.[c.Node] <- toEntity (fieldDefHandles.[FieldKey.ClosureCached c.Name])
+                u.EmitCtx.CachedClosureFieldByNode.[c.Node] <-
+                    toEntity (fieldDefHandles.[FieldKey.ClosureCached c.Name])
 
             // A captureless `Stack` (value-struct) closure is
             // constructed by-value (`initobj` to a local) and its struct `TypeDef`
@@ -755,7 +752,7 @@ type internal Assembler
             // minted in `buildPrelude` (before the field pass, so the stored-slot
             // substitution could read them); `RegisterStackClosureValueType` is
             // single-shot, so this only asserts they are present — never re-mints.
-            if c.IsValueStruct && not (u.ClosureValueTypeByNode.ContainsKey c.Node) then
+            if c.IsValueStruct && not (u.EmitCtx.ClosureValueTypeByNode.ContainsKey c.Node) then
                 failwithf "Emit: value-struct closure '%s' was not pre-minted before the field pass" c.Name
 
     member this.PrepareInterfaces(u: UnitEmit) =
@@ -1032,10 +1029,10 @@ type internal Assembler
 
     member this.PrepareStaticMethods(u: UnitEmit) =
         let plan = u.Layout.Plan
-        let staticMethods = u.StaticMethods
-        let moduleValueFields = u.ModuleValueFields
-        let retypeBody = u.Verdict.RetypeBody
         let emitCtx = u.EmitCtx
+        let staticMethods = emitCtx.StaticMethods
+        let moduleValueFields = emitCtx.ModuleValues
+        let retypeBody = u.Verdict.RetypeBody
 
         let prepareStaticFn (fn: Emit.StaticFn) =
             // A *generic* static method: its body / signature / locals embed
