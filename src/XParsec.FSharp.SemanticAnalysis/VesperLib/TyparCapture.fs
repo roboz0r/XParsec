@@ -564,7 +564,8 @@ module VesperLibTyparCapture =
                         // contract-stack wrapper layered over this provider. Both channels
                         // keep `NamedLeaf.empty`'s miss.
                         IntrinsicReverseCanon = intrinsicReverse
-                        IntrinsicForwardRepr = intrinsicForward }
+                        IntrinsicForwardRepr = intrinsicForward
+                    }
                     typeShapeByKey
                     typeMembersByKey
             )

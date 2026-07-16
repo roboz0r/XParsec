@@ -242,10 +242,7 @@ let tests =
             // one surfaces the honest absence, so a future change that fabricated a
             // placeholder home would break the test.
             test "an unstamped origin has no home assembly, a stamped one has its name" {
-                Expect.equal
-                    Origin.Unstamped.AssemblyOption
-                    ValueNone
-                    "Origin.Unstamped has no home assembly"
+                Expect.equal Origin.Unstamped.AssemblyOption ValueNone "Origin.Unstamped has no home assembly"
 
                 let unstamped = SymbolOrigin.Empty
 

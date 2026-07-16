@@ -51,7 +51,12 @@ module Codegen =
             asm.PrepareInterfaces u
 
             for ud in u.Layout.Partitioned.Unions do
-                NominalEmit.prepare asm u.EmitCtx (NominalEmissionInput.Union(ud.Cases, ud.Interfaces)) ud.Decl ud.Members
+                NominalEmit.prepare
+                    asm
+                    u.EmitCtx
+                    (NominalEmissionInput.Union(ud.Cases, ud.Interfaces))
+                    ud.Decl
+                    ud.Members
 
             for rd in u.Layout.Partitioned.Records do
                 NominalEmit.prepare
@@ -86,7 +91,11 @@ module Codegen =
     /// This is the general entry; `compile` is the length-1 case. Codegen stays agnostic
     /// of the front-end `AssemblyUnits.FrozenUnit`: the caller owns view-composition and
     /// hands over the already-composed provider + the bare `Frozen.TastFile` list.
-    let compileUnits (symbols: IExternalSymbolProvider) (project: ProjectInfo) (tasts: Frozen.TastFile list) : ClrArtifact =
+    let compileUnits
+        (symbols: IExternalSymbolProvider)
+        (project: ProjectInfo)
+        (tasts: Frozen.TastFile list)
+        : ClrArtifact =
         assemble [] symbols project tasts
 
     /// `compileUnits` with the compilation's own BCL surface threaded into the emitted-

@@ -44,9 +44,11 @@ let private compileTwoUnits (asmName: string) (unit1: string) (unit2: string) : 
 
     let units =
         results
-        |> List.map (function
+        |> List.map (
+            function
             | Ok u -> u
-            | Error e -> failtestf "unit %s failed to parse: %A" e.Path e.Diagnostics)
+            | Error e -> failtestf "unit %s failed to parse: %A" e.Path e.Diagnostics
+        )
 
     // Forward-only scoping is proven by unit 2 (which sees unit 1) analysing clean: its
     // references to unit 1's fn / generic resolve through unit 1's projected view.

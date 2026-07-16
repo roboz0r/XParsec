@@ -1948,7 +1948,9 @@ module Elaborate =
                     | Some((TDecl.Type tdecl, _) as result) ->
                         // Capture the type's declared accessibility under its own key,
                         // so the file→file projection can drop a `type private T`.
-                        ctx.Bindings.Accessibility.[SymbolKey.Type tdecl.TypeKey] <- accessibilityOfToken (typeDefnAccessToken td)
+                        ctx.Bindings.Accessibility.[SymbolKey.Type tdecl.TypeKey] <-
+                            accessibilityOfToken (typeDefnAccessToken td)
+
                         yield result
                     | Some result -> yield result
                     | None -> ()

@@ -16,9 +16,11 @@ let private asm = "MultiFileAsm"
 /// The `Ok` units of an assembly run, or a test failure naming the first parse error.
 let private units (results: Result<FrozenUnit, UnitError> list) : FrozenUnit list =
     results
-    |> List.map (function
+    |> List.map (
+        function
         | Ok u -> u
-        | Error e -> failtestf "unit %s failed to parse: %A" e.Path e.Diagnostics)
+        | Error e -> failtestf "unit %s failed to parse: %A" e.Path e.Diagnostics
+    )
 
 /// A unit's unresolved-symbol error diagnostics (the front end phrases both the bare and
 /// the qualified miss with an "Unresolved" message).
@@ -178,7 +180,8 @@ module Shared =
                     ExternalSymbolProviders.composite [ viewEarlier; viewLater ] :> IExternalSymbolResolver
 
                 match composedNearestEarlier.TryLookup name with
-                | ValueSome s -> Expect.equal s.Scheme symEarlier.Scheme "nearest (earlier) file's dup wins when it is first"
+                | ValueSome s ->
+                    Expect.equal s.Scheme symEarlier.Scheme "nearest (earlier) file's dup wins when it is first"
                 | ValueNone -> failtest "composed provider did not resolve dup"
             }
 

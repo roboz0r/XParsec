@@ -1405,7 +1405,12 @@ module internal Layout =
             | Library -> -1
 
         let units =
-            units |> List.mapi (fun i u -> { u with EmitEntryPoint = (i = entryIndex) })
+            units
+            |> List.mapi (fun i u ->
+                { u with
+                    EmitEntryPoint = (i = entryIndex)
+                }
+            )
 
         let entryUnit =
             match units |> List.tryFind (fun u -> u.EmitEntryPoint) with
@@ -1423,7 +1428,10 @@ module internal Layout =
             if not u.EmitEntryPoint then
                 let p = u.Plan
 
-                if not (List.isEmpty p.ProgramCctorValues) || not (List.isEmpty p.ProgramMainValues) then
+                if
+                    not (List.isEmpty p.ProgramCctorValues)
+                    || not (List.isEmpty p.ProgramMainValues)
+                then
                     failwithf
                         "Layout.combine: compilation unit %d of %d carries %d top-level value binding(s) but is not the entry file — only the last file of an executable may carry top-level code"
                         (i + 1)
@@ -1521,7 +1529,11 @@ module internal Layout =
         // to hold it: an entry point (`Main`), leading-prefix value fields, or any
         // holder-less fn across the units.
         let programNodes =
-            if entryUnit.IsSome || not (List.isEmpty programFields) || not (List.isEmpty holderlessFnRows) then
+            if
+                entryUnit.IsSome
+                || not (List.isEmpty programFields)
+                || not (List.isEmpty holderlessFnRows)
+            then
                 [
                     {
                         Slot =
@@ -1565,8 +1577,7 @@ module internal Layout =
         // The roots, by kind: `<Module>` first (it must be TypeDef row 1), then the units'
         // namespace-level types / closures / root holders (each carrying its own subtree),
         // and the Program holder last.
-        let roots =
-            moduleNode :: (units |> List.collect (fun u -> u.Roots)) @ programNodes
+        let roots = moduleNode :: (units |> List.collect (fun u -> u.Roots)) @ programNodes
 
         // The `TypeDef` table: the pre-order flattening. Every table the writer walks is
         // a projection of it, so a type's row range and the rows in that range cannot
@@ -1616,11 +1627,7 @@ module internal Layout =
     /// closure TypeDef names stay unique assembly-wide across files. `combine` selects the
     /// entry unit, rejects top-level code outside it, and mints the shared `<Module>` /
     /// Program roots once. Single-unit output is byte-identical to the pre-split `build`.
-    let buildMany
-        (symbols: ICodegenSymbols)
-        (project: ProjectInfo)
-        (tasts: Frozen.TastFile list)
-        : AssemblyLayout =
+    let buildMany (symbols: ICodegenSymbols) (project: ProjectInfo) (tasts: Frozen.TastFile list) : AssemblyLayout =
         let closureNamer = Emit.ClosureNamer()
         let units = tasts |> List.map (buildUnit closureNamer symbols project)
         combine project units

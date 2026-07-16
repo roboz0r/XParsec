@@ -35,10 +35,12 @@ module FrozenSignature =
         { vr with
             Groups =
                 vr.Groups
-                |> List.map (function
+                |> List.map (
+                    function
                     | ArgGroupG.GUnit ty -> ArgGroupG.GUnit(ConformanceTypars.toDeclaringAxis ty)
                     | ArgGroupG.GSimple(slot, ty) -> ArgGroupG.GSimple(slot, ConformanceTypars.toDeclaringAxis ty)
-                    | ArgGroupG.GTuple pat -> ArgGroupG.GTuple(TastConvert.pat ConformanceTypars.toDeclaringAxis pat))
+                    | ArgGroupG.GTuple pat -> ArgGroupG.GTuple(TastConvert.pat ConformanceTypars.toDeclaringAxis pat)
+                )
             ResultTy = ConformanceTypars.toDeclaringAxis vr.ResultTy
         }
 
@@ -67,7 +69,10 @@ module FrozenSignature =
         let shapesByKey = Dictionary<SymbolKey, ExternalTypeShape>()
         let membersByKey = Dictionary<SymbolKey, ResizeArray<ExternalMember>>()
         let typesByName = Dictionary<string, SymbolKey>(System.StringComparer.Ordinal)
-        let unionCaseIndex = Dictionary<string, ExternalUnionCase>(System.StringComparer.Ordinal)
+
+        let unionCaseIndex =
+            Dictionary<string, ExternalUnionCase>(System.StringComparer.Ordinal)
+
         let symbols = Dictionary<string, ExternalSymbol>(System.StringComparer.Ordinal)
 
         // --- member projection --------------------------------------------------------
@@ -85,6 +90,7 @@ module FrozenSignature =
 
             let isValueMember = (m.Kind = TMemberKind.Property)
             let methodArity = GeneralizedTypars.count m.MethodTypeParams
+
             let parameters =
                 if isValueMember then
                     ExternalSymbols.unitFrozen
@@ -105,13 +111,21 @@ module FrozenSignature =
 
             { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name argSig methodArity kind) with
                 IsStatic = m.IsStatic
-                Storage = (if isValueMember then MemberStorage.Property else MemberStorage.Method)
+                Storage =
+                    (if isValueMember then
+                         MemberStorage.Property
+                     else
+                         MemberStorage.Method)
                 Signature = signature
                 MethodTyparArity = methodArity
                 Origin = originIn declKey.Namespace
             }
 
-        let membersOf (declKey: TypeKey) (declArity: int) (ms: EqArray<Frozen.TTypeMember>) : ResizeArray<ExternalMember> =
+        let membersOf
+            (declKey: TypeKey)
+            (declArity: int)
+            (ms: EqArray<Frozen.TTypeMember>)
+            : ResizeArray<ExternalMember> =
             let acc = ResizeArray<ExternalMember>()
 
             for m in ms do
@@ -166,19 +180,28 @@ module FrozenSignature =
                 match td.Kind with
                 | Frozen.TTypeKind.Record(fields, members, _, _) ->
                     let fieldShapes =
-                        [| for f in fields ->
-                               {
-                                   Name = f.Name
-                                   IsMutable = f.IsMutable
-                                   Frozen = f.Type
-                               }: ExternalFieldShape |]
+                        [|
+                            for f in fields ->
+                                {
+                                    Name = f.Name
+                                    IsMutable = f.IsMutable
+                                    Frozen = f.Type
+                                }
+                                : ExternalFieldShape
+                        |]
 
-                    register (ExternalTypeShape.Record(arity, fieldShapes, origin)) (ValueSome(membersOf typeKey arity members))
+                    register
+                        (ExternalTypeShape.Record(arity, fieldShapes, origin))
+                        (ValueSome(membersOf typeKey arity members))
 
                 | Frozen.TTypeKind.Union(cases, members, _) ->
                     let caseArr = [| for c in cases -> c |]
                     let caseShapes = caseArr |> Array.map caseShapeOf
-                    register (ExternalTypeShape.Union(arity, caseShapes, [||], origin)) (ValueSome(membersOf typeKey arity members))
+
+                    register
+                        (ExternalTypeShape.Union(arity, caseShapes, [||], origin))
+                        (ValueSome(membersOf typeKey arity members))
+
                     registerCases caseArr caseShapes
 
                 | Frozen.TTypeKind.Class c ->
@@ -200,7 +223,13 @@ module FrozenSignature =
                             TyparArity = arity
                             IsInterface = false
                             Members = members.ToArray()
-                            FrozenInterfaces = [| for (ity, _) in c.Interfaces do match ifaceOf ity with Some p -> p | None -> () |]
+                            FrozenInterfaces =
+                                [|
+                                    for (ity, _) in c.Interfaces do
+                                        match ifaceOf ity with
+                                        | Some p -> p
+                                        | None -> ()
+                                |]
                             FrozenBaseType = c.BaseType
                             Flags =
                                 { ExternalClassFlags.Default with
@@ -274,7 +303,8 @@ module FrozenSignature =
             match iv.Key with
             | SymbolKey.Binding bindingKey when exported iv.Key ->
                 match iv.Body.Decl with
-                | Frozen.TDecl.Let(Frozen.TPat.NamedSimple(k, _, _), _, _, ty) -> addValue bindingKey k ty (ValueSome iv.Body)
+                | Frozen.TDecl.Let(Frozen.TPat.NamedSimple(k, _, _), _, _, ty) ->
+                    addValue bindingKey k ty (ValueSome iv.Body)
                 | _ -> ()
             | _ -> ()
 
@@ -291,7 +321,8 @@ module FrozenSignature =
                 if kv.Value <> SymbolKeyOps.intrinsicName kv.Key then
                     Some(kv.Value, kv.Key)
                 else
-                    None)
+                    None
+            )
             |> Seq.groupBy fst
             |> Seq.map (fun (platform, xs) -> platform, xs |> Seq.map snd |> Seq.distinct |> List.ofSeq)
             |> Map.ofSeq
@@ -329,7 +360,8 @@ module FrozenSignature =
                     // A frozen impl unit publishes no `[<AutoOpen>]` surface (yet).
                     AmbientOpenPrefixes = []
                     IntrinsicReverseCanon = intrinsicReverse
-                    IntrinsicForwardRepr = intrinsicForward }
+                    IntrinsicForwardRepr = intrinsicForward
+                }
                 typeShapeByKey
                 typeMembersByKey
         )

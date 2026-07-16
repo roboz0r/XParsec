@@ -21,35 +21,42 @@ let private analyseFrozen (src: string) : Frozen.TastFile =
 /// The `TypeKey` of the type declared under `name`, read out of the frozen decls.
 let private typeKeyOf (frozen: Frozen.TastFile) (name: string) : TypeKey =
     EqArray.toList frozen.Decls
-    |> List.pick (function
+    |> List.pick (
+        function
         | Frozen.TDecl.Type td when td.Name = name -> Some td.TypeKey
-        | _ -> None)
+        | _ -> None
+    )
 
 /// The augmentation members declared on the type named `name`.
 let private membersOfType (frozen: Frozen.TastFile) (name: string) : Frozen.TTypeMember list =
     EqArray.toList frozen.Decls
-    |> List.pick (function
+    |> List.pick (
+        function
         | Frozen.TDecl.Type td when td.Name = name -> Some(EqArray.toList (TTypeKindG.members td.Kind))
-        | _ -> None)
+        | _ -> None
+    )
 
 /// Every module-level binding's `(source name, SymbolKey)` — inline vocabulary
 /// included (Freeze partitioned it into `InlineBodies`).
 let private moduleBindings (frozen: Frozen.TastFile) : (string * SymbolKey) list =
     let fromDecls =
         EqArray.toList frozen.Decls
-        |> List.choose (function
+        |> List.choose (
+            function
             | Frozen.TDecl.Let(Frozen.TPat.NamedSimple(k, _, _), _, _, _) ->
                 match Map.tryFind k frozen.ModuleMembers with
                 | Some info -> Some(info.Name, info.Key)
                 | None -> None
-            | _ -> None)
+            | _ -> None
+        )
 
     let fromInline =
         EqArray.toList frozen.InlineBodies
         |> List.choose (fun iv ->
             match iv.Key with
             | SymbolKey.Binding bk -> Some(bk.Name, iv.Key)
-            | _ -> None)
+            | _ -> None
+        )
 
     fromDecls @ fromInline
 
@@ -64,11 +71,13 @@ let private groupShape (vr: Frozen.ValRepr voption) : int list option =
     | ValueNone -> None
     | ValueSome v ->
         v.Groups
-        |> List.map (function
+        |> List.map (
+            function
             | ArgGroupG.GUnit _ -> 0
             | ArgGroupG.GSimple _ -> 1
             | ArgGroupG.GTuple(TPatG.Tuple(items, _, _)) -> items.Length
-            | ArgGroupG.GTuple _ -> -1)
+            | ArgGroupG.GTuple _ -> -1
+        )
         |> Some
 
 // --- projection source: one of each exported decl kind + a private + an internal ---
@@ -127,7 +136,12 @@ let tests =
                     Expect.equal uc.Case.Name "Just" "matched case name"
                 | ValueNone -> failtest "union case 'Just' did not resolve"
 
-                Expect.isSome (resolver.TryLookupUnionCase "Nope" |> function ValueSome _ -> Some() | _ -> None) "Nope resolves"
+                Expect.isSome
+                    (resolver.TryLookupUnionCase "Nope"
+                     |> function
+                         | ValueSome _ -> Some()
+                         | _ -> None)
+                    "Nope resolves"
             }
 
             test "augmentation members project on the store face" {
@@ -135,8 +149,7 @@ let tests =
                 let store = FrozenSignature.toProvider asm frozen :> IExternalSymbolStore
                 let widgetKey = SymbolKey.Type(typeKeyOf frozen "Widget")
 
-                let memberName =
-                    membersOfType frozen "Widget" |> List.head |> fun m -> m.Name
+                let memberName = membersOfType frozen "Widget" |> List.head |> (fun m -> m.Name)
 
                 let byName = store.TryLookupMembers(widgetKey, memberName)
                 Expect.isNonEmpty byName (sprintf "Widget member '%s' resolves" memberName)
@@ -156,7 +169,10 @@ let tests =
                     Expect.equal s.TyparArity 0 "answer is monomorphic"
                     // The resolver face answers the SAME entry by rendered name.
                     Expect.isSome
-                        (resolver.TryLookup(SymbolKeyOps.qualifiedName answerKey) |> function ValueSome _ -> Some() | _ -> None)
+                        (resolver.TryLookup(SymbolKeyOps.qualifiedName answerKey)
+                         |> function
+                             | ValueSome _ -> Some()
+                             | _ -> None)
                         "answer resolves by name"
                 | ValueNone -> failtest "answer did not project"
 
@@ -182,7 +198,11 @@ let tests =
 
                 let secretKey = bindingKey frozen "secret"
                 Expect.equal (store.TryLookupByKey secretKey) ValueNone "private 'secret' is NOT exported (by key)"
-                Expect.equal (resolver.TryLookup(SymbolKeyOps.qualifiedName secretKey)) ValueNone "private 'secret' is NOT exported (by name)"
+
+                Expect.equal
+                    (resolver.TryLookup(SymbolKeyOps.qualifiedName secretKey))
+                    ValueNone
+                    "private 'secret' is NOT exported (by name)"
 
                 let sharedKey = bindingKey frozen "shared"
 
@@ -196,7 +216,10 @@ let tests =
                 let store = FrozenSignature.toProvider asm frozen :> IExternalSymbolStore
                 // A plain impl unit declares no intrinsics, so the forward axis is its
                 // (empty) `IntrinsicReprKeys` — the wiring is the assertion.
-                Expect.equal (Seq.length store.IntrinsicForwardRepr) (Seq.length frozen.IntrinsicReprKeys) "forward repr count matches source"
+                Expect.equal
+                    (Seq.length store.IntrinsicForwardRepr)
+                    (Seq.length frozen.IntrinsicReprKeys)
+                    "forward repr count matches source"
             }
 
             // --- parity oracle: projected ExternalSymbol ≡ the .fsi-extracted one -------
@@ -296,7 +319,10 @@ module M =
                             (ConformanceTypars.schemesAgree fsi.Scheme proj.Scheme)
                             (sprintf "%s: axis-normalized scheme agrees (fsi=%A proj=%A)" name fsi.Scheme proj.Scheme)
 
-                        Expect.equal (groupShape proj.ValRepr) (groupShape fsi.ValRepr) (sprintf "%s: ValRepr grouping agrees" name)
+                        Expect.equal
+                            (groupShape proj.ValRepr)
+                            (groupShape fsi.ValRepr)
+                            (sprintf "%s: ValRepr grouping agrees" name)
                     | ValueNone, _ -> failtestf "%s: not projected from the .fs" name
                     | _, None -> failtestf "%s: not extracted from the .fsi" name
 

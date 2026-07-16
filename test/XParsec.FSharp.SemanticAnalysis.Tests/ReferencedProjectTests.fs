@@ -340,7 +340,12 @@ let tests =
                 match provider.TryLookupType "Vesper.Fun`2" with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     Expect.equal info.TyparArity 2 "Fun has two typars"
-                    Expect.equal info.Origin.Home.AssemblyOption (ValueSome "Vesper.Core") "origin assembly = Vesper.Core"
+
+                    Expect.equal
+                        info.Origin.Home.AssemblyOption
+                        (ValueSome "Vesper.Core")
+                        "origin assembly = Vesper.Core"
+
                     Expect.equal info.Origin.Namespace.Dotted "Vesper" "origin namespace = Vesper"
                 | other -> failtestf "expected Vesper.Fun as Class shape, got %A" other
             }

@@ -106,7 +106,12 @@ module ExternalSymbolProviders =
             let membersNamed (memberName: string) (key: SymbolKey) : ExternalMember[] =
                 match membersByKey key with
                 | ValueNone -> [||]
-                | ValueSome ms -> [| for m in ms do if m.Name = memberName then m |]
+                | ValueSome ms ->
+                    [|
+                        for m in ms do
+                            if m.Name = memberName then
+                                m
+                    |]
 
             let firstMemberNamed (memberName: string) (key: SymbolKey) : ExternalMember voption =
                 match membersByKey key with

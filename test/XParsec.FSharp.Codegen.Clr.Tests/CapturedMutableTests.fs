@@ -294,7 +294,12 @@ let tests =
                     SymbolKeyOps.moduleKeyOf (ModuleHolder.InNamespace NamespaceKey.Global) "Program"
 
                 let staticFns =
-                    Emit.collectStaticFns tast.ModuleMembers programHolder tast.GenericFnSchemes eligible (CompiledFns.gather lowered)
+                    Emit.collectStaticFns
+                        tast.ModuleMembers
+                        programHolder
+                        tast.GenericFnSchemes
+                        eligible
+                        (CompiledFns.gather lowered)
 
                 let typarsMap = Dictionary<NodeKey, int>()
 

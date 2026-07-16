@@ -481,6 +481,7 @@ module VesperLib =
                         for (paramCsts, retCst) in ctors do
                             let parameters =
                                 paramCsts |> Array.map (freezeBodyType ctx dc) |> ExternalSymbols.tupledParams
+
                             let ret = freezeBodyType ctx dc retCst
 
                             ExternalMember.ctor

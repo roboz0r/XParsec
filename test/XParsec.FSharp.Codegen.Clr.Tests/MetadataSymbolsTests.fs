@@ -27,6 +27,7 @@ let tests =
                     Expect.equal info.TyparArity 1 "one declared typar"
                     Expect.isFalse info.IsInterface "a class, not an interface"
                     Expect.equal info.Origin.Namespace.Dotted "System.Collections.Generic" "origin namespace"
+
                     Expect.isTrue
                         (match info.Origin.Home with
                          | Origin.InAssembly _ -> true
@@ -293,7 +294,10 @@ let tests =
                         // facade), not System.Private.CoreLib (the runtime impl). This also
                         // proves MetadataLoadContext finds a core assembly when System.Object
                         // lives in System.Runtime.dll rather than System.Private.CoreLib.
-                        Expect.equal info.Origin.Home.AssemblyOption (ValueSome "System.Runtime") "REF identity, not the impl"
+                        Expect.equal
+                            info.Origin.Home.AssemblyOption
+                            (ValueSome "System.Runtime")
+                            "REF identity, not the impl"
                     | other -> failtestf "expected StringBuilder as a Class shape, got %A" other
             }
         ]
