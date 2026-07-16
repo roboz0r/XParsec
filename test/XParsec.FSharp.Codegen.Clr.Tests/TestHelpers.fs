@@ -95,6 +95,13 @@ let vesperPrintfSource (fileName: string) : string =
 /// downstream manifest block.
 let vesperCoreManifest: string = vesperCoreSource "manifest.toml"
 
+/// Render a multi-file driver's anchored diagnostics (`path: message`, one per line)
+/// for a fixture's failure message.
+let private anchoredDiagText (diags: AssemblyUnits.AnchoredDiagnostic list) : string =
+    diags
+    |> List.map (fun d -> sprintf "%s: %s" d.Path d.Diagnostic.Message)
+    |> String.concat "\n"
+
 /// Compile `Vesper.Core.dll` from `prim-types-min.fs` + `core-types.fs` (the
 /// `Vesper.Fun\`2` interface, the primitive intrinsics, and the `Vesper.Ref\`1`
 /// captured-mutable cell), load it into the *Default* `AssemblyLoadContext`, and
@@ -115,34 +122,20 @@ let vesperCoreDll: Lazy<string> =
                  OutputPath = Some corePath
              }
 
-         // Compile every `impl` file the manifest lists, so the fixture and the
-         // package build share ONE source list (T8 1.3 — no fixture/manifest drift).
-         // The intrinsic-only prim-types files complete channel-1, so primitive reprs
-         // (`string`, …) resolve from Core's own `.fs` rather than the codegen
-         // bootstrap. Each file declares disjoint types under `namespace Vesper`;
-         // joined with blank lines so each `namespace Vesper` starts a fresh block.
-         //
-         // NOT YET migrated to the per-file multi-file driver
-         // (`ClrDriver.compileAssemblyWith`): the FRONT END now accepts the split (the
-         // three projection slices — intrinsic shapes, interface members, heritable
-         // bases — plus the ambient-namespace + platform-inherit wiring all land), but
-         // the multi-file CODEGEN cannot yet prepare the compiler-synthesised
-         // `IStructuralFormattable.Format` body on a record declared in an earlier unit
-         // (`core-types.fs`'s `Ref`) — `Assembler.WriteMethods` raises "method row
-         // 'Format' … was never prepared". That is a codegen-composition gap, separate
-         // from the front-end projection; the concat keeps every file in one PassContext
-         // meanwhile.
+         // Compile every `impl` file the manifest lists as its OWN unit through the
+         // shared multi-file seam (`ClrDriver.compileAssemblyWith`) — the fixture and the
+         // package build share ONE source list (no fixture/manifest drift), and each file
+         // is analysed against the composed prior-unit views rather than fused into one
+         // `String.concat` blob. The intrinsic-only prim-types files complete channel-1, so
+         // primitive reprs (`string`, …) resolve from Core's own `.fs`.
          let implFiles =
              match ReferencedProject.loadManifest vesperCoreManifest with
              | Ok m -> ReferencedProject.resolveImpl None m
              | Error e -> failwithf "vesperCoreDll: cannot load Vesper.Core manifest: %s" e
 
-         let src =
+         let files =
              implFiles
-             |> List.map (fun rel -> IO.File.ReadAllText(vesperCoreSource rel))
-             |> String.concat "\n\n"
-
-         let lexed, file = parseFile src
+             |> List.map (fun rel -> vesperCoreSource rel, IO.File.ReadAllText(vesperCoreSource rel))
 
          // Vesper.Core *defines* its own primitives + operators, so it compiles
          // against the empty contract stack (just the BCL metadata leaf for the
@@ -150,9 +143,12 @@ let vesperCoreDll: Lazy<string> =
          // "Vesper.Core"` uses (Core has no `depends-on`).
          let provider = ClrSymbolProviders.buildContract []
 
-         let tast = Pipeline.analyseFor project.AssemblyName provider src lexed file
+         let artifact =
+             match ClrDriver.compileAssemblyWith Pipeline.analyseFor [] provider project files with
+             | Ok artifact -> artifact
+             | Error diags ->
+                 failwithf "vesperCoreDll: %d analysis error(s):\n%s" (List.length diags) (anchoredDiagText diags)
 
-         let artifact = Codegen.compile provider project tast
          Codegen.materialise artifact
          AssemblyLoadContext.Default.LoadFromAssemblyPath corePath |> ignore
          corePath)
@@ -318,16 +314,18 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
 
                  let dir = IO.Path.GetDirectoryName manifestPath
 
-                 // NOT YET migrated to the per-file multi-file driver
-                 // (`ClrDriver.compileAssemblyWith Pipeline.analyseForSelfHost`): the FRONT
-                 // END now accepts the split, but the multi-file CODEGEN cannot yet prepare a
-                 // record's compiler-synthesised `IStructuralFormattable.Format` body across
-                 // units — see the detailed note on `vesperCoreDll`. The concat keeps every
-                 // file in one PassContext meanwhile.
-                 let src =
+                 // Each `impl` file is analysed as its OWN unit through the shared multi-file
+                 // seam (`ClrDriver.compileAssemblyWith Pipeline.analyseForSelfHost`) rather
+                 // than fused into one `String.concat` blob — self-host front end, so a bare
+                 // `[]`/`::` in a BCL-only package defaults to the Vesper cons-list, not
+                 // FSharp.Core's. The seam gates on error-severity front-end diagnostics (a
+                 // package that doesn't type-check hasn't built), returning `Error` rather than
+                 // emitting a degraded DLL.
+                 let files =
                      manifest.Impl
-                     |> List.map (fun rel -> IO.File.ReadAllText(IO.Path.Combine(dir, rel)))
-                     |> String.concat "\n\n"
+                     |> List.map (fun rel ->
+                         let p = IO.Path.Combine(dir, rel)
+                         p, IO.File.ReadAllText p)
 
                  let outDir = tmpDir (sprintf "pkg-%s" pkg)
                  let outPath = IO.Path.Combine(outDir, manifest.Name + ".dll")
@@ -338,25 +336,16 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                          References = depDlls
                      }
 
-                 let lexed, file = parseFile src
-                 // Self-host: a BCL-only package has no FSharp.Core, so a bare
-                 // `[]`/`::` defaults to the Vesper cons-list, not FSharp.Core's.
-                 let tast = Pipeline.analyseForSelfHost project.AssemblyName provider src lexed file
+                 let artifact =
+                     match ClrDriver.compileAssemblyWith Pipeline.analyseForSelfHost [] provider project files with
+                     | Ok artifact -> artifact
+                     | Error diags ->
+                         failwithf
+                             "buildPackage %s: %d analysis error(s):\n%s"
+                             pkg
+                             (List.length diags)
+                             (anchoredDiagText diags)
 
-                 // A package that doesn't type-check hasn't built: `Pipeline.analyse`
-                 // collects diagnostics rather than throwing, so surface any
-                 // error-severity ones here instead of emitting a degraded DLL.
-                 let analysisErrors =
-                     tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
-
-                 if not (List.isEmpty analysisErrors) then
-                     failwithf
-                         "buildPackage %s: %d analysis error(s):\n%s"
-                         pkg
-                         (List.length analysisErrors)
-                         (analysisErrors |> List.map (fun d -> d.Message) |> String.concat "\n")
-
-                 let artifact = Codegen.compile provider project tast
                  Codegen.materialise artifact
 
                  use ms = new IO.MemoryStream(IO.File.ReadAllBytes outPath)
