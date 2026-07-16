@@ -70,6 +70,19 @@ module FrozenSignature =
         let membersByKey = Dictionary<SymbolKey, ResizeArray<ExternalMember>>()
         let typesByName = Dictionary<string, SymbolKey>(System.StringComparer.Ordinal)
 
+        // The namespaces this unit declares types DIRECTLY in — published as the view's
+        // `AmbientOpenPrefixes` so a later file in the SAME namespace resolves a prior
+        // file's namespace-direct type / primitive by BARE name through the paths that
+        // consult only the provider's ambient (not the consumer's own open scope): the
+        // `inherit` base-type resolver (`tryPickRuntimeType`) and the well-known-intrinsic
+        // bag (`IntrinsicSet.get`, which types `()` / `int` literals). It is the same
+        // ambient the `.fsi` contract provider publishes for a referenced package's
+        // manifest namespace (`ReferencedProject.wrap`). Only a namespace-DIRECT type is
+        // exposed — a module-held type (`Test.A.M.T`) is keyed under its module holder, so a
+        // bare name resolves to `Namespace.T`, never `Namespace.M.T`, keeping cross-namespace
+        // module members behind their explicit `open`.
+        let declaredNamespaces = HashSet<string>(System.StringComparer.Ordinal)
+
         let unionCaseIndex =
             Dictionary<string, ExternalUnionCase>(System.StringComparer.Ordinal)
 
@@ -115,25 +128,26 @@ module FrozenSignature =
         // type's typars as `FTTypar(Declaring,i)` and its own as `FTTypar(Method,j)`
         // (`Elaborate.freezeKind` / `remapMemberTypes`), which is the exact axis
         // convention `ExternalSignature` speaks — no remap here.
-        let memberOf (declKey: TypeKey) (declArity: int) (m: Frozen.TTypeMember) : ExternalMember =
-            let paramTys = [| for (_, ty) in m.Params -> ty |]
-
+        // The shared `ExternalMember` mint: an already-`.NET`-tupled `parameters` form +
+        // return, folded into the overload identity + signature every producer speaks. A
+        // concrete type member (`memberOf`) and an interface's abstract method
+        // (`abstractMemberOf`) both reduce to these parts, so a slot and the class impl
+        // that satisfies it mint the SAME `argSig` from ONE decurry/axis home.
+        let memberFromParts
+            (declKey: TypeKey)
+            (declArity: int)
+            (name: string)
+            (isValueMember: bool)
+            (isStatic: bool)
+            (methodArity: int)
+            (parameters: FrozenType)
+            (returnTy: FrozenType)
+            : ExternalMember =
             let kind =
-                match m.Kind with
-                | TMemberKind.Method -> MemberKind.Method
-                | TMemberKind.Property -> MemberKind.Property
-
-            let isValueMember = (m.Kind = TMemberKind.Property)
-            let methodArity = GeneralizedTypars.count m.MethodTypeParams
-
-            let parameters =
-                if isValueMember then
-                    ExternalSymbols.unitFrozen
-                else
-                    ExternalSymbols.tupledParams paramTys
+                if isValueMember then MemberKind.Property else MemberKind.Method
 
             let signature =
-                ExternalSignature.make (declArity, methodArity, parameters, m.ReturnTy)
+                ExternalSignature.make (declArity, methodArity, parameters, returnTy)
 
             // A value member interns an EMPTY argSig (no value parameters); a method
             // interns its tupled parameter signature — the same structural overload
@@ -144,8 +158,8 @@ module FrozenSignature =
                 else
                     ExternalSymbols.argSigOfParameters parameters
 
-            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey m.Name argSig methodArity kind) with
-                IsStatic = m.IsStatic
+            { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf declKey name argSig methodArity kind) with
+                IsStatic = isStatic
                 Storage =
                     (if isValueMember then
                          MemberStorage.Property
@@ -155,6 +169,40 @@ module FrozenSignature =
                 MethodTyparArity = methodArity
                 Origin = originIn declKey.Namespace
             }
+
+        let memberOf (declKey: TypeKey) (declArity: int) (m: Frozen.TTypeMember) : ExternalMember =
+            let isValueMember = (m.Kind = TMemberKind.Property)
+            let methodArity = GeneralizedTypars.count m.MethodTypeParams
+
+            let parameters =
+                if isValueMember then
+                    ExternalSymbols.unitFrozen
+                else
+                    ExternalSymbols.tupledParams [| for (_, ty) in m.Params -> ty |]
+
+            memberFromParts declKey declArity m.Name isValueMember m.IsStatic methodArity parameters m.ReturnTy
+
+        // An interface's abstract method carries a single CURRIED `Signature`; a concrete
+        // member carries decurried `Params` / `ReturnTy`. The typar cut already landed the
+        // signature's leaves on the Declaring / Method axis at freeze
+        // (`Elaborate.freezeKind` runs the decl's cut over each `Signature`), so no re-axis
+        // is needed — only the arrow is peeled. Peel ONE arrow to the `.NET`-tupled domain
+        // (`argSigOfParameters` re-flattens a tuple domain to one arg per element, so a
+        // 2-arg `a * b -> c` folds to the same slot a `member _.M(a, b)` impl mints; a
+        // `unit` domain / no arrow ⇒ no value parameters). A property's `Signature` IS its
+        // value type.
+        let abstractMemberOf (declKey: TypeKey) (declArity: int) (am: Frozen.TAbstractMethod) : ExternalMember =
+            let methodArity = am.MethodTypeParams.Length
+
+            let parameters, returnTy =
+                if am.IsProperty then
+                    ExternalSymbols.unitFrozen, am.Signature
+                else
+                    match am.Signature with
+                    | FTFun(domain, codomain) -> domain, codomain
+                    | other -> ExternalSymbols.unitFrozen, other
+
+            memberFromParts declKey declArity am.Name am.IsProperty false methodArity parameters returnTy
 
         let membersOf
             (declKey: TypeKey)
@@ -184,6 +232,7 @@ module FrozenSignature =
                 let key = SymbolKey.Type typeKey
                 let arity = td.TypeParams.Length
                 let origin = originIn typeKey.Namespace
+                declaredNamespaces.Add typeKey.Namespace.Dotted |> ignore
 
                 // Index the enclosing module chain so a written `A.M.T` for this type
                 // resolves through containment. An `InType`-nested type contributes no module
@@ -309,11 +358,30 @@ module FrozenSignature =
 
                     register (ExternalTypeShape.Class shape) (ValueSome members)
 
-                | Frozen.TTypeKind.Interface _ ->
-                    // Abstract-method surfaces (single curried `Signature` FrozenTypes)
-                    // are not decurried here yet — the interface's name + arity + kind
-                    // are published so a reference resolves, its member set deferred.
-                    register (ExternalTypeShape.Class(ExternalClassShape.basic (arity, true, origin))) ValueNone
+                | Frozen.TTypeKind.Interface methods ->
+                    // Decurry each abstract method to an `ExternalMember` under the
+                    // interface key (mirroring the `Class` arm's `membersOf`, via the
+                    // shared `memberFromParts`), so a cross-unit `interface F with member
+                    // …` conformance check and a `receiver.M` dispatch both resolve the
+                    // slot. An interface inherits no base and carries no `interface`
+                    // clause on the frozen tree, so base / interfaces stay empty.
+                    let members = ResizeArray<ExternalMember>()
+
+                    for am in methods do
+                        members.Add(abstractMemberOf typeKey arity am)
+
+                    let shape: ExternalClassShape =
+                        {
+                            TyparArity = arity
+                            IsInterface = true
+                            Members = members.ToArray()
+                            FrozenInterfaces = [||]
+                            FrozenBaseType = ValueNone
+                            Flags = ExternalClassFlags.Default
+                            Origin = origin
+                        }
+
+                    register (ExternalTypeShape.Class shape) (ValueSome members)
 
                 | Frozen.TTypeKind.Enum _ ->
                     // Enum-case literal projection (`TConstValue` → `ExternalEnumCaseValue`)
@@ -385,15 +453,40 @@ module FrozenSignature =
         // so a later file's `unit` / `int` / `obj` annotation resolves the name and its
         // canon reconciles through `TryLookupType key` (`EngineCore.canonKey` tier 2).
         // `platform` is always `Some`: a home unit holds its own `(# … #)` repr. A
-        // heritable primitive's class surface (`obj`/`exn` base + `.ctor`s) is NOT
-        // recoverable from the frozen impl (the `.fs` binds only the repr), so it
-        // projects scalar — enough for an annotation; an `inherit obj` would need the
-        // `.fsi` extractor's faced shape.
+        // HERITABLE `(# class … #)` primitive (`obj` / `exn` / `Attribute`, listed in
+        // `HeritableIntrinsicBases`) additionally carries a class surface so a later unit's
+        // `inherit` resolves it (`resolveInheritParent`'s `Class = ValueSome` probe). Its
+        // `BaseType` is `ValueNone` — the impl `.fs` binds only the repr, never the parent
+        // nominal (`obj`), and codegen chains the base-`.ctor` off the canon's own repr, not
+        // this field; its ctor set is empty (the impl declares none, and the inherit path
+        // reads only the `Class` marker). A scalar primitive projects with `Class =
+        // ValueNone`.
         for KeyValue(key, repr) in frozen.IntrinsicReprKeys do
             match key with
             | SymbolKey.Type typeKey ->
-                shapesByKey.[key] <-
-                    ExternalTypeShape.Intrinsic(IntrinsicShape.Scalar(typeKey, typeKey.TyparArity, Some repr))
+                declaredNamespaces.Add typeKey.Namespace.Dotted |> ignore
+
+                let shape =
+                    if frozen.HeritableIntrinsicBases.ContainsKey key then
+                        ExternalTypeShape.Intrinsic
+                            {
+                                Id =
+                                    {
+                                        Canon = typeKey
+                                        TyparArity = typeKey.TyparArity
+                                        Platform = Some repr
+                                    }
+                                Class =
+                                    ValueSome
+                                        {
+                                            BaseType = ValueNone
+                                            Members = [||]
+                                        }
+                            }
+                    else
+                        ExternalTypeShape.Intrinsic(IntrinsicShape.Scalar(typeKey, typeKey.TyparArity, Some repr))
+
+                shapesByKey.[key] <- shape
 
                 let name = SymbolKeyOps.typeMetaName typeKey
 
@@ -482,8 +575,10 @@ module FrozenSignature =
                             match recordFieldIndex.TryGetValue fieldName with
                             | true, buf -> buf.ToArray()
                             | _ -> [||]
-                    // A frozen impl unit publishes no `[<AutoOpen>]` surface (yet).
-                    AmbientOpenPrefixes = []
+                    // The namespaces this unit declares types directly in (a same-namespace
+                    // later file's bare-name bridge for the ambient-only resolvers). A
+                    // `[<AutoOpen>]` module surface is still not published.
+                    AmbientOpenPrefixes = [ for ns in declaredNamespaces do if ns.Length > 0 then ns ]
                     IntrinsicReverseCanon = intrinsicReverse
                     IntrinsicForwardRepr = intrinsicForward
                 }

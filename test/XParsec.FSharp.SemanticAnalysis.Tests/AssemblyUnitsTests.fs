@@ -667,4 +667,82 @@ module N =
                         "bare construction of a cross-unit record without the `open` must be rejected (diagnostics: %A)"
                         f2.Frozen.Diagnostics)
             }
+
+            test "cross-unit INTRINSIC: a prior unit's primitive resolves in a later unit's annotation" {
+                // unit 1 declares an intrinsic-repr primitive (`type x = (# "…" #)` — an
+                // `ILIntrinsic` abbrev kept OUT of `Decls`); unit 2 annotates a binding with
+                // it. It resolves cross-unit only because `FrozenSignature.toProvider`
+                // publishes each `IntrinsicReprKeys` entry as an
+                // `ExternalTypeShape.Intrinsic`, so `TryLookupType` answers the name — the
+                // repr axes alone never did.
+                let file1 =
+                    "\
+namespace Test.A
+
+#nowarn \"42\"
+
+type myint = (# \"System.Int32\" #)
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+module N =
+    let identity (x: Test.A.myint) : Test.A.myint = x
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    |> units
+
+                let f2 = all.[1]
+
+                Expect.isEmpty
+                    (f2.Frozen.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))
+                    (sprintf
+                        "a prior unit's primitive resolves in a later unit's annotation (diagnostics: %A)"
+                        f2.Frozen.Diagnostics)
+            }
+
+            test "cross-unit INTERFACE MEMBER: a prior unit's abstract method resolves for dispatch + conformance" {
+                // unit 1 declares an interface with an abstract method; unit 2 both
+                // DISPATCHES on it (`g.Apply …`) and IMPLEMENTS it (`interface … with member
+                // …`). Both resolve only because the interface arm of
+                // `FrozenSignature.toProvider` now decurries each abstract method to an
+                // `ExternalMember` under the interface key (the member set was `ValueNone`
+                // before), so `TryLookupMembers` answers the dispatch and the conformance
+                // check finds the required slot.
+                let file1 =
+                    "\
+namespace Test.A
+
+type Applier<'A, 'B> =
+    abstract member Apply: arg: 'A -> 'B
+"
+
+                let file2 =
+                    "\
+namespace Test.B
+
+type Twice(g: Test.A.Applier<int, int>) =
+    member _.Call(x: int) : int = g.Apply(g.Apply(x))
+
+type IdInt() =
+    interface Test.A.Applier<int, int> with
+        member _.Apply(x) = x
+"
+
+                let all =
+                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", file2 ]
+                    |> units
+
+                let f2 = all.[1]
+
+                Expect.isEmpty
+                    (f2.Frozen.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error))
+                    (sprintf
+                        "cross-unit interface dispatch + conformance resolve the abstract method (diagnostics: %A)"
+                        f2.Frozen.Diagnostics)
+            }
         ]

@@ -122,22 +122,16 @@ let vesperCoreDll: Lazy<string> =
          // bootstrap. Each file declares disjoint types under `namespace Vesper`;
          // joined with blank lines so each `namespace Vesper` starts a fresh block.
          //
-         // NOT migrated to the per-file multi-file driver (`ClrDriver.compileAssemblyWith`):
-         // the type-annotation-by-`open` gap (a DOTTED module-held type name in annotation
-         // position) is now resolved, and INTRINSICS now project as `TryLookupType` shapes
-         // (`FrozenSignature.toProvider` publishes each `IntrinsicReprKeys` entry as an
-         // `ExternalTypeShape.Intrinsic`), but two PROJECTION-COVERAGE boundaries the frozen
-         // provider does not yet emit still block a split:
-         //   * INTERFACE MEMBERS — the `Interface` arm publishes name+arity but DEFERS the
-         //     member set, so `core-types.fs`'s `interface Vesper.Fun with member _.Invoke`
-         //     fails "does not define a member 'Invoke'" (cross-unit plan item 6).
-         //   * BASE TYPES — `compiler-attributes.fs`'s `inherit Attribute` cannot resolve the
-         //     prior-file HERITABLE-intrinsic base cross-unit ("Cannot inherit from unknown
-         //     type 'Attribute'"): the consumer needs `Attribute` published as `Intrinsic
-         //     { Class = ValueSome _ }`, but `(# class … #)` heritability is not on the frozen
-         //     tree (`HeritableExternBases` is a `ctx.Types` set, never snapshotted).
-         // Until they land the concat keeps every file in one PassContext so a bare prior-file
-         // type name binds.
+         // NOT YET migrated to the per-file multi-file driver
+         // (`ClrDriver.compileAssemblyWith`): the FRONT END now accepts the split (the
+         // three projection slices — intrinsic shapes, interface members, heritable
+         // bases — plus the ambient-namespace + platform-inherit wiring all land), but
+         // the multi-file CODEGEN cannot yet prepare the compiler-synthesised
+         // `IStructuralFormattable.Format` body on a record declared in an earlier unit
+         // (`core-types.fs`'s `Ref`) — `Assembler.WriteMethods` raises "method row
+         // 'Format' … was never prepared". That is a codegen-composition gap, separate
+         // from the front-end projection; the concat keeps every file in one PassContext
+         // meanwhile.
          let implFiles =
              match ReferencedProject.loadManifest vesperCoreManifest with
              | Ok m -> ReferencedProject.resolveImpl None m
@@ -324,17 +318,12 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
 
                  let dir = IO.Path.GetDirectoryName manifestPath
 
-                 // NOT migrated to the per-file multi-file driver
-                 // (`ClrDriver.compileAssemblyWith Pipeline.analyseForSelfHost`): the
-                 // type-annotation-by-`open` gap (a DOTTED module-held type name in annotation
-                 // position) is now resolved, but the Vesper packages' cross-file dependencies
-                 // are a DIFFERENT, still-open set of PROJECTION-COVERAGE boundaries the frozen
-                 // provider does not yet emit — INTRINSICS (`unit`/`int`/`string`/`obj` have a
-                 // repr axis but no `TryLookupType` type shape), INTERFACE MEMBERS (`Vesper.Fun`'s
-                 // `Invoke` is deferred), and BASE TYPES (`inherit Attribute`) — see the detailed
-                 // note on `vesperCoreDll`. Each closes on its own projection slice, independent
-                 // of item 1; until they land the concat keeps every file in one PassContext so a
-                 // bare prior-file type name binds.
+                 // NOT YET migrated to the per-file multi-file driver
+                 // (`ClrDriver.compileAssemblyWith Pipeline.analyseForSelfHost`): the FRONT
+                 // END now accepts the split, but the multi-file CODEGEN cannot yet prepare a
+                 // record's compiler-synthesised `IStructuralFormattable.Format` body across
+                 // units — see the detailed note on `vesperCoreDll`. The concat keeps every
+                 // file in one PassContext meanwhile.
                  let src =
                      manifest.Impl
                      |> List.map (fun rel -> IO.File.ReadAllText(IO.Path.Combine(dir, rel)))

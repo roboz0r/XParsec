@@ -834,6 +834,23 @@ module NameResolutionMemberRegistration =
             else
                 let name = ctx.NameOf nameTok
 
+                // A heritable base's platform repr → its external `TyClass` (codegen's
+                // `ExternalClass` encoder maps it to a `TypeRef` for `extends` + base-ctor),
+                // or a "did not resolve" diagnostic. Shared by the LOCAL heritable-extern arm
+                // and the cross-unit provider arm for a ctor-less `(# class … #)` base.
+                let reprToExternalBase (repr: string) =
+                    match tryResolveExternalTypeKey ctx repr targs.Length with
+                    | ValueSome extKey -> ValueSome(TyClass(extKey, EqArray.ofList targs))
+                    | ValueNone ->
+                        diagnose
+                            diagKey
+                            (sprintf
+                                "Cannot inherit from external base '%s': its representation '%s' did not resolve to a known external type (is a package dependency missing?)"
+                                name
+                                repr)
+
+                        ValueNone
+
                 match TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt diagKey) name with
                 | ValueSome info -> ValueSome(TyClass(info.TypeKey, EqArray.ofList targs))
                 | ValueNone when ctx.Types.HeritableExternBases.Contains name ->
@@ -843,18 +860,7 @@ module NameResolutionMemberRegistration =
                     // `ExternalClass` encoder maps to a `TypeRef` (`extends` + base-ctor),
                     // rather than the opaque value-repr `TyConst`.
                     match ctx.Types.IntrinsicReprTypes.TryGetValue name with
-                    | true, repr ->
-                        match tryResolveExternalTypeKey ctx repr targs.Length with
-                        | ValueSome extKey -> ValueSome(TyClass(extKey, EqArray.ofList targs))
-                        | ValueNone ->
-                            diagnose
-                                diagKey
-                                (sprintf
-                                    "Cannot inherit from external base '%s': its representation '%s' did not resolve to a known external type (is a package dependency missing?)"
-                                    name
-                                    repr)
-
-                            ValueNone
+                    | true, repr -> reprToExternalBase repr
                     // Compiler invariant: `TypeRegistration.registerAbbreviationDefn`
                     // only ever adds to `HeritableExternBases` in the same step it writes
                     // the repr to `IntrinsicReprTypes`. A name in the former without an
@@ -863,24 +869,40 @@ module NameResolutionMemberRegistration =
                     | false, _ ->
                         failwithf "Internal error: heritable external base '%s' has no recorded intrinsic repr" name
                 | ValueNone ->
-                    // A referenced heritable primitive (`exn`): the provider publishes it as
-                    // an `Intrinsic` with a class surface (contract `inherit obj` + ctors).
-                    // Resolve it through the provider (bare name, then ambient opens, scanning
-                    // past a non-intrinsic hit) to its intrinsic identity — read the
-                    // authoritative canon off the shape — and admit it as a `TyConst` base; the
-                    // derived class's chain then continues through `subtypeParentOf`'s
-                    // class-surface arm. (Distinct from a *local* heritable extern, handled by
-                    // `HeritableExternBases` above.)
-                    let intrinsicClassCanon (shape: ExternalTypeShape) =
+                    // A referenced heritable primitive (`exn`, or a prior compilation unit's
+                    // `(# class … #)` base like `Attribute`): the provider publishes it as an
+                    // `Intrinsic` with a class surface. Resolve it (bare/ambient-opens, scanning
+                    // past a non-intrinsic hit) and branch on whether the CONTRACT declares a
+                    // ctor:
+                    //   * WITH ctors (`exn`'s `new: string -> exn` / `new: unit -> exn`): admit
+                    //     the intrinsic CANON as a `TyConst` base, so `fillBaseCtorCall` checks
+                    //     the base-`.ctor` args against the contract ctor set (and REJECTS a
+                    //     mismatch) — the contract IS the constructible surface.
+                    //   * WITHOUT ctors (`Attribute = (# class … #)` — the `.fs`/`.fsi` bind only
+                    //     the repr): admit the PLATFORM type as a `TyClass` (the SAME base the
+                    //     local `HeritableExternBases` arm mints), so the base-`.ctor` binds the
+                    //     runtime type's own ctors (`System.Attribute()`); the empty contract
+                    //     surface would otherwise reject `inherit Attribute()`.
+                    let heritableIntrinsic (shape: ExternalTypeShape) =
                         match shape with
                         | ExternalTypeShape.Intrinsic {
-                                                          Id = { Canon = c }
-                                                          Class = ValueSome _
-                                                      } -> ValueSome c
+                                                          Id = id
+                                                          Class = ValueSome surface
+                                                      } -> ValueSome(struct (id, surface))
                         | _ -> ValueNone
 
-                    match ExternalSymbols.tryPickRuntimeType ctx.Resolver intrinsicClassCanon name with
-                    | ValueSome canon -> ValueSome(TyConst(SymbolKey.Type canon, EqArray.ofList targs))
+                    match ExternalSymbols.tryPickRuntimeType ctx.Resolver heritableIntrinsic name with
+                    | ValueSome(struct (id, surface)) when surface.Members |> Array.exists (fun m -> m.Name = ".ctor") ->
+                        ValueSome(TyConst(SymbolKey.Type id.Canon, EqArray.ofList targs))
+                    | ValueSome(struct (id, _)) ->
+                        match id.Platform with
+                        | Some repr -> reprToExternalBase repr
+                        | None ->
+                            diagnose
+                                diagKey
+                                (sprintf "Cannot inherit from '%s': it has no runtime representation on the compiling target" name)
+
+                            ValueNone
                     | ValueNone ->
                         // The class arms above have already missed, so a name the NAME TABLE
                         // knows at any arity is a project-local type of some other kind. One
