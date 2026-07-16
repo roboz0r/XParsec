@@ -217,8 +217,8 @@ out naturally once a real second consumer exists.
   errors so never caught it.) Closing it is a FRONT-END cut (wire use-site nominal resolution to the
   composite provider, or project prior-unit nominals into the consuming unit's `TypeRegistry`) — it
   is the real content of the "Projection coverage boundaries" open item below, now on the critical
-  path for a records-bearing corpus. **LANDED** (commits `238a37fc`..`bd3b11ee`): cross-file record
-  field read, construction (bare + qualified), and patterns all resolve through the composite
+  path for a records-bearing corpus. **LANDED** (the R1–R4b-2 commit series on `semantic-analysis`):
+  cross-file record field read, construction (bare + qualified), and patterns all resolve through the composite
   provider (mirrors F#'s `eFieldLabels` + `BuildFieldMap`); codegen needed no change (`ldfld` /
   `newobj` re-home to the local `TypeDef`), proven by cross-file runtime tests. Records were the
   only blocked kind — unions/classes already had provider paths. The REMAINING cross-unit nominal /
