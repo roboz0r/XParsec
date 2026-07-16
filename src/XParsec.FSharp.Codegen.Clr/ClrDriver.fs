@@ -89,7 +89,9 @@ module ClrDriver =
                 function
                 | Error e ->
                     let source =
-                        files |> List.tryPick (fun (p, s) -> if p = e.Path then Some s else None) |> Option.defaultValue ""
+                        files
+                        |> List.tryPick (fun (p, s) -> if p = e.Path then Some s else None)
+                        |> Option.defaultValue ""
 
                     AssemblyUnits.anchorDiagnostics e.Path source e.Diagnostics
                 | Ok _ -> []

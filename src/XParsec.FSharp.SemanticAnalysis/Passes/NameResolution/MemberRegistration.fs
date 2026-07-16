@@ -885,10 +885,8 @@ module NameResolutionMemberRegistration =
                     //     surface would otherwise reject `inherit Attribute()`.
                     let heritableIntrinsic (shape: ExternalTypeShape) =
                         match shape with
-                        | ExternalTypeShape.Intrinsic {
-                                                          Id = id
-                                                          Class = ValueSome surface
-                                                      } -> ValueSome(struct (id, surface))
+                        | ExternalTypeShape.Intrinsic { Id = id; Class = ValueSome surface } ->
+                            ValueSome(struct (id, surface))
                         | _ -> ValueNone
 
                     match ExternalSymbols.tryPickRuntimeType ctx.Resolver heritableIntrinsic name with
@@ -900,7 +898,9 @@ module NameResolutionMemberRegistration =
                         | None ->
                             diagnose
                                 diagKey
-                                (sprintf "Cannot inherit from '%s': it has no runtime representation on the compiling target" name)
+                                (sprintf
+                                    "Cannot inherit from '%s': it has no runtime representation on the compiling target"
+                                    name)
 
                             ValueNone
                     | ValueNone ->

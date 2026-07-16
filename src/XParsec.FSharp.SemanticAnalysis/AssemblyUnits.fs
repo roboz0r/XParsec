@@ -150,4 +150,7 @@ module AssemblyUnits =
 
     /// Every analysed unit's diagnostics, each anchored to ITS OWN unit (path + source).
     let consolidatedDiagnostics (units: FrozenUnit list) : AnchoredDiagnostic list =
-        [ for u in units do yield! anchorDiagnostics u.Path u.Input u.Frozen.Diagnostics ]
+        [
+            for u in units do
+                yield! anchorDiagnostics u.Path u.Input u.Frozen.Diagnostics
+        ]

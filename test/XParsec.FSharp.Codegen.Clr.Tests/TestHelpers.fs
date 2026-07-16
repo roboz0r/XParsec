@@ -325,7 +325,8 @@ let rec buildPackage (package: string) : Lazy<Assembly * ClrArtifact> =
                      manifest.Impl
                      |> List.map (fun rel ->
                          let p = IO.Path.Combine(dir, rel)
-                         p, IO.File.ReadAllText p)
+                         p, IO.File.ReadAllText p
+                     )
 
                  let outDir = tmpDir (sprintf "pkg-%s" pkg)
                  let outPath = IO.Path.Combine(outDir, manifest.Name + ".dll")

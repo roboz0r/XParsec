@@ -144,7 +144,10 @@ module FrozenSignature =
             (returnTy: FrozenType)
             : ExternalMember =
             let kind =
-                if isValueMember then MemberKind.Property else MemberKind.Method
+                if isValueMember then
+                    MemberKind.Property
+                else
+                    MemberKind.Method
 
             let signature =
                 ExternalSignature.make (declArity, methodArity, parameters, returnTy)
@@ -476,12 +479,7 @@ module FrozenSignature =
                                         TyparArity = typeKey.TyparArity
                                         Platform = Some repr
                                     }
-                                Class =
-                                    ValueSome
-                                        {
-                                            BaseType = ValueNone
-                                            Members = [||]
-                                        }
+                                Class = ValueSome { BaseType = ValueNone; Members = [||] }
                             }
                     else
                         ExternalTypeShape.Intrinsic(IntrinsicShape.Scalar(typeKey, typeKey.TyparArity, Some repr))
@@ -578,7 +576,12 @@ module FrozenSignature =
                     // The namespaces this unit declares types directly in (a same-namespace
                     // later file's bare-name bridge for the ambient-only resolvers). A
                     // `[<AutoOpen>]` module surface is still not published.
-                    AmbientOpenPrefixes = [ for ns in declaredNamespaces do if ns.Length > 0 then ns ]
+                    AmbientOpenPrefixes =
+                        [
+                            for ns in declaredNamespaces do
+                                if ns.Length > 0 then
+                                    ns
+                        ]
                     IntrinsicReverseCanon = intrinsicReverse
                     IntrinsicForwardRepr = intrinsicForward
                 }

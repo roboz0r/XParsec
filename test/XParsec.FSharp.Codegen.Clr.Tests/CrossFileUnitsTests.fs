@@ -42,12 +42,7 @@ let private compileTwoUnits (asmName: string) (unit1: string) (unit2: string) : 
     // references to unit 1's fn / generic resolve through unit 1's projected view. A parse
     // or analysis error surfaces here anchored to its own unit.
     match
-        ClrDriver.compileAssemblyWith
-            Pipeline.analyseFor
-            []
-            external
-            project
-            [ "unit1.fs", unit1; "unit2.fs", unit2 ]
+        ClrDriver.compileAssemblyWith Pipeline.analyseFor [] external project [ "unit1.fs", unit1; "unit2.fs", unit2 ]
     with
     | Ok artifact -> Codegen.toBytes artifact
     | Error diags -> failtestf "cross-file compile failed: %A" diags
