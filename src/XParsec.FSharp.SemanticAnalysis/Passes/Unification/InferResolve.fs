@@ -196,50 +196,46 @@ module internal UnificationInferResolve =
 
     /// The verdict for the typed field set `names` at `useSite`, LOCAL candidates only (R4b
     /// unions provider `TryRecordsWithField` candidates in here). A record survives to
-    /// `PartialMatches` iff it declares EVERY typed field: seed with the first field's
-    /// `recordsWithField` candidates and keep those present (by `TypeKey`) in every other
-    /// field's candidate set — the intersection F#'s `BuildFieldMap` takes. `recordsWithField`
-    /// already visibility-scopes each per-field set to `useSite`, so the intersection stays
-    /// visibility-correct (a record whose declaring site sits below the use names nothing).
-    /// Candidates are deduped by `TypeKey`: a no-op for the local index (a record declares each
-    /// field once) but the invariant R4b's local ∪ provider union relies on.
+    /// `PartialMatches` iff it declares EVERY typed field — i.e. `typed ⊆ declared`, a subset
+    /// filter, which is why only the FIRST field's candidates need fetching: any record that
+    /// declares all typed fields declares the FIRST one, so it is already in
+    /// `recordsWithField … first`. Fetching every field and intersecting (as R4a did) is
+    /// therefore redundant — the first-field set is a SUPERSET of the answer and the subset test
+    /// in `classifyRecordCandidates` prunes it exactly. `recordsWithField` visibility-scopes that
+    /// set to `useSite`, so the verdict stays visibility-correct (a record whose declaring site
+    /// sits below the use names nothing). The pure classifier does the dedup-by-key / subset /
+    /// exact-match work; here we only wrap `LocalRecord`s, key them, and map the verdict back —
+    /// so the combinatorial logic is testable in the open (`RecordFieldClassifier`).
     let recordFieldSetVerdict (ctx: PassContext) (useSite: UseSite) (names: string list) : RecordFieldSetVerdict =
         match names with
-        | [] -> { ExactMatch = ValueNone; PartialMatches = [] }
-        | first :: rest ->
-            let restKeySets =
-                rest
-                |> List.map (fun name ->
-                    let keys = HashSet<TypeKey>()
+        | [] ->
+            {
+                ExactMatch = ValueNone
+                PartialMatches = []
+            }
+        | first :: _ ->
+            let candidates =
+                [
+                    for info in TypeRegistry.recordsWithField ctx.Types useSite first -> LocalRecord info
+                ]
 
-                    for info in TypeRegistry.recordsWithField ctx.Types useSite name do
-                        keys.Add info.TypeKey |> ignore
+            // Keyed by `TypeKey`, which supports equality but NOT comparison (so a
+            // `Dictionary`, not a `Map`), to map the classifier's key verdict back to the
+            // `ResolvedRecord`s. First-field candidates already have unique keys (a record
+            // declares each field once), matching the classifier's first-occurrence dedup.
+            let byKey = Dictionary<TypeKey, ResolvedRecord>()
 
-                    keys)
+            for r in candidates do
+                byKey.[resolvedRecordTypeKey r] <- r
 
-            let seen = HashSet<TypeKey>()
-
-            let partialMatches =
-                [ for info in TypeRegistry.recordsWithField ctx.Types useSite first do
-                      let candidate = LocalRecord info
-                      let key = resolvedRecordTypeKey candidate
-
-                      if
-                          (restKeySets |> List.forall (fun keys -> keys.Contains key))
-                          && seen.Add key
-                      then
-                          candidate ]
-
-            let nameSet = Set.ofList names
-
-            let exactMatch =
-                match partialMatches |> List.filter (fun r -> resolvedRecordFieldNames r = nameSet) with
-                | [ only ] -> ValueSome only
-                | _ -> ValueNone
+            let classification =
+                RecordFieldClassifier.classifyRecordCandidates
+                    [ for r in candidates -> resolvedRecordTypeKey r, resolvedRecordFieldNames r ]
+                    (Set.ofList names)
 
             {
-                ExactMatch = exactMatch
-                PartialMatches = partialMatches
+                ExactMatch = classification.ExactKey |> ValueOption.map (fun key -> byKey.[key])
+                PartialMatches = classification.PartialKeys |> List.map (fun key -> byKey.[key])
             }
 
     /// Field set match is order-insensitive. The returned count disambiguates the "no match" (0)

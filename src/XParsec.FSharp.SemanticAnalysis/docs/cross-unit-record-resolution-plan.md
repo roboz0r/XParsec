@@ -251,12 +251,23 @@ namespace is wrongly resolvable bare until this is gated. The demonstration test
   reachable through two compose layers must not count twice. External-`obj`-field boxing deferred
   (comment, consistent with unions). Tests: SA-level cross-file bare + qualified construction +
   record pattern; cross-file runtime (unit 2 builds unit 1's record, RUN).
-  *Implemented as two green commits (highest-risk cut):* **R4a** — pure refactor of
-  `findUniqueRecordByFieldSet` to the `ResolvedRecord`/`{ ExactMatch; PartialMatches }` verdict,
-  LOCAL candidates only, proven byte-identical by the existing suite + a regression test; factor the
-  per-field-type resolution so `inferRecord` and `inferPat` stop duplicating the local branch.
-  **R4b** — add provider candidates to the core (∪, `TypeKey` dedup), external construction
-  (`instantiateDeclaring`), and the qualifier-as-filter; the new cross-file tests land here.
+  *Implemented as three green commits (highest-risk cut):*
+  **R4a (DONE)** — `ResolvedRecord` + `{ ExactMatch; PartialMatches }` verdict; rewrote
+  `findUniqueRecordByFieldSet` behind a byte-identical wrapper, LOCAL only. Proven by the existing
+  suite (no IVT — that is a smell; the pure logic gets a public classifier in R4b-1).
+  **R4b-1** — extract the pure combinatorial core as a **stateless PUBLIC** function
+  `classifyRecordCandidates (candidates: (TypeKey * Set<string>) list) (typed: Set<string>)`:
+  `PartialKeys` = candidates with `typed ⊆ declared`; `ExactKey` = the unique one with
+  `declared = typed`. This SIMPLIFIES `recordFieldSetVerdict` — since any record declaring all typed
+  fields declares the FIRST one, fetch just the first field's candidates and classify by subset (the
+  per-field intersection R4a wrote is redundant). No `ctx`, no internal `RecordTypeInfo`, so it is
+  directly unit-testable in the open (the user's "stateless so it's safe to make public" — replaces
+  the rejected IVT white-box test). Still LOCAL only + byte-identical wrapper.
+  **R4b-2** — union provider `TryRecordsWithField` candidates into the fetch (`TypeKey` dedup;
+  ambient-scope filter deferred, comment); thread `ResolvedRecord` through `inferRecord`/`inferPat`
+  (factor the shared field-type resolution — local `subst` vs external `instantiateDeclaring`);
+  qualifier path = `tryRecord` local unchanged, external filter fallback on a miss;
+  external-`obj`-field boxing deferred (comment). Cross-file SA + runtime + record-pattern tests.
 - **R6 (optional, follow-up)** — thread RQA into the frozen tree; flip `TryRecordsWithField` to
   exclude RQA records; close the union-case RQA gap in the same cut.
 
