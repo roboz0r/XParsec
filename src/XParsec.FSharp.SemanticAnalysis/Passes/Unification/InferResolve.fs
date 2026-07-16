@@ -156,10 +156,9 @@ module internal UnificationInferResolve =
         | Some c -> ValueSome c
         | None -> ValueNone
 
-    /// The local|external record identity a field set resolves to. `ExternalRecord` is UNUSED
-    /// in R4a — the local-only verdict core (`recordFieldSetVerdict`) never mints one; it is
-    /// present now so the verdict type is stable across R4a and R4b, where provider candidates
-    /// join the core and `ExternalRecord`s first appear.
+    /// The local|external record identity a field set resolves to. `recordFieldSetVerdict`
+    /// mints a `LocalRecord` per project-local candidate and an `ExternalRecord` per provider
+    /// candidate; both flow through the shared resolver / construction shape below.
     type ResolvedRecord =
         | LocalRecord of RecordTypeInfo
         | ExternalRecord of ExternalRecordCandidate
@@ -186,33 +185,35 @@ module internal UnificationInferResolve =
     /// A pure field-set verdict, no diagnostics — the checker wrapper below owns every
     /// `ctx.Error`. `PartialMatches` = every record whose declared field set ⊇ the typed set
     /// (the per-field candidate intersection, deduped by `TypeKey`) — F#'s `BuildFieldMap`
-    /// intersection and the future LSP-completion set; it is R4b/Phase-2-facing and the R4a
-    /// wrapper does not read it. `ExactMatch` = the UNIQUE `PartialMatch` whose field set EQUALS
-    /// the typed set (a superset of equal size ⟺ an equal set, so this subsumes F#'s field-count
-    /// tie-break).
+    /// intersection and the LSP-completion set. `ExactMatch` = the UNIQUE `PartialMatch` whose
+    /// field set EQUALS the typed set (a superset of equal size ⟺ an equal set, so this subsumes
+    /// F#'s field-count tie-break); `ExactCount` is how many matched exactly, so the wrapper
+    /// splits "no match" (`0`) from "ambiguous" (`>1`) without re-deriving it from `PartialMatches`.
     type RecordFieldSetVerdict =
         {
             ExactMatch: ResolvedRecord voption
+            ExactCount: int
             PartialMatches: ResolvedRecord list
         }
 
-    /// The verdict for the typed field set `names` at `useSite`, LOCAL candidates only (R4b
-    /// unions provider `TryRecordsWithField` candidates in here). A record survives to
-    /// `PartialMatches` iff it declares EVERY typed field — i.e. `typed ⊆ declared`, a subset
-    /// filter, which is why only the FIRST field's candidates need fetching: any record that
-    /// declares all typed fields declares the FIRST one, so it is already in
-    /// `recordsWithField … first`. Fetching every field and intersecting (as R4a did) is
-    /// therefore redundant — the first-field set is a SUPERSET of the answer and the subset test
-    /// in `classifyRecordCandidates` prunes it exactly. `recordsWithField` visibility-scopes that
-    /// set to `useSite`, so the verdict stays visibility-correct (a record whose declaring site
-    /// sits below the use names nothing). The pure classifier does the dedup-by-key / subset /
-    /// exact-match work; here we only wrap `LocalRecord`s, key them, and map the verdict back —
-    /// so the combinatorial logic is testable in the open (`RecordFieldClassifier`).
+    /// The verdict for the typed field set `names` at `useSite`, unioning LOCAL candidates with
+    /// provider `TryRecordsWithField` ones. A record survives to `PartialMatches` iff it declares
+    /// EVERY typed field — i.e. `typed ⊆ declared`, a subset filter, which is why only the FIRST
+    /// field's candidates need fetching: any record that declares all typed fields declares the
+    /// FIRST one, so it is already in `recordsWithField … first`. Fetching every field and
+    /// intersecting would be redundant — the first-field set is a SUPERSET of the answer and the
+    /// subset test in `classifyRecordCandidates` prunes it exactly. `recordsWithField`
+    /// visibility-scopes the local set to `useSite`, so the verdict stays visibility-correct (a
+    /// record whose declaring site sits below the use names nothing). The pure classifier does the
+    /// dedup-by-key / subset / exact-match work over the `ResolvedRecord`s directly — so the
+    /// combinatorial logic is testable in the open (`RecordFieldClassifier`) and no key→candidate
+    /// map-back is needed here.
     let recordFieldSetVerdict (ctx: PassContext) (useSite: UseSite) (names: string list) : RecordFieldSetVerdict =
         match names with
         | [] ->
             {
                 ExactMatch = ValueNone
+                ExactCount = 0
                 PartialMatches = []
             }
         | first :: _ ->
@@ -221,8 +222,8 @@ module internal UnificationInferResolve =
                     for info in TypeRegistry.recordsWithField ctx.Types useSite first -> LocalRecord info
                     // Provider candidates join LOCAL-FIRST: on a `TypeKey` collision the
                     // local record wins (local is authoritative for the compiling unit) —
-                    // the classifier's first-occurrence dedup and the `byKey` fill below
-                    // both keep the earlier (local) entry, so ordering local-first suffices.
+                    // the classifier's first-occurrence dedup keeps the earlier (local)
+                    // entry, so ordering local-first suffices.
                     //
                     // The ambient-scope / `open` filter on provider candidates is DEFERRED:
                     // Phase 1 ships "any provider record with the field" — over-permissive
@@ -238,28 +239,141 @@ module internal UnificationInferResolve =
                     for cand in ctx.Resolver.TryRecordsWithField first -> ExternalRecord cand
                 ]
 
-            // Keyed by `TypeKey`, which supports equality but NOT comparison (so a
-            // `Dictionary`, not a `Map`), to map the classifier's key verdict back to the
-            // `ResolvedRecord`s. Keep the FIRST occurrence per key (guarded add) so a key
-            // present both locally and via a provider maps back to the LOCAL record — the
-            // same first-occurrence dedup the classifier applies.
-            let byKey = Dictionary<TypeKey, ResolvedRecord>()
-
-            for r in candidates do
-                let key = resolvedRecordTypeKey r
-
-                if not (byKey.ContainsKey key) then
-                    byKey.[key] <- r
-
+            // The classifier dedups by `TypeKey` (first-wins) and returns the surviving
+            // `ResolvedRecord`s directly, so the local-first ordering above is what pins a
+            // key present both locally and via a provider to its LOCAL record.
             let classification =
                 RecordFieldClassifier.classifyRecordCandidates
-                    [ for r in candidates -> resolvedRecordTypeKey r, resolvedRecordFieldNames r ]
+                    resolvedRecordTypeKey
+                    resolvedRecordFieldNames
+                    candidates
                     (Set.ofList names)
 
             {
-                ExactMatch = classification.ExactKey |> ValueOption.map (fun key -> byKey.[key])
-                PartialMatches = classification.PartialKeys |> List.map (fun key -> byKey.[key])
+                ExactMatch = classification.Exact
+                ExactCount = classification.ExactCount
+                PartialMatches = classification.Partial
             }
+
+    /// The record's own simple (segment) name — `info.Name` locally, the innermost type
+    /// segment for an external record. It drives BOTH the "Type '%s' has no field '%s'"
+    /// diagnostic and the qualified-literal qualifier match (`R` in `{ R.X = … }`). Taken
+    /// off the real `TypeKey` via `typeSimpleName`, NOT `shortName` of the compiled meta
+    /// name: a module-held record's metadata name is `+`-mangled (`Test.A.M+R`) and
+    /// `shortName` strips only the arity suffix, so it would yield `M+R` and never match
+    /// the written `R`.
+    let resolvedRecordDisplayName (r: ResolvedRecord) : string =
+        match r with
+        | LocalRecord info -> info.Name
+        | ExternalRecord candidate ->
+            let (DisplayName shown) = SymbolKeyOps.typeSimpleName candidate.TypeKey
+            shown
+
+    /// The record a literal / pattern resolves to, OR `ValueNone` with the appropriate
+    /// diagnostic emitted — the ONE resolver both `inferRecord` (expr) and the record arm
+    /// of `inferPat` route through, so the local|external and qualified|bare branching is
+    /// not duplicated across the two call sites. All diagnostics live here; the message
+    /// text is IDENTICAL to the historical local-only path so local behaviour stays
+    /// byte-identical.
+    ///
+    /// CONSTRUCTION resolves ONLY on `ExactMatch` — a superset-only or ambiguous field set
+    /// is an ERROR, exactly as the old exact-set-equality rejected supersets. Vesper has no
+    /// missing-field check, so resolving a superset would silently build a record with unset
+    /// fields; `PartialMatches` is consumed here only to filter by a qualifier (LSP is the
+    /// other, future reader) and `ExactCount` splits the no-match vs ambiguous diagnostic.
+    let resolveRecordFor
+        (ctx: PassContext)
+        (diagKey: NodeKey)
+        (useSite: UseSite)
+        (qualifier: string option)
+        (names: string list)
+        : ResolvedRecord voption =
+        match qualifier with
+        | Some typeName ->
+            match TypeRegistry.tryRecord ctx.Types useSite typeName with
+            | ValueSome info -> ValueSome(LocalRecord info)
+            | ValueNone ->
+                // Local miss on a qualified record: filter the field-set candidates by
+                // short name == qualifier (mirrors `ExternalUnionCase` qualifier matching).
+                // A unique survivor is the external record named; otherwise the historical
+                // "Unknown record type qualifier" error, unchanged for the local case.
+                match
+                    (recordFieldSetVerdict ctx useSite names).PartialMatches
+                    |> List.filter (fun r -> resolvedRecordDisplayName r = typeName)
+                with
+                | [ only ] -> ValueSome only
+                | _ ->
+                    ctx.Error(diagKey, sprintf "Unknown record type qualifier: %s" typeName)
+                    ValueNone
+        | None ->
+            let verdict = recordFieldSetVerdict ctx useSite names
+
+            match verdict.ExactMatch with
+            | ValueSome r -> ValueSome r
+            | ValueNone ->
+                // `ExactCount` is the number of records whose field set EQUALS the typed set
+                // (what the old exact-set-equality loop counted), disambiguating "no match"
+                // (0) from "ambiguous" (>1) — NOT `PartialMatches.Length`, which also holds
+                // supersets.
+                if verdict.ExactCount = 0 then
+                    ctx.Error(diagKey, sprintf "No record type matches the field set: %s" (String.concat ", " names))
+                else
+                    ctx.Error(
+                        diagKey,
+                        sprintf
+                            "Field set is ambiguous (%d candidate record types); add a qualifier or annotation"
+                            verdict.ExactCount
+                    )
+
+                ValueNone
+
+    /// The construction shape of a resolved record — its `TyRecord` key, the fresh type
+    /// args to instantiate it at, and a per-field-name type resolver — with the
+    /// local|external field-type branch factored into ONE place (both call sites unify
+    /// each initialiser / sub-pattern against `fieldTypeOf name`).
+    ///
+    /// Local records instantiate their `RecordTypeInfo` typars fresh and substitute; an
+    /// external record reads its frozen field shapes by key and instantiates the template
+    /// with the receiver's args. DEFERRED (consistent with external unions): an external
+    /// record with an explicitly `obj`-typed field skips `wrapObjArg` boxing because
+    /// `translateRecord`/`recordFieldTy` (`Resolve.fs`) is `LocalRecord`-only — the exact
+    /// existing limitation for external union cases (`unionCaseFieldTys`). Reified generics
+    /// and concrete fields are unaffected.
+    let recordConstructionOf
+        (ctx: PassContext)
+        (r: ResolvedRecord)
+        : struct (TypeKey * EqArray<SemType> * (string -> SemType voption)) =
+        match r with
+        | LocalRecord info ->
+            let args, subst = freshNamedInstance ctx info.TypeParams
+
+            let fieldTypeOf (name: string) =
+                match info.Fields |> Array.tryFind (fun f -> f.Name = name) with
+                | Some f -> ValueSome(substituteWith subst f.Type)
+                | None -> ValueNone
+
+            struct (info.TypeKey, args, fieldTypeOf)
+        | ExternalRecord candidate ->
+            let key = candidate.TypeKey
+
+            let fieldShapes =
+                match ctx.Provider.TryLookupType(SymbolKey.Type key) with
+                | ValueSome(ExternalTypeShape.Record(_, fs, _)) -> fs
+                | _ -> [||]
+
+            // Precompute the args array once (not per field): one fresh TyVar per declared
+            // typar slot, instantiating each field's `FTTypar(Declaring,i)` template.
+            let args =
+                EqArray.ofArray [| for _ in 1 .. candidate.TyparArity -> TyVar(freshTyVar ctx) |]
+
+            let argsArr = args.AsSpan().ToArray()
+
+            let fieldTypeOf (name: string) =
+                match fieldShapes |> Array.tryFind (fun f -> f.Name = name) with
+                | Some f -> ValueSome(FrozenTypeBridge.instantiateDeclaring f.Frozen argsArr)
+                | None -> ValueNone
+
+            struct (key, args, fieldTypeOf)
 
     /// `Circle(r)` parses as `Circle (EnclosedBlock r)`; `Rectangle(w, h)`
     /// as `Circle (EnclosedBlock (Tuple [w; h]))`. v1 supports the
