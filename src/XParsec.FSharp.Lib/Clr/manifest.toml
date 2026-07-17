@@ -1,8 +1,0 @@
-# XParsec.FSharp.Lib / Clr — platform primitives bucket.
-# Order matches FSharp.Core.fsproj.
-
-files = [
-  "prim-types-prelude.fsi",
-  "prim-types.fsi",
-  "nativeptr.fsi",
-]

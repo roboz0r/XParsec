@@ -1,15 +1,14 @@
 # Vesper.Core — minimal self-hosted core library.
 #
 # Authored (NOT a port): this tree is original, so there is no `[upstream]` pin
-# (cf. XParsec.FSharp.Lib's manifest, which records the FSharp.Core SHA it was
-# transliterated from).
+# recording a commit it was transliterated from.
 #
 # The `.fsi` files are the front-end symbol contract — parsed by XParsec.FSharp
 # and walked into an `IExternalSymbolProvider`. The `.fs` files are the runtime
 # implementation target for this repo's own backend (→ Vesper.Core.dll,
-# BCL-only, no FSharp.Core). Like XParsec.FSharp.Lib there is no `.fsproj`: the
-# operators alone force the contract to be signature-only (a `let inline (+)`
-# body needs inline IL / `--compiling-fslib`).
+# BCL-only, no FSharp.Core). There is no `.fsproj`: the operators alone force the
+# contract to be signature-only (a `let inline (+)` body needs inline IL /
+# `--compiling-fslib`).
 #
 # The OPERATOR bodies live here. `hash`, the equality family (`=`/`<>`), and
 # arithmetic/bitwise/unary (`+ - * / %`, `~- ~+`, `&&& ||| ^^^ <<< >>> ~~~`) all have

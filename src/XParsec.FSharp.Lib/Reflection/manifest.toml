@@ -1,5 +1,0 @@
-# XParsec.FSharp.Lib / Reflection — F#-aware reflection wrappers.
-
-files = [
-  "reflect.fsi",
-]
