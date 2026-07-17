@@ -15,75 +15,59 @@ let private tagged (name: string) (tag: string) : IExternalSymbolProvider =
             Namespace = SymbolKeyOps.namespaceKey tag
         }
 
-    { new IExternalSymbolProvider
+    // The tag rides each channel's payload (the `TyConst` on the value channel, the
+    // `Origin.Namespace` on the type/member ones), so a winning source stays
+    // distinguishable through `composite`'s first-hit-wins fall-through.
+    let taggedMember (t: string) (m: string) : ExternalMember voption =
+        if t = name && m = name then
+            ValueSome
+                { ExternalMember.OfKey(
+                      SymbolKeyOps.memberKeyOf
+                          (SymbolKeyOps.typeKeyOf origin.Namespace.Dotted name)
+                          name
+                          EqArray.empty
+                          0
+                          MemberKind.Method
+                  ) with
+                    IsStatic = true
+                    Signature =
+                        TestHelpers.mkSignature
+                            0
+                            0
+                            (FTConst(RuntimeNames.unitKey, EqArray.empty))
+                            (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty))
+                    Origin = origin
+                }
+        else
+            ValueNone
 
-      interface IExternalSymbolResolver with
-          member _.TryLookup n =
-              if n = name then
-                  ValueSome
-                      { ExternalSymbols.monoFrozen
-                            (SymbolKeyOps.inNamespace "")
-                            name
-                            (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty)) with
-                          Origin = origin
-                      }
-              else
-                  ValueNone
-
-          member _.TryLookupType(n: string) =
-              if n = name then
-                  ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, origin)))
-              else
-                  ValueNone
-
-          member _.TryResolveTypeName(_: string) = ValueNone
-          member _.TryLookupUnionCase _ = ValueNone
-          member _.TryRecordsWithField _ = [||]
-          member _.AmbientOpenPrefixes = []
-      interface IExternalSymbolStore with
-          member _.TryLookupType(key: SymbolKey) =
-              if SymbolKeyOps.qualifiedName key = name then
-                  ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, origin)))
-              else
-                  ValueNone
-
-          member _.TryLookupMember(key, m) =
-              if SymbolKeyOps.qualifiedName key = name && m = name then
-                  ValueSome
-                      { ExternalMember.OfKey(
-                            SymbolKeyOps.memberKeyOf
-                                (SymbolKeyOps.typeKeyOf origin.Namespace.Dotted name)
-                                name
-                                EqArray.empty
-                                0
-                                MemberKind.Method
-                        ) with
-                          IsStatic = true
-                          Signature =
-                              TestHelpers.mkSignature
-                                  0
-                                  0
-                                  (FTConst(RuntimeNames.unitKey, EqArray.empty))
-                                  (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty))
-                          Origin = origin
-                      }
-              else
-                  ValueNone
-
-          member this.TryLookupMembers(key, m) =
-              match this.TryLookupMember(key, m) with
-              | ValueSome mem -> [| mem |]
-              | ValueNone -> [||]
-
-          member this.TryLookupMemberByKey(key: MemberKey) =
-              this.TryLookupMembers(SymbolKey.Type key.Decl, key.Name)
-              |> ExternalSymbols.memberByKey key
-
-          member _.TryLookupIndexSignature _ = []
-          member _.TryLookupByKey _ = ValueNone
-          member _.IntrinsicReverseCanon = Map.empty
-          member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
-    }
+    ExternalSymbolProviders.ofNamedLeaf
+        { ExternalSymbolProviders.NamedLeaf.empty with
+            TryLookup =
+                fun n ->
+                    if n = name then
+                        ValueSome
+                            { ExternalSymbols.monoFrozen
+                                  (SymbolKeyOps.inNamespace "")
+                                  name
+                                  (FTConst(RuntimeNames.opaqueKey tag, EqArray.empty)) with
+                                Origin = origin
+                            }
+                    else
+                        ValueNone
+            TryLookupType =
+                fun n ->
+                    if n = name then
+                        ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (0, false, origin)))
+                    else
+                        ValueNone
+            TryLookupMember = fun (t, m) -> taggedMember t m
+            TryLookupMembers =
+                fun (t, m) ->
+                    match taggedMember t m with
+                    | ValueSome mem -> [| mem |]
+                    | ValueNone -> [||]
+        }
 
 /// The `TyConst` tag carried by a resolved value symbol, for asserting which
 /// source won.

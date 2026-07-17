@@ -102,36 +102,24 @@ let tests =
                 // A contract val whose signature named an out-of-scope type bakes a
                 // `TyUnknown` leaf. Referencing that symbol must fire a diagnostic when
                 // its `TyUnknown` type reaches unification — not silently succeed.
+                // The malformation is in the PAYLOAD (a symbol whose frozen type is an
+                // unresolved `FTUnknown` leaf), not in the provider shape — so the leaf
+                // carries it verbatim.
                 let brokenProvider =
-                    { new IExternalSymbolProvider
-
-                      interface IExternalSymbolResolver with
-                          member _.TryLookup name =
-                              if name = "broken" then
-                                  ValueSome(
-                                      ExternalSymbols.monoFrozen
-                                          (SymbolKeyOps.inNamespace "")
-                                          "broken"
-                                          (FTUnknown "Missing.Thing")
-                                  )
-                              else
-                                  ValueNone
-
-                          member _.TryLookupType(_: string) = ValueNone
-                          member _.TryResolveTypeName(_: string) = ValueNone
-                          member _.TryLookupUnionCase _ = ValueNone
-                          member _.TryRecordsWithField _ = [||]
-                          member _.AmbientOpenPrefixes = []
-                      interface IExternalSymbolStore with
-                          member _.TryLookupType(_: SymbolKey) = ValueNone
-                          member _.TryLookupMember(_, _) = ValueNone
-                          member _.TryLookupMembers(_, _) = [||]
-                          member _.TryLookupMemberByKey(_: MemberKey) = ValueNone
-                          member _.TryLookupIndexSignature _ = []
-                          member _.TryLookupByKey _ = ValueNone
-                          member _.IntrinsicReverseCanon = Map.empty
-                          member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
-                    }
+                    ExternalSymbolProviders.ofNamedLeaf
+                        { ExternalSymbolProviders.NamedLeaf.empty with
+                            TryLookup =
+                                fun name ->
+                                    if name = "broken" then
+                                        ValueSome(
+                                            ExternalSymbols.monoFrozen
+                                                (SymbolKeyOps.inNamespace "")
+                                                "broken"
+                                                (FTUnknown "Missing.Thing")
+                                        )
+                                    else
+                                        ValueNone
+                        }
 
                 let provider =
                     ExternalSymbolProviders.composite [ brokenProvider; realProvider.Value ]

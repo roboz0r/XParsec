@@ -92,55 +92,36 @@ let private memberByName (t: string) (m: string) : ExternalMember voption =
         ValueNone
 
 let private fake: IExternalSymbolProvider =
-    { new IExternalSymbolProvider
-
-      interface IExternalSymbolResolver with
-          member _.TryLookup name =
-              if name = "sym" then
-                  ValueSome(ExternalSymbols.monoFrozen (SymbolKeyOps.inNamespace "") "sym" marker)
-              else
-                  ValueNone
-
-          member _.TryLookupType(name: string) = typeByName name
-          member _.TryResolveTypeName(_: string) = ValueNone
-
-          member _.TryLookupUnionCase caseName =
-              if caseName = "C" then
-                  ValueSome
-                      {
-                          UnionName = "Uni"
-                          TyparArity = 1
-                          Origin = origin
-                          Case = markerCase
-                          IsRequireQualifiedAccess = false
-                      }
-              else
-                  ValueNone
-
-          member _.TryRecordsWithField _ = [||]
-          member _.AmbientOpenPrefixes = [ "Amb" ]
-      interface IExternalSymbolStore with
-          member _.TryLookupType(key: SymbolKey) =
-              typeByName (SymbolKeyOps.qualifiedName key)
-
-          member _.TryLookupMember(key, m) =
-              memberByName (SymbolKeyOps.qualifiedName key) m
-
-          member _.TryLookupMembers(key, m) =
-              match memberByName (SymbolKeyOps.qualifiedName key) m with
-              | ValueSome mem -> [| mem |]
-              | ValueNone -> [||]
-
-          member _.TryLookupMemberByKey(key: MemberKey) =
-              match memberByName (SymbolKeyOps.qualifiedName (SymbolKey.Type key.Decl)) key.Name with
-              | ValueSome mem -> ExternalSymbols.memberByKey key [| mem |]
-              | ValueNone -> ValueNone
-
-          member _.TryLookupIndexSignature _ = []
-          member _.TryLookupByKey _ = ValueNone
-          member _.IntrinsicReverseCanon = Map.empty
-          member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
-    }
+    ExternalSymbolProviders.ofNamedLeaf
+        { ExternalSymbolProviders.NamedLeaf.empty with
+            TryLookup =
+                fun name ->
+                    if name = "sym" then
+                        ValueSome(ExternalSymbols.monoFrozen (SymbolKeyOps.inNamespace "") "sym" marker)
+                    else
+                        ValueNone
+            TryLookupType = typeByName
+            TryLookupUnionCase =
+                fun caseName ->
+                    if caseName = "C" then
+                        ValueSome
+                            {
+                                UnionName = "Uni"
+                                TyparArity = 1
+                                Origin = origin
+                                Case = markerCase
+                                IsRequireQualifiedAccess = false
+                            }
+                    else
+                        ValueNone
+            AmbientOpenPrefixes = [ "Amb" ]
+            TryLookupMember = fun (t, m) -> memberByName t m
+            TryLookupMembers =
+                fun (t, m) ->
+                    match memberByName t m with
+                    | ValueSome mem -> [| mem |]
+                    | ValueNone -> [||]
+        }
 
 let private wrapped = ExternalSymbolProviders.mapProviderTypes resolveMarker fake
 

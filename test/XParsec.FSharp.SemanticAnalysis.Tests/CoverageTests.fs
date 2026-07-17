@@ -1015,35 +1015,20 @@ let tests =
 
             test "qualified name resolves through provider" {
                 let provider: IExternalSymbolProvider =
-                    { new IExternalSymbolProvider
-
-                      interface IExternalSymbolResolver with
-                          member _.TryLookup name =
-                              if name = "Math.pi" then
-                                  ValueSome(
-                                      ExternalSymbols.monoFrozen
-                                          (SymbolKeyOps.inNamespace "")
-                                          name
-                                          (FrozenTypeBridge.toFrozen BuiltinTypes.tyFloat)
-                                  )
-                              else
-                                  realProvider.Value.TryLookup name
-
-                          member _.TryLookupType(_: string) = ValueNone
-                          member _.TryResolveTypeName(_: string) = ValueNone
-                          member _.TryLookupUnionCase _ = ValueNone
-                          member _.TryRecordsWithField _ = [||]
-                          member _.AmbientOpenPrefixes = []
-                      interface IExternalSymbolStore with
-                          member _.TryLookupType(_: SymbolKey) = ValueNone
-                          member _.TryLookupMember(_, _) = ValueNone
-                          member _.TryLookupMembers(_, _) = [||]
-                          member _.TryLookupMemberByKey(_: MemberKey) = ValueNone
-                          member _.TryLookupIndexSignature _ = []
-                          member _.TryLookupByKey _ = ValueNone
-                          member _.IntrinsicReverseCanon = Map.empty
-                          member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
-                    }
+                    ExternalSymbolProviders.ofNamedLeaf
+                        { ExternalSymbolProviders.NamedLeaf.empty with
+                            TryLookup =
+                                fun name ->
+                                    if name = "Math.pi" then
+                                        ValueSome(
+                                            ExternalSymbols.monoFrozen
+                                                (SymbolKeyOps.inNamespace "")
+                                                name
+                                                (FrozenTypeBridge.toFrozen BuiltinTypes.tyFloat)
+                                        )
+                                    else
+                                        realProvider.Value.TryLookup name
+                        }
 
                 let input = "let r = Math.pi"
                 let lexed, file = parseFile input

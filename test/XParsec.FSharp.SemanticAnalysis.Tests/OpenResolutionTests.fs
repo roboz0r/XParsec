@@ -13,63 +13,46 @@ open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 /// generic *type* (`Some.Where.Foo`1`) — enough to exercise the value and type
 /// channels of short-name resolution without standing up real metadata.
 let private provider: IExternalSymbolProvider =
-    { new IExternalSymbolProvider
+    let mono name =
+        ValueSome(
+            ExternalSymbols.monoFrozen (SymbolKeyOps.inNamespace "") name (FTConst(RuntimeNames.intKey, EqArray.empty))
+        )
 
-      interface IExternalSymbolResolver with
-          member _.TryLookup n =
-              let mono name =
-                  ValueSome(
-                      ExternalSymbols.monoFrozen
-                          (SymbolKeyOps.inNamespace "")
-                          name
-                          (FTConst(RuntimeNames.intKey, EqArray.empty))
-                  )
+    // `Color` is `[<RequireQualifiedAccess>]` (its case `Red` carries the flag);
+    // `Hue` is an ordinary union (`Blue` does not). Drives the RQA-suppression
+    // tests below.
+    let mkCase union rqa name =
+        ValueSome
+            {
+                UnionName = union
+                TyparArity = 0
+                Origin = SymbolOrigin.Empty
+                Case = ExternalCaseShape.create (name, [||])
+                IsRequireQualifiedAccess = rqa
+            }
 
-              if n = "A.B.thing" then mono "thing"
-              // The qualified operator `A.B.(+)` resolves to its compiled name
-              // `A.B.op_Addition`.
-              elif n = "A.B.op_Addition" then mono "op_Addition"
-              else ValueNone
-
-          member _.TryLookupType(n: string) =
-              if n = "Some.Where.Foo`1" then
-                  ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (1, false, SymbolOrigin.Empty)))
-              else
-                  ValueNone
-
-          member _.TryResolveTypeName(_: string) = ValueNone
-
-          // `Color` is `[<RequireQualifiedAccess>]` (its case `Red` carries the flag);
-          // `Hue` is an ordinary union (`Blue` does not). Drives the RQA-suppression
-          // tests below.
-          member _.TryLookupUnionCase caseName =
-              let mk union rqa name =
-                  ValueSome
-                      {
-                          UnionName = union
-                          TyparArity = 0
-                          Origin = SymbolOrigin.Empty
-                          Case = ExternalCaseShape.create (name, [||])
-                          IsRequireQualifiedAccess = rqa
-                      }
-
-              match caseName with
-              | "Red" -> mk "Tests.Color" true "Red"
-              | "Blue" -> mk "Tests.Hue" false "Blue"
-              | _ -> ValueNone
-
-          member _.TryRecordsWithField _ = [||]
-          member _.AmbientOpenPrefixes = []
-      interface IExternalSymbolStore with
-          member _.TryLookupType(_: SymbolKey) = ValueNone
-          member _.TryLookupMember(_, _) = ValueNone
-          member _.TryLookupMembers(_, _) = [||]
-          member _.TryLookupMemberByKey(_: MemberKey) = ValueNone
-          member _.TryLookupIndexSignature _ = []
-          member _.TryLookupByKey _ = ValueNone
-          member _.IntrinsicReverseCanon = Map.empty
-          member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
-    }
+    ExternalSymbolProviders.ofNamedLeaf
+        { ExternalSymbolProviders.NamedLeaf.empty with
+            TryLookup =
+                fun n ->
+                    if n = "A.B.thing" then mono "thing"
+                    // The qualified operator `A.B.(+)` resolves to its compiled name
+                    // `A.B.op_Addition`.
+                    elif n = "A.B.op_Addition" then mono "op_Addition"
+                    else ValueNone
+            TryLookupType =
+                fun n ->
+                    if n = "Some.Where.Foo`1" then
+                        ValueSome(ExternalTypeShape.Class(ExternalClassShape.basic (1, false, SymbolOrigin.Empty)))
+                    else
+                        ValueNone
+            TryLookupUnionCase =
+                fun caseName ->
+                    match caseName with
+                    | "Red" -> mkCase "Tests.Color" true "Red"
+                    | "Blue" -> mkCase "Tests.Hue" false "Blue"
+                    | _ -> ValueNone
+        }
 
 let private analyse (input: string) =
     let lexed, file = parseFile input

@@ -445,29 +445,14 @@ let enforcementTests =
 let private contractProvider (entries: (string * ExternalSymbol) list) : IExternalSymbolProvider =
     let m = Map.ofList entries
 
-    { new IExternalSymbolProvider
-
-      interface IExternalSymbolResolver with
-          member _.TryLookup name =
-              match Map.tryFind name m with
-              | Some s -> ValueSome s
-              | None -> ValueNone
-
-          member _.TryLookupType(_: string) = ValueNone
-          member _.TryResolveTypeName(_: string) = ValueNone
-          member _.TryLookupUnionCase _ = ValueNone
-          member _.TryRecordsWithField _ = [||]
-          member _.AmbientOpenPrefixes = []
-      interface IExternalSymbolStore with
-          member _.TryLookupType(_: SymbolKey) = ValueNone
-          member _.TryLookupMember(_, _) = ValueNone
-          member _.TryLookupMembers(_, _) = [||]
-          member _.TryLookupMemberByKey(_: MemberKey) = ValueNone
-          member _.TryLookupIndexSignature _ = []
-          member _.TryLookupByKey _ = ValueNone
-          member _.IntrinsicReverseCanon = Map.empty
-          member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
-    }
+    ExternalSymbolProviders.ofNamedLeaf
+        { ExternalSymbolProviders.NamedLeaf.empty with
+            TryLookup =
+                fun name ->
+                    match Map.tryFind name m with
+                    | Some s -> ValueSome s
+                    | None -> ValueNone
+        }
 
 /// Run the `.fs` through the real frozen self-host pipeline (so a generic binding's
 /// typar order is inference's own). The snippets reference no external symbols, so
@@ -580,34 +565,17 @@ let private mkMember
 /// type (keyed by member name; the declaring-type name is ignored, so the stub
 /// serves whatever qualified name the `.fs` type resolves under).
 let private memberContractProvider (overloads: ExternalMember list) : IExternalSymbolProvider =
-    { new IExternalSymbolProvider
-
-      interface IExternalSymbolResolver with
-          member _.TryLookup _ = ValueNone
-          member _.TryLookupType(_: string) = ValueNone
-          member _.TryResolveTypeName(_: string) = ValueNone
-          member _.TryLookupUnionCase _ = ValueNone
-          member _.TryRecordsWithField _ = [||]
-          member _.AmbientOpenPrefixes = []
-      interface IExternalSymbolStore with
-          member _.TryLookupType(_: SymbolKey) = ValueNone
-
-          member _.TryLookupMember(_, name) =
-              match overloads |> List.tryFind (fun m -> m.Name = name) with
-              | Some m -> ValueSome m
-              | None -> ValueNone
-
-          member _.TryLookupMembers(_, name) =
-              overloads |> List.filter (fun m -> m.Name = name) |> List.toArray
-
-          member _.TryLookupMemberByKey(key: MemberKey) =
-              overloads |> List.toArray |> ExternalSymbols.memberByKey key
-
-          member _.TryLookupIndexSignature _ = []
-          member _.TryLookupByKey _ = ValueNone
-          member _.IntrinsicReverseCanon = Map.empty
-          member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
-    }
+    // The declaring-type name of each member channel is ignored, so the stub serves its
+    // overload set to whatever qualified name the `.fs` type resolves under.
+    ExternalSymbolProviders.ofNamedLeaf
+        { ExternalSymbolProviders.NamedLeaf.empty with
+            TryLookupMember =
+                fun (_, name) ->
+                    match overloads |> List.tryFind (fun m -> m.Name = name) with
+                    | Some m -> ValueSome m
+                    | None -> ValueNone
+            TryLookupMembers = fun (_, name) -> overloads |> List.filter (fun m -> m.Name = name) |> List.toArray
+        }
 
 [<Tests>]
 let memberTyparConformanceTests =

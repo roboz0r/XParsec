@@ -13,6 +13,12 @@ let private origin = SymbolOrigin.Empty
 /// An inner provider that answers only `name` on the value channel and records how many
 /// times each channel's factory reached it, so the cache's at-most-once contract is
 /// observable.
+///
+/// Hand-rolled deliberately — NOT an `ExternalSymbolProviders.ofNamedLeaf` leaf. `memoize`
+/// caches per INTERFACE channel, so the double must count per interface channel; a
+/// `NamedLeaf` has no `TryLookupMemberByKey` field (`ofKeyedLeaf` DERIVES that channel
+/// from `TryLookupMembers`), so `MemberKeyHits` would silently become a count of a
+/// different channel. Keep this implementing the interface directly.
 type private CountingProvider(name: string) =
     let mutable lookupHits = 0
     let mutable typeHits = 0

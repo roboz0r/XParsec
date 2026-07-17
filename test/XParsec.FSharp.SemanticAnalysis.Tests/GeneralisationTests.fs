@@ -117,27 +117,10 @@ let tests =
                 // via `composite` (first-hit-wins) rather than hand-delegating each
                 // channel — so the intrinsic surface stays honest.
                 let myIdStub: IExternalSymbolProvider =
-                    { new IExternalSymbolProvider
-
-                      interface IExternalSymbolResolver with
-                          member _.TryLookup name =
-                              if name = "myId" then ValueSome myIdSymbol else ValueNone
-
-                          member _.TryLookupType(_: string) = ValueNone
-                          member _.TryResolveTypeName(_: string) = ValueNone
-                          member _.TryLookupUnionCase _ = ValueNone
-                          member _.TryRecordsWithField _ = [||]
-                          member _.AmbientOpenPrefixes = []
-                      interface IExternalSymbolStore with
-                          member _.TryLookupType(_: SymbolKey) = ValueNone
-                          member _.TryLookupMember(_, _) = ValueNone
-                          member _.TryLookupMembers(_, _) = [||]
-                          member _.TryLookupMemberByKey(_: MemberKey) = ValueNone
-                          member _.TryLookupIndexSignature _ = []
-                          member _.TryLookupByKey _ = ValueNone
-                          member _.IntrinsicReverseCanon = Map.empty
-                          member _.IntrinsicForwardRepr = ExternalSymbols.emptyForwardRepr
-                    }
+                    ExternalSymbolProviders.ofNamedLeaf
+                        { ExternalSymbolProviders.NamedLeaf.empty with
+                            TryLookup = fun name -> if name = "myId" then ValueSome myIdSymbol else ValueNone
+                        }
 
                 let provider = ExternalSymbolProviders.composite [ myIdStub; realProvider.Value ]
 
