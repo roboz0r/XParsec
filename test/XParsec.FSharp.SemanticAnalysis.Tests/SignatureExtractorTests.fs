@@ -6,6 +6,48 @@ open XParsec.FSharp.Parser
 open XParsec.FSharp.SemanticAnalysis
 open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
 
+/// Lex + parse an in-memory `.fsi` snippet into the `ParsedFile` the extractor
+/// consumes. The extractor reads no FIELD of the `LibFile` — it only carries the
+/// record through as the tag on a `ctx.Diagnostics` / `ctx.Skipped` entry — so one
+/// fixture name stands for all three, and `relative` exists solely to name the
+/// snippet in a fixture-level (lex/parse) failure.
+let parseFsi (relative: string) (input: string) : VesperLibManifest.ParsedFile =
+    let lexed =
+        match Lexing.lexString input with
+        | Result.Error e -> failtestf "lex failed in %s: %A" relative e
+        | Result.Ok lexed -> lexed
+
+    let ast =
+        let reader = Reader.ofLexed lexed input Set.empty
+
+        match FSharpAst.parseSignature reader with
+        | Result.Error e -> failtestf "parse failed in %s: %A" relative e
+        | Result.Ok ast -> ast
+
+    {
+        File =
+            {
+                BucketName = "App"
+                Relative = relative
+                Absolute = relative
+            }
+        Input = input
+        Lexed = lexed
+        Ast = ast
+    }
+
+/// The whole extraction pipeline over one in-memory `.fsi`, for a fixture that seeds
+/// NOTHING on the ctx beforehand. Vals are stashed during extraction and built into
+/// `ctx.Symbols` only by the finalize pass, once the registry is complete — so a
+/// fixture that instead pins the PRE-finalize state, or that must seed
+/// `AmbientShapes` / the intrinsic repr harvest before extraction runs, spells the
+/// steps out rather than coming through here.
+let extractFsi (relative: string) (input: string) : VesperLib.ExtractCtx =
+    let ctx = VesperLib.ExtractCtx.empty ()
+    VesperLib.extractSymbols ctx (parseFsi relative input)
+    VesperLib.finalizeDeferred ctx
+    ctx
+
 [<Tests>]
 let tests =
     testList
@@ -30,33 +72,10 @@ let tests =
                     else
                         ValueNone
 
-                let input =
-                    "namespace App\n\nopen Dep\n\nmodule M =\n    val qualified: Dep.Widget<int> -> int\n    val viaOpen: Widget<int> -> int\n"
-
-                let lexed =
-                    match Lexing.lexString input with
-                    | Result.Error e -> failtestf "lex failed: %A" e
-                    | Result.Ok lexed -> lexed
-
-                let ast =
-                    let reader = Reader.ofLexed lexed input Set.empty
-
-                    match FSharpAst.parseSignature reader with
-                    | Result.Error e -> failtestf "parse failed: %A" e
-                    | Result.Ok ast -> ast
-
-                let parsed: VesperLibManifest.ParsedFile =
-                    {
-                        File =
-                            {
-                                BucketName = "App"
-                                Relative = "app.fsi"
-                                Absolute = "app.fsi"
-                            }
-                        Input = input
-                        Lexed = lexed
-                        Ast = ast
-                    }
+                let parsed =
+                    parseFsi
+                        "app.fsi"
+                        "namespace App\n\nopen Dep\n\nmodule M =\n    val qualified: Dep.Widget<int> -> int\n    val viaOpen: Widget<int> -> int\n"
 
                 let ctx = VesperLib.ExtractCtx.empty ()
                 ctx.AmbientShapes <- ambient
@@ -103,36 +122,8 @@ let tests =
                 // bakes a `TyUnknown` leaf carrying the unresolved name — which a
                 // consumer surfaces as a use-site diagnostic (see the unify arm in
                 // `Passes/Unification/Engine.fs`).
-                let input = "namespace App\n\nmodule M =\n    val broken: Missing.Thing -> int\n"
-
-                let lexed =
-                    match Lexing.lexString input with
-                    | Result.Error e -> failtestf "lex failed: %A" e
-                    | Result.Ok lexed -> lexed
-
-                let ast =
-                    let reader = Reader.ofLexed lexed input Set.empty
-
-                    match FSharpAst.parseSignature reader with
-                    | Result.Error e -> failtestf "parse failed: %A" e
-                    | Result.Ok ast -> ast
-
-                let parsed: VesperLibManifest.ParsedFile =
-                    {
-                        File =
-                            {
-                                BucketName = "App"
-                                Relative = "app.fsi"
-                                Absolute = "app.fsi"
-                            }
-                        Input = input
-                        Lexed = lexed
-                        Ast = ast
-                    }
-
-                let ctx = VesperLib.ExtractCtx.empty ()
-                VesperLib.extractSymbols ctx parsed
-                VesperLib.finalizeDeferred ctx
+                let ctx =
+                    extractFsi "app.fsi" "namespace App\n\nmodule M =\n    val broken: Missing.Thing -> int\n"
 
                 let mutable found = ValueNone
 
@@ -161,42 +152,15 @@ let tests =
                 // type `int * int -> int`, but the first is a tupled GROUP (flattens
                 // to two CLR params) and the second a single tuple PARAM (stays one) —
                 // a distinction only the recorded `ValRepr` carries.
-                let input =
-                    "module TestC\n"
-                    + "val curried: int -> int -> int\n"
-                    + "val tupleGroup: int * int -> int\n"
-                    + "val singleTuple: (int * int) -> int\n"
-                    + "val loneUnit: unit -> int\n"
-                    + "val voidRet: int -> unit\n"
-
-                let lexed =
-                    match Lexing.lexString input with
-                    | Result.Error e -> failtestf "lex failed: %A" e
-                    | Result.Ok lexed -> lexed
-
-                let ast =
-                    let reader = Reader.ofLexed lexed input Set.empty
-
-                    match FSharpAst.parseSignature reader with
-                    | Result.Error e -> failtestf "parse failed: %A" e
-                    | Result.Ok ast -> ast
-
-                let parsed: VesperLibManifest.ParsedFile =
-                    {
-                        File =
-                            {
-                                BucketName = "App"
-                                Relative = "testc.fsi"
-                                Absolute = "testc.fsi"
-                            }
-                        Input = input
-                        Lexed = lexed
-                        Ast = ast
-                    }
-
-                let ctx = VesperLib.ExtractCtx.empty ()
-                VesperLib.extractSymbols ctx parsed
-                VesperLib.finalizeDeferred ctx
+                let ctx =
+                    extractFsi
+                        "testc.fsi"
+                        ("module TestC\n"
+                         + "val curried: int -> int -> int\n"
+                         + "val tupleGroup: int * int -> int\n"
+                         + "val singleTuple: (int * int) -> int\n"
+                         + "val loneUnit: unit -> int\n"
+                         + "val voidRet: int -> unit\n")
 
                 let symOf (suffix: string) : ExternalSymbol =
                     let mutable found = ValueNone
@@ -269,33 +233,10 @@ let tests =
                 // deferral registers an explicit `Opaque` residue, so every
                 // registered name carries a shape and `TryLookupType` returns
                 // `ValueSome(Opaque)` rather than absence.
-                let input =
-                    "namespace App\n\nmodule M =\n    type Thing =\n        | Red = 0\n        | Green = 1\n"
-
-                let lexed =
-                    match Lexing.lexString input with
-                    | Result.Error e -> failtestf "lex failed: %A" e
-                    | Result.Ok lexed -> lexed
-
-                let ast =
-                    let reader = Reader.ofLexed lexed input Set.empty
-
-                    match FSharpAst.parseSignature reader with
-                    | Result.Error e -> failtestf "parse failed: %A" e
-                    | Result.Ok ast -> ast
-
-                let parsed: VesperLibManifest.ParsedFile =
-                    {
-                        File =
-                            {
-                                BucketName = "App"
-                                Relative = "app.fsi"
-                                Absolute = "app.fsi"
-                            }
-                        Input = input
-                        Lexed = lexed
-                        Ast = ast
-                    }
+                let parsed =
+                    parseFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    type Thing =\n        | Red = 0\n        | Green = 1\n"
 
                 let ctx = VesperLib.ExtractCtx.empty ()
                 VesperLib.extractSymbols ctx parsed
@@ -326,33 +267,10 @@ let tests =
                 // `Class` shape (no front-end-modelled body) whose `Flags.IsValueType`
                 // is `true` — the contract-layer twin of the metadata layer's
                 // `Type.IsValueType` read.
-                let input =
-                    "namespace App\n\nmodule M =\n    type Point =\n        struct\n            val X: int\n            val Y: int\n        end\n"
-
-                let lexed =
-                    match Lexing.lexString input with
-                    | Result.Error e -> failtestf "lex failed: %A" e
-                    | Result.Ok lexed -> lexed
-
-                let ast =
-                    let reader = Reader.ofLexed lexed input Set.empty
-
-                    match FSharpAst.parseSignature reader with
-                    | Result.Error e -> failtestf "parse failed: %A" e
-                    | Result.Ok ast -> ast
-
-                let parsed: VesperLibManifest.ParsedFile =
-                    {
-                        File =
-                            {
-                                BucketName = "App"
-                                Relative = "app.fsi"
-                                Absolute = "app.fsi"
-                            }
-                        Input = input
-                        Lexed = lexed
-                        Ast = ast
-                    }
+                let parsed =
+                    parseFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    type Point =\n        struct\n            val X: int\n            val Y: int\n        end\n"
 
                 let ctx = VesperLib.ExtractCtx.empty ()
                 VesperLib.extractSymbols ctx parsed
@@ -383,39 +301,12 @@ let tests =
                 // impl — the `.fsi` half of the struct-seq external-head graduation. Filled
                 // by the deferred finalize pass (the interface type may forward-reference a
                 // sibling), so the previously-empty `basic` default is overwritten.
-                let input =
-                    "namespace App\n\nmodule M =\n    type IBox<'T> =\n        abstract member Get: unit -> 'T\n\n    [<Struct>]\n    type Holder<'T> =\n        new: value: 'T -> Holder<'T>\n        interface IBox<'T>\n"
-
-                let lexed =
-                    match Lexing.lexString input with
-                    | Result.Error e -> failtestf "lex failed: %A" e
-                    | Result.Ok lexed -> lexed
-
-                let ast =
-                    let reader = Reader.ofLexed lexed input Set.empty
-
-                    match FSharpAst.parseSignature reader with
-                    | Result.Error e -> failtestf "parse failed: %A" e
-                    | Result.Ok ast -> ast
-
-                let parsed: VesperLibManifest.ParsedFile =
-                    {
-                        File =
-                            {
-                                BucketName = "App"
-                                Relative = "app.fsi"
-                                Absolute = "app.fsi"
-                            }
-                        Input = input
-                        Lexed = lexed
-                        Ast = ast
-                    }
-
-                let ctx = VesperLib.ExtractCtx.empty ()
-                VesperLib.extractSymbols ctx parsed
                 // `FrozenInterfaces` is deferred (the interface type may forward-reference a
                 // sibling), so it is only filled once the finalize pass runs.
-                VesperLib.finalizeDeferred ctx
+                let ctx =
+                    extractFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    type IBox<'T> =\n        abstract member Get: unit -> 'T\n\n    [<Struct>]\n    type Holder<'T> =\n        new: value: 'T -> Holder<'T>\n        interface IBox<'T>\n"
 
                 let holderShape =
                     let mutable found = ValueNone
@@ -449,37 +340,10 @@ let tests =
                 // `member M` lands in `ctx.TypeMembers`. (The intrinsic-primitive
                 // `extern with` form — `type string = extern with …` — is deferred
                 // separately; this exercises only the class/interface branch.)
-                let input =
-                    "namespace App\n\nmodule M =\n    type IBar<'T> =\n        abstract member Get: unit -> 'T\n\n    type Foo<'T> = extern with\n        interface IBar<'T>\n        member M: unit -> 'T\n"
-
-                let lexed =
-                    match Lexing.lexString input with
-                    | Result.Error e -> failtestf "lex failed: %A" e
-                    | Result.Ok lexed -> lexed
-
-                let ast =
-                    let reader = Reader.ofLexed lexed input Set.empty
-
-                    match FSharpAst.parseSignature reader with
-                    | Result.Error e -> failtestf "parse failed: %A" e
-                    | Result.Ok ast -> ast
-
-                let parsed: VesperLibManifest.ParsedFile =
-                    {
-                        File =
-                            {
-                                BucketName = "App"
-                                Relative = "app.fsi"
-                                Absolute = "app.fsi"
-                            }
-                        Input = input
-                        Lexed = lexed
-                        Ast = ast
-                    }
-
-                let ctx = VesperLib.ExtractCtx.empty ()
-                VesperLib.extractSymbols ctx parsed
-                VesperLib.finalizeDeferred ctx
+                let ctx =
+                    extractFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    type IBar<'T> =\n        abstract member Get: unit -> 'T\n\n    type Foo<'T> = extern with\n        interface IBar<'T>\n        member M: unit -> 'T\n"
 
                 let fooShape =
                     let mutable found = ValueNone
@@ -534,33 +398,10 @@ let tests =
                 // return type ignored. (`Thing<'T>` stands in for `'T list` to keep
                 // the fixture self-contained — the self-referential field resolves
                 // because the type's name is registered before its body is kinded.)
-                let input =
-                    "namespace App\n\nmodule M =\n    type Thing<'T> =\n        | ([]): Thing<'T>\n        | (::): Head: 'T * Tail: Thing<'T> -> Thing<'T>\n"
-
-                let lexed =
-                    match Lexing.lexString input with
-                    | Result.Error e -> failtestf "lex failed: %A" e
-                    | Result.Ok lexed -> lexed
-
-                let ast =
-                    let reader = Reader.ofLexed lexed input Set.empty
-
-                    match FSharpAst.parseSignature reader with
-                    | Result.Error e -> failtestf "parse failed: %A" e
-                    | Result.Ok ast -> ast
-
-                let parsed: VesperLibManifest.ParsedFile =
-                    {
-                        File =
-                            {
-                                BucketName = "App"
-                                Relative = "app.fsi"
-                                Absolute = "app.fsi"
-                            }
-                        Input = input
-                        Lexed = lexed
-                        Ast = ast
-                    }
+                let parsed =
+                    parseFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    type Thing<'T> =\n        | ([]): Thing<'T>\n        | (::): Head: 'T * Tail: Thing<'T> -> Thing<'T>\n"
 
                 let ctx = VesperLib.ExtractCtx.empty ()
                 VesperLib.extractSymbols ctx parsed
@@ -593,33 +434,10 @@ let tests =
                 // on an extracted union is read into `ctx.RqaTypes` and rides through
                 // the reverse case-name index as `ExternalUnionCase.IsRequireQualifiedAccess`,
                 // so a consumer's bare reference to an RQA case can be rejected.
-                let input =
-                    "namespace App\n\nmodule M =\n    [<RequireQualifiedAccess>]\n    type Color =\n        | Red\n        | Green\n\n    type Hue =\n        | Blue\n        | Cyan\n"
-
-                let lexed =
-                    match Lexing.lexString input with
-                    | Result.Error e -> failtestf "lex failed: %A" e
-                    | Result.Ok lexed -> lexed
-
-                let ast =
-                    let reader = Reader.ofLexed lexed input Set.empty
-
-                    match FSharpAst.parseSignature reader with
-                    | Result.Error e -> failtestf "parse failed: %A" e
-                    | Result.Ok ast -> ast
-
-                let parsed: VesperLibManifest.ParsedFile =
-                    {
-                        File =
-                            {
-                                BucketName = "App"
-                                Relative = "app.fsi"
-                                Absolute = "app.fsi"
-                            }
-                        Input = input
-                        Lexed = lexed
-                        Ast = ast
-                    }
+                let parsed =
+                    parseFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    [<RequireQualifiedAccess>]\n    type Color =\n        | Red\n        | Green\n\n    type Hue =\n        | Blue\n        | Cyan\n"
 
                 let ctx = VesperLib.ExtractCtx.empty ()
                 VesperLib.extractSymbols ctx parsed
@@ -659,33 +477,10 @@ let tests =
                     else
                         ValueNone
 
-                let input =
-                    "namespace App\n\nopen Dep\n\nmodule M =\n    val qualified: Dep.Widget<int> -> int\n"
-
-                let lexed =
-                    match Lexing.lexString input with
-                    | Result.Error e -> failtestf "lex failed: %A" e
-                    | Result.Ok lexed -> lexed
-
-                let ast =
-                    let reader = Reader.ofLexed lexed input Set.empty
-
-                    match FSharpAst.parseSignature reader with
-                    | Result.Error e -> failtestf "parse failed: %A" e
-                    | Result.Ok ast -> ast
-
-                let parsed: VesperLibManifest.ParsedFile =
-                    {
-                        File =
-                            {
-                                BucketName = "App"
-                                Relative = "app.fsi"
-                                Absolute = "app.fsi"
-                            }
-                        Input = input
-                        Lexed = lexed
-                        Ast = ast
-                    }
+                let parsed =
+                    parseFsi
+                        "app.fsi"
+                        "namespace App\n\nopen Dep\n\nmodule M =\n    val qualified: Dep.Widget<int> -> int\n"
 
                 let ctx = VesperLib.ExtractCtx.empty ()
                 ctx.AmbientShapes <- ambient
@@ -718,37 +513,10 @@ let tests =
                 // faithful representation.) Gated through the synthetic-`.fsi`
                 // extract+finalize path (sibling to "finalize fills real templates",
                 // which guards the dual sentinel).
-                let input =
-                    "namespace App\n\nmodule M =\n    type objnull = obj | null\n    val f: objnull -> int\n"
-
-                let lexed =
-                    match Lexing.lexString input with
-                    | Result.Error e -> failtestf "lex failed: %A" e
-                    | Result.Ok lexed -> lexed
-
-                let ast =
-                    let reader = Reader.ofLexed lexed input Set.empty
-
-                    match FSharpAst.parseSignature reader with
-                    | Result.Error e -> failtestf "parse failed: %A" e
-                    | Result.Ok ast -> ast
-
-                let parsed: VesperLibManifest.ParsedFile =
-                    {
-                        File =
-                            {
-                                BucketName = "App"
-                                Relative = "app.fsi"
-                                Absolute = "app.fsi"
-                            }
-                        Input = input
-                        Lexed = lexed
-                        Ast = ast
-                    }
-
-                let ctx = VesperLib.ExtractCtx.empty ()
-                VesperLib.extractSymbols ctx parsed
-                VesperLib.finalizeDeferred ctx
+                let ctx =
+                    extractFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    type objnull = obj | null\n    val f: objnull -> int\n"
 
                 let unfreezable = FTUnknown "<unfreezable external template>"
 
@@ -801,37 +569,10 @@ let tests =
                 // supplied separately (a `.fs` `(# … #)` repr → an `IntrinsicInterface` on CLR, the
                 // `capabilities-compat.js.fsi` shim on JS — NOT a plain `.fs` abbreviation,
                 // which is harvested only for `(# … #)` while extraction runs only on `.fsi`).
-                let input =
-                    "namespace Vesper\n\ntype disposable = extern interface with\n    abstract member Dispose : unit -> unit\n"
-
-                let lexed =
-                    match Lexing.lexString input with
-                    | Result.Error e -> failtestf "lex failed: %A" e
-                    | Result.Ok lexed -> lexed
-
-                let ast =
-                    let reader = Reader.ofLexed lexed input Set.empty
-
-                    match FSharpAst.parseSignature reader with
-                    | Result.Error e -> failtestf "parse failed (extern interface with did not parse): %A" e
-                    | Result.Ok ast -> ast
-
-                let parsed: VesperLibManifest.ParsedFile =
-                    {
-                        File =
-                            {
-                                BucketName = "Vesper"
-                                Relative = "capabilities.fsi"
-                                Absolute = "capabilities.fsi"
-                            }
-                        Input = input
-                        Lexed = lexed
-                        Ast = ast
-                    }
-
-                let ctx = VesperLib.ExtractCtx.empty ()
-                VesperLib.extractSymbols ctx parsed
-                VesperLib.finalizeDeferred ctx
+                let ctx =
+                    extractFsi
+                        "capabilities.fsi"
+                        "namespace Vesper\n\ntype disposable = extern interface with\n    abstract member Dispose : unit -> unit\n"
 
                 let key =
                     let mutable found = ValueNone
@@ -880,33 +621,10 @@ let tests =
                 ctx.IntrinsicBaseReprs.["disposable"] <- "System.IDisposable"
                 ctx.IntrinsicReprs.["disposable"] <- "System.IDisposable"
 
-                let input =
-                    "namespace Vesper\n\ntype disposable = extern interface with\n    abstract member Dispose : unit -> unit\n"
-
-                let lexed =
-                    match Lexing.lexString input with
-                    | Result.Error e -> failtestf "lex failed: %A" e
-                    | Result.Ok lexed -> lexed
-
-                let ast =
-                    let reader = Reader.ofLexed lexed input Set.empty
-
-                    match FSharpAst.parseSignature reader with
-                    | Result.Error e -> failtestf "parse failed: %A" e
-                    | Result.Ok ast -> ast
-
-                let parsed: VesperLibManifest.ParsedFile =
-                    {
-                        File =
-                            {
-                                BucketName = "Vesper"
-                                Relative = "capabilities.fsi"
-                                Absolute = "capabilities.fsi"
-                            }
-                        Input = input
-                        Lexed = lexed
-                        Ast = ast
-                    }
+                let parsed =
+                    parseFsi
+                        "capabilities.fsi"
+                        "namespace Vesper\n\ntype disposable = extern interface with\n    abstract member Dispose : unit -> unit\n"
 
                 VesperLib.extractSymbols ctx parsed
                 VesperLib.finalizeDeferred ctx
@@ -966,33 +684,10 @@ let tests =
                 ctx.IntrinsicReprs.["widget"] <- "System.Widget"
 
                 // A CONCRETE instance member (`member M`), NOT `abstract member`.
-                let input =
-                    "namespace Vesper\n\ntype widget = extern with\n    member M : unit -> unit\n"
-
-                let lexed =
-                    match Lexing.lexString input with
-                    | Result.Error e -> failtestf "lex failed: %A" e
-                    | Result.Ok lexed -> lexed
-
-                let ast =
-                    let reader = Reader.ofLexed lexed input Set.empty
-
-                    match FSharpAst.parseSignature reader with
-                    | Result.Error e -> failtestf "parse failed: %A" e
-                    | Result.Ok ast -> ast
-
-                let parsed: VesperLibManifest.ParsedFile =
-                    {
-                        File =
-                            {
-                                BucketName = "Vesper"
-                                Relative = "prim-types-widget.fsi"
-                                Absolute = "prim-types-widget.fsi"
-                            }
-                        Input = input
-                        Lexed = lexed
-                        Ast = ast
-                    }
+                let parsed =
+                    parseFsi
+                        "prim-types-widget.fsi"
+                        "namespace Vesper\n\ntype widget = extern with\n    member M : unit -> unit\n"
 
                 VesperLib.extractSymbols ctx parsed
                 VesperLib.finalizeDeferred ctx
@@ -1031,36 +726,8 @@ let tests =
             // must answer THAT key, not a separately-spelled string. The store's index is the
             // key's own rendering, so the two agree by construction rather than by coincidence.
             test "a module-held contract type answers the KEY a module containment mints" {
-                let input = "namespace Test.A\n\nmodule M =\n    type T = { X: int }\n"
-
-                let lexed =
-                    match Lexing.lexString input with
-                    | Result.Error e -> failtestf "lex failed: %A" e
-                    | Result.Ok lexed -> lexed
-
-                let ast =
-                    let reader = Reader.ofLexed lexed input Set.empty
-
-                    match FSharpAst.parseSignature reader with
-                    | Result.Error e -> failtestf "parse failed: %A" e
-                    | Result.Ok ast -> ast
-
-                let parsed: VesperLibManifest.ParsedFile =
-                    {
-                        File =
-                            {
-                                BucketName = "Test"
-                                Relative = "a.fsi"
-                                Absolute = "a.fsi"
-                            }
-                        Input = input
-                        Lexed = lexed
-                        Ast = ast
-                    }
-
-                let ctx = VesperLib.ExtractCtx.empty ()
-                VesperLib.extractSymbols ctx parsed
-                VesperLib.finalizeDeferred ctx
+                let ctx =
+                    extractFsi "a.fsi" "namespace Test.A\n\nmodule M =\n    type T = { X: int }\n"
 
                 // The key a CONSUMER's local containment mints for `T` — built from the
                 // holder chain, never from a name.
@@ -1091,36 +758,8 @@ let tests =
             // own, which would absorb the module into the namespace path and mint an unequal
             // identity.
             test "a module-held contract type still resolves by the name the source WRITES" {
-                let input = "namespace Test.A\n\nmodule M =\n    type T = { X: int }\n"
-
-                let lexed =
-                    match Lexing.lexString input with
-                    | Result.Error e -> failtestf "lex failed: %A" e
-                    | Result.Ok lexed -> lexed
-
-                let ast =
-                    let reader = Reader.ofLexed lexed input Set.empty
-
-                    match FSharpAst.parseSignature reader with
-                    | Result.Error e -> failtestf "parse failed: %A" e
-                    | Result.Ok ast -> ast
-
-                let parsed: VesperLibManifest.ParsedFile =
-                    {
-                        File =
-                            {
-                                BucketName = "Test"
-                                Relative = "a.fsi"
-                                Absolute = "a.fsi"
-                            }
-                        Input = input
-                        Lexed = lexed
-                        Ast = ast
-                    }
-
-                let ctx = VesperLib.ExtractCtx.empty ()
-                VesperLib.extractSymbols ctx parsed
-                VesperLib.finalizeDeferred ctx
+                let ctx =
+                    extractFsi "a.fsi" "namespace Test.A\n\nmodule M =\n    type T = { X: int }\n"
 
                 // The dotted source spelling is NOT an index entry of its own — the index is
                 // the KEY's canonical rendering, so the redirect is the only route in.
@@ -1155,5 +794,107 @@ let tests =
                 // A spelling that names nothing still resolves to nothing — the redirect is a
                 // containment lookup, not a name-shaped guess.
                 Expect.equal (provider.TryResolveTypeName "Test.A.M.Nope") ValueNone "an unknown member of M misses"
+            }
+
+            test "`when 'T : equality` is captured, and applied to the fresh TyVar at instantiation" {
+                // A `when 'T : equality` clause on a `.fsi` val is a trait-table
+                // constraint, and it has to land on BOTH halves to be worth anything:
+                // the symbol's structured `Constraints` list (what an introspecting
+                // consumer reads) AND — via `instantiateSymbol` — the fresh `TypeVar`
+                // minted for that typar slot, which is the only half a use site's
+                // inference actually consults.
+                let ctx =
+                    extractFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    val contains: value: 'T -> source: 'T -> bool when 'T: equality\n"
+
+                let sym =
+                    let mutable found = ValueNone
+
+                    for kv in ctx.Symbols do
+                        if found.IsNone && kv.Key.EndsWith ".contains" then
+                            found <- ValueSome kv.Value
+
+                    match found with
+                    | ValueSome s -> s
+                    | ValueNone ->
+                        failtestf "val 'contains' was not extracted. Symbols: %A" (Seq.toList ctx.Symbols.Keys)
+
+                Expect.equal sym.TyparArity 1 "the val generalises over its single typar"
+
+                // The clause is recorded against the typar's INDEX, not its name.
+                let equalityTrait =
+                    sym.Constraints
+                    |> List.exists (fun c ->
+                        match c with
+                        | ExternalConstraint.Trait(0, SemanticConstraintKind.Equality) -> true
+                        | _ -> false
+                    )
+
+                Expect.isTrue equalityTrait (sprintf "Constraints carries Equality on typar 0; got %A" sym.Constraints)
+
+                match ExternalSymbols.instantiateSymbol sym 0 with
+                | TyFun(TyVar a, TyFun(TyVar _, TyConst(k, _))) when SymbolKeyOps.simpleName k = DisplayName "bool" ->
+                    Expect.isTrue
+                        (a.Constraints |> List.exists (fun c -> c.Kind = SemanticConstraintKind.Equality))
+                        "the fresh TyVar minted for 'T carries Equality on its Constraints list"
+                | other -> failtestf "expected ('T -> 'T -> bool) over a fresh TyVar; got %A" other
+            }
+
+            test "SRTP member-trait clause is captured as a MemberTrait over the val's typars" {
+                // `when ^T : (static member (+) : ^T * ^T -> ^T)` captures as an
+                // `ExternalConstraint.MemberTrait`: the member's COMPILED name plus
+                // arg/return `FrozenType` templates over the val's declaring typars
+                // (`FTTypar(Declaring, 0)`), NOT the source spelling `(+)` and not raw
+                // CST. Instantiation realises the templates against the fresh TyVars
+                // and stamps the signature on `SrtpBounds`, which is what
+                // `Unification.drainSrtpBounds` later fires on.
+                let ctx =
+                    extractFsi
+                        "app.fsi"
+                        "namespace App\n\nmodule M =\n    val inline add: x: ^T -> y: ^T -> ^T when ^T: (static member (+): ^T * ^T -> ^T)\n"
+
+                let sym =
+                    let mutable found = ValueNone
+
+                    for kv in ctx.Symbols do
+                        if found.IsNone && kv.Key.EndsWith ".add" then
+                            found <- ValueSome kv.Value
+
+                    match found with
+                    | ValueSome s -> s
+                    | ValueNone -> failtestf "val 'add' was not extracted. Symbols: %A" (Seq.toList ctx.Symbols.Keys)
+
+                let trait_ =
+                    sym.Constraints
+                    |> List.tryPick (fun c ->
+                        match c with
+                        | ExternalConstraint.MemberTrait(idxs, name, args, ret) -> Some(idxs, name, args, ret)
+                        | _ -> None
+                    )
+
+                match trait_ with
+                | None -> failtestf "no MemberTrait captured for `add`; Constraints: %A" sym.Constraints
+                | Some(idxs, name, args, ret) ->
+                    Expect.equal (EqArray.toList idxs) [ 0 ] "the trait is borne by the val's single typar slot"
+                    Expect.equal name "op_Addition" "`(+)` is captured by its COMPILED name"
+
+                    Expect.equal
+                        (List.ofArray args)
+                        [ FTTypar(TyparAxis.Declaring, 0); FTTypar(TyparAxis.Declaring, 0) ]
+                        "the tupled trait args flatten to two templates over the declaring typar"
+
+                    Expect.equal ret (FTTypar(TyparAxis.Declaring, 0)) "the trait returns the declaring typar"
+
+                // The instantiation half: the realised signature lands on the fresh TyVar.
+                match ExternalSymbols.instantiateSymbol sym 0 with
+                | TyFun(TyVar a, TyFun(TyVar _, TyVar _)) ->
+                    match a.SrtpBounds with
+                    | [ bound ] ->
+                        Expect.equal bound.MemberName "op_Addition" "the stamped bound names the compiled member"
+                        Expect.equal bound.ArgTypes.Length 2 "the stamped bound keeps both args"
+                        Expect.isFalse bound.Resolved "a freshly stamped bound is unresolved"
+                    | other -> failtestf "expected exactly one SrtpBound on the fresh TyVar; got %A" other
+                | other -> failtestf "expected (^T -> ^T -> ^T) over a fresh TyVar; got %A" other
             }
         ]

@@ -20,7 +20,7 @@ open XParsec.FSharp.SemanticAnalysis
 // Each case below is a HAND-WRITTEN template paired with the `SemType` it must
 // realise to on `groundArgs` — no closure derives the expected value, so the test
 // pins the realisers directly. (The end-to-end `translateType` path — CST to
-// template — is covered by the package-corpus tests in `VesperLibTests`.)
+// template — is covered by `SignatureExtractorTests` and `ReferencedProjectTests`.)
 
 /// Ground (`TyVar`-free, `TyTypar`-free) types to substitute for declaring
 /// args, so `instantiate*` produces structurally-comparable `SemType`s (no
