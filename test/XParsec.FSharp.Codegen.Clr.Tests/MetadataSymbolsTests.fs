@@ -16,13 +16,19 @@ let private provider =
 
 let private eqComparer = "System.Collections.Generic.EqualityComparer`1"
 
+// The resolver's by-name type face answers the identity WITH the shape; these tests are
+// about what the metadata scrape MODELS, so they read the shape half. The identity half
+// has its own test below.
+let private typeShape (name: string) =
+    provider.TryLookupType name |> ExternalSymbols.typeShapeOf
+
 [<Tests>]
 let tests =
     testList
         "MetadataSymbols"
         [
             test "EqualityComparer`1 resolves as a non-interface Class with an origin" {
-                match provider.TryLookupType eqComparer with
+                match typeShape eqComparer with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     Expect.equal info.TyparArity 1 "one declared typar"
                     Expect.isFalse info.IsInterface "a class, not an interface"
@@ -37,7 +43,7 @@ let tests =
             }
 
             test "a generic interface resolves with isInterface = true" {
-                match provider.TryLookupType "System.Collections.Generic.IEnumerable`1" with
+                match typeShape "System.Collections.Generic.IEnumerable`1" with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     Expect.equal info.TyparArity 1 "one typar"
                     Expect.isTrue info.IsInterface "IEnumerable`1 is an interface"
@@ -45,7 +51,7 @@ let tests =
             }
 
             test "a non-generic type resolves with arity 0" {
-                match provider.TryLookupType "System.Object" with
+                match typeShape "System.Object" with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     Expect.equal info.TyparArity 0 "System.Object is non-generic"
                     Expect.isFalse info.IsInterface "System.Object is a class"
@@ -55,7 +61,7 @@ let tests =
             // The metadata layer fills the rich class shape — members, interfaces,
             // base type, flags — so B-1/B-2 don't have to retry through `TryLookupMember` per name.
             test "the Class shape eagerly publishes the type's members" {
-                match provider.TryLookupType eqComparer with
+                match typeShape eqComparer with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     let names = info.Members |> Array.map (fun m -> m.Name) |> Set.ofArray
                     Expect.isTrue (Set.contains "Default" names) "Default property is enumerated"
@@ -68,7 +74,7 @@ let tests =
             }
 
             test "the Class shape exposes the type's declared interfaces" {
-                match provider.TryLookupType "System.Collections.Generic.List`1" with
+                match typeShape "System.Collections.Generic.List`1" with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     let impls =
                         ExternalSymbols.instantiateInterfaces info [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
@@ -82,7 +88,7 @@ let tests =
             }
 
             test "the Class shape carries the declared base type (or ValueNone on an interface)" {
-                match provider.TryLookupType "System.IO.StringWriter" with
+                match typeShape "System.IO.StringWriter" with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     match ExternalSymbols.instantiateBaseType info [||] with
                     | ValueSome(TyClass(k, args)) when
@@ -93,20 +99,20 @@ let tests =
                     | ValueNone -> failtest "expected StringWriter to record a base type"
                 | other -> failtestf "expected StringWriter as a Class shape, got %A" other
 
-                match provider.TryLookupType "System.Collections.Generic.IEnumerable`1" with
+                match typeShape "System.Collections.Generic.IEnumerable`1" with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     Expect.isTrue info.FrozenBaseType.IsNone "interfaces carry no base type"
                 | other -> failtestf "expected IEnumerable`1 as a Class shape, got %A" other
             }
 
             test "the Class shape decodes sealed / abstract flags from TypeAttributes" {
-                match provider.TryLookupType "System.String" with
+                match typeShape "System.String" with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     Expect.isTrue info.Flags.IsSealed "System.String is sealed"
                     Expect.isFalse info.Flags.IsAbstract "System.String is not abstract"
                 | other -> failtestf "expected System.String as a Class shape, got %A" other
 
-                match provider.TryLookupType "System.IO.Stream" with
+                match typeShape "System.IO.Stream" with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     Expect.isTrue info.Flags.IsAbstract "System.IO.Stream is abstract"
                     Expect.isFalse info.Flags.IsSealed "System.IO.Stream is not sealed"
@@ -185,7 +191,7 @@ let tests =
                 // the templates realise correctly through the `instantiate*` helpers
                 // for a generic class: declaring typars substituted, every member's
                 // signature instantiates without throwing.
-                match provider.TryLookupType "System.Collections.Generic.List`1" with
+                match typeShape "System.Collections.Generic.List`1" with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     let intArg = [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
 
@@ -220,6 +226,25 @@ let tests =
                 Expect.isTrue (provider.TryLookupType "No.Such.Type`9" |> ValueOption.isNone) "unknown type miss"
             }
 
+            // Bare IL has no module chains, so this leaf's name IS its identity — which is
+            // why it can answer the identity at all rather than leave a use site to re-cut
+            // one from the spelling. The two directions must invert each other: the key the
+            // by-name face reports must be the key whose `qualifiedName` rendering is the
+            // name that was asked for, ARITY INCLUDED (`EqualityComparer`1` is arity 1, not
+            // an arity-0 type whose name happens to end in a backtick).
+            test "the by-name face answers the identity its own name index round-trips to" {
+                match provider.TryLookupType eqComparer with
+                | ValueSome(struct (key, _)) ->
+                    Expect.equal (SymbolKeyOps.typeMetaName key) eqComparer "key renders back to the name asked for"
+                    Expect.equal key.TyparArity 1 "the `1 suffix is the key's arity, not part of its name"
+
+                    Expect.equal
+                        (provider.TryLookupType eqComparer |> ExternalSymbols.typeShapeOf)
+                        (provider.TryLookupType(SymbolKey.Type key))
+                        "the by-name and by-key faces answer the same type"
+                | ValueNone -> failtestf "expected %s to resolve" eqComparer
+            }
+
             test "the metadata layer resolves no values" {
                 // F#-style module values / operators are not a metadata surface;
                 // they fall through to lower-priority sources in the composite.
@@ -233,7 +258,7 @@ let tests =
                     ClrSymbolProviders.bclMetaTailWith (MetadataSymbols.runtimeAssemblyPaths ()) reverseCanon
                     |> List.exactlyOne
 
-                match leaf.TryLookupType eqComparer, provider.TryLookupType eqComparer with
+                match leaf.TryLookupType eqComparer |> ExternalSymbols.typeShapeOf, typeShape eqComparer with
                 | ValueSome(ExternalTypeShape.Class a), ValueSome(ExternalTypeShape.Class b) ->
                     Expect.equal a.TyparArity b.TyparArity "same arity"
                     Expect.equal a.IsInterface b.IsInterface "same interface-ness"
@@ -288,7 +313,7 @@ let tests =
                     let leaf =
                         ClrSymbolProviders.bclMetaTailWith refPaths reverseCanon |> List.exactlyOne
 
-                    match leaf.TryLookupType "System.Text.StringBuilder" with
+                    match leaf.TryLookupType "System.Text.StringBuilder" |> ExternalSymbols.typeShapeOf with
                     | ValueSome(ExternalTypeShape.Class info) ->
                         // In the ref pack StringBuilder lives in System.Runtime (the ref
                         // facade), not System.Private.CoreLib (the runtime impl). This also

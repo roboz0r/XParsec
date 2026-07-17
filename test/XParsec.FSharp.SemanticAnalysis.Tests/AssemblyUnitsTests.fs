@@ -540,9 +540,9 @@ module N =
                 //   * construction / field-set (`{ X = 1 }`) pins the REGISTERED `InModule` key,
                 //     carried structurally on `ExternalRecordCandidate.TypeKey`;
                 //   * annotation (`r : R`) goes through NameResolution's `useSiteTypeKey`, which
-                //     stamps the SAME registered key the provider resolved (surfaced by the
-                //     resolver's `TryResolveTypeName`) rather than re-cutting the dotted spelling
-                //     into a flattened `InNamespace` holder.
+                //     stamps the SAME registered key the provider resolved — the one that came
+                //     back WITH the shape from `TryLookupType` — rather than re-cutting the
+                //     dotted spelling into a flattened `InNamespace` holder.
                 // So `let r : R = { X = 1 }` unifies the annotation against the literal with a
                 // matching identity — no type mismatch.
                 let file1 =

@@ -33,7 +33,10 @@ module CodegenSymbols =
 
     let ofProvider (provider: IExternalSymbolProvider) : ICodegenSymbols =
         { new ICodegenSymbols with
-            member _.TryLookupType name = provider.TryLookupType name
+            // Codegen resolves a name it already holds the identity for, so the resolver's
+            // by-name identity is dropped here rather than widening this face.
+            member _.TryLookupType name =
+                provider.TryLookupType name |> ExternalSymbols.typeShapeOf
 
             // `ICodegenSymbols` is string-addressed; the store face is key-addressed, so
             // bridge by minting the lookup key from the compiled name. Arity 0 is lossless

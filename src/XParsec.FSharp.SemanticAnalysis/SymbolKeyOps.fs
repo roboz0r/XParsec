@@ -244,9 +244,9 @@ module SymbolKeyOps =
     ///
     /// This is exactly F#'s name-resolution question — "what does `A.B.C` denote when `A.B`
     /// is a module?" — stated ONCE for both signature projectors into the provider surface:
-    /// the `.fsi` contract extractor (`VesperLib.ExtractCtx.tryTypeKey`, index value
-    /// `TypeKey`) and the frozen-impl projector (`FrozenSignature.typeShapeByName`, index
-    /// value `SymbolKey`), which differ only in the index's value type (`'T`). A type NESTED
+    /// the `.fsi` contract extractor (`VesperLib.ExtractCtx.tryTypeKey`) and the
+    /// frozen-impl projector (`FrozenSignature.resolveNameToKey`) — both index value
+    /// `TypeKey`, so `'T` is what lets one spelling serve either index. A type NESTED
     /// IN A TYPE (`Outer.Inner`, `TypeHolder.InType`) is deliberately NOT reached: only
     /// module holders are indexed, matching both callers — the `InType` extension point when
     /// the corpus needs a written `Outer.Inner` cross-unit name.

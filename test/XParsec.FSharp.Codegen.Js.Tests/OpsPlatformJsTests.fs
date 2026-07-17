@@ -98,7 +98,7 @@ let tests =
                     JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) [ vesperCoreManifest ]
 
                 let facesOf (name: string) =
-                    match js.TryLookupType name with
+                    match js.TryLookupType name |> ExternalSymbols.typeShapeOf with
                     | ValueSome(ExternalTypeShape.Intrinsic {
                                                                 Id = {
                                                                          Canon = canon
@@ -132,7 +132,7 @@ let tests =
                     JsNativeSymbols.buildJsNativeContractFor (Some Target.Js) [ vesperCoreManifest ]
 
                 let facesOf (name: string) =
-                    match js.TryLookupType name with
+                    match js.TryLookupType name |> ExternalSymbols.typeShapeOf with
                     | ValueSome(ExternalTypeShape.Intrinsic {
                                                                 Id = {
                                                                          Canon = canon

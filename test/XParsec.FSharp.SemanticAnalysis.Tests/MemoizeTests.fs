@@ -51,8 +51,9 @@ type private CountingProvider(name: string) =
             else
                 ValueNone
 
-        member this.TryLookupType(n: string) = this.TypeByName n
-        member _.TryResolveTypeName(_: string) = ValueNone
+        member this.TryLookupType(n: string) =
+            this.TypeByName n |> ValueOption.map (ExternalSymbols.nameKeyedTypeHit n)
+
         member _.TryLookupUnionCase _ = ValueNone
         member _.TryRecordsWithField _ = [||]
         member _.AmbientOpenPrefixes = []

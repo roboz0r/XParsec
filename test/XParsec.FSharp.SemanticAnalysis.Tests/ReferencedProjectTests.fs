@@ -124,7 +124,7 @@ let tests =
                 // name `int` (the front-end identity `subsumes` consumes), `platform`
                 // is the CLI repr (what codegen consumes). An intrinsic carries no
                 // `Origin` (it keys off the name, not an assembly ref).
-                match provider.TryLookupType "Vesper.int" with
+                match provider.TryLookupType "Vesper.int" |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Intrinsic {
                                                             Id = {
                                                                      Canon = canon
@@ -187,7 +187,7 @@ let tests =
                 let provider, _ = builtProvider.Value
 
                 let expectCapability (lookup: string) (canonKey: SymbolKey) (platformExpected: string) =
-                    match provider.TryLookupType lookup with
+                    match provider.TryLookupType lookup |> ExternalSymbols.typeShapeOf with
                     | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
                         Expect.equal
                             (SymbolKey.Type iface.Canon)
@@ -230,7 +230,10 @@ let tests =
 
                 // `enumerator` inherits `disposable` (BCL parity), so its capability shape must
                 // carry that inherited interface for the `use`/for-in disposability scan.
-                match provider.TryLookupType "Vesper.Collections.enumerator`1" with
+                match
+                    provider.TryLookupType "Vesper.Collections.enumerator`1"
+                    |> ExternalSymbols.typeShapeOf
+                with
                 | ValueSome(ExternalTypeShape.IntrinsicInterface iface) ->
                     let ifaceNames = iface.Interfaces |> Array.map fst
 
@@ -254,7 +257,7 @@ let tests =
                     // On JS a capability surfaces as a plain single-faced interface `Class` (no
                     // `(# … #)` repr binds a platform face), NOT the CLR `IntrinsicInterface` — so
                     // it is canonical-only, with no reconciliation face.
-                    match provider.TryLookupType lookup with
+                    match provider.TryLookupType lookup |> ExternalSymbols.typeShapeOf with
                     | ValueSome(ExternalTypeShape.Class shape) ->
                         Expect.isTrue shape.IsInterface (sprintf "%s is a single-faced interface Class on JS" lookup)
                     | other -> failtestf "expected %s as a single-faced Class on JS, got %A" lookup other
@@ -267,7 +270,7 @@ let tests =
                 // the canonical capability — so `interface System.IDisposable` records the
                 // canonical interface key on JS (the same key `caps.Disposable` resolves to).
                 let expectShimAbbrev (bcl: string) (canonQualified: string) =
-                    match provider.TryLookupType bcl with
+                    match provider.TryLookupType bcl |> ExternalSymbols.typeShapeOf with
                     | ValueSome(ExternalTypeShape.Abbrev(_, FTClass(key, _))) ->
                         Expect.equal
                             (SymbolKeyOps.typeMetaName key)
@@ -337,7 +340,7 @@ let tests =
                 // only needs it to resolve with the package `Origin`.
                 // Generic compiled names are arity-suffixed (`Fun`2`), matching the
                 // emitted metadata name (`Vesper.Fun`2`) and the consumer's probe.
-                match provider.TryLookupType "Vesper.Fun`2" with
+                match provider.TryLookupType "Vesper.Fun`2" |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     Expect.equal info.TyparArity 2 "Fun has two typars"
 

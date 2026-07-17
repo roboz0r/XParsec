@@ -231,7 +231,7 @@ let tests =
             test "NEGATIVE: a type-alias name stays a transparent Abbrev (never FTClass)" {
                 // The alias must resolve as `Abbrev` so its use sites expand to the target;
                 // minting `FTClass` for the alias NAME would break that expansion.
-                match boxProviderRaw.TryLookupType "Count" with
+                match boxProviderRaw.TryLookupType "Count" |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Abbrev(arity, target)) ->
                     Expect.equal arity 0 "Count is non-generic"
 

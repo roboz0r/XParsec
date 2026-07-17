@@ -897,7 +897,13 @@ module NameResolutionMemberRegistration =
                             ValueSome(struct (id, surface))
                         | _ -> ValueNone
 
-                    match tryPickExternalType ctx (arityProbes targs.Length) (fun _ _ -> heritableIntrinsic) name with
+                    match
+                        tryPickExternalType
+                            ctx
+                            (arityProbes targs.Length)
+                            (fun hit -> heritableIntrinsic hit.Shape)
+                            name
+                    with
                     | ValueSome(struct (id, surface)) when surface.Members |> Array.exists (fun m -> m.Name = ".ctor") ->
                         ValueSome(TyConst(SymbolKey.Type id.Canon, EqArray.ofList targs))
                     | ValueSome(struct (id, _)) ->

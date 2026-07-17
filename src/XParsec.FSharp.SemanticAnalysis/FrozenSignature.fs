@@ -68,7 +68,7 @@ module FrozenSignature =
         // index rendered from it for the resolver face — exactly the extractor's shape.
         let shapesByKey = Dictionary<SymbolKey, ExternalTypeShape>()
         let membersByKey = Dictionary<SymbolKey, ResizeArray<ExternalMember>>()
-        let typesByName = Dictionary<string, SymbolKey>(System.StringComparer.Ordinal)
+        let typesByName = Dictionary<string, TypeKey>(System.StringComparer.Ordinal)
 
         let unionCaseIndex =
             Dictionary<string, ExternalUnionCase>(System.StringComparer.Ordinal)
@@ -238,7 +238,7 @@ module FrozenSignature =
                     let name = SymbolKeyOps.typeMetaName typeKey
 
                     if not (typesByName.ContainsKey name) then
-                        typesByName.[name] <- key
+                        typesByName.[name] <- typeKey
 
                     match members with
                     | ValueSome ms when ms.Count > 0 -> membersByKey.[key] <- ms
@@ -473,7 +473,7 @@ module FrozenSignature =
                 let name = SymbolKeyOps.typeMetaName typeKey
 
                 if not (typesByName.ContainsKey name) then
-                    typesByName.[name] <- key
+                    typesByName.[name] <- typeKey
             | _ -> ()
 
         // --- intrinsic axes -----------------------------------------------------------
@@ -502,11 +502,11 @@ module FrozenSignature =
         // rendering (`Test.A.M+T` for a module-held type); `tryDottedModuleHeld` adds the
         // fallback for the spelling that is NOT that rendering — the DOTTED source form
         // (`Test.A.M.T`), resolved through the declared module holders. It is this leaf's
-        // ONE name->key seam: `ofKeyIndexes` derives BOTH the by-name shape face and
-        // `TryResolveTypeName` from it, so a use site stamps the producer's own key rather
-        // than a flattened re-cut — which is why the store face reads the key-addressed
-        // index directly (no re-cut key ever arrives).
-        let resolveNameToKey (name: string) : SymbolKey voption =
+        // ONE name->key seam: `ofKeyIndexes` derives the whole by-name type face from it,
+        // so a use site stamps the producer's own key rather than a flattened re-cut —
+        // which is why the store face reads the key-addressed index directly (no re-cut key
+        // ever arrives).
+        let resolveNameToKey (name: string) : TypeKey voption =
             let exact (probe: string) =
                 match typesByName.TryGetValue probe with
                 | true, key -> ValueSome key

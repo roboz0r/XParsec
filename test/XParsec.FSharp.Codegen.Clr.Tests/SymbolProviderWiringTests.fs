@@ -56,7 +56,7 @@ let tests =
                 // the manifest layer surfaces it as an `Intrinsic` shape: `canon` is
                 // the `.fsi` name `int`, `platform` is the CLI repr — NOT an opaque
                 // `Class`.
-                match provider.TryLookupType "Vesper.int" with
+                match provider.TryLookupType "Vesper.int" |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Intrinsic {
                                                             Id = {
                                                                      Canon = canon

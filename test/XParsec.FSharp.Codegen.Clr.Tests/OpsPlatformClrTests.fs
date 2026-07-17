@@ -46,7 +46,7 @@ let tests =
             test "CLR target: canon is the `.fsi` name, platform is the BCL repr" {
                 let clr = ClrSymbolProviders.buildContractFor None [ vesperCoreManifest ]
 
-                match clr.TryLookupType "Vesper.int" with
+                match clr.TryLookupType "Vesper.int" |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Intrinsic {
                                                             Id = {
                                                                      Canon = canon

@@ -16,7 +16,31 @@ open XParsec.FSharp.SemanticAnalysis
 
 module NameResolutionTypeHeadStamp =
 
-    /// The single opens-aware spelling→shape engine behind every external-type
+    /// One committed classification of a written name against the external universe: the
+    /// FIRST `TryLookupType` hit across the probe list (under each open prefix in candidate
+    /// order), whatever its shape; consumers filter by shape/arity. This is the
+    /// resolve-once discipline applied to classification itself — a written name IS one
+    /// thing, so every verdict about it (its identity, its stamp, diagnostic suppression)
+    /// derives from the one hit rather than from several differently-filtered scans that
+    /// could disagree on which hit they see.
+    [<Struct>]
+    type ExternalTypeHit =
+        {
+            /// The identity the ANSWERING provider registered for this type — never re-cut
+            /// from `Compiled`, and never fetched by a second by-name scan that a composite
+            /// could answer from a different provider than the one that resolved `Shape`.
+            Key: TypeKey
+            /// The probed compiled name that hit (open-prefix qualified,
+            /// arity-suffixed where the hitting probe was).
+            Compiled: string
+            /// The arity the hitting probe asked for — NOT necessarily the shape's
+            /// own (`Shape.TyparArity`): a bare-keyed generic (`Vesper.Option`, arity 1)
+            /// hits the bare probe (`ProbedTyparArity` 0).
+            ProbedTyparArity: int
+            Shape: ExternalTypeShape
+        }
+
+    /// The single opens-aware spelling→identity engine behind every external-type
     /// resolution. Applies the in-scope `open` prefixes (`tryResolve`'s candidate
     /// order: bare/abbrev-expanded then each prefix); per qualified candidate it
     /// probes `ctx.Resolver.TryLookupType` with each `(compiled key, arity)` pair
@@ -26,17 +50,25 @@ module NameResolutionTypeHeadStamp =
     let tryPickExternalType
         (ctx: PassContext)
         (probes: string -> struct (string * int) list)
-        (pick: string -> int -> ExternalTypeShape -> 'T voption)
+        (pick: ExternalTypeHit -> 'T voption)
         (name: string)
         : 'T voption =
         let lookup (candidate: string) : 'T voption =
             let rec go (remaining: struct (string * int) list) =
                 match remaining with
                 | [] -> ValueNone
-                | struct (key, arity) :: rest ->
-                    match ctx.Resolver.TryLookupType key with
-                    | ValueSome shape ->
-                        match pick key arity shape with
+                | struct (probe, arity) :: rest ->
+                    match ctx.Resolver.TryLookupType probe with
+                    | ValueSome(struct (key, shape)) ->
+                        let hit =
+                            {
+                                Key = key
+                                Compiled = probe
+                                ProbedTyparArity = arity
+                                Shape = shape
+                            }
+
+                        match pick hit with
                         | ValueSome v -> ValueSome v
                         | ValueNone -> go rest
                     | ValueNone -> go rest
@@ -59,36 +91,32 @@ module NameResolutionTypeHeadStamp =
 
     /// Mint the use-site `TypeKey` for a resolved external type head.
     ///
-    /// A NOMINAL head (Class/IntrinsicInterface/Record/Union/Enum) prefers the producer's
-    /// REGISTERED key — surfaced by the resolver's `TryResolveTypeName` for the SAME
-    /// `compiled` spelling that hit — over a key re-cut from that spelling. Only the
-    /// registered key preserves an `InModule` holder chain: a module-held cross-unit type
-    /// written by its dotted source name (`Test.A.M.R`) has canonical key `{InModule M in
-    /// Test.A, R}`, but `externalTypeKeyOf` would flatten the module segment into the
-    /// namespace (`{InNamespace Test.A.M, R}`) — an unequal identity that mismatches the one
-    /// construction pins via `ExternalRecordCandidate.TypeKey`. The bare-IL population
-    /// returns `ValueNone` (no module chains), so the origin-homed re-cut stays the exact
-    /// fallback there.
+    /// A NOMINAL head (Class/IntrinsicInterface/Record/Union/Enum) takes the producer's
+    /// REGISTERED key — the identity that came back WITH the shape, from the one provider
+    /// that answered — rather than a key re-cut from the spelling. Only the registered key
+    /// preserves an `InModule` holder chain: a module-held cross-unit type written by its
+    /// dotted source name (`Test.A.M.R`) has canonical key `{InModule M in Test.A, R}`, but
+    /// a re-cut would flatten the module segment into the namespace (`{InNamespace
+    /// Test.A.M, R}`) — an unequal identity that mismatches the one construction pins via
+    /// `ExternalRecordCandidate.TypeKey`.
     ///
-    /// The non-nominal shapes never consult the resolver: an Abbrev dealiases on read, and an
-    /// intrinsic's identity is the canon keyed off the compiled name — identical by
-    /// construction to the canon the extractor stamped (`SymbolKeyOps.intrinsicCanonKey`), so
-    /// the stamp and the shape agree without a registered-key detour.
-    let useSiteTypeKey (ctx: PassContext) (compiled: string) (arity: int) (shape: ExternalTypeShape) : TypeKey =
-        let nominal (origin: SymbolOrigin) : TypeKey =
-            match ctx.Resolver.TryResolveTypeName compiled with
-            | ValueSome(SymbolKey.Type t) -> t
-            | _ -> SymbolKeyOps.externalTypeKeyOf origin compiled arity
-
-        match shape with
-        | ExternalTypeShape.Class info -> nominal info.Origin
-        | ExternalTypeShape.IntrinsicInterface s -> nominal s.Origin
-        | ExternalTypeShape.Record(origin = o)
-        | ExternalTypeShape.Union(origin = o)
-        | ExternalTypeShape.Enum(origin = o) -> nominal o
+    /// The non-nominal shapes are keyed off the compiled name instead, and NOT off the
+    /// registered key: an Abbrev dealiases on read, and an intrinsic's identity is the canon
+    /// keyed off its compiled name — identical by construction to the canon the extractor
+    /// stamped (`SymbolKeyOps.intrinsicCanonKey`), which is what makes the stamp and the
+    /// shape agree. That is the same key for a name-indexed producer, but a key-indexed one
+    /// registers intrinsics too (`FrozenSignature`'s `IntrinsicReprKeys` projection), and
+    /// its registered key is the one thing here that is not the canon.
+    let useSiteTypeKey (hit: ExternalTypeHit) : TypeKey =
+        match hit.Shape with
+        | ExternalTypeShape.Class _
+        | ExternalTypeShape.IntrinsicInterface _
+        | ExternalTypeShape.Record _
+        | ExternalTypeShape.Union _
+        | ExternalTypeShape.Enum _ -> hit.Key
         | ExternalTypeShape.Abbrev _
         | ExternalTypeShape.Intrinsic _
-        | ExternalTypeShape.Opaque _ -> SymbolKeyOps.qualifiedTypeKeyOf compiled arity
+        | ExternalTypeShape.Opaque _ -> SymbolKeyOps.qualifiedTypeKeyOf hit.Compiled hit.ProbedTyparArity
 
     /// Resolve `name` (possibly dotted) as an external *type* at exactly `arity` —
     /// the receiver's type-arg count, supplied by the enclosing `Expr.TypeApp`
@@ -98,9 +126,9 @@ module NameResolutionTypeHeadStamp =
         tryPickExternalType
             ctx
             (arityProbes arity)
-            (fun key a shape ->
-                if shape.TyparArity = a then
-                    ValueSome(useSiteTypeKey ctx key a shape)
+            (fun hit ->
+                if hit.Shape.TyparArity = hit.ProbedTyparArity then
+                    ValueSome(useSiteTypeKey hit)
                 else
                     ValueNone
             )
@@ -118,43 +146,14 @@ module NameResolutionTypeHeadStamp =
                         a)
         ]
 
-    /// One committed classification of a written name against the external
-    /// universe: the FIRST `TryLookupType` hit across the probe list (under each
-    /// open prefix in candidate order), whatever its shape; consumers filter by
-    /// shape/arity. This is the resolve-once discipline applied to classification
-    /// itself — a written name IS one thing, so every verdict about it (stamp,
-    /// diagnostic suppression) derives from the one hit rather than from several
-    /// differently-filtered scans that could disagree on which hit they see.
-    [<Struct>]
-    type ExternalTypeHit =
-        {
-            /// The probed compiled name that hit (open-prefix qualified,
-            /// arity-suffixed where the hitting probe was).
-            Compiled: string
-            /// The arity the hitting probe asked for — NOT necessarily the shape's
-            /// own (`Shape.TyparArity`): a bare-keyed generic (`Vesper.Option`, arity 1)
-            /// hits the bare probe (`ProbedTyparArity` 0).
-            ProbedTyparArity: int
-            Shape: ExternalTypeShape
-        }
-
+    /// The unfiltered `tryPickExternalType`: take the first hit whatever it is, and let the
+    /// caller decide. See `ExternalTypeHit`.
     let tryClassifyExternalType
         (ctx: PassContext)
         (probes: string -> struct (string * int) list)
         (name: string)
         : ExternalTypeHit voption =
-        tryPickExternalType
-            ctx
-            probes
-            (fun key a shape ->
-                ValueSome
-                    {
-                        Compiled = key
-                        ProbedTyparArity = a
-                        Shape = shape
-                    }
-            )
-            name
+        tryPickExternalType ctx probes ValueSome name
 
     /// Resolve an external enum-case access `E.C1` (`headName` = `E`, `caseName` = `C1`)
     /// to the enum's nominal `SymbolKey`: `E` qualified — opens-aware — through the active
@@ -169,12 +168,15 @@ module NameResolutionTypeHeadStamp =
         tryPickExternalType
             ctx
             (arityProbes 0)
-            (fun key _ shape ->
-                match shape with
-                | ExternalTypeShape.Enum(cases, origin) when
+            (fun hit ->
+                match hit.Shape with
+                | ExternalTypeShape.Enum(cases = cases) when
                     cases |> Array.exists (fun (c: ExternalEnumCaseShape) -> c.Name = caseName)
                     ->
-                    ValueSome(SymbolKeyOps.externalTypeKeyOf origin key 0)
+                    // THE annotation mint, not a re-cut of it: "matches the `(x: E)` key" is
+                    // a property this must HAVE, so it is taken from the one function that
+                    // decides it rather than restated here and kept in step by hand.
+                    ValueSome(useSiteTypeKey hit)
                 | _ -> ValueNone
             )
             headName

@@ -750,10 +750,14 @@ type MetadataSymbolProvider(reverseCanon: Map<string, SymbolKey list>, assemblyP
 
     interface IExternalSymbolResolver with
         member _.TryLookup _ = ValueNone
-        member this.TryLookupType(name: string) = this.LookupTypeByName name
-        // Bare IL has no module chains, so a name IS the identity: the use site's re-cut
-        // from the spelling is already exact. No registered key to surface.
-        member _.TryResolveTypeName _ = ValueNone
+
+        // Bare IL has no module chains, so a name IS the identity — the same condition
+        // `KeyedLeaf.ofNamed` mints under, so this scrape mints through the same spelling
+        // rather than restating it.
+        member this.TryLookupType(name: string) =
+            this.LookupTypeByName name
+            |> ValueOption.map (ExternalSymbols.nameKeyedTypeHit name)
+
         member _.TryLookupUnionCase _ = ValueNone
         // A metadata leaf scrapes IL, never F# record tycons, so it never contributes to
         // the reverse field index (F#'s `isILOrRequiredQualifiedAccess` excludes IL too).

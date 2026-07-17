@@ -719,7 +719,8 @@ module ReferencedProject =
                     depProviders @ metaTail (ExternalSymbolProviders.mergeReverseCanon depProviders)
                 )
 
-            let ambientShapes = (fun (name: string) -> depComposite.TryLookupType name)
+            let ambientShapes =
+                (fun (name: string) -> depComposite.TryLookupType name |> ExternalSymbols.typeShapeOf)
 
             // The dependency providers' implicit open prefixes (`Vesper` from Core,
             // where `Fun`2`/`Fun`3`/`Ref` live), so this package's extraction resolves a

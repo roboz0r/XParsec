@@ -76,7 +76,7 @@ let tests =
         "TsManifestEnum"
         [
             test "the provider maps a TS enum to ExternalTypeShape.Enum (was Opaque), members carried" {
-                match paletteProvider.TryLookupType "Color" with
+                match paletteProvider.TryLookupType "Color" |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Enum(cases, _)) ->
                     Expect.equal
                         [ for c in cases -> c.Name ]
@@ -84,7 +84,7 @@ let tests =
                         "the numeric enum's ordered case names survive the remap (no longer dropped)"
                 | other -> failtestf "expected Color to resolve to an Enum shape, got %A" other
 
-                match paletteProvider.TryLookupType "Dir" with
+                match paletteProvider.TryLookupType "Dir" |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Enum(cases, _)) ->
                     Expect.equal
                         [ for c in cases -> c.Value ]

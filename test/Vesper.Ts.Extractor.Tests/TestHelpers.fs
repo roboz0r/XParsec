@@ -304,7 +304,7 @@ let testProviderResolves (path: string) =
                 // generic `Box<T>`/`Container<T>` resolves to an `ExternalTypeShape.Class`
                 // whose `TyparArity` equals the emitted `typeParams`. Trivially 0 for the
                 // (many) non-generic fixtures; exercises the count on `generics`.
-                match prov.TryLookupType name with
+                match prov.TryLookupType name |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Class shape) ->
                     Expect.equal shape.TyparArity typeParams $"type '{name}' arity must equal its typeParams"
                 | _ -> ()
@@ -333,7 +333,7 @@ let testProviderResolves (path: string) =
                         )
                     )
 
-                match prov.TryLookupType name with
+                match prov.TryLookupType name |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Class shape) ->
                     let baseCount = if shape.FrozenBaseType.IsSome then 1 else 0
                     let enumerableCount = if injectedEnumerable then 1 else 0
@@ -390,7 +390,7 @@ let testProviderResolves (path: string) =
 
                 // A generic alias (`Pair<A,B>`) resolves to an `Abbrev` whose arity equals
                 // its `typeParams` (item 11 — was hardcoded 0 before generics landed).
-                match prov.TryLookupType name with
+                match prov.TryLookupType name |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Abbrev(arity, _)) ->
                     Expect.equal arity typeParams $"type alias '{name}' arity must equal its typeParams"
                 | _ -> ()

@@ -126,7 +126,7 @@ let tests =
                 let b = tagged "shared" "b"
                 let composed = ExternalSymbolProviders.composite [ a; b ]
 
-                match composed.TryLookupType "shared" with
+                match composed.TryLookupType "shared" |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Class info) ->
                     Expect.equal info.Origin.Namespace.Dotted "a" "type: a wins"
                 | other -> failtestf "expected Class shape from a, got %A" other

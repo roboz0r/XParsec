@@ -874,27 +874,9 @@ type ExternalTypeShape =
 type IExternalSymbolResolver =
     /// `name` is the compiled name ("op_Addition", not "(+)").
     abstract TryLookup: name: string -> ExternalSymbol voption
-    /// Look up the body of a `type` declaration by canonical compiled name.
-    /// Returns `ValueNone` for unknown names or for types whose body shape the
-    /// provider doesn't (yet) model — enums, delegates, etc. Consumers fall back
-    /// to `TyConst` / `TyRecord` nominal behaviour when this returns `ValueNone`.
-    /// The spelling-keyed twin of `IExternalSymbolStore.TryLookupType` (which a
-    /// consumer holding a resolved `SymbolKey` uses instead).
-    abstract TryLookupType: name: string -> ExternalTypeShape voption
-
-    /// The REGISTERED identity key for a written (possibly dotted) type name,
-    /// resolved through the SAME containment canonicalizer as `TryLookupType`.
-    /// The key-carrying twin of `TryLookupType`: a use site that resolved a
-    /// module-held type by its DOTTED source spelling needs the producer's own
-    /// `InModule`-holder key, which no re-cut from the name can reconstruct
-    /// (`SymbolKeyOps.externalTypeKeyOf` would flatten the module segment into the
-    /// namespace). A provider whose types hold a module chain (the frozen impl
-    /// projection, the `.fsi` contract extractor) answers from the same index it
-    /// resolves `TryLookupType` through; the bare-IL population (metadata /
-    /// JS-native / TS-manifest / test fakes) has no module chains, so it returns
-    /// `ValueNone` and the use site's re-cut stays the exact, correct fallback.
-    /// `ValueNone` on the same terms as `TryLookupType` (unknown name).
-    abstract TryResolveTypeName: name: string -> SymbolKey voption
+    /// Look up a `type` declaration by canonical compiled name: its REGISTERED identity
+    /// AND its body shape, from the one hit. Returns `ValueNone` for unknown names.
+    abstract TryLookupType: name: string -> struct (TypeKey * ExternalTypeShape) voption
 
     /// Reverse case-name lookup: a (bare) union-case name → its declaring
     /// union's compiled name, the union's typar arity, and the case shape. The
@@ -1142,6 +1124,24 @@ module ExternalSymbols =
     let emptyForwardRepr: IReadOnlyDictionary<SymbolKey, string> =
         Dictionary<SymbolKey, string>() :> IReadOnlyDictionary<_, _>
 
+    /// The identity of a type a NAME-INDEXED leaf resolved: the key its own name index
+    /// round-trips to. This is `KeyedLeaf.ofNamed`'s `SymbolKeyOps.qualifiedName` rendering
+    /// INVERTED, so it is sound on exactly the condition that already makes such a leaf
+    /// answerable by key at all — its type keys are `InNamespace`, where the name and the
+    /// key say the same thing. A leaf that mints an `InModule` chain must supply a real key
+    /// index (`KeyedLeaf.ofKeyIndexes`) instead, in both directions alike.
+    ///
+    /// The arity comes from the SHAPE — the type's own — never from the arity a probe
+    /// happened to ask for: a bare-keyed generic (`Vesper.Option`, arity 1) answers a bare
+    /// probe, and its identity is still arity 1.
+    let nameKeyedTypeHit (name: string) (shape: ExternalTypeShape) : struct (TypeKey * ExternalTypeShape) =
+        struct (SymbolKeyOps.qualifiedTypeKeyOf name shape.TyparArity, shape)
+
+    /// The shape half of a by-name type hit, for the consumers that resolve a compiler-minted
+    /// repr string rather than a written name and so have no use for the identity.
+    let typeShapeOf (hit: struct (TypeKey * ExternalTypeShape) voption) : ExternalTypeShape voption =
+        hit |> ValueOption.map (fun (struct (_, shape)) -> shape)
+
     /// Select the ONE entry of a by-NAME overload set whose identity is `key` — how a
     /// store whose member index is name-keyed answers `TryLookupMemberByKey`. Spelled
     /// once, here, so no consumer of the store face ever re-implements "find my overload"
@@ -1242,12 +1242,12 @@ module ExternalSymbols =
         (choose: ExternalTypeShape -> 'a voption)
         (repr: string)
         : 'a voption =
-        match provider.TryLookupType repr |> ValueOption.bind choose with
+        match provider.TryLookupType repr |> typeShapeOf |> ValueOption.bind choose with
         | ValueSome _ as hit -> hit
         | ValueNone ->
             provider.AmbientOpenPrefixes
             |> List.tryPick (fun p ->
-                match provider.TryLookupType(p + "." + repr) |> ValueOption.bind choose with
+                match provider.TryLookupType(p + "." + repr) |> typeShapeOf |> ValueOption.bind choose with
                 | ValueSome v -> Some v
                 | ValueNone -> None
             )
@@ -1300,12 +1300,12 @@ module ExternalSymbols =
         // direction cannot be derived from the shim alone — the BCL face is supplied as
         // `bclFace` and VERIFIED (never blindly trusted) against the shim's forward abbreviation.
         let shimConfirms (bcl: string) (lookup: string) : bool =
-            match provider.TryLookupType bcl with
+            match provider.TryLookupType bcl |> typeShapeOf with
             | ValueSome(ExternalTypeShape.Abbrev(_, FTClass(head, _))) -> SymbolKeyOps.typeMetaName head = lookup
             | _ -> false
 
         let resolveAnchor (lookup: string) (bclFace: string voption) : RuntimeNames.CapabilityIdentity voption =
-            match provider.TryLookupType lookup with
+            match provider.TryLookupType lookup |> typeShapeOf with
             | ValueSome(ExternalTypeShape.Intrinsic { Id = { Platform = Some fqn } }) ->
                 ValueSome(ofKey (SymbolKeyOps.qualifiedTypeKeyOf fqn 0))
             | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->

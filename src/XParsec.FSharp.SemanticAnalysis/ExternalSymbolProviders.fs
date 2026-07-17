@@ -23,15 +23,17 @@ module ExternalSymbolProviders =
     /// `NamedLeaf.empty` (all misses) and override the channels the leaf models;
     /// `ofNamedLeaf NamedLeaf.empty` is the null provider.
     ///
-    /// For a leaf whose types sit in a `TypeHolder.InModule` chain the rendering is NOT
-    /// what the source writes, so a name cannot stand in for the identity: such a leaf
-    /// supplies a `KeyIndexedLeaf` instead (`KeyedLeaf.ofKeyIndexes`) and answers the
-    /// store face from a real key index.
+    /// Its types' IDENTITIES are not a field: for this leaf a name IS the identity, so
+    /// `KeyedLeaf.ofNamed` mints the key (`ExternalSymbols.nameKeyedTypeHit`) rather than
+    /// let the leaf state one that could disagree with the name index it just answered
+    /// from. For a leaf whose types sit in a `TypeHolder.InModule` chain the rendering is
+    /// NOT what the source writes, so a name cannot stand in for the identity: such a leaf
+    /// supplies a `KeyIndexedLeaf` instead (`KeyedLeaf.ofKeyIndexes`) and answers both type
+    /// faces from a real key index.
     type NamedLeaf =
         {
             TryLookup: string -> ExternalSymbol voption
             TryLookupType: string -> ExternalTypeShape voption
-            TryResolveTypeName: string -> SymbolKey voption
             TryLookupUnionCase: string -> ExternalUnionCase voption
             TryRecordsWithField: string -> ExternalRecordCandidate[]
             AmbientOpenPrefixes: string list
@@ -50,7 +52,6 @@ module ExternalSymbolProviders =
             {
                 TryLookup = fun _ -> ValueNone
                 TryLookupType = fun _ -> ValueNone
-                TryResolveTypeName = fun _ -> ValueNone
                 TryLookupUnionCase = fun _ -> ValueNone
                 TryRecordsWithField = fun _ -> [||]
                 AmbientOpenPrefixes = []
@@ -87,8 +88,10 @@ module ExternalSymbolProviders =
             /// and a key whose type carries no members are the same answer.
             MembersByKey: IReadOnlyDictionary<SymbolKey, ResizeArray<ExternalMember>>
             /// Written type name -> the registered identity: the leaf's ONE name->key
-            /// seam, backing `TryResolveTypeName` and the by-name shape face alike.
-            ResolveTypeName: string -> SymbolKey voption
+            /// seam, and the whole of its by-name type face — `ofKeyIndexes` pairs the key
+            /// this yields with the shape the SAME key fetches, so the identity and the
+            /// shape a use site sees always come from one lookup.
+            ResolveTypeName: string -> TypeKey voption
             TryLookup: string -> ExternalSymbol voption
             TryLookupUnionCase: string -> ExternalUnionCase voption
             TryRecordsWithField: string -> ExternalRecordCandidate[]
@@ -116,12 +119,17 @@ module ExternalSymbolProviders =
 
     /// A leaf's type channels answered BY KEY, whichever way the leaf came by them:
     /// `ofNamed` renders the key onto a name index, `ofKeyIndexes` reads a real one. The
-    /// `Named` face is the same leaf answering a WRITTEN name, and both builders derive
+    /// `TypeByName` face is the same leaf answering a WRITTEN name, and both builders derive
     /// one face from the other, so the two faces cannot disagree. `ofKeyedLeaf` turns
     /// either into the provider.
     type KeyedLeaf =
         {
             Named: NamedLeaf
+            /// The whole by-name TYPE face: identity + shape from one lookup. Derived by
+            /// both builders (never supplied), which is what keeps it in step with
+            /// `TypeShapeByKey` — `NamedLeaf.TryLookupType` feeds this one and is not itself
+            /// the provider's face.
+            TypeByName: string -> struct (TypeKey * ExternalTypeShape) voption
             TypeShapeByKey: SymbolKey -> ExternalTypeShape voption
             TypeMemberByKey: SymbolKey * string -> ExternalMember voption
             TypeMembersByKey: SymbolKey * string -> ExternalMember[]
@@ -130,15 +138,20 @@ module ExternalSymbolProviders =
     module KeyedLeaf =
 
         /// A leaf with NO key index answers a key by RENDERING it onto its name index
-        /// (`SymbolKeyOps.qualifiedName`). Sound exactly when the leaf's names ARE that
-        /// rendering — which holds for every leaf whose type keys are `InNamespace`
-        /// (a TS manifest, the JS natives, a bare-IL scrape): there, name and key say the
-        /// same thing. A leaf that mints an `InModule` holder must supply a real key index
-        /// instead (`ofKeyIndexes`), because no rendering of the module chain is what the
-        /// SOURCE writes.
+        /// (`SymbolKeyOps.qualifiedName`), and answers a NAME's identity by inverting that
+        /// same rendering (`ExternalSymbols.nameKeyedTypeHit`). Sound exactly when the
+        /// leaf's names ARE that rendering — which holds for every leaf whose type keys are
+        /// `InNamespace` (a TS manifest, the JS natives, a bare-IL scrape): there, name and
+        /// key say the same thing, in both directions. A leaf that mints an `InModule`
+        /// holder must supply a real key index instead (`ofKeyIndexes`), because no
+        /// rendering of the module chain is what the SOURCE writes.
         let ofNamed (leaf: NamedLeaf) : KeyedLeaf =
             {
                 Named = leaf
+                TypeByName =
+                    fun name ->
+                        leaf.TryLookupType name
+                        |> ValueOption.map (ExternalSymbols.nameKeyedTypeHit name)
                 TypeShapeByKey = fun key -> leaf.TryLookupType(SymbolKeyOps.qualifiedName key)
                 TypeMemberByKey = fun (key, m) -> leaf.TryLookupMember(SymbolKeyOps.qualifiedName key, m)
                 TypeMembersByKey = fun (key, m) -> leaf.TryLookupMembers(SymbolKeyOps.qualifiedName key, m)
@@ -146,10 +159,11 @@ module ExternalSymbolProviders =
 
         /// The dual of `ofNamed`: a leaf that HOLDS its types' identities supplies the key
         /// indexes and the name->key canonicalizer, and every type face is derived HERE —
-        /// see `KeyIndexedLeaf`. The by-name shape face is `ResolveTypeName` composed with
-        /// the shape index, so it is the SAME index the store face reads; the member faces
-        /// are the declaration-ordered by-name scan over `MembersByKey`, spelled once so no
-        /// producer re-implements the ordering the overload pick depends on.
+        /// see `KeyIndexedLeaf`. The by-name type face is `ResolveTypeName` composed with
+        /// the shape index, so the identity it reports and the shape it reports come from
+        /// the SAME index the store face reads; the member faces are the declaration-ordered
+        /// by-name scan over `MembersByKey`, spelled once so no producer re-implements the
+        /// ordering the overload pick depends on.
         let ofKeyIndexes (leaf: KeyIndexedLeaf) : KeyedLeaf =
             let shapeByKey (key: SymbolKey) : ExternalTypeShape voption =
                 match leaf.ShapesByKey.TryGetValue key with
@@ -186,19 +200,24 @@ module ExternalSymbolProviders =
             {
                 Named =
                     // The channels a keyed leaf does not model keep `NamedLeaf.empty`'s
-                    // miss, and its two type-NAME faces are derived rather than supplied —
-                    // which is why a producer hands over a `KeyIndexedLeaf`, not a
-                    // `NamedLeaf` with fields this would have to silently override.
+                    // miss, and its type-NAME face is derived rather than supplied (see
+                    // `TypeByName`) — which is why a producer hands over a `KeyIndexedLeaf`,
+                    // not a `NamedLeaf` with fields this would have to silently override.
                     { NamedLeaf.empty with
                         TryLookup = leaf.TryLookup
-                        TryLookupType = fun name -> leaf.ResolveTypeName name |> ValueOption.bind shapeByKey
-                        TryResolveTypeName = leaf.ResolveTypeName
                         TryLookupUnionCase = leaf.TryLookupUnionCase
                         TryRecordsWithField = leaf.TryRecordsWithField
                         AmbientOpenPrefixes = leaf.AmbientOpenPrefixes
                         IntrinsicReverseCanon = leaf.IntrinsicReverseCanon
                         IntrinsicForwardRepr = leaf.IntrinsicForwardRepr
                     }
+                TypeByName =
+                    fun name ->
+                        match leaf.ResolveTypeName name with
+                        | ValueSome key ->
+                            shapeByKey (SymbolKey.Type key)
+                            |> ValueOption.map (fun shape -> struct (key, shape))
+                        | ValueNone -> ValueNone
                 TypeShapeByKey = shapeByKey
                 TypeMemberByKey = fun (key, memberName) -> firstMemberNamed key memberName
                 TypeMembersByKey = fun (key, memberName) -> membersNamed key memberName
@@ -214,8 +233,7 @@ module ExternalSymbolProviders =
 
           interface IExternalSymbolResolver with
               member _.TryLookup name = named.TryLookup name
-              member _.TryLookupType(name: string) = named.TryLookupType name
-              member _.TryResolveTypeName(name: string) = named.TryResolveTypeName name
+              member _.TryLookupType(name: string) = leaf.TypeByName name
               member _.TryLookupUnionCase caseName = named.TryLookupUnionCase caseName
               member _.TryRecordsWithField fieldName = named.TryRecordsWithField fieldName
               member _.AmbientOpenPrefixes = named.AmbientOpenPrefixes
@@ -400,17 +418,16 @@ module ExternalSymbolProviders =
               member _.TryLookup name =
                   firstHit (fun s -> s.TryLookup name) |> ValueOption.map stampSymbol
 
+              // ONE scan for the identity AND the shape, so the key a use site stamps
+              // always belongs to the source that resolved the type it stamps it onto.
+              // Only the SHAPE is re-homed: a `TypeKey` is a pure identity that carries its
+              // own namespace, so it is never re-stamped to the package origin (the same
+              // reason `stampRecordCandidate` re-homes a candidate's `Origin` but leaves its
+              // `TypeKey` untouched — construction identity and this key must agree, and
+              // neither is re-homed).
               member _.TryLookupType(name: string) =
-                  firstHit (fun s -> s.TryLookupType name) |> ValueOption.map stampType
-
-              // First source that knows the name wins, exactly as `TryLookupType`.
-              // NO origin re-home: a `SymbolKey` is a pure identity that carries its
-              // own namespace, so it is never re-stamped to the package origin (the
-              // same reason `stampRecordCandidate` re-homes a candidate's `Origin` but
-              // leaves its `TypeKey` untouched — construction identity and this key must
-              // agree, and neither is re-homed).
-              member _.TryResolveTypeName(name: string) =
-                  firstHit (fun s -> s.TryResolveTypeName name)
+                  firstHit (fun s -> s.TryLookupType name)
+                  |> ValueOption.map (fun (struct (key, shape)) -> struct (key, stampType shape))
 
               // First source that knows a case of this name wins; re-stamp the
               // package origin onto the result exactly as `TryLookupType` does for
@@ -609,12 +626,11 @@ module ExternalSymbolProviders =
                   inner.TryLookup name
                   |> ValueOption.map (fun s -> { s with Scheme = co s.Scheme })
 
+              // A `TypeKey` is pure identity — no `FrozenType` surface to variance-map — so
+              // only the shape half is rewritten.
               member _.TryLookupType(name: string) =
-                  inner.TryLookupType name |> ValueOption.map mapShape
-
-              // A `SymbolKey` is pure identity — no `FrozenType` surface to
-              // variance-map — so this decorator passes it straight through.
-              member _.TryResolveTypeName(name: string) = inner.TryResolveTypeName name
+                  inner.TryLookupType name
+                  |> ValueOption.map (fun (struct (key, shape)) -> struct (key, mapShape shape))
 
               member _.TryLookupUnionCase caseName =
                   inner.TryLookupUnionCase caseName
@@ -682,7 +698,6 @@ module ExternalSymbolProviders =
                   inner.TryLookup name |> ValueOption.map stampSymbol
 
               member _.TryLookupType(name: string) = inner.TryLookupType name
-              member _.TryResolveTypeName(name: string) = inner.TryResolveTypeName name
               member _.TryLookupUnionCase caseName = inner.TryLookupUnionCase caseName
               member _.TryRecordsWithField fieldName = inner.TryRecordsWithField fieldName
               member _.AmbientOpenPrefixes = inner.AmbientOpenPrefixes
@@ -719,8 +734,10 @@ module ExternalSymbolProviders =
     /// intrinsic axes and ambient prefixes are constant fields — passed through uncached.
     let memoize (inner: IExternalSymbolProvider) : IExternalSymbolProvider =
         let symbols = ConcurrentDictionary<string, ExternalSymbol voption>()
-        let typesByName = ConcurrentDictionary<string, ExternalTypeShape voption>()
-        let typeKeysByName = ConcurrentDictionary<string, SymbolKey voption>()
+
+        let typesByName =
+            ConcurrentDictionary<string, struct (TypeKey * ExternalTypeShape) voption>()
+
         let typesByKey = ConcurrentDictionary<SymbolKey, ExternalTypeShape voption>()
 
         let members =
@@ -744,9 +761,6 @@ module ExternalSymbolProviders =
 
               member _.TryLookupType(name: string) =
                   typesByName.GetOrAdd(name, (fun n -> inner.TryLookupType n))
-
-              member _.TryResolveTypeName(name: string) =
-                  typeKeysByName.GetOrAdd(name, (fun n -> inner.TryResolveTypeName n))
 
               member _.TryLookupUnionCase caseName =
                   unionCases.GetOrAdd(caseName, (fun n -> inner.TryLookupUnionCase n))

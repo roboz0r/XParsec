@@ -773,10 +773,6 @@ let tests =
 
                 let provider = VesperLib.ExtractCtx.toProvider ctx
 
-                match provider.TryLookupType "Test.A.M.T" with
-                | ValueSome _ -> ()
-                | ValueNone -> failtest "the written dotted spelling must still resolve"
-
                 // …and it lands on the REGISTERED identity: the same `InModule` key the
                 // module containment mints, not a key re-cut from the dotted string.
                 let expected: TypeKey =
@@ -786,14 +782,17 @@ let tests =
                         TyparArity = 0
                     }
 
-                Expect.equal
-                    (provider.TryResolveTypeName "Test.A.M.T")
-                    (ValueSome(SymbolKey.Type expected))
-                    "the written name resolves to the registered InModule identity"
+                match provider.TryLookupType "Test.A.M.T" with
+                | ValueSome(struct (key, ExternalTypeShape.Record _)) ->
+                    Expect.equal key expected "the written name resolves to the registered InModule identity"
+                | ValueSome(struct (_, other)) -> failtestf "the name resolved, but with the wrong shape: %A" other
+                | ValueNone -> failtest "the written dotted spelling must still resolve"
 
                 // A spelling that names nothing still resolves to nothing — the redirect is a
                 // containment lookup, not a name-shaped guess.
-                Expect.equal (provider.TryResolveTypeName "Test.A.M.Nope") ValueNone "an unknown member of M misses"
+                Expect.isTrue
+                    (provider.TryLookupType "Test.A.M.Nope" |> ValueOption.isNone)
+                    "an unknown member of M misses"
             }
 
             test "`when 'T : equality` is captured, and applied to the fresh TyVar at instantiation" {

@@ -127,7 +127,7 @@ let private wrapped = ExternalSymbolProviders.mapProviderTypes resolveMarker fak
 
 /// The `Class` shape of `Cls`, or fail.
 let private clsShape () =
-    match wrapped.TryLookupType "Cls" with
+    match wrapped.TryLookupType "Cls" |> ExternalSymbols.typeShapeOf with
     | ValueSome(ExternalTypeShape.Class info) -> info
     | other -> failtestf "expected a Class shape, got %A" other
 
@@ -162,14 +162,14 @@ let tests =
             }
 
             test "a record field is covariant" {
-                match wrapped.TryLookupType "Rec" with
+                match wrapped.TryLookupType "Rec" |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Record(_, fields, _)) ->
                     Expect.equal fields.[0].Frozen (witness Variance.Co) "record field root is co"
                 | other -> failtestf "expected a Record shape, got %A" other
             }
 
             test "a union-case field is covariant and the union's interface args invariant" {
-                match wrapped.TryLookupType "Uni" with
+                match wrapped.TryLookupType "Uni" |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Union(_, cases, ifaces, _)) ->
                     Expect.equal cases.[0].FrozenFieldTypes [| witness Variance.Co |] "case field root is co"
                     let (name, args) = ifaces.[0]
@@ -199,7 +199,7 @@ let tests =
             }
 
             test "an Abbrev body is NOT threaded (no intrinsic variance) — the marker survives" {
-                match wrapped.TryLookupType "Abb" with
+                match wrapped.TryLookupType "Abb" |> ExternalSymbols.typeShapeOf with
                 | ValueSome(ExternalTypeShape.Abbrev(_, body)) ->
                     Expect.equal body marker "the abbreviation body is left for its expansion seam"
                 | other -> failtestf "expected an Abbrev shape, got %A" other

@@ -521,8 +521,7 @@ module VesperLibTyparCapture =
             // or the source's dotted containment); `ofKeyIndexes` derives the by-name shape
             // face from it and the key index, so one index answers both ways in and a
             // spelling can no longer be an identity of its own.
-            let typeKeyOfName (name: string) : SymbolKey voption =
-                tryTypeKey ctx name |> ValueOption.map SymbolKey.Type
+            let typeKeyOfName (name: string) : TypeKey voption = tryTypeKey ctx name
 
             // The extractor's leaf: the TYPE channels are key-addressed (its types carry a
             // module chain a name cannot express), the symbol channel stays name-addressed —
