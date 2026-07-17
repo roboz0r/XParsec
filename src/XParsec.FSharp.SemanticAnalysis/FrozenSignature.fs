@@ -501,10 +501,11 @@ module FrozenSignature =
         // containment canonicalizer. `typesByName` holds the canonical `typeMetaName`
         // rendering (`Test.A.M+T` for a module-held type); `tryDottedModuleHeld` adds the
         // fallback for the spelling that is NOT that rendering — the DOTTED source form
-        // (`Test.A.M.T`), resolved through the declared module holders. It backs BOTH the
-        // by-name shape face (`typeShapeByName`) and the resolver's `TryResolveTypeName`, so
-        // a use site stamps the producer's own key rather than a flattened re-cut — which is
-        // why the store face reads its key-addressed index directly (no re-cut key arrives).
+        // (`Test.A.M.T`), resolved through the declared module holders. It is this leaf's
+        // ONE name->key seam: `ofKeyIndexes` derives BOTH the by-name shape face and
+        // `TryResolveTypeName` from it, so a use site stamps the producer's own key rather
+        // than a flattened re-cut — which is why the store face reads the key-addressed
+        // index directly (no re-cut key ever arrives).
         let resolveNameToKey (name: string) : SymbolKey voption =
             let exact (probe: string) =
                 match typesByName.TryGetValue probe with
@@ -518,35 +519,17 @@ module FrozenSignature =
 
             SymbolKeyOps.tryDottedModuleHeld exact moduleHolder name
 
-        // The store face is addressed by the REGISTERED key directly: NameResolution stamps
-        // the producer's own key (surfaced by the resolver's `TryResolveTypeName`, which
-        // shares `resolveNameToKey`), so a flattened re-cut key never reaches this index and
-        // a plain dictionary lookup is exact. A key that names nothing misses.
-        let typeShapeByKey (key: SymbolKey) : ExternalTypeShape voption =
-            match shapesByKey.TryGetValue key with
-            | true, v -> ValueSome v
-            | _ -> ValueNone
-
-        let typeMembersByKey (key: SymbolKey) : ResizeArray<ExternalMember> voption =
-            match membersByKey.TryGetValue key with
-            | true, v -> ValueSome v
-            | _ -> ValueNone
-
-        let typeShapeByName (name: string) : ExternalTypeShape voption =
-            match resolveNameToKey name with
-            | ValueSome key -> typeShapeByKey key
-            | ValueNone -> ValueNone
-
         ExternalSymbolProviders.ofKeyedLeaf (
-            ExternalSymbolProviders.KeyedLeaf.ofNamedWithMembers
-                { ExternalSymbolProviders.NamedLeaf.empty with
+            ExternalSymbolProviders.KeyedLeaf.ofKeyIndexes
+                { ExternalSymbolProviders.KeyIndexedLeaf.empty with
+                    ShapesByKey = shapesByKey
+                    MembersByKey = membersByKey
+                    ResolveTypeName = resolveNameToKey
                     TryLookup =
                         fun name ->
                             match symbols.TryGetValue name with
                             | true, sym -> ValueSome sym
                             | _ -> ValueNone
-                    TryLookupType = typeShapeByName
-                    TryResolveTypeName = resolveNameToKey
                     TryLookupUnionCase =
                         fun caseName ->
                             match unionCaseIndex.TryGetValue caseName with
@@ -575,6 +558,4 @@ module FrozenSignature =
                     IntrinsicReverseCanon = intrinsicReverse
                     IntrinsicForwardRepr = intrinsicForward
                 }
-                typeShapeByKey
-                typeMembersByKey
         )
