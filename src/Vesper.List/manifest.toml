@@ -1,5 +1,5 @@
-# Vesper.List — the cons-list type + the `List` module as a standalone package
-# (package-split-plan PS1: one package per type; PS2: one impl DLL per package).
+# Vesper.List — the cons-list type + the `List` module as a standalone package:
+# one package per type, one impl DLL per package.
 #
 # Same shape as src/Vesper.Core / src/Vesper.Option / src/Vesper.Printf: the
 # `.fsi` is the front-end symbol contract (parsed by XParsec.FSharp, walked into
@@ -10,17 +10,13 @@
 # Depends on Vesper.Core (`Fun`, `unit`, `int`, `bool`). The `list.fsi` contract
 # also names `int option` (in `List.GetSlice`), but the compiled impl (`list.fs`)
 # does not, so `depends-on` tracks the build dependency only (Vesper.Option will
-# return here if `GetSlice` is implemented). `name` and `depends-on` are recorded
-# here per the package-split-plan package schema; the
-# root-manifest / a la carte loader wiring (PS-Loader) is a separate follow-up —
-# these self-contained package manifests are consumed today by the parser golden
-# tests (test/XParsec.FSharp.Tests/VesperCoreContractTests.fs).
+# return here if `GetSlice` is implemented).
 #
-# Per PS5 the package is named `Vesper.List` but contributes type `List` into
-# namespace `Vesper.Collections`, not `Vesper.List`.
+# Package name != namespace: the package is named `Vesper.List` but contributes
+# type `List` into namespace `Vesper.Collections`, not `Vesper.List`.
 #
 # See ./README.md and
-# ../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md.
+# ../XParsec.FSharp.SemanticAnalysis/docs/core-lib-architecture.md.
 
 [core]
 name = "Vesper.List"

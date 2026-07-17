@@ -32,7 +32,7 @@ open XParsec.FSharp.Codegen.Clr.Tests.TestHelpers
 
 /// The built `Vesper.List.dll` (cached). Built from `list.fs`, so the type is
 /// `Vesper.Collections.List`1` with the `[]`/`::` operator cases — compiled to the
-/// `Empty` (nullary) / `Cons` (binary) factories (package-split-plan PS5: the
+/// `Empty` (nullary) / `Cons` (binary) factories (package name != namespace: the
 /// package is `Vesper.List` but contributes `List` into `Vesper.Collections`).
 let private listAsm: Lazy<Assembly> = lazy (fst (buildPackage "Vesper.List").Value)
 

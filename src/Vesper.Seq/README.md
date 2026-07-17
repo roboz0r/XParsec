@@ -1,10 +1,10 @@
 # Vesper.Seq
 
 The `Seq` module over `seq<'T>` (= `IEnumerable<'T>`) for **Vesper** (the
-language; `XParsec.*` is the *compiler*), packaged standalone per
-[`package-split-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md)
-(PS1: one package per type/module). Mirrors [`Vesper.Array`](../Vesper.Array/README.md)'s
-`module Array`.
+language; `XParsec.*` is the *compiler*), packaged standalone — one package per
+type/module, see
+[`core-lib-architecture.md`](../XParsec.FSharp.SemanticAnalysis/docs/core-lib-architecture.md).
+Mirrors [`Vesper.Array`](../Vesper.Array/README.md)'s `module Array`.
 
 ## Two artifacts that must agree
 
@@ -46,7 +46,7 @@ the zero-allocation, struct-chaining, JIT-deforesting `Seq` design described in
 
 ## Naming / shape decisions
 
-- **Package name ≠ namespace** (PS5): the package is `Vesper.Seq`, but it
+- **Package name ≠ namespace**: the package is `Vesper.Seq`, but it
   contributes the `Seq` module into namespace **`Vesper.Collections`** (not
   `Vesper.Seq`) — the same namespace `set.fs` lives in, so its `Seq.fold` /
   `Seq.reduce` / `Seq.truncate` calls resolve without an extra `open`.
@@ -68,7 +68,7 @@ coverage is verified by golden `.parsed` snapshots committed next to each source
 
 ## Cross-references
 
-- [`package-split-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md) — the per-package split this realises (PS1/PS2/PS3/PS5).
+- [`core-lib-architecture.md`](../XParsec.FSharp.SemanticAnalysis/docs/core-lib-architecture.md) — the per-package split this realises, and the dependency graph it sits in.
 - [`brainstorm-seq-module.md`](../XParsec.FSharp.SemanticAnalysis/docs/brainstorm-seq-module.md) — the zero-allocation deforesting `Seq` design this reference surface defers.
 - [`../Vesper.Array/README.md`](../Vesper.Array/README.md) — the sibling module package this mirrors.
 - [`../Vesper.List/README.md`](../Vesper.List/README.md) — the base package supplying the `seq<'T>` / `ResizeArray<'T>` abbreviations.

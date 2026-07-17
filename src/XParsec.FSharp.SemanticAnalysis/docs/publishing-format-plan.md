@@ -3,15 +3,17 @@
 ## Why
 
 `Vesper.Core` (and every `Vesper.*` package after it — see
-[package-split-plan](package-split-plan.md)) carries two kinds of information:
+[core-lib-architecture](core-lib-architecture.md)) carries two kinds of
+information:
 
 1. a **runtime** — the BCL-only `Vesper.Core.dll` the backend emits, holding only
    what the target ABI can express (real types, real method bodies); and
 2. a **contract** — the `.fsi` signatures plus the manifest, holding everything
    the front-end needs that **IL (or JS, or any target ABI) cannot represent**.
 
-The runtime's distribution form is settled: it's a normal per-target artifact
-([package-split-plan](package-split-plan.md) PS2). This plan settles the open
+The runtime's distribution form is settled: it's a normal per-target artifact —
+one impl DLL per package ([core-lib-architecture](core-lib-architecture.md)).
+This plan settles the open
 question for the *contract*: **in what form is the not-IL-representable metadata
 published, and where does it live relative to the runtime artifact?**
 
@@ -126,8 +128,10 @@ reason as the F# pickle.
   re-resolved at consume.** Target-neutral, human-readable, diffable, and reuses
   the front-end parser as the single source of truth — no second format to
   version against the type system while the language still churns. This is the
-  current state (`VesperLib.loadAll`/`topoSort` repointed per package-split-plan);
-  ratify it. TypeScript's `.d.ts` is the precedent.
+  current state — `ReferencedProject` parses each package's `manifest.toml` and
+  `.fsi` set and resolves the `depends-on` closure itself
+  (`ReferencedProject.fs:246-345`); ratify it. TypeScript's `.d.ts` is the
+  precedent.
 - **PF2 — Metadata never rides the runtime artifact.** No pickled resource or PE
   section in any `Vesper.*.dll`; no metadata-bearing custom attribute beyond what
   the runtime itself needs. The runtime loader cannot use the contract, so any
@@ -182,8 +186,8 @@ reason as the F# pickle.
   neutral contract** shared across targets. This is *why* the contract cannot
   live in any target's artifact (reinforces PF2) and points toward a shared
   contract package consumed by per-target runtime packages — to be reconciled
-  with the packaging unit decision ([package-split-plan](package-split-plan.md)
-  PS6).
+  with the deferred rollup/merge decision
+  ([core-lib-architecture](core-lib-architecture.md)).
 - **PF8 — The `.fsi` contract is always a committed artifact.** Either
   hand-authored, or generated from `.fs` *and committed alongside it* — never an
   ephemeral build product regenerated on the fly. Consequences: a publishable
@@ -230,15 +234,17 @@ reason as the F# pickle.
   use other managers (npm, …). The neutral contract must be carriable by *any* of
   them — another argument for plain source files (PF1), which every package format
   can hold, over a bespoke serialised blob.
-- **Packaging unit overlap with PS6.** Whether the rollup is per-target runtime
-  packages + a shared contract package, or one fat package per target, is taken
-  with [package-split-plan](package-split-plan.md) PS6; PF7 biases it toward a
+- **Packaging unit overlap with the deferred rollup.** Whether the rollup is
+  per-target runtime packages + a shared contract package, or one fat package per
+  target, is taken with the rollup/merge decision
+  ([core-lib-architecture](core-lib-architecture.md)); PF7 biases it toward a
   shared neutral contract package.
 
 ## Cross-references
 
-- [package-split-plan](package-split-plan.md) — the per-package runtime split
-  (PS2) and the deferred rollup/merge decision (PS6) this plan's PF7 feeds.
+- [core-lib-architecture](core-lib-architecture.md) — the per-package runtime
+  split (one impl DLL per package) and the deferred rollup/merge decision this
+  plan's PF7 feeds.
 - [Vesper.Core](../../Vesper.Core/README.md) — the contract/runtime
   two-artifact split (`.fsi` vs `.fs`) this plan distributes.
 - [function-representation-plan](function-representation-plan.md) — `Fun`, the

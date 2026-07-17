@@ -1,6 +1,5 @@
 # Vesper.Set — the immutable AVL-tree set type + the `Set` module as a
-# standalone package (package-split-plan PS1: one package per type; PS2: one
-# impl DLL per package).
+# standalone package: one package per type, one impl DLL per package.
 #
 # Same shape as src/Vesper.List / src/Vesper.Option / src/Vesper.Result: the
 # `.fsi` is the front-end symbol contract (parsed by XParsec.FSharp, walked
@@ -21,16 +20,15 @@
 # (the `Set` module surfaces `Set.toList` / `Set.ofList`, naming `'T list`).
 # Also on Vesper.Comparison (the ordering operators `< > <= >=` used throughout
 # `SetTree.mk`/`rebalance`/`balance`/`add`) and Vesper.Printf (`sprintf`, used in
-# the invariant-violation error messages).
-# `name` and `depends-on` are recorded here per the package-split-plan package
-# schema; the root-manifest / a la carte loader wiring (PS-Loader) is a
-# separate follow-up.
+# the invariant-violation error messages). This is the widest `depends-on` in the
+# tree, and that breadth follows from the verbatim FSharp.Core source above rather
+# than from the design.
 #
-# Per PS5 the package is named `Vesper.Set` but contributes type `Set` into
-# namespace `Vesper.Collections`, not `Vesper.Set`.
+# Package name != namespace: the package is named `Vesper.Set` but contributes
+# type `Set` into namespace `Vesper.Collections`, not `Vesper.Set`.
 #
 # See ./README.md and
-# ../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md.
+# ../XParsec.FSharp.SemanticAnalysis/docs/core-lib-architecture.md.
 
 [core]
 name = "Vesper.Set"

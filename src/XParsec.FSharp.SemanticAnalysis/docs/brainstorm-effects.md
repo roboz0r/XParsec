@@ -23,7 +23,8 @@ it does *not* inline** — CSE two identical calls, hoist one out of a loop, dro
 unused result, reorder, memoise — and, expressed as a *summary* rather than a
 body, **it survives the assembly boundary**. That is the clean resolution of the
 inline-vs-ABI tension: keep `Option.map` out-of-line (stable ABI, no body leak,
-no bloat per [package-split-plan](package-split-plan.md) PS2), and still let a
+no bloat — one impl DLL per package, see
+[core-lib-architecture](core-lib-architecture.md)), and still let a
 downstream assembly SROA through it and elide redundant calls. `inline` optimises
 by exposing the *implementation*; purity optimises by exposing a *contract*.
 
@@ -253,7 +254,7 @@ exists — but `Effect` is exactly what EF-Q3 would serialise, so nothing is was
 ## Cross-references
 
 - [brainstorm-option-representation](brainstorm-option-representation.md) — OR7's `Fun::Invoke` copy/SROA tension is resolved by EF1/EF6 (optimise across the out-of-line combinator).
-- [package-split-plan](package-split-plan.md) — PS2 one-DLL-per-package is why EF6 (cross-assembly effect summary) is load-bearing rather than a nicety.
+- [core-lib-architecture](core-lib-architecture.md) — one impl DLL per package is why EF6 (cross-assembly effect summary) is load-bearing rather than a nicety.
 - [function-representation-plan](function-representation-plan.md) — `Fun` and closure devirtualisation; the other half of erasing the combinator-call cost.
 - [Vesper.Core](../../Vesper.Core/README.md) — `ops-platform` inline-IL operators (`(+)`), the EF7 boundary where a trusted annotation survives.
 - `Conformance.fs` (self-host conformance) — the model EF7.1/EF-Q4 extend to check trusted intrinsic purity.

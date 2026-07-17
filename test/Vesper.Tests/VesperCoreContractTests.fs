@@ -45,7 +45,7 @@ let private contractFiles =
 /// contract (each binds its extern types to `(# "..." #)` intrinsics).
 /// `ops-platform.fs` carries the `hash` inline body the codegen inline-body
 /// loader reads. The cons-list (`list.fs`) moved to
-/// the standalone `Vesper.List` package (package-split-plan PS1) — see
+/// the standalone `Vesper.List` package (one package per type) — see
 /// `vesperListContractTests` below.
 let private implFiles =
     [
@@ -80,7 +80,7 @@ let vesperCoreContractTests =
         ]
 
 /// Vesper.Option — standalone package carved out of Vesper.Core's core-types
-/// (package-split-plan PS1). Same golden-file bar as the core contract: the
+/// (one package per type). Same golden-file bar as the core contract: the
 /// `.fsi` and `.fs` must parse with zero recovery diagnostics.
 [<Tests>]
 let vesperOptionContractTests =
@@ -94,7 +94,7 @@ let vesperOptionContractTests =
         ]
 
 /// Vesper.Result — standalone package carved out of Vesper.Core's core-types
-/// (package-split-plan PS1). Same golden-file bar as the core contract: the
+/// (one package per type). Same golden-file bar as the core contract: the
 /// `.fsi` and `.fs` must parse with zero recovery diagnostics.
 [<Tests>]
 let vesperResultContractTests =
@@ -107,7 +107,7 @@ let vesperResultContractTests =
             test "Parsing result.fs" { testParseFile (resultPath "result.fs") }
         ]
 
-/// Vesper.Choice — standalone package (package-split-plan PS1) mirroring
+/// Vesper.Choice — standalone package (one package per type) mirroring
 /// Vesper.Result: the `Choice<'T1, 'T2>` struct DU consumed by `set.fs`'s
 /// `partitionWith`. Same golden-file bar: the `.fsi` and `.fs` must parse with
 /// zero recovery diagnostics.
@@ -122,7 +122,7 @@ let vesperChoiceContractTests =
             test "Parsing choice.fs" { testParseFile (choicePath "choice.fs") }
         ]
 
-/// Vesper.Array — standalone package (package-split-plan PS1) adding the `Array`
+/// Vesper.Array — standalone package (one package per module) adding the `Array`
 /// module (`fold` / `zeroCreate`) over the intrinsic `'T[]` type, consumed by
 /// `set.fs`'s `toArray` / `ofArray`. Same golden-file bar: the `.fsi` and `.fs`
 /// must parse with zero recovery diagnostics.
@@ -137,7 +137,7 @@ let vesperArrayContractTests =
             test "Parsing array.fs" { testParseFile (arrayPath "array.fs") }
         ]
 
-/// Vesper.Seq — standalone package (package-split-plan PS1) adding the `Seq`
+/// Vesper.Seq — standalone package (one package per module) adding the `Seq`
 /// module (`fold` / `reduce` / `truncate` / `toArray`) over `seq<'T>`, consumed by
 /// `set.fs`'s `Set.Union` / `Set.Intersection` / line 961 `Seq.truncate`. Same
 /// golden-file bar: the `.fsi` and `.fs` must parse with zero recovery diagnostics.
@@ -181,7 +181,7 @@ let vesperListContractTests =
             test "Parsing list.fs" { testParseFile (listPath "list.fs") }
         ]
 
-/// Vesper.Set — standalone package (package-split-plan PS1). Both `set.fsi`
+/// Vesper.Set — standalone package (one package per type). Both `set.fsi`
 /// (contract) and `set.fs` (impl) are verbatim copies of FSharp.Core's
 /// `set.fsi`/`set.fs` with only the namespace patched to `Vesper.Collections`
 /// and the `Microsoft.FSharp.*` opens dropped. Same golden-file bar: each must

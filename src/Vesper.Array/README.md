@@ -1,10 +1,9 @@
 # Vesper.Array
 
 The `Array` module over the intrinsic `'T[]` type for **Vesper** (the language;
-`XParsec.*` is the *compiler*), packaged standalone per
-[`package-split-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md)
-(PS1: one package per type/module). Mirrors [`Vesper.List`](../Vesper.List/README.md)'s
-`module List`.
+`XParsec.*` is the *compiler*), packaged standalone — one package per type/module,
+see [`core-lib-architecture.md`](../XParsec.FSharp.SemanticAnalysis/docs/core-lib-architecture.md).
+Mirrors [`Vesper.List`](../Vesper.List/README.md)'s `module List`.
 
 ## Two artifacts that must agree
 
@@ -28,7 +27,7 @@ additive later, the same "grow the module additively" stance as
 
 ## Naming / shape decisions
 
-- **Package name ≠ namespace** (PS5): the package is `Vesper.Array`, but it
+- **Package name ≠ namespace**: the package is `Vesper.Array`, but it
   contributes the `Array` module into namespace **`Vesper.Collections`** (not
   `Vesper.Array`) — the same namespace `set.fs` lives in, so its `Array.fold` /
   `Array.zeroCreate` calls resolve without an extra `open`.
@@ -55,6 +54,6 @@ coverage is verified by golden `.parsed` snapshots committed next to each source
 
 ## Cross-references
 
-- [`package-split-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md) — the per-package split this realises (PS1/PS2/PS3/PS5).
+- [`core-lib-architecture.md`](../XParsec.FSharp.SemanticAnalysis/docs/core-lib-architecture.md) — the per-package split this realises, and the dependency graph it sits in.
 - [`../Vesper.List/README.md`](../Vesper.List/README.md) — the sibling module package this mirrors.
 - [`../Vesper.Core/README.md`](../Vesper.Core/README.md) — the base package this depends on (the `'T[]` intrinsic + `Fun`).

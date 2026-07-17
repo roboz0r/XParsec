@@ -1,9 +1,9 @@
 # Vesper.Choice
 
 The `Choice<'T1, 'T2>` type for **Vesper** (the language; `XParsec.*` is the
-*compiler*), packaged standalone per
-[`package-split-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md)
-(PS1: one package per type). Mirrors [`Vesper.Result`](../Vesper.Result/README.md).
+*compiler*), packaged standalone — one package per type, see
+[`core-lib-architecture.md`](../XParsec.FSharp.SemanticAnalysis/docs/core-lib-architecture.md).
+Mirrors [`Vesper.Result`](../Vesper.Result/README.md).
 
 ## Two artifacts that must agree
 
@@ -24,7 +24,7 @@ allocations per element vs one allocation + GC pressure as a class).
 
 ## Naming / shape decisions
 
-- **Package name ≠ namespace** (PS5): the package is `Vesper.Choice`, but it
+- **Package name ≠ namespace**: the package is `Vesper.Choice`, but it
   contributes type `Choice` into namespace **`Vesper`** (not `Vesper.Choice`).
 - **`Choice` is a struct** — the identical shape to `Vesper.Result`'s `Result`
   (a two-case heterogeneous DU, one payload per arm). `Result` already ships as
@@ -64,6 +64,6 @@ coverage is verified by golden `.parsed` snapshots committed next to each source
 
 ## Cross-references
 
-- [`package-split-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md) — the per-package split this realises (PS1/PS2/PS3/PS5).
+- [`core-lib-architecture.md`](../XParsec.FSharp.SemanticAnalysis/docs/core-lib-architecture.md) — the per-package split this realises, and the dependency graph it sits in.
 - [`../Vesper.Result/README.md`](../Vesper.Result/README.md) — the sibling package this mirrors.
 - [`../Vesper.Core/README.md`](../Vesper.Core/README.md) — the base package this depends on.

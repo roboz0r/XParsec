@@ -171,7 +171,7 @@ and smallest instance.
 ## Cross-references
 
 - [`../../Vesper.Option/README.md`](../../Vesper.Option/README.md) — the realised package; OR1/OR2 decisions in situ.
-- [package-split-plan](package-split-plan.md) — one DLL per package (PS2); why the public-ABI seam (OR4) and cross-assembly effect summaries matter.
+- [core-lib-architecture](core-lib-architecture.md) — one impl DLL per package; why the public-ABI seam (OR4) and cross-assembly effect summaries matter.
 - [brainstorm-du-layout](brainstorm-du-layout.md) — the split-payload physical layout this representation sits on top of.
 - [brainstorm-structural-equality](brainstorm-structural-equality.md) — the equality/hashing half of OR2's observable-semantics invariant.
 - [brainstorm-effects](brainstorm-effects.md) — inferred purity as the cross-call summary that resolves OR7 without inlining.

@@ -92,7 +92,7 @@ Where to look when you're hunting for something:
 | The output TAST + its walkers / converters | [`Tast.fs`](Tast.fs), [`TastWalk.fs`](TastWalk.fs), [`TastConvert.fs`](TastConvert.fs) |
 | Type-definition registry (records, unions, classes, enums) | [`TypeRegistry.fs`](TypeRegistry.fs), [`TypeInfos.fs`](TypeInfos.fs) |
 | How we learn about symbols we didn't compile | [`ExternalSymbols.fs`](ExternalSymbols.fs), [`ExternalSymbolProviders.fs`](ExternalSymbolProviders.fs) |
-| The signature-only FSharp.Core port (`XParsec.FSharp.Lib`) | [`VesperLib.fs`](VesperLib.fs), [`VesperLib/`](VesperLib/) |
+| Extracting a package's symbols from its `.fsi` contract files | [`VesperLib.fs`](VesperLib.fs), [`VesperLib/`](VesperLib/) |
 | Where `int` / `string` get their identity (contract-sourced, never hardcoded) | [`Intrinsics.fs`](Intrinsics.fs) |
 | `inline` expansion | [`Inline.fs`](Inline.fs), [`Passes/InlineExpansion.fs`](Passes/InlineExpansion.fs) |
 | `.fsi` ↔ `.fs` conformance for a package | [`Conformance.fs`](Conformance.fs), [`ConformancePass.fs`](ConformancePass.fs) |
@@ -112,7 +112,8 @@ Start here, in order:
 
 Then, per subsystem, as you need them: `du-architecture.md`,
 `records-architecture.md`, `printf-architecture.md`,
-`package-type-extraction-architecture.md`, `dynamic-typing-design.md`.
+`package-type-extraction-architecture.md`, `core-lib-architecture.md`,
+`dynamic-typing-design.md`.
 
 The original spec is [`semantic-analysis.md`](../../semantic-analysis.md) at the
 repo root. It states intent; where it and the code disagree, the code won.

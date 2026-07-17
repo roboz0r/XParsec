@@ -1,9 +1,9 @@
 # Vesper.Option
 
 The `option` type and the `Option` module for **Vesper** (the language;
-`XParsec.*` is the *compiler*), packaged standalone per
-[`package-split-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md)
-(PS1: one package per type). Carved out of `Vesper.Core`'s `core-types.fsi`.
+`XParsec.*` is the *compiler*), packaged standalone — one package per type, see
+[`core-lib-architecture.md`](../XParsec.FSharp.SemanticAnalysis/docs/core-lib-architecture.md).
+Carved out of `Vesper.Core`'s `core-types.fsi`.
 
 ## Two artifacts that must agree
 
@@ -17,20 +17,19 @@ partial, growing subset of the contract (the array/list/`Nullable`/obj
 conversions and `map2`/`map3` are contract-only for now) — expected while the
 self-hosting ladder is climbed, the same stance as `Vesper.Core`'s `List`.
 
-## Two legs (package-split-plan PS3)
+## The type and the module are separate legs
 
-- **Type leg** — the `Option<'T>` struct union (with `Value`/`IsSome`/`IsNone`
+- **The type** — the `Option<'T>` struct union (with `Value`/`IsSome`/`IsNone`
   and the static `Some`/`None`/`op_Implicit`). Does not need `Fun`, but it does
-  need **struct-union emit** in the backend: the rung-2 union path currently
-  emits reference classes, so value-typed unions are the backend follow-up this
-  representation implies.
-- **Module leg** — `Option.map`/`bind`/`fold`/… are overwhelmingly higher-order,
-  so they ride **R1** (the `Fun`-not-`FSharpFunc` cutover). Until R1 the module
-  leg can sit on a C# interim per PS3.
+  need **struct-union emit** in the backend: the union path emits reference
+  classes, so value-typed unions are the backend follow-up this representation
+  implies.
+- **The module** — `Option.map`/`bind`/`fold`/… are overwhelmingly higher-order,
+  so they need the `Fun`-not-`FSharpFunc` function representation.
 
 ## Naming / shape decisions
 
-- **Package name ≠ namespace** (PS5): the package is `Vesper.Option`, but it
+- **Package name ≠ namespace**: the package is `Vesper.Option`, but it
   contributes type `Option` and module `Option` into namespace **`Vesper`** (not
   `Vesper.Option`).
 - **`Option` is a struct; `None` is the zero-initialized struct** — Vesper does
@@ -62,20 +61,21 @@ as a separate decision.
 Extracting `Option` out of `core-types.fsi` briefly left one textual dangle: the
 list's `GetSlice: startIndex: int option * endIndex: int option` named a type
 owned by `Vesper.Option`, and `Vesper.Core` could not depend back on
-`Vesper.Option` without a cycle. This is now **resolved**: `List` has moved to its
-own `src/Vesper.List/` package, which `depends-on` `Vesper.Option`, so
-`GetSlice`'s `int option` resolves cleanly with no cycle (Core ← Option ← List).
+`Vesper.Option` without a cycle. Moving `List` to its own `src/Vesper.List/`
+package removed the cycle risk entirely — a `Vesper.List` → `Vesper.Option` edge
+is now expressible. It is not currently declared: the compiled `list.fs` has no
+`GetSlice`, so `depends-on` (which tracks the build dependency) names only
+`Vesper.Core`. The edge returns with `GetSlice`.
 
 ## No `.fsproj`
 
-Like `Vesper.Core` / `Vesper.Printf` / `XParsec.FSharp.Lib`, this tree is not
-built by `dotnet`/`fsc`. The `.fsi` is parsed by `XParsec.FSharp` and walked into
-an `IExternalSymbolProvider`; the `.fs` is compiled by our own backend once the
-self-host ladder lands. Parser coverage is verified by golden `.parsed` snapshots
-committed next to each source
-(`test/XParsec.FSharp.Tests/VesperCoreContractTests.fs`).
+Like `Vesper.Core` / `Vesper.Printf`, this tree is not built by `dotnet`/`fsc`.
+The `.fsi` is parsed by `XParsec.FSharp` and walked into an
+`IExternalSymbolProvider`; the `.fs` is compiled by our own backend. Parser
+coverage is verified by golden `.parsed` snapshots committed next to each source
+(`test/Vesper.Tests/VesperCoreContractTests.fs`).
 
 ## Cross-references
 
-- [`package-split-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md) — the per-package split this realises (PS1/PS2/PS3/PS5).
+- [`core-lib-architecture.md`](../XParsec.FSharp.SemanticAnalysis/docs/core-lib-architecture.md) — the per-package split this realises, and the dependency graph it sits in.
 - [`../Vesper.Core/README.md`](../Vesper.Core/README.md) — the base package this depends on; `Fun`, `unit`, the contract/impl mechanics reused here.

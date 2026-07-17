@@ -1,9 +1,10 @@
 # Vesper.Set
 
 The immutable AVL-tree `Set<'T>` type and the `Set` module for **Vesper** (the
-language; `XParsec.*` is the *compiler*), packaged standalone per
-[`package-split-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md)
-(PS1: one package per type). Sibling of `Vesper.List`.
+language; `XParsec.*` is the *compiler*), packaged standalone — one package per
+type, see
+[`core-lib-architecture.md`](../XParsec.FSharp.SemanticAnalysis/docs/core-lib-architecture.md).
+Sibling of `Vesper.List`.
 
 Both `set.fsi` and `set.fs` are **verbatim copies of FSharp.Core's
 `set.fsi`/`set.fs`** with the namespace patched (`Microsoft.FSharp.Collections`
@@ -39,34 +40,36 @@ a compiled subset when the backend catches up.
 
 ## Naming / shape decisions
 
-- **Package name ≠ namespace** (PS5): the package is `Vesper.Set`, but it
-  contributes type `Set` and module `Set` into namespace **`Vesper.Collections`**
-  (shared with `Vesper.List` and the future `Vesper.Map`).
-- **Depends on `Vesper.List`** as well as `Vesper.Core`: the `Set` module
-  surfaces `Set.toList` / `Set.ofList` (and `ToList()` on the type), each
-  naming `'T list` — the cons-list now defined in `Vesper.List`.
+- **Package name ≠ namespace**: the package is `Vesper.Set`, but it contributes
+  type `Set` and module `Set` into namespace **`Vesper.Collections`** (shared with
+  `Vesper.List`, `Vesper.Array`, `Vesper.Seq`, and the future `Vesper.Map`).
+- **The widest `depends-on` in the tree** — Core, List, Array, Seq, Choice,
+  Option, Comparison, Printf. That breadth is a property of the verbatim
+  FSharp.Core source, not of the design: the `Set` module surfaces `Set.toList` /
+  `Set.ofList` (⇒ `Vesper.List`'s `'T list`), `SetTree.mk`/`rebalance`/`balance`/
+  `add` use the ordering operators (⇒ `Vesper.Comparison`), and the
+  invariant-violation messages call `sprintf` (⇒ `Vesper.Printf`).
 - The module is **`[<RequireQualifiedAccess>]`** + **`ModuleSuffix`** (compiled
   name `SetModule`), matching the rest of the tree.
 
-## A separate `Vesper.Set.dll` (package-split-plan PS2)
+## A separate `Vesper.Set.dll`
 
 Once the backend can compile `set.fs`, an emitted program that uses sets will
 carry a `Vesper.Set` `AssemblyRef` *alongside* the `Vesper.Core` ref (for `Fun`)
 and the `Vesper.List` ref (for the `'T list` the `Set` module's list-bridging
-members name). The P2/G6 lazy-ref machinery means a program that touches no
-set pins no `Vesper.Set` ref.
+members name). The provider's refs are `lazy`, so a program that touches no set
+pins no `Vesper.Set` ref.
 
 ## No `.fsproj`
 
-Like `Vesper.Core` / `Vesper.List` / `Vesper.Option` / `Vesper.Result` /
-`XParsec.FSharp.Lib`, this tree is not built by `dotnet`/`fsc`. The `.fsi` is
-parsed by `XParsec.FSharp` and walked into an `IExternalSymbolProvider`; the
-`.fs` is compiled by our own backend (eventually). Parser coverage is verified
-by golden `.parsed` snapshots committed next to each source
-(`test/Vesper.Tests/VesperCoreContractTests.fs`).
+Like `Vesper.Core` / `Vesper.List` / `Vesper.Option` / `Vesper.Result`, this tree
+is not built by `dotnet`/`fsc`. The `.fsi` is parsed by `XParsec.FSharp` and
+walked into an `IExternalSymbolProvider`; the `.fs` is compiled by our own backend
+(eventually). Parser coverage is verified by golden `.parsed` snapshots committed
+next to each source (`test/Vesper.Tests/VesperCoreContractTests.fs`).
 
 ## Cross-references
 
-- [`package-split-plan.md`](../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md) — the per-package split this realises (PS1/PS2/PS5).
+- [`core-lib-architecture.md`](../XParsec.FSharp.SemanticAnalysis/docs/core-lib-architecture.md) — the per-package split this realises, and the dependency graph it sits in.
 - [`../Vesper.List/README.md`](../Vesper.List/README.md) — the sibling package whose split this mirrors; also the source of `'T list`.
 - [`../Vesper.Core/README.md`](../Vesper.Core/README.md) — the base package this depends on; `Fun`, `unit`, the contract/impl mechanics reused here.

@@ -257,8 +257,8 @@ alongside its consumer rather than as a standalone surprise.
 
 **`Vesper.Comparison` — a precursor package.** Comparison ships as its own
 package (like `Vesper.List` / `Vesper.Printf`; cf.
-[`package-split-plan.md`](package-split-plan.md)), depended on by the future
-ordered-collections package (`Set` / `Map`). It is **mostly contract**, not
+[`core-lib-architecture.md`](core-lib-architecture.md)), depended on by the
+ordered-collections packages (`Vesper.Set` today; `Map` when it lands). It is **mostly contract**, not
 runtime: the `compare` / `min` / `max` intrinsic signatures and the
 `[<StructuralComparison>]` / `[<CustomComparison>]` / `[<NoComparison>]`
 attribute hooks (cf. `prim-types-attr.fsi`). Comparison needs no runtime *type*
@@ -283,6 +283,6 @@ Slices (dependency order); mirrors equality §6; all BCL-only.
 - [`brainstorm-structural-equality.md`](brainstorm-structural-equality.md) — the
   sibling design; all shared machinery (Data/State principle, the
   `*Support`-in-TAST pattern, `Block<'T>`, dispatch posture) lives there.
-- [`package-split-plan.md`](package-split-plan.md) — the per-package split
+- [`core-lib-architecture.md`](core-lib-architecture.md) — the per-package split
   (`Vesper.List` / `Vesper.Printf` / …) this `Vesper.Comparison` precursor
-  follows; `Set`/`Map` will be the consumer package.
+  follows, and why the recognised comparison attributes stay in `Vesper.Core`.

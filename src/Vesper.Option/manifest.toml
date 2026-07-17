@@ -1,5 +1,5 @@
-# Vesper.Option — the option type + the `Option` module as a standalone package
-# (package-split-plan PS1: one package per type; PS2: one impl DLL per package).
+# Vesper.Option — the option type + the `Option` module as a standalone package:
+# one package per type, one impl DLL per package.
 #
 # Same shape as src/Vesper.Core and src/Vesper.Printf: the `.fsi` is the
 # front-end symbol contract (parsed by XParsec.FSharp, walked into an
@@ -7,14 +7,13 @@
 # repo's own backend → Vesper.Option.dll (BCL-only, no FSharp.Core). No
 # `.fsproj`: like its siblings this tree is not built by `dotnet`/`fsc`.
 #
-# Depends on Vesper.Core (`Fun`, `unit`, `bool`, `int`). `name` and `depends-on`
-# are recorded here per the package-split-plan package schema; the root-manifest
-# / a la carte loader wiring (PS-Loader) is a separate follow-up — these
-# self-contained package manifests are consumed today by the parser golden tests
-# (test/XParsec.FSharp.Tests/VesperCoreContractTests.fs).
+# Depends on Vesper.Core (`Fun`, `unit`, `bool`, `int`).
+#
+# Package name != namespace: the package is named `Vesper.Option` but contributes
+# type `Option` into namespace `Vesper`, not `Vesper.Option`.
 #
 # See ./README.md and
-# ../XParsec.FSharp.SemanticAnalysis/docs/package-split-plan.md.
+# ../XParsec.FSharp.SemanticAnalysis/docs/core-lib-architecture.md.
 
 [core]
 name = "Vesper.Option"
