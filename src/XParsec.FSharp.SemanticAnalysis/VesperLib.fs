@@ -7,28 +7,30 @@ open XParsec.FSharp.Parser
 open VesperLibTyparCapture
 open VesperLibTypeTranslate
 
-/// Loads `XParsec.FSharp.Lib` (the signature-only port of FSharp.Core) and
-/// answers `IExternalSymbolProvider` lookups from the parsed signatures.
+/// Extracts an `IExternalSymbolProvider` from a package's `.fsi` contract files —
+/// the signature-SYNTAX leaf, peer to the frozen-TAST projector
+/// (`FrozenSignature.toProvider`), the CLR metadata reader (`MetadataSymbols`), and
+/// the TypeScript manifest reader (`TsManifestProvider`). It is what answers for a
+/// package described by contracts rather than by emitted IL or a manifest.
 ///
-/// The module is split across `VesperLib\Manifest.fs` (the bucket / file
-/// loader), `VesperLib\TyparCapture.fs` (typar + constraint collectors plus
-/// `ExtractCtx`), `VesperLib\TypeTranslate.fs` (the single CST → `FrozenType`
-/// translation and the `when`-clause capture), and this file (val-sig /
-/// type-sig / module-walker driver, the deferred-body/member/val finalize pass,
-/// plus the cached provider). External callers consume the public
-/// surface through `VesperLib.*` — type aliases / re-exports below.
+/// Callers drive it one file at a time: `ReferencedProject` resolves each package's
+/// `manifest.toml`, parses each file (`parseFileFull`), accumulates them into one
+/// `ExtractCtx` (so cross-file references resolve through the shared tables), and
+/// lifts the result with `ExtractCtx.toProvider`.
+///
+/// The module is split across `VesperLib\Manifest.fs` (per-file parsing),
+/// `VesperLib\TyparCapture.fs` (typar + constraint collectors plus `ExtractCtx`),
+/// `VesperLib\TypeTranslate.fs` (the single CST → `FrozenType` translation and the
+/// `when`-clause capture), and this file (val-sig / type-sig / module-walker driver
+/// plus the deferred-body/member/val finalize pass). External callers consume the
+/// public surface through `VesperLib.*` — type aliases / re-exports below.
 ///
 module VesperLib =
 
-    type BucketEntry = VesperLibManifest.BucketEntry
-    type RootManifest = VesperLibManifest.RootManifest
     type LibFile = VesperLibManifest.LibFile
-    type LoadedLib = VesperLibManifest.LoadedLib
     type ParsedFile = VesperLibManifest.ParsedFile
 
-    let loadAll = VesperLibManifest.loadAll
     let parseFileFull = VesperLibManifest.parseFileFull
-    let parseFile = VesperLibManifest.parseFile
 
     type ExtractCtx = VesperLibTyparCapture.ExtractCtx
 
@@ -1824,61 +1826,3 @@ module VesperLib =
                             dest.[nameOf li.Idents.[0]] <- ilIntrinsicReprString parsed.Lexed parsed.Input parts
                         | _ -> ()
                 | _ -> ()
-
-    /// F#'s implicit prelude namespaces / `[<AutoOpen>]` modules in
-    /// `Microsoft.FSharp.*`. Seeded into `ctx.AutoOpenPrefixes` so the
-    /// resulting provider's `IAmbientOpenScope` resolves the prelude the
-    /// same way as `[<AutoOpen>]` modules discovered by extraction. Order
-    /// matches F#'s prelude open order; earlier entries win on collision.
-    let private fsharpCorePreludePrefixes =
-        [
-            "Microsoft.FSharp.Core.Operators"
-            "Microsoft.FSharp.Core.LanguagePrimitives.IntrinsicOperators"
-            "Microsoft.FSharp.Core.ExtraTopLevelOperators"
-            "Microsoft.FSharp.Core"
-            "Microsoft.FSharp.Collections"
-            "Microsoft.FSharp.Control"
-        ]
-
-    /// Builds an `IExternalSymbolProvider` backed by XParsec.FSharp.Lib.
-    /// Returns the provider plus per-file errors so callers can decide
-    /// whether to proceed with a partial table or fail loudly. Files that
-    /// fail to parse contribute no symbols but do not abort the build.
-    let buildProvider (libRoot: string) : Result<IExternalSymbolProvider * (LibFile * string) list, string> =
-        match loadAll libRoot with
-        | Error e -> Error e
-        | Ok loaded ->
-            let ctx = ExtractCtx.empty ()
-
-            // Seed the F# prelude ahead of extraction so the discovered
-            // `[<AutoOpen>]` modules append after it — earlier entries win
-            // on shadowing.
-            for prefix in fsharpCorePreludePrefixes do
-                ctx.AutoOpenPrefixes.Add prefix
-
-            for file in loaded.Files do
-                match parseFileFull file with
-                | Error e -> ctx.Diagnostics.Add(file, e)
-                | Ok parsed -> extractSymbols ctx parsed
-
-            Ok(ExtractCtx.toProvider ctx, List.ofSeq ctx.Diagnostics)
-
-    /// Lazy cache keyed by `libRoot` so repeated callers parse the lib at
-    /// most once per root. Thread-safe via `Lazy<_>` publication.
-    let private cachedProviders =
-        System.Collections.Concurrent.ConcurrentDictionary<
-            string,
-            Lazy<Result<IExternalSymbolProvider * (LibFile * string) list, string>>
-         >(
-            StringComparer.Ordinal
-        )
-
-    /// Production-path entry point: caches `buildProvider` per `libRoot`.
-    /// Tests that need a fresh provider should call `buildProvider` instead.
-    let defaultProvider (libRoot: string) : Result<IExternalSymbolProvider * (LibFile * string) list, string> =
-        let normalised = Path.GetFullPath libRoot
-
-        let entry =
-            cachedProviders.GetOrAdd(normalised, (fun root -> lazy (buildProvider root)))
-
-        entry.Value
