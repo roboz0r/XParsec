@@ -1,71 +1,71 @@
 namespace              'namespace'       KWNamespace         tok=   0  pos=   0
                        'Vesper'          Identifier          tok=   2  pos=  10
   TypeDefn.Abbrev:
-    TypeName           'nativeint'       Identifier          tok=  19  pos= 181
-    =                  '='               OpEquality          tok=  21  pos= 191
+    TypeName           'nativeint'       Identifier          tok=  14  pos=  37
+    =                  '='               OpEquality          tok=  16  pos=  47
       ILIntrinsic:
-        (#             '(#'              KWLHashParen        tok=  23  pos= 193
-        StringLiteral  '"'               StringOpen          tok=  25  pos= 196
+        (#             '(#'              KWLHashParen        tok=  18  pos=  49
+        StringLiteral  '"'               StringOpen          tok=  20  pos=  52
         Parts:
-          Text         'native int'      StringFragment      tok=  26  pos= 197
-                       '"'               StringClose         tok=  27  pos= 207
-        #)             '#)'              KWRHashParen        tok=  29  pos= 209
+          Text         'native int'      StringFragment      tok=  21  pos=  53
+                       '"'               StringClose         tok=  22  pos=  63
+        #)             '#)'              KWRHashParen        tok=  24  pos=  65
   TypeDefn.Abbrev:
-    TypeName           'unativeint'      Identifier          tok=  33  pos= 217
-    =                  '='               OpEquality          tok=  35  pos= 228
+    TypeName           'unativeint'      Identifier          tok=  28  pos=  73
+    =                  '='               OpEquality          tok=  30  pos=  84
       ILIntrinsic:
-        (#             '(#'              KWLHashParen        tok=  37  pos= 230
-        StringLiteral  '"'               StringOpen          tok=  39  pos= 233
+        (#             '(#'              KWLHashParen        tok=  32  pos=  86
+        StringLiteral  '"'               StringOpen          tok=  34  pos=  89
         Parts:
-          Text         'unsigned n...'   StringFragment      tok=  40  pos= 234
-                       '"'               StringClose         tok=  41  pos= 253
-        #)             '#)'              KWRHashParen        tok=  43  pos= 255
+          Text         'unsigned n...'   StringFragment      tok=  35  pos=  90
+                       '"'               StringClose         tok=  36  pos= 109
+        #)             '#)'              KWRHashParen        tok=  38  pos= 111
   TypeDefn.Abbrev:
-    TypeName           'nativeptr'       Identifier          tok=  47  pos= 263
+    TypeName           'nativeptr'       Identifier          tok=  42  pos= 119
     TyparDefns:
-      <                '<'               op_LessThan         tok=  48  pos= 272
+      <                '<'               op_LessThan         tok=  43  pos= 128
       Typar.Named:
-                       ''T'              TypeParameter       tok=  49  pos= 273
-      when             'when'            KWWhen              tok=  51  pos= 276
+                       ''T'              TypeParameter       tok=  44  pos= 129
+      when             'when'            KWWhen              tok=  46  pos= 132
       Constraint.Unmanaged:
         Typar.Named:
-                       ''T'              TypeParameter       tok=  53  pos= 281
-        :              ':'               OpColon             tok=  55  pos= 284
-        unmanaged      'unmanaged'       Identifier          tok=  57  pos= 286
-      >                '>'               op_GreaterThan      tok=  58  pos= 295
-    =                  '='               OpEquality          tok=  60  pos= 297
+                       ''T'              TypeParameter       tok=  48  pos= 137
+        :              ':'               OpColon             tok=  50  pos= 140
+        unmanaged      'unmanaged'       Identifier          tok=  52  pos= 142
+      >                '>'               op_GreaterThan      tok=  53  pos= 151
+    =                  '='               OpEquality          tok=  55  pos= 153
       ILIntrinsic:
-        (#             '(#'              KWLHashParen        tok=  62  pos= 299
-        StringLiteral  '"'               StringOpen          tok=  64  pos= 302
+        (#             '(#'              KWLHashParen        tok=  57  pos= 155
+        StringLiteral  '"'               StringOpen          tok=  59  pos= 158
         Parts:
-          Text         'native int'      StringFragment      tok=  65  pos= 303
-                       '"'               StringClose         tok=  66  pos= 313
-        #)             '#)'              KWRHashParen        tok=  68  pos= 315
+          Text         'native int'      StringFragment      tok=  60  pos= 159
+                       '"'               StringClose         tok=  61  pos= 169
+        #)             '#)'              KWRHashParen        tok=  63  pos= 171
   TypeDefn.Abbrev:
-    TypeName           'voidptr'         Identifier          tok=  72  pos= 323
-    =                  '='               OpEquality          tok=  74  pos= 331
+    TypeName           'voidptr'         Identifier          tok=  67  pos= 179
+    =                  '='               OpEquality          tok=  69  pos= 187
       ILIntrinsic:
-        (#             '(#'              KWLHashParen        tok=  76  pos= 333
-        StringLiteral  '"'               StringOpen          tok=  78  pos= 336
+        (#             '(#'              KWLHashParen        tok=  71  pos= 189
+        StringLiteral  '"'               StringOpen          tok=  73  pos= 192
         Parts:
-          Text         'void*'           StringFragment      tok=  79  pos= 337
-                       '"'               StringClose         tok=  80  pos= 342
-        #)             '#)'              KWRHashParen        tok=  82  pos= 344
+          Text         'void*'           StringFragment      tok=  74  pos= 193
+                       '"'               StringClose         tok=  75  pos= 198
+        #)             '#)'              KWRHashParen        tok=  77  pos= 200
   TypeDefn.Abbrev:
-    TypeName           'ilsigptr'        Identifier          tok=  86  pos= 352
+    TypeName           'ilsigptr'        Identifier          tok=  81  pos= 208
     TyparDefns:
-      <                '<'               op_LessThan         tok=  87  pos= 360
+      <                '<'               op_LessThan         tok=  82  pos= 216
       Typar.Named:
-                       ''T'              TypeParameter       tok=  88  pos= 361
-      >                '>'               op_GreaterThan      tok=  89  pos= 363
-    =                  '='               OpEquality          tok=  91  pos= 365
+                       ''T'              TypeParameter       tok=  83  pos= 217
+      >                '>'               op_GreaterThan      tok=  84  pos= 219
+    =                  '='               OpEquality          tok=  86  pos= 221
       ILIntrinsic:
-        (#             '(#'              KWLHashParen        tok=  93  pos= 367
-        StringLiteral  '"'               StringOpen          tok=  95  pos= 370
+        (#             '(#'              KWLHashParen        tok=  88  pos= 223
+        StringLiteral  '"'               StringOpen          tok=  90  pos= 226
         Parts:
-          Text         '!0*'             StringFragment      tok=  96  pos= 371
-                       '"'               StringClose         tok=  97  pos= 374
-        #)             '#)'              KWRHashParen        tok=  99  pos= 376
+          Text         '!0*'             StringFragment      tok=  91  pos= 227
+                       '"'               StringClose         tok=  92  pos= 230
+        #)             '#)'              KWRHashParen        tok=  94  pos= 232
 ---
 WarnDirectives:
   #nowarn 42 (Ln 2)

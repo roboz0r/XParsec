@@ -1,23 +1,5 @@
 namespace Vesper
 
-// Runtime implementation target for this repo's own backend. The type leg is a
-// value-typed (struct) union — `None` is the zero-initialized struct, `Some`
-// carries its `Value` field; neither case allocates. The struct shape mirrors
-// FSharp.Core's `ValueOption` (`ValueNone` / `ValueSome of 'T`), carried under the
-// `Option` name. The module leg rides R1 (the `Fun`-not-`FSharpFunc` cutover,
-// since the combinators are higher-order). The type / `Option` module contract
-// lives in `option.fsi`.
-//
-// FSharp.Core's `static member None / Some / op_Implicit` are deliberately NOT
-// mirrored: they exist there for C# / null-representation interop, which Vesper
-// has no consumers for yet. The idiomatic instance members (`Value` / `IsSome` /
-// `IsNone`) are kept. This is a growing subset of the `option.fsi` contract — the
-// conversions and `map2`/`map3` are not implemented here yet (see option.fsi).
-//
-// NOT fsc-buildable as authored: redefining the intrinsic `Option`/`Some`/`None`
-// (which the F# compiler treats specially) requires `--compiling-fslib`. Our
-// backend compiles it directly.
-
 open System
 
 [<StructuralEquality; StructuralComparison>]
@@ -47,9 +29,6 @@ and 'T option = Option<'T>
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Option =
-
-    // `folder state x`, `predicate x`, etc. are function-application sugar; the
-    // backend lowers each application to `callvirt Fun::Invoke`.
 
     let isSome (option: 'T option) =
         match option with

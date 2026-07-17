@@ -1,29 +1,5 @@
 namespace Vesper.Collections
 
-// Runtime implementation target for this repo's own backend. The `Seq` module
-// over `seq<'T>` (= `IEnumerable<'T>`); the contract lives in `seq.fsi`. Compiles
-// to the `Vesper.Collections.SeqModule` static class (the `ModuleSuffix`
-// representation gives the module the `SeqModule` holder name, matching the
-// FSharp.Core surface). BCL-only — no `FSharp.Core`.
-//
-// These are the *minimal* reference impls, not the zero-allocation struct-chaining
-// design of brainstorm-seq-module.md (a future sprint). The split follows operation shape:
-//   - The eager terminals (`fold` / `reduce` / `toArray`) iterate with `for x in source`
-//     over a mutable accumulator — the clearest way to write these three, and no longer a
-//     portability constraint (the manual `GetEnumerator()`/`MoveNext()`/`Current` pull
-//     protocol `for … in` is sugar for now lowers on both backends). Their functional
-//     arguments are `Vesper.Fun`s, so each application lowers to `callvirt Fun::Invoke`.
-//   - The lazy `truncate` delegates to `System.Linq.Enumerable.Take` and so does NOT port to
-//     JS. This is a stopgap, and no longer a blocked one: it does not need `seq { }` state
-//     machines. Now that `seq`/`enumerator` are AUTHORABLE capabilities, a lazy combinator is
-//     plain Vesper code — a `TakeSeq<'T>` (source + count, `interface seq<'T>`) plus a
-//     `TakeEnumerator<'T>` (inner `enumerator<'T>` + remaining, `interface enumerator<'T>`),
-//     exactly the shape `List`/`ListEnumerator` and `struct-seq.fs`'s `MapSeq`/`MapEnumerator`
-//     already take. Rewriting it that way drops the `System.Linq` dependency and makes it
-//     portable; the same route opens the rest of the lazy surface (`map`/`filter`/…).
-// A focused starter surface (just what `set.fs` consumes); the rest of the
-// FSharp.Core `Seq` surface is additive later.
-
 open System.Collections.Generic
 open System.Linq
 
@@ -40,11 +16,6 @@ module Seq =
         acc
 
     let reduce (reduction: 'T -> 'T -> 'T) (source: seq<'T>) : 'T =
-        // `for … in` has no explicit first-move to seed the accumulator, so seed `acc` with
-        // `Unchecked.defaultof<'T>` (the default-of-'T primitive) and gate on `seen`: the default
-        // is never observed — the first element overwrites it before any `reduction`. A single
-        // mutable slot, so `reduce` is O(1) in space and streams `source` through the one portable
-        // enumeration construct (`for … in`) — no buffer.
         let mutable acc: 'T = Unchecked.defaultof<'T>
         let mutable seen = false
 

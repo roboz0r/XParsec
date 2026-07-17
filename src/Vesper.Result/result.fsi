@@ -1,15 +1,5 @@
 namespace Vesper
 
-// Vesper.Result contract — the result type + the `Result` module, carved out of
-// Vesper.Core's `core-types.fsi` (package-split-plan PS1: one package per type).
-// Like the rest of the Vesper tree this is the front-end symbol contract: parsed
-// by XParsec.FSharp and walked into an IExternalSymbolProvider. The runtime impl
-// is `result.fs` (→ Vesper.Result.dll, BCL-only, our own backend). Depends on
-// Vesper.Core (`Fun`, `unit`, `bool`, `int`).
-//
-// Per package-split-plan PS5 the package is named `Vesper.Result` but it
-// contributes type `Result` into namespace `Vesper`, not `Vesper.Result`.
-
 open System
 
 /// <summary>Helper type for error handling without exceptions.</summary>

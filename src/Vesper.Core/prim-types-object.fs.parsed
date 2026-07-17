@@ -1,24 +1,24 @@
 namespace              'namespace'       KWNamespace         tok=   0  pos=   0
                        'Vesper'          Identifier          tok=   2  pos=  10
   TypeDefn.Abbrev:
-    TypeName           'obj'             Identifier          tok=  19  pos= 160
-    =                  '='               OpEquality          tok=  21  pos= 164
+    TypeName           'obj'             Identifier          tok=  14  pos=  37
+    =                  '='               OpEquality          tok=  16  pos=  41
       ILIntrinsic:
-        (#             '(#'              KWLHashParen        tok=  23  pos= 166
-        class          'class'           KWClass             tok=  25  pos= 169
-        StringLiteral  '"'               StringOpen          tok=  27  pos= 175
+        (#             '(#'              KWLHashParen        tok=  18  pos=  43
+        class          'class'           KWClass             tok=  20  pos=  46
+        StringLiteral  '"'               StringOpen          tok=  22  pos=  52
         Parts:
-          Text         'System.Obj...'   StringFragment      tok=  28  pos= 176
-                       '"'               StringClose         tok=  29  pos= 189
-        #)             '#)'              KWRHashParen        tok=  31  pos= 191
+          Text         'System.Obj...'   StringFragment      tok=  23  pos=  53
+                       '"'               StringClose         tok=  24  pos=  66
+        #)             '#)'              KWRHashParen        tok=  26  pos=  68
   TypeDefn.Abbrev:
-    TypeName           'objnull'         Identifier          tok=  35  pos= 199
-    =                  '='               OpEquality          tok=  37  pos= 207
+    TypeName           'objnull'         Identifier          tok=  30  pos=  76
+    =                  '='               OpEquality          tok=  32  pos=  84
       UnionType:
         NamedType:
-          Ident        'obj'             Identifier          tok=  39  pos= 209
-        |              '|'               OpBar               tok=  41  pos= 213
-        null           'null'            KWNull              tok=  43  pos= 215
+          Ident        'obj'             Identifier          tok=  34  pos=  86
+        |              '|'               OpBar               tok=  36  pos=  90
+        null           'null'            KWNull              tok=  38  pos=  92
 ---
 WarnDirectives:
   #nowarn 42 (Ln 2)

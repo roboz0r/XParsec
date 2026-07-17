@@ -1,9 +1,5 @@
 namespace Vesper
 
-// The `%A` structural-format interfaces. The compiler synthesises `IStructuralFormattable`
-// on every record/union; the `IFormatSink` layout engine lives in `Vesper.Printf`.
-// Both interfaces live in `Vesper.Core` so a record-bearing program links only Core.
-
 /// <summary>The declarative layout surface the synthesised
 /// <c>IStructuralFormattable.Format</c> body drives. Calls record tokens that the
 /// engine lays out group-by-group; <c>Child</c> takes <c>obj</c> (value children

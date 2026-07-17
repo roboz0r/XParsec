@@ -1,7 +1,5 @@
 namespace Vesper
 
-// Front-end symbol contract for the `%A` structural-format interfaces.
-
 /// <summary>The declarative layout surface the synthesised
 /// <c>IStructuralFormattable.Format</c> body drives.</summary>
 type IFormatSink =

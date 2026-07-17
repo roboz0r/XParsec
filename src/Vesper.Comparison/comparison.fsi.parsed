@@ -1,128 +1,128 @@
 namespace               'namespace'       KWNamespace         tok=   0  pos=   0
                         'Vesper'          Identifier          tok=   2  pos=  10
   Module:
-    [<                  '[<'              KWLAttrBracket      tok=  41  pos=1068
+    [<                  '[<'              KWLAttrBracket      tok=   5  pos=  18
     NamedType:
-      Ident             'AutoOpen'        Identifier          tok=  42  pos=1070
-    >]                  '>]'              KWRAttrBracket      tok=  43  pos=1078
-    module              'module'          KWModule            tok=  45  pos=1081
-    ident               'Comparison...'   Identifier          tok=  47  pos=1088
-    =                   '='               OpEquality          tok=  49  pos=1108
-    begin               <virt>            KWBegin             tok=virt  pos=1640
+      Ident             'AutoOpen'        Identifier          tok=   6  pos=  20
+    >]                  '>]'              KWRAttrBracket      tok=   7  pos=  28
+    module              'module'          KWModule            tok=   9  pos=  31
+    ident               'Comparison...'   Identifier          tok=  11  pos=  38
+    =                   '='               OpEquality          tok=  13  pos=  58
+    begin               <virt>            KWBegin             tok=virt  pos= 590
       Val:
-        val             'val'             KWVal               tok=  98  pos=1640
-        inline          'inline'          KWInline            tok= 100  pos=1644
+        val             'val'             KWVal               tok=  62  pos= 590
+        inline          'inline'          KWInline            tok=  64  pos= 594
         ParenOp:
-                        '('               KWLParen            tok= 102  pos=1651
-          SymbolicOp    '<'               op_LessThan         tok= 103  pos=1652
-                        ')'               KWRParen            tok= 104  pos=1653
-        :               ':'               OpColon             tok= 105  pos=1654
-        arg             'x'               Identifier          tok= 107  pos=1656
-        :               ':'               OpColon             tok= 108  pos=1657
+                        '('               KWLParen            tok=  66  pos= 601
+          SymbolicOp    '<'               op_LessThan         tok=  67  pos= 602
+                        ')'               KWRParen            tok=  68  pos= 603
+        :               ':'               OpColon             tok=  69  pos= 604
+        arg             'x'               Identifier          tok=  71  pos= 606
+        :               ':'               OpColon             tok=  72  pos= 607
         VarType:
           Typar.Named:
-                        ''T'              TypeParameter       tok= 110  pos=1659
-        ->              '->'              OpArrowRight        tok= 112  pos=1662
-        arg             'y'               Identifier          tok= 114  pos=1665
-        :               ':'               OpColon             tok= 115  pos=1666
+                        ''T'              TypeParameter       tok=  74  pos= 609
+        ->              '->'              OpArrowRight        tok=  76  pos= 612
+        arg             'y'               Identifier          tok=  78  pos= 615
+        :               ':'               OpColon             tok=  79  pos= 616
         VarType:
           Typar.Named:
-                        ''T'              TypeParameter       tok= 117  pos=1668
-        ->              '->'              OpArrowRight        tok= 119  pos=1671
+                        ''T'              TypeParameter       tok=  81  pos= 618
+        ->              '->'              OpArrowRight        tok=  83  pos= 621
         WhenConstrainedType:
           NamedType:
-            Ident       'bool'            Identifier          tok= 121  pos=1674
-          when          'when'            KWWhen              tok= 123  pos=1679
+            Ident       'bool'            Identifier          tok=  85  pos= 624
+          when          'when'            KWWhen              tok=  87  pos= 629
           Constraint.Comparison:
             Typar.Named:
-                        ''T'              TypeParameter       tok= 125  pos=1684
-            :           ':'               OpColon             tok= 126  pos=1686
-            comparison  'comparison'      Identifier          tok= 128  pos=1688
+                        ''T'              TypeParameter       tok=  89  pos= 634
+            :           ':'               OpColon             tok=  90  pos= 636
+            comparison  'comparison'      Identifier          tok=  92  pos= 638
       Val:
-        val             'val'             KWVal               tok= 177  pos=2228
-        inline          'inline'          KWInline            tok= 179  pos=2232
+        val             'val'             KWVal               tok= 141  pos=1178
+        inline          'inline'          KWInline            tok= 143  pos=1182
         ParenOp:
-                        '('               KWLParen            tok= 181  pos=2239
-          SymbolicOp    '>'               op_GreaterThan      tok= 182  pos=2240
-                        ')'               KWRParen            tok= 183  pos=2241
-        :               ':'               OpColon             tok= 184  pos=2242
-        arg             'x'               Identifier          tok= 186  pos=2244
-        :               ':'               OpColon             tok= 187  pos=2245
+                        '('               KWLParen            tok= 145  pos=1189
+          SymbolicOp    '>'               op_GreaterThan      tok= 146  pos=1190
+                        ')'               KWRParen            tok= 147  pos=1191
+        :               ':'               OpColon             tok= 148  pos=1192
+        arg             'x'               Identifier          tok= 150  pos=1194
+        :               ':'               OpColon             tok= 151  pos=1195
         VarType:
           Typar.Named:
-                        ''T'              TypeParameter       tok= 189  pos=2247
-        ->              '->'              OpArrowRight        tok= 191  pos=2250
-        arg             'y'               Identifier          tok= 193  pos=2253
-        :               ':'               OpColon             tok= 194  pos=2254
+                        ''T'              TypeParameter       tok= 153  pos=1197
+        ->              '->'              OpArrowRight        tok= 155  pos=1200
+        arg             'y'               Identifier          tok= 157  pos=1203
+        :               ':'               OpColon             tok= 158  pos=1204
         VarType:
           Typar.Named:
-                        ''T'              TypeParameter       tok= 196  pos=2256
-        ->              '->'              OpArrowRight        tok= 198  pos=2259
+                        ''T'              TypeParameter       tok= 160  pos=1206
+        ->              '->'              OpArrowRight        tok= 162  pos=1209
         WhenConstrainedType:
           NamedType:
-            Ident       'bool'            Identifier          tok= 200  pos=2262
-          when          'when'            KWWhen              tok= 202  pos=2267
+            Ident       'bool'            Identifier          tok= 164  pos=1212
+          when          'when'            KWWhen              tok= 166  pos=1217
           Constraint.Comparison:
             Typar.Named:
-                        ''T'              TypeParameter       tok= 204  pos=2272
-            :           ':'               OpColon             tok= 205  pos=2274
-            comparison  'comparison'      Identifier          tok= 207  pos=2276
+                        ''T'              TypeParameter       tok= 168  pos=1222
+            :           ':'               OpColon             tok= 169  pos=1224
+            comparison  'comparison'      Identifier          tok= 171  pos=1226
       Val:
-        val             'val'             KWVal               tok= 256  pos=2824
-        inline          'inline'          KWInline            tok= 258  pos=2828
+        val             'val'             KWVal               tok= 220  pos=1774
+        inline          'inline'          KWInline            tok= 222  pos=1778
         ParenOp:
-                        '('               KWLParen            tok= 260  pos=2835
-          SymbolicOp    '>='              op_GreaterThanOrEqual  tok= 261  pos=2836
-                        ')'               KWRParen            tok= 262  pos=2838
-        :               ':'               OpColon             tok= 263  pos=2839
-        arg             'x'               Identifier          tok= 265  pos=2841
-        :               ':'               OpColon             tok= 266  pos=2842
+                        '('               KWLParen            tok= 224  pos=1785
+          SymbolicOp    '>='              op_GreaterThanOrEqual  tok= 225  pos=1786
+                        ')'               KWRParen            tok= 226  pos=1788
+        :               ':'               OpColon             tok= 227  pos=1789
+        arg             'x'               Identifier          tok= 229  pos=1791
+        :               ':'               OpColon             tok= 230  pos=1792
         VarType:
           Typar.Named:
-                        ''T'              TypeParameter       tok= 268  pos=2844
-        ->              '->'              OpArrowRight        tok= 270  pos=2847
-        arg             'y'               Identifier          tok= 272  pos=2850
-        :               ':'               OpColon             tok= 273  pos=2851
+                        ''T'              TypeParameter       tok= 232  pos=1794
+        ->              '->'              OpArrowRight        tok= 234  pos=1797
+        arg             'y'               Identifier          tok= 236  pos=1800
+        :               ':'               OpColon             tok= 237  pos=1801
         VarType:
           Typar.Named:
-                        ''T'              TypeParameter       tok= 275  pos=2853
-        ->              '->'              OpArrowRight        tok= 277  pos=2856
+                        ''T'              TypeParameter       tok= 239  pos=1803
+        ->              '->'              OpArrowRight        tok= 241  pos=1806
         WhenConstrainedType:
           NamedType:
-            Ident       'bool'            Identifier          tok= 279  pos=2859
-          when          'when'            KWWhen              tok= 281  pos=2864
+            Ident       'bool'            Identifier          tok= 243  pos=1809
+          when          'when'            KWWhen              tok= 245  pos=1814
           Constraint.Comparison:
             Typar.Named:
-                        ''T'              TypeParameter       tok= 283  pos=2869
-            :           ':'               OpColon             tok= 284  pos=2871
-            comparison  'comparison'      Identifier          tok= 286  pos=2873
+                        ''T'              TypeParameter       tok= 247  pos=1819
+            :           ':'               OpColon             tok= 248  pos=1821
+            comparison  'comparison'      Identifier          tok= 250  pos=1823
       Val:
-        val             'val'             KWVal               tok= 335  pos=3435
-        inline          'inline'          KWInline            tok= 337  pos=3439
+        val             'val'             KWVal               tok= 299  pos=2385
+        inline          'inline'          KWInline            tok= 301  pos=2389
         ParenOp:
-                        '('               KWLParen            tok= 339  pos=3446
-          SymbolicOp    '<='              op_LessThanOrEqual  tok= 340  pos=3447
-                        ')'               KWRParen            tok= 341  pos=3449
-        :               ':'               OpColon             tok= 342  pos=3450
-        arg             'x'               Identifier          tok= 344  pos=3452
-        :               ':'               OpColon             tok= 345  pos=3453
+                        '('               KWLParen            tok= 303  pos=2396
+          SymbolicOp    '<='              op_LessThanOrEqual  tok= 304  pos=2397
+                        ')'               KWRParen            tok= 305  pos=2399
+        :               ':'               OpColon             tok= 306  pos=2400
+        arg             'x'               Identifier          tok= 308  pos=2402
+        :               ':'               OpColon             tok= 309  pos=2403
         VarType:
           Typar.Named:
-                        ''T'              TypeParameter       tok= 347  pos=3455
-        ->              '->'              OpArrowRight        tok= 349  pos=3458
-        arg             'y'               Identifier          tok= 351  pos=3461
-        :               ':'               OpColon             tok= 352  pos=3462
+                        ''T'              TypeParameter       tok= 311  pos=2405
+        ->              '->'              OpArrowRight        tok= 313  pos=2408
+        arg             'y'               Identifier          tok= 315  pos=2411
+        :               ':'               OpColon             tok= 316  pos=2412
         VarType:
           Typar.Named:
-                        ''T'              TypeParameter       tok= 354  pos=3464
-        ->              '->'              OpArrowRight        tok= 356  pos=3467
+                        ''T'              TypeParameter       tok= 318  pos=2414
+        ->              '->'              OpArrowRight        tok= 320  pos=2417
         WhenConstrainedType:
           NamedType:
-            Ident       'bool'            Identifier          tok= 358  pos=3470
-          when          'when'            KWWhen              tok= 360  pos=3475
+            Ident       'bool'            Identifier          tok= 322  pos=2420
+          when          'when'            KWWhen              tok= 324  pos=2425
           Constraint.Comparison:
             Typar.Named:
-                        ''T'              TypeParameter       tok= 362  pos=3480
-            :           ':'               OpColon             tok= 363  pos=3482
-            comparison  'comparison'      Identifier          tok= 365  pos=3484
-    end                 <virt>            KWEnd               tok=virt  pos=3495
+                        ''T'              TypeParameter       tok= 326  pos=2430
+            :           ':'               OpColon             tok= 327  pos=2432
+            comparison  'comparison'      Identifier          tok= 329  pos=2434
+    end                 <virt>            KWEnd               tok=virt  pos=2445

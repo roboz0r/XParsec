@@ -2,17 +2,6 @@ namespace Vesper
 
 #nowarn "42"
 
-// ops-dynamic.js.fs — the JS-target inline bodies for `ops-dynamic.js.fsi`. Selected
-// via the manifest `inline-bodies-js` list; each `let inline` body is read across the
-// package boundary and spliced at every use site (the `$N`-template idiom documented
-// in `ops-platform.js.fs`: `$0`/`$1`/`$2` are the operands in source order).
-//
-// `retype` is the empty-string identity intrinsic `(# "" x : ^U #)` — it emits the
-// operand verbatim and re-types it (the JS backend lowers an empty-template intrinsic
-// to its lone operand, no wrapper). `(?)` / `(?<-)` emit the safe COMPUTED-member form
-// `$0[$1]` / `$0[$1] = $2` (bracket access works for any member name, including ones
-// that are not valid JS identifiers).
-
 /// Unsafe FFI escape hatches — NOT auto-opened (see the `.fsi`): `open Vesper.Unsafe`
 /// to reach `retype`.
 module Unsafe =

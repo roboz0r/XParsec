@@ -1,93 +1,13 @@
 namespace Vesper
 
-// ops-platform.js.fs — the JS-target *implementation* of `ops-platform.fsi`
-// (the `.fsi` is the target-agnostic contract; this is the JS binding). Selected
-// over the CLR `ops-platform.fs` by the backend via
-// `ReferencedProject.resolveInlineBodies (Some "js")` (manifest key
-// `inline-bodies-js`); each `let inline` body is read across the package boundary
-// and spliced at every use site, exactly like the CLR file.
-//
-// THE TEMPLATE IDIOM. The inline-IL string position
-// carries a JS-expression template with `$N` operand holes (zero-indexed against
-// the operand list in source order: `(# "$0 + $1" x y #)` ⇒ `$0`=x, `$1`=y; `$$`
-// escapes a literal `$`). Semantic analysis treats the string as an opaque,
-// trusted payload (`inferILIntrinsic` types the operands and takes the result
-// from the annotation; `stitchIlInstruction` folds it verbatim) — interpretation
-// is wholly the JS backend's concern, which substitutes operands and emits an
-// expression node. Templates carry their own grouping parens where precedence
-// needs it, so they stay correct under any backend substitution strategy.
-//
-// WHY THIS DIVERGES FROM THE CLR BODIES. The CLR clauses are CIL mnemonics; the JS
-// ones are `$N` templates. JS also has no stack-typed arithmetic — there is exactly one
-// numeric type (the IEEE double, plus BigInt) and `+` is float (and string) addition,
-// with NO integer semantics. So every width carries an explicit WIDTH MASK: the JS
-// expression that projects a double back onto that width's value set, the way the CIL
-// stack type does implicitly on the CLR.
-//   - int32    : `| 0`   — signed 32-bit truncation.
-//   - uint32   : `>>> 0` — unsigned 32-bit truncation.
-//   - byte     : `& 0xFF`   ·  uint16 : `& 0xFFFF`   — the unsigned narrow masks.
-//   - sbyte    : `<< 24 >> 24`  ·  int16 : `<< 16 >> 16` — the SIGN-EXTENDING narrow
-//                masks (a plain `& 0xFF` would leave `100y + 100y` as 200, not -56).
-//   - int64    : `BigInt.asIntN(64, …)` — int64 is a JS BigInt; BigInt arithmetic is
-//                arbitrary-precision, so it must be wrapped back to 64-bit. BigInt
-//                shifts also require a BigInt shift amount (`BigInt($1)`).
-//   - uint64   : `BigInt.asUintN(64, …)` — likewise a BigInt, wrapped back UNSIGNED, so
-//                `0UL - 1UL` is 18446744073709551615 rather than -1.
-//   - float32  : `Math.fround` — the single-precision width mask, the exact analogue of
-//                `| 0`. Without it every operation computes in DOUBLE precision, which
-//                is close but not this width's answer (`0.1f + 0.2f`).
-//   - float    : none needed — a JS number IS an IEEE double.
-//
-// Three places where the mask alone is not enough:
-//   - `*` at the wider widths. The mask is applied to a product that JS has already
-//     computed as a double, so the product must first be EXACT. int32 and uint32 both
-//     use `Math.imul` (the 32-bit product, mod 2^32) because a full 32×32 product
-//     reaches ~2^64 and loses low bits past 2^53 — the very bits the mask keeps. The
-//     narrow widths need no such care: a byte/sbyte/int16/uint16 product cannot exceed
-//     2^32, so the double is exact and masking it is faithful.
-//   - `/` must TRUNCATE, not just mask. JS `/` is true division (`10uy / 3uy` is
-//     3.333…), so an integral clause relies on the mask's own ToInt32/ToUint32 coercion
-//     — which truncates toward zero, matching F# — to recover the quotient.
-//   - `/` and `%` must FAULT on a zero divisor. JS `/` is total (`1 / 0` is `Infinity`,
-//     and `Infinity | 0` is `0`), so every integral clause wraps its divisor in
-//     `checkedDivisor` (`ops-platform-runtime.js.fsi`), which throws with the BCL's
-//     message. `float` / `float32` do NOT: an IEEE `Infinity` is their correct answer.
-//
-// The arithmetic BASE is the SRTP trait call, exactly as on CLR: a user type
-// dispatches to its own `static member (+)`, and a receiver that is neither a listed
-// primitive nor a nominal is DIAGNOSED rather than emitted as a nonsense JS operator
-// application. The clause set is the CLR file's primitive-by-primitive enumeration MINUS
-// the widths JS cannot represent at all: `decimal` (excluded there too), and `nativeint`
-// / `unativeint`, which ship no `.js.fs` repr — a JS program mentioning either is
-// rejected by `SemanticAnalysis.PlatformTypes` ("no representation on the target
-// platform") before any operator clause is consulted, so a clause for them here would be
-// unreachable. The clause list below is therefore exactly the widths JS supports.
-//
-// RE-AUTHORED HERE, and why each needs a JS body rather than the CLR one. `hash` — for
-// an aggregate it delegates to the non-inline `Vesper.Core` runtime entry
-// `structuralHash` (imported from `Vesper.Core.mjs` through the ordinary external-call
-// path; see `module StructuralRuntime` / `module Operators` below), as `=` / `<>`
-// delegate to `structuralEquals`; JS has no `EqualityComparer<^T>.Default` to ride.
-// `raise` / `failwith` — FFI `throw` templates; `failwith` builds its own native
-// `Error`, so a `failwith` use site (e.g. `list.fs`'s `head`/`tail`) lowers with no
-// per-call template. The array ops (`GetArray`/`SetArray`/`GetArrayLength`) are verbatim
-// from the CLR file, the `ldelem`/`stelem`/`ldlen` mnemonics being target-neutral (the
-// JS backend emits `arr[i]` / `arr[i] = v` / `arr.length`). `box` and `invalidArg` have
-// no JS body yet (the latter needs external-`new`); a use site needing one finds no JS
-// inline body.
-//
-// Which (operator × width) each backend owes is tracked by the conformance manifest
-// (`test/Codegen.Conformance/manifest.toml`), not by prose here.
-
 [<AutoOpen>]
 module ArithmeticOperators =
 
     /// Overloaded addition. Base: the user type's own `static member (+)`
     /// (target-neutral, as in the CLR body). Every numeric clause is the JS `+` under
-    /// its width mask (see the file header); JS `+` already concatenates two strings.
+    /// its width mask; JS `+` already concatenates two strings.
     /// The three typars are the `.fsi`'s (`(^T1 or ^T2)` support set), so a
-    /// heterogeneous user operator keeps its operand types distinct through the splice
-    /// — see the CLR body's note.
+    /// heterogeneous user operator keeps its operand types distinct through the splice.
     let inline (+) (x: ^T1) (y: ^T2) : ^T3 =
         ((^T1 or ^T2): (static member (+): ^T1 * ^T2 -> ^T3) (x, y))
         when ^T1: int and ^T2: int and ^T3: int = (# "($0 + $1) | 0" x y : int #)

@@ -2,9 +2,6 @@ namespace Vesper
 
 #nowarn "42"
 
-// Impl side: per-target intrinsic bindings for the integer primitives. Retarget
-// a primitive here in one line; same-underlying aliases mirror the .fsi.
-
 type sbyte = (# "System.SByte" #)
 type byte = (# "System.Byte" #)
 type int8 = sbyte

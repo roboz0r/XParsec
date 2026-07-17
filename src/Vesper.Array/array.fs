@@ -1,27 +1,5 @@
 namespace Vesper.Collections
 
-// Runtime implementation target for this repo's own backend. The `Array` module
-// over the intrinsic `'T[]` type; the contract lives in `array.fsi`. Compiles to
-// the `Vesper.Collections.ArrayModule` static class (the `ModuleSuffix`
-// representation gives the module the `ArrayModule` holder name, matching the
-// FSharp.Core surface). BCL-only — no `FSharp.Core`.
-//
-// `zeroCreate` is open-coded over the `newarr` IL intrinsic (the same
-// `(# "..." #)` surface the arithmetic / comparison operators use), so it carries
-// no dependency beyond the intrinsic. Everything else is built from the proven
-// primitives the backend already lowers end-to-end: counted index loops
-// (`for i = 0 to n - 1 do`), indexed read (`arr.[i]` → `ldelem`) and indexed
-// write (`arr.[i] <- v` → `stelem`), `.Length` (`ldlen`), and `Vesper.Fun`
-// application for the higher-order functions (each `f x` lowers to
-// `callvirt Fun::Invoke`).
-//
-// Deliberately written as direct index loops rather than via `fold` + a closure:
-// a closure that captures the function's own generic typar is not yet encodable
-// by the backend (see Vesper.List's `length`/`rev` note). Direct loops keep every
-// typar in static-method scope where it encodes fine. The producers that need a
-// fresh array (`create`/`init`/`copy`/`append`/`rev`/`map`/`mapi`) call
-// `zeroCreate` and fill it in place.
-
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Array =
@@ -117,9 +95,6 @@ module Array =
 
         acc
 
-    // `foldBack` visits right-to-left. Indexed as `array.[len - 1 - i]` over an
-    // ascending counter rather than a `downto` loop, keeping the same `for-to`
-    // shape the backend already lowers.
     let foldBack (folder: 'T -> 'State -> 'State) (array: 'T[]) (state: 'State) : 'State =
         let mutable acc = state
         let len = array.Length

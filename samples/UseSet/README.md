@@ -39,5 +39,6 @@ predicates and projections stay uncurried.
 
 ## Cross-references
 
-- [`../../src/Vesper.Set/README.md`](../../src/Vesper.Set/README.md) — the package this consumes.
+- [`../../src/Vesper.Set/manifest.toml`](../../src/Vesper.Set/manifest.toml) — the package this consumes.
+- [`core-lib-architecture.md`](../../src/XParsec.FSharp.SemanticAnalysis/docs/core-lib-architecture.md) — how the Vesper packages fit together.
 - [`SetModuleTests.fs`](../../test/XParsec.FSharp.Codegen.Clr.Tests/SetModuleTests.fs) — the per-operation golden table this demo composes into one program.

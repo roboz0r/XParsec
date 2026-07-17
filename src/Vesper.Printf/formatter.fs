@@ -8,15 +8,6 @@ open System.Text
 
 open Vesper.IntComparison
 
-// Vesper-compiled implementation of `formatter.fsi` — the printf write-through
-// handler. Two spots take a text-equivalent path rather than the BCL no-alloc
-// fast path (same bytes out, no `Span` fast-path):
-//   * `AppendFormatted` uses the `IFormattable.ToString(format, provider)` path
-//     rather than the no-alloc `ISpanFormattable.TryFormat` span fast-path; same
-//     text output (same culture, same format string).
-//   * `Flush` uses `TextWriter.Write(string)` rather than `Write(ReadOnlySpan<char>)`
-//     — F# has no implicit `Span<char>` → `ReadOnlySpan<char>` conversion.
-
 /// Stack-only handler that accumulates formatted text and flushes it to a sink.
 /// Constructed and driven by the backend; users never name it.
 [<Struct; IsByRefLike>]

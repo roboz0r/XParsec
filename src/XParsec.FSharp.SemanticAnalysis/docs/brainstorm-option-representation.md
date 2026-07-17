@@ -23,8 +23,7 @@ Vesper does **not** inherit F#'s reference-typed, `UseNullAsTrueValue`
 
 This is the Rust `Option` / Swift `Optional` shape. F#'s reason for a *separate*
 struct option (`ValueOption`) — that its default option is a reference type —
-does not apply, which is why `ValueOption` is now redundant in Vesper (see the
-package README).
+does not apply, which is why `ValueOption` is redundant in Vesper.
 
 ## OR2 — The enabling invariant: representation freedom
 
@@ -170,8 +169,8 @@ and smallest instance.
 
 ## Cross-references
 
-- [`../../Vesper.Option/README.md`](../../Vesper.Option/README.md) — the realised package; OR1/OR2 decisions in situ.
-- [core-lib-architecture](core-lib-architecture.md) — one impl DLL per package; why the public-ABI seam (OR4) and cross-assembly effect summaries matter.
+- [`../../Vesper.Option/option.fsi`](../../Vesper.Option/option.fsi) — the realised contract; OR1/OR2 decisions in situ.
+- [core-lib-architecture](core-lib-architecture.md) — one impl DLL per package; why the data types are structs, and why the public-ABI seam (OR4) and cross-assembly effect summaries matter.
 - [brainstorm-du-layout](brainstorm-du-layout.md) — the split-payload physical layout this representation sits on top of.
 - [brainstorm-structural-equality](brainstorm-structural-equality.md) — the equality/hashing half of OR2's observable-semantics invariant.
 - [brainstorm-effects](brainstorm-effects.md) — inferred purity as the cross-call summary that resolves OR7 without inlining.

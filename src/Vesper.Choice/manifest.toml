@@ -1,20 +1,3 @@
-# Vesper.Choice — the `Choice<'T1, 'T2>` type as a standalone package: one
-# package per type, one impl DLL per package.
-#
-# Same shape as src/Vesper.Result / src/Vesper.Option: the `.fsi` is the
-# front-end symbol contract (parsed by XParsec.FSharp, walked into an
-# IExternalSymbolProvider); `choice.fs` is the runtime impl compiled by this
-# repo's own backend → Vesper.Choice.dll (BCL-only, no FSharp.Core). No `.fsproj`:
-# like its siblings this tree is not built by `dotnet`/`fsc`.
-#
-# Depends on Vesper.Core (`unit`, `bool`, `int`).
-#
-# Package name != namespace: the package is named `Vesper.Choice` but contributes
-# type `Choice` into namespace `Vesper`, not `Vesper.Choice`.
-#
-# See ./README.md and
-# ../XParsec.FSharp.SemanticAnalysis/docs/core-lib-architecture.md.
-
 [core]
 name = "Vesper.Choice"
 namespace = "Vesper"

@@ -73,26 +73,26 @@ export const emptyDocs = ([]);
 export const append = (a, d) => ([...(a), (d)]);
 export const dLen = (a) => ((a).length);
 export const dGet = (a, i) => ((a)[(i)]);
-export const flatWidth = (d) => ((_m6541) => {
-  if ((_m6541.tag === 0)) {
-    const s = _m6541.Item;
+export const flatWidth = (d) => ((_m3305) => {
+  if ((_m3305.tag === 0)) {
+    const s = _m3305.Item;
     return strLen(s);
   }
-  if ((_m6541.tag === 1)) {
-    const flat = _m6541.Item;
+  if ((_m3305.tag === 1)) {
+    const flat = _m3305.Item;
     return strLen(flat);
   }
-  if ((_m6541.tag === 2)) {
-    const kids = _m6541.Item;
+  if ((_m3305.tag === 2)) {
+    const kids = _m3305.Item;
     return catWidth(kids, 0, 0);
   }
-  if ((_m6541.tag === 3)) {
-    const inner = _m6541.Item2;
+  if ((_m3305.tag === 3)) {
+    const inner = _m3305.Item2;
     return flatWidth(inner);
   }
-  if ((_m6541.tag === 4)) {
-    const inner = _m6541.Item1;
-    const parens = _m6541.Item2;
+  if ((_m3305.tag === 4)) {
+    const inner = _m3305.Item1;
+    const parens = _m3305.Item2;
     return addI(flatWidth(inner), (parens ? 2 : 0));
   }
   throw new Error("The match cases were incomplete");
@@ -116,27 +116,27 @@ export const mkStrCell = (s) => ([(s)]);
 export const getStr = (c) => ((c)[0]);
 export const emit = (out, s) => ((out)[0] = (out)[0] + (s));
 export const nSpaces = (n) => (' '.repeat((n)));
-export const renderDoc = (d, out, indent, broken, col, width) => ((_m7840) => {
-  if ((_m7840.tag === 0)) {
-    const s = _m7840.Item;
+export const renderDoc = (d, out, indent, broken, col, width) => ((_m4604) => {
+  if ((_m4604.tag === 0)) {
+    const s = _m4604.Item;
     return (emit(out, s), addI(col, strLen(s)));
   }
-  if ((_m7840.tag === 1)) {
-    const flat = _m7840.Item;
+  if ((_m4604.tag === 1)) {
+    const flat = _m4604.Item;
     return (broken ? (emit(out, "\n"), emit(out, nSpaces(indent)), indent) : (emit(out, flat), addI(col, strLen(flat))));
   }
-  if ((_m7840.tag === 3)) {
-    const i = _m7840.Item1;
-    const inner = _m7840.Item2;
+  if ((_m4604.tag === 3)) {
+    const i = _m4604.Item1;
+    const inner = _m4604.Item2;
     return renderDoc(inner, out, addI(indent, i), broken, col, width);
   }
-  if ((_m7840.tag === 2)) {
-    const kids = _m7840.Item;
+  if ((_m4604.tag === 2)) {
+    const kids = _m4604.Item;
     return renderCat(kids, 0, out, indent, broken, col, width);
   }
-  if ((_m7840.tag === 4)) {
-    const inner = _m7840.Item1;
-    const parens = _m7840.Item2;
+  if ((_m4604.tag === 4)) {
+    const inner = _m4604.Item1;
+    const parens = _m4604.Item2;
     return ((openCol) => ((groupBroken) => ((parens ? emit(out, "(") : undefined), ((endCol) => (parens ? (emit(out, ")"), inc(endCol)) : endCol))(renderDoc(inner, out, indent, groupBroken, openCol, width))))((intEq(width, 0) ? false : intGt(addI(openCol, flatWidth(inner)), width))))((parens ? inc(col) : col));
   }
   throw new Error("The match cases were incomplete");

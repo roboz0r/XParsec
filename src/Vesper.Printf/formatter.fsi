@@ -4,10 +4,6 @@ open System.IO
 open System.Text
 open System.Runtime.CompilerServices
 
-// The printf write-through format handler: a stack-only ref struct that accumulates
-// formatted output into a pooled buffer and flushes to its sink. Shared with the
-// `$"..."` interpolation surface.
-
 /// <summary>Stack-only handler that accumulates formatted text and flushes it to
 /// a sink. Constructed and driven by the backend; users never name it.</summary>
 [<Struct; IsByRefLike>]

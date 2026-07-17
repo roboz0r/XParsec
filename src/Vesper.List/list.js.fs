@@ -1,41 +1,5 @@
 namespace Vesper.Collections
 
-// Vesper.List — JS-target `impl`, selected
-// through the manifest `impl-js` override (the mechanism Vesper.Core uses for
-// `inline-bodies-js`) and compiled by the JS backend in *library* mode into the
-// committed `Vesper.List.mjs` runtime asset — retiring the hand-authored `.mjs`.
-//
-// This is NOT the full `list.fs`: a faithful `list.fs` compile needs two things
-// the JS backend has no surface for (union/record member methods; the
-// class/interface/`[<Struct>]` machinery behind `ListSeq`/`ListEnumerator`/`toSeq`).
-// Instead this exposes only the `.mjs` subset, authored in backend-friendly idiom:
-//
-//   * The cons-list *type* is declared here with its `[]`/`::` cases but **no member
-//     methods** (the `IsEmpty`/`Head`/`Tail`/`Length`/… the `.fsi` advertises) — so
-//     the JS backend emits just the base + `List_Empty`/`List_Cons` classes
-//     (`collectTypes`), no member emission. Like `list.fs`, the impl resolves its own
-//     type locally (the provider is `depends-on` only — `Vesper.Core`), so the
-//     module functions' `[]`/`::` construct/match the in-file union.
-//   * `head`/`tail` raise the empty-list error with `failwith`, whose JS inline body
-//     (`ops-platform.js.fs`) is the expression-position IIFE
-//     `(() => { throw new Error($0); })()` — riding the `ILIntrinsic` → `JsExpr.Raw`
-//     path with no new backend arms (cf. `ops-platform.js.fs`'s `$N` operator
-//     templates).
-//   * The set is `fold`/`isEmpty`/`length`/`head`/`tail`/`map`/`filter`/`append`/`rev`
-//     (the `list.fs` "grow" set minus `toSeq`/`ofSeq`, which need the
-//     class/interface surface). `fold` is tail-recursive → trampolined; the rest
-//     recurse structurally (JS-stack, fine for the MVP runtime).
-//
-// The generic functions need NO accumulator gymnastics (unlike `list.fs`, which
-// dodges the CLR "cannot encode SemType: TyVar" closure gap): JS erases types, so
-// `map`/`rev` are plain recursive arrows. The interop invariant Step 6 locked holds —
-// the match compiler and structural runtime read `.tag` + own keys, never
-// `instanceof`, so a `List_Cons` this module builds and one a consumer builds (with
-// its own separately-emitted class) are interchangeable.
-//
-// NOT Fantomas-formatted (this dir is in `.fantomasignore`): Fantomas strips the
-// `[]`/`::` operator-union-case payloads.
-
 type List<'T> =
     | ([]): 'T list
     | (::): Head: 'T * Tail: 'T list -> 'T list

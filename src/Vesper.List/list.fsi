@@ -1,24 +1,5 @@
 namespace Vesper.Collections
 
-// Vesper.List contract — the cons-list type + the `List` module, carved out of
-// Vesper.Core's `core-types.fsi` (package-split-plan PS1: one package per type).
-// Like the rest of the Vesper tree this is the front-end symbol contract: parsed
-// by XParsec.FSharp and walked into an IExternalSymbolProvider. The runtime impl
-// is `list.fs` (→ Vesper.List.dll, BCL-only, our own backend) — the verbatim
-// `[]`/`::` + `module List` form, compilable since the front end lowers cons
-// patterns/construction (the cutover).
-//
-// Depends on Vesper.Core (`Fun`, `unit`, `int`, `bool`) and Vesper.Option — the
-// `List.GetSlice` member below names `int option`, resolving the forward-reference
-// that `src/Vesper.Option/README.md` documented while `List` still lived in Core.
-//
-// Per package-split-plan PS5 the package is named `Vesper.List` but it
-// contributes type `List` into namespace `Vesper.Collections`, not `Vesper.List`.
-//
-// NOT Fantomas-formatted (this dir is in `.fantomasignore`): Fantomas strips the
-// `[]`/`::` operator-union-case payloads. Authored to a fixed shape; parser
-// coverage is the golden `.parsed` snapshot.
-
 open System
 open System.Collections.Generic
 

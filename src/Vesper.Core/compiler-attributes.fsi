@@ -2,16 +2,6 @@ namespace Vesper
 
 open System
 
-// Compiler-recognised equality / comparison attributes.
-//
-// These are *recognition hooks*: zero-runtime markers the front end reads by
-// short name to gate structural `Equals` / `GetHashCode` / `CompareTo`
-// generation and to stamp a type's equality/comparison verdict. They live in
-// `Vesper.Core` — never in `Vesper.Comparison` — because the dependency DAG runs
-// Core → Comparison, and Core's own types (`Ref`, `Result`) already carry them.
-// Authored here (NOT ported); the targets mirror FSharp.Core's so annotation
-// placement stays familiar.
-
 /// <summary>Adding this attribute to a parameter of an inline function marks the
 /// argument as call-at-most-once: the compiler splices it unevaluated at its
 /// single linear use site (call-by-name for one use) rather than binding it

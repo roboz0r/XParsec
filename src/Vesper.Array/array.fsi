@@ -1,29 +1,5 @@
 namespace Vesper.Collections
 
-// Vesper.Array contract — the `Array` module over the intrinsic `'T[]` type
-// (declared in Vesper.Core's `prim-types-min.fsi`). A standalone package
-// (package-split-plan PS1: one package per type/module) mirroring Vesper.List's
-// `module List`. Like the rest of the Vesper tree this is the front-end symbol
-// contract: parsed by XParsec.FSharp and walked into an IExternalSymbolProvider.
-// The runtime impl is `array.fs` (→ Vesper.Array.dll, BCL-only, our own
-// backend). Depends on Vesper.Core (`'T[]`, `Fun`, `int`, `bool`, `unit`).
-//
-// Per package-split-plan PS5 the package is named `Vesper.Array` but it
-// contributes the `Array` module into namespace `Vesper.Collections`, not
-// `Vesper.Array` — the same namespace `set.fs` lives in, so its `Array.fold` /
-// `Array.zeroCreate` calls resolve without an extra `open`.
-//
-// The surface mirrors the FSharp.Core `Array` module — the proven "grow"
-// subset built only from the primitives the backend lowers end-to-end (counted
-// loops, indexed get/set, `.Length`, and `Vesper.Fun` application). The rest of
-// the FSharp.Core `Array` surface (the equality/comparison-constrained members
-// `contains`/`sort`, the seq-bridge `ofSeq`/`toSeq`) is additive later, the same
-// stance as Vesper.List / Vesper.Result.
-
-/// Operations over `'T[]`. The `ModuleSuffix` representation gives the module
-/// the compiled name `ArrayModule` (matching the FSharp.Core surface) and lets
-/// it coexist with the BCL `System.Array` type name. Each functional argument's
-/// arrow desugars to `Vesper.Fun`.
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Array =

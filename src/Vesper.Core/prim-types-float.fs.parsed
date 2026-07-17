@@ -1,35 +1,35 @@
 namespace              'namespace'       KWNamespace         tok=   0  pos=   0
                        'Vesper'          Identifier          tok=   2  pos=  10
   TypeDefn.Abbrev:
-    TypeName           'float32'         Identifier          tok=  19  pos= 184
-    =                  '='               OpEquality          tok=  21  pos= 192
+    TypeName           'float32'         Identifier          tok=  14  pos=  37
+    =                  '='               OpEquality          tok=  16  pos=  45
       ILIntrinsic:
-        (#             '(#'              KWLHashParen        tok=  23  pos= 194
-        StringLiteral  '"'               StringOpen          tok=  25  pos= 197
+        (#             '(#'              KWLHashParen        tok=  18  pos=  47
+        StringLiteral  '"'               StringOpen          tok=  20  pos=  50
         Parts:
-          Text         'System.Sin...'   StringFragment      tok=  26  pos= 198
-                       '"'               StringClose         tok=  27  pos= 211
-        #)             '#)'              KWRHashParen        tok=  29  pos= 213
+          Text         'System.Sin...'   StringFragment      tok=  21  pos=  51
+                       '"'               StringClose         tok=  22  pos=  64
+        #)             '#)'              KWRHashParen        tok=  24  pos=  66
   TypeDefn.Abbrev:
-    TypeName           'float'           Identifier          tok=  33  pos= 221
-    =                  '='               OpEquality          tok=  35  pos= 227
+    TypeName           'float'           Identifier          tok=  28  pos=  74
+    =                  '='               OpEquality          tok=  30  pos=  80
       ILIntrinsic:
-        (#             '(#'              KWLHashParen        tok=  37  pos= 229
-        StringLiteral  '"'               StringOpen          tok=  39  pos= 232
+        (#             '(#'              KWLHashParen        tok=  32  pos=  82
+        StringLiteral  '"'               StringOpen          tok=  34  pos=  85
         Parts:
-          Text         'System.Dou...'   StringFragment      tok=  40  pos= 233
-                       '"'               StringClose         tok=  41  pos= 246
-        #)             '#)'              KWRHashParen        tok=  43  pos= 248
+          Text         'System.Dou...'   StringFragment      tok=  35  pos=  86
+                       '"'               StringClose         tok=  36  pos=  99
+        #)             '#)'              KWRHashParen        tok=  38  pos= 101
   TypeDefn.Abbrev:
-    TypeName           'single'          Identifier          tok=  47  pos= 256
-    =                  '='               OpEquality          tok=  49  pos= 263
+    TypeName           'single'          Identifier          tok=  42  pos= 109
+    =                  '='               OpEquality          tok=  44  pos= 116
       NamedType:
-        Ident          'float32'         Identifier          tok=  51  pos= 265
+        Ident          'float32'         Identifier          tok=  46  pos= 118
   TypeDefn.Abbrev:
-    TypeName           'double'          Identifier          tok=  55  pos= 278
-    =                  '='               OpEquality          tok=  57  pos= 285
+    TypeName           'double'          Identifier          tok=  50  pos= 131
+    =                  '='               OpEquality          tok=  52  pos= 138
       NamedType:
-        Ident          'float'           Identifier          tok=  59  pos= 287
+        Ident          'float'           Identifier          tok=  54  pos= 140
 ---
 WarnDirectives:
   #nowarn 42 (Ln 2)

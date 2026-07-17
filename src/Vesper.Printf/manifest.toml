@@ -1,15 +1,3 @@
-# Vesper.Printf — printf as its own library.
-#
-# Same shape as src/Vesper.Core: the `.fsi` files are the front-end symbol
-# contract (parsed by XParsec.FSharp, walked into an IExternalSymbolProvider);
-# the runtime impl (`.fs`: the write-through handler body, the spec-runner, the
-# `%A` synthesis) is compiled by this repo's own backend → Vesper.Printf.dll.
-# No `.fsproj`: the printf functions are signature-only (lowered as intrinsics on
-# the happy path), like the operators in Vesper.Core.
-#
-# Depends on Vesper.Core (Fun, unit, string). See ./README.md and
-# ../XParsec.FSharp.SemanticAnalysis/docs/printf-architecture.md.
-
 [core]
 namespace = "Vesper"
 description = "printf / printfn / sprintf and the write-through format handler."

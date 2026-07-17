@@ -1,25 +1,5 @@
 namespace Vesper
 
-// Language-capability anchors. These extern types name the per-target identities
-// the front end resolves to lower / validate F#'s capability grammar: `use`
-// (disposable), `[<CustomEquality>]` (equatable), `[<CustomComparison>]` (comparable),
-// and `for … in` (the `seq` / `enumerator` cluster, declared in the `Vesper.Collections`
-// namespace at the bottom of this file). Declared `extern` (no repr) so the per-target
-// `.fs` companion binds each to its platform identity and the provider surfaces an
-// `IntrinsicInterface` shape the semantic-analysis passes resolve (cf. `prim-types-exn.fsi`'s
-// `type exn = extern`). The generic ones carry the arity the BCL interface name does
-// (``IEquatable`1`` etc.); `disposable` is non-generic.
-//
-// Each capability carries an `extern interface with abstract member …` surface: a
-// BCL-free interface a Vesper type can implement directly (`interface disposable with …`).
-// The `interface` species is DECLARED, not inferred from the all-abstract body — the
-// contract names it, mirroring `extern class`. The
-// per-target `.fs` companion ALSO binds each to its platform identity via `(# … #)`,
-// so the provider surfaces ONE dual-faced shape (the member surface PLUS a
-// `CapabilityFace` reconciling to the BCL spelling on CLR, as `exn === System.Exception`
-// does). The canonical name stays primary in the frozen TAST; the platform face drives
-// reconciliation + emission only.
-
 /// <summary>The disposal capability — anchors `use` (and `for … in` finally). On
 /// the CLI it is <see cref="T:System.IDisposable"/>.</summary>
 ///

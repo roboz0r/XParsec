@@ -1,20 +1,3 @@
-# Vesper.Option — the option type + the `Option` module as a standalone package:
-# one package per type, one impl DLL per package.
-#
-# Same shape as src/Vesper.Core and src/Vesper.Printf: the `.fsi` is the
-# front-end symbol contract (parsed by XParsec.FSharp, walked into an
-# IExternalSymbolProvider); `option.fs` is the runtime impl compiled by this
-# repo's own backend → Vesper.Option.dll (BCL-only, no FSharp.Core). No
-# `.fsproj`: like its siblings this tree is not built by `dotnet`/`fsc`.
-#
-# Depends on Vesper.Core (`Fun`, `unit`, `bool`, `int`).
-#
-# Package name != namespace: the package is named `Vesper.Option` but contributes
-# type `Option` into namespace `Vesper`, not `Vesper.Option`.
-#
-# See ./README.md and
-# ../XParsec.FSharp.SemanticAnalysis/docs/core-lib-architecture.md.
-
 [core]
 name = "Vesper.Option"
 namespace = "Vesper"
@@ -30,14 +13,6 @@ files = [
 impl = [
     "option.fs",
 ]
-
-# No `impl-js` override: the JS backend compiles the
-# full `option.fs` directly (type members emit as free curried receiver-first
-# functions, and `raise (InvalidOperationException …)` lowers through the external-`new`
-# arm to a native `new Error`), so `resolveImpl (Some "js")` falls back to the base
-# `impl` above — the member-stripped `option.js.fs` is retired. (`[<Struct>]` and the
-# `[<CompiledName>]`/equality attributes are inert on the JS target; the union erases to
-# the same `{ tag, Value }` shape either way.)
 
 # JS runtime *asset*: the `Option` module functions a consumer imports + ships beside
 # its output (the option *type* itself rides inline via the external-union path, like

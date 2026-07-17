@@ -1,22 +1,5 @@
 namespace Vesper
 
-// Vesper.Choice contract — the `Choice<'T1, 'T2>` type, a standalone package
-// (package-split-plan PS1: one package per type) mirroring Vesper.Result and
-// Vesper.Option. Like the rest of the Vesper tree this is the front-end symbol
-// contract: parsed by XParsec.FSharp and walked into an IExternalSymbolProvider.
-// The runtime impl is `choice.fs` (→ Vesper.Choice.dll, BCL-only, our own
-// backend). Depends on Vesper.Core (`unit`, `bool`, `int`).
-//
-// Per package-split-plan PS5 the package is named `Vesper.Choice` but it
-// contributes type `Choice` into namespace `Vesper`, not `Vesper.Choice`.
-//
-// Sole consumer today is `set.fs` (lines 440/441/446/773/1064): `partition1With`
-// births a `Choice` from `partitioner k` and consumes it in the very next
-// `match`. It never escapes and runs once per set element — which is why this is
-// a [<Struct>] (zero heap allocations per element), the same posture and proven
-// layout as Vesper.Result. The struct-not-class rationale: zero heap allocations
-// per element for a non-escaping value constructed and matched in the same call.
-
 open System
 
 /// <summary>Helper type for two-way disjoint union results.</summary>
@@ -27,10 +10,6 @@ open System
 /// type, or pattern match against the values directly.</remarks>
 ///
 /// <category>Choices and Results</category>
-// Data, not State: structural equality (unconditional) + opt-in structural
-// comparison, comparable iff its args are (the
-// `Comparison.Structural ⇒ Equality.Structural` invariant holds), exactly as
-// Vesper.Result.
 [<StructuralEquality; StructuralComparison>]
 [<Struct>]
 type Choice<'T1, 'T2> =
@@ -40,17 +19,6 @@ type Choice<'T1, 'T2> =
 
     /// Choice 2 of 2 choices.
     | Choice2Of2 of Choice2Of2: 'T2
-
-// Higher-arity variants up through `Choice<'T1, …, 'T7>`, matching the FSharp.Core
-// surface (`prim-types.fsi` `FSharpChoice`2`…`FSharpChoice`7`) — FSharp.Core stops
-// at arity 7, so this is the whole family, not a 16-wide tower. They keep the same
-// posture as the 2-arity case:
-// `[<Struct>]` + named-field cases (a struct union requires *distinct* field names
-// across all cases, so each field is named after its case), structural equality +
-// opt-in structural comparison. Each added arm widens the struct by one payload;
-// none is consumed by `set.fs` yet (which uses only the 2-arity form), but they
-// round out the active-pattern helper surface. SROA / slot-sharing for the wider
-// arms stays the deferred codegen follow-up.
 
 /// <summary>Helper type for active patterns with 3 choices.</summary>
 /// <category>Choices and Results</category>

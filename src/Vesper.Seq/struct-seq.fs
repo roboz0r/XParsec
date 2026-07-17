@@ -1,32 +1,5 @@
 namespace Vesper.Collections
 
-// Runtime implementation target for this repo's own backend — the
-// zero-allocation, struct-chaining `StructSeq` surface of
-// `brainstorm-seq-module.md`, generic over the element type `'T`. The contract
-// lives in `struct-seq.fsi`. BCL-only — no `FSharp.Core`.
-//
-// This is the GRADUATION of the rung-3 inline slice (proven `int`-element in
-// `test/XParsec.FSharp.Codegen.Clr.Tests/StructSeqTests.fs`) into a real,
-// generic-over-`'T` library:
-//   - `IStructEnumerator<'T>` / `IStructSeq<'T, 'E>` marker interfaces (used only
-//     as generic constraints, never as variable types), so the compiler tracks
-//     the concrete enumerator type and chains by value.
-//   - `ArrayEnumerator<'T>` / `ArraySeq<'T>` — entering the pipeline from `'T[]`.
-//   - `MapEnumerator<'E, 'TFunc, 'T, 'U>` / `MapSeq<'S, 'E, 'TFunc, 'T, 'U>` — the
-//     `Seq.map` node; a generic struct enumerator chaining a generic inner
-//     enumerator `'E` via `constrained. !E callvirt`.
-//   - `ofArray` / `map` / `fold` — the entry, the combinator, and the consuming
-//     terminal (`fold` drives `for y in s` and threads a state accumulator,
-//     applying the flat arity-2 closure per element).
-//
-// RUNG 4 — the functional arguments are carried as EXPLICIT CONSTRAINED TYPARS,
-// not reference-type closures: `map` rides `'TFunc :> Fun<'T, 'U>` (single-arg)
-// and `fold` rides `'TFunc :> Fun<'State, 'T, 'State>` (flat arity-2). The struct
-// closure is a `val F: 'TFunc` field / parameter, and each application lowers to
-// `constrained. !TFunc callvirt` — no heap, no box, JIT-devirtualizable — the same
-// by-value threading the library already does for its `'S` / `'E` enumerator
-// typars.
-
 open System
 open System.Collections
 open System.Collections.Generic

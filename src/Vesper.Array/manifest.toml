@@ -1,20 +1,3 @@
-# Vesper.Array — the `Array` module over the intrinsic `'T[]` type as a
-# standalone package: one package per type/module, one impl DLL per package.
-#
-# Same shape as src/Vesper.List: the `.fsi` is the front-end symbol contract
-# (parsed by XParsec.FSharp, walked into an IExternalSymbolProvider); `array.fs`
-# is the runtime impl compiled by this repo's own backend → Vesper.Array.dll
-# (BCL-only, no FSharp.Core). No `.fsproj`: like its siblings this tree is not
-# built by `dotnet`/`fsc`.
-#
-# Depends on Vesper.Core (`'T[]`, `Fun`, `int`).
-#
-# Package name != namespace: the package is named `Vesper.Array` but contributes
-# the `Array` module into namespace `Vesper.Collections`, not `Vesper.Array`.
-#
-# See ./README.md and
-# ../XParsec.FSharp.SemanticAnalysis/docs/core-lib-architecture.md.
-
 [core]
 name = "Vesper.Array"
 namespace = "Vesper.Collections"

@@ -1,13 +1,5 @@
 namespace Vesper
 
-// The parsed-format type. On the fully-applied literal happy path (vesper-printf-
-// plan P2) no value of this type is constructed — the format lowers inline. It
-// exists in the contract to *type the format literal*: `PrintfSpec` derives
-// `'Printer` (the curried hole types) from the literal, which type-checks the
-// args and drives the lowering. A value is materialised only in the static-field
-// / cold representation (P4), where it is the one place D4's `PrintfFormat`
-// survives.
-
 /// <summary>Type of a parsed format string.</summary>
 ///
 /// <typeparam name="Printer">The curried function the format applies to, e.g.

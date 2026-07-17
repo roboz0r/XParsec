@@ -2,10 +2,6 @@ namespace Vesper
 
 #nowarn "42" // This construct is deprecated: it is only for use in the F# library
 
-// Impl (`.fs`) side: the representation of each primitive as an inline-IL
-// intrinsic string. This `.fs` is the per-target binding layer — retargeting a
-// primitive (e.g. `int` to 64-bit) is a one-line edit here, no codegen change.
-
 type int = (# "System.Int32" #)
 type bool = (# "System.Boolean" #)
 type unit = (# "System.ValueTuple" #)

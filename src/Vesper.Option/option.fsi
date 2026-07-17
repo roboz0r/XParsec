@@ -1,17 +1,5 @@
 namespace Vesper
 
-// Vesper.Option contract — the option type + the `Option` module, carved out of
-// Vesper.Core's `core-types.fsi` (package-split-plan PS1: one package per type).
-// Like the rest of the Vesper tree this is the front-end symbol contract: parsed
-// by XParsec.FSharp and walked into an IExternalSymbolProvider. The runtime impl
-// is `option.fs` (→ Vesper.Option.dll, BCL-only, our own backend). Depends on
-// Vesper.Core (`Fun`, `unit`, `bool`, `int`).
-//
-// Per package-split-plan PS5 the package is named `Vesper.Option` but it
-// contributes type `Option` into namespace `Vesper`, not `Vesper.Option`.
-//
-// `ValueOption`/`voption` stay in Vesper.Core's `core-types.fsi` for now.
-
 open System
 
 /// <summary>The type of optional values, represented as a <b>struct</b>.</summary>

@@ -2,14 +2,6 @@ namespace System
 
 open Vesper
 
-// The common BCL exception roots, as Vesper *contract* types. Each inherits the exception root `exn` (`Vesper.exn`), so a consumer's
-// subtype check (`raise : exn -> 'T`, a `:> exn` argument) reconciles through this
-// contract `inherit` chain — independent of any host BCL metadata. On JS every one
-// erases to the `exn` repr (`Error`, from `prim-types-exn.js.fs`); the CLR target
-// reaches the same names through `System.Private.CoreLib` instead (this package is
-// not referenced by CLR builds). The `(message: string)` constructor is the leading
-// BCL ctor, the only arg with an `Error` slot on JS.
-
 /// <summary>The CLI type <see cref="T:System.InvalidOperationException"/>.</summary>
 type InvalidOperationException =
     inherit exn

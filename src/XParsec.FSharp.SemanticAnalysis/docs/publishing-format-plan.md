@@ -243,10 +243,9 @@ reason as the F# pickle.
 ## Cross-references
 
 - [core-lib-architecture](core-lib-architecture.md) — the per-package runtime
-  split (one impl DLL per package) and the deferred rollup/merge decision this
-  plan's PF7 feeds.
-- [Vesper.Core](../../Vesper.Core/README.md) — the contract/runtime
-  two-artifact split (`.fsi` vs `.fs`) this plan distributes.
+  split (one impl DLL per package), the contract/runtime two-artifact split
+  (`.fsi` vs `.fs`) this plan distributes, and the deferred rollup/merge decision
+  this plan's PF7 feeds.
 - [function-representation-plan](function-representation-plan.md) — `Fun`, the
   representation behind the arrow-sugar abbreviation that IL can't carry.
 - The (completed) `SemType → FrozenType` split — its `TExpr<FrozenType>` is the
@@ -254,5 +253,3 @@ reason as the F# pickle.
   (re-typecheck → `SemType` → local inline pass) realises PF1/PF4.
 - [`../../Vesper.Core/manifest.toml`](../../Vesper.Core/manifest.toml) — the
   current contract (`files`) + inline-body (`impl`) manifest this plan publishes.
-- [`../../Vesper.Core/README.md`](../../Vesper.Core/README.md) — the "two
-  artifacts that must agree" framing and the drift/conformance note.

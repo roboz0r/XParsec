@@ -2,9 +2,6 @@ namespace Vesper
 
 #nowarn "42"
 
-// Impl side: per-target intrinsic bindings for the multi-dimensional array
-// types. Bodies mirror FSharp.Core's IL array shapes.
-
 type 'T ``[,]`` = (# "!0[0 ... , 0 ... ]" #)
 
 type 'T ``[,,]`` = (# "!0[0 ...,0 ...,0 ...]" #)

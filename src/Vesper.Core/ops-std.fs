@@ -1,15 +1,5 @@
 namespace Vesper
 
-// Implementation of `ops-std.fsi`. Each inline body is read across the package
-// boundary by `SymbolProviders.inlineBodies` and spliced at each use site by
-// `Passes.InlineExpansion`.
-//
-// `&&` / `||`: the right operand is `[<CallAtMostOnce>]` so the inliner splices it
-// inside the `if`-body rather than eager-binding it — short-circuit is declared by
-// the attribute, not special-cased in the compiler.
-//
-// NOT Fantomas-formatted (this dir is in `.fantomasignore`).
-
 [<AutoOpen>]
 module LogicalOperators =
     let inline (&&) (e1: bool) ([<CallAtMostOnce>] e2: bool) : bool = if e1 then e2 else false

@@ -1,25 +1,5 @@
 namespace Vesper.Collections
 
-// Vesper.Seq struct-seq contract — the zero-allocation, struct-chaining
-// `StructSeq` surface of `brainstorm-seq-module.md`, generic over the element
-// type `'T`. The front-end symbol contract (parsed by XParsec.FSharp, walked into
-// an IExternalSymbolProvider); the runtime impl is `struct-seq.fs`.
-//
-// This is the GRADUATION of the rung-3 inline slice (proven `int`-element in
-// StructSeqTests.fs) into a real generic-over-`'T` library: the marker interfaces
-// `IStructEnumerator<'T>` / `IStructSeq<'T, 'E>`, the `ArrayEnumerator<'T>` /
-// `ArraySeq<'T>` entry pair, the `MapEnumerator<'E, 'TFunc, 'T, 'U>` /
-// `MapSeq<'S, 'E, 'TFunc, 'T, 'U>` map node, and the `ofArray` / `map` / `fold`
-// module surface.
-//
-// RUNG 4 — the functional arguments are carried as EXPLICIT CONSTRAINED TYPARS,
-// not reference-type `Vesper.Fun` values: `map` rides `'TFunc :> Fun<'T, 'U>` and
-// `fold` rides `'TFunc :> Fun<'State, 'T, 'State>` (the flat arity-2 interface, a
-// single constrained 2-arg `Invoke`). Each application lowers to `constrained.
-// !TFunc callvirt` (no heap, JIT-devirtualizable) — exactly how the library
-// already threads its explicit `'S` / `'E` enumerator typars. A struct closure
-// passed as `'TFunc` is dispatched by value with no box.
-
 /// Duck-typed enumerator slot — `MoveNext`/`Current`, used only as a generic
 /// constraint so a struct enumerator dispatches by value.
 type IStructEnumerator<'T> =

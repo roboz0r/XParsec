@@ -1,12 +1,5 @@
 namespace Vesper
 
-// Minimal types necessary to represent a turing complete ML.
-//
-// Contract (`.fsi`) side: each primitive is declared `extern` — "the target
-// provides this; there is no Vesper representation here." The set of `extern`
-// declarations is this target's primitive capability set; the impl (`.fs`)
-// side pairs each with a `(# "..." #)` intrinsic carrying the representation.
-
 /// <summary>An intrinsic 32-bit signed integer provided by the target.</summary>
 ///
 /// <category>Basic Types</category>

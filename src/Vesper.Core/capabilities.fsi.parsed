@@ -1,141 +1,141 @@
 namespace           'namespace'       KWNamespace         tok=   0  pos=   0
                     'Vesper'          Identifier          tok=   2  pos=  10
   Type:
-    type            'type'            KWType              tok=  52  pos=1654
+    type            'type'            KWType              tok=  13  pos= 215
     TypeSig.Extern:
-      TypeName      'disposable'      Identifier          tok=  54  pos=1659
-      =             '='               OpEquality          tok=  56  pos=1670
-      extern        'extern'          KWExtern            tok=  58  pos=1672
-      interface     'interface'       KWInterface         tok=  60  pos=1679
-      with          'with'            KWWith              tok=  62  pos=1689
+      TypeName      'disposable'      Identifier          tok=  15  pos= 220
+      =             '='               OpEquality          tok=  17  pos= 231
+      extern        'extern'          KWExtern            tok=  19  pos= 233
+      interface     'interface'       KWInterface         tok=  21  pos= 240
+      with          'with'            KWWith              tok=  23  pos= 250
         Abstract:
-          abstract  'abstract'        KWAbstract          tok=  65  pos=1698
-          member    'member'          KWMember            tok=  67  pos=1707
-          Ident     'Dispose'         Identifier          tok=  69  pos=1714
-          :         ':'               OpColon             tok=  70  pos=1721
+          abstract  'abstract'        KWAbstract          tok=  26  pos= 259
+          member    'member'          KWMember            tok=  28  pos= 268
+          Ident     'Dispose'         Identifier          tok=  30  pos= 275
+          :         ':'               OpColon             tok=  31  pos= 282
           NamedType:
-            Ident   'unit'            Identifier          tok=  72  pos=1723
-          ->        '->'              OpArrowRight        tok=  74  pos=1728
+            Ident   'unit'            Identifier          tok=  33  pos= 284
+          ->        '->'              OpArrowRight        tok=  35  pos= 289
           NamedType:
-            Ident   'unit'            Identifier          tok=  76  pos=1731
-      end           <virt>            KWEnd               tok=virt  pos=1937
+            Ident   'unit'            Identifier          tok=  37  pos= 292
+      end           <virt>            KWEnd               tok=virt  pos= 498
   Type:
-    type            'type'            KWType              tok=  87  pos=1937
+    type            'type'            KWType              tok=  48  pos= 498
     TypeSig.Extern:
-      TypeName      'equatable'       Identifier          tok=  89  pos=1942
+      TypeName      'equatable'       Identifier          tok=  50  pos= 503
       TyparDefns:
-        <           '<'               op_LessThan         tok=  90  pos=1951
+        <           '<'               op_LessThan         tok=  51  pos= 512
         Typar.Named:
-                    ''T'              TypeParameter       tok=  91  pos=1952
-        >           '>'               op_GreaterThan      tok=  92  pos=1954
-      =             '='               OpEquality          tok=  94  pos=1956
-      extern        'extern'          KWExtern            tok=  96  pos=1958
-      interface     'interface'       KWInterface         tok=  98  pos=1965
-      with          'with'            KWWith              tok= 100  pos=1975
+                    ''T'              TypeParameter       tok=  52  pos= 513
+        >           '>'               op_GreaterThan      tok=  53  pos= 515
+      =             '='               OpEquality          tok=  55  pos= 517
+      extern        'extern'          KWExtern            tok=  57  pos= 519
+      interface     'interface'       KWInterface         tok=  59  pos= 526
+      with          'with'            KWWith              tok=  61  pos= 536
         Abstract:
-          abstract  'abstract'        KWAbstract          tok= 103  pos=1984
-          member    'member'          KWMember            tok= 105  pos=1993
-          Ident     'Equals'          Identifier          tok= 107  pos=2000
-          :         ':'               OpColon             tok= 108  pos=2006
+          abstract  'abstract'        KWAbstract          tok=  64  pos= 545
+          member    'member'          KWMember            tok=  66  pos= 554
+          Ident     'Equals'          Identifier          tok=  68  pos= 561
+          :         ':'               OpColon             tok=  69  pos= 567
           VarType:
             Typar.Named:
-                    ''T'              TypeParameter       tok= 110  pos=2008
-          ->        '->'              OpArrowRight        tok= 112  pos=2011
+                    ''T'              TypeParameter       tok=  71  pos= 569
+          ->        '->'              OpArrowRight        tok=  73  pos= 572
           NamedType:
-            Ident   'bool'            Identifier          tok= 114  pos=2014
-      end           <virt>            KWEnd               tok=virt  pos=2225
+            Ident   'bool'            Identifier          tok=  75  pos= 575
+      end           <virt>            KWEnd               tok=virt  pos= 786
   Type:
-    type            'type'            KWType              tok= 125  pos=2225
+    type            'type'            KWType              tok=  86  pos= 786
     TypeSig.Extern:
-      TypeName      'comparable'      Identifier          tok= 127  pos=2230
+      TypeName      'comparable'      Identifier          tok=  88  pos= 791
       TyparDefns:
-        <           '<'               op_LessThan         tok= 128  pos=2240
+        <           '<'               op_LessThan         tok=  89  pos= 801
         Typar.Named:
-                    ''T'              TypeParameter       tok= 129  pos=2241
-        >           '>'               op_GreaterThan      tok= 130  pos=2243
-      =             '='               OpEquality          tok= 132  pos=2245
-      extern        'extern'          KWExtern            tok= 134  pos=2247
-      interface     'interface'       KWInterface         tok= 136  pos=2254
-      with          'with'            KWWith              tok= 138  pos=2264
+                    ''T'              TypeParameter       tok=  90  pos= 802
+        >           '>'               op_GreaterThan      tok=  91  pos= 804
+      =             '='               OpEquality          tok=  93  pos= 806
+      extern        'extern'          KWExtern            tok=  95  pos= 808
+      interface     'interface'       KWInterface         tok=  97  pos= 815
+      with          'with'            KWWith              tok=  99  pos= 825
         Abstract:
-          abstract  'abstract'        KWAbstract          tok= 141  pos=2273
-          member    'member'          KWMember            tok= 143  pos=2282
-          Ident     'CompareTo'       Identifier          tok= 145  pos=2289
-          :         ':'               OpColon             tok= 146  pos=2298
+          abstract  'abstract'        KWAbstract          tok= 102  pos= 834
+          member    'member'          KWMember            tok= 104  pos= 843
+          Ident     'CompareTo'       Identifier          tok= 106  pos= 850
+          :         ':'               OpColon             tok= 107  pos= 859
           VarType:
             Typar.Named:
-                    ''T'              TypeParameter       tok= 148  pos=2300
-          ->        '->'              OpArrowRight        tok= 150  pos=2303
+                    ''T'              TypeParameter       tok= 109  pos= 861
+          ->        '->'              OpArrowRight        tok= 111  pos= 864
           NamedType:
-            Ident   'int'             Identifier          tok= 152  pos=2306
-      end           <virt>            KWEnd               tok=virt  pos=2311
-namespace           'namespace'       KWNamespace         tok= 155  pos=2311
-                    'Vesper'          Identifier          tok= 157  pos=2321
-                    'Collection...'   Identifier          tok= 159  pos=2328
+            Ident   'int'             Identifier          tok= 113  pos= 867
+      end           <virt>            KWEnd               tok=virt  pos= 872
+namespace           'namespace'       KWNamespace         tok= 116  pos= 872
+                    'Vesper'          Identifier          tok= 118  pos= 882
+                    'Collection...'   Identifier          tok= 120  pos= 889
   Type:
-    type            'type'            KWType              tok= 215  pos=4145
+    type            'type'            KWType              tok= 176  pos=2706
     TypeSig.Extern:
-      TypeName      'enumerator'      Identifier          tok= 217  pos=4150
+      TypeName      'enumerator'      Identifier          tok= 178  pos=2711
       TyparDefns:
-        <           '<'               op_LessThan         tok= 218  pos=4160
+        <           '<'               op_LessThan         tok= 179  pos=2721
         Typar.Named:
-                    ''T'              TypeParameter       tok= 219  pos=4161
-        >           '>'               op_GreaterThan      tok= 220  pos=4163
-      =             '='               OpEquality          tok= 222  pos=4165
-      extern        'extern'          KWExtern            tok= 224  pos=4167
-      interface     'interface'       KWInterface         tok= 226  pos=4174
-      with          'with'            KWWith              tok= 228  pos=4184
-        inherit     'inherit'         KWInherit           tok= 231  pos=4193
+                    ''T'              TypeParameter       tok= 180  pos=2722
+        >           '>'               op_GreaterThan      tok= 181  pos=2724
+      =             '='               OpEquality          tok= 183  pos=2726
+      extern        'extern'          KWExtern            tok= 185  pos=2728
+      interface     'interface'       KWInterface         tok= 187  pos=2735
+      with          'with'            KWWith              tok= 189  pos=2745
+        inherit     'inherit'         KWInherit           tok= 192  pos=2754
         NamedType:
           LongIdent:
-                    'Vesper'          Identifier          tok= 233  pos=4201
-                    'disposable'      Identifier          tok= 235  pos=4208
+                    'Vesper'          Identifier          tok= 194  pos=2762
+                    'disposable'      Identifier          tok= 196  pos=2769
         Abstract:
-          abstract  'abstract'        KWAbstract          tok= 239  pos=4224
-          member    'member'          KWMember            tok= 241  pos=4233
-          Ident     'MoveNext'        Identifier          tok= 243  pos=4240
-          :         ':'               OpColon             tok= 244  pos=4248
+          abstract  'abstract'        KWAbstract          tok= 200  pos=2785
+          member    'member'          KWMember            tok= 202  pos=2794
+          Ident     'MoveNext'        Identifier          tok= 204  pos=2801
+          :         ':'               OpColon             tok= 205  pos=2809
           NamedType:
-            Ident   'unit'            Identifier          tok= 246  pos=4250
-          ->        '->'              OpArrowRight        tok= 248  pos=4255
+            Ident   'unit'            Identifier          tok= 207  pos=2811
+          ->        '->'              OpArrowRight        tok= 209  pos=2816
           NamedType:
-            Ident   'bool'            Identifier          tok= 250  pos=4258
+            Ident   'bool'            Identifier          tok= 211  pos=2819
         Abstract:
-          abstract  'abstract'        KWAbstract          tok= 253  pos=4267
-          member    'member'          KWMember            tok= 255  pos=4276
-          Ident     'Current'         Identifier          tok= 257  pos=4283
-          :         ':'               OpColon             tok= 258  pos=4290
+          abstract  'abstract'        KWAbstract          tok= 214  pos=2828
+          member    'member'          KWMember            tok= 216  pos=2837
+          Ident     'Current'         Identifier          tok= 218  pos=2844
+          :         ':'               OpColon             tok= 219  pos=2851
           VarType:
             Typar.Named:
-                    ''T'              TypeParameter       tok= 260  pos=4292
-      end           <virt>            KWEnd               tok=virt  pos=4496
+                    ''T'              TypeParameter       tok= 221  pos=2853
+      end           <virt>            KWEnd               tok=virt  pos=3057
   Type:
-    type            'type'            KWType              tok= 271  pos=4496
+    type            'type'            KWType              tok= 232  pos=3057
     TypeSig.Extern:
-      TypeName      'seq'             Identifier          tok= 273  pos=4501
+      TypeName      'seq'             Identifier          tok= 234  pos=3062
       TyparDefns:
-        <           '<'               op_LessThan         tok= 274  pos=4504
+        <           '<'               op_LessThan         tok= 235  pos=3065
         Typar.Named:
-                    ''T'              TypeParameter       tok= 275  pos=4505
-        >           '>'               op_GreaterThan      tok= 276  pos=4507
-      =             '='               OpEquality          tok= 278  pos=4509
-      extern        'extern'          KWExtern            tok= 280  pos=4511
-      interface     'interface'       KWInterface         tok= 282  pos=4518
-      with          'with'            KWWith              tok= 284  pos=4528
+                    ''T'              TypeParameter       tok= 236  pos=3066
+        >           '>'               op_GreaterThan      tok= 237  pos=3068
+      =             '='               OpEquality          tok= 239  pos=3070
+      extern        'extern'          KWExtern            tok= 241  pos=3072
+      interface     'interface'       KWInterface         tok= 243  pos=3079
+      with          'with'            KWWith              tok= 245  pos=3089
         Abstract:
-          abstract  'abstract'        KWAbstract          tok= 287  pos=4537
-          member    'member'          KWMember            tok= 289  pos=4546
-          Ident     'GetEnumera...'   Identifier          tok= 291  pos=4553
-          :         ':'               OpColon             tok= 292  pos=4566
+          abstract  'abstract'        KWAbstract          tok= 248  pos=3098
+          member    'member'          KWMember            tok= 250  pos=3107
+          Ident     'GetEnumera...'   Identifier          tok= 252  pos=3114
+          :         ':'               OpColon             tok= 253  pos=3127
           NamedType:
-            Ident   'unit'            Identifier          tok= 294  pos=4568
-          ->        '->'              OpArrowRight        tok= 296  pos=4573
+            Ident   'unit'            Identifier          tok= 255  pos=3129
+          ->        '->'              OpArrowRight        tok= 257  pos=3134
           GenericType:
-            Ident   'enumerator'      Identifier          tok= 298  pos=4576
-            <       '<'               op_LessThan         tok= 299  pos=4586
+            Ident   'enumerator'      Identifier          tok= 259  pos=3137
+            <       '<'               op_LessThan         tok= 260  pos=3147
             TypeArg.Type:
               VarType:
                 Typar.Named:
-                    ''T'              TypeParameter       tok= 300  pos=4587
-            >       '>'               op_GreaterThan      tok= 301  pos=4589
-      end           <virt>            KWEnd               tok=virt  pos=4591
+                    ''T'              TypeParameter       tok= 261  pos=3148
+            >       '>'               op_GreaterThan      tok= 262  pos=3150
+      end           <virt>            KWEnd               tok=virt  pos=3152

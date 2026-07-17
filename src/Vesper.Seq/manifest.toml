@@ -1,21 +1,3 @@
-# Vesper.Seq — the `Seq` module over `seq<'T>` (= `IEnumerable<'T>`) as a
-# standalone package: one package per type/module, one impl DLL per package.
-#
-# Same shape as src/Vesper.Array / src/Vesper.List: the `.fsi` is the front-end
-# symbol contract (parsed by XParsec.FSharp, walked into an
-# IExternalSymbolProvider); `seq.fs` is the runtime impl compiled by this repo's
-# own backend → Vesper.Seq.dll (BCL-only, no FSharp.Core). No `.fsproj`: like its
-# siblings this tree is not built by `dotnet`/`fsc`.
-#
-# Depends on Vesper.Core (`Fun`, `int`, `'T[]`), Vesper.List (the `seq<'T>` and
-# `ResizeArray<'T>` abbreviations declared in `list.fsi`), and Vesper.Comparison.
-#
-# Package name != namespace: the package is named `Vesper.Seq` but contributes the
-# `Seq` module into namespace `Vesper.Collections`, not `Vesper.Seq`.
-#
-# See ./README.md and
-# ../XParsec.FSharp.SemanticAnalysis/docs/core-lib-architecture.md.
-
 [core]
 name = "Vesper.Seq"
 namespace = "Vesper.Collections"

@@ -1,8 +1,5 @@
 // Copyright (c) Microsoft Corporation.  All Rights Reserved.  See License.txt in the project root for license information.
 // Verbatim copy of FSharp.Core/set.fsi (namespace + `Microsoft.FSharp.*` opens are the only diffs).
-// Authored target source for Vesper.Set — front-end contract parsed by XParsec.FSharp into an
-// IExternalSymbolProvider; the runtime impl is `set.fs` (also verbatim). Package layout mirrors
-// Vesper.List (package-split-plan PS1: one package per type).
 
 namespace Vesper.Collections
 

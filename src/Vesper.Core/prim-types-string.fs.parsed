@@ -1,25 +1,25 @@
 namespace              'namespace'       KWNamespace         tok=   0  pos=   0
                        'Vesper'          Identifier          tok=   2  pos=  10
   TypeDefn.Abbrev:
-    TypeName           'char'            Identifier          tok=  19  pos= 149
-    =                  '='               OpEquality          tok=  21  pos= 154
+    TypeName           'char'            Identifier          tok=  14  pos=  37
+    =                  '='               OpEquality          tok=  16  pos=  42
       ILIntrinsic:
-        (#             '(#'              KWLHashParen        tok=  23  pos= 156
-        StringLiteral  '"'               StringOpen          tok=  25  pos= 159
+        (#             '(#'              KWLHashParen        tok=  18  pos=  44
+        StringLiteral  '"'               StringOpen          tok=  20  pos=  47
         Parts:
-          Text         'System.Cha...'   StringFragment      tok=  26  pos= 160
-                       '"'               StringClose         tok=  27  pos= 171
-        #)             '#)'              KWRHashParen        tok=  29  pos= 173
+          Text         'System.Cha...'   StringFragment      tok=  21  pos=  48
+                       '"'               StringClose         tok=  22  pos=  59
+        #)             '#)'              KWRHashParen        tok=  24  pos=  61
   TypeDefn.Abbrev:
-    TypeName           'string'          Identifier          tok=  33  pos= 181
-    =                  '='               OpEquality          tok=  35  pos= 188
+    TypeName           'string'          Identifier          tok=  28  pos=  69
+    =                  '='               OpEquality          tok=  30  pos=  76
       ILIntrinsic:
-        (#             '(#'              KWLHashParen        tok=  37  pos= 190
-        StringLiteral  '"'               StringOpen          tok=  39  pos= 193
+        (#             '(#'              KWLHashParen        tok=  32  pos=  78
+        StringLiteral  '"'               StringOpen          tok=  34  pos=  81
         Parts:
-          Text         'System.Str...'   StringFragment      tok=  40  pos= 194
-                       '"'               StringClose         tok=  41  pos= 207
-        #)             '#)'              KWRHashParen        tok=  43  pos= 209
+          Text         'System.Str...'   StringFragment      tok=  35  pos=  82
+                       '"'               StringClose         tok=  36  pos=  95
+        #)             '#)'              KWRHashParen        tok=  38  pos=  97
 ---
 WarnDirectives:
   #nowarn 42 (Ln 2)

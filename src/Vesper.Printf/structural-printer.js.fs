@@ -1,52 +1,6 @@
 namespace Vesper
 
-// structural-printer.js.fs — the JS-target `%A` structural formatter, authored as
-// Vesper source and compiled by the JS backend (manifest `runtime-js`, library mode)
-// into the committed `Vesper.Printf.mjs`. The successor to the hand-authored
-// `Vesper.Printf.mjs`: the *same* shape-keyed
-// walker, now generated instead of hand-written.
-//
-// WHY NOT the CLR `structural-printer.fs`: that file is interface-dispatch (per-type
-// synthesised `IStructuralFormattable.Format`) and BCL-heavy (`Span`/`ArrayPool`/
-// `ITuple`/`IEnumerable`). The JS target abandoned per-type emission (the Step 5b/6
-// interop invariant — read `.tag` + own keys, never `instanceof`), so the dispatch
-// core cannot be shared as-is. This is the shape-keyed JS counterpart; its leaf/layout
-// *forms* deliberately match the CLR `StructuralPrinter`'s output.
-//
-// FULLY SELF-CONTAINED — like `list.js.fs`, every operation is either a language
-// construct or a raw `(# … #)` JS-expression intrinsic (the idiom `ArrayLoopTests`
-// exercises with `newarr`). It imports nothing, so the generated `.mjs` has no
-// `import`. The JS shape-keying primitives (`typeof`, `Array.isArray`, `Object.keys`,
-// dynamic field / `.tag` / `.cases()` access) have no Vesper front-end symbol, so they
-// are spliced verbatim. String concatenation / comparison are likewise direct `$0 + $1`
-// / `$0 === $1` templates rather than the `(+)` / `(=)` operators (those would pull in
-// the `Vesper.Core` runtime — `structuralEquals` — defeating self-containment).
-//
-// WIDTH-BREAKING LAYOUT. The walker
-// builds a Wadler `Doc` tree (`Text`/`Line`/`Cat`/`Nest`/`Group`) — the JS analogue of
-// the CLR `structural-printer.fs` `Doc` DU — and lays it out into a single-cell string
-// accumulator (`renderDoc`), threading indent / broken / column exactly like CLR
-// `RuntimeFormatState.RenderDoc`. A `Group` renders ALL-FLAT when its flat width fits the
-// remaining budget from the current column, else ALL-BROKEN (its `Line`s become a newline
-// + the active `Nest` indent). `width = 0` ⇒ never break (the `%0A` mode). The default
-// `%A` width is 80 (`EmitJs.buildHole`), matching the CLR `AppendStructured` default;
-// `%NA` rides the same `width` argument (so `%5A` breaks at column 5). `size` is F#'s
-// PrintSize node budget: each leaf spends one unit; a cons-list caps at 100 elements or
-// budget exhaustion, rendering `...` past either. The build phase (`fmtValue`) consumes
-// the node budget; the render phase consumes only the width budget — the same two-phase
-// split as CLR (`DispatchInner` then `RenderDoc`).
-//
-// ERASURE CORNERS (documented, unreachable through well-typed `%A`): a length-1 string
-// and an F# `char` are both JS strings; an integer-valued `float` and an `int` are both
-// JS numbers. F#'s static types make either confusion unreachable through a single
-// `%A`; it only surfaces under `obj`-boxing (out of MVP scope). Cycle detection
-// (the CLR visited-set) is likewise out of MVP scope — an acyclic-input runtime.
-//
-// NOT Fantomas-formatted (`.fantomasignore`): FCS can't parse the `(# … #)` intrinsics.
-
 module StructuralPrinter =
-
-    // --- JS shape-keying + string primitives (raw expression templates) ----------
 
     let cat (a: string) (b: string) : string = (# "$0 + $1" a b : string #)
     let strEq (a: string) (b: string) : bool = (# "$0 === $1" a b : bool #)

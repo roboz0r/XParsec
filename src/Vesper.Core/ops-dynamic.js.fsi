@@ -1,21 +1,5 @@
 namespace Vesper
 
-// The `dynamic` operators — the disciplined entry/exit surface for the opaque
-// `dynamic` type (see `prim-types-dynamic.js.fsi` + `docs/dynamic-typing-design.md`).
-// JS-only (`files-js`); the inline bodies live in `ops-dynamic.js.fs`
-// (`inline-bodies-js`) as `$0[$1]` computed-member templates.
-//
-//   retype  — the general erasing reinterpret (`(# "" x : ^U #)`). Inherently unsafe
-//             (no runtime check); NOT auto-opened — it lives in `module Unsafe`, so a
-//             user must `open Vesper.Unsafe` to reach it. `dynamic` builds on it.
-//   dynamic — enter `dynamic` from any value (`retype` at a fixed result type). `x`
-//             alone never flows in silently; you say `dynamic x`.
-//   (?)     — member access on a `dynamic` receiver, target-typed. Unconstrained it
-//             defaults `^TResult` to `dynamic` (so `x?a?b` stays dynamic); a pinned
-//             context (`let n: int = d?foo`) unifies `^TResult` before the default
-//             fires — the principled escape back to static. STRICT `dynamic` receiver.
-//   (?<-)   — the setter (`x?foo <- v`).
-
 /// <summary>Unsafe FFI escape hatches. Deliberately NOT <c>[&lt;AutoOpen&gt;]</c>:
 /// reaching in takes an explicit <c>open Vesper.Unsafe</c> (or a qualified
 /// <c>Unsafe.retype</c>), so the unchecked cast is never ambiently in scope — the

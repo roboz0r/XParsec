@@ -2,42 +2,6 @@ namespace Vesper
 
 open System.Collections.Generic
 
-// Per-target implementation of `ops-platform.fsi`. Each inline body is read across
-// the package boundary by `SymbolProviders.inlineBodies` and spliced at each use
-// site by the `Passes.InlineExpansion` pass.
-//
-// Equality (`=` / `<>`): each per-primitive clause lowers to `(# "ceq" … #)` IL;
-// the base (aggregate operand) delegates to `EqualityComparer<^T>.Default.Equals`.
-// The base also carries an UNPINNED `^T` — a generic `let eq a b = a = b` selects no
-// primitive clause, so it emits `EqualityComparer<!!0>.Default.Equals` and compares
-// structurally. Inline IL therefore belongs ONLY in a per-primitive clause; a base
-// must be a safe generic default (see `docs/codegen-by-key-plan.md`).
-//
-// Arithmetic (`+ - * / %`, `~-`): the base is the SRTP trait call — a user type
-// dispatches to its own `static member (+)`. Every primitive the operator supports
-// carries its OWN clause with its own IL, so no primitive ever rides the base. A
-// receiver that is neither a listed primitive nor a nominal (an unpinned `^T`, a
-// `decimal`) reaches the base, cannot resolve a trait member, and is diagnosed
-// ("does not support the operator") by `Passes.InlineExpansion` — never emitted as
-// a raw `add` on whatever it happened to be.
-//
-// The clause set is the arithmetic-reachable primitive set: the numeric intrinsics
-// `Engine.tryPrimitiveTraitCandidate` synthesises a trait candidate for
-// (`RuntimeNames.numericTypeNames`, minus `decimal` — see below), plus `string` for
-// `(+)`. `decimal` is deliberately ABSENT: it is a `TyConst`, not a nominal, and CIL
-// `add` on a `System.Decimal` is garbage, so it diagnoses until a clause calling
-// `Decimal::op_Addition` lands.
-//
-// Sub-`int32` widths add a `conv.*` to truncate the int32-on-stack result; unsigned
-// `/` / `%` use the `*.un` opcodes.
-//
-// The binary arithmetic operators carry the THREE typars their `.fsi` publishes
-// (`x: ^T1 -> y: ^T2 -> ^T3`, support set `(^T1 or ^T2)`), so a heterogeneous
-// user operator (`Vec2 * float -> Vec2`) keeps its operand types distinct through
-// the splice. A single-`^T` body would fold every operand and the result into ONE
-// substitution slot, binding the right operand's value into a left-operand-typed
-// `let` — a type lie codegen cannot emit.
-
 [<AutoOpen>]
 module ArithmeticOperators =
 

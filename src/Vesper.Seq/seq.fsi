@@ -1,30 +1,5 @@
 namespace Vesper.Collections
 
-// Vesper.Seq contract — the `Seq` module over `seq<'T>` (= `IEnumerable<'T>`,
-// the abbreviation declared in Vesper.List's `list.fsi`). A standalone package
-// (package-split-plan PS1: one package per type/module) mirroring Vesper.Array's
-// `module Array`. Like the rest of the Vesper tree this is the front-end symbol
-// contract: parsed by XParsec.FSharp and walked into an IExternalSymbolProvider.
-// The runtime impl is `seq.fs` (→ Vesper.Seq.dll, BCL-only, our own backend).
-// Depends on Vesper.Core (`Fun`, `int`, `'T[]`) and Vesper.List (the `seq<'T>`
-// and `ResizeArray<'T>` abbreviations).
-//
-// Per package-split-plan PS5 the package is named `Vesper.Seq` but it contributes
-// the `Seq` module into namespace `Vesper.Collections`, not `Vesper.Seq` — the
-// same namespace `set.fs` lives in, so its `Seq.fold` / `Seq.reduce` /
-// `Seq.truncate` calls resolve without an extra `open`.
-//
-// This is the *minimal* reference surface:
-// just the four operations `set.fs` consumes — `fold` (line 820), `reduce`
-// (line 823), `truncate` (line 961), plus `toArray` for symmetry. The full
-// zero-allocation, struct-chaining, deforesting `Seq` design lives in
-// brainstorm-seq-module.md and is a future sprint; the eager terminals (`fold` /
-// `reduce` / `toArray`) are explicit-enumerator reference impls, while the lazy
-// `truncate` delegates to `System.Linq.Enumerable.Take` (BCL-correct laziness with
-// no `seq { }` state machine). The rest of the FSharp.Core `Seq` surface is
-// additive later, the same "grow the module additively" stance as Vesper.List /
-// Vesper.Array.
-
 open System.Collections.Generic
 
 
