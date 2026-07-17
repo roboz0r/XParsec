@@ -531,7 +531,7 @@ module UnificationEngineCore =
     /// (which stays on the `.fsi` `SymbolKey`).
     let intrinsicPlatformName (ctx: PassContext) (key: SymbolKey) : string =
         match ctx.Types.IntrinsicReprKeys.TryGetValue key with
-        | true, platform -> platform
+        | true, repr -> repr.Platform
         | _ ->
             match ctx.Provider.IntrinsicForwardRepr.TryGetValue key with
             | true, platform -> platform

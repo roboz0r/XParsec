@@ -1002,6 +1002,22 @@ type TInlineValueG<'ty, 'tok> =
         Body: TInlineBodyG<'ty, 'tok>
     }
 
+/// What a unit's `(# … #)` binding records about one intrinsic: the target
+/// representation string, and whether the binding was `class`-tagged
+/// (`(# class "System.Attribute" #)`) and so may be inherited.
+///
+/// ONE entry per intrinsic, carrying both facts: heritability is a property OF a
+/// repr, so a heritable intrinsic with no repr is unrepresentable rather than
+/// merely unexpected.
+type IntrinsicReprInfo =
+    {
+        /// The target representation (`Vesper.int` → `"System.Int32"`).
+        Platform: string
+        /// `(# class "…" #)`-tagged: a derived unit may `inherit` this primitive
+        /// (`obj` / `exn` / `Attribute`). A scalar primitive (`int`) is `false`.
+        Heritable: bool
+    }
+
 type TastFileG<'ty, 'tok> =
     {
         /// Source order. In the FROZEN domain these are the EMITTABLE decls only:
@@ -1027,20 +1043,7 @@ type TastFileG<'ty, 'tok> =
         /// A HASH map, not an F# `Map`: a `SymbolKey` is an identity, so it is equatable
         /// but deliberately not ordered. Same face the provider's `IntrinsicForwardRepr`
         /// presents, so the backend's two halves of the axis read alike.
-        IntrinsicReprKeys: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, string>
-        /// The HERITABLE subset of `IntrinsicReprKeys`: a `(# class "…" #)`-tagged
-        /// primitive (`obj` / `exn` / `Attribute`) a derived unit may `inherit`, keyed by
-        /// the SAME canon `SymbolKey` → its platform repr. Snapshotted (`Elaborate`) as the
-        /// intersection of the `class`-tag verdict (`TypeRegistry.HeritableExternBases`)
-        /// with the repr table, so it is a strict subset of `IntrinsicReprKeys` by
-        /// construction — an entry's PRESENCE is the heritability fact, and it cannot record
-        /// heritability for a primitive that has no repr. The file→file signature projection
-        /// reads it to publish a heritable primitive as an `Intrinsic` WITH a class surface
-        /// (so a later unit's `inherit Attribute` resolves through the provider's
-        /// `Class = ValueSome` inherit probe) rather than a bare scalar. A scalar
-        /// primitive (`int`) is simply ABSENT here. `SymbolKey`-keyed and `'ty`-free —
-        /// carried verbatim across the freeze, modeled on `IntrinsicReprKeys`.
-        HeritableIntrinsicBases: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, string>
+        IntrinsicReprKeys: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, IntrinsicReprInfo>
         /// A module-level binding's `NodeKey` → its named-holder placement
         /// (`module Foo`'s functions emit on a real `Foo`/`FooModule` static class,
         /// not the anonymous "Program" holder). Empty for a program with no named

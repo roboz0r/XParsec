@@ -74,13 +74,14 @@ type internal Assembler
     // The own-compilation intrinsic reprs are the UNION of every unit's `IntrinsicReprKeys`
     // — a `SymbolKey` identifies an intrinsic assembly-wide, so a key repeated across files
     // is the same declaration (a genuine duplicate would already be a front-end
-    // duplicate-decl error), making last-wins union safe.
+    // duplicate-decl error), making last-wins union safe. Repr face only: `extends` on the
+    // CLR comes off the frozen base type, so the heritability tag has no reader here.
     let intrinsicReprKeys =
         let d = Dictionary<SymbolKey, string>()
 
         for tast in tasts do
             for kv in tast.IntrinsicReprKeys do
-                d.[kv.Key] <- kv.Value
+                d.[kv.Key] <- kv.Value.Platform
 
         d
 

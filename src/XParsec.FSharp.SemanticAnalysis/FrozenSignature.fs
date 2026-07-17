@@ -442,31 +442,32 @@ module FrozenSignature =
         // so a later file's `unit` / `int` / `obj` annotation resolves the name and its
         // canon reconciles through `TryLookupType key` (`EngineCore.canonKey` tier 2).
         // `platform` is always `Some`: a home unit holds its own `(# … #)` repr. A
-        // HERITABLE `(# class … #)` primitive (`obj` / `exn` / `Attribute`, listed in
-        // `HeritableIntrinsicBases`) additionally carries a class surface so a later unit's
-        // `inherit` resolves it (`resolveInheritParent`'s `Class = ValueSome` probe). Its
-        // `BaseType` is `ValueNone` — the impl `.fs` binds only the repr, never the parent
-        // nominal (`obj`), and codegen chains the base-`.ctor` off the canon's own repr, not
-        // this field; its ctor set is empty (the impl declares none, and the inherit path
-        // reads only the `Class` marker). A scalar primitive projects with `Class =
-        // ValueNone`.
+        // HERITABLE `(# class … #)` primitive (`obj` / `exn` / `Attribute`) additionally
+        // carries a class surface so a later unit's `inherit` resolves it
+        // (`resolveInheritParent`'s `Class = ValueSome` probe). Its `BaseType` is
+        // `ValueNone` — the impl `.fs` binds only the repr, never the parent nominal
+        // (`obj`), and codegen chains the base-`.ctor` off the canon's own repr, not this
+        // field; its ctor set is empty (the impl declares none, and the inherit path reads
+        // only the `Class` marker). A scalar primitive projects with `Class = ValueNone`.
         for KeyValue(key, repr) in frozen.IntrinsicReprKeys do
             match key with
             | SymbolKey.Type typeKey ->
                 let shape =
-                    if frozen.HeritableIntrinsicBases.ContainsKey key then
+                    if repr.Heritable then
                         ExternalTypeShape.Intrinsic
                             {
                                 Id =
                                     {
                                         Canon = typeKey
                                         TyparArity = typeKey.TyparArity
-                                        Platform = Some repr
+                                        Platform = Some repr.Platform
                                     }
                                 Class = ValueSome { BaseType = ValueNone; Members = [||] }
                             }
                     else
-                        ExternalTypeShape.Intrinsic(IntrinsicShape.Scalar(typeKey, typeKey.TyparArity, Some repr))
+                        ExternalTypeShape.Intrinsic(
+                            IntrinsicShape.Scalar(typeKey, typeKey.TyparArity, Some repr.Platform)
+                        )
 
                 shapesByKey.[key] <- shape
 
@@ -477,17 +478,24 @@ module FrozenSignature =
             | _ -> ()
 
         // --- intrinsic axes -----------------------------------------------------------
-        // The FORWARD `{ canon -> platform-repr }` axis IS this unit's own
-        // `IntrinsicReprKeys` (identity-keyed, the frozen face). The REVERSE
+        // The FORWARD `{ canon -> platform-repr }` axis is the repr face of this unit's own
+        // `IntrinsicReprKeys` (identity-keyed, the frozen face); heritability rides the
+        // published `Class` surface above, not this axis. The REVERSE
         // `{ platform-repr -> [canon] }` is its inversion; a degenerate self-map (a
         // primitive with no distinct `.fs` repr) is skipped, mirroring the extractor.
-        let intrinsicForward = frozen.IntrinsicReprKeys
+        let intrinsicForward =
+            let d = Dictionary<SymbolKey, string>(frozen.IntrinsicReprKeys.Count)
+
+            for KeyValue(key, repr) in frozen.IntrinsicReprKeys do
+                d.[key] <- repr.Platform
+
+            d :> IReadOnlyDictionary<_, _>
 
         let intrinsicReverse =
             frozen.IntrinsicReprKeys
             |> Seq.choose (fun kv ->
-                if kv.Value <> SymbolKeyOps.intrinsicName kv.Key then
-                    Some(kv.Value, kv.Key)
+                if kv.Value.Platform <> SymbolKeyOps.intrinsicName kv.Key then
+                    Some(kv.Value.Platform, kv.Key)
                 else
                     None
             )

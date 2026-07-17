@@ -168,8 +168,10 @@ type PassContextTypes =
         /// name from the key to ask `IntrinsicReprTypes` (`SymbolKeyOps.simpleName` is a
         /// lossy display projection — it would drop the `` `N `` a generic intrinsic's key
         /// carries and false-match any same-named type). Written with `IntrinsicReprTypes`
-        /// at the one registration site, so the two cannot disagree.
-        IntrinsicReprKeys: Dictionary<SymbolKey, string>
+        /// at the one registration site, so the two cannot disagree. Carries the
+        /// `class`-tag verdict alongside the repr (`IntrinsicReprInfo.Heritable`) — the
+        /// frozen face `TastFile.IntrinsicReprKeys` is a straight copy of this table.
+        IntrinsicReprKeys: Dictionary<SymbolKey, IntrinsicReprInfo>
         /// The name → qualified `SymbolKey` index for this unit's own intrinsics,
         /// populated at registration from the declaring `namespace` (`Vesper`). The
         /// intrinsic's identity is CONTRACT-SOURCED: `Translate` reads the resolved key

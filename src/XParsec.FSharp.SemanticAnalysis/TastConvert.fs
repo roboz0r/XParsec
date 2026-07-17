@@ -333,7 +333,6 @@ module TastConvert =
             InlineBodies = EqArray.map (inlineValue f) tf.InlineBodies
             Diagnostics = tf.Diagnostics
             IntrinsicReprKeys = tf.IntrinsicReprKeys
-            HeritableIntrinsicBases = tf.HeritableIntrinsicBases
             ModuleMembers = tf.ModuleMembers
             TopLevelNames = tf.TopLevelNames
             ClosureReprs = tf.ClosureReprs

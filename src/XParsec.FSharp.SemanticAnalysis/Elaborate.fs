@@ -2029,24 +2029,6 @@ module Elaborate =
             // twin: the backend holds a resolved canon key, and a display name cannot say
             // which type it names.
             IntrinsicReprKeys = System.Collections.Generic.Dictionary(ctx.Types.IntrinsicReprKeys)
-            // The heritable subset of those intrinsics: a `(# class "…" #)` primitive whose
-            // `class` tag was recorded in `HeritableExternBases` (by NAME) — re-keyed to the
-            // SAME canon `SymbolKey` the repr table uses (via `intrinsicKeyOf`, the one key
-            // resolver `IntrinsicReprKeys` was written under) and intersected with it, so the
-            // two tables are built together from one source and cannot desync. A heritable
-            // name with no repr (impossible — both are written in one step at registration)
-            // is skipped defensively rather than fabricating an entry.
-            HeritableIntrinsicBases =
-                (let heritable = System.Collections.Generic.Dictionary<SymbolKey, string>()
-
-                 for name in ctx.Types.HeritableExternBases do
-                     let key = TypeRegistry.intrinsicKeyOf ctx.Types name
-
-                     match ctx.Types.IntrinsicReprKeys.TryGetValue key with
-                     | true, repr -> heritable.[key] <- repr
-                     | false, _ -> ()
-
-                 heritable)
             // Snapshot the named-module placements: the backend keys
             // off a binding's `NodeKey.Raw` to emit it on its holder type.
             ModuleMembers = ctx.Bindings.ModuleMembers |> Seq.map (fun kv -> kv.Key, kv.Value) |> Map.ofSeq

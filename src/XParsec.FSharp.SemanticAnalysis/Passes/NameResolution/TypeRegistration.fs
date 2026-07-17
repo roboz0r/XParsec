@@ -1027,8 +1027,19 @@ module NameResolutionTypeRegistration =
                 ctx.Types.IntrinsicReprTypes.[name] <- repr
                 // The same binding on the KEY axis (`intrinsicKeyOf` — the identity the
                 // pass above stamped), so a consumer holding a resolved intrinsic key reads
-                // its repr by key and never has to project the key back to a name.
-                ctx.Types.IntrinsicReprKeys.[TypeRegistry.intrinsicKeyOf ctx.Types name] <- repr
+                // its repr by key and never has to project the key back to a name. The
+                // `class` tag rides the SAME entry: heritability is a property of this repr,
+                // read off it downstream rather than reconciled against a parallel table.
+                ctx.Types.IntrinsicReprKeys.[TypeRegistry.intrinsicKeyOf ctx.Types name] <-
+                    {
+                        Platform = repr
+                        Heritable =
+                            match tag with
+                            | ValueSome(ExternKind.Class _) -> true
+                            | ValueSome(ExternKind.Interface _)
+                            | ValueNone -> false
+                    }
+
                 registerMemberHostIfAny ()
 
                 match tag with
