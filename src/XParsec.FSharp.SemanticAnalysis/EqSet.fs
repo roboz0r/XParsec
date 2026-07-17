@@ -22,12 +22,11 @@ open System.Runtime.CompilerServices
 /// set-semantic identity is carried by `Equals`/`GetHashCode` (reusing `'T`'s own),
 /// while INSERTION order is preserved so the declared order survives into diagnostics
 /// / the manifest golden. `default`/uninitialised reads as empty.
-///
-/// `NoComparison` is deliberate — a union member set has no natural order and
-/// nothing keys on one (do NOT add `CustomComparison` without a concrete need).
 [<Struct; IsReadOnly; CustomEquality; NoComparison>]
 type EqSet<'T> =
     val private items: ImmutableArray<'T>
+    // `NoComparison` is deliberate — a union member set has no natural order and
+    // nothing keys on one (do NOT add `CustomComparison` without a concrete need).
 
     /// Construction DEDUPES (first occurrence wins), so the set-semantic
     /// `Equals`/`GetHashCode` below — which assume distinct members (the
@@ -75,18 +74,13 @@ type EqSet<'T> =
     member this.Item
         with get (index: int): 'T = this.Underlying.[index]
 
-    /// Allocation-free struct enumerator; enables `for x in eqSet do …` in
-    /// insertion order.
     member this.GetEnumerator() = this.Underlying.GetEnumerator()
 
     interface IEquatable<EqSet<'T>> with
         member this.Equals(other: EqSet<'T>) =
             let a = this.Underlying
             let b = other.Underlying
-            // Set equality: same cardinality (both are deduped, so cardinality =
-            // length) AND every member of `a` occurs in `b`. `EqualityComparer<'T>`
-            // dispatches to `'T`'s own `IEquatable<'T>`, so members recurse
-            // structurally exactly like `EqArray`.
+
             if a.Length <> b.Length then
                 false
             else
@@ -139,11 +133,6 @@ module EqSet =
     let ofSeq (xs: 'T seq) : EqSet<'T> =
         EqSet<'T>(ImmutableArray.CreateRange xs)
 
-    // The read-only traversals carry NO set semantics — they walk the deduped
-    // insertion-ordered backing array element by element, exactly as `EqArray` does.
-    // Bridge through `EqArray.ofImmutable` (a free wrapper over the shared
-    // `ImmutableArray` storage) so the loop bodies live in ONE place. Only the
-    // set-semantic `Equals`/`GetHashCode` (order-insensitive) stay bespoke on the type.
     let private asArray (xs: EqSet<'T>) : EqArray<'T> = EqArray.ofImmutable xs.Underlying
 
     let toList (xs: EqSet<'T>) : 'T list = EqArray.toList (asArray xs)

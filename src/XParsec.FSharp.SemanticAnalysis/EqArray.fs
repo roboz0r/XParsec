@@ -11,11 +11,10 @@ open XParsec // SmallArrayBuilder
 /// are equal iff they have equal length and element-wise-equal contents,
 /// recursing into `'T`'s own equality.
 /// `default`/uninitialised value reads as empty — no `NullReferenceException` from the underlying default array.
-///
-/// `NoComparison` is deliberate. Add `CustomComparison`
-/// here — a lexicographic span compare — only if that changes.
 [<Struct; IsReadOnly; CustomEquality; NoComparison>]
 type EqArray<'T> =
+    // `NoComparison` is deliberate. Add `CustomComparison`
+    // here — a lexicographic span compare — only if that changes.
     val private items: ImmutableArray<'T>
 
     new(items: ImmutableArray<'T>) = { items = items }
@@ -34,25 +33,17 @@ type EqArray<'T> =
     member this.Item
         with get (index: int): 'T = this.Underlying.[index]
 
-    /// Contiguous read-only view, for hot traversals.
     member this.AsSpan() : ReadOnlySpan<'T> = this.Underlying.AsSpan()
 
-    /// Allocation-free struct enumerator; enables `for x in eqArray do …`.
     member this.GetEnumerator() = this.Underlying.GetEnumerator()
 
     interface IEquatable<EqArray<'T>> with
         member this.Equals(other: EqArray<'T>) =
             let a = this.Underlying
             let b = other.Underlying
-            // `EqualityComparer<'T>.Default` dispatches to `'T`'s own
-            // `IEquatable<'T>`, so nested F# values — records, unions, and
-            // nested `EqArray`s — recurse structurally.
+
             a.Length = b.Length
-            && MemoryExtensions.SequenceEqual<'T>(
-                a.AsSpan(),
-                b.AsSpan(),
-                EqualityComparer<'T>.Default :> IEqualityComparer<'T>
-            )
+            && MemoryExtensions.SequenceEqual<'T>(a.AsSpan(), b.AsSpan(), EqualityComparer<'T>.Default)
 
     override this.Equals(o: obj) =
         match o with
@@ -96,13 +87,10 @@ module EqArray =
     /// Hands the builder's buffer off without copying when its `Count = Capacity`;
     /// otherwise copies. Matches `ImmutableArray<_>.Builder.MoveToImmutable` /
     /// `ToImmutable` semantics across the portable `ImmutableArrayBuilder` alias.
-    /// Use when a pass produces an `ImmutableArray.CreateBuilder<_>()` with the
-    /// final size already known (see `CstWalk.implFileElems`).
     let ofImmutableBuilder (b: ImmutableArrayBuilder<'T>) : EqArray<'T> = EqArray<'T>(b.ToImmutable())
 
     let toList (xs: EqArray<'T>) : 'T list = List.ofSeq xs.Underlying
 
-    /// Stamp `n` elements through `f`, building through `SmallArrayBuilder`.
     let init (n: int) (f: int -> 'T) : EqArray<'T> =
         let mutable b = SmallArrayBuilder<'T>()
 
@@ -111,8 +99,6 @@ module EqArray =
 
         EqArray<'T>(b.ToImmutable())
 
-    /// Map into a fresh `EqArray`, building through `SmallArrayBuilder` so small
-    /// results stay off the heap-builder path.
     let map (mapping: 'T -> 'U) (xs: EqArray<'T>) : EqArray<'U> =
         let mutable b = SmallArrayBuilder<'U>()
 
@@ -121,8 +107,6 @@ module EqArray =
 
         EqArray<'U>(b.ToImmutable())
 
-    /// Like `map`, but the mapping receives the element index too — direct
-    /// replacement for `List.mapi`.
     let mapi (mapping: int -> 'T -> 'U) (xs: EqArray<'T>) : EqArray<'U> =
         let mutable b = SmallArrayBuilder<'U>()
         let src = xs.Underlying
@@ -132,9 +116,6 @@ module EqArray =
 
         EqArray<'U>(b.ToImmutable())
 
-    /// `List.iter` on an `EqArray`. A bare `for x in xs do …` works too — use
-    /// this when the body is a pre-bound function and the call site reads
-    /// cleaner as `EqArray.iter f xs`.
     let iter (action: 'T -> unit) (xs: EqArray<'T>) : unit =
         let src = xs.Underlying
 
@@ -217,9 +198,7 @@ module EqArray =
 
         acc
 
-    /// Right fold — visits elements last-to-first. Direct replacement for
-    /// `List.foldBack`, used in `PrintfSpec.printerType` to curry argument
-    /// types onto a tail.
+    /// Right fold — visits elements last-to-first.
     let foldBack (folder: 'T -> 'State -> 'State) (xs: EqArray<'T>) (state: 'State) : 'State =
         let src = xs.Underlying
         let mutable acc = state

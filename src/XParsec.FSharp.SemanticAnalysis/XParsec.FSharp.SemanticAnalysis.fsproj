@@ -94,12 +94,6 @@
     <Compile Include="Freeze.fs" />
     <Compile Include="Pipeline.fs" />
     <Compile Include="AssemblyUnits.fs" />
-    <None Include="README.md" />
-    <None Include="docs\architecture.md" />
-    <None Include="docs\nodekey.md" />
-    <None Include="docs\passes.md" />
-    <None Include="docs\typevar.md" />
-    <None Include="docs\measures-plan.md" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\XParsec.FSharp\XParsec.FSharp.fsproj" />
