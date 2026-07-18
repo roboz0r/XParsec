@@ -614,7 +614,16 @@ module internal ElaborateResolve =
         let key =
             match ctx.Resolution.LocalMemberCall.TryGetValue callKey with
             | ValueSome frozen -> ValueSome frozen
-            | ValueNone -> LocalMemberKeys.totalMemberKey ctx declKey memberName
+            | ValueNone ->
+                // External overload discrimination reads the receiver's declaring-type args
+                // and the ground operand element types; a non-ground operand declines to the
+                // best-by-arity single inside the minter.
+                let operands =
+                    LocalMemberKeys.externalOperands
+                        (LocalMemberKeys.nominalArgs (TastWalk.exprTy receiver))
+                        [ for a in args -> TastWalk.exprTy a ]
+
+                LocalMemberKeys.totalMemberKey ctx declKey memberName operands
 
         match key with
         | ValueSome key ->
@@ -644,7 +653,14 @@ module internal ElaborateResolve =
         // A local interface resolves via the local-registry arm; an external-coerced one
         // (`'T :> IFace` where `IFace` is an imported contract) via the provider arm — the
         // shared minter routes both.
-        match LocalMemberKeys.totalMemberKey ctx ifaceKey memberName with
+        // The interface's own type args are the declaring-type args; operand element types
+        // discriminate a same-arity overloaded abstract slot.
+        let operands =
+            LocalMemberKeys.externalOperands
+                (EqArray.toList ifaceArgs |> List.toArray)
+                [ for a in args -> TastWalk.exprTy a ]
+
+        match LocalMemberKeys.totalMemberKey ctx ifaceKey memberName operands with
         | ValueSome key ->
             let argsList = wrapObjArgsEq (memberParamTys ctx ifaceKey memberName) args
             TExpr.MethodCall(receiver, key, CallVia.Interface ifaceArgs, argsList, ty, tok)
@@ -665,7 +681,13 @@ module internal ElaborateResolve =
         (ty: SemType)
         (tok: SyntaxToken)
         : TExpr =
-        match LocalMemberKeys.totalMemberKey ctx declKey memberName with
+        // A folded / type-qualified static head names a non-generic declaring type (generics
+        // need `<>`, handled at the receiver), so it carries no declaring-type args; the
+        // operand element types alone discriminate a same-arity overload (e.g. an operator).
+        let operands =
+            LocalMemberKeys.externalOperands [||] [ for a in args -> TastWalk.exprTy a ]
+
+        match LocalMemberKeys.totalMemberKey ctx declKey memberName operands with
         | ValueSome key ->
             TExpr.StaticMethodCall(key, wrapObjArgsEq (memberParamTys ctx declKey memberName) args, ty, tok)
         | ValueNone ->

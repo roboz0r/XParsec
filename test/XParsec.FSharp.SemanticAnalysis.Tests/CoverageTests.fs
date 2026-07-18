@@ -1284,6 +1284,110 @@ let tests =
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
 
+            // --- `totalMemberKey` EXTERNAL arm: operand-precise overload discrimination ---
+            //
+            // The external arm was minting through `IExternalSymbolStore.TryLookupMember`
+            // (singular), which collapses an overload set to a best-by-arity pick — arbitrary
+            // among SAME-arity overloads. These drive the minter directly against a stub
+            // provider whose `M` carries two same-arity overloads distinguished only by operand
+            // type; no green end-to-end path forms a same-arity EXTERNAL overload set (BCL calls
+            // resolve to `TExpr.ExternalMember` at inference; the mk* arm's live external
+            // consumers are SRTP-trait / interface dispatch, and the contract stack ships no
+            // heterogeneous same-arity operator), so this closes that coverage gap at the seam.
+            let extDeclKey = SymbolKeyOps.qualifiedTypeKeyOf "Vec2" 0
+            let intFt = FTConst(RuntimeNames.intKey, EqArray.empty)
+            let stringFt = FTConst(RuntimeNames.stringKey, EqArray.empty)
+            let unitFt = FTConst(RuntimeNames.unitKey, EqArray.empty)
+
+            // A static two-parameter member `M(int, p2)` on external `Vec2`, keyed by its
+            // parameter shape so two overloads mint DISTINCT `MemberKey`s.
+            let extMember2 (p2: FrozenType) : ExternalMember =
+                let ps = EqArray.ofList [ intFt; p2 ]
+
+                { ExternalMember.OfKey(SymbolKeyOps.memberKeyOf extDeclKey "M" ps 0 MemberKind.Method) with
+                    IsStatic = true
+                    Signature = TestHelpers.mkSignature 0 0 (FTTuple ps) unitFt
+                }
+
+            // A `PassContext` whose provider is the stub `leaf` layered OVER `realProvider`
+            // (`Vec2` is answered by the stub; the primitives / ambient opens the passes need
+            // fall through to the real contract stack). `Vec2` is NOT a local type, so
+            // `totalMemberKey` takes the external arm. The passes run over the trivial unit so
+            // the intrinsics / registries the picker reads are initialised.
+            let extCtx (leaf: ExternalSymbolProviders.NamedLeaf) : PassContext =
+                let provider =
+                    ExternalSymbolProviders.composite [ ExternalSymbolProviders.ofNamedLeaf leaf; realProvider.Value ]
+
+                let lexed, file = parseFile "let _ = 0"
+                let ctx = PassContext(provider, "let _ = 0", lexed)
+                Passes.Desugar.run ctx file
+                Passes.NameResolution.run ctx file
+                Passes.Unification.run ctx file
+                ctx
+
+            test "the external arm discriminates a same-arity overload by operand type" {
+                let mII = extMember2 intFt // M(int, int)    — the arbitrary singular collapse
+                let mIS = extMember2 stringFt // M(int, string) — the operand-matching overload
+
+                let ctx =
+                    extCtx
+                        { ExternalSymbolProviders.NamedLeaf.empty with
+                            TryLookupMembers = (fun (t, n) -> if t = "Vec2" && n = "M" then [| mII; mIS |] else [||])
+                            TryLookupMember = (fun (t, n) -> if t = "Vec2" && n = "M" then ValueSome mII else ValueNone)
+                        }
+
+                // No ground operands ⇒ keep the best-by-arity single: the exact pre-picker
+                // behaviour (the collapsing singular pick, here `M(int, int)`).
+                let collapsed = LocalMemberKeys.totalMemberKey ctx extDeclKey "M" ValueNone
+
+                Expect.equal
+                    collapsed
+                    (ValueSome(SymbolKey.Member mII.Key))
+                    "ValueNone operands keep the singular collapse"
+
+                // Ground operands `(int, string)` select `M(int, string)` — the overload the
+                // collapse would have MISSED.
+                let operands =
+                    LocalMemberKeys.externalOperands [||] [ BuiltinTypes.tyInt; BuiltinTypes.tyString ]
+
+                let minted = LocalMemberKeys.totalMemberKey ctx extDeclKey "M" operands
+                Expect.equal minted (ValueSome(SymbolKey.Member mIS.Key)) "ground operands mint the M(int, string) key"
+                Expect.notEqual minted collapsed "the operand-precise pick differs from the singular collapse"
+            }
+
+            test "the external arm preserves the singular pick for a non-overloaded member" {
+                // A name with ONE overload: `TryLookupMembers` returns a singleton, so the mint
+                // is forced and equals `TryLookupMember`'s — byte-identical to the pre-picker
+                // mint, operands or not.
+                let m1 =
+                    { ExternalMember.OfKey(
+                          SymbolKeyOps.memberKeyOf extDeclKey "N" (EqArray.singleton intFt) 0 MemberKind.Method
+                      ) with
+                        IsStatic = true
+                        Signature = TestHelpers.mkSignature 0 0 intFt unitFt
+                    }
+
+                let ctx =
+                    extCtx
+                        { ExternalSymbolProviders.NamedLeaf.empty with
+                            TryLookupMembers = (fun (t, n) -> if t = "Vec2" && n = "N" then [| m1 |] else [||])
+                            TryLookupMember = (fun (t, n) -> if t = "Vec2" && n = "N" then ValueSome m1 else ValueNone)
+                        }
+
+                let expected = ValueSome(SymbolKey.Member m1.Key)
+                let operands = LocalMemberKeys.externalOperands [||] [ BuiltinTypes.tyInt ]
+
+                Expect.equal
+                    (LocalMemberKeys.totalMemberKey ctx extDeclKey "N" operands)
+                    expected
+                    "single external overload mints its sole key with operands"
+
+                Expect.equal
+                    (LocalMemberKeys.totalMemberKey ctx extDeclKey "N" ValueNone)
+                    expected
+                    "and the same key without operands"
+            }
+
             test "a method call's key carries its real MethodTyparArity, not the collapsed 0" {
                 // The placeholder hardcoded `MethodTyparArity = 0` for EVERY method, so
                 // `M<'a>` and `M<'a, 'b>` (the axis that tells generic-arity overloads apart)
@@ -1298,7 +1402,8 @@ let tests =
                     |> Seq.tryPick (fun k ->
                         match k with
                         | SymbolKey.Member mk when mk.Name = name -> Some mk.MethodTyparArity
-                        | _ -> None)
+                        | _ -> None
+                    )
 
                 Expect.equal (arityOf "Id") (Some 1) "generic Id<'a> mints MethodTyparArity 1"
                 Expect.equal (arityOf "Plain") (Some 0) "non-generic Plain mints MethodTyparArity 0"

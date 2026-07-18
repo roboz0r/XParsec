@@ -271,7 +271,18 @@ module Inline =
                 // parameters, not one `ValueTuple`). The dispatch may target an *external*
                 // declaring type (an `.fsi`-imported `Vesper.Set`), handled by the minter's
                 // provider arm. The rewritten node replaces the `TraitCall`, so it keeps `tok`.
-                match LocalMemberKeys.totalMemberKey ctx k memberName with
+                //
+                // The operands are POST-substitution (`sub recvTy` already pinned `k`): the
+                // receiver's declaring-type args and the substituted operand element types
+                // discriminate a same-arity external operator overload (`op_Addition(Vec2,
+                // Vec2)` vs `op_Addition(Vec2, float)`). A still-unpinned operand declines to
+                // the best-by-arity single inside the minter.
+                let operands =
+                    LocalMemberKeys.externalOperands
+                        (LocalMemberKeys.nominalArgs (sub recvTy))
+                        [ for a in args -> sub (TastWalk.exprTy a) ]
+
+                match LocalMemberKeys.totalMemberKey ctx k memberName operands with
                 | ValueSome memberKey ->
                     ValueSome(TExpr.StaticMethodCall(memberKey, EqArray.map (TastWalk.mapExpr m) args, sub ty, tok))
                 | ValueNone -> decline ()
