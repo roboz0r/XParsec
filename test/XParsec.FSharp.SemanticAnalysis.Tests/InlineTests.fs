@@ -12,6 +12,14 @@ let private analyse (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyseSem realProvider.Value input lexed file
 
+/// `Inline.inlineExpand`'s trait-call resolution point needs a `PassContext` to mint a
+/// dispatched operator's total key. These direct-expansion tests are all primitive-`int`
+/// (no nominal operator dispatch reaches the minter), so an empty context suffices — no
+/// local type or provider member is consulted.
+let private ctx0: PassContext =
+    let lexed, _ = parseFile "module M"
+    PassContext(realProvider.Value, "module M", lexed)
+
 let private firstDecl (input: string) : TDecl =
     let tast = analyse input
 
@@ -104,7 +112,7 @@ let tests =
                     | TDecl.Let(_, v, _, _) -> v
                     | other -> failtestf "unexpected %A" other
 
-                let expanded, unresolved = Inline.inlineExpand decl [||]
+                let expanded, unresolved = Inline.inlineExpand ctx0 decl [||]
 
                 // Structurally the same body — there is no typar to substitute. It is
                 // NOT the same object, and must not be: the substituting walk is also
@@ -118,7 +126,7 @@ let tests =
 
             test "expanding a thawed polymorphic template substitutes the typar through the body" {
                 let decl = thawedTemplate "let inline id x = x"
-                let expanded, _ = Inline.inlineExpand decl [| BuiltinTypes.tyInt |]
+                let expanded, _ = Inline.inlineExpand ctx0 decl [| BuiltinTypes.tyInt |]
 
                 // `id`'s body is `fun x -> x`; instantiating 'a := int makes
                 // every position concrete int.
@@ -137,7 +145,7 @@ let tests =
             test "inlineExpand does not mutate the original decl" {
                 let decl = thawedTemplate "let inline id x = x"
                 // Expand once at int…
-                Inline.inlineExpand decl [| BuiltinTypes.tyInt |] |> ignore
+                Inline.inlineExpand ctx0 decl [| BuiltinTypes.tyInt |] |> ignore
 
                 // …the decl's own type must still carry a free typar so a
                 // second call-site can instantiate it independently.
@@ -145,7 +153,7 @@ let tests =
                 | TDecl.Let(_, _, _, declTy) ->
                     Expect.equal (Inline.quantifiedTypars declTy).Length 1 "typar still free after expansion"
 
-                    let again, _ = Inline.inlineExpand decl [| BuiltinTypes.tyBool |]
+                    let again, _ = Inline.inlineExpand ctx0 decl [| BuiltinTypes.tyBool |]
 
                     match again with
                     | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k, _), _), _, _, _) when
@@ -161,7 +169,7 @@ let tests =
                 let decl =
                     TDecl.Expression(TExpr.Const(TConstValue.Unit, BuiltinTypes.tyUnit, dummyTok), BuiltinTypes.tyUnit)
 
-                Expect.throws (fun () -> Inline.inlineExpand decl [||] |> ignore) "expects a TDecl.Let"
+                Expect.throws (fun () -> Inline.inlineExpand ctx0 decl [||] |> ignore) "expects a TDecl.Let"
             }
 
             test "`let inline succ x = x + 1 in succ 41` keeps the inline template and expands its use site" {
@@ -207,7 +215,7 @@ let tests =
 
                 // succ is monomorphic (int -> int) — expansion is a no-op
                 // substitution returning the retained `fun x -> x + 1` body.
-                match fst (Inline.inlineExpand succDecl [||]) with
+                match fst (Inline.inlineExpand ctx0 succDecl [||]) with
                 | TExpr.Lambda(TPat.NamedSimple(_, TyConst(k1, _), _),
                                TExpr.App(TExpr.App(TExpr.External("op_Addition", _, _, _),
                                                    TExpr.Var(_, TyConst(k2, _), _),

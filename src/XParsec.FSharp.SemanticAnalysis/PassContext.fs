@@ -224,9 +224,9 @@ type PassContextResolution =
         /// type's open typars, so it distinguishes `Show(int)` from `Show(string)`. Written
         /// by `InferExternalCall`'s local-overload probe when a name has >1 candidate;
         /// `Elaborate.mkMethodCall` reads it back verbatim onto `TExpr.MethodCall.key`
-        /// instead of re-picking. Absent ⇒ a non-overloaded name, whose placeholder
-        /// `LocalSymbolKey.ofMember` mint is already a unique identity (nothing else shares
-        /// the name at that arity), so no handshake is needed.
+        /// instead of re-picking. Absent ⇒ a non-overloaded name, whose total key
+        /// `Elaborate` mints from the resolved member itself (`LocalMemberKeys.totalMemberKey`)
+        /// is already a unique identity (nothing else shares the name), so no handshake is needed.
         LocalMemberCall: SideTable<SymbolKey>
         /// Keyed by an external *method-call head* (the same key `ExternalAccess`
         /// stores the resolved member under): the compile-time constant defaults of

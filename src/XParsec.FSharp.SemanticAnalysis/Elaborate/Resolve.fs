@@ -180,20 +180,12 @@ module internal ElaborateResolve =
         (typeKey: TypeKey)
         (memberName: string)
         : (TypeKey * TypeMemberInfo) voption =
-        let pick (key: TypeKey) (members: TypeMemberInfo[]) =
-            match members |> Array.tryFind (fun m -> m.Name = memberName) with
-            | Some m -> ValueSome(key, m)
-            | None -> ValueNone
-
-        match TypeRegistry.tryClassByKey ctx.Types typeKey with
-        | ValueSome info -> pick info.TypeKey info.Members
-        | ValueNone ->
-            match TypeRegistry.tryUnionByKey ctx.Types typeKey with
-            | ValueSome info -> pick info.TypeKey info.Members
-            | ValueNone ->
-                match TypeRegistry.tryRecordByKey ctx.Types typeKey with
-                | ValueSome info -> pick info.TypeKey info.Members
-                | ValueNone -> ValueNone
+        // The walk (and the declaring-typar surface `LocalMemberKeys.totalMemberKey`
+        // needs) is spelled once in `LocalMemberKeys`; this projection drops the typars
+        // for the callers here that only need the member and its declaring key.
+        match LocalMemberKeys.tryNominalMemberWithTypars ctx typeKey memberName with
+        | ValueSome nm -> ValueSome(nm.DeclKey, nm.Member)
+        | ValueNone -> ValueNone
 
     // --- Implicit value→`obj` upcast ----------------------------------------
     //
@@ -589,12 +581,24 @@ module internal ElaborateResolve =
             tok
         )
 
+    /// Internal-error message for a method mint site whose resolved member is absent from
+    /// both the local registry and the provider. Inference commits the call before
+    /// Elaborate runs, so this cannot happen on well-formed input; it degrades to a
+    /// diagnostic (never a crash) rather than assert with `failwith` at these sites.
+    let private memberNotResolvable (site: string) (declKey: TypeKey) (memberName: string) : string =
+        sprintf
+            "Elaborate.%s: member '%s' on %O was committed by inference but resolves in neither the local registry nor the provider (invariant broken)"
+            site
+            memberName
+            declKey
+
     /// Instance `MethodCall` resolved to `declKey.memberName`, with the `CallVia`
     /// derived from the receiver. `callKey` is the call node's `NodeKey`: for an OVERLOADED
     /// name, Unification recorded the chosen overload's TOTAL frozen `MemberKey` there
     /// (`Resolution.LocalMemberCall`), read back verbatim so Freeze resolves the identical
     /// member by identity — no second name-based pick. A non-overloaded name has no entry
-    /// and mints the placeholder `LocalSymbolKey.ofMember` key, which is already unique.
+    /// and mints the member's TOTAL key from the resolved member itself
+    /// (`LocalMemberKeys.totalMemberKey`), which is already unique.
     let mkMethodCall
         (ctx: PassContext)
         (callKey: NodeKey)
@@ -605,13 +609,22 @@ module internal ElaborateResolve =
         (ty: SemType)
         (tok: SyntaxToken)
         : TExpr =
+        // The overloaded-instance handshake first: inference stamped the chosen overload's
+        // frozen key here. Only the non-overloaded fallback mints from the resolved member.
         let key =
             match ctx.Resolution.LocalMemberCall.TryGetValue callKey with
-            | ValueSome frozen -> frozen
-            | ValueNone -> LocalSymbolKey.ofMember declKey memberName args.Length MemberKind.Method
+            | ValueSome frozen -> ValueSome frozen
+            | ValueNone -> LocalMemberKeys.totalMemberKey ctx declKey memberName
 
-        let argsList = wrapObjArgsEq (memberParamTys ctx declKey memberName) args
-        TExpr.MethodCall(receiver, key, viaOfReceiver ctx receiver, argsList, ty, tok)
+        match key with
+        | ValueSome key ->
+            let argsList = wrapObjArgsEq (memberParamTys ctx declKey memberName) args
+            TExpr.MethodCall(receiver, key, viaOfReceiver ctx receiver, argsList, ty, tok)
+        | ValueNone ->
+            // Post-inference the resolved member is committed, so a miss is an internal
+            // invariant break, not mis-typed source — degrade to a diagnostic, never a crash.
+            ctx.Error(callKey, memberNotResolvable "mkMethodCall" declKey memberName)
+            TExpr.Null(ty, tok)
 
     /// Wall B (rung 3): instance `MethodCall` dispatched through an *interface* the
     /// receiver's typar is coerced to (`'T :> IFace`). `ifaceKey` is the interface's
@@ -628,9 +641,20 @@ module internal ElaborateResolve =
         (ty: SemType)
         (tok: SyntaxToken)
         : TExpr =
-        let key = LocalSymbolKey.ofMember ifaceKey memberName args.Length MemberKind.Method
-        let argsList = wrapObjArgsEq (memberParamTys ctx ifaceKey memberName) args
-        TExpr.MethodCall(receiver, key, CallVia.Interface ifaceArgs, argsList, ty, tok)
+        // A local interface resolves via the local-registry arm; an external-coerced one
+        // (`'T :> IFace` where `IFace` is an imported contract) via the provider arm — the
+        // shared minter routes both.
+        match LocalMemberKeys.totalMemberKey ctx ifaceKey memberName with
+        | ValueSome key ->
+            let argsList = wrapObjArgsEq (memberParamTys ctx ifaceKey memberName) args
+            TExpr.MethodCall(receiver, key, CallVia.Interface ifaceArgs, argsList, ty, tok)
+        | ValueNone ->
+            ctx.Error(
+                NodeKey.ofToken tok NodeKind.ExprApp,
+                memberNotResolvable "mkInterfaceMethodCall" ifaceKey memberName
+            )
+
+            TExpr.Null(ty, tok)
 
     /// `StaticMethodCall` resolved to `declKey.memberName`.
     let mkStaticMethodCall
@@ -641,8 +665,12 @@ module internal ElaborateResolve =
         (ty: SemType)
         (tok: SyntaxToken)
         : TExpr =
-        let key = LocalSymbolKey.ofMember declKey memberName args.Length MemberKind.Method
-        TExpr.StaticMethodCall(key, wrapObjArgsEq (memberParamTys ctx declKey memberName) args, ty, tok)
+        match LocalMemberKeys.totalMemberKey ctx declKey memberName with
+        | ValueSome key ->
+            TExpr.StaticMethodCall(key, wrapObjArgsEq (memberParamTys ctx declKey memberName) args, ty, tok)
+        | ValueNone ->
+            ctx.Error(NodeKey.ofToken tok NodeKind.ExprApp, memberNotResolvable "mkStaticMethodCall" declKey memberName)
+            TExpr.Null(ty, tok)
 
     /// `UnionCons` for case `caseName` of union `ty`.
     let mkUnionCons
@@ -749,7 +777,7 @@ module internal ElaborateResolve =
         let flatNominalStep (typeKey: TypeKey) : TExpr =
             match tryNominalMemberByKey ctx typeKey segName with
             | ValueSome(declKey, _) ->
-                let key = LocalSymbolKey.ofMember declKey segName 0 MemberKind.Property
+                let key = LocalSymbolKey.ofProperty declKey segName
                 TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy, tok)
             | ValueNone -> TExpr.FieldGet(receiver, segName, stepTy, tok)
 
@@ -757,7 +785,7 @@ module internal ElaborateResolve =
         | TyClass(clsKey, args) ->
             match TypeRegistry.tryClassByKey ctx.Types clsKey with
             | ValueSome info when isMember info.Members ->
-                let key = LocalSymbolKey.ofMember info.TypeKey segName 0 MemberKind.Property
+                let key = LocalSymbolKey.ofProperty info.TypeKey segName
                 TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy, tok)
             | _ ->
                 // An *inherited* member (declared on a base class, e.g. `node.Key`
@@ -772,8 +800,7 @@ module internal ElaborateResolve =
                 // above, so the walk only ever resolves a strict ancestor here.)
                 match Unification.tryClassChainMemberDecl ctx clsKey args segName with
                 | ValueSome cm ->
-                    let key =
-                        LocalSymbolKey.ofMember (nominalDeclKey cm.DeclaringTy) segName 0 MemberKind.Property
+                    let key = LocalSymbolKey.ofProperty (nominalDeclKey cm.DeclaringTy) segName
 
                     TExpr.PropertyGet(
                         TExpr.Upcast(receiver, cm.DeclaringTy, TastWalk.exprTok receiver),

@@ -185,8 +185,7 @@ module internal ElaborateExpr =
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailProperty ctx (bindingSite, receiverTy, memberName))) ->
             let receiver = TExpr.Var(bindingSite, receiverTy, tok)
 
-            let key =
-                LocalSymbolKey.ofMember (nominalDeclKey receiverTy) memberName 0 MemberKind.Property
+            let key = LocalSymbolKey.ofProperty (nominalDeclKey receiverTy) memberName
 
             TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty, tok)
         | Expr.App(
@@ -207,7 +206,7 @@ module internal ElaborateExpr =
             mkStaticMethodCall ctx declKey memberName (peelOneArg (translateExpr ctx) arg) ty tok
         // `ClassName.X` — static property read (or method-as-value).
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(StaticMember ctx (declKey, memberName))) ->
-            let key = LocalSymbolKey.ofMember declKey memberName 0 MemberKind.Property
+            let key = LocalSymbolKey.ofProperty declKey memberName
             TExpr.StaticPropertyGet(key, ty, tok)
         | CtorRef ctx caseName ->
             // Bare or qualified ctor reference outside an App. v1 distinguishes
@@ -325,7 +324,7 @@ module internal ElaborateExpr =
         // (`Set<'T>.Singleton value`) is `App`-wrapped and handled with the other
         // static-method arms.
         | TypeAppStaticMember ctx (declKey, memberName, ClassMemberKind.Property) ->
-            let key = LocalSymbolKey.ofMember declKey memberName 0 MemberKind.Property
+            let key = LocalSymbolKey.ofProperty declKey memberName
             TExpr.StaticPropertyGet(key, ty, tok)
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
             ElaborateAccess.translateDotLookup translateExpr ctx key r (ctx.NameOf li.Idents.[0]) ty tok

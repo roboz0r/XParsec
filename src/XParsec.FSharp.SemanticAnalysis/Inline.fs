@@ -210,6 +210,7 @@ module Inline =
     /// one place that can say so — a second walk of the expanded body to re-discover
     /// them would be rediscovering what this already knew.
     let rec private substMapper
+        (ctx: PassContext)
         (declined: ResizeArray<UnresolvedTrait>)
         (subst: Dictionary<TypeVar, SemType>)
         : TastWalk.Mapper =
@@ -228,7 +229,7 @@ module Inline =
         let clauseSelected (cl: TStaticOptClause) = cl.Constraints |> EqArray.forall holds
 
         let resolveStaticOpt (clauses: EqArray<TStaticOptClause>) (defaultExpr: TExpr) : TExpr =
-            let m = substMapper declined subst
+            let m = substMapper ctx declined subst
 
             match clauses |> EqArray.tryFind clauseSelected with
             | ValueSome cl -> TastWalk.mapExpr m cl.Body
@@ -236,10 +237,13 @@ module Inline =
 
         // Resolve a `TraitCall` once the trait typars have been substituted and the
         // receiver is a concrete nominal: rewrite it to a `StaticMethodCall` on that
-        // type's static operator member (class, union, OR record). A non-nominal
-        // receiver — an unpinned `^T`, or a `TyConst` with no clause of its own — leaves
-        // the substituted `TraitCall` standing and records an `UnresolvedTrait`, which
-        // the caller reports at the call site. The result type is `sub ty` (`^T3`), NOT
+        // type's static operator member (class, union, OR record). Two miss cases record
+        // an `UnresolvedTrait` (reported by the caller at the call site) rather than mint a
+        // call: the receiver does not pin to a nominal at all (an unpinned `^T`, or a
+        // `TyConst` with no clause of its own), OR it pins to nominal `k` but `k` carries
+        // no such member — the honest "type does not support this operator" verdict, which
+        // the total-key mint surfaces (the former placeholder minted a key for the absent
+        // member and failed opaquely downstream). The result type is `sub ty` (`^T3`), NOT
         // the receiver's — a heterogeneous operator (`Vec2 * float -> Vec2`) returns
         // neither operand's type.
         let resolveTraitCall
@@ -250,17 +254,7 @@ module Inline =
             (ty: SemType)
             (tok: SyntaxToken)
             : TExpr voption =
-            match nominalHeadKey (sub recvTy) with
-            | ValueSome k ->
-                // Carry the operand arity so codegen's external member-ref param-flatten
-                // mints a `.NET`-tupled static operator's parameters correctly: a binary
-                // `op_Addition(Set, Set)` must be two parameters, not one `ValueTuple`.
-                // This dispatch may target an *external* declaring type (an `.fsi`-imported
-                // `Vesper.Set`), which is exactly the case `ofMember`'s `arity` covers.
-                // The rewritten node replaces the `TraitCall`, so it keeps its `tok`.
-                let memberKey = LocalSymbolKey.ofMember k memberName args.Length MemberKind.Method
-                ValueSome(TExpr.StaticMethodCall(memberKey, EqArray.map (TastWalk.mapExpr m) args, sub ty, tok))
-            | ValueNone ->
+            let decline () =
                 declined.Add
                     {
                         Receiver = sub recvTy
@@ -268,6 +262,20 @@ module Inline =
                     }
 
                 ValueNone
+
+            match nominalHeadKey (sub recvTy) with
+            | ValueSome k ->
+                // The total `MemberKey` freezes the resolved operator's real parameter
+                // signature; its `ArgSig.Length` still carries the operand arity codegen's
+                // external member-ref param-flatten reads (`op_Addition(Set, Set)` ⇒ two
+                // parameters, not one `ValueTuple`). The dispatch may target an *external*
+                // declaring type (an `.fsi`-imported `Vesper.Set`), handled by the minter's
+                // provider arm. The rewritten node replaces the `TraitCall`, so it keeps `tok`.
+                match LocalMemberKeys.totalMemberKey ctx k memberName with
+                | ValueSome memberKey ->
+                    ValueSome(TExpr.StaticMethodCall(memberKey, EqArray.map (TastWalk.mapExpr m) args, sub ty, tok))
+                | ValueNone -> decline ()
+            | ValueNone -> decline ()
 
         { TastWalk.identityMapper with
             MapType = sub
@@ -296,7 +304,7 @@ module Inline =
     /// backend can emit those. Short-circuiting an empty substitution — the shape this
     /// once had — let both node kinds ride an un-substituted body straight through to
     /// codegen's `failwithf` catch-all.
-    let inlineExpand (decl: TDecl) (typeArgs: SemType[]) : TExpr * UnresolvedTrait list =
+    let inlineExpand (ctx: PassContext) (decl: TDecl) (typeArgs: SemType[]) : TExpr * UnresolvedTrait list =
         match decl with
         | TDecl.Let(_, value, _, declTy) ->
             let typars = quantifiedTypars declTy
@@ -309,7 +317,7 @@ module Inline =
             )
 
             let declined = ResizeArray<UnresolvedTrait>()
-            let expanded = TastWalk.mapExpr (substMapper declined subst) value
+            let expanded = TastWalk.mapExpr (substMapper ctx declined subst) value
             expanded, List.ofSeq declined
         | TDecl.Expression _ -> invalidArg "decl" "Inline.inlineExpand expects a TDecl.Let, got a TDecl.Expression"
         | TDecl.Type _ -> invalidArg "decl" "Inline.inlineExpand expects a TDecl.Let, got a TDecl.Type"

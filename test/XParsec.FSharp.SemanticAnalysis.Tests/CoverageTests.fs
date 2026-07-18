@@ -8,6 +8,30 @@ let private analyse (input: string) =
     let lexed, file = parseFile input
     Pipeline.analyseSem realProvider.Value input lexed file
 
+/// Every instance/static method-call key in the unit's value bindings, in a pre-order
+/// walk — the identity the total-key mint stamps on `MethodCall` / `StaticMethodCall`.
+let private callKeys (tast: TastFile) : ResizeArray<SymbolKey> =
+    let calls = ResizeArray<SymbolKey>()
+
+    let it =
+        { TastWalk.identityIter with
+            VisitExpr =
+                fun _ e ->
+                    match e with
+                    | TExpr.MethodCall(_, k, _, _, _, _)
+                    | TExpr.StaticMethodCall(k, _, _, _) -> calls.Add k
+                    | _ -> ()
+
+                    true
+        }
+
+    for d in EqArray.toList tast.Decls do
+        match d with
+        | TDecl.Let(_, value, _, _) -> TastWalk.iterExpr it value
+        | _ -> ()
+
+    calls
+
 /// The unit's single class declaration.
 let private soleClass (tast: TastFile) : TClass =
     let found =
@@ -1188,6 +1212,96 @@ let tests =
                 Expect.notEqual calls.[0] calls.[1] "the two Show overloads carry DISTINCT keys"
                 Expect.equal (argHead calls.[0]) (Some "int") "p.Show(1) keyed on Show(int)"
                 Expect.equal (argHead calls.[1]) (Some "string") "p.Show(\"hi\") keyed on Show(string)"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "a non-overloaded local instance method call mints a TOTAL member key" {
+                // No overload set, so no `LocalMemberCall` handshake: the fallback mints
+                // from the resolved member itself. Its `ArgSig` head is the DECLARED
+                // parameter type (`int`), not the retired `FTUnknown ""` placeholder, and
+                // `MethodTyparArity` is the member's real `0`.
+                let tast =
+                    analyse "type C() =\n    member this.Inc (x: int) = x + 1\nlet f (c: C) = c.Inc(3)"
+
+                match List.ofSeq (callKeys tast) with
+                | [ SymbolKey.Member mk ] ->
+                    Expect.equal mk.Name "Inc" "member name"
+                    Expect.equal mk.Kind MemberKind.Method "method kind"
+                    Expect.equal mk.MethodTyparArity 0 "no method typars"
+                    Expect.equal mk.ArgSig.Length 1 "one declared value parameter"
+
+                    match mk.ArgSig.[0] with
+                    | FTConst(sk, _) ->
+                        Expect.equal
+                            (SymbolKeyOps.simpleName sk)
+                            (DisplayName "int")
+                            "arg head is the declared int, not a placeholder"
+                    | other -> failtestf "expected an FTConst int arg head, got %A" other
+                | other -> failtestf "expected a single MethodCall member key, got %A" other
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "a static method call mints a TOTAL member key" {
+                let tast =
+                    analyse "type C() =\n    static member M (x: int) = x + 1\nlet r = C.M(2)"
+
+                match List.ofSeq (callKeys tast) with
+                | [ SymbolKey.Member mk ] ->
+                    Expect.equal mk.Name "M" "member name"
+                    Expect.equal mk.Kind MemberKind.Method "method kind"
+                    Expect.equal mk.MethodTyparArity 0 "no method typars"
+
+                    match mk.ArgSig |> EqArray.toList with
+                    | [ FTConst(sk, _) ] ->
+                        Expect.equal (SymbolKeyOps.simpleName sk) (DisplayName "int") "arg head is the declared int"
+                    | other -> failtestf "expected a single FTConst int arg head, got %A" other
+                | other -> failtestf "expected a single StaticMethodCall member key, got %A" other
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "an interface-dispatched method call mints a TOTAL member key" {
+                // `'T :> IShow` coerces the receiver typar to a local interface, so the call
+                // lowers through `mkInterfaceMethodCall` — its key must resolve the member on
+                // the interface (the local-registry arm of the shared minter), total by
+                // construction like every other method mint.
+                let tast =
+                    analyse
+                        "type IShow =\n    abstract member Show: int -> int\nlet f (x: 'T when 'T :> IShow) = x.Show(1)"
+
+                match List.ofSeq (callKeys tast) with
+                | [ SymbolKey.Member mk ] ->
+                    Expect.equal mk.Name "Show" "member name"
+                    Expect.equal mk.Kind MemberKind.Method "method kind"
+
+                    match mk.ArgSig |> EqArray.toList with
+                    | [ FTConst(sk, _) ] ->
+                        Expect.equal (SymbolKeyOps.simpleName sk) (DisplayName "int") "arg head is the declared int"
+                    | other -> failtestf "expected a single FTConst int arg head, got %A" other
+                | other -> failtestf "expected a single interface MethodCall member key, got %A" other
+
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
+
+            test "a method call's key carries its real MethodTyparArity, not the collapsed 0" {
+                // The placeholder hardcoded `MethodTyparArity = 0` for EVERY method, so
+                // `M<'a>` and `M<'a, 'b>` (the axis that tells generic-arity overloads apart)
+                // minted colliding keys. The total mint reads the member's real method-typar
+                // count: a generic `Id<'a>` keys with arity 1, a non-generic `Plain` with 0.
+                let tast =
+                    analyse
+                        "type C() =\n    member this.Id<'a> (x: 'a) = x\n    member this.Plain (x: int) = x\nlet c = C()\nlet a = c.Id(3)\nlet b = c.Plain(4)"
+
+                let arityOf name =
+                    callKeys tast
+                    |> Seq.tryPick (fun k ->
+                        match k with
+                        | SymbolKey.Member mk when mk.Name = name -> Some mk.MethodTyparArity
+                        | _ -> None)
+
+                Expect.equal (arityOf "Id") (Some 1) "generic Id<'a> mints MethodTyparArity 1"
+                Expect.equal (arityOf "Plain") (Some 0) "non-generic Plain mints MethodTyparArity 0"
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
         ]

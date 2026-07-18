@@ -495,7 +495,7 @@ module InlineExpansion =
                 match decl with
                 | TDecl.Let(_, _, _, declTy) ->
                     let expanded, unresolved =
-                        Inline.inlineExpand decl (deriveInlineTypeArgs declTy spineArgs)
+                        Inline.inlineExpand ctx decl (deriveInlineTypeArgs declTy spineArgs)
 
                     for u in unresolved do
                         ctx.Error(NodeKey.ofToken siteTok NodeKind.ExprApp, unsupportedTraitMessage u)

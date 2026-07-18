@@ -29,25 +29,18 @@ module internal LocalSymbolKey =
     let ofType (holder: TypeHolder) (name: string) (arity: int) : TypeKey =
         SymbolKeyOps.typeKeyOfHolder holder name arity
 
-    /// The project-local `SymbolKey.MemberKey` for a member `name` of `kind` on the
-    /// type identified by `declKey`, with `arity` value parameters. Project-local
-    /// members carry no overload set (local by-type overload resolution is a separate
-    /// future feature), so `(declKey, name)` is unique and the local resolution path
-    /// ignores `argSig`. But codegen's *external* member-ref param-flatten reads
-    /// `argSig.Length` to decide whether a `.NET`-tupled static member
-    /// (`op_Addition(Set, Set)`) mints N parameters or one `ValueTuple` — so a key that
-    /// may target an external declaring type (an SRTP `+`/`-` dispatch) must carry the
-    /// real `arity`. The `argSig` ENTRIES are placeholders (`FTUnknown ""`, the typed
-    /// analog of the former empty-string placeholder) — only the length is ever read —
-    /// and `MethodTyparArity` is likewise a placeholder `0`: distinguishing local
-    /// overloads (where the real method-typar count would matter) needs the deferred
-    /// resolved-slot mint-at-freeze machinery, and no local overloads exist to
-    /// distinguish yet. The local analogue of the external `MemberKey` minted by
-    /// `MetadataSymbols` / `VesperLib`; carried on the local member-call TAST nodes so
-    /// codegen reads the declaring type off `decl` instead of re-deriving it from a
-    /// class-name string.
-    let ofMember (declKey: TypeKey) (name: string) (arity: int) (kind: MemberKind) : SymbolKey =
-        SymbolKeyOps.memberKey declKey name (EqArray.ofList (List.replicate arity (FrozenType.FTUnknown ""))) 0 kind
+    /// The project-local `SymbolKey.MemberKey` for a PROPERTY `name` on the type
+    /// identified by `declKey`. A property's `ArgSig` is empty and its name is unique on
+    /// a type (properties do not overload by argument), so `{decl, name, [], 0, Property}`
+    /// is a TOTAL identity by construction — there is no placeholder here. This is the
+    /// only local member-key mint: METHOD keys are minted from the RESOLVED member
+    /// (`LocalMemberKeys.totalMemberKey`, which freezes the real value signature and
+    /// method-typar arity), so a lossy placeholder method key is unrepresentable. The
+    /// local analogue of the external property `MemberKey` minted by `MetadataSymbols` /
+    /// `VesperLib`; carried on the local property-get TAST nodes so codegen reads the
+    /// declaring type off `decl` instead of re-deriving it from a class-name string.
+    let ofProperty (declKey: TypeKey) (name: string) : SymbolKey =
+        SymbolKeyOps.memberKey declKey name EqArray.empty 0 MemberKind.Property
 
 // `ModuleBindingInfo` moved to `SideTypes.fs` (it must precede `Tast.fs`).
 

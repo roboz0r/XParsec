@@ -44,7 +44,6 @@
     <Compile Include="TypeRegistry.fs" />
     <Compile Include="PassContext.fs" />
     <Compile Include="StringLiterals.fs" />
-    <Compile Include="Inline.fs" />
     <Compile Include="Passes\Attributes.fs" />
     <Compile Include="Passes\Desugar.fs" />
     <Compile Include="Passes\NameResolution\TypeHeadStamp.fs" />
@@ -75,6 +74,8 @@
     <Compile Include="Passes\Unification.fs" />
     <Compile Include="Passes\Regions.fs" />
     <Compile Include="Passes\Validation.fs" />
+    <Compile Include="Elaborate\MemberKeys.fs" />
+    <Compile Include="Inline.fs" />
     <Compile Include="Elaborate\Literals.fs" />
     <Compile Include="Elaborate\Resolve.fs" />
     <Compile Include="Elaborate\Patterns.fs" />

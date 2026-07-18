@@ -173,14 +173,14 @@ module internal ElaborateAccess =
         | TyRecord(recKey, _) ->
             match tryNominalMemberByKey ctx recKey memberName with
             | ValueSome(declKey, _) ->
-                let key = LocalSymbolKey.ofMember declKey memberName 0 MemberKind.Property
+                let key = LocalSymbolKey.ofProperty declKey memberName
                 TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty, tok)
             | ValueNone -> TExpr.FieldGet(receiver, memberName, ty, tok)
         // A class/union receiver's `.X` is always a member — a `PropertyGet` (a
         // method-as-value keeps the same shape — codegen eta-expands). Records were
         // handled above, so `TyNominal` here catches only class/union.
         | TyNominal(nominalKey, _) ->
-            let key = LocalSymbolKey.ofMember nominalKey memberName 0 MemberKind.Property
+            let key = LocalSymbolKey.ofProperty nominalKey memberName
 
             TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty, tok)
         // `(expr).Length` on an intrinsic rank-1 array desugars to the core
