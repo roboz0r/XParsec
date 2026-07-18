@@ -851,46 +851,30 @@ module NameResolutionMemberRegistration =
 
                         ValueNone
 
-                match TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt diagKey) name with
-                | ValueSome info -> ValueSome(TyClass(info.TypeKey, EqArray.ofList targs))
-                | ValueNone when ctx.Types.HeritableExternBases.Contains name ->
-                    // A heritable external base (`inherit Attribute`, where `Attribute`
-                    // is `(# class "System.Attribute" #)`): resolve to the EXTERNAL type
-                    // its repr names, so the base freezes to an `FTClass` the codegen
-                    // `ExternalClass` encoder maps to a `TypeRef` (`extends` + base-ctor),
-                    // rather than the opaque value-repr `TyConst`.
-                    match ctx.Types.IntrinsicReprTypes.TryGetValue name with
-                    | true, repr -> reprToExternalBase repr
-                    // Compiler invariant: `TypeRegistration.registerAbbreviationDefn`
-                    // only ever adds to `HeritableExternBases` in the same step it writes
-                    // the repr to `IntrinsicReprTypes`. A name in the former without an
-                    // entry in the latter is a bug in this pass, not a user error — fail
-                    // loudly rather than silently degrade to a confusing "unknown type".
-                    | false, _ ->
-                        failwithf "Internal error: heritable external base '%s' has no recorded intrinsic repr" name
-                | ValueNone ->
-                    // A referenced heritable primitive (`exn`, or a prior compilation unit's
-                    // `(# class … #)` base like `Attribute`): the provider publishes it as an
-                    // `Intrinsic` with a class surface. `inherit X` is a name WRITTEN AT A SITE, so
-                    // it resolves through the SAME opens-aware engine every other written type head
-                    // uses (`tryPickExternalType` over `ctx.Resolution.OpenScope`) — the file's
-                    // explicit `open`s, then the implicit open of its own `namespace N` header
-                    // (`CstWalk.addNamespacePrefix`, F#'s `ImplicitlyOpenOwnNamespace`), then the
-                    // ambient prelude. That implicit open is what resolves a SAME-namespace prior
-                    // unit's base (`Vesper.Core`'s `compiler-attributes.fs` inheriting
-                    // `prim-types-attr.fs`'s `Attribute`): the fact lives in the CONSUMER's scope,
-                    // never in a producer-published ambient. `pick` returning `ValueNone` scans past
-                    // a non-intrinsic hit to the next candidate. Then branch on whether the CONTRACT
-                    // declares a ctor:
+                // Fallback when the name is not a project-local class: a referenced heritable
+                // primitive published by a provider (`exn`, or a prior compilation unit's
+                // `(# class … #)` base like `Attribute`).
+                let resolveThroughProvider () =
+                    // The provider publishes it as an `Intrinsic` with a class surface.
+                    // `inherit X` is a name WRITTEN AT A SITE, so it resolves through the SAME
+                    // opens-aware engine every other written type head uses (`tryPickExternalType`
+                    // over `ctx.Resolution.OpenScope`) — the file's explicit `open`s, then the
+                    // implicit open of its own `namespace N` header (`CstWalk.addNamespacePrefix`,
+                    // F#'s `ImplicitlyOpenOwnNamespace`), then the ambient prelude. That implicit
+                    // open is what resolves a SAME-namespace prior unit's base (`Vesper.Core`'s
+                    // `compiler-attributes.fs` inheriting `prim-types-attr.fs`'s `Attribute`): the
+                    // fact lives in the CONSUMER's scope, never in a producer-published ambient.
+                    // `pick` returning `ValueNone` scans past a non-intrinsic hit to the next
+                    // candidate. Then branch on whether the CONTRACT declares a ctor:
                     //   * WITH ctors (`exn`'s `new: string -> exn` / `new: unit -> exn`): admit
                     //     the intrinsic CANON as a `TyConst` base, so `fillBaseCtorCall` checks
                     //     the base-`.ctor` args against the contract ctor set (and REJECTS a
                     //     mismatch) — the contract IS the constructible surface.
                     //   * WITHOUT ctors (`Attribute = (# class … #)` — the `.fs`/`.fsi` bind only
                     //     the repr): admit the PLATFORM type as a `TyClass` (the SAME base the
-                    //     local `HeritableExternBases` arm mints), so the base-`.ctor` binds the
-                    //     runtime type's own ctors (`System.Attribute()`); the empty contract
-                    //     surface would otherwise reject `inherit Attribute()`.
+                    //     heritable-local arm mints), so the base-`.ctor` binds the runtime type's
+                    //     own ctors (`System.Attribute()`); the empty contract surface would
+                    //     otherwise reject `inherit Attribute()`.
                     let heritableIntrinsic (shape: ExternalTypeShape) =
                         match shape with
                         | ExternalTypeShape.Intrinsic { Id = id; Class = ValueSome surface } ->
@@ -932,10 +916,26 @@ module NameResolutionMemberRegistration =
 
                         ValueNone
 
+                match TypeRegistry.tryClass ctx.Types (ctx.UseSiteAt diagKey) name with
+                | ValueSome info -> ValueSome(TyClass(info.TypeKey, EqArray.ofList targs))
+                | ValueNone ->
+                    // Heritable-local arm: a `(# class … #)` intrinsic of THIS unit. ONE
+                    // key-addressed read (`intrinsicKeyOf` → `IntrinsicReprInfo`) yields BOTH
+                    // the repr and the `class`-tag verdict from the SAME entry, so a heritable
+                    // base with no repr is structurally unrepresentable — no runtime invariant
+                    // to police, and no parallel name-axis set to keep in step.
+                    match ctx.Types.IntrinsicReprKeys.TryGetValue(TypeRegistry.intrinsicKeyOf ctx.Types name) with
+                    | true, repr when repr.Heritable ->
+                        // Resolve to the EXTERNAL type the repr names, so the base freezes to an
+                        // `FTClass` the codegen `ExternalClass` encoder maps to a `TypeRef`
+                        // (`extends` + base-ctor), rather than the opaque value-repr `TyConst`.
+                        reprToExternalBase repr.Platform
+                    | _ -> resolveThroughProvider ()
+
     /// Fill `BaseType` / `BaseCtorArgs` on a class with an `inherit` clause. An `inherit`
     /// parent is the one reference resolved against the referent's registered DETAIL
-    /// (`ClassTypeInfo` for a local parent, `IntrinsicReprTypes` / `HeritableExternBases`
-    /// for a heritable extern base) rather than its identity, so it cannot be answered at
+    /// (`ClassTypeInfo` for a local parent, `IntrinsicReprKeys` for a heritable extern
+    /// base) rather than its identity, so it cannot be answered at
     /// the point the clause is seen: `ClassTypeInfo.BaseType` is the PENDING SLOT, filled
     /// once the whole group's detail is registered. A parent above the group is already
     /// registered, a parent inside it registers before the group closes, and a parent below

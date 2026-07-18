@@ -1043,18 +1043,21 @@ module NameResolutionTypeRegistration =
                 registerMemberHostIfAny ()
 
                 match tag with
-                // Untagged `(# "…" #)` — an opaque value repr, never a base.
-                | ValueNone -> ()
-                // A `class`-tagged intrinsic (`(# class "…" #)`) is a HERITABLE
-                // external reference base, not an opaque value repr: record the
-                // name so `resolveInheritParent` admits it as a parent.
-                | ValueSome(ExternKind.Class _) -> ctx.Types.HeritableExternBases.Add name |> ignore
+                // Untagged `(# "…" #)` — an opaque value repr, never a base. A
+                // `class`-tagged intrinsic (`(# class "…" #)`) is a HERITABLE external
+                // reference base, but that verdict already rode the `IntrinsicReprKeys`
+                // entry written above (`Heritable = true`), which is the SAME entry
+                // `resolveInheritParent` reads to admit it as a parent — nothing extra
+                // to record here.
+                | ValueNone
+                | ValueSome(ExternKind.Class _) -> ()
                 // `(# interface "…" #)` parses (the AST carries the species for a
                 // future `extends`-less InterfaceImpl path) but has no emit path
                 // yet: an interface goes in `implements`, not the `extends` column,
                 // and has no base `.ctor` to chain to. Reject it here rather than
-                // let it fall through and mis-emit as a class base. Not added to
-                // `HeritableExternBases`, so it can never reach codegen's base path.
+                // let it fall through and mis-emit as a class base. Its
+                // `IntrinsicReprInfo.Heritable` is `false`, so it can never reach
+                // codegen's base path.
                 | ValueSome(ExternKind.Interface _) ->
                     ctx.Diagnostics.Add
                         {

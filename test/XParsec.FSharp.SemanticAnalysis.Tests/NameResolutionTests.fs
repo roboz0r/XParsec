@@ -573,13 +573,20 @@ let tests =
                 Expect.equal info.BaseType ValueNone "BaseType not stamped for non-class parent"
             }
 
+            // Heritability is recorded on the KEY axis: the `class`-tag verdict rides the
+            // same `IntrinsicReprKeys` entry as the repr, read by name via `intrinsicKeyOf`.
+            let isHeritable (ctx: PassContext) (name: string) =
+                match ctx.Types.IntrinsicReprKeys.TryGetValue(TypeRegistry.intrinsicKeyOf ctx.Types name) with
+                | true, repr -> repr.Heritable
+                | _ -> false
+
             test "heritable extern class (# class repr #) registers without diagnostic" {
                 // The `class`-tagged intrinsic is admitted as a heritable external base
-                // (recorded in `HeritableExternBases`), not rejected.
+                // (`IntrinsicReprInfo.Heritable`), not rejected.
                 let ctx = analyse "type Attribute = (# class \"System.Attribute\" #)"
 
                 Expect.equal ctx.Diagnostics.Count 0 "no diagnostic for a class-tagged intrinsic"
-                Expect.isTrue (ctx.Types.HeritableExternBases.Contains "Attribute") "recorded as a heritable base"
+                Expect.isTrue (isHeritable ctx "Attribute") "recorded as a heritable base"
             }
 
             test "heritable extern interface (# interface repr #) is rejected (not yet supported)" {
@@ -593,7 +600,7 @@ let tests =
                     |> Seq.exists (fun d -> d.Message.Contains "interface" && d.Message.Contains "not yet supported")
 
                 Expect.isTrue rejected "extern interface base rejected"
-                Expect.isFalse (ctx.Types.HeritableExternBases.Contains "IFoo") "not recorded as a heritable base"
+                Expect.isFalse (isHeritable ctx "IFoo") "not recorded as a heritable base"
             }
 
             // An inheritance cycle is only WRITABLE inside one `type … and …` group: file-order

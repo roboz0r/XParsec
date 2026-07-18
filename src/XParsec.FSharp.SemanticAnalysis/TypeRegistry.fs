@@ -185,14 +185,6 @@ type PassContextTypes =
         /// `IntrinsicReprTypes` stays a pure name → target-repr side-table; this carries
         /// identity.
         IntrinsicKeys: Dictionary<string, SymbolKey>
-        /// Names of intrinsic-repr types declared as HERITABLE external reference
-        /// bases (`type Attribute = (# class "System.Attribute" #)`), the `class`/
-        /// `interface`-tagged subset of `IntrinsicReprTypes`. A name here may appear as
-        /// an `inherit` parent: `resolveInheritParent` resolves it to the EXTERNAL type
-        /// its repr names (`System.Attribute`), so codegen emits `extends` + a base-ctor
-        /// call instead of treating it as an opaque (sealed, unencodable-as-base) value
-        /// repr. The repr string itself stays in `IntrinsicReprTypes`.
-        HeritableExternBases: HashSet<string>
         /// Host side-tables for inline intrinsic-abbrevs carrying `with member …`
         /// augmentations (`type widget = (# "object" #) with member …`), keyed by bare
         /// short name — an intrinsic binding is resolved by bare name at every use site
@@ -301,7 +293,6 @@ module PassContextTypes =
             IntrinsicReprTypes = Dictionary<_, _>()
             IntrinsicReprKeys = Dictionary<_, _>()
             IntrinsicKeys = Dictionary<_, _>()
-            HeritableExternBases = HashSet<_>()
             IntrinsicAbbrevHost = Dictionary<_, _>()
             RecordNames = Dictionary<_, _>()
             UnionNames = Dictionary<_, _>()
