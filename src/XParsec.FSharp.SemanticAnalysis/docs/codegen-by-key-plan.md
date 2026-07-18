@@ -38,13 +38,14 @@ pins `^T2 := int` before the right operand is consulted.
 
 Making it work needs the SRTP drain to **defer** until enough participants are ground, or
 to **trial-unify both candidates and undo** — and this codebase has an explicit
-no-speculative-unification stop (`InferTypeOps.fs:110-113`). That is precisely the
-primitive `overload-resolution-plan.md:104-138` specifies as its preferred Option 1
-("trial unification into a scratch substitution"), and that doc already lists SRTP trait
-solutions as out of scope pending SRTPs (`:443-444`). **Accepted deferral: the two land
-together.** Widening `TraitCall` to a candidate set is the small half (~8 mechanical
-walker sites; neither backend has a `TraitCall` arm). The unifier change is the real work
-and it belongs to overload resolution.
+no-speculative-unification stop (`InferTypeOps.fs:110-113`). Overload resolution has since
+landed its own speculative primitive — the read-only scratch-substitution matcher
+`matchTypes` (`Passes/Unification/InferOverload.fs`) — but that is a *filtering* query that
+never fires the constraint drains, so the trial-and-**undo of the real drain** this needs is
+still unbuilt. **Accepted deferral: it lands with SRTPs.** Widening `TraitCall` to a
+candidate set is the small half (~8 mechanical walker sites; neither backend has a
+`TraitCall` arm). The unifier trial-and-undo change is the real work and belongs with the
+SRTP dispatch effort.
 
 ## Independent follow-ons — one commit + tests each
 
