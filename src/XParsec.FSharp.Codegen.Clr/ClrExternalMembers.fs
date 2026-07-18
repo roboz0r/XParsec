@@ -511,16 +511,21 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 ValueSome(handle, substitutedTy)
             | _ -> ValueNone
 
-    /// Mint the `MemberRef` for a referenced-assembly class's constructor, instantiated at `tyArgs` and
-    /// picked by call-site arity **and argument types**. Two ctors of the same arity (e.g.
-    /// `ArgumentException(string, string)` vs `(string, Exception)`) are disambiguated by re-running the
-    /// front end's `pickBestOverload` against the zonked call-site arg types — the chosen `SymbolKey`
-    /// isn't carried on `TExpr.New`, so codegen re-picks rather than threading it through. Picking the
-    /// wrong same-arity ctor mints a `newobj` whose signature disagrees with the pushed values (a `string`
-    /// landing where an `Exception` is expected), which produces a malformed object that faults the CLR
-    /// at throw/dispatch time. Falls back to the first arity match when the types can't disambiguate
-    /// (single overload, or arg types the metadata params don't equal).
-    let externalCtor (key: SymbolKey) (tyArgs: FrozenType list) (argTypes: FrozenType list) : CtorRecipe voption =
+    /// Mint the `MemberRef` for a referenced-assembly class's constructor, instantiated at `tyArgs`. Two
+    /// ctors of the same arity (e.g. `ArgumentException(string, string)` vs `(string, Exception)`) are
+    /// disambiguated by `chosen` — the `SymbolKey.MemberKey` the front end recorded on `TExpr.New` when it
+    /// resolved the overload by argument type. `MemberKey.ArgSig` is a total overload identity, so the
+    /// match is exact; codegen never re-runs overload resolution (which would need a `PassContext` it
+    /// lacks). Picking the wrong same-arity ctor would mint a `newobj` whose signature disagrees with the
+    /// pushed values (a `string` landing where an `Exception` is expected), faulting the CLR at
+    /// throw/dispatch time. Falls back to the first arity match when `chosen` is absent (a base-ctor
+    /// `inherit` chain, which carries no `TExpr.New`, or a single-ctor type).
+    let externalCtor
+        (key: SymbolKey)
+        (chosen: SymbolKey voption)
+        (tyArgs: FrozenType list)
+        (argTypes: FrozenType list)
+        : CtorRecipe voption =
         // The member table is genuinely string-keyed — the `.ctor` overload set is
         // looked up by the declaring type's compiled name (the genuine string
         // boundary); only the *type-shape* ref routes through the key funnel.
@@ -533,15 +538,15 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         match applicable with
         | [||] -> ValueNone
         | _ ->
-            let chosen =
-                let typeArgsArr = tyArgs |> List.toArray
-                let argElems = argTypes
-
-                match Passes.UnificationInferOverload.pickBestOverloadFrozen typeArgsArr applicable argElems with
-                | ValueSome m -> m
+            let chosenCtor =
+                match chosen with
+                | ValueSome ck ->
+                    applicable
+                    |> Array.tryFind (fun m -> SymbolKey.Member m.Key = ck)
+                    |> Option.defaultValue applicable.[0]
                 | ValueNone -> applicable.[0]
 
-            let argSigLen = chosen.Key.ArgSig.Length
+            let argSigLen = chosenCtor.Key.ArgSig.Length
 
             match externalClassRef key with
             | ValueNone -> ValueNone
@@ -552,7 +557,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 // descriptor template's single tupled `Parameters` slot and flattened by the chosen key's
                 // `argSig` length, exactly as `mintMemberRef` does.
                 let paramTys =
-                    match chosen.Signature.Parameters with
+                    match chosenCtor.Signature.Parameters with
                     | FTUnit -> []
                     | FTTuple elems when argSigLen >= 2 && elems.Length = argSigLen -> EqArray.toList elems
                     | p -> [ p ]
@@ -675,7 +680,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     member _.ExternalUnionCaseField(key, args, caseName, fieldIndex) =
         externalUnionCaseField key args caseName fieldIndex
 
-    member _.ExternalCtor(key, tyArgs, argTypes) = externalCtor key tyArgs argTypes
+    member _.ExternalCtor(key, chosen, tyArgs, argTypes) = externalCtor key chosen tyArgs argTypes
 
     member _.ExternalRecordField(key, args, fieldName) = externalRecordField key args fieldName
 

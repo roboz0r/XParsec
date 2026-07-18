@@ -283,7 +283,7 @@ module TastLower =
         | TExprG.FieldSet(r, n, v, t, tk) -> TExprG.FieldSet(f r, n, f v, t, tk)
         | TExprG.StaticFieldSet(k, n, v, t, tk) -> TExprG.StaticFieldSet(k, n, f v, t, tk)
         | TExprG.UnionCons(c, args, t, tk) -> TExprG.UnionCons(c, EqArray.map f args, t, tk)
-        | TExprG.New(c, args, t, tk) -> TExprG.New(c, EqArray.map f args, t, tk)
+        | TExprG.New(c, k, args, t, tk) -> TExprG.New(c, k, EqArray.map f args, t, tk)
         | TExprG.MethodCall(r, k, via, args, t, tk) -> TExprG.MethodCall(f r, k, via, EqArray.map f args, t, tk)
         | TExprG.PropertyGet(r, k, via, t, tk) -> TExprG.PropertyGet(f r, k, via, t, tk)
         | TExprG.StaticMethodCall(k, args, t, tk) -> TExprG.StaticMethodCall(k, EqArray.map f args, t, tk)

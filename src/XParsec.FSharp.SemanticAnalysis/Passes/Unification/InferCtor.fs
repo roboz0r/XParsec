@@ -26,6 +26,8 @@ module internal UnificationInferCtor =
     /// result side stays a free var (`inferExternalCtorOn`'s authority rule: the
     /// receiver/declared parent already IS the constructed type). `noOverloadMsg`
     /// keeps the two syntaxes' diagnostics distinct.
+    /// Returns the chosen `.ctor` so a `new exn "…"` caller can record its identity for
+    /// codegen; the `inherit exn(…)` caller (no `TExpr.New` node) ignores it.
     let inferIntrinsicClassCtorCall
         (infer: Infer)
         (ctx: PassContext)
@@ -33,7 +35,7 @@ module internal UnificationInferCtor =
         (surface: IntrinsicClassSurface)
         (noOverloadMsg: string)
         (argExpr: Expr<SyntaxToken>)
-        : unit =
+        : ExternalMember voption =
         let ctors = surface.Members |> Array.filter (fun m -> m.Name = ".ctor")
         let argTy = infer ctx argExpr
 
@@ -42,7 +44,10 @@ module internal UnificationInferCtor =
             let ctorSig = ExternalSymbols.openSignature chosen typeArgs
             let resultTy = TyVar(freshTyVar ctx)
             unify ctx (CstKeys.ofExpr argExpr) ctorSig (TyFun(argTy, resultTy))
-        | ValueNone -> ctx.Error(CstKeys.ofExpr argExpr, noOverloadMsg)
+            ValueSome chosen
+        | ValueNone ->
+            ctx.Error(CstKeys.ofExpr argExpr, noOverloadMsg)
+            ValueNone
 
     /// `new T(args)`. Mirrors a single application against the ctor, kept inline
     /// so a bare `Expr.New` doesn't need to fabricate an `Expr.App` first.
@@ -147,13 +152,17 @@ module internal UnificationInferCtor =
                 | ValueSome(struct (_, surface)) ->
                     let (DisplayName shown) = SymbolKeyOps.simpleName canonKey
 
-                    inferIntrinsicClassCtorCall
-                        infer
-                        ctx
-                        (tyArgs.AsSpan().ToArray())
-                        surface
-                        (sprintf "No applicable constructor on '%s' for the given arguments" shown)
-                        argExpr
+                    match
+                        inferIntrinsicClassCtorCall
+                            infer
+                            ctx
+                            (tyArgs.AsSpan().ToArray())
+                            surface
+                            (sprintf "No applicable constructor on '%s' for the given arguments" shown)
+                            argExpr
+                    with
+                    | ValueSome chosen -> ctx.Resolution.ExternalCtor.Set(key, SymbolKey.Member chosen.Key)
+                    | ValueNone -> ()
 
                     receiverTy
                 | ValueNone ->
@@ -214,6 +223,9 @@ module internal UnificationInferCtor =
         else
             match pickBestOverload (capabilityCanonKey ctx) typeArgs ctors argElems with
             | ValueSome chosen ->
+                // Record the chosen ctor's identity so codegen's `TExpr.New` emission
+                // selects this exact same-arity overload by key rather than re-picking.
+                ctx.Resolution.ExternalCtor.Set(key, SymbolKey.Member chosen.Key)
                 let ctorSig = ExternalSymbols.openSignature chosen typeArgs
                 let resultTy = TyVar(freshTyVar ctx)
                 // Unify the ctor SIGNATURE (grounding each parameter against the call's

@@ -567,9 +567,27 @@ module internal ElaborateResolve =
     // lives. Each picks the parameter model appropriate to its node kind; the arms
     // supply only the resolved callee and the peeled (un-wrapped) arguments.
 
-    /// `New` for a project-local class construction.
-    let mkNew (ctx: PassContext) (className: string) (ty: SemType) (args: EqArray<TExpr>) (tok: SyntaxToken) : TExpr =
-        TExpr.New(className, wrapObjArgsEq (ctorParamTys ctx ty args.Length) args, ty, tok)
+    /// `New` for a class construction. Reads the front-end-chosen external `.ctor`'s
+    /// `SymbolKey.MemberKey` from `Resolution.ExternalCtor`, keyed by the construction
+    /// node's `key`, and records it on the node so codegen selects that exact `.ctor` by
+    /// identity. `ValueNone` (absent) ⇒ a project-local / scratch class codegen resolves
+    /// by result-type key + arity. Centralising the read here keeps every construction
+    /// syntax's identity handshake in one place.
+    let mkNew
+        (ctx: PassContext)
+        (className: string)
+        (key: NodeKey)
+        (ty: SemType)
+        (args: EqArray<TExpr>)
+        (tok: SyntaxToken)
+        : TExpr =
+        TExpr.New(
+            className,
+            ctx.Resolution.ExternalCtor.TryGetValue key,
+            wrapObjArgsEq (ctorParamTys ctx ty args.Length) args,
+            ty,
+            tok
+        )
 
     /// Instance `MethodCall` resolved to `declKey.memberName`, with the `CallVia`
     /// derived from the receiver.

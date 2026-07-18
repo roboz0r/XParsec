@@ -210,6 +210,14 @@ type PassContextResolution =
         /// resolved `SymbolKey`. Absent ⇒ project-local member access (resolved via
         /// `Types.Class` / `Types.Union`).
         ExternalAccess: SideTable<ResolvedExternalMember>
+        /// Keyed by an external construction node (`new T(args)` or the ctor-as-function
+        /// `T args` / `T<'a>(args)`): the chosen `.ctor`'s `SymbolKey.MemberKey` when the
+        /// argument types resolved a same-arity overload set. Written by `InferCtor`'s
+        /// `inferExternalCtorOn` / `inferIntrinsicClassCtorCall` at the `pickBestOverload`
+        /// seam; Elaborate reads it back onto `TExpr.New.key` so codegen selects that exact
+        /// `.ctor` by identity instead of re-running overload resolution. Absent ⇒ a
+        /// project-local construction (resolved by result-type key + arity).
+        ExternalCtor: SideTable<SymbolKey>
         /// Keyed by an external *method-call head* (the same key `ExternalAccess`
         /// stores the resolved member under): the compile-time constant defaults of
         /// the trailing optional parameters this call *omitted*, in declaration order.
@@ -440,6 +448,7 @@ module PassContextResolution =
             EnclosingTypars = ValueNone
             TyparScopeStrict = false
             ExternalAccess = SideTable<_>()
+            ExternalCtor = SideTable<_>()
             TyparInterfaceCall = SideTable<_>()
             ExternalOptionalFill = SideTable<_>()
             ExternalValue = SideTable<_>()

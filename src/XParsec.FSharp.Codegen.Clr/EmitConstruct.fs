@@ -18,14 +18,14 @@ module EmitConstruct =
 
     let buildNew (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.New(className, args, ty, _) ->
+        | TExprG.New(className, chosenCtor, args, ty, _) ->
             let tyArgs =
                 match ty with
                 | FTClass(_, xs) -> EqArray.toList xs
                 | _ -> []
 
-            // Call-site arg types let the external-ctor path disambiguate ctor
-            // overloads (v1 picker is arity-only — see `ClrProvider.externalCtor`).
+            // The external-ctor path filters candidates by arity off these; `chosenCtor`
+            // (the front end's recorded overload identity) disambiguates a same-arity set.
             let argTypes = [ for a in args -> typeOfExpr a ]
 
             // A project-local class is identified by the nominal `SymbolKey` on the
@@ -124,7 +124,9 @@ module EmitConstruct =
                         fun () ->
                             match ty with
                             | FTClass(ctorKey, _) ->
-                                match env.Provider.TryEmitCtor(SymbolKey.Type ctorKey, tyArgs, argTypes) with
+                                match
+                                    env.Provider.TryEmitCtor(SymbolKey.Type ctorKey, chosenCtor, tyArgs, argTypes)
+                                with
                                 | ValueSome recipe -> b.Add(ILInstr.Newobj(recipe.Handle, recipe.ArgCount))
                                 | ValueNone -> failwithf "Emit: no constructor recipe for '%s'" className
                             // A constructed heritable primitive (`new exn "boom"` /
@@ -137,7 +139,7 @@ module EmitConstruct =
                                 let recipe =
                                     env.Provider.IntrinsicClassBase canonKey
                                     |> ValueOption.bind (fun (struct (platformKey, _)) ->
-                                        env.Provider.TryEmitCtor(platformKey, tyArgs, argTypes)
+                                        env.Provider.TryEmitCtor(platformKey, chosenCtor, tyArgs, argTypes)
                                     )
 
                                 match recipe with

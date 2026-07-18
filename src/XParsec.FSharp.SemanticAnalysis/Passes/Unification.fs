@@ -597,6 +597,9 @@ module Unification =
                 try
                     let (DisplayName shown) = SymbolKeyOps.simpleName canonKey
 
+                    // The base ctor has no `TExpr.New` node to carry an identity, so the
+                    // chosen ctor is not recorded here; codegen resolves the `inherit` chain
+                    // by arity.
                     UnificationInferCtor.inferIntrinsicClassCtorCall
                         infer
                         ctx
@@ -604,6 +607,7 @@ module Unification =
                         surface
                         (sprintf "No applicable constructor on base '%s' for the given 'inherit' arguments" shown)
                         argExpr
+                    |> ignore
                 finally
                     exitLevel ctx
             | ValueNone -> ()

@@ -61,12 +61,13 @@ module internal ElaborateExpr =
         // union heads handled elsewhere.
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(li & EnumCaseAccess ctx ty enumKey)) ->
             TExpr.StaticFieldGet(SymbolKey.Type enumKey, ctx.NameOf li.Idents.[1], ty, tok)
-        | Expr.New(typ = t; expr = argExpr) -> translateNew ctx t argExpr ty tok
+        | Expr.New(typ = t; expr = argExpr) -> translateNew ctx key t argExpr ty tok
         // Class-name-as-function application: `Point(3, 4)` parses as
         // `Expr.App (Ident Point, [EnclosedBlock(Tuple)])`.
-        | Expr.App(ClassRef ctx className, args) -> mkNew ctx className ty (peelCtorArgs (translateExpr ctx) args) tok
+        | Expr.App(ClassRef ctx className, args) ->
+            mkNew ctx className key ty (peelCtorArgs (translateExpr ctx) args) tok
         | Expr.HighPrecedenceApp(funcExpr = ClassRef ctx className; argExpr = arg) ->
-            mkNew ctx className ty (peelOneArg (translateExpr ctx) arg) tok
+            mkNew ctx className key ty (peelOneArg (translateExpr ctx) arg) tok
         // Class instance method invocation: `r.M(args)` →
         // `App(DotLookup(r, ., M), args)`.
         | Expr.App(funcExpr = InstanceMethodCall ctx (r, declKey, memberName); argExprs = args) ->
@@ -353,6 +354,7 @@ module internal ElaborateExpr =
     /// pin the receiver.
     and private translateNew
         (ctx: PassContext)
+        (key: NodeKey)
         (t: Type<SyntaxToken>)
         (argExpr: Expr<SyntaxToken>)
         (ty: SemType)
@@ -375,7 +377,7 @@ module internal ElaborateExpr =
 
                 nameOf t
 
-        mkNew ctx className ty (peelOneArg (translateExpr ctx) argExpr) tok
+        mkNew ctx className key ty (peelOneArg (translateExpr ctx) argExpr) tok
 
     /// An integer-range source (`for i in a..b do`) lowers to a counted
     /// `ForTo` loop — F#'s own lowering. There is no enumerable object to

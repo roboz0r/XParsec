@@ -385,7 +385,7 @@ type private Renderer() =
 
                 push ")"
 
-        | TExpr.New(className, args, _, _) ->
+        | TExpr.New(className, _, args, _, _) ->
             push "new "
             push className
             push "("

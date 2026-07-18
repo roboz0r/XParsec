@@ -321,8 +321,15 @@ type TExprG<'ty, 'tok> =
     /// Class primary-constructor invocation. `args` is the per-parameter
     /// list — the parser's tuple wrapper (`new Point(3, 4)` parses with
     /// a `Tuple` arg) is peeled in Elaborate so consumers see the ctor's
-    /// declared arity directly. `ty` is a `TyClass`.
-    | New of className: string * args: EqArray<TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
+    /// declared arity directly. `ty` is a `TyClass`. `key` is the chosen
+    /// EXTERNAL constructor's `SymbolKey.MemberKey` for a same-arity overload set
+    /// the front end resolved by argument type (`ArgumentException(string, string)`
+    /// vs `(string, Exception)`) — so codegen selects that exact `.ctor` by identity
+    /// instead of re-running overload resolution with no `PassContext`. `ValueNone`
+    /// for a project-local class (codegen resolves it by the result-type key + arity,
+    /// which F#'s ban on duplicate ctor signatures makes total) and for a scratch
+    /// class synthesised by Elaborate.
+    | New of className: string * key: SymbolKey voption * args: EqArray<TExprG<'ty, 'tok>> * ty: 'ty * tok: 'tok
     /// Instance method invocation: `r.M(args)`. `args` is the
     /// per-parameter list (peeled the same way as `New`). `ty` is the
     /// method's declared return type. `key` is the resolved local

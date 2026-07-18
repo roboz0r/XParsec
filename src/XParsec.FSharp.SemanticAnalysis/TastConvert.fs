@@ -103,7 +103,7 @@ module TastConvert =
         | TExprG.FieldGet(r, n, ty, tok) -> TExprG.FieldGet(pe r, n, f ty, tok)
         | TExprG.FieldSet(r, n, v, ty, tok) -> TExprG.FieldSet(pe r, n, pe v, f ty, tok)
         | TExprG.UnionCons(c, args, ty, tok) -> TExprG.UnionCons(c, EqArray.map pe args, f ty, tok)
-        | TExprG.New(c, args, ty, tok) -> TExprG.New(c, EqArray.map pe args, f ty, tok)
+        | TExprG.New(c, k, args, ty, tok) -> TExprG.New(c, k, EqArray.map pe args, f ty, tok)
         | TExprG.MethodCall(r, k, via, args, ty, tok) ->
             TExprG.MethodCall(pe r, k, viaOf f via, EqArray.map pe args, f ty, tok)
         | TExprG.PropertyGet(r, k, via, ty, tok) -> TExprG.PropertyGet(pe r, k, viaOf f via, f ty, tok)

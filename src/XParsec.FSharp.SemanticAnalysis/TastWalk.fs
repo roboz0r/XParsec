@@ -279,7 +279,7 @@ module TastWalk =
             | TExpr.FieldGet(r, n, ty, tok) -> TExpr.FieldGet(pe r, n, f ty, tok)
             | TExpr.FieldSet(r, n, v, ty, tok) -> TExpr.FieldSet(pe r, n, pe v, f ty, tok)
             | TExpr.UnionCons(c, args, ty, tok) -> TExpr.UnionCons(c, EqArray.map pe args, f ty, tok)
-            | TExpr.New(c, args, ty, tok) -> TExpr.New(c, EqArray.map pe args, f ty, tok)
+            | TExpr.New(c, k, args, ty, tok) -> TExpr.New(c, k, EqArray.map pe args, f ty, tok)
             // `CallVia.Interface` carries the constraining interface's instantiation
             // type args (rung-3) — they reference the enclosing type's typars, so a
             // declaring-typar remap (`freezeTypars`) must reach them too, else they
@@ -481,7 +481,7 @@ module TastWalk =
                 walk v
             | TExpr.StaticFieldSet(_, _, v, _, _) -> walk v
             | TExpr.UnionCons(_, args, _, _)
-            | TExpr.New(_, args, _, _)
+            | TExpr.New(_, _, args, _, _)
             | TExpr.StaticMethodCall(_, args, _, _)
             | TExpr.TraitCall(_, _, args, _, _)
             | TExpr.ILIntrinsic(_, _, args, _, _) ->

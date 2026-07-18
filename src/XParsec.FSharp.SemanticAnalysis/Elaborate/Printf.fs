@@ -198,7 +198,7 @@ module internal ElaboratePrintf =
                     let sVar () = TExpr.Var(sKey, scratch.ScratchTy, t)
 
                     let newScratch =
-                        TExpr.New(scratch.ScratchClassName, EqArray.empty, scratch.ScratchTy, t)
+                        TExpr.New(scratch.ScratchClassName, ValueNone, EqArray.empty, scratch.ScratchTy, t)
 
                     let toStringCall =
                         TExpr.App(

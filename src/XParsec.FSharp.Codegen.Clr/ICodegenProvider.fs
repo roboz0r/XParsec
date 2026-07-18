@@ -295,12 +295,15 @@ type ICodegenProvider =
     /// provider falls back to name-based matching for backwards compat.
     abstract TryEmitCall: compiledName: string * key: SymbolKey voption * fnTy: FrozenType -> CallRecipe voption
 
-    /// `tyArgs` are the constructed type's instantiation arguments. `argTypes` are
-    /// the call-site argument types (in source order), used by the external-ctor
-    /// path to disambiguate overloads — a v1 picker matches arity only, future
-    /// pickers can match by parameter type. The internal `PrintfFormat` recipe
-    /// ignores them.
-    abstract TryEmitCtor: key: SymbolKey * tyArgs: FrozenType list * argTypes: FrozenType list -> CtorRecipe voption
+    /// `chosen` is the front-end-resolved `.ctor`'s `SymbolKey.MemberKey` when a
+    /// `TExpr.New` recorded it — the external-ctor path selects that exact same-arity
+    /// overload by identity. `ValueNone` (a base-ctor `inherit` chain, the `PrintfFormat`
+    /// recipe, or a single-ctor type) falls back to the first arity match. `tyArgs` are
+    /// the constructed type's instantiation arguments; `argTypes` the call-site argument
+    /// types (in source order), retained for the arity filter and future diagnostics.
+    abstract TryEmitCtor:
+        key: SymbolKey * chosen: SymbolKey voption * tyArgs: FrozenType list * argTypes: FrozenType list ->
+            CtorRecipe voption
 
     /// `tyArgs` are the union type's instantiation arguments; the field values
     /// are already on the stack in declaration order beneath the call. The list

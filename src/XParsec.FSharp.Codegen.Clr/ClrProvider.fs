@@ -339,7 +339,8 @@ type ClrProvider
                                               }) -> recipes.EmitExternalCall(m, name, fnTy)
                 | _ -> ValueNone
 
-        member _.TryEmitCtor(key, tyArgs, argTypes) = ext.ExternalCtor(key, tyArgs, argTypes)
+        member _.TryEmitCtor(key, chosen, tyArgs, argTypes) =
+            ext.ExternalCtor(key, chosen, tyArgs, argTypes)
 
         member _.TryEmitUnionCons(key, caseName, tyArgs) =
             let elem () =

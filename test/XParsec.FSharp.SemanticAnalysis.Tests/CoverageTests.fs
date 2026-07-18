@@ -614,7 +614,7 @@ let tests =
                     |> Option.defaultWith (fun () -> failwithf "expected a let, got %A" tast.Decls)
 
                 match valExpr with
-                | TExpr.New(name, args, ty, _) ->
+                | TExpr.New(name, _, args, ty, _) ->
                     Expect.equal name "Point" "class name"
                     Expect.equal args.Length 2 "two ctor args"
                     Expect.equal ty (TyClass("Point", EqArray.empty)) "ty is TyClass Point"

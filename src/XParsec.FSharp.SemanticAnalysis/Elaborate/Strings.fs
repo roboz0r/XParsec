@@ -152,6 +152,8 @@ module internal ElaborateStrings =
                 // PrintfFormat<…>(text)` — the single `value: string` ctor.
                 TExpr.New(
                     PrintfSpec.printfFormatName,
+                    // Single `value: string` ctor — codegen resolves it by arity.
+                    ValueNone,
                     EqArray.singleton (
                         TExpr.Const(TConstValue.String(stitchLiteralString ctx parts), ctx.Intrinsics.String, tok)
                     ),

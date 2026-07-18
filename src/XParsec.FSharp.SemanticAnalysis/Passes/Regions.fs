@@ -301,7 +301,7 @@ module Regions =
         | TExpr.RecordCons(fields, _, _) -> holds s [ for (_, v) in fields -> inferRegion s ctx v ]
         | TExpr.RecordClone(src, ov, _, _) ->
             holds s [ yield inferRegion s ctx src; for (_, v) in ov -> inferRegion s ctx v ]
-        | TExpr.New(_, args, _, _)
+        | TExpr.New(_, _, args, _, _)
         | TExpr.UnionCons(_, args, _, _) -> holds s [ for a in args -> inferRegion s ctx a ]
         // Field / property reads produce no new allocation — the access rides
         // the receiver's region (the field's own storage is tracked via the

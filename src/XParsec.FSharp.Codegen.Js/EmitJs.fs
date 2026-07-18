@@ -242,7 +242,7 @@ module EmitJs =
         // External exception construction → `new <exn repr>(msg)`. The repr is sourced
         // from the `inherit` chain via `exnReprOf`; only the leading message arg is kept
         // (`Error` has no slot for further args). Non-`exn`-subtype external `New` fails loudly.
-        | TExprG.New(className, args, ty, _) ->
+        | TExprG.New(className, _, args, ty, _) ->
             // A locally-emitted class constructs by its emitted name with positional
             // args (the ctor stores each into the like-named field). Resolved before
             // the external `exn`-repr path.
