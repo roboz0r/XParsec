@@ -114,9 +114,9 @@ module Conformance =
         /// value-granularity FS0240 analogue (F#'s "RequiredButNotSpecified"). The
         /// converse (a `let` with no `val`) is NOT reported: F# silently allows an
         /// implementation value absent from the signature (a HiddenVal), so a private
-        /// helper `let` is not drift. (T8 Step 4.1; the signature/typar-ORDER half is the
-        /// SEMANTIC `ConformanceTypars` kernel — Step 4.2 — which runs over the frozen
-        /// TAST, not the raw CST this presence check sees.)
+        /// helper `let` is not drift. The signature/typar-ORDER half is the SEMANTIC
+        /// `ConformanceTypars` kernel, which runs over the frozen TAST, not the raw CST
+        /// this presence check sees.
         | ValueMissingInImpl of name: string
 
     /// Human-readable rendering of a conformance error.
@@ -384,22 +384,20 @@ module Conformance =
 
         List.ofSeq errors
 
-    // ---- Value-binding presence (T8 Step 4.1) ------------------------------------
+    // ---- Value-binding presence -------------------------------------------------
     //
-    // The kernel now also extracts MODULE-LEVEL `val` (signature) / `let` (impl)
-    // bindings — flattened across nested modules by `CstWalk` — and checks that every
-    // `.fsi` `val` has a matching `.fs` `let`. This is PRESENCE only: it does NOT
-    // compare the signatures or typar order (the "α-equivalence + typar count" half,
-    // Step 4.2). That half cannot run faithfully on the raw CST — `.fsi`/`.fs` differ
+    // Extracts MODULE-LEVEL `val` (signature) / `let` (impl) bindings — flattened
+    // across nested modules by `CstWalk` — and checks that every `.fsi` `val` has a
+    // matching `.fs` `let`. PRESENCE only: it does NOT compare the signatures or typar
+    // order. That half cannot run faithfully on the raw CST — `.fsi`/`.fs` differ
     // legally (`'a list` vs `List<'a>`, `seq<'a>` vs `IEnumerable<'a>`), so a syntactic
     // comparison flags false drift; it runs in the semantic, abbreviation-resolved
-    // `FrozenType` layer instead — the `ConformanceTypars` kernel (Step 4.2, DONE),
-    // which compares an extracted `.fsi` scheme against the frozen `.fs` binding.
+    // `FrozenType` layer instead — the `ConformanceTypars` kernel, which compares an
+    // extracted `.fsi` scheme against the frozen `.fs` binding.
     //
     // TYPE MEMBERS (members inside a `type`, e.g. `formatter`'s `AppendFormatted`
-    // overloads) are NOT extracted here — those are T8 Step 6 (generic members,
-    // cross-package). Only `ModuleElem.FunctionOrValue` lets / `ModuleSignatureElement.Val`
-    // sigs participate.
+    // overloads) are NOT extracted here (generic members, cross-package — a later rung).
+    // Only `ModuleElem.FunctionOrValue` lets / `ModuleSignatureElement.Val` sigs participate.
 
     /// One module-level value binding extracted from a `.fsi` or `.fs` file.
     [<Struct; NoEquality; NoComparison>]
@@ -515,7 +513,7 @@ module Conformance =
 
     /// Convenience over `summariseSig` + `summariseImpl` + `check` for a parsed
     /// `.fsi` / `.fs` pair (each with its own `Lexed` + source text). Includes the
-    /// value-presence check (Step 4.1): type findings first, then value findings.
+    /// value-presence check: type findings first, then value findings.
     let checkPair
         (sigLexed: Lexed)
         (sigInput: string)

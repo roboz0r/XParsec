@@ -2,9 +2,8 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open XParsec.FSharp.Parser
 
-// NodeKey is (firstToken.StartIndex, kind). Cases outside the tiny subset fall
-// through to failwith — extend the match arms as the constraint generator grows
-// to handle more node kinds.
+// NodeKey is (firstToken.StartIndex, kind). Shapes outside the handled subset fall
+// through to `failwith` — extend the match arms as new node kinds need keying.
 
 module CstKeys =
 
@@ -68,9 +67,8 @@ module CstKeys =
         | Expr.Tuple(exprs = exprs) when exprs.Length > 0 -> firstTokenOfExpr exprs.[0]
         | Expr.Sequential(exprs = exprs) when exprs.Length > 0 -> firstTokenOfExpr exprs.[0]
         | Expr.TypeAnnotation(expr = inner) -> firstTokenOfExpr inner
-        // Key off the cast operator token (not the inner expr's first token) so
-        // chained casts (`x :> A :> B`) and the inner expr never collide on
-        // NodeKey — same rationale as the `InfixApp` operator-token choice.
+        // The cast operator token, so chained casts (`x :> A :> B`) don't collide
+        // with each other or the inner expr (the `InfixApp` operator-token rule).
         | Expr.StaticUpcast(colonGreaterThan = t) -> t
         | Expr.DynamicTypeTest(colonQuestionMark = t) -> t
         | Expr.DynamicDowncast(colonQuestionMarkGreaterThan = t) -> t
@@ -91,9 +89,8 @@ module CstKeys =
             | StringKind.VerbatimInterpolatedString t
             | StringKind.Interpolated3String t -> t
         | Expr.DotLookup(expr = inner) -> firstTokenOfExpr inner
-        // Key off the `?` operator token (not the receiver's first token, which the
-        // receiver sub-expression already owns) so the two never collide and a chain
-        // `o?a?b` keys each `?` node distinctly — same rationale as `IndexedLookup`.
+        // The `?` operator token, so a chain `o?a?b` keys each node distinctly and
+        // never collides with the receiver (the `InfixApp` operator-token rule).
         | Expr.DynamicLookup(questionMark = t) -> t
         // A generic-type / generic-value application's first token is the applied
         // expr's (`EqualityComparer` in `EqualityComparer<int>`). Reached when an
@@ -103,16 +100,14 @@ module CstKeys =
         | Expr.RecordClone(lBrace = pk) -> firstTokenOfParenKind pk
         | Expr.New(newToken = t) -> t
         | Expr.ILIntrinsic(lHashParen = t) -> t
-        // Use the clause's `when` token (not the base expr's first token, which
-        // every nested clause in a chain would share) so each clause node keys
-        // distinctly — same rationale as the `InfixApp` operator-token choice.
+        // The clause's `when` token, so chained clauses key distinctly (the
+        // `InfixApp` operator-token rule).
         | Expr.LibraryOnlyStaticOptimization(whenToken = t) -> t
-        // Key off the `[` token (not the receiver's first token, which the
-        // receiver sub-expression already owns) so the two never collide —
-        // same rationale as the `InfixApp` operator-token choice.
+        // The `[` token, so a lookup never collides with its receiver (the
+        // `InfixApp` operator-token rule).
         | Expr.IndexedLookup(lBracket = t) -> t
-        // Key off the opening `(` of the invocation — unique to this node, so it
-        // never collides with the inner argument expression's own key.
+        // The invocation's opening `(` — unique to this node, so it never collides
+        // with the inner argument expression.
         | Expr.StaticMemberInvocation(lParen = t) -> t
         | _ -> failwithf "CstKeys.firstTokenOfExpr: TODO %A" e
 
@@ -131,13 +126,12 @@ module CstKeys =
         | Pat.Or(left = inner) -> firstTokenOfPat inner
         | Pat.Record(lBrace = t) -> t
         | Pat.Op io -> firstTokenOfIdentOrOp io
-        // Key off the `::` token — same rationale as the
-        // `InfixApp` operator-token choice.
+        // The `::` token (the `InfixApp` operator-token rule).
         | Pat.Cons(consToken = t) -> t
-        // Key off the `:?` token (not the inner binder) so the test node never
-        // collides with its inner `NamedSimple` sub-pattern's key.
+        // The `:?` token, not the inner binder, so the test node never collides with
+        // its inner sub-pattern (the operator-token rule). `TypeTest` is the bare
+        // `:? T` with no binder.
         | Pat.TypeTestAs(colonQuestion = t) -> t
-        // Bare `:? T` — key off the `:?` token (no inner binder to collide with).
         | Pat.TypeTest(colonQuestion = t) -> t
         | Pat.Null t -> t
         | _ -> failwithf "CstKeys.firstTokenOfPat: TODO %A" p

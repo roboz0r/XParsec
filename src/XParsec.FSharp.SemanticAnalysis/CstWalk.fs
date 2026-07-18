@@ -126,19 +126,6 @@ module OpenScope =
 
         go (candidates scope name)
 
-// Single point where Expr's recursion shape is enumerated. Passes layer
-// their pass-specific work on top via the ExprWalker record's hooks.
-//
-// `iterExpr` matches every Expr case explicitly (no `| _ -> ()` catchall),
-// so when the parser adds a new Expr case the F# warning-25 incomplete-
-// pattern check fires here — one place to update instead of every pass
-// silently no-oping the new case.
-//
-// State is *environment*, not accumulator: scope changes from EnterFun /
-// EnterBindingRhs / EnterLetBody apply only to the relevant child
-// traversal. Side-effecting outputs (side tables, diagnostics) live in
-// the closure captured by `Visit`.
-
 /// Active patterns and helpers for projecting `TypeDefn` shapes. The parser
 /// emits `TypeDefn.Anon` for the bare `type C(...) = member ...` form without
 /// an explicit `class`/`end`; semantically it is identical to `TypeDefn.Class`
@@ -381,6 +368,14 @@ module CstWalk =
         | ValueSome b -> b
         | ValueNone -> failwith "Expr.LetOrUse with no body (UseFixed) not supported"
 
+    // The single point where Expr's recursion shape is enumerated; passes layer their
+    // pass-specific work on top via the `ExprWalker` record's hooks. Every Expr case is
+    // matched explicitly (no `| _ -> ()` catch-all), so a new parser Expr case fails the
+    // warning-25 incomplete-match check here — one place to update instead of every pass
+    // silently no-oping it. State is *environment*, not accumulator: an `EnterFun` /
+    // `EnterBindingRhs` / `EnterLetBody` scope change applies only to the relevant child
+    // traversal; side-effecting outputs (side tables, diagnostics) live in the closure
+    // captured by `Visit`.
     let rec iterExpr (walker: ExprWalker<'env>) (env: 'env) (e: Expr<SyntaxToken>) : unit =
         walker.Visit env e
 
@@ -1150,20 +1145,20 @@ module CstWalk =
     /// recomputes the running open-accumulator per element so a consumer can resolve
     /// a short name against the `open`s actually in scope there.
     ///
-    /// `nameOf` reads a token's source text (the pass's `ctx.NameOf`); `ambient` is
-    /// the seed prefix set (empty today, the referenced-contract prelude later, §6).
-    /// `onScope` fires once per module/namespace body entered, paired with the
-    /// *propagated* rec flag (`true` if this scope or any enclosing scope is
-    /// `module rec` / `namespace rec`). FS3200's "opens must come first" rule
-    /// rides this propagated flag (§3.2/§9 — each module under a rec group is
-    /// independently an opens-first scope), distinct from the per-scope rec
-    /// flag that drives open-resolution's constant-prelude behavior below.
+    /// `nameOf` reads a token's source text (the pass's `ctx.NameOf`); `ambient` is the
+    /// seed prefix set — the referenced-contract prelude (`AmbientOpenPrefixes`), or
+    /// empty when the provider surfaces none. `onScope` fires once per module/namespace
+    /// body entered, paired with the *propagated* rec flag (`true` if this scope or any
+    /// enclosing scope is `module rec` / `namespace rec`). FS3200's "opens must come
+    /// first" rule rides this propagated flag (each module under a rec group is
+    /// independently an opens-first scope), distinct from the per-scope rec flag that
+    /// drives open-resolution's constant-prelude behaviour below.
     ///
-    /// Scope semantics (§3): a non-recursive module/namespace is a *running
-    /// accumulator* — an `open` is visible only to elements after it; a
-    /// `module rec` / `namespace rec` is a *constant prelude* — every `open` in the
-    /// scope applies to the whole body. A nested module inherits its enclosing
-    /// accumulator. Module abbrevs (`module R = A.B.C`) fold into `Abbrevs`.
+    /// Scope semantics: a non-recursive module/namespace is a *running accumulator* — an
+    /// `open` is visible only to elements after it; a `module rec` / `namespace rec` is a
+    /// *constant prelude* — every `open` in the scope applies to the whole body. A nested
+    /// module inherits its enclosing accumulator. Module abbrevs (`module R = A.B.C`)
+    /// fold into `Abbrevs`.
     let walkModuleTreeWith
         (nameOf: SyntaxToken -> string)
         (ambient: OpenScope)
@@ -1226,7 +1221,7 @@ module CstWalk =
 
         // Apply one element's own contribution (an `open` / module-abbrev) to the
         // running accumulator. `open type` is deferred (a member channel, not a
-        // namespace prefix — §6), so only `ImportDecl.ImportDecl` contributes.
+        // namespace prefix), so only `ImportDecl.ImportDecl` contributes.
         let accumulate
             (containment: DeclContainment<SyntaxToken>)
             (scope: OpenScope)
@@ -1264,7 +1259,7 @@ module CstWalk =
 
             if isRec then
                 // Constant prelude: all opens/abbrevs in this scope apply to the
-                // whole body, regardless of position (§3.2, FS3200).
+                // whole body, regardless of position (FS3200).
                 let constScope = (start, elems) ||> Seq.fold (accumulate containment)
 
                 for e in elems do
