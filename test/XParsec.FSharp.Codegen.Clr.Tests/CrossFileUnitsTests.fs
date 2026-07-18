@@ -96,6 +96,34 @@ printfn \"%d\" (s + e)
                 Expect.equal actual "24" "cross-file module fn + generic fn combine to 24"
             }
 
+            test "two units run: unit 2 boxes a value into unit 1's obj record field (cross-unit box)" {
+                // The field-init coercion (`unifyArg`) type-checks `{ V = 7 }` into unit 1's
+                // `V: obj` cross-unit; codegen must then box it (the external `recordFieldTy`
+                // arm), exactly as the local path does. A missing box is invalid IL that fails
+                // to load, so a clean unbox round-trip proves the cross-unit box fires.
+                let unit1 =
+                    "\
+namespace CrossFile
+
+module Lib =
+    type Box = { V: obj }
+"
+
+                let unit2 =
+                    "\
+open CrossFile.Lib
+
+let b = { V = 7 }
+let n = b.V :?> int
+printfn \"%d\" n
+"
+
+                let bytes = compileTwoUnits "CrossFileObjBox" unit1 unit2
+                let exitCode, output = runEntryPoint bytes
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" (output.Replace("\r", "").Trim()))
+                Expect.equal (output.Replace("\r", "").Trim()) "7" "the boxed int reads back cross-unit"
+            }
+
             test "two units run: unit 2 reads a record FIELD declared in unit 1 (ldfld re-homes local)" {
                 // R3 end-to-end: unit 1 declares a record and a factory returning it; unit 2
                 // reads `.X` off the factory result and prints it. The field read resolves

@@ -184,6 +184,27 @@ let tests =
                 Expect.isTrue hasUnknown "unknown-field-set diagnostic emitted"
             }
 
+            test "record obj field accepts a value initialiser (implicit box)" {
+                // `{ X = 5 }` into an `obj` field: F# boxes the int, so field-init COERCES via
+                // `unifyArg` (was a spurious `int vs obj` mismatch under symmetric `unify`).
+                // pat r at 24: 19-char type decl + "\n" + "let r = ".
+                let ctx = analyse "type R = { X: obj }\nlet r = { X = 5 }"
+
+                let patKey = NodeKey.ofSource 24 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyRecord("R", EqArray.empty)) "r : R"
+                Expect.isEmpty ctx.Diagnostics "the value boxes into the obj field — no mismatch"
+            }
+
+            test "record field still rejects an unrelated initialiser type" {
+                // The coercion is obj / subtype only: a string into an `int` field is not
+                // assignable, so `unifyArg` falls through to `unify` and diagnoses.
+                let ctx = analyse "type R = { X: int }\nlet r = { X = \"s\" }"
+
+                let hasError = ctx.Diagnostics |> Seq.exists (fun d -> d.Severity = Severity.Error)
+
+                Expect.isTrue hasError "a string into an int field is still a type error"
+            }
+
             test "field access on annotated parameter types as the field type" {
                 let ctx = analyse "type R = { X: int }\nlet f (r: R) = r.X"
 

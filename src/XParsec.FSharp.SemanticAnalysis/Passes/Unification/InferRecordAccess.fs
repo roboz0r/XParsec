@@ -73,15 +73,19 @@ module internal UnificationInferRecordAccess =
             TyVar(freshTyVar ctx)
         | ValueSome r ->
             // Fresh typars per literal so independent literals get independent vars; each
-            // initialiser unifies against the field type resolved under this literal's
-            // instantiation, pinning a `'a` field to the initialiser's type.
+            // initialiser COERCES into the field type resolved under this literal's
+            // instantiation via the argument-position rule (`unifyArg`), not symmetric
+            // `unify`: a field is an assignment target, so a value flows into an `obj` field
+            // by an implicit box exactly as into an `obj` ctor / union-case slot
+            // (`InferCtor`). A `'a` field still pins to the initialiser's type — a free-var
+            // target isn't coercible, so `unifyArg` falls through to `unify` and links it.
             let struct (recKey, args, fieldTypeOf) = recordConstructionOf ctx r
 
             for _, fieldName, e in pairs do
                 let eTy = infer ctx e
 
                 match fieldTypeOf fieldName with
-                | ValueSome fieldTy -> unify ctx (CstKeys.ofExpr e) eTy fieldTy
+                | ValueSome fieldTy -> unifyArg ctx (CstKeys.ofExpr e) eTy fieldTy
                 | ValueNone ->
                     ctx.Error(
                         CstKeys.ofExpr e,

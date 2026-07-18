@@ -35,6 +35,28 @@ let monoTests =
                 Expect.equal (output.Trim()) "7" "p.X returns the field value the literal stored"
             }
 
+            test "a value boxes into an obj record field + unboxes back (prints 7)" {
+                // `{ V = 7 }` into `V: obj`: field-init coerces (`unifyArg`), Elaborate wraps
+                // the int in an obj `Upcast`, codegen emits the `box`; `b.V :?> int` reads the
+                // field and `unbox.any`s it back. A missing box would be invalid IL that fails
+                // to load, so a clean round-trip proves the box fires.
+                let src =
+                    String.concat
+                        "\n"
+                        [
+                            "type Box = { V: obj }"
+                            "let b = { V = 7 }"
+                            "let n = b.V :?> int"
+                            "printfn \"%d\" n"
+                        ]
+
+                let tast, artifact = compileSource "RecObjFieldBox" src
+                Expect.isEmpty tast.Diagnostics (sprintf "no diagnostics: %A" tast.Diagnostics)
+                let exitCode, output = runEntryPoint (Codegen.toBytes artifact)
+                Expect.equal exitCode 0 "Main returns 0"
+                Expect.equal (output.Trim()) "7" "the boxed int reads back as 7"
+            }
+
             // Arity-overloaded records: `Point`2` and `Point`3` coexist as one name
             // (F# allows `(name, arity)`-distinct types, like `Choice`2`…`Choice`7`).
             // Exercises the record arity-keyed registry (no "Duplicate type definition"),

@@ -19,31 +19,28 @@ The item numbers are kept as originally written so the WHY comments at each seam
 Every deferred item already carries a WHY comment at its seam in the code; this plan is the
 design record behind those comments.
 
-## 4. `obj`-field boxing is unreachable (INCOMPLETE — the box home is dead upstream, NOT a codegen gap)
+## 4. `obj`-field boxing (records DONE; union cross-unit rides the union-construction gap)
 
-`recordFieldTy` / `unionCaseFieldTys` (`Elaborate/Resolve.fs`) feed `wrapObjArg`, which boxes a
-value flowing into an `obj` field (`type R = { X: obj }` + `{ X = 5 }`, `type U = C of obj` +
-`C 5`). F# accepts both with an implicit box (verified with `dotnet fsi`); this compiler REJECTS
-them *before codegen*, so the box home never runs — there is **no miscompile / no invalid IL**, and
-extending the box functions to read the external shape does NOT help, because the construction
-fails to type-check first. Original framing ("external records skip `wrapObjArg`; extend
-`recordFieldTy`/`unionCaseFieldTys` through the provider") was wrong: an external arm is
-unreachable dead code behind two upstream gaps.
+A value flowing into an `obj` field (`{ X = 5 }` into `X: obj`, `C 5` into `C of obj`) is boxed
+by `wrapObjArg`. F# accepts both via an implicit box; the original framing ("external records skip
+`wrapObjArg`; extend the box functions through the provider") was WRONG — the box home was
+unreachable because record field-init unified via *symmetric* `unify`, which rejected the value→obj
+coercion before codegen (no miscompile — a clean type error).
 
-- **Record:** the field initializer unifies via plain `unify` (`InferRecordAccess.fs:84`), which
-  has NO obj-absorption (that lives in `unifyArg` / `tryCoerceUpcast`, `Engine.fs`). So even a
-  LOCAL `{ X = 5 }` into `X: obj` fails with `Type mismatch: int vs obj` — the local `recordFieldTy`
-  obj arm is already dead for this reason.
-- **Union:** a LOCAL `C 5` into `C of obj` type-checks (the local box home is live), but CROSS-UNIT
-  construction is blocked by a separate resolution gap (`Unresolved identifier` / an unresolved
-  TyVar — not obj-specific; see the SCOPE NOTE in `CrossFileUnitsTests.fs`).
+**Records — DONE (local + cross-unit).** Record field-init now COERCES via `unifyArg`
+(`InferRecordAccess.fs`, the argument-position rule already used by ctor / union-case slots), so
+`{ X = 5 }` into an `obj` field type-checks. `recordFieldTy` (`Elaborate/Resolve.fs`) grew the
+external arm so the box fires for a cross-unit record too — without it the cross-unit case
+type-checked but emitted invalid IL (a real `InvalidProgramException`). Tested local + cross-unit,
+IL round-trip through `:?>`.
 
-**Fix (a unifier change, not a codegen/provider one):** route record field-init through the
-obj-absorbing `unifyArg` rather than plain `unify` at `InferRecordAccess.fs:84` — this lights up the
-LOCAL record box home first (a self-contained, IL-`box`-testable win that also matches F#), and the
-existing `recordFieldTy` local arm stops being dead. The cross-unit half then rides the separate
-union-construction resolution gap. Only once the construction type-checks is a provider/external
-arm reachable and worth adding — together with the box test the earlier framing could not write.
+**Unions — local DONE, cross-unit deferred.** A LOCAL `C 5` into `C of obj` already boxes
+(union-cons uses `unifyArg` in `InferCtor`; `unionCaseFieldTys`'s local arm feeds the box). The
+CROSS-UNIT case is blocked by the separate union-construction resolution gap (`Unresolved
+identifier` / unresolved TyVar — not obj-specific; SCOPE NOTE in `CrossFileUnitsTests.fs`). When
+that lands, `unionCaseFieldTys` needs the SAME external arm `recordFieldTy` now has, or a cross-unit
+union `obj` case-field will type-check without a box — add it there with the box test the gap
+currently prevents.
 
 ## 5. Enum registration (INCOMPLETE — projection boundary)
 
