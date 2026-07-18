@@ -1,17 +1,18 @@
 # Cross-unit name resolution — remaining gaps (post-records)
 
-*Cross-file **records** resolve end to end, and the three name-resolution gaps that were open
+*Cross-file **records** resolve end to end, and the name-resolution gaps that were open
 when this plan was written have since landed too — type-annotation by `open` (was item 1),
-cross-unit `[<RequireQualifiedAccess>]` on records + union cases (was item 2), and the
-ambient-scope / `open` gate on bare record construction (was item 3). Their design lives in the
-code and its tests, not here. What remains below are the gaps deliberately deferred until a
-corpus demands them, plus the separate publishing-format track — **none is a live miscompile.**
-The item numbers are kept as originally written so the WHY comments at each seam still match.*
+cross-unit `[<RequireQualifiedAccess>]` on records + union cases (was item 2), the
+ambient-scope / `open` gate on bare record construction (was item 3), and **cross-unit enum
+projection (item 5)**. Their design lives in the code and its tests, not here. What remains
+below are the gaps deliberately deferred until a corpus demands them, plus the separate
+publishing-format track — **none is a live miscompile.** The item numbers are kept as
+originally written so the WHY comments at each seam still match.*
 
 ## Two safety classes
 
 - **INCOMPLETE** — a *valid* cross-unit program fails to resolve. User-visible; fix on demand.
-  Items 4 (obj-field boxing), 5 (enums), 6 (interface members).
+  Items 4 (obj-field boxing), 6 (interface members).
 - **OVER-PERMISSIVE** — an *invalid* program wrongly resolves; **never a miscompile**. Item 6's
   member-level accessibility was this class; it has since landed (see below).
 - **SEPARATE TRACK** — item 7 (cross-package records) rides `publishing-format-plan.md`.
@@ -42,11 +43,20 @@ that lands, `unionCaseFieldTys` needs the SAME external arm `recordFieldTy` now 
 union `obj` case-field will type-check without a box — add it there with the box test the gap
 currently prevents.
 
-## 5. Enum registration (INCOMPLETE — projection boundary)
+## 5. Enum registration — DONE
 
-`FrozenSignature` leaves enum types unregistered, so a cross-unit enum falls back to a nominal
-`TyConst` (also listed under the multi-file plan's "Projection coverage boundaries"). **Fix:**
-project enums as records/unions are. Closes when the corpus references a cross-unit enum.
+`FrozenSignature` now projects a frozen enum's closed case→literal table to an
+`ExternalTypeShape.Enum` under its nominal key (mirroring the record / union arms), so a later
+file resolves `(x: E)` / `E.Ci` against it instead of falling back to a nominal `TyConst`. The
+shape is exactly what the consuming side already reads (`TypeHeadStamp.tryExternalEnumCaseKey`
+scans shapes — no case index needed). Numeric cases carry their `int64` value, string cases
+their text; the integral width is dropped (`ExternalEnumCaseValue` has none — external enums
+are a JS-target feature and never reach CLR codegen). An unresolved case (`ValueNone`) is
+dropped, matching the TS-manifest arm and `TEnumCases.classify`. Tested in
+`FrozenSignatureTests` (numeric + string projection); the consuming stamp path is covered by
+`ExternalEnumCaseStampTests` against the identical shape. The `.fsi` contract extractor still
+produces no `Enum` shape (a TS-manifest-only shape today — see `TypeTranslate` line ~470);
+cross-package enums ride the separate publishing-format track alongside item 7.
 
 ## 6. Interface-member decurrying (projection boundary; member accessibility DONE)
 

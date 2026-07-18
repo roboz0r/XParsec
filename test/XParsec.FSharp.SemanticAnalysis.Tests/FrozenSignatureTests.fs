@@ -364,6 +364,67 @@ module M =
                 Expect.equal (resolver.TryRecordsWithField "Z") [||] "unknown field 'Z' has no candidates"
             }
 
+            // --- enum projection (`ExternalTypeShape.Enum`) --------------------------------
+            //
+            // A frozen enum projects its closed case→literal table to an `Enum` shape under
+            // its nominal key, so a later file resolves `(x: E)` / `E.Ci` against it (was
+            // left unregistered — a nominal `TyConst` fallback). Numeric and string cases
+            // carry their compile-time value; the numeric width is intentionally dropped
+            // (`ExternalEnumCaseValue` has none).
+
+            test "numeric enum projects its cases with int64 values under home origin" {
+                let src =
+                    "\
+namespace Test.En
+
+module M =
+    type Direction =
+        | Up = 0
+        | Down = 1
+"
+
+                let frozen = analyseFrozen src
+                let store = FrozenSignature.toProvider asm frozen :> IExternalSymbolStore
+
+                match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Direction")) with
+                | ValueSome(ExternalTypeShape.Enum(cases, origin)) ->
+                    Expect.equal (cases |> Array.map (fun c -> c.Name)) [| "Up"; "Down" |] "case names in source order"
+
+                    Expect.equal
+                        (cases |> Array.map (fun c -> c.Value))
+                        [| ExternalEnumCaseValue.IntVal 0L; ExternalEnumCaseValue.IntVal 1L |]
+                        "case int64 values"
+
+                    Expect.equal origin.Home.AssemblyOption (ValueSome asm) "Direction carries home-assembly origin"
+                | other -> failtestf "Direction did not project as an Enum: %A" other
+            }
+
+            test "string enum projects its cases with string values" {
+                let src =
+                    "\
+namespace Test.En
+
+module M =
+    type Mode =
+        | On = \"on\"
+        | Off = \"off\"
+"
+
+                let frozen = analyseFrozen src
+                let store = FrozenSignature.toProvider asm frozen :> IExternalSymbolStore
+
+                match store.TryLookupType(SymbolKey.Type(typeKeyOf frozen "Mode")) with
+                | ValueSome(ExternalTypeShape.Enum(cases, _)) ->
+                    Expect.equal
+                        (cases |> Array.map (fun c -> c.Value))
+                        [|
+                            ExternalEnumCaseValue.StringVal "on"
+                            ExternalEnumCaseValue.StringVal "off"
+                        |]
+                        "case string values"
+                | other -> failtestf "Mode did not project as an Enum: %A" other
+            }
+
             test "TryRecordsWithField reports a generic record's typar arity" {
                 let src =
                     "\

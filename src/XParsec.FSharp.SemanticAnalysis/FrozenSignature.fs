@@ -377,11 +377,39 @@ module FrozenSignature =
 
                     register (ExternalTypeShape.Class shape) (ValueSome members)
 
-                | Frozen.TTypeKind.Enum _ ->
-                    // Enum-case literal projection (`TConstValue` → `ExternalEnumCaseValue`)
-                    // is deferred; an enum type is left unregistered (a consumer falls back
-                    // to nominal `TyConst`) rather than published as a body-less residue.
-                    ()
+                | Frozen.TTypeKind.Enum cases ->
+                    // Project the closed case→literal table to an `ExternalTypeShape.Enum`,
+                    // the shape a later file resolves `(x: E)` / `E.Ci` against — its nominal
+                    // identity IS the registered `key`, so no case index is needed (the
+                    // enum-case resolver scans shapes: `TypeHeadStamp.tryExternalEnumCaseKey`).
+                    // A case whose literal failed to resolve (`ValueNone`) is DROPPED — it has
+                    // no value to be referenced by, mirroring the TS-manifest arm's computed-
+                    // member drop and `TEnumCases.classify`'s treatment of an unresolved case
+                    // as absent. The integral WIDTH is intentionally not carried:
+                    // `ExternalEnumCaseValue` has none (external enums are a JS-target feature,
+                    // never CLR codegen; the underlying integral type is the frozen-layer
+                    // default), so a numeric case reduces to its `int64` value.
+                    let caseShapes =
+                        [|
+                            for c in cases do
+                                match c.Value with
+                                | ValueSome(TEnumLiteral.Int v) ->
+                                    {
+                                        Name = c.Name
+                                        Value = ExternalEnumCaseValue.IntVal(snd (TEnumCases.integralValue v))
+                                    }
+                                    : ExternalEnumCaseShape
+                                | ValueSome(TEnumLiteral.String s) ->
+                                    {
+                                        Name = c.Name
+                                        Value = ExternalEnumCaseValue.StringVal s
+                                    }
+                                | ValueNone -> ()
+                        |]
+
+                    // An enum carries no augmentation members (`TTypeKindG.members` is empty
+                    // for it), so it registers with a shape only.
+                    register (ExternalTypeShape.Enum(caseShapes, origin)) ValueNone
 
             | _ -> ()
 
