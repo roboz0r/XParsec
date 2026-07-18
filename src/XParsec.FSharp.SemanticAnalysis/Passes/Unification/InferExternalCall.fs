@@ -194,11 +194,25 @@ module internal UnificationInferExternalCall =
 
         (freshTv ctx fnKey).Link <- ValueSome memberSig
         let resultTy = TyVar(freshTyVar ctx)
-        // Coerce each argument position rather than unify the whole signature: an
-        // `obj` parameter must absorb a typar / value-type argument via the implicit
-        // box, not ground the typar. `unifyAppliedSig` walks the `actual` applied
-        // shape (`arg -> result`) against the member signature.
-        unifyAppliedSig ctx key (TyFun(argTy, resultTy)) memberSig
+
+        // Coerce each argument position rather than unify the whole signature: an `obj`
+        // parameter absorbs a typar / value-type argument via the implicit box (not
+        // grounding the typar), and — because the picker's subsumption tier admits an
+        // overload whose parameter is a base / interface of the argument
+        // (`CultureInfo` into an `IFormatProvider` slot) — a concrete subtype argument
+        // coerces up with its witnessed type args unified. `unifyArg`/`tryCoerceUpcast`
+        // is that richer coercion (the eager application seam's), where `unifyAppliedSig`'s
+        // `unifyArgCoerce` handles only the `obj`/union absorptions; the commit must accept
+        // exactly what filtering admitted. Walk the applied `arg -> result` spine against
+        // the member signature: domains coerce, the residual result unifies exactly.
+        let rec commitCoerce (actual: SemType) (expected: SemType) : unit =
+            match resolveStep actual, resolveStep expected with
+            | TyFun(ad, ar), TyFun(ed, er) ->
+                unifyArg ctx key ad ed
+                commitCoerce ar er
+            | a, b -> unify ctx key a b
+
+        commitCoerce (TyFun(argTy, resultTy)) memberSig
         resultTy
 
     /// Application-site overload resolution for a static external method call
@@ -239,7 +253,7 @@ module internal UnificationInferExternalCall =
                 // here, so refinement is deliberately scoped out (commit-seed only).
                 let facts = constArgFacts ctx argExpr
 
-                match pickBestOverload (capabilityCanonKey ctx) typeArgs candidates (argElemsOf argTy) with
+                match pickBestOverload ctx typeArgs candidates (argElemsOf argTy) with
                 | ValueSome chosen -> ValueSome(commitExternalOverload ctx key fn chosen typeArgs facts argTy)
                 | ValueNone ->
                     ValueSome(
@@ -313,7 +327,7 @@ module internal UnificationInferExternalCall =
                     let argTy =
                         admitLiteralMethodTypars ctx candidates declArgs facts (infer ctx argExpr)
 
-                    match pickBestOverload (capabilityCanonKey ctx) declArgs candidates (argElemsOf argTy) with
+                    match pickBestOverload ctx declArgs candidates (argElemsOf argTy) with
                     | ValueSome chosen -> ValueSome(commitExternalOverload ctx key fn chosen declArgs facts argTy)
                     // No unique best on the argument types: decline rather than
                     // error, so the existing single-pick path keeps the prior

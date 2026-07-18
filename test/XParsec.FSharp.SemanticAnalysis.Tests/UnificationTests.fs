@@ -1459,7 +1459,6 @@ let tests =
             // the candidate array itself. Each candidate is keyed as the member it is
             // (a static method on a stub type `C`); only `argSig` length (arity) and
             // the `Signature` parameters are load-bearing here.
-            let objTy = TyConst(RuntimeNames.objKey, EqArray.empty)
             let unitFt = FTConst(RuntimeNames.unitKey, EqArray.empty)
 
             let overloadMember (paramFts: FrozenType list) (methodTyparArity: int) : ExternalMember =
@@ -1482,52 +1481,109 @@ let tests =
                     Signature = TestHelpers.mkSignature 0 methodTyparArity parameters unitFt
                 }
 
+            // `pickBestOverload` needs a `PassContext` — `subsumes` walks the class
+            // hierarchy `ctx` carries, and `canon` is `capabilityCanonKey ctx`. The
+            // pure-structural cases (no residue / shared typar / non-ground arg) only need
+            // the BCL primitives a minimal analysed program already provides; the subtyping
+            // cases below analyse a `Base`/`Derived` source so `ctx.Types` holds the inherit
+            // chain `subsumes` reads.
+            let overloadCtx = analyse "let _ = 0"
+
+            let pickWith
+                (ctx: PassContext)
+                (typeArgs: SemType[])
+                (candidates: ExternalMember[])
+                (args: SemType list)
+                : ExternalMember voption =
+                UnificationInferOverload.pickBestOverload ctx typeArgs candidates args
+
             let pick (candidates: ExternalMember[]) (args: SemType list) : ExternalMember voption =
-                UnificationInferOverload.pickBestOverload id [||] candidates args
+                pickWith overloadCtx [||] candidates args
 
             let chosenParams (m: ExternalMember) : SemType list =
                 UnificationInferOverload.memberParamTypes [||] m
 
             let intFt = FTConst(RuntimeNames.intKey, EqArray.empty)
-            let objFt = FTConst(RuntimeNames.objKey, EqArray.empty)
+            let stringFt = FTConst(RuntimeNames.stringKey, EqArray.empty)
+
+            // A `GrandBase :> Base :> Derived` chain registered in `ctx` so `subsumes` walks a
+            // real `inherit` hierarchy; the subtyping candidates below take their parameter
+            // shapes from these same class types via `toFrozen`.
+            let hierCtx =
+                analyse
+                    "type GrandBase() =\n    member this.G = 1\ntype Base() =\n    inherit GrandBase()\n    member this.B = 1\ntype Derived() =\n    inherit Base()\n    member this.D = 1"
+
+            let grandBaseTy = TyClass("GrandBase", EqArray.empty)
+            let baseTy = TyClass("Base", EqArray.empty)
+            let derivedTy = TyClass("Derived", EqArray.empty)
+
+            // A one-parameter candidate keyed by its parameter shape (so two same-name
+            // members are distinct); the declaring type is irrelevant to the pick.
+            let classMember (paramTy: SemType) : ExternalMember = overloadMember [ toFrozen paramTy ] 0
+
+            // A one-parameter instance member on the generic declaring type `Box<'a>`; its
+            // single declaring typar is substituted from the picker's `typeArgs` before any
+            // ranking, so `M('a)` at `Box<int>` presents an `int` parameter.
+            let boxMember (paramFt: FrozenType) : ExternalMember =
+                { ExternalMember.OfKey(
+                      SymbolKeyOps.memberKeyOf
+                          (SymbolKeyOps.qualifiedTypeKeyOf "Box" 1)
+                          "M"
+                          (EqArray.singleton paramFt)
+                          0
+                          MemberKind.Method
+                  ) with
+                    IsStatic = false
+                    Signature = TestHelpers.mkSignature 1 0 paramFt unitFt
+                }
+
+            let chosenParamsWith (typeArgs: SemType[]) (m: ExternalMember) : SemType list =
+                UnificationInferOverload.memberParamTypes typeArgs m
 
             test "a rejected overload trial leaves the caller TyVar free (no residue)" {
                 // The FIRST candidate `M(int, int)` binds the caller-side free var to
                 // `int` at position one, then FAILS at position two (`string` vs `int`);
-                // its scratch substitution is dropped. `M(obj, obj)` then wins. The trial
-                // must never touch the shared union-find, so the free var stays free.
-                // Passes vacuously TODAY (nothing is tried) — it guards the new machinery.
+                // its scratch substitution is dropped. `M(string, string)` then wins (its
+                // own fresh scratch binds the free var to `string`). The trial must never
+                // touch the shared union-find, so the free var stays free afterwards.
                 let freeTv = TypeVar()
 
                 let candidates =
-                    [| overloadMember [ intFt; intFt ] 0; overloadMember [ objFt; objFt ] 0 |]
+                    [| overloadMember [ intFt; intFt ] 0; overloadMember [ stringFt; stringFt ] 0 |]
 
                 let chosen = pick candidates [ TyVar freeTv; BuiltinTypes.tyString ]
 
-                Expect.equal chosen.IsSome true "M(obj, obj) is applicable"
-                Expect.equal (chosenParams chosen.Value) [ objTy; objTy ] "the obj overload wins"
+                Expect.equal chosen.IsSome true "M(string, string) is applicable"
+
+                Expect.equal
+                    (chosenParams chosen.Value)
+                    [ BuiltinTypes.tyString; BuiltinTypes.tyString ]
+                    "the string overload wins"
+
                 Expect.equal freeTv.Link ValueNone "the failed trial left the caller TyVar free"
             }
 
             test "a shared method typar must bind consistently across argument positions" {
                 // `M<'T>('T, 'T)` called with `(int, string)` is NOT applicable: `'T`
                 // binds `int` at position one, so `string` at position two rejects it.
-                // `M(obj, obj)` wins. fsi confirms the shared-typar overload is rejected
-                // and the obj overload is chosen. A LONE `M<'T>('T,'T)` would instead
-                // surface as a commit-seam type error (the picker is never entered for a
-                // single name/arity candidate), so the second candidate is essential.
+                // `M(int, string)` wins. fsi confirms the shared-typar overload is rejected.
+                // A LONE `M<'T>('T,'T)` would instead surface as a commit-seam type error
+                // (the picker is never entered for a single name/arity candidate), so the
+                // second candidate is essential.
                 let shared =
                     overloadMember [ FTTypar(TyparAxis.Method, 0); FTTypar(TyparAxis.Method, 0) ] 1
 
-                let objObj = overloadMember [ objFt; objFt ] 0
-                let chosen = pick [| shared; objObj |] [ BuiltinTypes.tyInt; BuiltinTypes.tyString ]
+                let concrete = overloadMember [ intFt; stringFt ] 0
 
-                Expect.equal chosen.IsSome true "M(obj, obj) is applicable after the shared-typar reject"
+                let chosen =
+                    pick [| shared; concrete |] [ BuiltinTypes.tyInt; BuiltinTypes.tyString ]
+
+                Expect.equal chosen.IsSome true "M(int, string) is applicable after the shared-typar reject"
 
                 Expect.equal
                     (chosenParams chosen.Value)
-                    [ objTy; objTy ]
-                    "the obj overload wins, not the shared-typar one"
+                    [ BuiltinTypes.tyInt; BuiltinTypes.tyString ]
+                    "the concrete overload wins, not the shared-typar one"
             }
 
             test "a non-ground argument resolves against a concrete-parameter overload" {
@@ -1541,5 +1597,86 @@ let tests =
 
                 Expect.equal chosen.IsSome true "the free argument binds against M(int) — the set is not killed"
                 Expect.equal (chosenParams chosen.Value) [ BuiltinTypes.tyInt ] "M(int) is chosen"
+            }
+
+            test "the more derived parameter wins the applicable-tier ranking" {
+                // `M(Base)` / `M(GrandBase)`, argument `Derived`: neither is an exact match, so
+                // both enter the applicable tier by subsumption. `Base` is the more derived of
+                // the two (`Base :> GrandBase`), so `compareTypes` ranks `M(Base)` strictly
+                // above `M(GrandBase)`. fsi confirms the nearer base wins.
+                let candidates = [| classMember baseTy; classMember grandBaseTy |]
+                let chosen = pickWith hierCtx [||] candidates [ derivedTy ]
+
+                Expect.equal chosen.IsSome true "a unique best exists"
+                Expect.equal (chosenParams chosen.Value) [ baseTy ] "M(Base) beats M(GrandBase)"
+            }
+
+            test "an exact match beats an applicable supertype" {
+                // `M(Base)` / `M(Derived)`, argument `Derived`: the exact tier finds a single
+                // structural survivor (`M(Derived)`) and returns it with no betterness
+                // reasoning — `M(Base)`, applicable only by subsumption, never competes. fsi
+                // confirms `M(Derived)`.
+                let candidates = [| classMember baseTy; classMember derivedTy |]
+                let chosen = pickWith hierCtx [||] candidates [ derivedTy ]
+
+                Expect.equal chosen.IsSome true "a unique best exists"
+                Expect.equal (chosenParams chosen.Value) [ derivedTy ] "the exact M(Derived) wins"
+            }
+
+            test "the subsumption tier admits a supertype when no exact match exists" {
+                // `M(Base)` / `M(int)`, argument `Derived`: no exact match, so the applicable
+                // tier decides. `Derived :> Base` admits `M(Base)`; `Derived` is unrelated to
+                // `int`, so `M(int)` drops out, leaving `M(Base)` the sole survivor.
+                let intClassMember = classMember (TyConst(RuntimeNames.intKey, EqArray.empty))
+                let candidates = [| classMember baseTy; intClassMember |]
+                let chosen = pickWith hierCtx [||] candidates [ derivedTy ]
+
+                Expect.equal chosen.IsSome true "M(Base) is applicable by subsumption"
+                Expect.equal (chosenParams chosen.Value) [ baseTy ] "the supertype parameter is admitted"
+            }
+
+            test "an overload on a generic class substitutes the class typar before ranking" {
+                // `Box<'a>` with `M('a)` / `M(string)`, at `Box<int>`: `openSignature`
+                // substitutes the declaring typar so `M('a)` presents an `int` parameter, and
+                // the exact tier then selects by the SUBSTITUTED shape. fsi confirms `M('a)`
+                // for an `int` argument and `M(string)` for a `string` argument.
+                let candidates =
+                    [| boxMember (FTTypar(TyparAxis.Declaring, 0)); boxMember stringFt |]
+
+                let typeArgs = [| BuiltinTypes.tyInt |]
+
+                let atInt = pickWith overloadCtx typeArgs candidates [ BuiltinTypes.tyInt ]
+                Expect.equal atInt.IsSome true "the int argument resolves"
+
+                Expect.equal
+                    (chosenParamsWith typeArgs atInt.Value)
+                    [ BuiltinTypes.tyInt ]
+                    "M('a) — the substituted typar slot — wins for int"
+
+                let atString = pickWith overloadCtx typeArgs candidates [ BuiltinTypes.tyString ]
+                Expect.equal atString.IsSome true "the string argument resolves"
+
+                Expect.equal
+                    (chosenParamsWith typeArgs atString.Value)
+                    [ BuiltinTypes.tyString ]
+                    "M(string) wins for string"
+            }
+
+            test "the non-generic overload is preferred over an equally-applicable generic one" {
+                // `M<'a>('a)` / `M(int)`, argument `int`: both are applicable (the method typar
+                // binds `int`), their arguments compare equal, so the non-generic tiebreaker
+                // selects `M(int)`. A `string` argument instead makes only the generic overload
+                // applicable. fsi confirms both.
+                let generic = overloadMember [ FTTypar(TyparAxis.Method, 0) ] 1
+                let concrete = overloadMember [ intFt ] 0
+                let candidates = [| generic; concrete |]
+
+                let atInt = pick candidates [ BuiltinTypes.tyInt ]
+                Expect.equal atInt.IsSome true "the int argument resolves"
+                Expect.equal atInt.Value.MethodTyparArity 0 "the non-generic M(int) wins for int"
+
+                let atString = pick candidates [ BuiltinTypes.tyString ]
+                Expect.equal atString.IsSome true "the string argument resolves"
+                Expect.equal atString.Value.MethodTyparArity 1 "only the generic overload matches string"
             }
         ]

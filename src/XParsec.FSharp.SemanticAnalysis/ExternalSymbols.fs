@@ -1392,7 +1392,7 @@ module ExternalSymbols =
     /// as `TyTypar(Method,j)` markers — exactly the shape `BuildSignature`
     /// produced. This is the applicability-
     /// filtering / single-pick form; a generic method's `TyTypar(Method,_)`
-    /// stays a wildcard for `InferOverload.applicabilityMatches`, and the bind site that
+    /// stays a wildcard for `InferOverload.matchTypes`, and the bind site that
     /// commits the member freshens them separately (`instantiateSignature`, or
     /// `Infer.instantiateMethodTypars`). For a non-generic member (the common
     /// case) it is byte-identical to `instantiateSignature` at any level. Realises the
