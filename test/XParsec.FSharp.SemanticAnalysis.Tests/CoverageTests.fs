@@ -1145,4 +1145,49 @@ let tests =
 
                 Expect.isEmpty tast.Diagnostics "no diagnostics"
             }
+
+            test "an overloaded user member call carries a total, overload-distinguishing key" {
+                // The two `Show` calls must lower to `MethodCall` nodes whose keys DIFFER —
+                // the frozen `MemberKey.ArgSig` distinguishes `Show(int)` from `Show(string)`.
+                // Freeze reads the inference-recorded key verbatim (no re-pick), so the
+                // elaborated tree already carries the distinguishing identity.
+                let tast =
+                    analyse
+                        "type Printer() =\n    member this.Show(x: int) = x\n    member this.Show(x: string) = true\nlet p = Printer()\nlet a = p.Show(1)\nlet b = p.Show(\"hi\")"
+
+                let calls = ResizeArray<SymbolKey>()
+
+                let it =
+                    { TastWalk.identityIter with
+                        VisitExpr =
+                            fun _ e ->
+                                match e with
+                                | TExpr.MethodCall(key = k) -> calls.Add k
+                                | _ -> ()
+
+                                true
+                    }
+
+                for d in EqArray.toList tast.Decls do
+                    match d with
+                    | TDecl.Let(_, value, _, _) -> TastWalk.iterExpr it value
+                    | _ -> ()
+
+                // The single-`FTConst` parameter head name of a member key, if any.
+                let argHead (k: SymbolKey) : string option =
+                    match k with
+                    | SymbolKey.Member mk when mk.ArgSig.Length = 1 ->
+                        match mk.ArgSig.[0] with
+                        | FTConst(sk, _) ->
+                            let (DisplayName n) = SymbolKeyOps.simpleName sk
+                            Some n
+                        | _ -> None
+                    | _ -> None
+
+                Expect.equal calls.Count 2 "two overloaded Show calls lowered to MethodCall nodes"
+                Expect.notEqual calls.[0] calls.[1] "the two Show overloads carry DISTINCT keys"
+                Expect.equal (argHead calls.[0]) (Some "int") "p.Show(1) keyed on Show(int)"
+                Expect.equal (argHead calls.[1]) (Some "string") "p.Show(\"hi\") keyed on Show(string)"
+                Expect.isEmpty tast.Diagnostics "no diagnostics"
+            }
         ]

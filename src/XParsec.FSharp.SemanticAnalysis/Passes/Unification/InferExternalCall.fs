@@ -153,6 +153,19 @@ module internal UnificationInferExternalCall =
 
             [ for kv in seed -> kv.Key, kv.Value ]
 
+    /// Commit an applied `arg -> result` shape against a resolved member signature: coerce
+    /// each argument position via `unifyArg`/`tryCoerceUpcast` — the richer coercion the
+    /// picker's subsumption tier admits (a superset of `unifyArgCoerce`'s obj/union
+    /// absorption, so the commit accepts exactly what filtering did, base/interface arguments
+    /// included) — and unify the residual result exactly. The one overload-commit spine walk,
+    /// shared by the external and project-local overload paths so they cannot drift.
+    let rec private commitAppliedCoerce (ctx: PassContext) (key: NodeKey) (actual: SemType) (expected: SemType) : unit =
+        match resolveStep actual, resolveStep expected with
+        | TyFun(ad, ar), TyFun(ed, er) ->
+            unifyArg ctx key ad ed
+            commitAppliedCoerce ctx key ar er
+        | a, b -> unify ctx key a b
+
     /// Commit a call-site-resolved external overload (static or instance): record
     /// the chosen `SymbolKey` to `ExternalAccess` keyed on the member node where
     /// Elaborate reads it, freshen the member's method-owned typars (`Take<TSource>`)
@@ -195,24 +208,12 @@ module internal UnificationInferExternalCall =
         (freshTv ctx fnKey).Link <- ValueSome memberSig
         let resultTy = TyVar(freshTyVar ctx)
 
-        // Coerce each argument position rather than unify the whole signature: an `obj`
-        // parameter absorbs a typar / value-type argument via the implicit box (not
-        // grounding the typar), and — because the picker's subsumption tier admits an
-        // overload whose parameter is a base / interface of the argument
-        // (`CultureInfo` into an `IFormatProvider` slot) — a concrete subtype argument
-        // coerces up with its witnessed type args unified. `unifyArg`/`tryCoerceUpcast`
-        // is that richer coercion (the eager application seam's), where `unifyAppliedSig`'s
-        // `unifyArgCoerce` handles only the `obj`/union absorptions; the commit must accept
-        // exactly what filtering admitted. Walk the applied `arg -> result` spine against
-        // the member signature: domains coerce, the residual result unifies exactly.
-        let rec commitCoerce (actual: SemType) (expected: SemType) : unit =
-            match resolveStep actual, resolveStep expected with
-            | TyFun(ad, ar), TyFun(ed, er) ->
-                unifyArg ctx key ad ed
-                commitCoerce ar er
-            | a, b -> unify ctx key a b
-
-        commitCoerce (TyFun(argTy, resultTy)) memberSig
+        // The applied `arg -> result` spine coerces against the member signature: an `obj`
+        // parameter absorbs a typar / value-type argument via the implicit box without
+        // grounding the typar, and a base / interface parameter accepts the concrete subtype
+        // argument the subsumption tier admitted (`CultureInfo` into an `IFormatProvider`
+        // slot), its witnessed type args unified.
+        commitAppliedCoerce ctx key (TyFun(argTy, resultTy)) memberSig
         resultTy
 
     /// Application-site overload resolution for a static external method call
@@ -345,6 +346,130 @@ module internal UnificationInferExternalCall =
         // a type-qualified head (`TextWriter.Synchronized`) is the static probe's
         // job and is excluded by the binding guard. The receiver is the chain minus
         // its last segment; the member is the last segment.
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+            li.Idents.Length >= 2
+            && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
+            ->
+            let recvTy = inferLongIdentReceiverPrefix ctx (CstKeys.ofExpr fn) li
+            resolveOn recvTy (ctx.NameOf li.Idents.[li.Idents.Length - 1])
+        | _ -> ValueNone
+
+    /// Call-site overload resolution for a project-LOCAL instance method call
+    /// (`p.Show(1)`, `r.M(a, b)`). The user-declared twin of
+    /// `tryInferExternalInstanceMethodCall`: where that probe keys off an external
+    /// receiver, this one fires when the receiver is a project-local class / union / record
+    /// whose member name has >1 instance candidate. It is the ONE place a user-member
+    /// overload set is arg-resolved — the dot-access member-TYPE sites have no arguments, so
+    /// they keep first-match (correct for the non-overloaded names those sites ever reach,
+    /// since this probe intercepts every overloaded call before them).
+    ///
+    /// On a unique winner it commits (unifies the applied arguments against the chosen
+    /// member's instantiated arrow) AND records the chosen member's TOTAL frozen `MemberKey`
+    /// on the call node so Elaborate/Freeze resolves the identical overload by identity,
+    /// never a second name-based pick. `NoneApplicable` / `Ambiguous` raise the two distinct
+    /// call-site diagnostics; a non-overloaded name (`NotOverloaded`) declines so the
+    /// single-pick `resolveFieldStep` path runs unchanged.
+    and tryInferLocalInstanceMethodCall
+        (infer: Infer)
+        (ctx: PassContext)
+        (key: NodeKey)
+        (fn: Expr<SyntaxToken>)
+        (argExpr: Expr<SyntaxToken>)
+        : SemType voption =
+        // The receiver's declaring nominal, as `(declKey, typeParams, args, members)` — a
+        // project-local class / union / record. `ValueNone` for any other receiver (an
+        // external nominal, a typar, a primitive), which declines to the existing path.
+        let localHost
+            (recvTy: SemType)
+            : struct (TypeKey * EqArray<string * TypeVar> * EqArray<SemType> * TypeMemberInfo[]) voption =
+            match resolveStep recvTy with
+            | TyClass(key, args) ->
+                match TypeRegistry.tryClassByKey ctx.Types key with
+                | ValueSome info -> ValueSome(struct (info.TypeKey, info.TypeParams, args, info.Members))
+                | ValueNone -> ValueNone
+            | TyUnion(key, args) ->
+                match TypeRegistry.tryUnionByKey ctx.Types key with
+                | ValueSome info -> ValueSome(struct (info.TypeKey, info.TypeParams, args, info.Members))
+                | ValueNone -> ValueNone
+            | TyRecord(key, args) ->
+                match TypeRegistry.tryRecordByKey ctx.Types key with
+                | ValueSome info -> ValueSome(struct (info.TypeKey, info.TypeParams, args, info.Members))
+                | ValueNone -> ValueNone
+            | _ -> ValueNone
+
+        // A short parameter-shape rendering for the ambiguity diagnostic — the nominal head
+        // simple name (`int`, `IA`), or `_` for a still-open position.
+        let describeParams (ps: SemType list) : string =
+            let one (t: SemType) =
+                let keyOpt =
+                    match zonk t with
+                    | TyConst(k, _) -> ValueSome k
+                    | TyClass(k, _)
+                    | TyRecord(k, _)
+                    | TyUnion(k, _) -> ValueSome(SymbolKey.Type k)
+                    | _ -> ValueNone
+
+                match keyOpt with
+                | ValueSome k ->
+                    let (DisplayName n) = SymbolKeyOps.simpleName k
+                    n
+                | ValueNone -> "_"
+
+            ps |> List.map one |> String.concat ", "
+
+        let resolveOn (recvTy: SemType) (memberName: string) : SemType voption =
+            match localHost recvTy with
+            | ValueNone -> ValueNone
+            | ValueSome(struct (declKey, typeParams, args, members)) ->
+                let argTy = infer ctx argExpr
+                let argElems = argElemsOf argTy
+
+                match resolveMember ctx typeParams args members memberName false argElems with
+                | MemberPick.NotOverloaded -> ValueNone
+                | MemberPick.NoneApplicable ->
+                    ValueSome(
+                        errorTy
+                            ctx
+                            key
+                            (sprintf
+                                "No overload for method '%s' takes the given arguments (%s)"
+                                memberName
+                                (describeParams argElems))
+                    )
+                | MemberPick.Ambiguous cands ->
+                    let shown =
+                        cands
+                        |> List.map (fun m ->
+                            sprintf "%s(%s)" memberName (describeParams (userMemberParams ctx typeParams args m))
+                        )
+                        |> String.concat "; "
+
+                    ValueSome(
+                        errorTy
+                            ctx
+                            key
+                            (sprintf "Ambiguous call to overloaded method '%s'; candidates: %s" memberName shown)
+                    )
+                | MemberPick.Resolved chosen ->
+                    // Commit: unify the applied `argTy -> resultTy` against the chosen
+                    // member's instantiated arrow (domains coerce, the residual result
+                    // unifies), exactly as the external overload commit does.
+                    let memberArrow =
+                        instantiateMemberCall ctx (typeParams, args) chosen.EffectiveMethodTypars chosen.Type
+
+                    let resultTy = TyVar(freshTyVar ctx)
+                    commitAppliedCoerce ctx key (TyFun(argTy, resultTy)) memberArrow
+
+                    // The inference→Freeze handshake: record the chosen overload's TOTAL
+                    // frozen `MemberKey` so Elaborate stamps the identical identity with no
+                    // second pick.
+                    ctx.Resolution.LocalMemberCall.Set(key, frozenUserMemberKey declKey typeParams chosen)
+
+                    ValueSome resultTy
+
+        match fn with
+        | Expr.DotLookup(expr = recv; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+            resolveOn (infer ctx recv) (ctx.NameOf li.Idents.[0])
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
             li.Idents.Length >= 2
             && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)

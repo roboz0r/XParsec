@@ -1244,6 +1244,40 @@ module Unification =
         for kv in ctx.Types.Record do
             checkHost (kv.Value :> IInterfaceImplHost)
 
+    /// FS0438: two members with the same name, static-ness, kind, value-parameter
+    /// signature and method-typar arity — a genuine duplicate, unreachable rather than a
+    /// legal overload (which differs in one of those axes). Runs AFTER `walkElems` so each
+    /// member's `.Type` is filled and its parameter signature is knowable; the overload
+    /// identity is the frozen argSig `memberSignatureKey` mints (the same total identity the
+    /// call-site handshake records), so `Show(int)` / `Show(string)` coexist while
+    /// `M(int)` / `M(int)` collide. Anchored at the duplicate's own `DeclKey`, matching
+    /// fsc's declaration-time timing.
+    let private checkDuplicateMembers (ctx: PassContext) : unit =
+        let checkHost (typeParams: EqArray<string * TypeVar>) (members: TypeMemberInfo[]) =
+            let seen = HashSet<_>(HashIdentity.Structural)
+
+            for m in members do
+                if not (seen.Add(UnificationInferOverload.memberSignatureKey typeParams m)) then
+                    ctx.Diagnostics.Add
+                        {
+                            Key = m.DeclKey
+                            Message =
+                                sprintf
+                                    "Duplicate definition of member '%s' — same name and signature as an earlier member"
+                                    m.Name
+                            Code = "FS0438"
+                            Severity = Severity.Error
+                        }
+
+        for kv in ctx.Types.Class do
+            checkHost kv.Value.TypeParams kv.Value.Members
+
+        for kv in ctx.Types.Union do
+            checkHost kv.Value.TypeParams kv.Value.Members
+
+        for kv in ctx.Types.Record do
+            checkHost kv.Value.TypeParams kv.Value.Members
+
     let run (ctx: PassContext) (file: ImplementationFile<SyntaxToken>) : unit =
         // Recompute the same per-element `OpenScope` NameResolution did, from the
         // same stable ambient seed (`AmbientOpenScope`, not the per-element
@@ -1253,3 +1287,4 @@ module Unification =
         walkElems ctx (CstWalk.walkModuleTreeWith ctx.NameOf ctx.Resolution.AmbientOpenScope (fun _ _ -> ()) file)
         resolveListLiterals ctx
         validateCustomEqCompImpls ctx
+        checkDuplicateMembers ctx

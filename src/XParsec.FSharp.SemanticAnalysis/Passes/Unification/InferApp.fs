@@ -258,6 +258,7 @@ module internal UnificationInferApp =
         |> ValueOption.orElseWith (fun () -> single (tryInferExternalGenericCtorApp infer))
         |> ValueOption.orElseWith (fun () -> single (tryInferLocalCtorApp infer))
         |> ValueOption.orElseWith (fun () -> single (tryInferExternalInstanceMethodCall infer))
+        |> ValueOption.orElseWith (fun () -> single (tryInferLocalInstanceMethodCall infer))
         |> ValueOption.defaultWith (fun () ->
             // Infer the head and each argument once, then either fill omitted trailing
             // optional arguments (an external method call short of its full arity) or

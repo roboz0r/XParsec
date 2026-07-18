@@ -218,6 +218,16 @@ type PassContextResolution =
         /// `.ctor` by identity instead of re-running overload resolution. Absent ⇒ a
         /// project-local construction (resolved by result-type key + arity).
         ExternalCtor: SideTable<SymbolKey>
+        /// Keyed by an *overloaded* project-local method-call node (the same App/HPA
+        /// `NodeKey` the call-seam probe resolves under): the TOTAL frozen `MemberKey`
+        /// (`SymbolKey.Member`) the picker chose — its argSig frozen in the declaring
+        /// type's open typars, so it distinguishes `Show(int)` from `Show(string)`. Written
+        /// by `InferExternalCall`'s local-overload probe when a name has >1 candidate;
+        /// `Elaborate.mkMethodCall` reads it back verbatim onto `TExpr.MethodCall.key`
+        /// instead of re-picking. Absent ⇒ a non-overloaded name, whose placeholder
+        /// `LocalSymbolKey.ofMember` mint is already a unique identity (nothing else shares
+        /// the name at that arity), so no handshake is needed.
+        LocalMemberCall: SideTable<SymbolKey>
         /// Keyed by an external *method-call head* (the same key `ExternalAccess`
         /// stores the resolved member under): the compile-time constant defaults of
         /// the trailing optional parameters this call *omitted*, in declaration order.
@@ -449,6 +459,7 @@ module PassContextResolution =
             TyparScopeStrict = false
             ExternalAccess = SideTable<_>()
             ExternalCtor = SideTable<_>()
+            LocalMemberCall = SideTable<_>()
             TyparInterfaceCall = SideTable<_>()
             ExternalOptionalFill = SideTable<_>()
             ExternalValue = SideTable<_>()

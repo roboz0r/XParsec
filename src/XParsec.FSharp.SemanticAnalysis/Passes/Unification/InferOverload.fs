@@ -186,38 +186,52 @@ module UnificationInferOverload =
             t1
             t2
 
-    /// `ValueNone` = none applicable, or no unique best (ambiguous — the caller diagnoses).
-    /// Static/instance/ctor agnostic over any `ExternalMember[]` candidate set (callers
-    /// pre-filter by static-ness): arity, then fsc's two ordered tiers — exact match, then
-    /// subsumption — then betterness. `ctx` carries both the capability-canon key (`canon`,
-    /// derived here, never passed alongside) and the class hierarchy `subsumes` walks.
-    let pickBestOverload
-        (ctx: PassContext)
-        (typeArgs: SemType[])
-        (candidates: ExternalMember[])
-        (argElems: SemType list)
-        : ExternalMember voption =
+    /// A candidate abstracted to exactly what the tier + betterness ranking needs — its
+    /// value-parameter types (already declaring-typar-substituted for the call), its method
+    /// typar arity, and an opaque identity handle recovered on a win. `ExternalMember` and
+    /// `TypeMemberInfo` both project into it, so the ONE ranking rule serves the external
+    /// vocabulary and user-declared members without a second copy.
+    type RankCandidate<'T> =
+        {
+            Params: SemType list
+            MethodTyparArity: int
+            Item: 'T
+        }
+
+    /// The picker's three-way verdict, distinguishing the two call-site diagnostics the
+    /// old `ValueNone` collapsed: `NoneApplicable` (no overload's parameters admit the
+    /// arguments — fsc's `csMethodNotFound`) vs `Ambiguous` (applicable set non-empty but
+    /// no unique best — fsc's FS0041). `One` carries the sole winner.
+    [<RequireQualifiedAccess>]
+    type PickResult<'T> =
+        | One of 'T
+        | NoneApplicable
+        | Ambiguous of 'T list
+
+    /// fsc's two ordered tiers (`ResolveOverloadingCore`) — exact match, then subsumption —
+    /// then betterness, over an ABSTRACT candidate. The single home of the ranking rule
+    /// (`pickBestOverload` and `resolveMember` both project into it). Assumes the caller
+    /// already applied the single-candidate fast path; a lone survivor here is a filtering
+    /// result, not the whole-set shortcut.
+    ///
+    /// One scratch substitution per candidate trial (`matchTypes`'s binder arms record a
+    /// shared method typar / a free caller var so both stay consistent across positions),
+    /// dropped when the `forall2` short-circuits false, so a rejected trial leaves no residue
+    /// in the shared union-find. The exact tier passes `subtyping = false` (structural +
+    /// binding only); the applicable tier adds the WHOLE-TYPE `subsumes` test per argument.
+    /// `matchTypes`'s binder arms run FIRST (they are `TypeFeasiblySubsumesType`'s
+    /// `TType_var` rule and must precede any hierarchy walk); v1 subtyping is invariant in
+    /// type args (`subsumesNominal`), so the subsumption check is top-level per-argument,
+    /// never threaded structurally through `matchTypes`.
+    let rankCandidates (ctx: PassContext) (candidates: RankCandidate<'T>[]) (argElems: SemType list) : PickResult<'T> =
         let canon = capabilityCanonKey ctx
         let arity = List.length argElems
 
-        let matchesArity (m: ExternalMember) =
-            m.Key.ArgSig.Length = arity && List.length (memberParamTypes typeArgs m) = arity
-
-        // One scratch substitution per candidate trial (`matchTypes`'s binder arms record a
-        // shared method typar / a free caller var so both stay consistent across positions),
-        // dropped when the `forall2` short-circuits false, so a rejected trial leaves no
-        // residue in the shared union-find. The exact tier passes `subtyping = false`
-        // (structural + binding only); the applicable tier adds the WHOLE-TYPE `subsumes`
-        // test per argument. `matchTypes`'s binder arms run FIRST (they are
-        // `TypeFeasiblySubsumesType`'s `TType_var` rule and must precede any hierarchy walk);
-        // v1 subtyping is invariant in type args (`subsumesNominal`), so the subsumption
-        // check is top-level per-argument, never threaded structurally through `matchTypes`.
         let filterTier (subtyping: bool) =
             candidates
-            |> Array.filter (fun m ->
-                matchesArity m
-                && (let ps = memberParamTypes typeArgs m
-                    let binds = TrialBindings.Create()
+            |> Array.filter (fun c ->
+                List.length c.Params = arity
+                && (let binds = TrialBindings.Create()
 
                     List.forall2
                         (fun a p ->
@@ -225,7 +239,7 @@ module UnificationInferOverload =
                             || (subtyping && subsumes ctx a p <> SubsumeOutcome.Unrelated)
                         )
                         argElems
-                        ps)
+                        c.Params)
             )
 
         // A generic candidate's OWN where-constraints (`ExternalConstraint.Trait`/`Coercion`
@@ -234,55 +248,241 @@ module UnificationInferOverload =
         // seam and fire `checkConstraint`/`subsumes` on the first `Link`. A candidate that
         // survives filtering but violates its own bound therefore surfaces as a commit error,
         // the same deferral the shared-typar over-accept takes.
+        match filterTier false with
+        // Exact-match tier: a single structural survivor wins with no betterness reasoning
+        // (`Show(int)` / `Show(string)` needs no specificity). 0 or ≥2 survivors fall to the
+        // applicable tier (a superset — `matchTypes || subsumes` ⊇ `matchTypes`).
+        | [| only |] -> PickResult.One only.Item
+        | _ ->
+            match filterTier true with
+            | [||] -> PickResult.NoneApplicable
+            | [| only |] -> PickResult.One only.Item
+            | many ->
+                // `a` beats `b` when its argument list dominates element-wise under
+                // `compareTypes`, then — the only tiebreaker we port beyond argument
+                // specificity — when it is non-generic and `b` is generic (fsc's
+                // `compare CalledTyArgs.IsEmpty`, ConstraintSolver.fs:3883). DEFERRED
+                // tiebreakers, each ranking a feature we do not model: type-directed
+                // conversions, param arrays, out/optional args, extension members,
+                // `Func<_>`-beats-delegate, `T`-beats-`inref<T>`, `T`-beats-`Nullable<T>`.
+                let compareCandidates (a: RankCandidate<'T>) (b: RankCandidate<'T>) : int =
+                    let cmps = List.map2 (compareTypes ctx) a.Params b.Params
+
+                    let argCmp =
+                        if List.forall (fun c -> c >= 0) cmps && List.exists (fun c -> c > 0) cmps then
+                            1
+                        elif List.forall (fun c -> c <= 0) cmps && List.exists (fun c -> c < 0) cmps then
+                            -1
+                        else
+                            0
+
+                    if argCmp <> 0 then
+                        argCmp
+                    else
+                        compare (a.MethodTyparArity = 0) (b.MethodTyparArity = 0)
+
+                let best =
+                    many
+                    |> Array.filter (fun a ->
+                        many
+                        |> Array.forall (fun b -> System.Object.ReferenceEquals(a, b) || compareCandidates a b > 0)
+                    )
+
+                match best with
+                | [| unique |] -> PickResult.One unique.Item
+                | _ -> PickResult.Ambiguous [ for m in many -> m.Item ]
+
+    /// `ValueNone` = none applicable, or no unique best (ambiguous). Static/instance/ctor
+    /// agnostic over any `ExternalMember[]` candidate set (callers pre-filter by
+    /// static-ness): arity, then the shared `rankCandidates` tiers + betterness. The
+    /// single-candidate fast path (fsc ConstraintSolver.fs:3614) short-circuits before the
+    /// trial machinery — a lone name/arity mismatch surfaces at the commit seam, matching
+    /// the call sites, which decline to the single-pick path when a name has ≤1 overload.
+    let pickBestOverload
+        (ctx: PassContext)
+        (typeArgs: SemType[])
+        (candidates: ExternalMember[])
+        (argElems: SemType list)
+        : ExternalMember voption =
         match candidates with
         | [||] -> ValueNone
-        // Single-candidate fast path (fsc ConstraintSolver.fs:3614): no trial, no ranking.
-        // A lone name/arity mismatch surfaces at the commit seam — matching the call sites,
-        // which decline to the single-pick path when a name has ≤1 overload.
         | [| only |] -> ValueSome only
         | _ ->
-            match filterTier false with
-            // Exact-match tier: a single structural survivor wins with no betterness reasoning
-            // (`Show(int)` / `Show(string)` needs no specificity). 0 or ≥2 survivors fall to
-            // the applicable tier (a superset — `matchTypes || subsumes` ⊇ `matchTypes`).
-            | [| only |] -> ValueSome only
-            | _ ->
-                match filterTier true with
-                | [||] -> ValueNone
-                | [| only |] -> ValueSome only
-                | many ->
-                    // `a` beats `b` when its argument list dominates element-wise under
-                    // `compareTypes`, then — the only tiebreaker we port beyond argument
-                    // specificity — when it is non-generic and `b` is generic (fsc's
-                    // `compare CalledTyArgs.IsEmpty`, ConstraintSolver.fs:3883). DEFERRED
-                    // tiebreakers, each ranking a feature we do not model: type-directed
-                    // conversions, param arrays, out/optional args, extension members,
-                    // `Func<_>`-beats-delegate, `T`-beats-`inref<T>`, `T`-beats-`Nullable<T>`.
-                    let compareCandidates (a: ExternalMember) (b: ExternalMember) : int =
-                        let pa = memberParamTypes typeArgs a
-                        let pb = memberParamTypes typeArgs b
-                        let cmps = List.map2 (compareTypes ctx) pa pb
+            let arity = List.length argElems
 
-                        let argCmp =
-                            if List.forall (fun c -> c >= 0) cmps && List.exists (fun c -> c > 0) cmps then
-                                1
-                            elif List.forall (fun c -> c <= 0) cmps && List.exists (fun c -> c < 0) cmps then
-                                -1
-                            else
-                                0
+            // The `Key.ArgSig.Length` guard is the external-only totality check (a malformed
+            // provider member whose signature disagrees with its recorded arity is rejected);
+            // for the projected candidate the length of `Params` is the sole arity axis.
+            let rcs =
+                candidates
+                |> Array.choose (fun m ->
+                    let ps = memberParamTypes typeArgs m
 
-                        if argCmp <> 0 then
-                            argCmp
-                        else
-                            compare (a.MethodTyparArity = 0) (b.MethodTyparArity = 0)
+                    if m.Key.ArgSig.Length = arity && List.length ps = arity then
+                        Some
+                            {
+                                Params = ps
+                                MethodTyparArity = m.MethodTyparArity
+                                Item = m
+                            }
+                    else
+                        None
+                )
 
-                    let best =
-                        many
-                        |> Array.filter (fun a ->
-                            many
-                            |> Array.forall (fun b -> System.Object.ReferenceEquals(a, b) || compareCandidates a b > 0)
-                        )
+            match rankCandidates ctx rcs argElems with
+            | PickResult.One m -> ValueSome m
+            | PickResult.NoneApplicable
+            | PickResult.Ambiguous _ -> ValueNone
 
-                    match best with
-                    | [| unique |] -> ValueSome unique
-                    | _ -> ValueNone
+    // --- User-declared member overload resolution ---------------------------
+    //
+    // A project-local class / union / record member participates in the SAME
+    // `rankCandidates` machinery as an external member: only the projection into a
+    // `RankCandidate` differs (peel the member's `.Type` arrow spine rather than an
+    // `ExternalSignature`), so the ranking rule is never copied.
+
+    /// Peel a member's (single-tupled) arrow spine to its value parameters: `unit → r`
+    /// is zero parameters, a single `TyTuple` domain flattens to its elements, any other
+    /// single domain is one parameter. The by-VALUE analogue of `memberParamTypes`.
+    let private flatParamsOf (mty: SemType) : SemType list =
+        let rec arrows t =
+            match resolveStep t with
+            | TyFun(a, b) ->
+                let ps, r = arrows b
+                a :: ps, r
+            | o -> [], o
+
+        match arrows mty with
+        | [ single ], _ ->
+            match resolveStep single with
+            | TyTuple es -> EqArray.toList es
+            | TyConst(k, a) when a.IsEmpty && k = RuntimeNames.unitKey -> []
+            | o -> [ o ]
+        | ps, _ -> ps
+
+    /// The member's value-parameter types AT THE CALL SITE: its declaring typars
+    /// substituted from the receiver's `args`, its own method typars freshened per call
+    /// (so the trial matcher binds them like external `openSignature`'s method vars).
+    let userMemberParams
+        (ctx: PassContext)
+        (typeParams: EqArray<string * TypeVar>)
+        (args: EqArray<SemType>)
+        (m: TypeMemberInfo)
+        : SemType list =
+        flatParamsOf (instantiateMemberCall ctx (typeParams, args) m.EffectiveMethodTypars m.Type)
+
+    /// Positional `TyVar root → axis index` map for a typar list, following any committed
+    /// `Link` (mirrors `Elaborate.mkTyparEnv`). Used to freeze a member's parameter typars
+    /// back to their self-describing `FTTypar(axis, i)` placeholders.
+    let private frozenAxisEnv (typars: EqArray<string * TypeVar>) : Dictionary<TypeVar, int> =
+        let d = Dictionary<TypeVar, int>(HashIdentity.Reference)
+
+        for i in 0 .. typars.Length - 1 do
+            let (_, ptv) = typars.[i]
+
+            match zonk (TyVar ptv) with
+            | TyVar root ->
+                if not (d.ContainsKey root) then
+                    d.[root] <- i
+            | _ -> ()
+
+        d
+
+    /// Freeze a user member's value-parameter `SemType`s into the declaring type's open
+    /// typars (`FTTypar(Declaring, i)`) and its own method typars (`FTTypar(Method, j)`) —
+    /// the SAME structural, call-site-independent form `ExternalSymbols.argSigOfParameters`
+    /// mints for an external member. This is what makes the `MemberKey` a TOTAL overload
+    /// identity: `Show(int)` and `Show(string)` freeze to `[int]` / `[string]` argSigs,
+    /// distinct by construction.
+    let freezeUserMemberArgSig (declTypars: EqArray<string * TypeVar>) (m: TypeMemberInfo) : EqArray<FrozenType> =
+        let declEnv = frozenAxisEnv declTypars
+        let methodEnv = frozenAxisEnv m.EffectiveMethodTypars
+
+        let onVar (v: SemType) : FrozenType =
+            match v with
+            | TyVar tv ->
+                let root = UnionFind.find tv
+
+                match declEnv.TryGetValue root with
+                | true, i -> FTTypar(TyparAxis.Declaring, i)
+                | _ ->
+                    match methodEnv.TryGetValue root with
+                    | true, j -> FTTypar(TyparAxis.Method, j)
+                    | _ -> FTUnknown ""
+            | _ -> FTUnknown ""
+
+        EqArray.ofList
+            [
+                for p in flatParamsOf (zonk m.Type) -> FrozenTypeBridge.toFrozenWith onVar (zonk p)
+            ]
+
+    /// The kind-mapped `MemberKind` of a member (methods dispatch, properties store).
+    let private memberKindOf (m: TypeMemberInfo) : MemberKind =
+        match m.Kind with
+        | ClassMemberKind.Property -> MemberKind.Property
+        | ClassMemberKind.Method -> MemberKind.Method
+
+    /// The TOTAL frozen `MemberKey` identity of a resolved user member on declaring type
+    /// `declKey`: the frozen argSig (declaring-open) + real method-typar arity, so two
+    /// same-name overloads mint DISTINCT keys. Recorded by inference on the overloaded
+    /// call node's side table and read back verbatim by Elaborate/Freeze.
+    let frozenUserMemberKey (declKey: TypeKey) (declTypars: EqArray<string * TypeVar>) (m: TypeMemberInfo) : SymbolKey =
+        SymbolKeyOps.memberKey
+            declKey
+            m.Name
+            (freezeUserMemberArgSig declTypars m)
+            m.EffectiveMethodTypars.Length
+            (memberKindOf m)
+
+    /// A member's overload-identity signature key for duplicate detection: same name,
+    /// static-ness, kind, `feasiblySubsumes`-identical parameter shape (the frozen argSig)
+    /// and method-typar arity are the axes fsc's FS0438 collapses. A genuine overload
+    /// (distinct param types / arity) mints a distinct key and coexists.
+    let memberSignatureKey
+        (declTypars: EqArray<string * TypeVar>)
+        (m: TypeMemberInfo)
+        : struct (string * bool * MemberKind * EqArray<FrozenType> * int) =
+        struct (m.Name, m.IsStatic, memberKindOf m, freezeUserMemberArgSig declTypars m, m.EffectiveMethodTypars.Length)
+
+    /// The user-member resolution verdict. `NotOverloaded` (0/1 candidate) tells the caller
+    /// to keep its single-pick path unchanged; the other three mirror `PickResult`.
+    [<RequireQualifiedAccess>]
+    type MemberPick =
+        | NotOverloaded
+        | Resolved of TypeMemberInfo
+        | NoneApplicable
+        | Ambiguous of TypeMemberInfo list
+
+    /// The shared user-member resolver, routed through the genuine method-call site (the
+    /// call-seam probe). Filters by name + static-ness, then: `NotOverloaded` for the 0/1
+    /// candidate case (the caller keeps its single-pick path — the vast majority, no
+    /// trial); else the generalised `rankCandidates` picker over the value-parameter
+    /// projection, distinguishing the ambiguous and no-applicable verdicts so the two
+    /// call-site diagnostics stay separate.
+    let resolveMember
+        (ctx: PassContext)
+        (typeParams: EqArray<string * TypeVar>)
+        (args: EqArray<SemType>)
+        (members: TypeMemberInfo[])
+        (memberName: string)
+        (isStatic: bool)
+        (argElems: SemType list)
+        : MemberPick =
+        match members |> Array.filter (fun m -> m.Name = memberName && m.IsStatic = isStatic) with
+        | [||]
+        | [| _ |] -> MemberPick.NotOverloaded
+        | cands ->
+            let rcs =
+                cands
+                |> Array.map (fun m ->
+                    {
+                        Params = userMemberParams ctx typeParams args m
+                        MethodTyparArity = m.EffectiveMethodTypars.Length
+                        Item = m
+                    }
+                )
+
+            match rankCandidates ctx rcs argElems with
+            | PickResult.One m -> MemberPick.Resolved m
+            | PickResult.NoneApplicable -> MemberPick.NoneApplicable
+            | PickResult.Ambiguous ms -> MemberPick.Ambiguous ms

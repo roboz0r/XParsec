@@ -1679,4 +1679,114 @@ let tests =
                 Expect.equal atString.IsSome true "the string argument resolves"
                 Expect.equal atString.Value.MethodTyparArity 1 "only the generic overload matches string"
             }
+
+            // --- User-declared member overload resolution (Gap 2) ---------------
+            // These analyse a full source so the call-seam probe forms the candidate
+            // set from the type's own `Members` and picks by the argument types. The
+            // pattern-ident offset of `let <name>` locates each binding's key.
+            let keyOfLet (input: string) (name: string) =
+                NodeKey.ofSource (input.IndexOf("let " + name + " ") + 4) NodeKind.PatIdent
+
+            let errors (ctx: PassContext) =
+                ctx.Diagnostics
+                |> Seq.filter (fun d -> d.Severity = Severity.Error)
+                |> Seq.toList
+
+            test "a user-declared overload resolves by parameter type" {
+                // `Show(int)` returns int, `Show(string)` returns bool, so the RESULT type
+                // witnesses which overload each call selected. Fails before Gap 2 (both
+                // calls pick the first `Show`). fsi confirms `Show(1) : int`,
+                // `Show("hi") : bool`.
+                let input =
+                    "type Printer() =\n    member this.Show(x: int) = x\n    member this.Show(x: string) = true\nlet p = Printer()\nlet a = p.Show(1)\nlet b = p.Show(\"hi\")"
+
+                let ctx = analyse input
+                Expect.equal (typeOf ctx (keyOfLet input "a")) BuiltinTypes.tyInt "p.Show(1) : int — Show(int)"
+
+                Expect.equal
+                    (typeOf ctx (keyOfLet input "b"))
+                    BuiltinTypes.tyBool
+                    "p.Show(\"hi\") : bool — Show(string)"
+
+                Expect.isEmpty (errors ctx) (sprintf "no errors: %A" (errors ctx))
+            }
+
+            test "a user-declared overload resolves by arity" {
+                // `M()` returns int, `M(int)` returns string; the call arity selects.
+                let input =
+                    "type C() =\n    member this.M() = 1\n    member this.M(x: int) = \"s\"\nlet c = C()\nlet a = c.M()\nlet b = c.M(2)"
+
+                let ctx = analyse input
+                Expect.equal (typeOf ctx (keyOfLet input "a")) BuiltinTypes.tyInt "c.M() : int"
+                Expect.equal (typeOf ctx (keyOfLet input "b")) BuiltinTypes.tyString "c.M(2) : string"
+                Expect.isEmpty (errors ctx) (sprintf "no errors: %A" (errors ctx))
+            }
+
+            test "static and instance members of the same name do not collide" {
+                // A static `M(int)` and an instance `M(string)` share a name but differ in
+                // static-ness, so each call resolves to its own member and neither is a
+                // duplicate.
+                let input =
+                    "type C() =\n    static member M(x: int) = \"s\"\n    member this.M(x: string) = 1\nlet a = C.M(1)\nlet c = C()\nlet b = c.M(\"hi\")"
+
+                let ctx = analyse input
+                Expect.equal (typeOf ctx (keyOfLet input "a")) BuiltinTypes.tyString "C.M(1) : string — static"
+                Expect.equal (typeOf ctx (keyOfLet input "b")) BuiltinTypes.tyInt "c.M(\"hi\") : int — instance"
+                Expect.isEmpty (errors ctx) (sprintf "no errors: %A" (errors ctx))
+            }
+
+            test "a user overload picks the exact derived parameter over a base" {
+                // `M(Base)` / `M(Derived)`, argument `Derived()`: the exact tier selects
+                // `M(Derived)`. Return types (int vs bool) witness the pick.
+                let input =
+                    "type Base() =\n    member this.B = 0\ntype Derived() =\n    inherit Base()\n    member this.D = 0\ntype C() =\n    member this.M(x: Base) = 1\n    member this.M(x: Derived) = true\nlet c = C()\nlet r = c.M(Derived())"
+
+                let ctx = analyse input
+                Expect.equal (typeOf ctx (keyOfLet input "r")) BuiltinTypes.tyBool "c.M(Derived()) : bool — M(Derived)"
+                Expect.isEmpty (errors ctx) (sprintf "no errors: %A" (errors ctx))
+            }
+
+            test "a user overload prefers the more-derived parameter (obj vs Base)" {
+                // `M(obj)` / `M(Base)`, argument `Derived()`: neither is exact, both are
+                // applicable by subsumption, `Base` is more derived than `obj` and wins.
+                let input =
+                    "type Base() =\n    member this.B = 0\ntype Derived() =\n    inherit Base()\n    member this.D = 0\ntype C() =\n    member this.M(x: obj) = 1\n    member this.M(x: Base) = true\nlet c = C()\nlet r = c.M(Derived())"
+
+                let ctx = analyse input
+
+                Expect.equal
+                    (typeOf ctx (keyOfLet input "r"))
+                    BuiltinTypes.tyBool
+                    "c.M(Derived()) : bool — M(Base) beats M(obj)"
+
+                Expect.isEmpty (errors ctx) (sprintf "no errors: %A" (errors ctx))
+            }
+
+            test "a genuinely duplicate member diagnoses at declaration time" {
+                // Two `M(int)` members: same name, static-ness, kind and parameter
+                // signature — a duplicate (FS0438), not a legal overload.
+                let input =
+                    "type C() =\n    member this.M(x: int) = 1\n    member this.M(x: int) = 2"
+
+                let ctx = analyse input
+
+                Expect.isTrue
+                    (ctx.Diagnostics
+                     |> Seq.exists (fun d -> d.Message.Contains "Duplicate definition of member"))
+                    (sprintf "duplicate member diagnosed: %A" (ctx.Diagnostics |> Seq.toList))
+            }
+
+            test "an ambiguous user overload diagnoses" {
+                // A `Both` value implements two unrelated interfaces `IA` and `IB`; `M(IA)`
+                // and `M(IB)` are both applicable by subsumption and neither is more
+                // derived, so no unique best exists (FS0041-shape).
+                let input =
+                    "type IA =\n    abstract member A: int\ntype IB =\n    abstract member B: int\ntype Both() =\n    interface IA with\n        member this.A = 1\n    interface IB with\n        member this.B = 2\ntype C() =\n    member this.M(x: IA) = 1\n    member this.M(x: IB) = 2\nlet c = C()\nlet r = c.M(Both())"
+
+                let ctx = analyse input
+
+                Expect.isTrue
+                    (ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "Ambiguous call"))
+                    (sprintf "ambiguous call diagnosed: %A" (ctx.Diagnostics |> Seq.toList))
+            }
         ]

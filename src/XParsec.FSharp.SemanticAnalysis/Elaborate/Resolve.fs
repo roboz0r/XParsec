@@ -590,9 +590,14 @@ module internal ElaborateResolve =
         )
 
     /// Instance `MethodCall` resolved to `declKey.memberName`, with the `CallVia`
-    /// derived from the receiver.
+    /// derived from the receiver. `callKey` is the call node's `NodeKey`: for an OVERLOADED
+    /// name, Unification recorded the chosen overload's TOTAL frozen `MemberKey` there
+    /// (`Resolution.LocalMemberCall`), read back verbatim so Freeze resolves the identical
+    /// member by identity — no second name-based pick. A non-overloaded name has no entry
+    /// and mints the placeholder `LocalSymbolKey.ofMember` key, which is already unique.
     let mkMethodCall
         (ctx: PassContext)
+        (callKey: NodeKey)
         (receiver: TExpr)
         (declKey: TypeKey)
         (memberName: string)
@@ -600,7 +605,11 @@ module internal ElaborateResolve =
         (ty: SemType)
         (tok: SyntaxToken)
         : TExpr =
-        let key = LocalSymbolKey.ofMember declKey memberName args.Length MemberKind.Method
+        let key =
+            match ctx.Resolution.LocalMemberCall.TryGetValue callKey with
+            | ValueSome frozen -> frozen
+            | ValueNone -> LocalSymbolKey.ofMember declKey memberName args.Length MemberKind.Method
+
         let argsList = wrapObjArgsEq (memberParamTys ctx declKey memberName) args
         TExpr.MethodCall(receiver, key, viaOfReceiver ctx receiver, argsList, ty, tok)
 

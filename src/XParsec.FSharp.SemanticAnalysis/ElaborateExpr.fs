@@ -72,10 +72,10 @@ module internal ElaborateExpr =
         // `App(DotLookup(r, ., M), args)`.
         | Expr.App(funcExpr = InstanceMethodCall ctx (r, declKey, memberName); argExprs = args) ->
             let receiver = translateExpr ctx r
-            mkMethodCall ctx receiver declKey memberName (peelCtorArgs (translateExpr ctx) args) ty tok
+            mkMethodCall ctx key receiver declKey memberName (peelCtorArgs (translateExpr ctx) args) ty tok
         | Expr.HighPrecedenceApp(funcExpr = InstanceMethodCall ctx (r, declKey, memberName); argExpr = arg) ->
             let receiver = translateExpr ctx r
-            mkMethodCall ctx receiver declKey memberName (peelOneArg (translateExpr ctx) arg) ty tok
+            mkMethodCall ctx key receiver declKey memberName (peelOneArg (translateExpr ctx) arg) ty tok
         // `p.M(args)` parses as `App` / `HighPrecedenceApp` whose fn is
         // `Expr.LongIdentOrOp(LongIdent [p; M])` — the parser folds the dot into
         // the long ident rather than emitting `DotLookup` when the head is a
@@ -89,6 +89,7 @@ module internal ElaborateExpr =
 
             mkMethodCall
                 ctx
+                key
                 receiver
                 (nominalDeclKey receiverTy)
                 memberName
@@ -101,7 +102,16 @@ module internal ElaborateExpr =
                                                                                        memberName)))
             argExpr = arg) ->
             let receiver = TExpr.Var(bindingSite, receiverTy, tok)
-            mkMethodCall ctx receiver (nominalDeclKey receiverTy) memberName (peelOneArg (translateExpr ctx) arg) ty tok
+
+            mkMethodCall
+                ctx
+                key
+                receiver
+                (nominalDeclKey receiverTy)
+                memberName
+                (peelOneArg (translateExpr ctx) arg)
+                ty
+                tok
         // `head.f.…M(args)` — method call on a *multi-segment* receiver chain (e.g.
         // `this.Source.MoveNext()`), which `ClassTailMethod` (2-segment) misses. The
         // prefix LongIdent rebuilds the receiver field-chain; the tail is the method.
@@ -113,6 +123,7 @@ module internal ElaborateExpr =
 
             mkMethodCall
                 ctx
+                key
                 receiver
                 (nominalDeclKey receiverTy)
                 memberName
@@ -125,7 +136,15 @@ module internal ElaborateExpr =
             let receiver =
                 ElaborateIdents.translateLongIdentFieldChain ctx prefixLi receiverTy ValueNone tok
 
-            mkMethodCall ctx receiver (nominalDeclKey receiverTy) memberName (peelOneArg (translateExpr ctx) arg) ty tok
+            mkMethodCall
+                ctx
+                key
+                receiver
+                (nominalDeclKey receiverTy)
+                memberName
+                (peelOneArg (translateExpr ctx) arg)
+                ty
+                tok
         // `x.M(args)` where `x`'s type is a generic typar coerced to a project-local
         // interface (`'T :> IFace`, rung-3 Wall B). Unification recorded the
         // interface key in `TyparInterfaceCall`; dispatch via `CallVia.Interface` so

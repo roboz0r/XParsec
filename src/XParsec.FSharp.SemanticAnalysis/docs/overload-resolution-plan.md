@@ -443,6 +443,33 @@ Steps 4 and 5 are independent once 3 lands.
 - **SRTP trait solutions during overload resolution**
   (`AssumeMethodSolvesTrait`). Lands with SRTPs.
 
+## Follow-up: universally-total local member-key mint
+
+Gap 2 makes the local `MemberKey` mint total **only for overloaded names** —
+inference computes the structural `ArgSig` (freezing the resolved member's
+value-parameter `SemType`s in the declaring type's open typars, exactly as
+`ExternalSymbols.argSigOfParameters` does for external members) and records it
+on the call node's side table, and Elaborate reads it verbatim. Every other
+local member call still mints through `LocalSymbolKey.ofMember`
+(`TypeInfos.fs`), which fills `ArgSig` with `arity` copies of the placeholder
+`FTUnknown ""`. That placeholder is *genuinely unique* for a non-overloaded
+name (nothing else shares the name at that arity), so there is **no
+correctness gap** — the lossiness only ever bit *within* an overload set,
+which Gap 2 closes.
+
+The follow-up is to retire the placeholder mint entirely so a lossy local
+member key is *unrepresentable by construction*: thread the resolved member's
+frozen parameter signature to all ~13 `ofMember` call sites (`Elaborate/Resolve.fs`,
+`ElaborateExpr.fs`, `Elaborate/Idents.fs`, `Elaborate/Access.fs`, `Inline.fs`)
+so every local member key carries a real `ArgSig` + `MethodTyparArity`. Deferred
+because it touches the property / interface-method / inline key paths — whose
+keys are correct today — and its blast radius outweighs its benefit until a
+second consumer needs local keys to be uniformly total (e.g. the JS
+overload-mangling work in [js-overload-mangling-plan](js-overload-mangling-plan.md),
+which keys emitted names by signature). It is a strict superset of Gap 2's
+mint: the same freeze machinery, applied unconditionally rather than only when
+a name is overloaded.
+
 ## Cross-references
 
 - `fsharp/src/Compiler/Checking/ConstraintSolver.fs` — `Trace` (`:463`),
