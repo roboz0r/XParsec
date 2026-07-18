@@ -246,8 +246,9 @@ module FrozenSignature =
 
                 let registerCases (cases: Frozen.TUnionCase seq) (caseShapes: ExternalCaseShape[]) =
                     for c, shape in Seq.zip cases caseShapes do
-                        // First declaration wins on a bare case-name collision; RQA is
-                        // not modelled in the frozen tree, so a case resolves bare.
+                        // First declaration wins on a bare case-name collision. An RQA
+                        // union's cases carry the flag so a consumer's bare `Red` is
+                        // rejected (`ExternalUnionCase.ResolvesWith`).
                         if not (unionCaseIndex.ContainsKey c.Name) then
                             unionCaseIndex.[c.Name] <-
                                 {
@@ -255,7 +256,7 @@ module FrozenSignature =
                                     TyparArity = arity
                                     Origin = origin
                                     Case = shape
-                                    IsRequireQualifiedAccess = false
+                                    IsRequireQualifiedAccess = td.IsRequireQualifiedAccess
                                 }
 
                 match td.Kind with
@@ -278,18 +279,16 @@ module FrozenSignature =
                     // One candidate per record, appended to EVERY field's bucket (the
                     // multimap append — a shared field name keeps both records live).
                     // Only internal-or-better exported records reach here (`when exported
-                    // td.Key`), so accessibility is already filtered. RQA is hardcoded
-                    // `false`: the frozen tree does not model record RQA (same gap as the
-                    // union-case index above), so a cross-unit `[<RequireQualifiedAccess>]`
-                    // record is wrongly constructible bare until RQA is threaded through
-                    // freeze (plan R6).
+                    // td.Key`), so accessibility is already filtered. An RQA record
+                    // carries the flag so a consumer's bare `{ X = … }` literal excludes
+                    // it from the field-set index (`InferResolve.admitsBareExternalRecord`).
                     let candidate: ExternalRecordCandidate =
                         {
                             TypeKey = typeKey
                             TyparArity = arity
                             Origin = origin
                             FieldNames = [| for f in fields -> f.Name |]
-                            IsRequireQualifiedAccess = false
+                            IsRequireQualifiedAccess = td.IsRequireQualifiedAccess
                         }
 
                     for f in fields do

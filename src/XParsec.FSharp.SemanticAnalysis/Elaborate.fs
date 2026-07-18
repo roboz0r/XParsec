@@ -1074,6 +1074,7 @@ module Elaborate =
         (key: TypeKey)
         (ns: string option)
         (typars: EqArray<string>)
+        (rqa: bool)
         (kind: TTypeKind)
         (eq: EqualityVerdict)
         (cmp: ComparisonVerdict)
@@ -1084,6 +1085,7 @@ module Elaborate =
                 TypeKey = key
                 Namespace = ns
                 TypeParams = typars
+                IsRequireQualifiedAccess = rqa
                 Kind = kind
                 EqualitySupport = eq
                 ComparisonSupport = cmp
@@ -1163,6 +1165,7 @@ module Elaborate =
                     info.TypeKey
                     ns
                     (EqArray.ofList declTypars)
+                    info.IsRequireQualifiedAccess
                     (TTypeKind.Union(cases, members, interfaces))
                     info.EqualitySupport
                     info.ComparisonSupport,
@@ -1357,6 +1360,9 @@ module Elaborate =
                 key
                 ns
                 (EqArray.ofList [])
+                // An enum's cases are always qualified (`E.C1`); RQA adds nothing,
+                // so the flag is `false` and unread for this kind.
+                false
                 (TTypeKind.Enum tcases)
                 // An enum synthesises no equality triple / comparison pair here;
                 // the verdict fields keep the decl record total and stay unread.
@@ -1431,6 +1437,7 @@ module Elaborate =
                     info.TypeKey
                     ns
                     (EqArray.ofList declTypars)
+                    info.IsRequireQualifiedAccess
                     (TTypeKind.Record(fields, members, interfaces, valueKind))
                     info.EqualitySupport
                     info.ComparisonSupport,
@@ -1639,6 +1646,10 @@ module Elaborate =
                     info.TypeKey
                     ns
                     (EqArray.ofList declTypars)
+                    // RQA on a class gates only its unqualified module-member access,
+                    // which is not modelled here; a class is never bare-constructed by
+                    // field set, so the flag is unread for this kind.
+                    false
                     (TTypeKind.Class
                         {
                             Fields = instanceFields
@@ -1725,6 +1736,7 @@ module Elaborate =
                     info.TypeKey
                     ns
                     (EqArray.ofList declTypars)
+                    false
                     (TTypeKind.Class clsG)
                     EqualityVerdict.Reference
                     ComparisonVerdict.NoComparison,
@@ -1761,6 +1773,9 @@ module Elaborate =
                         key
                         ns
                         typars
+                        // An interface is not bare-constructed by field set; RQA is
+                        // unread for this kind.
+                        false
                         (TTypeKind.Interface methods)
                         // Interfaces never synthesise an equality triple or
                         // comparison pair — the verdict fields are filled to

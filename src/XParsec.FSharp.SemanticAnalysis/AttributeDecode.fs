@@ -38,6 +38,11 @@ module AttributeDecode =
     /// struct is necessarily a struct).
     let private byRefLikeNames = [ "IsByRefLike"; "IsByRefLikeAttribute" ]
 
+    /// `[<RequireQualifiedAccess>]` forbids a record's / union's members from the
+    /// enclosing unqualified index — F#'s `isILOrRequiredQualifiedAccess`.
+    let private requireQualifiedAccessNames =
+        [ "RequireQualifiedAccess"; "RequireQualifiedAccessAttribute" ]
+
     /// Decoded class-shaping attributes. `IsSealed` flips
     /// `TypeAttributes.Sealed` on the emitted `TypeDefinition`;
     /// `AllowNullLiteral` is consumed only by the front end (Unification's
@@ -111,3 +116,25 @@ module AttributeDecode =
                 IsValueType = isValueType || isByRefLike
                 IsByRefLike = isByRefLike
             }
+
+    /// True iff the attribute sets carry `[<RequireQualifiedAccess>]`. Shares the
+    /// `attributeShortName` short-name rule with `decodeClassAttributes` so the
+    /// name-resolution pass (`ctx.NameOf`) and any other decoder agree on the leaf.
+    let decodeRequireQualifiedAccess (nameOf: SyntaxToken -> string) (attrs: Attributes<SyntaxToken> voption) : bool =
+        match attrs with
+        | ValueNone -> false
+        | ValueSome sets ->
+            let mutable found = false
+
+            for AttributeSet(attributes = entries) in sets do
+                for Attribute(construction = construction), _sep in entries do
+                    let attrTy =
+                        match construction with
+                        | ObjectConstruction(typ = t) -> t
+                        | InterfaceConstruction(typ = t) -> t
+
+                    match attributeShortName nameOf attrTy with
+                    | ValueSome n when List.contains n requireQualifiedAccessNames -> found <- true
+                    | _ -> ()
+
+            found

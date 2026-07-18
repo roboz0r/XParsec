@@ -304,10 +304,11 @@ type ExternalRecordCandidate =
         FieldNames: string[]
         /// True when the record is `[<RequireQualifiedAccess>]`: F#'s
         /// `isILOrRequiredQualifiedAccess` guard excludes such records from bare
-        /// field-set resolution (`{ X = … }` must be qualified). The field is the seam;
-        /// the frozen tree does not yet model record RQA, so producers currently hardcode
-        /// `false` until it is threaded through the freeze — a cross-unit RQA record is
-        /// wrongly constructible bare until then.
+        /// field-set resolution (`{ X = … }` must be qualified). Threaded from the
+        /// declaration's decoded attributes through freeze (`TTypeDecl.IsRequireQualifiedAccess`,
+        /// projected by `FrozenSignature`) and honoured by the bare-construction filter
+        /// (`InferResolve.admitsBareExternalRecord`). The qualified `{ R.X = … }` path
+        /// is unaffected — it resolves `R` by name and stays constructible.
         IsRequireQualifiedAccess: bool
     }
 

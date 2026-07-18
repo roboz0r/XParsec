@@ -196,6 +196,43 @@ module internal UnificationInferResolve =
             PartialMatches: ResolvedRecord list
         }
 
+    /// Whether a provider (cross-unit) record candidate belongs to the UNQUALIFIED
+    /// field-set index a bare `{ X = … }` literal reads — F#'s `eFieldLabels`. Two
+    /// exclusions, BOTH bare-only (the qualified `{ R.X = … }` path resolves `R` by
+    /// name and is unaffected by either — F# indexes qualified construction through
+    /// the module path, not `eFieldLabels`):
+    ///   * `[<RequireQualifiedAccess>]` — F#'s `isILOrRequiredQualifiedAccess` guard
+    ///     keeps an RQA record out of the unqualified index (the qualifier is mandatory).
+    ///   * open scope — `eFieldLabels` holds only records brought into scope, so the
+    ///     candidate's declaring module / namespace must be reachable UNQUALIFIED at the
+    ///     use site: an active `open`, the ambient prelude, or the enclosing namespace's
+    ///     implicit open — exactly the reach `OpenScope.tryQualify` answers for a written
+    ///     name (the record's simple name must qualify, under the opens in force, to the
+    ///     candidate's own dotted spelling). A type NESTED in a type is never
+    ///     bare-reachable cross-unit. `ctx.Resolution.OpenScope` is the live per-element
+    ///     scope (`Unification.walkElems` sets it via `EnterElement`, in lockstep with the
+    ///     walk), so it names the opens in force at this literal.
+    let private admitsBareExternalRecord (ctx: PassContext) (cand: ExternalRecordCandidate) : bool =
+        if cand.IsRequireQualifiedAccess then
+            false
+        else
+            let key = cand.TypeKey
+
+            let holder =
+                match key.Holder with
+                | TypeHolder.InNamespace ns -> ValueSome ns.Dotted
+                | TypeHolder.InModule m -> ValueSome(SymbolKeyOps.moduleFullName m)
+                | TypeHolder.InType _ -> ValueNone
+
+            match holder with
+            | ValueNone -> false
+            | ValueSome h ->
+                let (DisplayName simple) = SymbolKeyOps.typeSimpleName key
+                let dotted = if h = "" then simple else h + "." + simple
+
+                OpenScope.tryQualify ctx.Resolution.OpenScope (fun c -> c = dotted) simple
+                |> ValueOption.isSome
+
     /// The verdict for the typed field set `names` at `useSite`, unioning LOCAL candidates with
     /// provider `TryRecordsWithField` ones. A record survives to `PartialMatches` iff it declares
     /// EVERY typed field — i.e. `typed ⊆ declared`, a subset filter, which is why only the FIRST
@@ -208,7 +245,17 @@ module internal UnificationInferResolve =
     /// dedup-by-key / subset / exact-match work over the `ResolvedRecord`s directly — so the
     /// combinatorial logic is testable in the open (`RecordFieldClassifier`) and no key→candidate
     /// map-back is needed here.
-    let recordFieldSetVerdict (ctx: PassContext) (useSite: UseSite) (names: string list) : RecordFieldSetVerdict =
+    ///
+    /// `bareIndex` marks the UNQUALIFIED (`{ X = … }`) caller: only then are provider
+    /// candidates gated by `admitsBareExternalRecord` (RQA + open scope), mirroring F#'s
+    /// `eFieldLabels`. The qualified (`{ R.X = … }`) caller passes `false` and sees every
+    /// provider record with the field, since it resolves `R` by name downstream.
+    let recordFieldSetVerdict
+        (ctx: PassContext)
+        (useSite: UseSite)
+        (bareIndex: bool)
+        (names: string list)
+        : RecordFieldSetVerdict =
         match names with
         | [] ->
             {
@@ -217,26 +264,24 @@ module internal UnificationInferResolve =
                 PartialMatches = []
             }
         | first :: _ ->
+            // Provider candidates join LOCAL-FIRST: on a `TypeKey` collision the local
+            // record wins (local is authoritative for the compiling unit) — the
+            // classifier's first-occurrence dedup keeps the earlier (local) entry, so
+            // ordering local-first suffices. The field-name reverse index is a genuine
+            // spelling reach with no stampable node: a bare `{ X = … }` field set has no
+            // written record identity to resolve in NameResolution — the verdict IS the
+            // field-set intersection computed here at inference. So it reads the resolver
+            // face (allowlisted in `ResolverAllowlistTests`), the sibling of the
+            // `TryLookupUnionCase` bare reverse index NameResolution reads. On the bare
+            // path those provider records are scope/RQA-gated (`admitsBareExternalRecord`).
+            let providerRecords =
+                ctx.Resolver.TryRecordsWithField first
+                |> Array.filter (fun cand -> not bareIndex || admitsBareExternalRecord ctx cand)
+
             let candidates =
                 [
                     for info in TypeRegistry.recordsWithField ctx.Types useSite first -> LocalRecord info
-                    // Provider candidates join LOCAL-FIRST: on a `TypeKey` collision the
-                    // local record wins (local is authoritative for the compiling unit) —
-                    // the classifier's first-occurrence dedup keeps the earlier (local)
-                    // entry, so ordering local-first suffices.
-                    //
-                    // The ambient-scope / `open` filter on provider candidates is DEFERRED:
-                    // Phase 1 ships "any provider record with the field" — over-permissive
-                    // (a cross-unit record in an unopened namespace is wrongly resolvable
-                    // bare), never a miscompile — until the ambient-scope gate lands. See the
-                    // plan's "Visibility / open scoping" decision.
-                    // The field-name reverse index is a genuine spelling reach with no
-                    // stampable node: a bare `{ X = … }` field set has no written record
-                    // identity to resolve in NameResolution — the verdict IS the field-set
-                    // intersection computed here at inference. So it reads the resolver face
-                    // (allowlisted in `ResolverAllowlistTests`), the sibling of the
-                    // `TryLookupUnionCase` bare reverse index NameResolution reads.
-                    for cand in ctx.Resolver.TryRecordsWithField first -> ExternalRecord cand
+                    for cand in providerRecords -> ExternalRecord cand
                 ]
 
             // The classifier dedups by `TypeKey` (first-wins) and returns the surviving
@@ -298,7 +343,7 @@ module internal UnificationInferResolve =
                 // A unique survivor is the external record named; otherwise the historical
                 // "Unknown record type qualifier" error, unchanged for the local case.
                 match
-                    (recordFieldSetVerdict ctx useSite names).PartialMatches
+                    (recordFieldSetVerdict ctx useSite false names).PartialMatches
                     |> List.filter (fun r -> resolvedRecordDisplayName r = typeName)
                 with
                 | [ only ] -> ValueSome only
@@ -306,7 +351,7 @@ module internal UnificationInferResolve =
                     ctx.Error(diagKey, sprintf "Unknown record type qualifier: %s" typeName)
                     ValueNone
         | None ->
-            let verdict = recordFieldSetVerdict ctx useSite names
+            let verdict = recordFieldSetVerdict ctx useSite true names
 
             match verdict.ExactMatch with
             | ValueSome r -> ValueSome r

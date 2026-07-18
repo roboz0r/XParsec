@@ -262,6 +262,12 @@ type RecordTypeInfo
     /// `<` / `>` / `<=` / `>=` on un-annotated types; `Elaborate` projects it onto
     /// `TTypeDecl.ComparisonSupport` for codegen.
     member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
+    /// `[<RequireQualifiedAccess>]` posture. Filled during
+    /// `NameResolution.registerRecordTypeDefn` from the type's attributes; defaults
+    /// to `false`. `Elaborate` projects it onto `TTypeDecl.IsRequireQualifiedAccess`,
+    /// which the frozen-tree projection reads so a cross-unit RQA record is kept out
+    /// of a consumer's unqualified (`{ X = … }`) field-set index.
+    member val IsRequireQualifiedAccess = false with get, set
     /// Augmentation members (`with member …` / `static member …`). Member types
     /// start as placeholder TyVars and are linked by Unification's
     /// `fillRecordMembers`. Empty for a plain record (mirrors `UnionTypeInfo.Members`).
@@ -355,6 +361,12 @@ type UnionTypeInfo
     /// `<` / `>` / `<=` / `>=` on un-annotated types; `Elaborate` projects it onto
     /// `TTypeDecl.ComparisonSupport` for codegen.
     member val ComparisonSupport = ComparisonVerdict.NoComparison with get, set
+    /// `[<RequireQualifiedAccess>]` posture. Filled during
+    /// `NameResolution.registerUnionTypeDefn` from the type's attributes; defaults
+    /// to `false`. `Elaborate` projects it onto `TTypeDecl.IsRequireQualifiedAccess`,
+    /// which the frozen-tree projection reads so a cross-unit RQA union's cases are
+    /// kept out of a consumer's bare case index (F# requires `Color.Red`, not `Red`).
+    member val IsRequireQualifiedAccess = false with get, set
     /// `interface IFace with member …` blocks declared on the union.
     /// Stamped by `NameResolution.registerNominalMember`; each impl's interface type
     /// is resolved + verified, and its member bodies typed, by Unification's

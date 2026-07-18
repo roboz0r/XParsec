@@ -738,6 +738,12 @@ module NameResolutionTypeRegistration =
                 | ValueSome v -> v
                 | ValueNone -> ComparisonVerdict.NoComparison
 
+            // `[<RequireQualifiedAccess>]` keeps this record out of a cross-unit
+            // consumer's bare `{ X = … }` field-set index (`Elaborate` projects it
+            // onto the frozen decl; `FrozenSignature` / `InferResolve` honour it).
+            info.IsRequireQualifiedAccess <-
+                AttributeDecode.decodeRequireQualifiedAccess ctx.NameOf (Attributes.attributesOfTypeName tn)
+
             rejectCustomOnDataType ctx declKey info.EqualitySupport info.ComparisonSupport
 
             TypeRegistry.registerRecord ctx.Types info
@@ -883,6 +889,12 @@ module NameResolutionTypeRegistration =
                 match cmpV with
                 | ValueSome v -> v
                 | ValueNone -> ComparisonVerdict.NoComparison
+
+            // `[<RequireQualifiedAccess>]` keeps this union's cases out of a
+            // cross-unit consumer's bare case index (`Elaborate` projects it onto
+            // the frozen decl; `FrozenSignature` honours it).
+            info.IsRequireQualifiedAccess <-
+                AttributeDecode.decodeRequireQualifiedAccess ctx.NameOf (Attributes.attributesOfTypeName tn)
 
             rejectCustomOnDataType ctx declKey info.EqualitySupport info.ComparisonSupport
 

@@ -576,22 +576,19 @@ module N =
                         f2.Frozen.Diagnostics)
             }
 
-            // The two cross-unit resolution gaps that are OVER-PERMISSIVE today: an
-            // INVALID program wrongly resolves (never a miscompile). Each asserts the
-            // CORRECT, rejecting behaviour, so it is RED until the gap closes — `ptest`
-            // keeps it PENDING (not failing) meanwhile, and it flips to a real pass when
-            // the named gap lands.
+            // Two cross-unit resolution rules that were OVER-PERMISSIVE while records
+            // landed (an INVALID program wrongly resolved — never a miscompile). Each
+            // asserts the CORRECT, rejecting behaviour now that the gap is closed.
 
-            ptest "RQA record is NOT bare-constructible across units (RequireQualifiedAccess honoured)" {
+            test "RQA record is NOT bare-constructible across units (RequireQualifiedAccess honoured)" {
                 // unit 1 marks a record `[<RequireQualifiedAccess>]`; unit 2 `open`s the
                 // module and builds it with a BARE field-set literal. F# requires the
                 // qualifier for an RQA record, so bare construction must NOT resolve — an
-                // error. It is wrongly ACCEPTED today because the frozen tree does not model
-                // `[<RequireQualifiedAccess>]` (`FrozenSignature` hardcodes
-                // `IsRequireQualifiedAccess = false`), so the projected record is offered to
-                // the bare field-set reverse index. Flips green once the RQA flag is threaded
-                // through freeze into the projection and honoured in the bare-construction
-                // candidate filter (`ExternalRecordCandidate.IsRequireQualifiedAccess`).
+                // error. The RQA flag is threaded from the declaration's attributes through
+                // freeze (`TTypeDecl.IsRequireQualifiedAccess` →
+                // `ExternalRecordCandidate.IsRequireQualifiedAccess`) and honoured in the
+                // bare-construction candidate filter (`InferResolve.admitsBareExternalRecord`),
+                // so the projected RQA record is excluded from the bare field-set index.
                 let file1 =
                     "\
 namespace Test.A
@@ -627,15 +624,14 @@ module N =
                         f2.Frozen.Diagnostics)
             }
 
-            ptest "record in an UNOPENED namespace is NOT bare-constructible across units (ambient-scope gate)" {
+            test "record in an UNOPENED namespace is NOT bare-constructible across units (ambient-scope gate)" {
                 // unit 1 declares a record; unit 2 does NOT `open` its module, yet builds it
                 // with a BARE field-set literal matching its fields. F#'s unqualified field
                 // index (`eFieldLabels`) holds only `open`-ed records, so without the `open`
-                // the bare literal must NOT resolve — an error. It is wrongly ACCEPTED today:
-                // `recordFieldSetVerdict` unions ALL provider `TryRecordsWithField` candidates
-                // with no ambient-open / scope filter. Flips green once provider candidates are
-                // gated by the ambient-open scope the pipeline already threads
-                // (`AmbientOpenPrefixes`).
+                // the bare literal must NOT resolve — an error. `recordFieldSetVerdict` gates
+                // its provider `TryRecordsWithField` candidates by the live open scope
+                // (`InferResolve.admitsBareExternalRecord` via `OpenScope.tryQualify`), so a
+                // record whose declaring module is not reachable unqualified is excluded.
                 let file1 =
                     "\
 namespace Test.A

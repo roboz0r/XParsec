@@ -288,6 +288,7 @@ module TastConvert =
             TypeKey = td.TypeKey
             Namespace = td.Namespace
             TypeParams = td.TypeParams
+            IsRequireQualifiedAccess = td.IsRequireQualifiedAccess
             Kind = kind f td.Kind
             EqualitySupport = td.EqualitySupport
             ComparisonSupport = td.ComparisonSupport

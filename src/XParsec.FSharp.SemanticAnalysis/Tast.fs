@@ -613,6 +613,15 @@ and TTypeDeclG<'ty, 'tok> =
         Namespace: string option
         /// Declared type parameters in source order (e.g. `["'A"; "'B"]`).
         TypeParams: EqArray<string>
+        /// `[<RequireQualifiedAccess>]` posture. Type-level so it covers records
+        /// AND unions in one carrier: it is F#'s `isILOrRequiredQualifiedAccess`
+        /// signal (`NameResolution.fs:1277`) projected through freeze — a cross-unit
+        /// RQA record is kept OUT of the consumer's unqualified field-set index
+        /// (a bare `{ X = … }` must qualify), and an RQA union's case out of the
+        /// bare case index. Carried here so the frozen-tree projection
+        /// (`FrozenSignature`) can honour it, mirroring the `.fsi` extractor's
+        /// `RqaTypes` thread. Default `false`; interfaces / enums leave it unread.
+        IsRequireQualifiedAccess: bool
         Kind: TTypeKindG<'ty, 'tok>
         /// Equality posture for this type (records / unions / interfaces).
         /// Defaults to `Structural` — interfaces ignore it (no triple is ever
