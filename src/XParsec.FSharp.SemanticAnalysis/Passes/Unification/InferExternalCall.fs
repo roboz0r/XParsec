@@ -153,6 +153,35 @@ module internal UnificationInferExternalCall =
 
             [ for kv in seed -> kv.Key, kv.Value ]
 
+    /// The receiver type + member name of an instance-call head, or `ValueNone` for a shape
+    /// that isn't one. The SINGLE owner of "which `fn` shapes are instance calls" — both the
+    /// external and project-local instance probes route their `fn` dispatch through it, so the
+    /// head grammar (and the folded-LongIdent local-binding guard) lives in one place. The
+    /// receiver is inferred only on a matching arm, so the decline path pays nothing.
+    ///
+    /// Folded-LongIdent value receiver: `w.Write(arg)` parses with `fn = LongIdent [w; Write]`
+    /// — the parser folds the dot into the long ident when the head is a plain identifier, so
+    /// it never reaches the `DotLookup` arm and falls to the single-pick field walk (which
+    /// grabs an arbitrary, here the widest, overload). The head must be a *local binding* (a
+    /// value); a type-qualified head (`TextWriter.Synchronized`) is the static probe's job and
+    /// is excluded by the binding guard. The receiver is the chain minus its last segment; the
+    /// member is the last segment.
+    let private receiverMemberOf
+        (infer: Infer)
+        (ctx: PassContext)
+        (fn: Expr<SyntaxToken>)
+        : struct (SemType * string) voption =
+        match fn with
+        | Expr.DotLookup(expr = recv; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
+            ValueSome(struct (infer ctx recv, ctx.NameOf li.Idents.[0]))
+        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
+            li.Idents.Length >= 2
+            && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
+            ->
+            let recvTy = inferLongIdentReceiverPrefix ctx (CstKeys.ofExpr fn) li
+            ValueSome(struct (recvTy, ctx.NameOf li.Idents.[li.Idents.Length - 1]))
+        | _ -> ValueNone
+
     /// Commit an applied `arg -> result` shape against a resolved member signature: coerce
     /// each argument position via `unifyArg`/`tryCoerceUpcast` — the richer coercion the
     /// picker's subsumption tier admits (a superset of `unifyArgCoerce`'s obj/union
@@ -335,24 +364,9 @@ module internal UnificationInferExternalCall =
                     // behaviour (this probe only ever *improves* a confident pick).
                     | ValueNone -> ValueNone
 
-        match fn with
-        | Expr.DotLookup(expr = recv; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-            resolveOn (infer ctx recv) (ctx.NameOf li.Idents.[0])
-        // Folded-LongIdent value receiver: `w.Write(arg)` parses with `fn =
-        // LongIdent [w; Write]` — the parser folds the dot into the long ident
-        // when the head is a plain identifier, so it never reaches the `DotLookup`
-        // arm and falls to the single-pick field walk (which grabs an arbitrary,
-        // here the widest, overload). The head must be a *local binding* (a value);
-        // a type-qualified head (`TextWriter.Synchronized`) is the static probe's
-        // job and is excluded by the binding guard. The receiver is the chain minus
-        // its last segment; the member is the last segment.
-        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
-            li.Idents.Length >= 2
-            && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
-            ->
-            let recvTy = inferLongIdentReceiverPrefix ctx (CstKeys.ofExpr fn) li
-            resolveOn recvTy (ctx.NameOf li.Idents.[li.Idents.Length - 1])
-        | _ -> ValueNone
+        match receiverMemberOf infer ctx fn with
+        | ValueSome(struct (recvTy, memberName)) -> resolveOn recvTy memberName
+        | ValueNone -> ValueNone
 
     /// Call-site overload resolution for a project-LOCAL instance method call
     /// (`p.Show(1)`, `r.M(a, b)`). The user-declared twin of
@@ -467,16 +481,9 @@ module internal UnificationInferExternalCall =
 
                     ValueSome resultTy
 
-        match fn with
-        | Expr.DotLookup(expr = recv; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
-            resolveOn (infer ctx recv) (ctx.NameOf li.Idents.[0])
-        | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
-            li.Idents.Length >= 2
-            && ctx.Bindings.Binding.ContainsKey(NodeKey.ofToken li.Idents.[0] NodeKind.ExprIdent)
-            ->
-            let recvTy = inferLongIdentReceiverPrefix ctx (CstKeys.ofExpr fn) li
-            resolveOn recvTy (ctx.NameOf li.Idents.[li.Idents.Length - 1])
-        | _ -> ValueNone
+        match receiverMemberOf infer ctx fn with
+        | ValueSome(struct (recvTy, memberName)) -> resolveOn recvTy memberName
+        | ValueNone -> ValueNone
 
     /// Permit an external method call that omits a suffix of the member's *trailing
     /// optional* parameters (`ArrayPool<'T>.Return(arr)` for `Return(arr, [<Optional>]
