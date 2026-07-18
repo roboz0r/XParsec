@@ -1450,4 +1450,96 @@ let tests =
                 let frozen = frozenLetTy (freezeDecls "let f (x: int | string) : int | string = x")
                 Expect.equal (toFrozen (ofFrozen frozen)) frozen "ofFrozen >> toFrozen = id on the frozen signature"
             }
+
+            // The bindings-accumulating trial matcher (`matchTypes`) behind
+            // `pickBestOverload`. These call the picker DIRECTLY on hand-built
+            // `ExternalMember` candidates: the front end does not yet form a
+            // user-declared overload SET, and the external providers reach the picker
+            // only through the call-site machinery, so a focused matcher test builds
+            // the candidate array itself. Each candidate is keyed as the member it is
+            // (a static method on a stub type `C`); only `argSig` length (arity) and
+            // the `Signature` parameters are load-bearing here.
+            let objTy = TyConst(RuntimeNames.objKey, EqArray.empty)
+            let unitFt = FTConst(RuntimeNames.unitKey, EqArray.empty)
+
+            let overloadMember (paramFts: FrozenType list) (methodTyparArity: int) : ExternalMember =
+                let parameters =
+                    match paramFts with
+                    | [] -> unitFt
+                    | [ p ] -> p
+                    | many -> FTTuple(EqArray.ofList many)
+
+                { ExternalMember.OfKey(
+                      SymbolKeyOps.memberKeyOf
+                          (SymbolKeyOps.qualifiedTypeKeyOf "C" 0)
+                          "M"
+                          (EqArray.ofList paramFts)
+                          methodTyparArity
+                          MemberKind.Method
+                  ) with
+                    IsStatic = true
+                    MethodTyparArity = methodTyparArity
+                    Signature = TestHelpers.mkSignature 0 methodTyparArity parameters unitFt
+                }
+
+            let pick (candidates: ExternalMember[]) (args: SemType list) : ExternalMember voption =
+                UnificationInferOverload.pickBestOverload id [||] candidates args
+
+            let chosenParams (m: ExternalMember) : SemType list =
+                UnificationInferOverload.memberParamTypes [||] m
+
+            let intFt = FTConst(RuntimeNames.intKey, EqArray.empty)
+            let objFt = FTConst(RuntimeNames.objKey, EqArray.empty)
+
+            test "a rejected overload trial leaves the caller TyVar free (no residue)" {
+                // The FIRST candidate `M(int, int)` binds the caller-side free var to
+                // `int` at position one, then FAILS at position two (`string` vs `int`);
+                // its scratch substitution is dropped. `M(obj, obj)` then wins. The trial
+                // must never touch the shared union-find, so the free var stays free.
+                // Passes vacuously TODAY (nothing is tried) — it guards the new machinery.
+                let freeTv = TypeVar()
+
+                let candidates =
+                    [| overloadMember [ intFt; intFt ] 0; overloadMember [ objFt; objFt ] 0 |]
+
+                let chosen = pick candidates [ TyVar freeTv; BuiltinTypes.tyString ]
+
+                Expect.equal chosen.IsSome true "M(obj, obj) is applicable"
+                Expect.equal (chosenParams chosen.Value) [ objTy; objTy ] "the obj overload wins"
+                Expect.equal freeTv.Link ValueNone "the failed trial left the caller TyVar free"
+            }
+
+            test "a shared method typar must bind consistently across argument positions" {
+                // `M<'T>('T, 'T)` called with `(int, string)` is NOT applicable: `'T`
+                // binds `int` at position one, so `string` at position two rejects it.
+                // `M(obj, obj)` wins. fsi confirms the shared-typar overload is rejected
+                // and the obj overload is chosen. A LONE `M<'T>('T,'T)` would instead
+                // surface as a commit-seam type error (the picker is never entered for a
+                // single name/arity candidate), so the second candidate is essential.
+                let shared =
+                    overloadMember [ FTTypar(TyparAxis.Method, 0); FTTypar(TyparAxis.Method, 0) ] 1
+
+                let objObj = overloadMember [ objFt; objFt ] 0
+                let chosen = pick [| shared; objObj |] [ BuiltinTypes.tyInt; BuiltinTypes.tyString ]
+
+                Expect.equal chosen.IsSome true "M(obj, obj) is applicable after the shared-typar reject"
+
+                Expect.equal
+                    (chosenParams chosen.Value)
+                    [ objTy; objTy ]
+                    "the obj overload wins, not the shared-typar one"
+            }
+
+            test "a non-ground argument resolves against a concrete-parameter overload" {
+                // The argument type is still a free `TyVar`. It must BIND against the
+                // concrete `int` parameter rather than falling to `| _ -> false` and
+                // reporting "no applicable overload". Fails TODAY: `TyVar` vs `TyConst`
+                // is not matched by the pre-`matchTypes` filter. The arity-2 sibling is
+                // filtered out by arity, leaving `M(int)` the unique survivor.
+                let candidates = [| overloadMember [ intFt ] 0; overloadMember [ intFt; intFt ] 0 |]
+                let chosen = pick candidates [ TyVar(TypeVar()) ]
+
+                Expect.equal chosen.IsSome true "the free argument binds against M(int) — the set is not killed"
+                Expect.equal (chosenParams chosen.Value) [ BuiltinTypes.tyInt ] "M(int) is chosen"
+            }
         ]
