@@ -301,7 +301,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         | FTClass(rKey, rArgs)
         | FTUnion(rKey, rArgs)
         | FTRecord(rKey, rArgs) ->
-            match symbols.TryLookupType(SymbolKeyOps.typeMetaName rKey) with
+            match env.LookupTypeByKey(SymbolKey.Type rKey) with
             | ValueSome(ExternalTypeShape.Class shape) ->
                 pickInterfaceWitness
                     (SymbolKeyOps.typeMetaName ifaceKey)
@@ -328,7 +328,7 @@ type internal ClrRecipes(env: ClrEnv, enc: ClrEncoder) =
         let valueKey = SymbolKeyOps.valueKey (ModuleHolder.InModule declModule) name
         let compiledFullName = SymbolKeyOps.qualifiedName valueKey
 
-        match symbols.TryLookupOpenSignature compiledFullName with
+        match symbols.TryLookupOpenSignature valueKey with
         | ValueNone -> ValueNone
         | ValueSome openSig ->
             // The symbol's open curried signature *template*, with its method typars already self-

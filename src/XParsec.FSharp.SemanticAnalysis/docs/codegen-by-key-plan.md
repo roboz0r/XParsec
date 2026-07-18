@@ -106,13 +106,6 @@ use site or a default *should* have grounded the typar, the bug is here, not the
 
 Not blocked by the above, and each stands on its own.
 
-- **`ICodegenSymbols` is a string bridge over a key-addressed store**
-  (`ExternalSymbols.fs:983-1002`). The bridge (`CodegenSymbols.fs:16-50`) *already*
-  mints the key straight back via `lookupKeyOfCompiledName`, so the string is a pure
-  round trip — the leak is the signature, not the data. Every CLR caller already holds
-  a key. Requires first adding `IExternalSymbolStore.TryLookupValue : SymbolKey -> …`
-  (the store face has no value channel, which is why `ClrProvider.fs:327` decomposes a
-  Freeze key into strings and calls the *resolver* face).
 - **JS: narrow the provider handle.** `JsFlatFns.fs:49-58` and `EmitJsContext.fs:306-312`
   round-trip a key back to a string to reach the resolver face. Read the store by key,
   then narrow `WalkCtx.Provider` (`EmitJsContext.fs:76`) to `IExternalSymbolStore` —

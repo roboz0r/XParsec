@@ -309,7 +309,8 @@ type ClrProvider
         member _.ExternalMemberRef(key, isProperty, isStatic, memberTy) =
             ext.ExternalMemberRef(key, isProperty, isStatic, memberTy)
 
-        member _.TryCapabilityBaseMemberKey(key) = ext.TryCapabilityBaseMemberKey(key)
+        member _.TryCapabilityBaseMemberKey(key) =
+            env.Symbols.TryRebaseCapabilityMember key
 
         member _.ExternalMemberRefOn(key, declTy, isProperty, isStatic, memberTy) =
             ext.ExternalMemberRefOn(key, declTy, isProperty, isStatic, memberTy)

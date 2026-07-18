@@ -142,19 +142,11 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
         toEntity (ctx.MemberRef(parent, metaName, s))
 
     /// Look up the resolved external member for `key` — the *exact* overload the front end committed
-    /// (its key, incl. `argSig`, matches), NOT a singular re-pick (which would re-collapse a resolved
-    /// overload to the most-params one and disagree with the node's `memberTy`). The singular
-    /// `TryLookupMember` is the fallback for providers exposing only that surface.
+    /// (its key, incl. `argSig`, matches). Codegen never disambiguates: the front end stamped the
+    /// `MemberKey`, so this is a by-key fetch, never a re-pick that would re-collapse a resolved
+    /// overload to the most-params one and disagree with the node's `memberTy`.
     let lookupChosen (declFullName: string) (memberName: string) (key: MemberKey) : ExternalMember =
-        let chosen =
-            match
-                symbols.TryLookupMembers(declFullName, memberName)
-                |> ExternalSymbols.memberByKey key
-            with
-            | ValueSome m -> ValueSome m
-            | ValueNone -> symbols.TryLookupMember(declFullName, memberName)
-
-        match chosen with
+        match symbols.TryLookupMemberByKey key with
         | ValueSome m -> m
         | ValueNone -> failwithf "ClrProvider: external member '%s.%s' did not resolve at emit" declFullName memberName
 
@@ -224,52 +216,6 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
 
             externalMemberCache.[memoKey] <- handle
             handle
-
-    /// A capability member call (`enumerator<'T>.MoveNext()`) resolves against its
-    /// canonical declaring capability (`Vesper.Collections.enumerator`), which reconciles
-    /// to a BCL platform face (`System.Collections.Generic.IEnumerator`1`). But a member's
-    /// TRUE declaring type may be a *base* of that face — `MoveNext` is declared on the
-    /// non-generic `System.Collections.IEnumerator`, NOT on `IEnumerator`1`, which merely
-    /// inherits it — so a member-ref minted against the face faults at runtime
-    /// (`MissingMethodException`). Re-resolve the member on the platform face's metadata
-    /// interface hierarchy (which reports each member's real declaring type) and, when that
-    /// declarer is a base of the face, return the member key rebased onto it. This is the
-    /// manual-call analogue of the BCL declarers the `for … in` lowering mints by hand
-    /// (`EmitLoops` — `MoveNext` on `IEnumerator`, `Current` on `IEnumerator`1`), here
-    /// derived from metadata rather than hardcoded string literals. `ValueNone` when the
-    /// declaring type is not a capability interface, the member is declared on the platform
-    /// face itself (`GetEnumerator` on `IEnumerable`1`, `Current` on `IEnumerator`1` — no
-    /// rebase needed), or no base member of the requested `kind` exists (decline rather than
-    /// rebase onto an arbitrary same-named member, which would mint a wrong ref).
-    let tryCapabilityBaseMemberKey (key: SymbolKey) : SymbolKey voption =
-        match key with
-        | SymbolKey.Member {
-                               Decl = declKey
-                               Name = memberName
-                               Kind = kind
-                           } ->
-            match env.LookupTypeByKey(SymbolKey.Type declKey) with
-            | ValueSome(ExternalTypeShape.IntrinsicInterface { Platform = platform }) ->
-                let members = symbols.TryLookupMembers(platform, memberName)
-
-                let declaredOn (m: ExternalMember) = SymbolKeyOps.typeMetaName m.Key.Decl
-
-                // Declared on the platform face itself → the existing face-parented
-                // member-ref already binds; no rebase.
-                if members |> Array.exists (fun m -> declaredOn m = platform) then
-                    ValueNone
-                else
-                    // Inherited from a base interface: rebase onto the base member of the
-                    // requested `kind`, whose `Key` names its real declaring base (e.g.
-                    // `IEnumerator`), so the later member-ref mints against the base, non-generic
-                    // parent. No such base member ⇒ decline (`ValueNone`), leaving the original
-                    // face-parented key: rebasing onto an arbitrary same-named member would mint
-                    // a wrong ref, no safer than the un-rebased key the caller falls back to.
-                    match members |> Array.tryFind (fun m -> m.Key.Kind = kind) with
-                    | Some m -> ValueSome(SymbolKey.Member m.Key)
-                    | None -> ValueNone
-            | _ -> ValueNone
-        | _ -> ValueNone
 
     /// `externalMemberRef` for a member whose declaring type's instantiation cannot be recovered from
     /// the member's *open* signature — a T-free member like `MoveNext(): bool` on a generic enumerator.
@@ -511,41 +457,22 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
                 ValueSome(handle, substitutedTy)
             | _ -> ValueNone
 
-    /// Mint the `MemberRef` for a referenced-assembly class's constructor, instantiated at `tyArgs`. Two
-    /// ctors of the same arity (e.g. `ArgumentException(string, string)` vs `(string, Exception)`) are
-    /// disambiguated by `chosen` — the `SymbolKey.MemberKey` the front end recorded on `TExpr.New` when it
-    /// resolved the overload by argument type. `MemberKey.ArgSig` is a total overload identity, so the
-    /// match is exact; codegen never re-runs overload resolution (which would need a `PassContext` it
-    /// lacks). Picking the wrong same-arity ctor would mint a `newobj` whose signature disagrees with the
-    /// pushed values (a `string` landing where an `Exception` is expected), faulting the CLR at
-    /// throw/dispatch time. Falls back to the first arity match when `chosen` is absent (a base-ctor
-    /// `inherit` chain, which carries no `TExpr.New`, or a single-ctor type).
+    /// Mint the `MemberRef` for a referenced-assembly class's constructor, instantiated at `tyArgs`. The
+    /// ctor is selected by `ICodegenSymbols.TryLookupCtor`: by the exact `MemberKey` the front end recorded
+    /// on `TExpr.New` (`chosen`) — the total overload identity, so two same-arity ctors
+    /// (`ArgumentException(string, string)` vs `(string, Exception)`) are told apart without codegen
+    /// re-running overload resolution — with the heritable-primitive canon→platform decl rebase and the
+    /// identityless-synthesised arity fallback both handled behind the seam. `ValueNone` ⇒ the ctor did
+    /// not resolve.
     let externalCtor
         (key: SymbolKey)
         (chosen: SymbolKey voption)
         (tyArgs: FrozenType list)
         (argTypes: FrozenType list)
         : CtorRecipe voption =
-        // The member table is genuinely string-keyed — the `.ctor` overload set is
-        // looked up by the declaring type's compiled name (the genuine string
-        // boundary); only the *type-shape* ref routes through the key funnel.
-        let fullName = SymbolKeyOps.qualifiedName key
-        let candidates = symbols.TryLookupMembers(fullName, ".ctor")
-        let arity = List.length argTypes
-
-        let applicable = candidates |> Array.filter (fun m -> m.Key.ArgSig.Length = arity)
-
-        match applicable with
-        | [||] -> ValueNone
-        | _ ->
-            let chosenCtor =
-                match chosen with
-                | ValueSome ck ->
-                    applicable
-                    |> Array.tryFind (fun m -> SymbolKey.Member m.Key = ck)
-                    |> Option.defaultValue applicable.[0]
-                | ValueNone -> applicable.[0]
-
+        match symbols.TryLookupCtor(key, chosen, List.length argTypes) with
+        | ValueNone -> ValueNone
+        | ValueSome chosenCtor ->
             let argSigLen = chosenCtor.Key.ArgSig.Length
 
             match externalClassRef key with
@@ -643,7 +570,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// heritable extern never arrives here: it resolves to an `FTClass` base, the
     /// `ExternalClassTypeRef` path.)
     member _.IntrinsicClassBase(canon: SymbolKey) : struct (SymbolKey * EntityHandle) voption =
-        match env.Symbols.TryLookupType(SymbolKeyOps.qualifiedName canon) with
+        match env.LookupTypeByKey canon with
         | ValueSome(ExternalTypeShape.Intrinsic {
                                                     Id = { Platform = Some repr }
                                                     Class = ValueSome _
@@ -660,8 +587,6 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// `TypeSpec`-wrapped one (`TypeToken`) — because the Extends column wants the
     /// bare ref for a non-generic external base. `ValueNone` ⇒ not an external class.
     member _.ExternalClassTypeRef(key) = externalClassRef key
-
-    member _.TryCapabilityBaseMemberKey(key) = tryCapabilityBaseMemberKey key
 
     member _.ExternalMemberRef(key, isProperty, isStatic, memberTy) =
         externalMemberRef key isProperty isStatic memberTy

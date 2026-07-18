@@ -1087,22 +1087,48 @@ type CodegenOpenSignature =
 /// never runs the legacy `SemType[] -> SemType` closures) and the open signature of a
 /// module-level function. `ClrEnv` holds this instead of `IExternalSymbolProvider`, so
 /// the emission code can no longer reach `Instantiate` / constraints / mutable inference
-/// state. One backing provider implements both views (`ExternalSymbols.codegenView`).
+/// state. One backing provider implements both views (`CodegenSymbols.ofProvider`).
+///
+/// **Every channel is `SymbolKey`/`MemberKey`-addressed, and NONE returns an overload
+/// SET.** Codegen never disambiguates overloads: the front end already resolved the
+/// member and stamped its `MemberKey` on the node, so a member is fetched by that key
+/// (`TryLookupMemberByKey`), never re-picked from a name's candidate array. The two
+/// queries that genuinely ENUMERATE — a ctor's arity fallback and a capability member's
+/// base-declarer rebase — do their walk BEHIND this seam and hand back a single member /
+/// a rebased key, so no `ExternalMember[]` ever crosses to emission.
 type ICodegenSymbols =
-    /// Look up a `type` declaration's shape by canonical compiled name (the parent
-    /// `TypeRef` + the field/case templates codegen encodes).
-    abstract TryLookupType: name: string -> ExternalTypeShape voption
-    /// The single best-by-arity member overload (the fallback when the front end's
-    /// exact key isn't in the candidate set).
-    abstract TryLookupMember: typeName: string * memberName: string -> ExternalMember voption
-    /// Every overload of a member name — the set codegen filters by the front end's
-    /// resolved `SymbolKey` (or re-picks a ctor from, by call-site arg types).
-    abstract TryLookupMembers: typeName: string * memberName: string -> ExternalMember[]
-    /// The open `FrozenType` signature of a module-level function, or `ValueNone` for
-    /// an unknown symbol or one with no home assembly (a project-local symbol the
-    /// provider never sees — the caller falls back to its hard error). The data-form
-    /// replacement for `TryLookup` + `Inline.openMethodSignature` at the codegen boundary.
-    abstract TryLookupOpenSignature: name: string -> CodegenOpenSignature voption
+    /// A `type` declaration's shape by its resolved key (the parent `TypeRef` + the
+    /// field/case templates codegen encodes). Single-probe; the bare-vs-arity-suffix
+    /// registration split is reconciled once in `CodegenSymbols.lookupTypeByKey`.
+    abstract TryLookupType: key: SymbolKey -> ExternalTypeShape voption
+    /// The exact member the front end resolved, by the `MemberKey` it stamped — no
+    /// overload re-pick. `ValueNone` when the provider models no such member.
+    abstract TryLookupMemberByKey: key: MemberKey -> ExternalMember voption
+    /// Select the `.ctor` a `new` emits. By the exact `MemberKey` the front end recorded
+    /// (`chosen`) when it has one; a heritable primitive (`new exn`) records its ctor
+    /// against the CANON (`Vesper.exn`) while emission runs against the platform class
+    /// (`System.Exception`), so the recorded key's declaring canon is rebased through
+    /// `IntrinsicForwardRepr` before the fetch — the metadata layer canonicalises ctor
+    /// PARAM types but keys the decl under the real platform type, so ONLY the decl differs
+    /// and a decl-rebased by-key fetch is exact. For a SYNTHESISED ctor that carries no
+    /// identity (printf's scratch `StringBuilder`, the `PrintfFormat` literal) `chosen` is
+    /// absent and the sole ctor of `arity` params is taken. Not overload disambiguation:
+    /// `chosen` is a total identity, and the arity path serves only identityless synthesised
+    /// ctors (single-ctor / no same-arity ambiguity). One member out, never an array.
+    abstract TryLookupCtor: declKey: SymbolKey * chosen: SymbolKey voption * arity: int -> ExternalMember voption
+    /// Rebase a member call resolved against a capability face onto its true base
+    /// declarer, when the member is inherited (`enumerator.MoveNext` is declared on the
+    /// non-generic base `IEnumerator`, not the `IEnumerator`1` platform face it was
+    /// called on — a face-parented member-ref would `MissingMethodException`). Walks the
+    /// platform face's metadata hierarchy internally and returns the rebased member key.
+    /// `ValueNone` when `key` is not a capability member, is declared on the face itself,
+    /// or has no base member to rebase onto (decline rather than mint a wrong ref).
+    abstract TryRebaseCapabilityMember: key: SymbolKey -> SymbolKey voption
+    /// The open `FrozenType` signature of a module-level function by its value key, or
+    /// `ValueNone` for an unknown symbol or one with no home assembly (a project-local
+    /// symbol the provider never sees — the caller falls back to its hard error). The
+    /// data-form replacement for `Inline.openMethodSignature` at the codegen boundary.
+    abstract TryLookupOpenSignature: key: SymbolKey -> CodegenOpenSignature voption
     /// The forward intrinsic axis `{ canon -> platform-repr }` (see
     /// `IExternalSymbolProvider.IntrinsicForwardRepr`): codegen resolves a primitive
     /// canon name (`"int"`) to its `.fs`-declared repr (`"System.Int32"`) here — the
