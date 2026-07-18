@@ -481,10 +481,10 @@ module internal NominalEmit =
             // The primary `.ctor`'s base chain, one arm per base species:
             //  * `ExternalBase` with `inherit Base(args)` args (`inherit exn(msg)`): the
             //    base is external, so its `.ctor` is minted through the same external-ctor
-            //    resolution a `new System.Exception(...)` uses (`TryEmitCtor`) — by arity,
-            //    since an `inherit` chain carries no `TExpr.New` node to record the chosen
-            //    overload's identity — then chained with the `inherit` args before the
-            //    field stores.
+            //    resolution a `new System.Exception(...)` uses (`TryEmitCtor`) — BY KEY, from
+            //    the `ChosenCtor` identity `Unification.fillBaseCtorCall` recorded (falling
+            //    back to arity only if none was recorded) — then chained with the `inherit`
+            //    args before the field stores.
             //  * `ExternalBase`, no args (`inherit Attribute`, `Attribute = (# class … #)`):
             //    chain to its parameterless `.ctor()` (minted directly off the external
             //    `TypeRef` — a protected base ctor need not be in the member harvest)
@@ -500,7 +500,7 @@ module internal NominalEmit =
                 | BaseShape.ExternalBase(baseKey, _), ValueSome bcc when not bcc.Args.IsEmpty ->
                     let argTypes = [ for a in bcc.Args -> TastLower.typeOfExpr a ]
 
-                    match icodegen.TryEmitCtor(baseKey, ValueNone, [], argTypes) with
+                    match icodegen.TryEmitCtor(baseKey, bcc.ChosenCtor, [], argTypes) with
                     | ValueSome recipe -> Emit.CtorChain.Base(recipe.Handle, EqArray.toList bcc.Args)
                     | ValueNone ->
                         failwithf

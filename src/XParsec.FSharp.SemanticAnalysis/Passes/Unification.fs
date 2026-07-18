@@ -597,17 +597,18 @@ module Unification =
                 try
                     let (DisplayName shown) = SymbolKeyOps.simpleName canonKey
 
-                    // The base ctor has no `TExpr.New` node to carry an identity, so the
-                    // chosen ctor is not recorded here; codegen resolves the `inherit` chain
-                    // by arity.
-                    UnificationInferCtor.inferIntrinsicClassCtorCall
-                        infer
-                        ctx
-                        (canonArgs.AsSpan().ToArray())
-                        surface
-                        (sprintf "No applicable constructor on base '%s' for the given 'inherit' arguments" shown)
-                        argExpr
-                    |> ignore
+                    match
+                        UnificationInferCtor.inferIntrinsicClassCtorCall
+                            infer
+                            ctx
+                            (canonArgs.AsSpan().ToArray())
+                            surface
+                            (sprintf "No applicable constructor on base '%s' for the given 'inherit' arguments" shown)
+                            argExpr
+                    with
+                    | ValueSome chosen ->
+                        ctx.Resolution.ExternalCtor.Set(CstKeys.ofExpr argExpr, SymbolKey.Member chosen.Key)
+                    | ValueNone -> ()
                 finally
                     exitLevel ctx
             | ValueNone -> ()

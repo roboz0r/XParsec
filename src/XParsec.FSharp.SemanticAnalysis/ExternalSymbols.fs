@@ -1105,16 +1105,16 @@ type ICodegenSymbols =
     /// overload re-pick. `ValueNone` when the provider models no such member.
     abstract TryLookupMemberByKey: key: MemberKey -> ExternalMember voption
     /// Select the `.ctor` a `new` emits. By the exact `MemberKey` the front end recorded
-    /// (`chosen`) when it has one; a heritable primitive (`new exn`) records its ctor
-    /// against the CANON (`Vesper.exn`) while emission runs against the platform class
-    /// (`System.Exception`), so the recorded key's declaring canon is rebased through
-    /// `IntrinsicForwardRepr` before the fetch — the metadata layer canonicalises ctor
-    /// PARAM types but keys the decl under the real platform type, so ONLY the decl differs
-    /// and a decl-rebased by-key fetch is exact. For a SYNTHESISED ctor that carries no
-    /// identity (printf's scratch `StringBuilder`, the `PrintfFormat` literal) `chosen` is
-    /// absent and the sole ctor of `arity` params is taken. Not overload disambiguation:
-    /// `chosen` is a total identity, and the arity path serves only identityless synthesised
-    /// ctors (single-ctor / no same-arity ambiguity). One member out, never an array.
+    /// (`chosen`) when it has one — a total identity, so same-arity overloads
+    /// (`ArgumentException(string, string)` vs `(string, Exception)`) are told apart by key,
+    /// not re-picked. A heritable primitive's recorded ctor key is already PLATFORM-valid
+    /// (`new exn` records a `System.Exception::.ctor`): the provider stamps the platform decl
+    /// off `IntrinsicForwardRepr` when it republishes the intrinsic surface, so the backend
+    /// never rebases. `chosen` is absent for a ctor node that records no identity — the printf
+    /// `%a`/`%t` scratch (`new StringBuilder()`) and an external-base `inherit` chain
+    /// (`inherit exn(msg)`, which has no `TExpr.New`) — and the sole ctor of `arity` params is
+    /// taken (these have no same-arity ambiguity). Not overload disambiguation; one member out,
+    /// never an array.
     abstract TryLookupCtor: declKey: SymbolKey * chosen: SymbolKey voption * arity: int -> ExternalMember voption
     /// Rebase a member call resolved against a capability face onto its true base
     /// declarer, when the member is inherited (`enumerator.MoveNext` is declared on the

@@ -235,6 +235,7 @@ module TastConvert =
         {
             CtorParams = EqArray.map (fun (k, ty) -> k, f ty) bc.CtorParams
             Args = EqArray.map (expr f) bc.Args
+            ChosenCtor = bc.ChosenCtor
         }
 
     let abstractMethod (f: 'a -> 'b) (am: TAbstractMethodG<'a>) : TAbstractMethodG<'b> =

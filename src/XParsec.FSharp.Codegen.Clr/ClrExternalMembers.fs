@@ -461,9 +461,9 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
     /// ctor is selected by `ICodegenSymbols.TryLookupCtor`: by the exact `MemberKey` the front end recorded
     /// on `TExpr.New` (`chosen`) — the total overload identity, so two same-arity ctors
     /// (`ArgumentException(string, string)` vs `(string, Exception)`) are told apart without codegen
-    /// re-running overload resolution — with the heritable-primitive canon→platform decl rebase and the
-    /// identityless-synthesised arity fallback both handled behind the seam. `ValueNone` ⇒ the ctor did
-    /// not resolve.
+    /// re-running overload resolution (a heritable primitive's recorded key is already platform-valid, so
+    /// there is no rebase here) — with the identityless (printf scratch / external-base `inherit`) arity
+    /// fallback behind the seam. `ValueNone` ⇒ the ctor did not resolve, or `key` is not external.
     let externalCtor
         (key: SymbolKey)
         (chosen: SymbolKey voption)

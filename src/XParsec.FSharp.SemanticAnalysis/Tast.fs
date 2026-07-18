@@ -972,6 +972,12 @@ and TBaseCtorCallG<'ty, 'tok> =
     {
         CtorParams: EqArray<NodeKey * 'ty>
         Args: EqArray<TExprG<'ty, 'tok>>
+        /// The chosen base `.ctor`'s identity for an EXTERNAL base (`inherit exn(msg)`),
+        /// recorded by `Unification.fillBaseCtorCall` so codegen chains the base ctor by key
+        /// rather than re-picking by arity. `ValueNone` for a project-local base (its ctor is
+        /// the local class's, resolved from the emitted class table) and for an external base
+        /// whose overload identity was not recorded (codegen falls back to arity).
+        ChosenCtor: SymbolKey voption
     }
 
 /// `Signature` is the curried function type; a type parameter of the *declaring

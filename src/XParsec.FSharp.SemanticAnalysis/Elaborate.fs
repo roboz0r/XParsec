@@ -1637,6 +1637,10 @@ module Elaborate =
                         {
                             CtorParams = ctorParamKeys
                             Args = args
+                            // The base ctor's chosen identity, recorded by
+                            // `Unification.fillBaseCtorCall` under the args expr (an external
+                            // base like `inherit exn(msg)`); `ValueNone` for a project-local base.
+                            ChosenCtor = ctx.Resolution.ExternalCtor.TryGetValue(CstKeys.ofExpr argExpr)
                         }
                 | _ -> ValueNone
 

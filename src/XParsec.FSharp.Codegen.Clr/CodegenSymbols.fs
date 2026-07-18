@@ -54,31 +54,18 @@ module CodegenSymbols =
             member _.TryLookupCtor(declKey, chosen, arity) =
                 match chosen with
                 | ValueSome ck ->
-                    // The recorded identity IS the ctor. A heritable primitive records it
-                    // against the CANON (`Vesper.exn`) while emission runs against the
-                    // platform class; the metadata layer canonicalises ctor PARAM types but
-                    // keys the decl under the platform type, so only the decl differs — rebase
-                    // it through `IntrinsicForwardRepr` and the by-key fetch is exact. A
-                    // normal external ctor's decl is no canon, so the rebase misses and the
-                    // direct fetch already resolved it.
-                    let mk = SymbolKeyOps.asMemberKey "ClrProvider: external ctor" ck
-
-                    provider.TryLookupMemberByKey mk
-                    |> ValueOption.orElseWith (fun () ->
-                        match provider.IntrinsicForwardRepr.TryGetValue(SymbolKey.Type mk.Decl) with
-                        | true, platformRepr ->
-                            provider.TryLookupMemberByKey
-                                { mk with
-                                    Decl = SymbolKeyOps.qualifiedTypeKeyOf platformRepr 0
-                                }
-                        | _ -> ValueNone
-                    )
+                    // The recorded identity IS the ctor — a by-key fetch, no re-pick. A heritable
+                    // primitive's ctor key is already platform-valid (the provider stamps it off
+                    // `IntrinsicForwardRepr` when it republishes the intrinsic surface — see
+                    // `VesperLib`'s heritable-primitive republish), so this resolves the same way a
+                    // metadata ctor key does, with no canon→platform rebase in the backend.
+                    provider.TryLookupMemberByKey(SymbolKeyOps.asMemberKey "ClrProvider: external ctor" ck)
                 | ValueNone ->
-                    // A synthesised ctor with no recorded identity (printf's scratch
-                    // `StringBuilder` `new()`, the `PrintfFormat` literal `new(text)`): the
-                    // sole ctor of this arity. Not overload disambiguation — these types have
-                    // no same-arity ambiguity; the pick runs behind the seam and one member
-                    // leaves it.
+                    // A ctor node that records no identity: the printf `%a`/`%t` scratch
+                    // (`new StringBuilder()`) or an external-base `inherit` chain
+                    // (`inherit exn(msg)`, which has no `TExpr.New`). The sole ctor of this
+                    // arity — these types carry no same-arity ambiguity; the pick runs behind
+                    // the seam and one member leaves it.
                     provider.TryLookupMembers(declKey, ".ctor")
                     |> Array.tryFind (fun m -> m.Key.ArgSig.Length = arity)
                     |> function

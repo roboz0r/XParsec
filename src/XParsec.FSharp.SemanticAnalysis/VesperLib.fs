@@ -517,9 +517,28 @@ module VesperLib =
         for KeyValue(compiled, struct (canon, platform)) in ctx.PendingIntrinsicClasses do
             match ctx.TypeShapes.TryGetValue compiled with
             | true, ExternalTypeShape.Class shape ->
+                // A heritable primitive's `.ctor`s are authored against the CANON (`Vesper.exn`)
+                // but EMIT against the platform class (`System.Exception`). Stamp each ctor's
+                // declaring key with the platform type HERE — where the `platform` repr is in
+                // hand — so the recorded ctor identity (`new exn` records it, `inherit exn`
+                // should) is already a valid platform key codegen fetches by key, with no
+                // canon→platform rebase smeared into the backend. The ctor's SIGNATURE stays
+                // canon (inference unifies against it); only the identity is platform-keyed,
+                // which is exactly the shape the metadata `System.Exception::.ctor` carries
+                // (platform decl, `reverseCanon` params), so the keys meet.
+                let platformDecl = SymbolKeyOps.qualifiedTypeKeyOf platform 0
+
                 let ctors =
                     match ctx.TypeMembers.TryGetValue compiled with
-                    | true, ms -> ms |> Seq.filter (fun m -> m.Name = ".ctor") |> Seq.toArray
+                    | true, ms ->
+                        ms
+                        |> Seq.filter (fun m -> m.Name = ".ctor")
+                        |> Seq.map (fun m ->
+                            { m with
+                                Key = { m.Key with Decl = platformDecl }
+                            }
+                        )
+                        |> Seq.toArray
                     | _ -> [||]
 
                 ctx.TypeShapes.[compiled] <-
