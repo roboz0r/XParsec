@@ -13,6 +13,170 @@ let private analyse (input: string) =
     Unification.run ctx file
     ctx
 
+// The bindings-accumulating trial matcher (`matchTypes`) behind
+// `pickBestOverload`. These call the picker DIRECTLY on hand-built
+// `ExternalMember` candidates: the front end does not yet form a
+// user-declared overload SET, and the external providers reach the picker
+// only through the call-site machinery, so a focused matcher test builds
+// the candidate array itself. Each candidate is keyed as the member it is
+// (a static method on a stub type `C`); only `argSig` length (arity) and
+// the `Signature` parameters are load-bearing here.
+let private unitFt = FTConst(RuntimeNames.unitKey, EqArray.empty)
+let private intFt = FTConst(RuntimeNames.intKey, EqArray.empty)
+let private stringFt = FTConst(RuntimeNames.stringKey, EqArray.empty)
+
+let private overloadMember (paramFts: FrozenType list) (methodTyparArity: int) : ExternalMember =
+    let parameters =
+        match paramFts with
+        | [] -> unitFt
+        | [ p ] -> p
+        | many -> FTTuple(EqArray.ofList many)
+
+    { ExternalMember.OfKey(
+          SymbolKeyOps.memberKeyOf
+              (SymbolKeyOps.qualifiedTypeKeyOf "C" 0)
+              "M"
+              (EqArray.ofList paramFts)
+              methodTyparArity
+              MemberKind.Method
+      ) with
+        IsStatic = true
+        MethodTyparArity = methodTyparArity
+        Signature = TestHelpers.mkSignature 0 methodTyparArity parameters unitFt
+    }
+
+// A one-parameter candidate keyed by its parameter shape (so two same-name
+// members are distinct); the declaring type is irrelevant to the pick.
+let private classMember (paramTy: SemType) : ExternalMember = overloadMember [ toFrozen paramTy ] 0
+
+// A one-parameter instance member on the generic declaring type `Box<'a>`; its
+// single declaring typar is substituted from the picker's `typeArgs` before any
+// ranking, so `M('a)` at `Box<int>` presents an `int` parameter.
+let private boxMember (paramFt: FrozenType) : ExternalMember =
+    { ExternalMember.OfKey(
+          SymbolKeyOps.memberKeyOf
+              (SymbolKeyOps.qualifiedTypeKeyOf "Box" 1)
+              "M"
+              (EqArray.singleton paramFt)
+              0
+              MemberKind.Method
+      ) with
+        IsStatic = false
+        Signature = TestHelpers.mkSignature 1 0 paramFt unitFt
+    }
+
+let private chosenParamsWith (typeArgs: SemType[]) (m: ExternalMember) : SemType list =
+    UnificationInferOverload.memberParamTypes typeArgs m
+
+let private pickWith
+    (ctx: PassContext)
+    (typeArgs: SemType[])
+    (candidates: ExternalMember[])
+    (args: SemType list)
+    : ExternalMember voption =
+    UnificationInferOverload.pickBestOverload ctx typeArgs candidates args
+
+let private chosenParams (m: ExternalMember) : SemType list =
+    UnificationInferOverload.memberParamTypes [||] m
+
+// Immutable class-type values from the `GrandBase :> Base :> Derived` chain the
+// subtyping cases exercise — pure data, safe to share across parallel tests.
+let private grandBaseTy = TyClass("GrandBase", EqArray.empty)
+let private baseTy = TyClass("Base", EqArray.empty)
+let private derivedTy = TyClass("Derived", EqArray.empty)
+
+// `pickBestOverload` needs a `PassContext` — `subsumes` walks the class hierarchy the
+// ctx carries and `canon` is `capabilityCanonKey ctx`. Each factory returns a FRESH ctx
+// so parallel tests never share its mutable state:
+//   * `overloadCtx` — a minimal program; the pure-structural cases (no residue / shared
+//     typar / non-ground arg) need only the BCL primitives it provides.
+//   * `hierCtx` — a real `Base`/`Derived` source, so `ctx.Types` holds the inherit chain
+//     `subsumes` reads.
+let private overloadCtx () = analyse "let _ = 0"
+
+let private hierCtx () =
+    analyse
+        "type GrandBase() =\n    member this.G = 1\ntype Base() =\n    inherit GrandBase()\n    member this.B = 1\ntype Derived() =\n    inherit Base()\n    member this.D = 1"
+
+// --- User-declared member overload resolution ---------------
+// These analyse a full source so the call-seam probe forms the candidate set from the
+// type's own `Members` and picks by the argument types. The pattern-ident offset of
+// `let <name>` locates each binding's key.
+let private keyOfLet (input: string) (name: string) =
+    NodeKey.ofSource (input.IndexOf("let " + name + " ") + 4) NodeKind.PatIdent
+
+let private errors (ctx: PassContext) =
+    ctx.Diagnostics
+    |> Seq.filter (fun d -> d.Severity = Severity.Error)
+    |> Seq.toList
+
+// The union front door: `translateType` maps the CST `Type.UnionType` / `Type.Null`
+// surface to a canonical `TyOr` via `mkUnion`. With no assignability yet, a union only
+// enters here through an *annotation* on a parameter, whose fresh TyVar links to it
+// without any subtyping — the function's domain is the translated union. We assert on the
+// translated `SemType`, not on any call type-checking.
+let private unionDomainOf (input: string) : SemType =
+    let ctx = analyse input
+    let patKey = NodeKey.ofSource (input.IndexOf "f ") NodeKind.PatIdent
+
+    match typeOf ctx patKey with
+    | TyFun(dom, _) -> dom
+    | other -> failtestf "expected f : _ -> _, got %A" other
+
+// The directional `subsumes` query learns union membership. `unify` is untouched; these
+// are read-only calls (no `Link` mutation), asserted directly. All three relations are
+// covered, including the negative `A | B ⋠ A`.
+let private subsumeCtx () = analyse "let x = 1"
+let private intTy = BuiltinTypes.tyInt
+let private strTy = BuiltinTypes.tyString
+let private boolTy = BuiltinTypes.tyBool
+
+// Constraint reduction. `equality` and `comparison` are deliberately asymmetric
+// (§Constraints): a union satisfies EQUALITY iff *every* member does — generic `=` is
+// total on the union's repr (cross-member is `false`, never throws) — but any real
+// (≥2-member) union FAILS COMPARISON outright, because generic `compare` *throws* across
+// distinct runtime types, so an individually-comparable member set is still
+// non-comparable as a whole. `checkConstraint` is read-only here (no `Link` mutation), so
+// the outcomes are asserted by direct calls.
+let private checkConstraintKind ctx kind ty =
+    let c: SemanticConstraint =
+        {
+            Kind = kind
+            DeclKey = NodeKey.ofSource 0 NodeKind.PatIdent
+        }
+
+    UnificationEngine.checkConstraint ctx c ty
+
+// Binder narrowing + closed-union exhaustiveness. A `match` on a `TyOr` scrutinee narrows
+// each `:? M as x` arm to `M`, narrows a fall-through catch-all to the residual `mkUnion
+// (ts \ matched)`, and — because the union is *closed* — warns when the arms leave a
+// member uncovered.
+let private hasUnionExhaustivenessWarning (ctx: PassContext) =
+    ctx.Diagnostics
+    |> Seq.exists (fun d -> d.Severity = Severity.Warning && d.Message.Contains "anonymous union")
+
+// The closing freeze round-trip + backend handoff. No codegen — the front end must hand a
+// well-formed `FTOr` (in canonical order) to the backend boundary. `TyOr → FTOr` is
+// already mapped in `freezeTy`; this is the *end-to-end* assertion through a real annotated
+// binding, run all the way through `Pipeline.analyse` (every pass + the final
+// `SemType → FrozenType` freeze).
+let private freezeDecls (input: string) : Frozen.TastFile =
+    let lexed, file = parseFile input
+    Pipeline.analyse realProvider.Value input lexed file
+
+// The frozen type of the (sole) top-level `let f` binding.
+let private frozenLetTy (file: Frozen.TastFile) : FrozenType =
+    file.Decls
+    |> EqArray.toList
+    |> List.tryPick (fun d ->
+        match d with
+        // Both a function binding (`let f … = …`) and a plain value
+        // freeze to `Let`, carrying the binding's frozen type as `ty`.
+        | TDeclG.Let(ty = ty) -> Some ty
+        | _ -> None
+    )
+    |> Option.defaultWith (fun () -> failtest "expected a frozen `let` decl")
+
 [<Tests>]
 let tests =
     testList
@@ -1102,21 +1266,6 @@ let tests =
                 Expect.isTrue hasWarning "unrelated type test warns (not errors)"
             }
 
-            // Stage 3 of the anonymous-union plan: the
-            // front door. `translateType` maps the CST `Type.UnionType` / `Type.Null`
-            // surface to a canonical `TyOr` via `mkUnion`. No assignability yet
-            // (Stage 4+), so a union only enters here through an *annotation* on a
-            // parameter, whose fresh TyVar links to it without any subtyping — the
-            // function's domain is the translated union. We assert on the translated
-            // `SemType`, not on any call type-checking.
-            let unionDomainOf (input: string) : SemType =
-                let ctx = analyse input
-                let patKey = NodeKey.ofSource (input.IndexOf "f ") NodeKind.PatIdent
-
-                match typeOf ctx patKey with
-                | TyFun(dom, _) -> dom
-                | other -> failtestf "expected f : _ -> _, got %A" other
-
             test "int | string translates to the canonical TyOr [int; string]" {
                 let dom = unionDomainOf "let f (x: int | string) = x"
                 Expect.equal dom (mkUnion [ BuiltinTypes.tyInt; BuiltinTypes.tyString ]) "f domain is int | string"
@@ -1162,63 +1311,61 @@ let tests =
                 | other -> failtestf "expected a TyOr, got %A" other
             }
 
-            // Stage 4 of the anonymous-union plan: the
-            // directional `subsumes` query learns union membership — the first
-            // user-visible behaviour. `unify` is untouched; these are read-only
-            // calls (no `Link` mutation), asserted directly. All three relations
-            // are covered, including the negative `A | B ⋠ A`.
-            let subsumeCtx = analyse "let x = 1"
-            let int = BuiltinTypes.tyInt
-            let str = BuiltinTypes.tyString
-            let boolTy = BuiltinTypes.tyBool
-
-            let subsumes a b =
-                UnificationSubsume.subsumes subsumeCtx a b
-
             test "member → union: a member is Equal to the union it belongs to" {
+                let ctx = subsumeCtx ()
+
                 Expect.equal
-                    (subsumes int (mkUnion [ int; str ]))
+                    (UnificationSubsume.subsumes ctx intTy (mkUnion [ intTy; strTy ]))
                     UnificationSubsume.SubsumeOutcome.Equal
                     "int ≤ (int | string) is Equal (int is a member)"
             }
 
             test "member → union: a non-member is Unrelated" {
+                let ctx = subsumeCtx ()
+
                 Expect.equal
-                    (subsumes boolTy (mkUnion [ int; str ]))
+                    (UnificationSubsume.subsumes ctx boolTy (mkUnion [ intTy; strTy ]))
                     UnificationSubsume.SubsumeOutcome.Unrelated
                     "bool ⋠ (int | string)"
             }
 
             test "union → union: a narrower union is a Subtype of a wider one" {
+                let ctx = subsumeCtx ()
+
                 Expect.equal
-                    (subsumes (mkUnion [ int; str ]) (mkUnion [ int; str; boolTy ]))
+                    (UnificationSubsume.subsumes ctx (mkUnion [ intTy; strTy ]) (mkUnion [ intTy; strTy; boolTy ]))
                     UnificationSubsume.SubsumeOutcome.Subtype
                     "(int | string) ≤ (int | string | bool)"
             }
 
             test "union → union: identical canonical member sets are Equal" {
+                let ctx = subsumeCtx ()
+
                 Expect.equal
-                    (subsumes (mkUnion [ int; str ]) (mkUnion [ str; int ]))
+                    (UnificationSubsume.subsumes ctx (mkUnion [ intTy; strTy ]) (mkUnion [ strTy; intTy ]))
                     UnificationSubsume.SubsumeOutcome.Equal
                     "(int | string) ≤ (string | int) is Equal (order-insensitive)"
             }
 
             test "union → union: a member outside the target makes it Unrelated" {
+                let ctx = subsumeCtx ()
+
                 Expect.equal
-                    (subsumes (mkUnion [ int; str ]) (mkUnion [ int; boolTy ]))
+                    (UnificationSubsume.subsumes ctx (mkUnion [ intTy; strTy ]) (mkUnion [ intTy; boolTy ]))
                     UnificationSubsume.SubsumeOutcome.Unrelated
                     "(int | string) ⋠ (int | bool)"
             }
 
             test "union → member: a union does NOT subsume one of its members" {
+                let ctx = subsumeCtx ()
+
                 Expect.equal
-                    (subsumes (mkUnion [ int; str ]) int)
+                    (UnificationSubsume.subsumes ctx (mkUnion [ intTy; strTy ]) intTy)
                     UnificationSubsume.SubsumeOutcome.Unrelated
                     "(int | string) ⋠ int — the consumer must narrow first"
             }
 
-            // Stage 5 of the anonymous-union plan:
-            // committing coercion at expected-type positions. The annotation sites
+            // Committing coercion at expected-type positions. The annotation sites
             // (let return / parameter `Pat.Typed`) switched from symmetric `unify` to
             // directional `unifyAnnotation`, so a value flows into a union-typed slot
             // the annotation writes down — while every non-union annotation (`obj`, a
@@ -1250,7 +1397,7 @@ let tests =
                 let yKey =
                     NodeKey.ofSource (("let f (x: int | string) = x\nlet y = f 1").IndexOf "y =") NodeKind.PatIdent
 
-                Expect.equal (typeOf ctx yKey) (mkUnion [ int; str ]) "f 1 : int | string"
+                Expect.equal (typeOf ctx yKey) (mkUnion [ intTy; strTy ]) "f 1 : int | string"
                 Expect.isEmpty ctx.Diagnostics "no diagnostics"
             }
 
@@ -1280,36 +1427,21 @@ let tests =
                 // subsumes into a member flows in without `unify`, so the actual's
                 // typar stays free. A plain `unify` against the union would link the
                 // var; the `TyOr` arm of `tryCoerceUpcast` must not.
+                let ctx = subsumeCtx ()
                 let tv = TypeVar()
                 let actual = TyVar tv
-                let target = mkUnion [ TyVar tv; int ]
+                let target = mkUnion [ TyVar tv; intTy ]
                 let key = NodeKey.ofSource 0 NodeKind.PatIdent
-                let accepted = UnificationEngine.tryCoerceUpcast subsumeCtx key actual target
+                let accepted = UnificationEngine.tryCoerceUpcast ctx key actual target
                 Expect.isTrue accepted "the union slot accepts the value"
                 Expect.equal tv.Link ValueNone "the actual's typar is left free (no pin)"
             }
 
-            // Stage 6 of the anonymous-union plan:
-            // constraint reduction. `equality` and `comparison` are deliberately
-            // asymmetric (§Constraints): a union satisfies EQUALITY iff *every*
-            // member does — generic `=` is total on the union's repr (cross-member
-            // is `false`, never throws) — but any real (≥2-member) union FAILS
-            // COMPARISON outright, because generic `compare` *throws* across distinct
-            // runtime types, so an individually-comparable member set is still
-            // non-comparable as a whole. `checkConstraint` is read-only here (no
-            // `Link` mutation), so the outcomes are asserted by direct calls.
-            let checkConstraint kind ty =
-                let c: SemanticConstraint =
-                    {
-                        Kind = kind
-                        DeclKey = NodeKey.ofSource 0 NodeKind.PatIdent
-                    }
-
-                UnificationEngine.checkConstraint subsumeCtx c ty
-
             test "equality on (int | string) is Satisfied — every member is equatable" {
+                let ctx = subsumeCtx ()
+
                 Expect.equal
-                    (checkConstraint SemanticConstraintKind.Equality (mkUnion [ int; str ]))
+                    (checkConstraintKind ctx SemanticConstraintKind.Equality (mkUnion [ intTy; strTy ]))
                     UnificationEngine.ConstraintOutcome.Satisfied
                     "int | string supports equality (both members do)"
             }
@@ -1317,8 +1449,10 @@ let tests =
             test "equality on a union with a function member is Violated" {
                 // A `TyFun` arm supports no structural equality, so the all-members
                 // reduction fails for the whole union.
+                let ctx = subsumeCtx ()
+
                 Expect.equal
-                    (checkConstraint SemanticConstraintKind.Equality (mkUnion [ int; TyFun(int, int) ]))
+                    (checkConstraintKind ctx SemanticConstraintKind.Equality (mkUnion [ intTy; TyFun(intTy, intTy) ]))
                     UnificationEngine.ConstraintOutcome.Violated
                     "int | (int -> int) — the function arm breaks equality"
             }
@@ -1326,8 +1460,10 @@ let tests =
             test "equality on a union with an unresolved member Defers" {
                 // A free member is "unknown yet": the reduction defers so the
                 // constraint re-fires when that member's TyVar Links.
+                let ctx = subsumeCtx ()
+
                 Expect.equal
-                    (checkConstraint SemanticConstraintKind.Equality (mkUnion [ int; TyVar(TypeVar()) ]))
+                    (checkConstraintKind ctx SemanticConstraintKind.Equality (mkUnion [ intTy; TyVar(TypeVar()) ]))
                     UnificationEngine.ConstraintOutcome.Defer
                     "int | 'a — defers on the free member"
             }
@@ -1337,20 +1473,13 @@ let tests =
                 // `compare` throws across distinct runtime types, so a heterogeneous
                 // union is non-comparable as a whole — admitting it would let
                 // `List.sort` on a `(int | string) list` type-check then throw.
+                let ctx = subsumeCtx ()
+
                 Expect.equal
-                    (checkConstraint SemanticConstraintKind.Comparison (mkUnion [ int; str ]))
+                    (checkConstraintKind ctx SemanticConstraintKind.Comparison (mkUnion [ intTy; strTy ]))
                     UnificationEngine.ConstraintOutcome.Violated
                     "int | string fails comparison even though int and string each support it"
             }
-
-            // Stage 7 of the anonymous-union plan:
-            // binder narrowing + closed-union exhaustiveness. A `match` on a `TyOr`
-            // scrutinee narrows each `:? M as x` arm to `M`, narrows a fall-through
-            // catch-all to the residual `mkUnion (ts \ matched)`, and — because the
-            // union is *closed* — warns when the arms leave a member uncovered.
-            let hasUnionExhaustivenessWarning (ctx: PassContext) =
-                ctx.Diagnostics
-                |> Seq.exists (fun d -> d.Severity = Severity.Warning && d.Message.Contains "anonymous union")
 
             test "an exhaustive type-test match on a union checks with no warning" {
                 // Both members tested, so the match is provably
@@ -1388,30 +1517,6 @@ let tests =
                 Expect.equal (typeOf ctx otherKey) BuiltinTypes.tyString "other : string (residual)"
                 Expect.isFalse (hasUnionExhaustivenessWarning ctx) "catch-all makes it exhaustive"
             }
-
-            // Stage 8 of the anonymous-union plan: the
-            // closing freeze round-trip + backend handoff. No codegen — the front
-            // end must hand a well-formed `FTOr` (in canonical order) to the backend
-            // boundary. Stage 1 already mapped `TyOr → FTOr` in `freezeTy`; this is
-            // the *end-to-end* assertion through a real annotated binding, run all
-            // the way through `Pipeline.analyse` (every pass + the final
-            // `SemType → FrozenType` freeze).
-            let freezeDecls (input: string) : Frozen.TastFile =
-                let lexed, file = parseFile input
-                Pipeline.analyse realProvider.Value input lexed file
-
-            // The frozen type of the (sole) top-level `let f` binding.
-            let frozenLetTy (file: Frozen.TastFile) : FrozenType =
-                file.Decls
-                |> EqArray.toList
-                |> List.tryPick (fun d ->
-                    match d with
-                    // Both a function binding (`let f … = …`) and a plain value
-                    // freeze to `Let`, carrying the binding's frozen type as `ty`.
-                    | TDeclG.Let(ty = ty) -> Some ty
-                    | _ -> None
-                )
-                |> Option.defaultWith (fun () -> failtest "expected a frozen `let` decl")
 
             test "an annotated `int | string` binding freezes to a canonical FTOr signature" {
                 // The signature under test: domain AND return both `int |
@@ -1451,95 +1556,6 @@ let tests =
                 Expect.equal (toFrozen (ofFrozen frozen)) frozen "ofFrozen >> toFrozen = id on the frozen signature"
             }
 
-            // The bindings-accumulating trial matcher (`matchTypes`) behind
-            // `pickBestOverload`. These call the picker DIRECTLY on hand-built
-            // `ExternalMember` candidates: the front end does not yet form a
-            // user-declared overload SET, and the external providers reach the picker
-            // only through the call-site machinery, so a focused matcher test builds
-            // the candidate array itself. Each candidate is keyed as the member it is
-            // (a static method on a stub type `C`); only `argSig` length (arity) and
-            // the `Signature` parameters are load-bearing here.
-            let unitFt = FTConst(RuntimeNames.unitKey, EqArray.empty)
-
-            let overloadMember (paramFts: FrozenType list) (methodTyparArity: int) : ExternalMember =
-                let parameters =
-                    match paramFts with
-                    | [] -> unitFt
-                    | [ p ] -> p
-                    | many -> FTTuple(EqArray.ofList many)
-
-                { ExternalMember.OfKey(
-                      SymbolKeyOps.memberKeyOf
-                          (SymbolKeyOps.qualifiedTypeKeyOf "C" 0)
-                          "M"
-                          (EqArray.ofList paramFts)
-                          methodTyparArity
-                          MemberKind.Method
-                  ) with
-                    IsStatic = true
-                    MethodTyparArity = methodTyparArity
-                    Signature = TestHelpers.mkSignature 0 methodTyparArity parameters unitFt
-                }
-
-            // `pickBestOverload` needs a `PassContext` — `subsumes` walks the class
-            // hierarchy `ctx` carries, and `canon` is `capabilityCanonKey ctx`. The
-            // pure-structural cases (no residue / shared typar / non-ground arg) only need
-            // the BCL primitives a minimal analysed program already provides; the subtyping
-            // cases below analyse a `Base`/`Derived` source so `ctx.Types` holds the inherit
-            // chain `subsumes` reads.
-            let overloadCtx = analyse "let _ = 0"
-
-            let pickWith
-                (ctx: PassContext)
-                (typeArgs: SemType[])
-                (candidates: ExternalMember[])
-                (args: SemType list)
-                : ExternalMember voption =
-                UnificationInferOverload.pickBestOverload ctx typeArgs candidates args
-
-            let pick (candidates: ExternalMember[]) (args: SemType list) : ExternalMember voption =
-                pickWith overloadCtx [||] candidates args
-
-            let chosenParams (m: ExternalMember) : SemType list =
-                UnificationInferOverload.memberParamTypes [||] m
-
-            let intFt = FTConst(RuntimeNames.intKey, EqArray.empty)
-            let stringFt = FTConst(RuntimeNames.stringKey, EqArray.empty)
-
-            // A `GrandBase :> Base :> Derived` chain registered in `ctx` so `subsumes` walks a
-            // real `inherit` hierarchy; the subtyping candidates below take their parameter
-            // shapes from these same class types via `toFrozen`.
-            let hierCtx =
-                analyse
-                    "type GrandBase() =\n    member this.G = 1\ntype Base() =\n    inherit GrandBase()\n    member this.B = 1\ntype Derived() =\n    inherit Base()\n    member this.D = 1"
-
-            let grandBaseTy = TyClass("GrandBase", EqArray.empty)
-            let baseTy = TyClass("Base", EqArray.empty)
-            let derivedTy = TyClass("Derived", EqArray.empty)
-
-            // A one-parameter candidate keyed by its parameter shape (so two same-name
-            // members are distinct); the declaring type is irrelevant to the pick.
-            let classMember (paramTy: SemType) : ExternalMember = overloadMember [ toFrozen paramTy ] 0
-
-            // A one-parameter instance member on the generic declaring type `Box<'a>`; its
-            // single declaring typar is substituted from the picker's `typeArgs` before any
-            // ranking, so `M('a)` at `Box<int>` presents an `int` parameter.
-            let boxMember (paramFt: FrozenType) : ExternalMember =
-                { ExternalMember.OfKey(
-                      SymbolKeyOps.memberKeyOf
-                          (SymbolKeyOps.qualifiedTypeKeyOf "Box" 1)
-                          "M"
-                          (EqArray.singleton paramFt)
-                          0
-                          MemberKind.Method
-                  ) with
-                    IsStatic = false
-                    Signature = TestHelpers.mkSignature 1 0 paramFt unitFt
-                }
-
-            let chosenParamsWith (typeArgs: SemType[]) (m: ExternalMember) : SemType list =
-                UnificationInferOverload.memberParamTypes typeArgs m
-
             test "a rejected overload trial leaves the caller TyVar free (no residue)" {
                 // The FIRST candidate `M(int, int)` binds the caller-side free var to
                 // `int` at position one, then FAILS at position two (`string` vs `int`);
@@ -1547,6 +1563,10 @@ let tests =
                 // own fresh scratch binds the free var to `string`). The trial must never
                 // touch the shared union-find, so the free var stays free afterwards.
                 let freeTv = TypeVar()
+                let overloadCtx = overloadCtx ()
+
+                let pick candidates args =
+                    pickWith overloadCtx [||] candidates args
 
                 let candidates =
                     [| overloadMember [ intFt; intFt ] 0; overloadMember [ stringFt; stringFt ] 0 |]
@@ -1570,6 +1590,11 @@ let tests =
                 // A LONE `M<'T>('T,'T)` would instead surface as a commit-seam type error
                 // (the picker is never entered for a single name/arity candidate), so the
                 // second candidate is essential.
+                let overloadCtx = overloadCtx ()
+
+                let pick candidates args =
+                    pickWith overloadCtx [||] candidates args
+
                 let shared =
                     overloadMember [ FTTypar(TyparAxis.Method, 0); FTTypar(TyparAxis.Method, 0) ] 1
 
@@ -1592,6 +1617,11 @@ let tests =
                 // reporting "no applicable overload". Fails TODAY: `TyVar` vs `TyConst`
                 // is not matched by the pre-`matchTypes` filter. The arity-2 sibling is
                 // filtered out by arity, leaving `M(int)` the unique survivor.
+                let overloadCtx = overloadCtx ()
+
+                let pick candidates args =
+                    pickWith overloadCtx [||] candidates args
+
                 let candidates = [| overloadMember [ intFt ] 0; overloadMember [ intFt; intFt ] 0 |]
                 let chosen = pick candidates [ TyVar(TypeVar()) ]
 
@@ -1604,6 +1634,7 @@ let tests =
                 // both enter the applicable tier by subsumption. `Base` is the more derived of
                 // the two (`Base :> GrandBase`), so `compareTypes` ranks `M(Base)` strictly
                 // above `M(GrandBase)`. fsi confirms the nearer base wins.
+                let hierCtx = hierCtx ()
                 let candidates = [| classMember baseTy; classMember grandBaseTy |]
                 let chosen = pickWith hierCtx [||] candidates [ derivedTy ]
 
@@ -1616,6 +1647,7 @@ let tests =
                 // structural survivor (`M(Derived)`) and returns it with no betterness
                 // reasoning — `M(Base)`, applicable only by subsumption, never competes. fsi
                 // confirms `M(Derived)`.
+                let hierCtx = hierCtx ()
                 let candidates = [| classMember baseTy; classMember derivedTy |]
                 let chosen = pickWith hierCtx [||] candidates [ derivedTy ]
 
@@ -1627,6 +1659,7 @@ let tests =
                 // `M(Base)` / `M(int)`, argument `Derived`: no exact match, so the applicable
                 // tier decides. `Derived :> Base` admits `M(Base)`; `Derived` is unrelated to
                 // `int`, so `M(int)` drops out, leaving `M(Base)` the sole survivor.
+                let hierCtx = hierCtx ()
                 let intClassMember = classMember (TyConst(RuntimeNames.intKey, EqArray.empty))
                 let candidates = [| classMember baseTy; intClassMember |]
                 let chosen = pickWith hierCtx [||] candidates [ derivedTy ]
@@ -1640,6 +1673,8 @@ let tests =
                 // substitutes the declaring typar so `M('a)` presents an `int` parameter, and
                 // the exact tier then selects by the SUBSTITUTED shape. fsi confirms `M('a)`
                 // for an `int` argument and `M(string)` for a `string` argument.
+                let overloadCtx = overloadCtx ()
+
                 let candidates =
                     [| boxMember (FTTypar(TyparAxis.Declaring, 0)); boxMember stringFt |]
 
@@ -1667,6 +1702,11 @@ let tests =
                 // binds `int`), their arguments compare equal, so the non-generic tiebreaker
                 // selects `M(int)`. A `string` argument instead makes only the generic overload
                 // applicable. fsi confirms both.
+                let overloadCtx = overloadCtx ()
+
+                let pick candidates args =
+                    pickWith overloadCtx [||] candidates args
+
                 let generic = overloadMember [ FTTypar(TyparAxis.Method, 0) ] 1
                 let concrete = overloadMember [ intFt ] 0
                 let candidates = [| generic; concrete |]
@@ -1680,22 +1720,10 @@ let tests =
                 Expect.equal atString.Value.MethodTyparArity 1 "only the generic overload matches string"
             }
 
-            // --- User-declared member overload resolution (Gap 2) ---------------
-            // These analyse a full source so the call-seam probe forms the candidate
-            // set from the type's own `Members` and picks by the argument types. The
-            // pattern-ident offset of `let <name>` locates each binding's key.
-            let keyOfLet (input: string) (name: string) =
-                NodeKey.ofSource (input.IndexOf("let " + name + " ") + 4) NodeKind.PatIdent
-
-            let errors (ctx: PassContext) =
-                ctx.Diagnostics
-                |> Seq.filter (fun d -> d.Severity = Severity.Error)
-                |> Seq.toList
-
             test "a user-declared overload resolves by parameter type" {
                 // `Show(int)` returns int, `Show(string)` returns bool, so the RESULT type
-                // witnesses which overload each call selected. Fails before Gap 2 (both
-                // calls pick the first `Show`). fsi confirms `Show(1) : int`,
+                // witnesses which overload each call selected. Without overload-by-parameter
+                // resolution both calls pick the first `Show`. fsi confirms `Show(1) : int`,
                 // `Show("hi") : bool`.
                 let input =
                     "type Printer() =\n    member this.Show(x: int) = x\n    member this.Show(x: string) = true\nlet p = Printer()\nlet a = p.Show(1)\nlet b = p.Show(\"hi\")"
