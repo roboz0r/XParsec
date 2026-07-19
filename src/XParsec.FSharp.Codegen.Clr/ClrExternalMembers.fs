@@ -193,11 +193,25 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             let declArgs, methodArgs =
                 recoverOpenTypars declTyparArity methodTyparArity (openTemplate chosen isProperty) memberTy
 
+            // LOCAL-FIRST re-home: a cross-file member whose declaring type is emitted INTO
+            // this assembly (a later file resolved an earlier file's type as `External`) must
+            // parent on that type's LOCAL `TypeDef`, not an `AssemblyRef`-scoped `TypeRef` to
+            // our own assembly — the member-ref analogue of `localModuleFns` (cross-file module
+            // fns) and the `userTypes`-first arms in `encodeType`. `externalMemberRefOn` already
+            // re-homes because it parents through `TypeSpecOf`/`encodeType`; this
+            // recover-by-signature path reaches `externalClassRef` directly and would otherwise
+            // emit a self-`AssemblyRef` (non-fatal — the CLR resolves a self-reference — but the
+            // defect the cross-file self-ref invariant rejects). A non-generic declaring type
+            // parents on the bare handle; a generic one is instantiated by `externalTypeSpec`
+            // exactly as the external `tref` would be.
             let tref =
-                match externalClassRef (SymbolKey.Type declKey) with
-                | ValueSome t -> t
-                | ValueNone ->
-                    failwithf "ClrProvider: external declaring type '%s' did not resolve at emit" declFullName
+                match env.UserTypes.TryGetValue(SymbolKey.Type declKey) with
+                | true, localHandle -> localHandle
+                | _ ->
+                    match externalClassRef (SymbolKey.Type declKey) with
+                    | ValueSome t -> t
+                    | ValueNone ->
+                        failwithf "ClrProvider: external declaring type '%s' did not resolve at emit" declFullName
 
             let parent = externalTypeSpec (SymbolKey.Type declKey) tref (declArgs)
 

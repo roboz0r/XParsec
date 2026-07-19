@@ -3,16 +3,18 @@
 *Cross-file **records** resolve end to end, and the name-resolution gaps that were open
 when this plan was written have since landed too — type-annotation by `open` (was item 1),
 cross-unit `[<RequireQualifiedAccess>]` on records + union cases (was item 2), the
-ambient-scope / `open` gate on bare record construction (was item 3), and **cross-unit enum
-projection (item 5)**. Their design lives in the code and its tests, not here. What remains
-below are the gaps deliberately deferred until a corpus demands them, plus the separate
-publishing-format track — **none is a live miscompile.** The item numbers are kept as
-originally written so the WHY comments at each seam still match.*
+ambient-scope / `open` gate on bare record construction (was item 3), **cross-unit enum
+projection (item 5)**, and **cross-unit interface-member decurrying + dispatch and member-level
+accessibility (item 6)**. Their design lives in the code and its tests, not here. What remains below are the gaps
+deliberately deferred until a corpus demands them, plus the separate publishing-format track —
+**none is a live miscompile.** The item numbers are kept as originally written so the WHY
+comments at each seam still match.*
 
 ## Two safety classes
 
 - **INCOMPLETE** — a *valid* cross-unit program fails to resolve. User-visible; fix on demand.
-  Items 4 (obj-field boxing), 6 (interface members).
+  Item 4 (obj-field boxing). (Item 6's interface-member decurrying was here; it has since
+  landed — see below.)
 - **OVER-PERMISSIVE** — an *invalid* program wrongly resolves; **never a miscompile**. Item 6's
   member-level accessibility was this class; it has since landed (see below).
 - **SEPARATE TRACK** — item 7 (cross-package records) rides `publishing-format-plan.md`.
@@ -58,11 +60,29 @@ dropped, matching the TS-manifest arm and `TEnumCases.classify`. Tested in
 produces no `Enum` shape (a TS-manifest-only shape today — see `TypeTranslate` line ~470);
 cross-package enums ride the separate publishing-format track alongside item 7.
 
-## 6. Interface-member decurrying (projection boundary; member accessibility DONE)
+## 6. Interface members: decurrying DONE; member-level accessibility DONE
 
-From the multi-file plan's "Projection coverage boundaries": interface member surfaces publish
-name/arity but not decurried members (INCOMPLETE for a cross-unit interface call). Close when the
-corpus references it.
+The original framing bundled two *unrelated* concerns — abstract-slot **decurrying** (interface
+members) and **member accessibility** (any type's `member private`). They share no code seam;
+split here.
+
+**Interface-member decurrying — DONE (front end + codegen, cross-file).** The premise "interface
+member surfaces publish name/arity but not decurried members" was already stale for the front end:
+all three providers decurry each abstract slot to an `ExternalMember` — `FrozenSignature`'s
+`Interface` arm (`abstractMemberOf` → `memberFromParts`), the `.fsi` extractor's
+`TypeSignatureElement.Abstract` arm (`extractTypeMembers`), and the metadata reader's
+`enumerateClassMembers`. The consumer resolves + dispatches the slot cross-file (a grounded
+`recv.M` and a `'T :> IFace` bound both reach the provider's decurried member). The remaining
+gap was CODEGEN: the interface's own nominal was resolved EXTERNAL-first, so a same-assembly
+cross-file interface (home-stamped to our OWN assembly) minted an `AssemblyRef`-scoped `TypeRef`
+back to ourselves — a self-`AssemblyRef` (non-fatal; the CLR resolves it, but the cross-file
+self-ref invariant rejects it). Fixed by making both handle seams LOCAL-first (probe `userTypes`
+before `externalClassRef`), matching the authority `encodeType`'s nominal arms already apply:
+`ClrProvider.InterfaceHandleOf` (the `interface … with` `InterfaceImpl` row) and
+`ClrExternalMembers.externalMemberRef` (the dispatch member-ref parent; the member analogue of
+`localModuleFns`). `externalMemberRefOn` already re-homed (it parents through `encodeType`).
+Proven end to end in `CrossFileUnitsTests` (a grounded `recv.GetVal()` and a `'T :> IGetVal`
+bound, both RUN and both carrying the full `peAssemblyRefs` self-ref guard the record tests use).
 
 **Member-level accessibility — DONE.** A member's declared accessibility now rides
 `TTypeMemberG.Accessibility` (captured in `Elaborate` from `MemberDefn.Member.access` — the
@@ -95,4 +115,8 @@ test at that point.
 ## Anchors (verify before editing)
 
 - obj-field boxing: `Elaborate/Resolve.fs:333` (`recordFieldTy`) / `:344` (`unionCaseFieldTys`).
+- interface-nominal re-home (DONE): `ClrProvider.InterfaceHandleOf` /
+  `ClrExternalMembers.externalMemberRef` — LOCAL-first (`userTypes` before `externalClassRef`).
+- member accessibility (DONE): `Tast.fs` `TTypeMemberG.Accessibility` / `FrozenSignature.membersOf`
+  (filter) / `Elaborate` `MemberDefn.Member.access` (capture site).
 - Cross-package: `publishing-format-plan.md` PF1/PF3/PF8.

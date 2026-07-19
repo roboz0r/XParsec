@@ -132,16 +132,24 @@ type ClrProvider
     member _.InterfaceHandleOf(ty: FrozenType) : EntityHandle =
         match ty with
         | FTClass(key, args) when args.IsEmpty ->
-            match env.ExternalClassRef(SymbolKey.Type key) with
-            | ValueSome tref -> tref
-            | ValueNone ->
-                // A *project-local* interface: its `TypeDef` was registered via
-                // `RegisterUserType`. A non-generic local type reference must be that
-                // `TypeDef`, not a `TypeSpec` (the runtime can't load a `TypeSpec` for
-                // a non-generic type — "Could not load TypeSpec").
-                match env.UserTypes.TryGetValue(SymbolKey.Type key) with
-                | true, h -> h
-                | false, _ -> enc.TypeSpecOf ty
+            // LOCAL-FIRST, like every other nominal reference (`encodeType`'s project-local
+            // arms, the `INVARIANT` at `ClrEncoder`'s `FTClass` arm): a project-local
+            // interface — INCLUDING a same-assembly CROSS-FILE one, which a later unit
+            // resolved as `External` (home-stamped to our OWN assembly) — has an emitted
+            // `TypeDef` registered via `RegisterUserType`, and its `InterfaceImpl` row must
+            // name that `TypeDef`, not an `AssemblyRef`-scoped `TypeRef` back to ourselves.
+            // A non-generic local type must be the bare `TypeDef` (the runtime can't load a
+            // `TypeSpec` for a non-generic type — "Could not load TypeSpec"). The external
+            // table is consulted only on a `userTypes` MISS (a genuinely referenced-package
+            // interface). Was external-first, which self-`AssemblyRef`'d a cross-file
+            // interface impl (`externalClassRef` succeeds for it — it is in the projected
+            // view — so the local fallback was never reached).
+            match env.UserTypes.TryGetValue(SymbolKey.Type key) with
+            | true, h -> h
+            | false, _ ->
+                match env.ExternalClassRef(SymbolKey.Type key) with
+                | ValueSome tref -> tref
+                | ValueNone -> enc.TypeSpecOf ty
         | _ -> enc.TypeSpecOf ty
 
     /// The flat `instance resultTy Invoke(paramTys…)` signature of a `Fun`(N+1)` closure.

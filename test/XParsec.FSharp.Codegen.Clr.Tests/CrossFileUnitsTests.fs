@@ -211,4 +211,109 @@ printfn \"%d\" (r.X + r.Y)
                 Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
                 Expect.equal actual "42" "cross-file record construction builds and reads the record"
             }
+
+            // Cross-unit INTERFACE dispatch, end to end: `FrozenSignature`'s `Interface` arm
+            // decurries each abstract slot to an `ExternalMember` (`abstractMemberOf`), the
+            // consumer resolves + dispatches it cross-file, AND codegen re-homes the interface's
+            // own nominal to unit 1's LOCAL `TypeDef` — so, like the record tests above, the
+            // emitted PE carries NO self-`AssemblyRef`. (The recover-by-signature member-ref path
+            // reached `externalClassRef` directly and used to parent on an `AssemblyRef` to our
+            // own assembly; `externalMemberRef` now probes `userTypes` first, the member-ref
+            // analogue of the `recKey` re-home records got.) Both forms below carry the full
+            // self-ref guard its siblings use.
+
+            test "two units run: unit 2 calls an INTERFACE member declared in unit 1 (decurried slot)" {
+                // Unit 1 declares an interface, a class implementing it, and a factory returning
+                // the interface; unit 2 dispatches `GetVal` on the interface-typed result — a
+                // receiver grounded to unit 1's cross-file interface. A missing/wrong decurry
+                // surfaces as a front-end "no such member" miss or a bad `callvirt`, so a clean
+                // run returning the value is the proof the slot resolved cross-file.
+                let unit1 =
+                    "\
+namespace CrossFile
+
+module Lib =
+    type IGetVal =
+        abstract member GetVal: unit -> int
+
+    type Holder(n: int) =
+        interface IGetVal with
+            member _.GetVal() = n
+
+    let make (n: int) : IGetVal = Holder(n) :> IGetVal
+"
+
+                let unit2 =
+                    "\
+open CrossFile.Lib
+
+let g = make 21
+printfn \"%d\" (g.GetVal())
+"
+
+                let asmName = "CrossFileInterfaceCall"
+                let bytes = compileTwoUnits asmName unit1 unit2
+
+                // The interface dispatch resolved against unit 1's LOCAL interface `TypeDef`, not
+                // an external member ref scoped by the compilation's own assembly — the same
+                // structural self-ref guard the record tests carry.
+                let refs = peAssemblyRefs bytes
+
+                Expect.isFalse
+                    (refs |> List.contains asmName)
+                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+
+                let exitCode, output = runEntryPoint bytes
+                let actual = output.Replace("\r", "").Trim()
+
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
+                Expect.equal actual "21" "cross-file interface member dispatch returns the value"
+            }
+
+            test "two units run: unit 2 calls a cross-unit interface member through a typar bound" {
+                // The typar-constrained dispatch form (`'T :> IGetVal`) — the external-interface
+                // path `InferRecordAccess`'s coercion scan resolves via `TryLookupMember` on the
+                // interface key. Unit 2's generic `callIt` calls `GetVal` off the `'T :> IGetVal`
+                // bound, instantiated at the cross-file interface — the SAME decurried slot as the
+                // direct form above, reached through the distinct typar-bound resolution seam.
+                let unit1 =
+                    "\
+namespace CrossFile
+
+module Lib =
+    type IGetVal =
+        abstract member GetVal: unit -> int
+
+    type Holder(n: int) =
+        interface IGetVal with
+            member _.GetVal() = n
+
+    let make (n: int) : IGetVal = Holder(n) :> IGetVal
+"
+
+                let unit2 =
+                    "\
+open CrossFile.Lib
+
+let callIt (x: 'T when 'T :> IGetVal) : int = x.GetVal()
+
+let g = make 13
+printfn \"%d\" (callIt g)
+"
+
+                let asmName = "CrossFileInterfaceTyparCall"
+                let bytes = compileTwoUnits asmName unit1 unit2
+
+                let refs = peAssemblyRefs bytes
+
+                Expect.isFalse
+                    (refs |> List.contains asmName)
+                    (sprintf "the emitted PE must not reference its own assembly '%s'; refs = %A" asmName refs)
+
+                let exitCode, output = runEntryPoint bytes
+                let actual = output.Replace("\r", "").Trim()
+
+                Expect.equal exitCode 0 (sprintf "expected exit 0; stdout was %A" actual)
+                Expect.equal actual "13" "cross-file typar-bound interface dispatch returns the value"
+            }
         ]
