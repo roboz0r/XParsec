@@ -73,17 +73,17 @@ module internal ElaborateApply =
         let fullDom, ret =
             match ctx.Resolution.ExternalAccess.TryGetValue fnKey with
             | ValueSome info ->
-                match Unification.zonk info.Signature with
+                match Unification.zonk ctx.Store info.Signature with
                 | TyFun(d, r) -> d, r
                 | other -> other, other
             | ValueNone -> ctx.Intrinsics.Unit, ctx.Intrinsics.Unit
 
         let argNode =
             match filled with
-            | [ single ] -> wrapObjArg fullDom single
+            | [ single ] -> wrapObjArg ctx.Store fullDom single
             | many ->
                 let tuple = TExpr.Tuple(EqArray.ofList many, fullDom, tok)
-                wrapObjArg fullDom tuple
+                wrapObjArg ctx.Store fullDom tuple
 
         TExpr.App(head, argNode, ret, tok)
 
@@ -145,8 +145,8 @@ module internal ElaborateApply =
                 // the implicit upcast made explicit.
                 let argT =
                     match externalDom with
-                    | ValueSome dom when isFirst -> wrapObjArg dom argT
-                    | _ -> wrapObjArg paramTy argT
+                    | ValueSome dom when isFirst -> wrapObjArg ctx.Store dom argT
+                    | _ -> wrapObjArg ctx.Store paramTy argT
 
                 result <- TExpr.App(result, argT, resTy, tok)
                 currTy <- resTy
@@ -185,13 +185,13 @@ module internal ElaborateApply =
                 match externalHeadDom ctx fnKey fnT with
                 | ValueSome _ as dom -> dom
                 | ValueNone ->
-                    match Unification.zonk (TastWalk.exprTy fnT) with
+                    match Unification.zonk ctx.Store (TastWalk.exprTy fnT) with
                     | TyFun(p, _) -> ValueSome p
                     | _ -> ValueNone
 
             let argT =
                 match paramTy with
-                | ValueSome p -> wrapObjArg p argT
+                | ValueSome p -> wrapObjArg ctx.Store p argT
                 | ValueNone -> argT
 
             TExpr.App(fnT, argT, ty, tok)

@@ -17,7 +17,7 @@ module internal ElaborateResolve =
     // entry points it projects member bodies / ctor args / field types from.
     let typeOfKey (ctx: PassContext) (key: NodeKey) : SemType =
         match ctx.Bindings.TypeVar.TryGetValue key with
-        | ValueSome tv -> Unification.zonk (TyVar tv)
+        | ValueSome tv -> Unification.zonk ctx.Store (TyVar tv)
         | ValueNone -> TyVar(ctx.NewTypeVar())
 
     /// The enum `TypeKey` a node's type carries, if it is an enum. Both the
@@ -26,26 +26,26 @@ module internal ElaborateResolve =
     /// arms read to reuse the same `StaticFieldGet` / `TPat.EnumCase` carrier — the
     /// key is the enum's identity whether the cases are emitted locally (object map)
     /// or imported from a TS module.
-    let enumKeyOfTy (ty: SemType) : TypeKey voption =
-        match Unification.zonk ty with
+    let enumKeyOfTy (store: TypeStore) (ty: SemType) : TypeKey voption =
+        match Unification.zonk store ty with
         | TyEnum key -> ValueSome key
         | _ -> ValueNone
 
     [<return: Struct>]
     let (|LocalClass|_|) (ctx: PassContext) (ty: SemType) : ClassTypeInfo voption =
-        match Unification.zonk ty with
+        match Unification.zonk ctx.Store ty with
         | TyClass(key, _) -> TypeRegistry.tryClassByKey ctx.Types key
         | _ -> ValueNone
 
     [<return: Struct>]
     let (|LocalRecord|_|) (ctx: PassContext) (ty: SemType) : RecordTypeInfo voption =
-        match Unification.zonk ty with
+        match Unification.zonk ctx.Store ty with
         | TyRecord(key, _) -> TypeRegistry.tryRecordByKey ctx.Types key
         | _ -> ValueNone
 
     [<return: Struct>]
     let (|LocalUnion|_|) (ctx: PassContext) (ty: SemType) : UnionTypeInfo voption =
-        match Unification.zonk ty with
+        match Unification.zonk ctx.Store ty with
         | TyUnion(key, _) -> TypeRegistry.tryUnionByKey ctx.Types key
         | _ -> ValueNone
 
@@ -63,7 +63,7 @@ module internal ElaborateResolve =
         if li.Idents.Length <> 2 then
             ValueNone
         else
-            match enumKeyOfTy ty with
+            match enumKeyOfTy ctx.Store ty with
             | ValueSome key -> ValueSome key
             | ValueNone ->
                 // The written enum name's own token is the use site — the same position
@@ -132,8 +132,8 @@ module internal ElaborateResolve =
     /// called where the receiver is already known to be nominal (the active patterns /
     /// `InstanceMethodCall` guard on `TyNominal`), so a non-nominal type is an
     /// Elaborate invariant break.
-    let nominalDeclKey (ty: SemType) : TypeKey =
-        match Unification.zonk ty with
+    let nominalDeclKey (store: TypeStore) (ty: SemType) : TypeKey =
+        match Unification.zonk store ty with
         | TyNominal(key, _) -> key
         | other -> failwithf "Elaborate: expected a class/union/record receiver for a member access, got %A" other
 
@@ -201,8 +201,8 @@ module internal ElaborateResolve =
     /// `obj` SemType for a synthesised `Upcast` target.
     let objTy: SemType = TyConst(RuntimeNames.objKey, EqArray.empty)
 
-    let private isObjTy (t: SemType) : bool =
-        UnificationEngine.isObjType (Unification.zonk t)
+    let private isObjTy (store: TypeStore) (t: SemType) : bool =
+        UnificationEngine.isObjType (Unification.zonk store t)
 
     /// Wrap an argument flowing into parameter `paramTy` in an explicit
     /// obj-`Upcast` when the parameter is the universal `obj` slot and the
@@ -210,18 +210,18 @@ module internal ElaborateResolve =
     /// `Upcast(obj, obj)` would emit nothing anyway). A *tupled* multi-parameter
     /// slot — an external .NET method's flattened argument list arriving as a
     /// single `TExpr.Tuple` — wraps element-wise.
-    let rec wrapObjArg (paramTy: SemType) (arg: TExpr) : TExpr =
-        match Unification.zonk paramTy with
+    let rec wrapObjArg (store: TypeStore) (paramTy: SemType) (arg: TExpr) : TExpr =
+        match Unification.zonk store paramTy with
         | TyTuple ptys ->
             match arg with
             | TExpr.Tuple(elems, tupTy, tupTok) when ptys.Length = elems.Length ->
                 TExpr.Tuple(
-                    EqArray.ofSeq (seq { for i in 0 .. elems.Length - 1 -> wrapObjArg ptys.[i] elems.[i] }),
+                    EqArray.ofSeq (seq { for i in 0 .. elems.Length - 1 -> wrapObjArg store ptys.[i] elems.[i] }),
                     tupTy,
                     tupTok
                 )
             | _ -> arg
-        | zParam when UnificationEngine.isObjType zParam && not (isObjTy (TastWalk.exprTy arg)) ->
+        | zParam when UnificationEngine.isObjType zParam && not (isObjTy store (TastWalk.exprTy arg)) ->
             // The box wraps an existing argument node; anchor the synthesised
             // `Upcast` at that argument's own source token.
             TExpr.Upcast(arg, objTy, TastWalk.exprTok arg)
@@ -230,7 +230,7 @@ module internal ElaborateResolve =
     /// Apply `wrapObjArg` per position over an arity-flattened argument array.
     /// Positions past the supplied `paramTys` (or an empty model — an external
     /// ctor / unknown member) are left raw.
-    let wrapObjArgsEq (paramTys: SemType list) (args: EqArray<TExpr>) : EqArray<TExpr> =
+    let wrapObjArgsEq (store: TypeStore) (paramTys: SemType list) (args: EqArray<TExpr>) : EqArray<TExpr> =
         if List.isEmpty paramTys then
             args
         else
@@ -240,7 +240,7 @@ module internal ElaborateResolve =
                 seq {
                     for i in 0 .. args.Length - 1 ->
                         if i < ptys.Length then
-                            wrapObjArg ptys.[i] args.[i]
+                            wrapObjArg store ptys.[i] args.[i]
                         else
                             args.[i]
                 }
@@ -261,7 +261,7 @@ module internal ElaborateResolve =
     let externalMethodParamTy (ctx: PassContext) (fnKey: NodeKey) : SemType voption =
         match ctx.Resolution.ExternalAccess.TryGetValue fnKey with
         | ValueSome info ->
-            match Unification.zonk info.Signature with
+            match Unification.zonk ctx.Store info.Signature with
             | TyFun(dom, _) -> ValueSome dom
             | _ -> ValueNone
         | ValueNone -> ValueNone
@@ -281,9 +281,9 @@ module internal ElaborateResolve =
     /// arity-flattened argument list. A tupled member `M(a, b)` carries a single
     /// `TyTuple` parameter; `peelCtorArgs` flattens its call args to two, so the
     /// tuple is expanded element-wise here to keep the indices aligned.
-    let private flatMemberParams (memberTy: SemType) : SemType list =
+    let private flatMemberParams (store: TypeStore) (memberTy: SemType) : SemType list =
         let rec arrows t =
-            match Unification.zonk t with
+            match Unification.zonk store t with
             | TyFun(a, b) ->
                 let ps, r = arrows b
                 a :: ps, r
@@ -291,7 +291,7 @@ module internal ElaborateResolve =
 
         match arrows memberTy with
         | [ single ], _ ->
-            match Unification.zonk single with
+            match Unification.zonk store single with
             | TyTuple elems -> EqArray.toList elems
             | other -> [ other ]
         | ps, _ -> ps
@@ -301,7 +301,7 @@ module internal ElaborateResolve =
     /// emits — just unwrapped, exactly as before this plan).
     let memberParamTys (ctx: PassContext) (declKey: TypeKey) (memberName: string) : SemType list =
         match tryNominalMemberByKey ctx declKey memberName with
-        | ValueSome(_, m) -> flatMemberParams m.Type
+        | ValueSome(_, m) -> flatMemberParams ctx.Store m.Type
         | ValueNone -> []
 
     /// Constructor parameter SemTypes for a project-local class construction of
@@ -335,7 +335,7 @@ module internal ElaborateResolve =
             | Some f -> ValueSome f.Type
             | None -> ValueNone
         | _ ->
-            match Unification.zonk recordTy with
+            match Unification.zonk ctx.Store recordTy with
             | TyRecord(key, args) ->
                 match ctx.Provider.TryLookupType(SymbolKey.Type key) with
                 | ValueSome(ExternalTypeShape.Record(_, fieldShapes, _)) ->
@@ -376,7 +376,7 @@ module internal ElaborateResolve =
                 match ctx.Bindings.TypeVar.TryGetValue rb.BindingSite with
                 | ValueNone -> ValueNone
                 | ValueSome tv ->
-                    match Unification.zonk (TyVar tv) with
+                    match Unification.zonk ctx.Store (TyVar tv) with
                     | TyNominal(typeKey, _) ->
                         let memberName = ctx.NameOf li.Idents.[1]
 
@@ -385,7 +385,7 @@ module internal ElaborateResolve =
                         // by bare name, so a bare lookup would miss and `f.Invoke(a,b)`
                         // would mis-lower to a `Vesper.Fun::Invoke` function application.
                         match tryNominalMemberByKey ctx typeKey memberName with
-                        | ValueSome(_, m) -> ValueSome(rb.BindingSite, Unification.zonk (TyVar tv), m)
+                        | ValueSome(_, m) -> ValueSome(rb.BindingSite, Unification.zonk ctx.Store (TyVar tv), m)
                         | ValueNone -> ValueNone
                     | _ -> ValueNone
 
@@ -576,7 +576,7 @@ module internal ElaborateResolve =
         TExpr.New(
             className,
             ctx.Resolution.ExternalCtor.TryGetValue key,
-            wrapObjArgsEq (ctorParamTys ctx ty args.Length) args,
+            wrapObjArgsEq ctx.Store (ctorParamTys ctx ty args.Length) args,
             ty,
             tok
         )
@@ -620,14 +620,15 @@ module internal ElaborateResolve =
                 // best-by-arity single inside the minter.
                 let operands =
                     LocalMemberKeys.externalOperands
-                        (LocalMemberKeys.nominalArgs (TastWalk.exprTy receiver))
+                        ctx.Store
+                        (LocalMemberKeys.nominalArgs ctx.Store (TastWalk.exprTy receiver))
                         [ for a in args -> TastWalk.exprTy a ]
 
                 LocalMemberKeys.totalMemberKey ctx declKey memberName operands
 
         match key with
         | ValueSome key ->
-            let argsList = wrapObjArgsEq (memberParamTys ctx declKey memberName) args
+            let argsList = wrapObjArgsEq ctx.Store (memberParamTys ctx declKey memberName) args
             TExpr.MethodCall(receiver, key, viaOfReceiver ctx receiver, argsList, ty, tok)
         | ValueNone ->
             // Post-inference the resolved member is committed, so a miss is an internal
@@ -657,12 +658,13 @@ module internal ElaborateResolve =
         // discriminate a same-arity overloaded abstract slot.
         let operands =
             LocalMemberKeys.externalOperands
+                ctx.Store
                 (EqArray.toList ifaceArgs |> List.toArray)
                 [ for a in args -> TastWalk.exprTy a ]
 
         match LocalMemberKeys.totalMemberKey ctx ifaceKey memberName operands with
         | ValueSome key ->
-            let argsList = wrapObjArgsEq (memberParamTys ctx ifaceKey memberName) args
+            let argsList = wrapObjArgsEq ctx.Store (memberParamTys ctx ifaceKey memberName) args
             TExpr.MethodCall(receiver, key, CallVia.Interface ifaceArgs, argsList, ty, tok)
         | ValueNone ->
             ctx.Error(
@@ -685,11 +687,11 @@ module internal ElaborateResolve =
         // need `<>`, handled at the receiver), so it carries no declaring-type args; the
         // operand element types alone discriminate a same-arity overload (e.g. an operator).
         let operands =
-            LocalMemberKeys.externalOperands [||] [ for a in args -> TastWalk.exprTy a ]
+            LocalMemberKeys.externalOperands ctx.Store [||] [ for a in args -> TastWalk.exprTy a ]
 
         match LocalMemberKeys.totalMemberKey ctx declKey memberName operands with
         | ValueSome key ->
-            TExpr.StaticMethodCall(key, wrapObjArgsEq (memberParamTys ctx declKey memberName) args, ty, tok)
+            TExpr.StaticMethodCall(key, wrapObjArgsEq ctx.Store (memberParamTys ctx declKey memberName) args, ty, tok)
         | ValueNone ->
             ctx.Error(NodeKey.ofToken tok NodeKind.ExprApp, memberNotResolvable "mkStaticMethodCall" declKey memberName)
             TExpr.Null(ty, tok)
@@ -702,7 +704,7 @@ module internal ElaborateResolve =
         (args: EqArray<TExpr>)
         (tok: SyntaxToken)
         : TExpr =
-        TExpr.UnionCons(caseName, wrapObjArgsEq (unionCaseFieldTys ctx ty caseName) args, ty, tok)
+        TExpr.UnionCons(caseName, wrapObjArgsEq ctx.Store (unionCaseFieldTys ctx ty caseName) args, ty, tok)
 
     /// Recover segment `segName`'s declared type from receiver type `recvTy` — a
     /// record field, or a union / class instance-member return type — instantiated
@@ -713,13 +715,13 @@ module internal ElaborateResolve =
             members
             |> Array.tryPick (fun m ->
                 if m.Name = segName && not m.IsStatic then
-                    Some(Unification.instantiateMember (typeParams, args) m.Type)
+                    Some(Unification.instantiateMember ctx.Store (typeParams, args) m.Type)
                 else
                     None
             )
 
         let resolved =
-            match Unification.zonk recvTy with
+            match Unification.zonk ctx.Store recvTy with
             | TyRecord(recKey, args) ->
                 match TypeRegistry.tryRecordByKey ctx.Types recKey with
                 | ValueSome info ->
@@ -730,7 +732,7 @@ module internal ElaborateResolve =
                         info.Fields
                         |> Array.tryPick (fun f ->
                             if f.Name = segName then
-                                Some(Unification.instantiateMember (info.TypeParams, args) f.Type)
+                                Some(Unification.instantiateMember ctx.Store (info.TypeParams, args) f.Type)
                             else
                                 None
                         )
@@ -758,7 +760,7 @@ module internal ElaborateResolve =
                             (info.CtorParams |> Seq.map (fun p -> p.Name, p.Type))
                         |> Seq.tryPick (fun (n, t) ->
                             if n = segName then
-                                Some(Unification.instantiateMember (info.TypeParams, args) t)
+                                Some(Unification.instantiateMember ctx.Store (info.TypeParams, args) t)
                             else
                                 None
                         )
@@ -770,7 +772,7 @@ module internal ElaborateResolve =
             | _ -> None
 
         match resolved with
-        | Some t -> ValueSome(Unification.zonk t)
+        | Some t -> ValueSome(Unification.zonk ctx.Store t)
         | None -> ValueNone
 
     /// One `receiver.seg` access node: `PropertyGet` for a class / union member,
@@ -803,7 +805,7 @@ module internal ElaborateResolve =
                 TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, stepTy, tok)
             | ValueNone -> TExpr.FieldGet(receiver, segName, stepTy, tok)
 
-        match Unification.zonk recvTy with
+        match Unification.zonk ctx.Store recvTy with
         | TyClass(clsKey, args) ->
             match TypeRegistry.tryClassByKey ctx.Types clsKey with
             | ValueSome info when isMember info.Members ->
@@ -822,7 +824,8 @@ module internal ElaborateResolve =
                 // above, so the walk only ever resolves a strict ancestor here.)
                 match Unification.tryClassChainMemberDecl ctx clsKey args segName with
                 | ValueSome cm ->
-                    let key = LocalSymbolKey.ofProperty (nominalDeclKey cm.DeclaringTy) segName
+                    let key =
+                        LocalSymbolKey.ofProperty (nominalDeclKey ctx.Store cm.DeclaringTy) segName
 
                     TExpr.PropertyGet(
                         TExpr.Upcast(receiver, cm.DeclaringTy, TastWalk.exprTok receiver),
@@ -862,7 +865,7 @@ module internal ElaborateResolve =
         | Expr.DotLookup(expr = r; longIdentOrOp = LongIdentOrOp.LongIdent li) when li.Idents.Length = 1 ->
             let memberName = ctx.NameOf li.Idents.[0]
 
-            match Unification.zonk (typeOfKey ctx (CstKeys.ofExpr r)) with
+            match Unification.zonk ctx.Store (typeOfKey ctx (CstKeys.ofExpr r)) with
             | TyNominal(typeKey, _) ->
                 match tryNominalMemberByKey ctx typeKey memberName with
                 | ValueSome(declKey, m) when m.Kind = ClassMemberKind.Method -> ValueSome(r, declKey, memberName)
@@ -903,13 +906,13 @@ module internal ElaborateResolve =
             | ValueSome rb ->
                 // Walk the intermediate segments `[1 .. n-2]` to the receiver type,
                 // bailing if any step can't be typed (then the generic path handles it).
-                let mutable recvTy = Unification.zonk (typeOfKey ctx rb.BindingSite)
+                let mutable recvTy = Unification.zonk ctx.Store (typeOfKey ctx rb.BindingSite)
                 let mutable ok = true
 
                 for i in 1 .. n - 2 do
                     if ok then
                         match recoverFieldStepTy ctx recvTy (ctx.NameOf li.Idents.[i]) with
-                        | ValueSome t -> recvTy <- Unification.zonk t
+                        | ValueSome t -> recvTy <- Unification.zonk ctx.Store t
                         | ValueNone -> ok <- false
 
                 if not ok then
@@ -964,13 +967,13 @@ module internal ElaborateResolve =
                 | ValueSome rb ->
                     // Walk the intermediate segments `[1 .. n-2]` to the receiver
                     // (typar) type, exactly as `ClassChainMethod` does.
-                    let mutable recvTy = Unification.zonk (typeOfKey ctx rb.BindingSite)
+                    let mutable recvTy = Unification.zonk ctx.Store (typeOfKey ctx rb.BindingSite)
                     let mutable ok = true
 
                     for i in 1 .. n - 2 do
                         if ok then
                             match recoverFieldStepTy ctx recvTy (ctx.NameOf li.Idents.[i]) with
-                            | ValueSome t -> recvTy <- Unification.zonk t
+                            | ValueSome t -> recvTy <- Unification.zonk ctx.Store t
                             | ValueNone -> ok <- false
 
                     if not ok then

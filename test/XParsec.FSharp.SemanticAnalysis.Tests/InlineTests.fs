@@ -47,13 +47,17 @@ let private declType (tast: TastFile) : SemType =
 /// declaring MODULE has a holder chain, hence an exportable identity, hence a vocabulary
 /// entry. A top-level binding lives in the anonymous Program holder and is published
 /// nowhere — it is spliceable only within its own unit.
-let private thawedTemplate (letInline: string) : TDecl =
+// Returns the thaw `TypeStore` alongside the decl: the thawed typars are fresh roots in
+// THAT store, so a test reading them back (`Inline.quantifiedTypars`) must use the same one.
+let private thawedTemplate (letInline: string) : TypeStore * TDecl =
     let input = "namespace Ns\n\nmodule M =\n    " + letInline + "\n"
     let lexed, file = parseFile input
     let frozen = Pipeline.analyse realProvider.Value input lexed file
 
     match frozen.InlineBodies |> EqArray.toList with
-    | [ v ] -> Inline.thawBody (TypeStore()) v.Body.Decl
+    // Thaw into `ctx0.Store` — the SAME arena `Inline.inlineExpand ctx0` and
+    // `Inline.quantifiedTypars` read the thawed roots' dense ids against.
+    | [ v ] -> ctx0.Store, Inline.thawBody ctx0.Store v.Body.Decl
     | other -> failwithf "expected exactly one published inline body for %s, got %d" letInline (List.length other)
 
 [<Tests>]
@@ -90,15 +94,18 @@ let tests =
 
             test "monomorphic inline binding has no quantified typars" {
                 match firstDecl "let inline succ x = x + 1" with
-                | TDecl.Let(_, _, _, declTy) -> Expect.isEmpty (Inline.quantifiedTypars declTy) "no typars"
+                | TDecl.Let(_, _, _, declTy) ->
+                    Expect.isEmpty (Inline.quantifiedTypars (TypeStore()) declTy) "no typars"
                 | other -> failtestf "unexpected %A" other
             }
 
             test "a thawed polymorphic template exposes one quantified typar" {
-                match thawedTemplate "let inline id x = x" with
+                let store, decl = thawedTemplate "let inline id x = x"
+
+                match decl with
                 | TDecl.Let(_, _, _, declTy) ->
                     Expect.equal
-                        (Inline.quantifiedTypars declTy).Length
+                        (Inline.quantifiedTypars store declTy).Length
                         1
                         "id's single typar round-trips freeze → publish → thaw as one fresh root"
                 | other -> failtestf "unexpected %A" other
@@ -125,7 +132,7 @@ let tests =
             }
 
             test "expanding a thawed polymorphic template substitutes the typar through the body" {
-                let decl = thawedTemplate "let inline id x = x"
+                let _, decl = thawedTemplate "let inline id x = x"
                 let expanded, _ = Inline.inlineExpand ctx0 decl [| BuiltinTypes.tyInt |]
 
                 // `id`'s body is `fun x -> x`; instantiating 'a := int makes
@@ -143,7 +150,7 @@ let tests =
             }
 
             test "inlineExpand does not mutate the original decl" {
-                let decl = thawedTemplate "let inline id x = x"
+                let store, decl = thawedTemplate "let inline id x = x"
                 // Expand once at int…
                 Inline.inlineExpand ctx0 decl [| BuiltinTypes.tyInt |] |> ignore
 
@@ -151,7 +158,7 @@ let tests =
                 // second call-site can instantiate it independently.
                 match decl with
                 | TDecl.Let(_, _, _, declTy) ->
-                    Expect.equal (Inline.quantifiedTypars declTy).Length 1 "typar still free after expansion"
+                    Expect.equal (Inline.quantifiedTypars store declTy).Length 1 "typar still free after expansion"
 
                     let again, _ = Inline.inlineExpand ctx0 decl [| BuiltinTypes.tyBool |]
 

@@ -1165,31 +1165,14 @@ and [<NoEquality; NoComparison>] DeferredMemberAccess =
 
 and [<Sealed>] TypeVar(id: TyVarId) =
     /// Dense, monotone, per-file identity minted by `TypeStore.NewTypeVar` — the
-    /// arena's array / side-table key. Immutable and never reused within a file;
-    /// reference identity is retained (this stays a handle, not a raw id) so the
-    /// existing `HashIdentity.Reference` keying keeps working during migration.
+    /// arena's array / side-table key AND the sole state on the node: the former
+    /// mutable slots (`Link` / `Units` / `Region` / `Parent` / `Rank` / `Level`) all
+    /// live in `TypeStore`, id-indexed. The node stays a thin HANDLE with reference
+    /// identity (NOT collapsed to `SemType.TyVar of TyVarId`) so the pervasive
+    /// `HashIdentity.Reference` keying keeps working and `UnionFind.find` can still
+    /// return the root handle looked up from the store's id table. Immutable and
+    /// never reused within a file.
     member _.Id: TyVarId = id
-    /// Authoritative only on the representative — call UnionFind.find first.
-    member val Link: SemType voption = ValueNone with get, set
-    /// Measure constraint on this variable, when known to be a numeric
-    /// type. Authoritative on the union-find root — call `UnionFind.find`
-    /// before reading. `union` merges measures via abelian-group equality;
-    /// a mismatch on union is a diagnostic. Most TypeVars never get a
-    /// measure (function types, tuples, non-numeric values) and stay
-    /// `ValueNone`. `ValueSome MeasureTerm.Empty` means "dimensionless
-    /// numeric"; `ValueSome <non-empty>` means measured.
-    member val Units: MeasureTerm voption = ValueNone with get, set
-    member val Region: RegionId = RegionId.Unknown with get, set
-    // Owned by UnionFind; do not mutate directly.
-    member val Parent: TypeVar voption = ValueNone with get, set
-    member val Rank: int = 0 with get, set
-    /// Let-depth at which this TyVar was minted (Rémy's levels). Lowered by
-    /// `unify` when this TyVar becomes reachable from a shallower scope.
-    /// `generalise` quantifies TyVars whose level strictly exceeds the
-    /// enclosing scope's level. Authoritative on the union-find root — call
-    /// UnionFind.find before reading. `union` propagates `min` of the two
-    /// roots' levels to the survivor.
-    member val Level: int = 0 with get, set
 
 /// The **storage core** every deferred-constraint payload family shares: a grow-only
 /// per-representative list keyed by the metavar's id. The backing dictionary is
@@ -1267,25 +1250,121 @@ type BoundTable<'T when 'T: not struct>() =
     member _.IsSolved(item: 'T) : bool = solved.Contains item
 
 /// The metavar **arena** for one file: the single authority that mints `TypeVar`
-/// handles with dense, monotone ids, and the owner of the id-indexed side-tables
-/// the node's deferred-constraint payload migrates into. Grow-only per file; ids
-/// are never reused, so a `TyVarId` is a stable key. One instance lives on each
-/// `PassContext`.
+/// handles with dense, monotone ids, and the owner of the id-indexed structural
+/// arrays (union-find `parent`/`rank`, the root-authoritative `level`/`link`/`units`,
+/// the write-once `region`) plus the deferred-constraint side-tables. The node is a
+/// thin handle carrying only its `Id`; every former slot is read/written HERE. Grow-only
+/// per file; ids are never reused, so a `TyVarId` is a stable array index. One instance
+/// lives on each `PassContext`.
 [<Sealed>]
 type TypeStore() =
     let mutable nextId = 0
+    let mutable capacity = 0
+    // Union-find structure. `parent.[i] = i` marks a ROOT (the former
+    // `TypeVar.Parent : TypeVar voption` `ValueNone ≡ self` convention); any other
+    // entry points one step up the tree, path-compressed by `find`.
+    let mutable parent: int[] = Array.empty
+    let mutable rank: int[] = Array.empty
+    // Authoritative ON THE ROOT (`UnionFind.find` first): Rémy level, the solution
+    // link, and the measure carrier.
+    let mutable level: int[] = Array.empty
+    let mutable link: SemType voption[] = Array.empty
+    let mutable units: MeasureTerm voption[] = Array.empty
+    // Write-once region id — NOT migrated on union (unlike the root-authoritative
+    // slots), so it stays a plain per-node cell.
+    let mutable region: RegionId[] = Array.empty
+    // id -> handle, so `find` / `union` still RETURN the root `TypeVar` node the
+    // reference-identity call sites expect.
+    let mutable nodes: TypeVar[] = Array.empty
+
+    // Amortized-doubling copy-grow of one parallel arena array. Written ONCE and
+    // shared by every slot below, not duplicated per array.
+    let growStore (arr: 'T[]) (usedCount: int) (newCap: int) (fill: 'T) : 'T[] =
+        let n = Array.create newCap fill
+        System.Array.Copy(arr, n, usedCount)
+        n
+
+    // Every parallel array grows together off one `capacity`, so a single bounds
+    // check backs them all and a dense id is always in range.
+    let ensureCapacity (needed: int) : unit =
+        if needed > capacity then
+            let newCap = max needed (max 4 (capacity * 2))
+            parent <- growStore parent capacity newCap 0
+            rank <- growStore rank capacity newCap 0
+            level <- growStore level capacity newCap 0
+            link <- growStore link capacity newCap ValueNone
+            units <- growStore units capacity newCap ValueNone
+            region <- growStore region capacity newCap RegionId.Unknown
+            nodes <- growStore nodes capacity newCap Unchecked.defaultof<TypeVar>
+            capacity <- newCap
 
     /// Mint a fresh metavar handle carrying the next dense id. THE single
     /// construction seam — every `TypeVar` in a file is born here so its id
-    /// indexes this store.
+    /// indexes this store. A fresh var is its own union-find root (`parent.[id] = id`)
+    /// at level 0, unlinked, un-measured, region-unknown.
     member _.NewTypeVar() : TypeVar =
-        let id = LanguagePrimitives.Int32WithMeasure<tyVarId> nextId
+        let id = nextId
+        ensureCapacity (id + 1)
+        let tv = TypeVar(LanguagePrimitives.Int32WithMeasure<tyVarId> id)
+        parent.[id] <- id
+        rank.[id] <- 0
+        level.[id] <- 0
+        link.[id] <- ValueNone
+        units.[id] <- ValueNone
+        region.[id] <- RegionId.Unknown
+        nodes.[id] <- tv
         nextId <- nextId + 1
-        TypeVar id
+        tv
 
-    /// Count of metavars minted so far (the dense id upper bound); sizes the arena's
-    /// parallel arrays as payload families migrate off the node.
+    /// Count of metavars minted so far (the dense id upper bound).
     member _.Count = nextId
+
+    /// The root `TypeVar` handle for a dense id — how `find` / `union` recover the
+    /// node from the `parent` array.
+    member _.Node(id: TyVarId) : TypeVar = nodes.[int id]
+
+    // --- Union-find structure. Owned by `UnionFind`; do not poke elsewhere. ---
+
+    /// `ValueNone` ≡ `tv` is its own root, preserving the exact convention the
+    /// `find` / `union` algorithm reads off the former `TypeVar.Parent` slot.
+    member _.Parent(tv: TypeVar) : TypeVar voption =
+        let i = int tv.Id
+        let p = parent.[i]
+        if p = i then ValueNone else ValueSome nodes.[p]
+
+    member _.SetParent(tv: TypeVar, p: TypeVar voption) : unit =
+        parent.[int tv.Id] <-
+            match p with
+            | ValueSome r -> int r.Id
+            | ValueNone -> int tv.Id
+
+    member _.Rank(tv: TypeVar) : int = rank.[int tv.Id]
+    member _.SetRank(tv: TypeVar, r: int) : unit = rank.[int tv.Id] <- r
+
+    // --- Authoritative on the union-find root (`UnionFind.find` first). ---
+
+    /// Let-depth at which the root was minted (Rémy's levels). `union` propagates
+    /// `min` of the two roots' levels to the survivor; `occursAndAdjust` lowers a
+    /// reachable level; generalisation quantifies roots whose level exceeds the
+    /// enclosing scope.
+    member _.Level(tv: TypeVar) : int = level.[int tv.Id]
+    member _.SetLevel(tv: TypeVar, v: int) : unit = level.[int tv.Id] <- v
+
+    /// The solution / substitution reached from this root; `ValueNone` while free.
+    member _.Link(tv: TypeVar) : SemType voption = link.[int tv.Id]
+    member _.SetLink(tv: TypeVar, v: SemType voption) : unit = link.[int tv.Id] <- v
+
+    /// Measure constraint on the root when it is a numeric type. `ValueNone` for the
+    /// overwhelming majority (function types, tuples, non-numeric values); merged on
+    /// union by `mergeUnits`. `headZonk` / `substituteWith` STOP following `Link` at a
+    /// measure-bearing root so the measure rides on the returned `TyVar`.
+    member _.Units(tv: TypeVar) : MeasureTerm voption = units.[int tv.Id]
+    member _.SetUnits(tv: TypeVar, v: MeasureTerm voption) : unit = units.[int tv.Id] <- v
+
+    // --- Write-once region id; NOT migrated on union. ---
+
+    member _.Region(tv: TypeVar) : RegionId = region.[int tv.Id]
+    member _.SetRegion(tv: TypeVar, r: RegionId) : unit = region.[int tv.Id] <- r
 
     /// SRTP member-trait bounds, keyed by representative id — the store home of the
     /// former `TypeVar.SrtpBounds` slot. Grow-only + `solved` replaces the shared
@@ -1884,7 +1963,7 @@ module FrozenTypeBridge =
         | true, v -> v
         | _ ->
             let tv = store.NewTypeVar()
-            tv.Level <- level
+            store.SetLevel(tv, level)
             let v = TyVar tv
             cache.[j] <- v
             v

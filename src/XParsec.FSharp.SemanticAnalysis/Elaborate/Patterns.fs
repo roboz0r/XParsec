@@ -23,7 +23,7 @@ module internal ElaboratePatterns =
     /// `Empty`/`Cons`) this returns `("Cons", "Empty")`; the FSharp.Core fallback
     /// keeps `("Cons", "Nil")`.
     let listCaseNames (ctx: PassContext) (ty: SemType) : string * string =
-        match Unification.zonk ty with
+        match Unification.zonk ctx.Store ty with
         | LocalUnion ctx info ->
             let nilCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 0)
             let consCase = info.Cases |> Array.tryFind (fun c -> c.Fields.Length = 2)

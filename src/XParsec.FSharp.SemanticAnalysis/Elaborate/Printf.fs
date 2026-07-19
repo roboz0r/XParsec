@@ -169,7 +169,7 @@ module internal ElaboratePrintf =
             // concrete arg pushed (a writer family passes a `StringWriter` where the
             // callback's domain is the abstract `TextWriter`; a base-reference push is
             // implicitly compatible).
-            let funcTy = Unification.zonk (TastWalk.exprTy callbackT)
+            let funcTy = Unification.zonk ctx.Store (TastWalk.exprTy callbackT)
 
             let applyCallback (stateArg: TExpr) : TExpr =
                 match funcTy with
@@ -228,7 +228,7 @@ module internal ElaboratePrintf =
             // the residue is a `string` expr the backends splice like a `%s` hole.
             let specTy =
                 match valueT with
-                | ValueSome v -> Unification.zonk (TastWalk.exprTy v)
+                | ValueSome v -> Unification.zonk ctx.Store (TastWalk.exprTy v)
                 | ValueNone -> ctx.Intrinsics.Unit
 
             let spec =
@@ -270,7 +270,7 @@ module internal ElaboratePrintf =
             // (`S 3`) leaves a metavar that only resolves to `TyUnion` after
             // zonking (a record literal is concrete immediately), and an
             // unzonked `TyVar` would wrongly read as non-faithful (cold).
-            let holeTy = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr argExpr))
+            let holeTy = Unification.zonk ctx.Store (typeOfKey ctx (CstKeys.ofExpr argExpr))
 
             // `%A` of a non-engine-faithful arg (a non-Vesper structural type —
             // FSharpOption / a BCL type — or an unknown) can't be rendered by the
@@ -404,7 +404,7 @@ module internal ElaboratePrintf =
         // curried arrow order — `PrintfSpec.printerType` folds the hole types onto
         // the tail left-to-right). The running codomain after the last hole is the
         // tail (the `Format` result).
-        let mutable runningTy = Unification.zonk ty
+        let mutable runningTy = Unification.zonk ctx.Store ty
 
         for part in parts do
             match part with
@@ -433,7 +433,7 @@ module internal ElaboratePrintf =
                     | _ ->
                         failwithf
                             "Elaborate.translatePrintfPartial: printer type has fewer arrows than holes: %A"
-                            (Unification.zonk ty)
+                            (Unification.zonk ctx.Store ty)
 
                 // A fresh parameter keyed off the specifier's own token offset —
                 // distinct per hole (distinct source positions) and stable, so the
@@ -452,7 +452,7 @@ module internal ElaboratePrintf =
                     )
                 )
 
-                runningTy <- Unification.zonk restTy
+                runningTy <- Unification.zonk ctx.Store restTy
             | StringPart.Expr _
             | StringPart.OrphanFormatSpecifier _
             | StringPart.InvalidText _ ->

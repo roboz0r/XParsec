@@ -30,16 +30,20 @@ module Validation =
     /// Used by the mutable-binding value-restriction check, which fires at
     /// end of analysis — by then every use site has had a chance to pin
     /// free TyVars via the unification of LHS and RHS types.
-    let rec private hasFreeTyVar (quantified: System.Collections.Generic.HashSet<TypeVar>) (t: SemType) : bool =
+    let rec private hasFreeTyVar
+        (store: TypeStore)
+        (quantified: System.Collections.Generic.HashSet<TypeVar>)
+        (t: SemType)
+        : bool =
         match t with
         | TyVar tv ->
-            let root = UnionFind.find tv
+            let root = UnionFind.find store tv
 
-            match root.Link with
-            | ValueSome target -> hasFreeTyVar quantified target
+            match store.Link root with
+            | ValueSome target -> hasFreeTyVar store quantified target
             | ValueNone -> not (quantified.Contains root)
         // A compound holds a free var iff any child does; leaves hold none.
-        | t -> SemType.existsChild (hasFreeTyVar quantified) t
+        | t -> SemType.existsChild (hasFreeTyVar store quantified) t
 
     /// `lhs <- rhs` with a single-name `lhs` whose `ResolvedBinding` says
     /// `IsMutable = false` is an error. Non-Ident LHSes (record field,
@@ -84,7 +88,7 @@ module Validation =
                 | ValueSome rb ->
                     match ctx.Bindings.TypeVar.TryGetValue rb.BindingSite with
                     | ValueSome tv ->
-                        match Unification.zonk (TyVar tv) with
+                        match Unification.zonk ctx.Store (TyVar tv) with
                         | TyRecord(recKey, _) ->
                             let fieldName = ctx.NameOf li.Idents.[1]
 
@@ -125,7 +129,7 @@ module Validation =
 
             match ctx.Bindings.TypeVar.TryGetValue rKey with
             | ValueSome tv ->
-                match Unification.zonk (TyVar tv) with
+                match Unification.zonk ctx.Store (TyVar tv) with
                 | TyRecord(recKey, _) ->
                     let fieldName = ctx.NameOf li.Idents.[0]
 
@@ -150,7 +154,7 @@ module Validation =
         let seenRoots = System.Collections.Generic.HashSet<TypeVar>(HashIdentity.Reference)
 
         for kv in ctx.Bindings.TypeVar.AsDictionary() do
-            let root = UnionFind.find kv.Value
+            let root = UnionFind.find ctx.Store kv.Value
 
             let pending = ctx.Store.Pda.Live root.Id
 
@@ -185,7 +189,7 @@ module Validation =
 
         for kv in ctx.Bindings.Scheme.AsDictionary() do
             for q in kv.Value.Quantified do
-                quantified.Add(UnionFind.find q) |> ignore
+                quantified.Add(UnionFind.find ctx.Store q) |> ignore
 
         // Iterate every binding-site self-entry (kv.Key = rb.BindingSite)
         // whose binding is mutable. NameResolution writes one self-entry
@@ -196,7 +200,7 @@ module Validation =
 
             if rb.IsMutable && kv.Key = rb.BindingSite then
                 match ctx.Bindings.TypeVar.TryGetValue rb.BindingSite with
-                | ValueSome tv when hasFreeTyVar quantified (TyVar tv) ->
+                | ValueSome tv when hasFreeTyVar ctx.Store quantified (TyVar tv) ->
                     ctx.Diagnostics.Add
                         {
                             Key = rb.BindingSite

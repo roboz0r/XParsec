@@ -130,7 +130,7 @@ module internal ElaborateIdents =
                     // property read `this.Source.Current` (receiver `'E`) from a nominal
                     // field step `this.Source` (receiver the enclosing class).
                     let isTyparRecv =
-                        match Unification.zonk currTy with
+                        match Unification.zonk ctx.Store currTy with
                         | TyTypar _
                         | TyVar _ -> true
                         | _ -> false

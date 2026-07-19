@@ -57,7 +57,7 @@ module internal ElaborateAccess =
             // receiver through `SetArray` (`stelem`). Same receiver classification as
             // the read branch — whether the external type carries an index signature.
             let setName =
-                match Unification.zonk arrTy with
+                match Unification.zonk ctx.Store arrTy with
                 | TyClass(clsKey, _) when
                     not (ctx.Provider.TryLookupIndexSignature(SymbolKey.Type clsKey) |> List.isEmpty)
                     ->
@@ -161,7 +161,7 @@ module internal ElaborateAccess =
         (ty: SemType)
         (tok: SyntaxToken)
         : TExpr =
-        let rTy = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr r))
+        let rTy = Unification.zonk ctx.Store (typeOfKey ctx (CstKeys.ofExpr r))
         let receiver = translateExpr ctx r
 
         // A record exposes BOTH fields and instance-member properties by dot-access, so
@@ -248,7 +248,7 @@ module internal ElaborateAccess =
             // `ldobj` deref; a by-value one (`string.get_Chars : char`) is a plain
             // call. Read the declared return off the recorded signature.
             let retIsByref =
-                match Unification.zonk info.Signature with
+                match Unification.zonk ctx.Store info.Signature with
                 | TyFun(_, TyByref _) -> true
                 | _ -> false
 
@@ -297,7 +297,7 @@ module internal ElaborateAccess =
             // bracket lowering is identical for every index entry, so Elaborate checks only
             // WHETHER the receiver has an index signature, never WHICH entry matched.
             let getName =
-                match Unification.zonk arrTy with
+                match Unification.zonk ctx.Store arrTy with
                 | TyString -> "GetString"
                 | TyClass(clsKey, _) when
                     not (ctx.Provider.TryLookupIndexSignature(SymbolKey.Type clsKey) |> List.isEmpty)

@@ -70,18 +70,18 @@ module LocalMemberKeys =
 
     /// Fully ground (no free var / unsubstituted typar / unresolved type-level
     /// computation) — the precondition for operand-type overload discrimination.
-    let rec private isGround (t: SemType) : bool =
-        match Unification.zonk t with
+    let rec private isGround (store: TypeStore) (t: SemType) : bool =
+        match Unification.zonk store t with
         | TyVar _
         | TyUnknown _
         | TyTypar _ -> false
-        | t -> SemType.forallChildren isGround t
+        | t -> SemType.forallChildren (isGround store) t
 
     /// The type arguments of a (zonked) nominal head — the declaring-type args a member
     /// signature's declaring typars substitute from. Empty for a non-nominal (a
     /// non-generic static declarer, an intrinsic, an unpinned var).
-    let nominalArgs (t: SemType) : SemType[] =
-        match Unification.zonk t with
+    let nominalArgs (store: TypeStore) (t: SemType) : SemType[] =
+        match Unification.zonk store t with
         | TyNominal(_, args) -> EqArray.toList args |> List.toArray
         | _ -> [||]
 
@@ -91,11 +91,11 @@ module LocalMemberKeys =
     /// call's argument-element types. `ValueNone` when any operand type is NOT ground: the
     /// picker cannot then discriminate, so the mint keeps its best-by-arity single
     /// (behaviour-identical to the pre-picker mint) rather than force a wrong pick.
-    let externalOperands (declArgs: SemType[]) (argElems: SemType list) : ExternalOperands voption =
-        let declArgs = declArgs |> Array.map Unification.zonk
-        let argElems = argElems |> List.map Unification.zonk
+    let externalOperands (store: TypeStore) (declArgs: SemType[]) (argElems: SemType list) : ExternalOperands voption =
+        let declArgs = declArgs |> Array.map (Unification.zonk store)
+        let argElems = argElems |> List.map (Unification.zonk store)
 
-        if List.forall isGround argElems && Array.forall isGround declArgs then
+        if List.forall (isGround store) argElems && Array.forall (isGround store) declArgs then
             ValueSome
                 {
                     DeclArgs = declArgs
@@ -132,7 +132,8 @@ module LocalMemberKeys =
             | ValueNone -> ValueNone
 
         match tryNominalMemberWithTypars ctx declKey memberName with
-        | ValueSome nm -> ValueSome(UnificationInferOverload.frozenUserMemberKey nm.DeclKey nm.DeclTypars nm.Member)
+        | ValueSome nm ->
+            ValueSome(UnificationInferOverload.frozenUserMemberKey ctx.Store nm.DeclKey nm.DeclTypars nm.Member)
         | ValueNone ->
             match ctx.Provider.TryLookupMembers(SymbolKey.Type declKey, memberName) with
             // A provider that models members only singularly (or none): the plural channel

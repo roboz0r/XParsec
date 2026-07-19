@@ -103,20 +103,20 @@ module internal UnificationInferRecordAccess =
         : SemType =
         let srcTy = infer ctx src
 
-        match resolveStep srcTy with
+        match resolveStep ctx.Store srcTy with
         | TyRecord(recKey, srcArgs) ->
             match TypeRegistry.tryRecordByKey ctx.Types recKey with
             | ValueSome info ->
                 // Clone preserves the source's arg list — overrides unify
                 // against the substituted field type (`'a` → source's arg).
-                let subst = mkNamedTypeSubst info.TypeParams srcArgs
+                let subst = mkNamedTypeSubst ctx.Store info.TypeParams srcArgs
 
                 for FieldInitializer(longIdent = li; expr = e) in inits do
                     let _, fieldName = fieldNameAndQualifier ctx li
                     let eTy = infer ctx e
 
                     match info.Fields |> Array.tryFind (fun f -> f.Name = fieldName) with
-                    | Some field -> unify ctx (CstKeys.ofExpr e) eTy (substituteWith subst field.Type)
+                    | Some field -> unify ctx (CstKeys.ofExpr e) eTy (substituteWith ctx.Store subst field.Type)
                     | None -> ctx.Error(CstKeys.ofExpr e, sprintf "Type '%s' has no field '%s'" info.Name fieldName)
 
                 TyRecord(recKey, srcArgs)
@@ -193,7 +193,7 @@ module internal UnificationInferRecordAccess =
             | c :: rest ->
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target ->
-                    match resolveStep target with
+                    match resolveStep ctx.Store target with
                     | TyClass(ifaceKey, ifaceArgs) ->
                         // Resolve by the interface's key, not a bare name: an
                         // arity-overloaded interface (`Fun`2`/`Fun`3`) does not resolve by bare name, so a
@@ -254,12 +254,12 @@ module internal UnificationInferRecordAccess =
 
             memberSig
 
-        match resolveStep rTy with
+        match resolveStep ctx.Store rTy with
         | TyRecord(recKey, args) ->
             match TypeRegistry.tryRecordByKey ctx.Types recKey with
             | ValueSome info ->
                 match info.Fields |> Array.tryFind (fun f -> f.Name = memberName) with
-                | Some field -> instantiateMember (info.TypeParams, args) field.Type
+                | Some field -> instantiateMember ctx.Store (info.TypeParams, args) field.Type
                 // Not a field — a record also carries instance members. Resolve it on
                 // the same shared path a class/union takes, so `r.Bar` reaches the
                 // record's augmentation member rather than falling to a field-miss.
@@ -315,7 +315,7 @@ module internal UnificationInferRecordAccess =
                     // state). Instantiate the field's declared type
                     // with the receiver's type args, mirroring the member path.
                     match info.InstanceFields |> Array.tryFind (fun f -> f.Name = memberName) with
-                    | Some fld -> instantiateMember (info.TypeParams, args) fld.Type
+                    | Some fld -> instantiateMember ctx.Store (info.TypeParams, args) fld.Type
                     | None ->
                         resolveLocalInstanceMember ctx diagKey clsSimple info.TypeParams args info.Members memberName
             | ValueNone ->
@@ -389,7 +389,7 @@ module internal UnificationInferRecordAccess =
                         errorTy ctx diagKey (sprintf "Type '%s' has no instance member '%s'" unionQual memberName)
                     | _ -> errorTy ctx diagKey (sprintf "Unknown union type '%s'" unionQual)
         | TyVar tv ->
-            let root = UnionFind.find tv
+            let root = UnionFind.find ctx.Store tv
 
             // The receiver is a generic typar (`'T`) constrained to
             // an interface (`'T :> IFace`). The typar never grounds to a nominal, so
@@ -541,7 +541,7 @@ module internal UnificationInferRecordAccess =
         // A non-class, non-`get_Chars` receiver: a `string` routes to `GetString`,
         // everything else (arrays, still-free metavars) to `GetArray`.
         let stringOrArrayIndex () =
-            match resolveStep recvTy with
+            match resolveStep ctx.Store recvTy with
             | TyString -> getStringIndex ()
             | _ -> getArrayIndex ()
 
@@ -618,11 +618,11 @@ module internal UnificationInferRecordAccess =
                     | [ single ] -> single
                     | _ ->
                         let matched =
-                            match resolveStep idxTy with
+                            match resolveStep ctx.Store idxTy with
                             | TyConst(idxKey, _) ->
                                 realised
                                 |> List.tryFind (fun (k, _) ->
-                                    match resolveStep k with
+                                    match resolveStep ctx.Store k with
                                     | TyConst(kKey, _) -> kKey = idxKey
                                     | _ -> false
                                 )
@@ -656,7 +656,7 @@ module internal UnificationInferRecordAccess =
                         errorTy ctx key "Index-signature intrinsic 'GetIndex' is not in scope (Vesper.Core missing?)"
                     )
 
-        match resolveStep recvTy with
+        match resolveStep ctx.Store recvTy with
         | TyClass(clsKey, clsArgs) when (TypeRegistry.tryClassByKey ctx.Types clsKey).IsNone ->
             let clsArgsArr = clsArgs.AsSpan().ToArray()
 

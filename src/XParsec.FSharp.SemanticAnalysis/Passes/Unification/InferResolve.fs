@@ -34,8 +34,8 @@ module internal UnificationInferResolve =
 
         for (_, tp) in typeParams do
             let fresh = ctx.NewTypeVar()
-            fresh.Level <- ctx.CurrentLevel
-            let protoRoot = UnionFind.find tp
+            ctx.Store.SetLevel(fresh, ctx.CurrentLevel)
+            let protoRoot = UnionFind.find ctx.Store tp
             // Copy prototype constraints onto the fresh instance so
             // every use site re-evaluates satisfaction independently
             // (a `Set<int>` and a `Set<int -> int>` each get their own
@@ -66,7 +66,7 @@ module internal UnificationInferResolve =
 
             let arg =
                 info.CtorParams
-                |> Array.map (fun p -> substituteWith subst p.Type)
+                |> Array.map (fun p -> substituteWith ctx.Store subst p.Type)
                 |> Array.toList
                 |> tupleOrSingle ctx
 
@@ -91,7 +91,7 @@ module internal UnificationInferResolve =
         let args, subst = freshNamedInstance ctx unionInfo.TypeParams
         let unionTy = TyUnion(unionInfo.TypeKey, args)
 
-        let walkedFields = info.Fields |> Array.map (substituteWith subst)
+        let walkedFields = info.Fields |> Array.map (substituteWith ctx.Store subst)
 
         match walkedFields.Length with
         | 0 -> unionTy
@@ -394,7 +394,7 @@ module internal UnificationInferResolve =
 
             let fieldTypeOf (name: string) =
                 match info.Fields |> Array.tryFind (fun f -> f.Name = name) with
-                | Some f -> ValueSome(substituteWith subst f.Type)
+                | Some f -> ValueSome(substituteWith ctx.Store subst f.Type)
                 | None -> ValueNone
 
             struct (info.TypeKey, args, fieldTypeOf)

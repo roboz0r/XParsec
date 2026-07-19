@@ -147,13 +147,13 @@ module Regions =
     /// Resolve a `SemType` through its UnionFind root's Link chain (no walk
     /// into compound shapes). Same as `Unification.resolveStep` but inlined so
     /// Regions doesn't depend on Unification's private surface.
-    let rec private resolveLink (t: SemType) : SemType =
+    let rec private resolveLink (store: TypeStore) (t: SemType) : SemType =
         match t with
         | TyVar tv ->
-            let root = UnionFind.find tv
+            let root = UnionFind.find store tv
 
-            match root.Link with
-            | ValueSome target -> resolveLink target
+            match store.Link root with
+            | ValueSome target -> resolveLink store target
             | ValueNone -> TyVar root
         | _ -> t
 
@@ -162,8 +162,8 @@ module Regions =
     /// composites do. Free TyVars resolve as non-allocating — conservative on
     /// the "don't stamp" side; the caller can override for known-allocating
     /// constructors (Fun, Tuple).
-    let rec private isAllocation (t: SemType) : bool =
-        match resolveLink t with
+    let rec private isAllocation (store: TypeStore) (t: SemType) : bool =
+        match resolveLink store t with
         | TyConst(key, _) ->
             let name = SymbolKeyOps.intrinsicName key
 
@@ -210,7 +210,7 @@ module Regions =
         // scalar). It is external-vocabulary only, so this is defensive.
         | TyLiteral _ -> false
 
-    let private exprIsAllocation (e: TExpr) : bool = isAllocation (TastWalk.exprTy e)
+    let private exprIsAllocation (store: TypeStore) (e: TExpr) : bool = isAllocation store (TastWalk.exprTy e)
 
     /// Is an `Upcast` to `t` a heap-repr sink (Axis-2)?
     /// `obj` boxes (`TyConst("obj", _)` — what `translateType` produces, see
@@ -218,8 +218,8 @@ module Regions =
     /// materialises a reference-typed function value. Either pins the upcast
     /// source to a heap representation. (`Downcast` narrows the static type of
     /// an existing value and is not a sink.)
-    let private isHeapReprTarget (t: SemType) : bool =
-        match resolveLink t with
+    let private isHeapReprTarget (store: TypeStore) (t: SemType) : bool =
+        match resolveLink store t with
         | TyObj -> true
         | TyFun _ -> true
         | _ -> false
@@ -244,10 +244,10 @@ module Regions =
     /// otherwise return `fallback`. The `arms.Count > 0` guard is load-bearing
     /// only for `match` (a match with no rules allocates nothing) and harmless
     /// elsewhere.
-    let private joinArms (s: State) (e: TExpr) (arms: RegionId seq) (fallback: RegionId) : RegionId =
+    let private joinArms (store: TypeStore) (s: State) (e: TExpr) (arms: RegionId seq) (fallback: RegionId) : RegionId =
         let arms = ResizeArray(arms)
 
-        if exprIsAllocation e && arms.Count > 0 then
+        if exprIsAllocation store e && arms.Count > 0 then
             let r = freshValue s
 
             for a in arms do
@@ -257,8 +257,8 @@ module Regions =
         else
             fallback
 
-    let private primitiveOrFreshResult (s: State) (e: TExpr) : RegionId =
-        if exprIsAllocation e then
+    let private primitiveOrFreshResult (store: TypeStore) (s: State) (e: TExpr) : RegionId =
+        if exprIsAllocation store e then
             freshValue s
         else
             RegionId.Unknown
@@ -282,7 +282,7 @@ module Regions =
     let private stampTyVar (ctx: PassContext) (key: NodeKey) (r: RegionId) : unit =
         if r.Raw >= 0 then
             match ctx.Bindings.TypeVar.TryGetValue key with
-            | ValueSome tv -> (UnionFind.find tv).Region <- r
+            | ValueSome tv -> ctx.Store.SetRegion(UnionFind.find ctx.Store tv, r)
             | ValueNone -> ()
 
     let rec private inferRegion (s: State) (ctx: PassContext) (e: TExpr) : RegionId =
@@ -343,7 +343,7 @@ module Regions =
             // the source region as an Axis-2 heap-repr sink.
             let r = inferRegion s ctx src
 
-            if isHeapReprTarget ty then
+            if isHeapReprTarget ctx.Store ty then
                 s.Graph.MarkHeapSink r
 
             r
@@ -404,7 +404,7 @@ module Regions =
             for a in args do
                 inferRegion s ctx a |> ignore
 
-            primitiveOrFreshResult s e
+            primitiveOrFreshResult ctx.Store s e
         // Resolved away by the inline-expansion pass; walk defensively in case a
         // residual one survives so any captures inside it still register.
         | TExpr.StaticOptimization(clauses, def, _, _) ->
@@ -417,13 +417,13 @@ module Regions =
         | TExpr.Use _ -> letChainRegion s ctx e
         | TExpr.IfThenElse(c, t, el, _, _) ->
             inferRegion s ctx c |> ignore
-            joinArms s e [ inferRegion s ctx t; inferRegion s ctx el ] RegionId.Unknown
+            joinArms ctx.Store s e [ inferRegion s ctx t; inferRegion s ctx el ] RegionId.Unknown
         | TExpr.Match(sc, armRules, _, _) ->
             inferRegion s ctx sc |> ignore
-            joinArms s e [ for arm in armRules -> inferRegionArm s ctx arm ] RegionId.Unknown
+            joinArms ctx.Store s e [ for arm in armRules -> inferRegionArm s ctx arm ] RegionId.Unknown
         | TExpr.TryWith(b, armRules, _, _) ->
             let bodyR = inferRegion s ctx b
-            joinArms s e [ yield bodyR; for arm in armRules -> inferRegionArm s ctx arm ] bodyR
+            joinArms ctx.Store s e [ yield bodyR; for arm in armRules -> inferRegionArm s ctx arm ] bodyR
         | TExpr.TryFinally(b, c, _, _) ->
             let bodyR = inferRegion s ctx b
             inferRegion s ctx c |> ignore
@@ -436,14 +436,26 @@ module Regions =
             // nothing; `'a -> ('a -> 'b)` captures the argument), but that needs a
             // way to carry effects on external symbols and inferred schemes.
             let head, args = TastWalk.collectSpine [] e
-            joinArms s e [ yield inferRegion s ctx head; for (a, _, _) in args -> inferRegion s ctx a ] RegionId.Unknown
+
+            joinArms
+                ctx.Store
+                s
+                e
+                [ yield inferRegion s ctx head; for (a, _, _) in args -> inferRegion s ctx a ]
+                RegionId.Unknown
         | TExpr.MethodCall(recv, _, _, args, _, _) ->
-            joinArms s e [ yield inferRegion s ctx recv; for a in args -> inferRegion s ctx a ] RegionId.Unknown
+            joinArms
+                ctx.Store
+                s
+                e
+                [ yield inferRegion s ctx recv; for a in args -> inferRegion s ctx a ]
+                RegionId.Unknown
         | TExpr.StaticMethodCall(_, args, _, _) ->
-            joinArms s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
+            joinArms ctx.Store s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
         // Resolved to a `StaticMethodCall` by inline expansion; walk args defensively
         // in case a residual one survives so captures inside it still register.
-        | TExpr.TraitCall(_, _, args, _, _) -> joinArms s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
+        | TExpr.TraitCall(_, _, args, _, _) ->
+            joinArms ctx.Store s e [ for a in args -> inferRegion s ctx a ] RegionId.Unknown
 
     /// Process a `TExpr.Lambda` whose closure region is `r` (a fresh region for an
     /// anonymous lambda, or the pre-minted region of a function-form binding).
@@ -771,11 +783,11 @@ module Regions =
         let repr = solveRepr s.Graph state
 
         for kv in ctx.Bindings.TypeVar.AsDictionary() do
-            let tv = UnionFind.find kv.Value
+            let tv = UnionFind.find ctx.Store kv.Value
 
-            if tv.Region.Raw >= 0 && tv.Region.Raw < state.Length then
-                ctx.Bindings.Escape.Set(kv.Key, state.[tv.Region.Raw])
-                ctx.Bindings.Repr.Set(kv.Key, repr.[tv.Region.Raw])
+            if (ctx.Store.Region tv).Raw >= 0 && (ctx.Store.Region tv).Raw < state.Length then
+                ctx.Bindings.Escape.Set(kv.Key, state.[(ctx.Store.Region tv).Raw])
+                ctx.Bindings.Repr.Set(kv.Key, repr.[(ctx.Store.Region tv).Raw])
 
     /// Fold the codegen stack/heap verdict for every binder: `ClosureRepr.Stack` iff the
     /// binder is both frame-confined by lifetime (`Axis 1` `EscapeState.LocalStack`)

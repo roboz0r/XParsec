@@ -1556,7 +1556,7 @@ module ExternalSymbols =
                     sym.TyparArity
                     (fun _ ->
                         let tv = store.NewTypeVar()
-                        tv.Level <- level
+                        store.SetLevel(tv, level)
                         tv
                     )
 

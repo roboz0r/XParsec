@@ -121,9 +121,9 @@ let tests =
                     }
 
                 let level = 7
+                let store = TypeStore()
 
-                let result =
-                    ExternalSymbols.instantiateSignature (TypeStore()) m (argsForArity 1) level
+                let result = ExternalSymbols.instantiateSignature store m (argsForArity 1) level
 
                 match result with
                 | TyFun(TyTuple ins, TyTuple outs) ->
@@ -145,8 +145,8 @@ let tests =
 
                     Expect.isTrue (System.Object.ReferenceEquals(v0a, v0b)) "same method index 0 → same TyVar"
                     Expect.isFalse (System.Object.ReferenceEquals(v0a, v1)) "distinct method index → distinct TyVar"
-                    Expect.equal v0a.Level level "fresh method var stamped at level"
-                    Expect.equal v1.Level level "fresh method var stamped at level"
+                    Expect.equal (store.Level v0a) level "fresh method var stamped at level"
+                    Expect.equal (store.Level v1) level "fresh method var stamped at level"
                 | other -> failtestf "unexpected instantiate result: %A" other
             }
 

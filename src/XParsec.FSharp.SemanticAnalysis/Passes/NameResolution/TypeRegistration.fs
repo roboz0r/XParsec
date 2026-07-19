@@ -107,7 +107,7 @@ module NameResolutionTypeRegistration =
             seq {
                 for n in names ->
                     let tv = store.NewTypeVar()
-                    tv.Level <- 0
+                    store.SetLevel(tv, 0)
                     n, tv
             }
         )

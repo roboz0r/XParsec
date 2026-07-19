@@ -91,7 +91,7 @@ module internal ElaborateExpr =
                 ctx
                 key
                 receiver
-                (nominalDeclKey receiverTy)
+                (nominalDeclKey ctx.Store receiverTy)
                 memberName
                 (peelCtorArgs (translateExpr ctx) args)
                 ty
@@ -107,7 +107,7 @@ module internal ElaborateExpr =
                 ctx
                 key
                 receiver
-                (nominalDeclKey receiverTy)
+                (nominalDeclKey ctx.Store receiverTy)
                 memberName
                 (peelOneArg (translateExpr ctx) arg)
                 ty
@@ -125,7 +125,7 @@ module internal ElaborateExpr =
                 ctx
                 key
                 receiver
-                (nominalDeclKey receiverTy)
+                (nominalDeclKey ctx.Store receiverTy)
                 memberName
                 (peelCtorArgs (translateExpr ctx) args)
                 ty
@@ -140,7 +140,7 @@ module internal ElaborateExpr =
                 ctx
                 key
                 receiver
-                (nominalDeclKey receiverTy)
+                (nominalDeclKey ctx.Store receiverTy)
                 memberName
                 (peelOneArg (translateExpr ctx) arg)
                 ty
@@ -185,7 +185,7 @@ module internal ElaborateExpr =
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent(ClassTailProperty ctx (bindingSite, receiverTy, memberName))) ->
             let receiver = TExpr.Var(bindingSite, receiverTy, tok)
 
-            let key = LocalSymbolKey.ofProperty (nominalDeclKey receiverTy) memberName
+            let key = LocalSymbolKey.ofProperty (nominalDeclKey ctx.Store receiverTy) memberName
 
             TExpr.PropertyGet(receiver, key, viaOfReceiver ctx receiver, ty, tok)
         | Expr.App(
@@ -212,7 +212,7 @@ module internal ElaborateExpr =
             // Bare or qualified ctor reference outside an App. v1 distinguishes
             // nullary ctor (→ `UnionCons`) from ctor-as-value (`let f = Circle`,
             // typed `TyFun(_, TyUnion _)` → External) by the result type.
-            match Unification.zonk ty with
+            match Unification.zonk ctx.Store ty with
             | TyUnion(_, _) -> TExpr.UnionCons(caseName, EqArray.empty, ty, tok)
             // Function-typed ctor-as-value; codegen can eta-expand to a
             // UnionCons lambda.
@@ -379,7 +379,7 @@ module internal ElaborateExpr =
         (tok: SyntaxToken)
         : TExpr =
         let className =
-            match Unification.zonk ty with
+            match Unification.zonk ctx.Store ty with
             // Qualified so the backend's external-ctor recipe (`new
             // System.Exception(...)`) resolves; the backend strips to the bare
             // simple name for the project-local class lookup.
@@ -475,7 +475,7 @@ module internal ElaborateExpr =
 
                         let wrapped =
                             match recordFieldTy ctx ty name with
-                            | ValueSome ft -> wrapObjArg ft argT
+                            | ValueSome ft -> wrapObjArg ctx.Store ft argT
                             | ValueNone -> argT
 
                         name, wrapped
@@ -522,18 +522,18 @@ module internal ElaborateExpr =
         // (`ldelem.any` → `ldelem`) to the form codegen's emit arm reads.
         if opCode.StartsWith "newarr" then
             let elem =
-                match Unification.zonk ty with
+                match Unification.zonk ctx.Store ty with
                 | TyArray elem -> elem
                 | other -> failwithf "Elaborate: 'newarr' result is not a rank-1 array: %A" other
 
             TExpr.ILIntrinsic("newarr", ValueSome elem, tArgs, ty, tok)
         elif opCode.StartsWith "ldelem" then
-            TExpr.ILIntrinsic("ldelem", ValueSome(Unification.zonk ty), tArgs, ty, tok)
+            TExpr.ILIntrinsic("ldelem", ValueSome(Unification.zonk ctx.Store ty), tArgs, ty, tok)
         elif opCode.StartsWith "stelem" then
             // `arr.[i] <- v` / `SetArray`. The store's result is `unit`, so the
             // element type is recovered from the value operand (the 3rd arg:
             // array, index, value), not the node's result type as `ldelem` does.
-            let elem = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr args.[2]))
+            let elem = Unification.zonk ctx.Store (typeOfKey ctx (CstKeys.ofExpr args.[2]))
             TExpr.ILIntrinsic("stelem", ValueSome elem, tArgs, ty, tok)
         elif opCode.StartsWith "box" then
             // `box value` — the boxed element type is the *argument's* static
@@ -541,14 +541,14 @@ module internal ElaborateExpr =
             // value operand. A value type emits `box <T>`; a reference type's
             // box is the JIT-erased identity (codegen leaves it as `box`, which
             // the runtime treats as a no-op on a ref type).
-            let elem = Unification.zonk (typeOfKey ctx (CstKeys.ofExpr args.[0]))
+            let elem = Unification.zonk ctx.Store (typeOfKey ctx (CstKeys.ofExpr args.[0]))
             TExpr.ILIntrinsic("box", ValueSome elem, tArgs, ty, tok)
         elif opCode.StartsWith "ilzero" then
             // `Unchecked.defaultof<'T>` — a type's default value. `ilzero`'s result IS
             // the defaulted 'T, so the operand type is the node's result type (recovered
             // like `ldelem`'s). The source `type ('T)` clause is decorative here — the
             // result type is authoritative — but kept in source to match the F# idiom.
-            TExpr.ILIntrinsic("ilzero", ValueSome(Unification.zonk ty), tArgs, ty, tok)
+            TExpr.ILIntrinsic("ilzero", ValueSome(Unification.zonk ctx.Store ty), tArgs, ty, tok)
         else
             TExpr.ILIntrinsic(opCode, ValueNone, tArgs, ty, tok)
 
@@ -617,7 +617,7 @@ module internal ElaborateExpr =
         (items: Expr<SyntaxToken> list)
         (tok: SyntaxToken)
         : TExpr =
-        let zonked = Unification.zonk literalTy
+        let zonked = Unification.zonk ctx.Store literalTy
 
         let elemTy =
             match zonked with

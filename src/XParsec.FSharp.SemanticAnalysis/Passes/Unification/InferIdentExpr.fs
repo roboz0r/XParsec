@@ -93,7 +93,7 @@ module internal UnificationInferIdentExpr =
                 match members |> Array.tryFind (fun m -> m.IsStatic && m.Name = tailName) with
                 | Some m ->
                     let _, subst = freshNamedInstance ctx typeParams
-                    ValueSome(substituteWith subst m.Type)
+                    ValueSome(substituteWith ctx.Store subst m.Type)
                 | None -> ValueNone
 
             // Class static member takes priority over union static member which
@@ -257,7 +257,7 @@ module internal UnificationInferIdentExpr =
                     match members |> Array.tryFind (fun m -> m.IsStatic && m.Name = memberName) with
                     | Some m ->
                         let _, subst = freshNamedInstance ctx typeParams
-                        ValueSome(substituteWith subst m.Type)
+                        ValueSome(substituteWith ctx.Store subst m.Type)
                     | None -> ValueNone
 
                 let useSite = ctx.UseSiteAt(CstKeys.ofExpr recv)

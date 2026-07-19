@@ -22,6 +22,12 @@ let private analyseWith (provider: IExternalSymbolProvider) (input: string) : Ta
     let lexed, file = parseFile input
     Pipeline.analyseSem provider input lexed file
 
+/// `analyseWith`, keeping the `PassContext` so a test can read a live `TyVar`'s
+/// resolved type off the per-file `TypeStore` (`Unification.zonk ctx.Store …`).
+let private analyseWithCtx (provider: IExternalSymbolProvider) (input: string) : PassContext * TastFile =
+    let lexed, file = parseFile input
+    Pipeline.analyseSemWithContext provider input lexed file
+
 let private errors (tast: TastFile) : Diagnostic list =
     tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error)
 
@@ -52,8 +58,8 @@ let tests =
                 // metadata leaf canonicalizes `GetHashCode`'s `System.Int32` return through.
                 let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
 
-                let tast =
-                    analyseWith
+                let ctx, tast =
+                    analyseWithCtx
                         provider
                         "let h = System.Collections.Generic.EqualityComparer<int>.Default.GetHashCode 5"
 
@@ -73,7 +79,7 @@ let tests =
                             _) ->
                     // The instance access is a method value `int -> int`; applying
                     // `5` yields `int`.
-                    match Unification.zonk ghTy with
+                    match Unification.zonk ctx.Store ghTy with
                     | TyFun(TyConst(k1, _), TyConst(k2, _)) when
                         SymbolKeyOps.simpleName k1 = DisplayName "int"
                         && SymbolKeyOps.simpleName k2 = DisplayName "int"
@@ -81,7 +87,7 @@ let tests =
                         ()
                     | other -> failtestf "GetHashCode should be typed int -> int, got %A" other
 
-                    match Unification.zonk resultTy with
+                    match Unification.zonk ctx.Store resultTy with
                     | TyConst(key, _) when SymbolKeyOps.simpleName key = DisplayName "int" -> ()
                     | other -> failtestf "the application should be typed int, got %A" other
 
@@ -118,7 +124,7 @@ let tests =
                     // typed EqualityComparer<int>, empty argSig.
                     match inner with
                     | TExpr.ExternalMember(ValueNone, defKey, "Default", MemberStorage.Property, defTy, _) ->
-                        match Unification.zonk defTy with
+                        match Unification.zonk ctx.Store defTy with
                         | TyClass(name, args) when
                             args.Length = 1
                             && (
@@ -162,8 +168,8 @@ let tests =
                     | ValueSome m -> SymbolKey.Member m.Key
                     | ValueNone -> failtest "provider did not resolve GetHashCode"
 
-                let tast =
-                    analyseWith
+                let ctx, tast =
+                    analyseWithCtx
                         provider
                         "let h = System.Collections.Generic.EqualityComparer<int>.Default.GetHashCode 5"
 
@@ -184,8 +190,8 @@ let tests =
                 // canonicalizes `GetHashCode`'s `System.Int32` return through.
                 let provider = ClrSymbolProviders.build [ vesperCoreManifest ]
 
-                let tast =
-                    analyseWith
+                let ctx, tast =
+                    analyseWithCtx
                         provider
                         "open System.Collections.Generic\nlet h = EqualityComparer<int>.Default.GetHashCode 5"
 
@@ -214,7 +220,7 @@ let tests =
                                       TExpr.Const(TConstValue.Integral(IntWidth.Int32, 5L), _, _),
                                       resultTy,
                                       _)) ->
-                    match Unification.zonk ghTy with
+                    match Unification.zonk ctx.Store ghTy with
                     | TyFun(TyConst(k1, _), TyConst(k2, _)) when
                         SymbolKeyOps.simpleName k1 = DisplayName "int"
                         && SymbolKeyOps.simpleName k2 = DisplayName "int"
@@ -222,7 +228,7 @@ let tests =
                         ()
                     | other -> failtestf "GetHashCode should be typed int -> int, got %A" other
 
-                    match Unification.zonk resultTy with
+                    match Unification.zonk ctx.Store resultTy with
                     | TyConst(key, _) when SymbolKeyOps.simpleName key = DisplayName "int" -> ()
                     | other -> failtestf "the application should be typed int, got %A" other
 
@@ -269,8 +275,8 @@ let tests =
                     | ValueSome m -> SymbolKey.Member m.Key
                     | ValueNone -> failtest "provider did not resolve GetHashCode"
 
-                let tast =
-                    analyseWith
+                let ctx, tast =
+                    analyseWithCtx
                         provider
                         "open System.Collections.Generic\nlet h = EqualityComparer<int>.Default.GetHashCode 5"
 
@@ -431,7 +437,7 @@ let tests =
             // split, types it, and freezes a keyed `TExpr.ExternalMember`.
             test "non-generic external static property resolves + freezes carrying its key" {
                 let provider = ClrSymbolProviders.build []
-                let tast = analyseWith provider "let w = System.Console.Out"
+                let ctx, tast = analyseWithCtx provider "let w = System.Console.Out"
 
                 Expect.isEmpty (errors tast) "System.Console.Out resolves through the metadata provider"
 
@@ -442,7 +448,7 @@ let tests =
 
                 match value with
                 | TExpr.ExternalMember(ValueNone, key, "Out", MemberStorage.Property, ty, _) ->
-                    match Unification.zonk ty with
+                    match Unification.zonk ctx.Store ty with
                     | TyClass("System.IO.TextWriter", args) when args.IsEmpty -> ()
                     | other -> failtestf "Out should be typed System.IO.TextWriter, got %A" other
 

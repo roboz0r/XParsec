@@ -98,18 +98,24 @@ let tests =
             // set rather than leaving a stale `string | string`. `zonk` is the
             // exemplar; `substituteWith` / `Inline.substType` share the path.
             test "zonk collapses a union when a member resolves to another member" {
-                let tv = TypeStore().NewTypeVar()
-                tv.Link <- ValueSome tString
+                let store = TypeStore()
+                let tv = store.NewTypeVar()
+                store.SetLink(tv, ValueSome tString)
                 // `'a | string` with `'a ↦ string` — a raw pre-resolution union.
                 let u = rawOr [ TyVar tv; tString ]
-                Expect.equal (Unification.zonk u) tString "('a | string)[a:=string] ≡ string"
+                Expect.equal (Unification.zonk store u) tString "('a | string)[a:=string] ≡ string"
             }
 
             test "zonk keeps distinct resolved members and re-canonicalises" {
-                let tv = TypeStore().NewTypeVar()
-                tv.Link <- ValueSome tInt
+                let store = TypeStore()
+                let tv = store.NewTypeVar()
+                store.SetLink(tv, ValueSome tInt)
                 let u = rawOr [ TyVar tv; tString ]
-                Expect.equal (Unification.zonk u) (mkUnion [ tInt; tString ]) "('a | string)[a:=int] ≡ int | string"
+
+                Expect.equal
+                    (Unification.zonk store u)
+                    (mkUnion [ tInt; tString ])
+                    "('a | string)[a:=int] ≡ int | string"
             }
 
             // Stage 3a: the canonical-set form is type-enforced, not convention.

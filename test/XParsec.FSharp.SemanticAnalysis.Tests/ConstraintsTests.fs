@@ -35,7 +35,7 @@ let private countMessage (ctx: PassContext) (fragment: string) =
 
 let private typeOf (ctx: PassContext) (key: NodeKey) : SemType =
     match ctx.Bindings.TypeVar.TryGetValue key with
-    | ValueSome tv -> Unification.zonk (TyVar tv)
+    | ValueSome tv -> Unification.zonk ctx.Store (TyVar tv)
     | ValueNone -> failwithf "no TypeVar entry for %O" key
 
 [<Tests>]

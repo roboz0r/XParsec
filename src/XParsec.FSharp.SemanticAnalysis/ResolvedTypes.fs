@@ -18,13 +18,18 @@ module ResolvedTypes =
 
     /// Walk `t` adding any free TyVar root (`Link.IsNone`) not in `allowed`
     /// to `acc`. Same chase-through-Link semantics as `Unification.zonk`.
-    let private addFreeRoots (allowed: HashSet<TypeVar>) (acc: HashSet<TypeVar>) (t: SemType) : unit =
+    let private addFreeRoots
+        (store: TypeStore)
+        (allowed: HashSet<TypeVar>)
+        (acc: HashSet<TypeVar>)
+        (t: SemType)
+        : unit =
         let rec go t =
             match t with
             | TyVar tv ->
-                let root = UnionFind.find tv
+                let root = UnionFind.find store tv
 
-                match root.Link with
+                match store.Link root with
                 | ValueSome target -> go target
                 | ValueNone ->
                     if not (allowed.Contains root) then
@@ -47,7 +52,7 @@ module ResolvedTypes =
             match ctx.Bindings.Scheme.TryGetValue key with
             | ValueSome scheme ->
                 for tv in scheme.Quantified do
-                    let root = UnionFind.find tv
+                    let root = UnionFind.find ctx.Store tv
 
                     if allowed.Add root then
                         added.Add root
@@ -69,7 +74,7 @@ module ResolvedTypes =
         { TastWalk.identityIter with
             VisitExpr =
                 fun it e ->
-                    addFreeRoots allowed acc (TastWalk.exprTy e)
+                    addFreeRoots ctx.Store allowed acc (TastWalk.exprTy e)
 
                     match e with
                     | TExpr.Let(binding, value, body, _, _) ->
@@ -94,22 +99,22 @@ module ResolvedTypes =
                             match seg with
                             | FormatSeg.Lit _ -> ()
                             | FormatSeg.Hole(hole, arg) ->
-                                addFreeRoots allowed acc hole.Ty
+                                addFreeRoots ctx.Store allowed acc hole.Ty
                                 TastWalk.iterExpr it arg
                             | FormatSeg.DynHole d ->
-                                addFreeRoots allowed acc d.Spec.Ty
+                                addFreeRoots ctx.Store allowed acc d.Spec.Ty
                                 d.Width |> ValueOption.iter (TastWalk.iterExpr it)
                                 d.Precision |> ValueOption.iter (TastWalk.iterExpr it)
                                 TastWalk.iterExpr it d.Value
                             | FormatSeg.CallbackHole(spec, residue) ->
-                                addFreeRoots allowed acc spec.Ty
+                                addFreeRoots ctx.Store allowed acc spec.Ty
                                 TastWalk.iterExpr it residue
 
                         false
                     | _ -> true
             VisitPat =
                 fun _ p ->
-                    addFreeRoots allowed acc (TastWalk.patTy p)
+                    addFreeRoots ctx.Store allowed acc (TastWalk.patTy p)
                     true
         }
 
@@ -128,12 +133,12 @@ module ResolvedTypes =
         match d with
         | TDecl.Let(binding, value, _, ty) ->
             let added = pushScheme ctx binding allowed
-            addFreeRoots allowed acc ty
+            addFreeRoots ctx.Store allowed acc ty
             TastWalk.iterPat iter binding
             TastWalk.iterExpr iter value
             popScheme allowed added
         | TDecl.Expression(e, ty) ->
-            addFreeRoots allowed acc ty
+            addFreeRoots ctx.Store allowed acc ty
             TastWalk.iterExpr iter e
         | TDecl.Type _ ->
             // Surfaced type declarations carry no inferred TyVars to resolve

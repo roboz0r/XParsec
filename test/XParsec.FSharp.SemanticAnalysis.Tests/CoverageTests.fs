@@ -1348,7 +1348,7 @@ let tests =
                 // Ground operands `(int, string)` select `M(int, string)` — the overload the
                 // collapse would have MISSED.
                 let operands =
-                    LocalMemberKeys.externalOperands [||] [ BuiltinTypes.tyInt; BuiltinTypes.tyString ]
+                    LocalMemberKeys.externalOperands ctx.Store [||] [ BuiltinTypes.tyInt; BuiltinTypes.tyString ]
 
                 let minted = LocalMemberKeys.totalMemberKey ctx extDeclKey "M" operands
                 Expect.equal minted (ValueSome(SymbolKey.Member mIS.Key)) "ground operands mint the M(int, string) key"
@@ -1375,7 +1375,9 @@ let tests =
                         }
 
                 let expected = ValueSome(SymbolKey.Member m1.Key)
-                let operands = LocalMemberKeys.externalOperands [||] [ BuiltinTypes.tyInt ]
+
+                let operands =
+                    LocalMemberKeys.externalOperands ctx.Store [||] [ BuiltinTypes.tyInt ]
 
                 Expect.equal
                     (LocalMemberKeys.totalMemberKey ctx extDeclKey "N" operands)

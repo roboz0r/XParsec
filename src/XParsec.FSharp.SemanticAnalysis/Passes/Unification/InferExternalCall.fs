@@ -23,7 +23,7 @@ module internal UnificationInferExternalCall =
     /// The set of string literals a realised keyof-bounded method typar admits (its
     /// `keyof`-fold), or `ValueNone` when the bound isn't a ground literal (union).
     let private boundLiteralStrings (ctx: PassContext) (bound: SemType) : Set<string> voption =
-        match tryLiteralStrings (evalTypeLevel ctx bound) with
+        match tryLiteralStrings ctx.Store (evalTypeLevel ctx bound) with
         | ValueSome strings -> ValueSome(Set.ofList strings)
         | ValueNone -> ValueNone
 
@@ -59,7 +59,7 @@ module internal UnificationInferExternalCall =
         (argTy: SemType)
         : SemType =
         let elemTys =
-            match resolveStep argTy with
+            match resolveStep ctx.Store argTy with
             | TyTuple ts -> ts |> EqArray.toList |> List.toArray
             | single -> [| single |]
 
@@ -75,7 +75,7 @@ module internal UnificationInferExternalCall =
                     let admits =
                         candidates
                         |> Array.exists (fun m ->
-                            match List.tryItem i (memberParamTypes declArgs m) with
+                            match List.tryItem i (memberParamTypes ctx.Store declArgs m) with
                             | Some(TyTypar(TyparAxis.Method, j)) ->
                                 match ExternalSymbols.instantiateSignatureBounds m declArgs |> Array.tryItem j with
                                 | Some(ValueSome bound) ->
@@ -97,11 +97,11 @@ module internal UnificationInferExternalCall =
 
     /// Method typars of `chosen` referenced in `t` (any structural depth) — the axis a
     /// carried node's grounding must seed.
-    let private referencedMethodTypars (t: SemType) : Set<int> =
+    let private referencedMethodTypars (store: TypeStore) (t: SemType) : Set<int> =
         let mutable acc = Set.empty
 
         let rec walk t =
-            match resolveStep t with
+            match resolveStep store t with
             | TyTypar(TyparAxis.Method, j) -> acc <- Set.add j acc
             | t -> SemType.iterChildren walk t
 
@@ -121,7 +121,7 @@ module internal UnificationInferExternalCall =
         (declArgs: SemType[])
         (facts: ConstArgFacts)
         : (int * SemType) list =
-        let paramTys = memberParamTypes declArgs chosen |> List.toArray
+        let paramTys = memberParamTypes ctx.Store declArgs chosen |> List.toArray
 
         if facts.Length <> paramTys.Length then
             []
@@ -141,7 +141,7 @@ module internal UnificationInferExternalCall =
             for i in 0 .. facts.Length - 1 do
                 match facts.[i] with
                 | ValueSome s ->
-                    for j in referencedMethodTypars paramTys.[i] do
+                    for j in referencedMethodTypars ctx.Store paramTys.[i] do
                         if not (Set.contains j bareTypars) && not (seed.ContainsKey j) then
                             match bounds |> Array.tryItem j with
                             | Some(ValueSome bound) ->
@@ -189,7 +189,7 @@ module internal UnificationInferExternalCall =
     /// included) — and unify the residual result exactly. The one overload-commit spine walk,
     /// shared by the external and project-local overload paths so they cannot drift.
     let rec private commitAppliedCoerce (ctx: PassContext) (key: NodeKey) (actual: SemType) (expected: SemType) : unit =
-        match resolveStep actual, resolveStep expected with
+        match resolveStep ctx.Store actual, resolveStep ctx.Store expected with
         | TyFun(ad, ar), TyFun(ed, er) ->
             unifyArg ctx key ad ed
             commitAppliedCoerce ctx key ar er
@@ -235,7 +235,7 @@ module internal UnificationInferExternalCall =
             }
         )
 
-        (freshTv ctx fnKey).Link <- ValueSome memberSig
+        ctx.Store.SetLink(freshTv ctx fnKey, ValueSome memberSig)
         let resultTy = TyVar(freshTyVar ctx)
 
         // The applied `arg -> result` spine coerces against the member signature: an `obj`
@@ -284,7 +284,7 @@ module internal UnificationInferExternalCall =
                 // here, so refinement is deliberately scoped out (commit-seed only).
                 let facts = constArgFacts ctx argExpr
 
-                match pickBestOverload ctx typeArgs candidates (argElemsOf argTy) with
+                match pickBestOverload ctx typeArgs candidates (argElemsOf ctx.Store argTy) with
                 | ValueSome chosen -> ValueSome(commitExternalOverload ctx key fn chosen typeArgs facts argTy)
                 | ValueNone ->
                     ValueSome(
@@ -358,7 +358,7 @@ module internal UnificationInferExternalCall =
                     let argTy =
                         admitLiteralMethodTypars ctx candidates declArgs facts (infer ctx argExpr)
 
-                    match pickBestOverload ctx declArgs candidates (argElemsOf argTy) with
+                    match pickBestOverload ctx declArgs candidates (argElemsOf ctx.Store argTy) with
                     | ValueSome chosen -> ValueSome(commitExternalOverload ctx key fn chosen declArgs facts argTy)
                     // No unique best on the argument types: decline rather than
                     // error, so the existing single-pick path keeps the prior
@@ -397,7 +397,7 @@ module internal UnificationInferExternalCall =
         let localHost
             (recvTy: SemType)
             : struct (TypeKey * EqArray<string * TypeVar> * EqArray<SemType> * TypeMemberInfo[]) voption =
-            match resolveStep recvTy with
+            match resolveStep ctx.Store recvTy with
             | TyClass(key, args) ->
                 match TypeRegistry.tryClassByKey ctx.Types key with
                 | ValueSome info -> ValueSome(struct (info.TypeKey, info.TypeParams, args, info.Members))
@@ -417,7 +417,7 @@ module internal UnificationInferExternalCall =
         let describeParams (ps: SemType list) : string =
             let one (t: SemType) =
                 let keyOpt =
-                    match zonk t with
+                    match zonk ctx.Store t with
                     | TyConst(k, _) -> ValueSome k
                     | TyClass(k, _)
                     | TyRecord(k, _)
@@ -437,7 +437,7 @@ module internal UnificationInferExternalCall =
             | ValueNone -> ValueNone
             | ValueSome(struct (declKey, typeParams, args, members)) ->
                 let argTy = infer ctx argExpr
-                let argElems = argElemsOf argTy
+                let argElems = argElemsOf ctx.Store argTy
 
                 match resolveMember ctx typeParams args members memberName false argElems with
                 | MemberPick.NotOverloaded -> ValueNone
@@ -478,7 +478,7 @@ module internal UnificationInferExternalCall =
                     // The inference→Freeze handshake: record the chosen overload's TOTAL
                     // frozen `MemberKey` so Elaborate stamps the identical identity with no
                     // second pick.
-                    ctx.Resolution.LocalMemberCall.Set(key, frozenUserMemberKey declKey typeParams chosen)
+                    ctx.Resolution.LocalMemberCall.Set(key, frozenUserMemberKey ctx.Store declKey typeParams chosen)
 
                     ValueSome resultTy
 
@@ -525,17 +525,17 @@ module internal UnificationInferExternalCall =
                     let fullCount = argSig.Length
                     let requiredCount = fullCount - List.length optDefaults
                     let argTy = argTys.[0]
-                    let suppliedCount = argArityOf argTy
+                    let suppliedCount = argArityOf ctx.Store argTy
 
                     // Fire only for a *partial* omission: a fully applied call
                     // (or one below the required minimum) is left to the normal path.
                     if suppliedCount < requiredCount || suppliedCount >= fullCount then
                         ValueNone
                     else
-                        match resolveStep info.Signature with
+                        match resolveStep ctx.Store info.Signature with
                         | TyFun(fullParams, ret) ->
                             let leading =
-                                match resolveStep fullParams with
+                                match resolveStep ctx.Store fullParams with
                                 | TyTuple elems -> elems |> EqArray.toList |> List.truncate suppliedCount
                                 | single -> [ single ]
 

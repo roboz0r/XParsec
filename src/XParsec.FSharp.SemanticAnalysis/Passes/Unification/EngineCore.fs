@@ -19,13 +19,13 @@ module UnificationEngineCore =
     /// measure-bearing root so the measure stays attached: `unify` and
     /// `unitsOf` need the TyVar wrapper to see Units, and following Link
     /// straight through to the bare carrier would drop them.
-    let resolveStep (t: SemType) : SemType =
+    let resolveStep (store: TypeStore) (t: SemType) : SemType =
         match t with
         | TyVar tv ->
-            let root = UnionFind.find tv
+            let root = UnionFind.find store tv
 
-            match root.Link with
-            | ValueSome t' when root.Units.IsNone -> t'
+            match store.Link root with
+            | ValueSome t' when (store.Units root).IsNone -> t'
             | _ -> TyVar root
         | _ -> t
 
@@ -37,11 +37,11 @@ module UnificationEngineCore =
     /// typing, where the union is kept so `subsumes` still tracks `T <: T | null`. A
     /// value-type `int | null` (⇒ `System.Nullable<int>`, a distinct repr) is out of
     /// scope and erases to `int`, which the self-host never exercises.
-    let rec stripReferenceNull (t: SemType) : SemType =
+    let rec stripReferenceNull (store: TypeStore) (t: SemType) : SemType =
         // Resolve at each node first: an annotated `objnull` param can arrive behind a
         // `TyVar` Link, and `mapChildren` treats a `TyVar` as a leaf, so a raw walk
         // would miss the union.
-        match resolveStep t with
+        match resolveStep store t with
         | TyOr members ->
             members.Members
             |> EqSet.toList
@@ -50,35 +50,35 @@ module UnificationEngineCore =
                 | TyNull -> false
                 | _ -> true
             )
-            |> List.map stripReferenceNull
+            |> List.map (stripReferenceNull store)
             |> mkUnion
-        | resolved -> SemType.mapChildren stripReferenceNull resolved
+        | resolved -> SemType.mapChildren (stripReferenceNull store) resolved
 
     /// Fully resolve a SemType: walk all TyVar chains AND recurse into
     /// compound shapes. A measure-bearing TyVar (`Units` set on its root)
     /// is preserved as a TyVar rather than collapsed into its carrier —
     /// the measure rides on the root, so downstream consumers can read it
     /// off the returned `TyVar` (already a root).
-    let rec zonk (t: SemType) : SemType =
+    let rec zonk (store: TypeStore) (t: SemType) : SemType =
         match t with
         // `headZonk` (UnionFind) owns the root + `.Link` chase, with the same
         // `Units`-measure stop; `zonk` adds only the recursive argument rebuild.
         // When the head resolves to a non-var, re-enter `zonk` so its arguments
         // zonk too (`headZonk` leaves them untouched).
         | TyVar _ ->
-            match UnionFind.headZonk t with
+            match UnionFind.headZonk store t with
             | TyVar _ as v -> v
-            | resolved -> zonk resolved
+            | resolved -> zonk store resolved
         // Pure child recursion (`mapChildren` routes `TyOr` through the smart
         // constructor: resolving a member can collapse / reorder the set).
-        | t -> SemType.mapChildren zonk t
+        | t -> SemType.mapChildren (zonk store) t
 
     /// Decompose a (zonked) tupled-argument type into its element types: a
     /// .NET-style call passes one argument that is a tuple / unit / single
     /// value. The inverse of `tupleOrSingle`; used by call-site overload
     /// resolution (`String.Concat(…)`, external ctors).
-    let argElemsOf (argTy: SemType) : SemType list =
-        match zonk argTy with
+    let argElemsOf (store: TypeStore) (argTy: SemType) : SemType list =
+        match zonk store argTy with
         | TyTuple xs -> EqArray.toList xs
         | TyUnit -> []
         | single -> [ single ]
@@ -87,8 +87,8 @@ module UnificationEngineCore =
     /// argument: the tuple width, `0` for `unit`, else `1`. The count `argElemsOf`
     /// would yield, without materialising the element list — used to select a
     /// constructor overload by arity.
-    let argArityOf (argTy: SemType) : int =
-        match resolveStep argTy with
+    let argArityOf (store: TypeStore) (argTy: SemType) : int =
+        match resolveStep store argTy with
         | TyTuple xs -> xs.Length
         | TyUnit -> 0
         | _ -> 1
@@ -127,21 +127,21 @@ module UnificationEngineCore =
     /// short-circuit on occurs-fail leaves some reachable TyVars unadjusted,
     /// but a failed unification produces a diagnostic and there's nothing
     /// to generalise after; adjusting them would be wasted work.
-    let rec occursAndAdjust (target: TypeVar) (t: SemType) : bool =
-        match resolveStep t with
+    let rec occursAndAdjust (store: TypeStore) (target: TypeVar) (t: SemType) : bool =
+        match resolveStep store t with
         | TyVar tv ->
-            let root = UnionFind.find tv
+            let root = UnionFind.find store tv
 
             if System.Object.ReferenceEquals(root, target) then
                 true
             else
-                if root.Level > target.Level then
-                    root.Level <- target.Level
+                if store.Level root > store.Level target then
+                    store.SetLevel(root, store.Level target)
 
                 false
         // Pure child descent — a metavar buried in ANY child (the type-level
         // computations included) still needs detection + level adjustment.
-        | t -> SemType.existsChild (occursAndAdjust target) t
+        | t -> SemType.existsChild (occursAndAdjust store target) t
 
     /// Two non-equal measures emit a diagnostic; one of them is kept on the
     /// survivor so further unifications against it stay coherent.
@@ -155,10 +155,10 @@ module UnificationEngineCore =
         match unitsA, unitsB with
         | ValueNone, ValueNone -> ()
         | ValueSome m, ValueNone
-        | ValueNone, ValueSome m -> newRoot.Units <- ValueSome m
-        | ValueSome m1, ValueSome m2 when m1.Equals(m2) -> newRoot.Units <- ValueSome m1
+        | ValueNone, ValueSome m -> ctx.Store.SetUnits(newRoot, ValueSome m)
+        | ValueSome m1, ValueSome m2 when m1.Equals(m2) -> ctx.Store.SetUnits(newRoot, ValueSome m1)
         | ValueSome m1, ValueSome m2 ->
-            newRoot.Units <- ValueSome m1
+            ctx.Store.SetUnits(newRoot, ValueSome m1)
 
             ctx.Error(key, sprintf "Measure mismatch: <%O> vs <%O>" m1 m2)
 
@@ -167,10 +167,10 @@ module UnificationEngineCore =
     /// returned unchanged (followed through union-find but not their
     /// `Link`s — that's `zonk`'s job). Public so Elaborate can reuse the same
     /// substitution when reading field types off a generic receiver.
-    let rec substituteWith (subst: Dictionary<TypeVar, SemType>) (t: SemType) : SemType =
+    let rec substituteWith (store: TypeStore) (subst: Dictionary<TypeVar, SemType>) (t: SemType) : SemType =
         match t with
         | TyVar tv ->
-            let root = UnionFind.find tv
+            let root = UnionFind.find store tv
 
             match subst.TryGetValue root with
             | true, target -> target
@@ -183,12 +183,12 @@ module UnificationEngineCore =
                 // roots (same rule `zonk` uses): a measured TyVar's `Link`
                 // carries the bare carrier, and following through would drop
                 // the `Units` on the root.
-                match root.Link with
-                | ValueSome target when root.Units.IsNone -> substituteWith subst target
+                match store.Link root with
+                | ValueSome target when (store.Units root).IsNone -> substituteWith store subst target
                 | _ -> TyVar root
         // Pure child recursion (`mapChildren` routes `TyOr` through the smart
         // constructor: substituting a typar member can collapse / reorder the set).
-        | t -> SemType.mapChildren (substituteWith subst) t
+        | t -> SemType.mapChildren (substituteWith store subst) t
 
     /// Empty when the lengths don't match — the caller has already (or
     /// should) emit an arity diagnostic, and an empty subst keeps the field
@@ -196,6 +196,7 @@ module UnificationEngineCore =
     /// Elaborate can rebuild the same substitution when projecting fields off a
     /// generic receiver in a field-chain.
     let mkNamedTypeSubst
+        (store: TypeStore)
         (typeParams: EqArray<string * TypeVar>)
         (args: EqArray<SemType>)
         : Dictionary<TypeVar, SemType> =
@@ -205,7 +206,7 @@ module UnificationEngineCore =
             let mutable i = 0
 
             for (_, tp) in typeParams do
-                subst.[UnionFind.find tp] <- args.[i]
+                subst.[UnionFind.find store tp] <- args.[i]
                 i <- i + 1
 
         subst
@@ -218,8 +219,12 @@ module UnificationEngineCore =
     /// that reuse the same subst across a loop / Array.map keep the explicit
     /// `mkNamedTypeSubst` + `substituteWith` pair so the dictionary is only
     /// built once.
-    let instantiateMember (typeParams: EqArray<string * TypeVar>, args: EqArray<SemType>) (ty: SemType) : SemType =
-        substituteWith (mkNamedTypeSubst typeParams args) ty
+    let instantiateMember
+        (store: TypeStore)
+        (typeParams: EqArray<string * TypeVar>, args: EqArray<SemType>)
+        (ty: SemType)
+        : SemType =
+        substituteWith store (mkNamedTypeSubst store typeParams args) ty
 
     /// Append `c` to `tv`'s constraints unless one of the same `Kind` is already
     /// present. Both per-use freshening paths (`freshConstrainedTyVar` here and
@@ -234,7 +239,7 @@ module UnificationEngineCore =
     /// satisfaction against its own substitution rather than the shared prototype.
     let freshConstrainedTyVar (ctx: PassContext) (constraints: SemanticConstraint list) : TypeVar =
         let fresh = ctx.NewTypeVar()
-        fresh.Level <- ctx.CurrentLevel
+        ctx.Store.SetLevel(fresh, ctx.CurrentLevel)
 
         for c in constraints do
             addConstraintByKind ctx.Store fresh c
@@ -264,21 +269,21 @@ module UnificationEngineCore =
         (methodTypars: EqArray<string * TypeVar>)
         (ty: SemType)
         : SemType =
-        let subst = mkNamedTypeSubst typeParams args
+        let subst = mkNamedTypeSubst ctx.Store typeParams args
 
         for (_, ptv) in methodTypars do
-            let root = UnionFind.find ptv
+            let root = UnionFind.find ctx.Store ptv
 
             // A still-free prototype typar (the common case): mint a fresh
             // instance var. If it already links to a concrete type or is shadowed
             // by a declaring-axis arg, leave the existing mapping — substituteWith
             // follows the link / arg as before.
-            if root.Link.IsNone && not (subst.ContainsKey root) then
+            if (ctx.Store.Link root).IsNone && not (subst.ContainsKey root) then
                 // Re-stamp constraints (SRTP / equality bounds) onto the fresh
                 // instance so each site re-evaluates satisfaction independently.
                 subst.[root] <- TyVar(freshConstrainedTyVar ctx (ctx.Store.Constraints.Items root.Id))
 
-        substituteWith subst ty
+        substituteWith ctx.Store subst ty
 
     /// Walk a class's inheritance chain for a *non-static* member named
     /// `memberName`, returning its type instantiated against the receiver's
@@ -336,7 +341,9 @@ module UnificationEngineCore =
                     | None ->
                         match info.BaseType with
                         | ValueSome parentTy ->
-                            match resolveStep (instantiateMember (info.TypeParams, args) parentTy) with
+                            match
+                                resolveStep ctx.Store (instantiateMember ctx.Store (info.TypeParams, args) parentTy)
+                            with
                             | TyClass(parentKey, parentArgs) -> walk parentKey parentArgs
                             | _ -> ValueNone
                         | ValueNone -> ValueNone
@@ -386,14 +393,14 @@ module UnificationEngineCore =
     /// and the Engine constraint-drain (`unify`s each): the two MUST peel identically,
     /// else a green-lit coercion grounds to a different shape than was checked.
     /// `k >= 1` at every call site (a validated `Fun` slot is arity ≥ 1).
-    let peelFunSpine (k: int) (a: SemType) (b: SemType) : SemType list option =
+    let peelFunSpine (store: TypeStore) (k: int) (a: SemType) (b: SemType) : SemType list option =
         let rec go i (dom: SemType) (cod: SemType) (acc: SemType list) =
             let acc = dom :: acc
 
             if i = k - 1 then
                 Some(List.rev (cod :: acc))
             else
-                match resolveStep cod with
+                match resolveStep store cod with
                 | TyFun(d, c) -> go (i + 1) d c acc
                 | _ -> None
 
@@ -525,7 +532,7 @@ module UnificationEngineCore =
     /// the dot-access resolver (`resolveFieldStep`) and the arg-aware external
     /// instance-method probe so neither re-derives the receiver→key mapping.
     let tryExternalReceiver (ctx: PassContext) (ty: SemType) : struct (SymbolKey * EqArray<SemType>) voption =
-        match resolveStep ty with
+        match resolveStep ctx.Store ty with
         | TyClass(clsKey, typeArgs) when (TypeRegistry.tryClassByKey ctx.Types clsKey).IsNone ->
             ValueSome(struct (SymbolKey.Type clsKey, typeArgs))
         // A structural constructor (`'T []`/`byref`) is a generic intrinsic whose
@@ -551,7 +558,7 @@ module UnificationEngineCore =
     // need the qualified STRING (a provider lookup, `funSlotArityOfArgs`) project it back
     // via `SymbolKeyOps.qualifiedName` at the boundary — the genuine string seam.
     let subtypeNominalOf (ctx: PassContext) (ty: SemType) : struct (SymbolKey * EqArray<SemType>) voption =
-        match resolveStep ty with
+        match resolveStep ctx.Store ty with
         | TyClass(n, args) -> ValueSome(struct (canonKey ctx (SymbolKey.Type n), args))
         // A named DU enters the nominal subtype walk too, so its declared
         // `interface … with` impls (surfaced by `subtypeInterfacesOf` via
@@ -572,8 +579,8 @@ module UnificationEngineCore =
     // local type (`Box`1`/`Box`2`) does not resolve by bare name, so a `shortName`
     // lookup would miss it and mis-route to the provider (mirrors `tryExternalReceiver`,
     // whose external test is likewise `(tryClassByKey key).IsNone`).
-    let private nominalKeyOf (ty: SemType) : TypeKey voption =
-        match resolveStep ty with
+    let private nominalKeyOf (store: TypeStore) (ty: SemType) : TypeKey voption =
+        match resolveStep store ty with
         | TyClass(k, _)
         | TyUnion(k, _)
         | TyRecord(k, _) -> ValueSome k
@@ -607,7 +614,7 @@ module UnificationEngineCore =
         match localInfo with
         | ValueSome info ->
             match info.BaseType with
-            | ValueSome parentTy -> ValueSome(instantiateMember (info.TypeParams, args) parentTy)
+            | ValueSome parentTy -> ValueSome(instantiateMember ctx.Store (info.TypeParams, args) parentTy)
             | ValueNone -> ValueNone
         | ValueNone ->
             // `key` is already a resolved identity; the store face answers by key (an
@@ -653,7 +660,7 @@ module UnificationEngineCore =
             [
                 for impl in info.InterfaceImpls do
                     match impl.Resolved with
-                    | ValueSome ifaceTy -> yield instantiateMember (info.TypeParams, args) ifaceTy
+                    | ValueSome ifaceTy -> yield instantiateMember ctx.Store (info.TypeParams, args) ifaceTy
                     | ValueNone -> ()
             ]
         | ValueNone ->
@@ -712,7 +719,7 @@ module UnificationEngineCore =
                     // `localKey` is this nominal's registry key so the local base /
                     // interface-impl lookups resolve per-arity, not by bare name. The
                     // external base / interface lookups take the canon key `s` directly.
-                    let localKey = nominalKeyOf cur
+                    let localKey = nominalKeyOf ctx.Store cur
 
                     let rec pick =
                         function
@@ -754,7 +761,7 @@ module UnificationEngineCore =
             match subtypeNominalOf ctx node with
             | ValueNone -> []
             | ValueSome(struct (s, sa)) ->
-                let localKey = nominalKeyOf node
+                let localKey = nominalKeyOf ctx.Store node
 
                 [
                     yield! subtypeInterfacesOf ctx localKey s sa
@@ -794,7 +801,7 @@ module UnificationEngineCore =
     /// (`TyRecord` / `TyClass` / `TyUnion`) and report which kind it is. The
     /// arg list rides along so `drainPendingDotAccess` can substitute the
     /// type's typars when resolving deferred field / member accesses.
-    let rec tryResolveNominal (t: SemType) : (NominalKind * TypeKey * EqArray<SemType>) voption =
+    let rec tryResolveNominal (store: TypeStore) (t: SemType) : (NominalKind * TypeKey * EqArray<SemType>) voption =
         match t with
         // The full key rides along so `resolveDotSource` can both project the simple
         // name (project-local table lookups: `ctx.Types.Record` bare, `tryUnion`
@@ -804,7 +811,7 @@ module UnificationEngineCore =
         | TyClass(n, args) -> ValueSome(NominalKind.Class, n, args)
         | TyUnion(n, args) -> ValueSome(NominalKind.Union, n, args)
         | TyVar tv ->
-            match (UnionFind.find tv).Link with
-            | ValueSome target -> tryResolveNominal target
+            match store.Link(UnionFind.find store tv) with
+            | ValueSome target -> tryResolveNominal store target
             | ValueNone -> ValueNone
         | _ -> ValueNone

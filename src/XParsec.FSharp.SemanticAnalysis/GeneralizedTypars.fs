@@ -30,11 +30,11 @@ module SemTypeWalk =
     /// a typar, so recurse into its target instead of collecting it. Built on
     /// `iterSemTypeVars`. Shared by `Inline.quantifiedTypars` and
     /// `Elaborate.mkMethodQuantEnv`'s dependent-typar fixpoint.
-    let collectLinkedRoots (acc: ResizeArray<TypeVar>) (seen: HashSet<TypeVar>) (t: SemType) : unit =
+    let collectLinkedRoots (store: TypeStore) (acc: ResizeArray<TypeVar>) (seen: HashSet<TypeVar>) (t: SemType) : unit =
         let rec onVar (tv: TypeVar) =
-            let root = UnionFind.find tv
+            let root = UnionFind.find store tv
 
-            match root.Link with
+            match store.Link root with
             | ValueSome target -> iterSemTypeVars onVar target
             | ValueNone ->
                 if seen.Add root then
@@ -88,6 +88,7 @@ module GeneralizedTypars =
     /// F# warning would require RE-introducing the rejected `TyAbbrev` form to even
     /// have two orders to compare — out of scope and against the erasure design.
     let canonical
+        (store: TypeStore)
         (declared: (string * TypeVar) list)
         (fixedRoots: HashSet<TypeVar>)
         (knownNames: IReadOnlyDictionary<TypeVar, string>)
@@ -100,7 +101,7 @@ module GeneralizedTypars =
 
         // 1. Declared typars first, in given order, by their union-find roots.
         for (name, tv) in declared do
-            let root = UnionFind.find tv
+            let root = UnionFind.find store tv
 
             if seen.Add root then
                 result.Add(name, root)
@@ -112,9 +113,9 @@ module GeneralizedTypars =
 
         zonkedTy
         |> SemTypeWalk.iterSemTypeVars (fun tv ->
-            let root = UnionFind.find tv
+            let root = UnionFind.find store tv
 
-            if root.Link.IsNone && not (fixedRoots.Contains root) && seen.Add root then
+            if (store.Link root).IsNone && not (fixedRoots.Contains root) && seen.Add root then
                 // Prefer the registered source name (a real `'a` F# keeps in the
                 // emitted GenericParam); synthesise a method-scoped `M%d` only for a
                 // genuinely body-inferred root, bumping the index only when minted so

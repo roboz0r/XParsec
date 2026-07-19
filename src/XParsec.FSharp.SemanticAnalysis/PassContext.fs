@@ -785,7 +785,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
                 if not (seen.Add tv) then
                     false
                 else
-                    match tv.Link with
+                    match this.Store.Link tv with
                     | ValueSome inner -> walk inner
                     | ValueNone -> false
             | TyClass(_, args)
@@ -827,7 +827,7 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// handles (`ctx.NewTypeVar()`) with dense per-file ids and owns the id-indexed
     /// side-tables payload families migrate into. One per `PassContext`, like the
     /// `TypeVar` graph it governs.
-    member val Store = TypeStore() with get
+    member val Store: TypeStore = TypeStore() with get
 
     /// Mint a fresh metavar through this file's arena — the `ctx`-level construction
     /// seam every inference / name-resolution site routes through.

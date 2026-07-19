@@ -55,7 +55,7 @@ module internal UnificationInferLiteralExpr =
             expandAbbreviation ctx key info (EqArray.singleton elemTy)
         | ValueNone ->
             let tv = freshTyVar ctx
-            ctx.ListLiterals.Add(UnionFind.find tv, elemTy)
+            ctx.ListLiterals.Add(UnionFind.find ctx.Store tv, elemTy)
             TyVar tv
 
     and inferListLikeLiteral

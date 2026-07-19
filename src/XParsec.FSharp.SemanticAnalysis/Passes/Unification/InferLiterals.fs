@@ -79,34 +79,34 @@ module internal UnificationInferLiterals =
             let diagKey = NodeKey.ofToken t NodeKind.ExprConst
             let mt = translateMeasure ctx diagKey m
             let tv = freshTyVar ctx
-            tv.Link <- ValueSome carrier
-            tv.Units <- ValueSome mt
+            ctx.Store.SetLink(tv, ValueSome carrier)
+            ctx.Store.SetUnits(tv, ValueSome mt)
             TyVar tv
 
     /// Reads `Units` straight off the root — does NOT use `resolveStep`,
     /// which would follow a measured TyVar through its `Link` to the bare
     /// carrier and drop the measure.
-    let unitsOf (t: SemType) : MeasureTerm voption =
+    let unitsOf (store: TypeStore) (t: SemType) : MeasureTerm voption =
         match t with
-        | TyVar tv -> (UnionFind.find tv).Units
+        | TyVar tv -> store.Units(UnionFind.find store tv)
         | _ -> ValueNone
 
     /// A free variable (no Link) is returned as-is so a later unification can
     /// pin it.
-    let carrierOf (t: SemType) : SemType =
-        match resolveStep t with
+    let carrierOf (store: TypeStore) (t: SemType) : SemType =
+        match resolveStep store t with
         | TyVar tv ->
-            let root = UnionFind.find tv
+            let root = UnionFind.find store tv
 
-            match root.Link with
+            match store.Link root with
             | ValueSome link -> link
             | ValueNone -> TyVar root
         | other -> other
 
     let freshTyVarWith (ctx: PassContext) (carrier: SemType) (units: MeasureTerm voption) : TypeVar =
         let tv = freshTyVar ctx
-        tv.Link <- ValueSome carrier
-        tv.Units <- units
+        ctx.Store.SetLink(tv, ValueSome carrier)
+        ctx.Store.SetUnits(tv, units)
         tv
 
     let isComparisonOp (name: string) : bool =
@@ -132,16 +132,16 @@ module internal UnificationInferLiterals =
         (leftTy: SemType)
         (rightTy: SemType)
         : SemType option =
-        let leftUnits = unitsOf leftTy
-        let rightUnits = unitsOf rightTy
+        let leftUnits = unitsOf ctx.Store leftTy
+        let rightUnits = unitsOf ctx.Store rightTy
 
         match leftUnits, rightUnits with
         | ValueNone, ValueNone -> None
         | _ ->
-            let carrier = carrierOf leftTy
+            let carrier = carrierOf ctx.Store leftTy
             // Carriers must agree even between measured operands (no
             // `float<m> + int<m>`). Surface that as a normal type mismatch.
-            unify ctx key carrier (carrierOf rightTy)
+            unify ctx key carrier (carrierOf ctx.Store rightTy)
 
             match name, leftUnits, rightUnits with
             | ("op_Addition" | "op_Subtraction"), ValueSome m1, ValueSome m2 when m1.Equals m2 ->
@@ -265,7 +265,7 @@ module internal UnificationInferLiterals =
         (litExpr: Expr<SyntaxToken>)
         (expected: SemType)
         : SemType voption =
-        match resolveStep expected with
+        match resolveStep ctx.Store expected with
         | TyClass(fmtKey, args) when RuntimeNames.isPrintfFormatKey fmtKey && args.Length = 4 ->
             match formatSpecifiers ctx litExpr with
             | ValueSome specs ->

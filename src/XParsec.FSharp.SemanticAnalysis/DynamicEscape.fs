@@ -34,7 +34,7 @@ module DynamicEscape =
     let run (ctx: PassContext) : unit =
         for site in ctx.DynamicEscapes do
             if not (ctx.DynamicEscapeSuppressed.Contains site.Key) then
-                match Unification.zonk (TyVar site.Root) with
+                match Unification.zonk ctx.Store (TyVar site.Root) with
                 // Default fired (stayed `dynamic`) or still open (a genuine leak is
                 // ResolvedTypes' concern) — no unchecked escape.
                 | TyDynamic -> ()

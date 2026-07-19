@@ -44,7 +44,7 @@ module internal UnificationInferTypeOps =
         let explicit = [ for t in typeArgs -> translateType ctx t ]
 
         let rec resultOf t =
-            match resolveStep t with
+            match resolveStep ctx.Store t with
             | TyFun(_, r) -> resultOf r
             | other -> other
 
@@ -189,7 +189,7 @@ module internal UnificationInferTypeOps =
         // Otherwise the ordinary annotation reconciliation.
         match tryTypeFormatLiteral ctx key inner annTy with
         | ValueSome fmt ->
-            (freshTv ctx (CstKeys.ofExpr inner)).Link <- ValueSome fmt
+            ctx.Store.SetLink(freshTv ctx (CstKeys.ofExpr inner), ValueSome fmt)
             annTy
         | ValueNone ->
             let innerTy = infer ctx inner
@@ -210,8 +210,8 @@ module internal UnificationInferTypeOps =
     /// coercion arms special-case it: a downcast / type-test from `obj` to any
     /// known type is statically admissible and resolved at runtime. The
     /// `set.fs:988` `(that :?> Set<'T>).Tree` site relies on this.
-    and isObjTy (t: SemType) : bool =
-        match resolveStep t with
+    and isObjTy (store: TypeStore) (t: SemType) : bool =
+        match resolveStep store t with
         | TyObj -> true
         | _ -> false
 
@@ -233,7 +233,10 @@ module internal UnificationInferTypeOps =
         if not (tryCoerceUpcast ctx key srcTy tgtTy) then
             ctx.Error(
                 key,
-                sprintf "Cannot upcast type '%A' to '%A' — no inheritance relationship" (zonk srcTy) (zonk tgtTy)
+                sprintf
+                    "Cannot upcast type '%A' to '%A' — no inheritance relationship"
+                    (zonk ctx.Store srcTy)
+                    (zonk ctx.Store tgtTy)
             )
 
         // Type provenance: `e :> T` writes the node's (target) type explicitly.
@@ -257,14 +260,17 @@ module internal UnificationInferTypeOps =
         ctx.Resolution.TypeTestTargets.Set(key, tgtTy)
 
         let related =
-            isObjTy srcTy
+            isObjTy ctx.Store srcTy
             || subsumes ctx srcTy tgtTy <> SubsumeOutcome.Unrelated
             || subsumes ctx tgtTy srcTy <> SubsumeOutcome.Unrelated
 
         if not related then
             ctx.Warn(
                 key,
-                sprintf "Type test of '%A' against unrelated type '%A' is always false" (zonk srcTy) (zonk tgtTy)
+                sprintf
+                    "Type test of '%A' against unrelated type '%A' is always false"
+                    (zonk ctx.Store srcTy)
+                    (zonk ctx.Store tgtTy)
             )
 
         ctx.Intrinsics.Bool
@@ -289,7 +295,7 @@ module internal UnificationInferTypeOps =
         // `string | null :?> C` is FS0016 because `string` is sealed). So erase the
         // `null` member and run the ordinary downcast check on the remainder. (The
         // diagnostics still show the original `srcTy` so the user sees `string | null`.)
-        let checkSrc = stripReferenceNull srcTy
+        let checkSrc = stripReferenceNull ctx.Store srcTy
 
         // A still-unresolved source TyVar is admitted (runtime-checked, like `obj`):
         // an interface/override member's unannotated param (`that` in
@@ -297,17 +303,26 @@ module internal UnificationInferTypeOps =
         // unify that runs after the body — so the operand is a free var here. We
         // can't prove unrelatedness of an unknown type, so no static error (G21).
         let isUnresolvedVar =
-            match resolveStep checkSrc with
+            match resolveStep ctx.Store checkSrc with
             | TyVar _ -> true
             | _ -> false
 
-        if not (isObjTy checkSrc) && not isUnresolvedVar then
+        if not (isObjTy ctx.Store checkSrc) && not isUnresolvedVar then
             match subsumes ctx tgtTy checkSrc with
             | SubsumeOutcome.Subtype -> ()
             | SubsumeOutcome.Equal ->
-                ctx.Warn(key, sprintf "Downcast is redundant — the static type '%A' already matches" (zonk srcTy))
+                ctx.Warn(
+                    key,
+                    sprintf "Downcast is redundant — the static type '%A' already matches" (zonk ctx.Store srcTy)
+                )
             | SubsumeOutcome.Unrelated ->
-                ctx.Error(key, sprintf "Cannot downcast type '%A' to unrelated type '%A'" (zonk srcTy) (zonk tgtTy))
+                ctx.Error(
+                    key,
+                    sprintf
+                        "Cannot downcast type '%A' to unrelated type '%A'"
+                        (zonk ctx.Store srcTy)
+                        (zonk ctx.Store tgtTy)
+                )
 
         // Type provenance: `e :?> T` writes the node's (target) type explicitly.
         ctx.MarkTypeDeclared(key, tgtTy)

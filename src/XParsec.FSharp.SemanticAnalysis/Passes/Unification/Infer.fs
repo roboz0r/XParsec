@@ -137,7 +137,7 @@ module UnificationInfer =
                 // `ElaborateExpr.translateExpr` (file: ElaborateExpr.fs).
                 failwithf "infer: TODO %A" e
 
-        nodeTv.Link <- ValueSome inferredTy
+        ctx.Store.SetLink(nodeTv, ValueSome inferredTy)
         inferredTy
 
     /// The disposal capability's `Dispose` member key — the §5.0-resolved disposable
@@ -217,7 +217,7 @@ module UnificationInfer =
         |> Array.exists (fun impl ->
             match impl.Resolved with
             | ValueSome resolved ->
-                match zonk (instantiateMember (host.TypeParams, args) resolved) with
+                match zonk ctx.Store (instantiateMember ctx.Store (host.TypeParams, args) resolved) with
                 | TyClass(ifaceKey, _) -> RuntimeNames.matchesKey ctx.CapabilityIds.Disposable ifaceKey
                 | _ -> false
             | ValueNone -> false
@@ -257,7 +257,7 @@ module UnificationInfer =
         | Pat.NamedSimple _
         | Pat.Wildcard _ ->
             let patKey = CstKeys.ofPat b.headPat
-            let binderTy = zonk (TyVar(tvOf ctx patKey))
+            let binderTy = zonk ctx.Store (TyVar(tvOf ctx patKey))
 
             let notDisposable (display: string) =
                 ctx.Error(
@@ -287,7 +287,7 @@ module UnificationInfer =
             // interface set the external shape carries (class or union); an external
             // record carries none, so it resolves only via an own-`Dispose` there. This
             // routes all three kinds rather than silently accepting an unknown head.
-            match resolveStep binderTy with
+            match resolveStep ctx.Store binderTy with
             | TyClass(headKey, args)
             | TyUnion(headKey, args)
             | TyRecord(headKey, args) ->
@@ -425,7 +425,7 @@ module UnificationInfer =
                         // annotation's format type onto the literal node.
                         match tryTypeFormatLiteral ctx (CstKeys.ofBinding b) b.expr annTy with
                         | ValueSome fmt ->
-                            (freshTv ctx (CstKeys.ofExpr b.expr)).Link <- ValueSome fmt
+                            ctx.Store.SetLink(freshTv ctx (CstKeys.ofExpr b.expr), ValueSome fmt)
                             annTy
                         | ValueNone ->
                             let bodyTy = infer ctx b.expr
@@ -468,7 +468,7 @@ module UnificationInfer =
             // — there is no cold runtime for a format value in the self-host contract).
             // Gated on the `PrintfFormat` type so an unannotated plain-string `let`
             // (which cannot legally reach a printf format slot) is never recorded.
-            match resolveStep patTy with
+            match resolveStep ctx.Store patTy with
             | TyClass(fmtKey, _) when RuntimeNames.isPrintfFormatKey fmtKey ->
                 match peelToFormatString ctx b.expr with
                 | ValueSome lit -> ctx.PrintfFormatLiterals.Set(CstKeys.ofPat b.headPat, lit)
@@ -511,11 +511,11 @@ module UnificationInfer =
             if shouldGeneralise b then
                 let key = CstKeys.ofPat b.headPat
                 let headTv = tvOf ctx key
-                let zonked = zonk (TyVar headTv)
+                let zonked = zonk ctx.Store (TyVar headTv)
 
                 if not (hasPendingDotAccess ctx.Store zonked) then
                     // Settle flexible list-literal containers first (R3), then
                     // re-zonk so the (now-linked) FSharpList element generalises.
                     prepareListLiterals ctx zonked outerLevel
-                    let scheme = generalise ctx.Store (zonk zonked) outerLevel
+                    let scheme = generalise ctx.Store (zonk ctx.Store zonked) outerLevel
                     ctx.Bindings.Scheme.Set(key, scheme)

@@ -183,7 +183,7 @@ module Elaborate =
     /// with its target `TyTypar(axis, index)`. Anything else passes through
     /// unchanged — a leftover inference `TyVar` not in `env` stays a `TyVar`, which
     /// the backend rejects loudly (an unresolved-typar bug).
-    let private remapDeclTypars (env: (TypeVar * SemType) list) (t: SemType) : SemType =
+    let private remapDeclTypars (store: TypeStore) (env: (TypeVar * SemType) list) (t: SemType) : SemType =
         let rec go t =
             match t with
             | TyVar tv ->
@@ -195,7 +195,7 @@ module Elaborate =
                 | None -> t
             | t -> SemType.mapChildren go t
 
-        go (Unification.zonk t)
+        go (Unification.zonk store t)
 
     /// Rewrite every `SemType` embedded in a member body via `f`. Used to push a
     /// generic union's declaring-typar remap (`remapDeclTypars`) through the whole
@@ -216,20 +216,25 @@ module Elaborate =
     /// are dropped (nothing to remap), but the loop index still tracks declaration
     /// position so a surviving typar keeps its correct slot. Shared by every
     /// `try*Type` surfacer and the interface / abstract-method projections.
-    let private mkTyparEnv (axis: TyparAxis) (typeParams: EqArray<string * TypeVar>) : (TypeVar * SemType) list =
+    let private mkTyparEnv
+        (store: TypeStore)
+        (axis: TyparAxis)
+        (typeParams: EqArray<string * TypeVar>)
+        : (TypeVar * SemType) list =
         [
             for i in 0 .. typeParams.Length - 1 do
                 let (_, ptv) = typeParams.[i]
 
-                match Unification.zonk (TyVar ptv) with
+                match Unification.zonk store (TyVar ptv) with
                 | TyVar root -> yield (root, TyTypar(axis, i))
                 | _ -> ()
         ]
 
-    let private mkDeclTyparEnv (typeParams: EqArray<string * TypeVar>) =
-        mkTyparEnv TyparAxis.Declaring typeParams
+    let private mkDeclTyparEnv (store: TypeStore) (typeParams: EqArray<string * TypeVar>) =
+        mkTyparEnv store TyparAxis.Declaring typeParams
 
-    let private mkMethodTyparEnv (typeParams: EqArray<string * TypeVar>) = mkTyparEnv TyparAxis.Method typeParams
+    let private mkMethodTyparEnv (store: TypeStore) (typeParams: EqArray<string * TypeVar>) =
+        mkTyparEnv store TyparAxis.Method typeParams
 
     /// Quantify a module-`let`'s free type parameters into `TyTypar(Method, i)` in
     /// CANONICAL order via the one shared `GeneralizedTypars.canonical` — the F#
@@ -257,9 +262,10 @@ module Elaborate =
         // drop it so this stays identical to the old appearance-only walk for the
         // no-typar / pinned-declared cases (only the genuinely-reordered case changes).
         let declaredFree =
-            declared |> List.filter (fun (_, tv) -> (UnionFind.find tv).Link.IsNone)
+            declared
+            |> List.filter (fun (_, tv) -> (store.Link(UnionFind.find store tv)).IsNone)
 
-        let zonked = Unification.zonk declTy
+        let zonked = Unification.zonk store declTy
 
         // Free-fn inferred typars have no source names, so an empty `knownNames`
         // preserves today's all-`M%d` synthesis for the appearance tail.
@@ -269,6 +275,7 @@ module Elaborate =
 
         let gt =
             GeneralizedTypars.canonical
+                store
                 declaredFree
                 (System.Collections.Generic.HashSet<TypeVar>(HashIdentity.Reference))
                 knownNames
@@ -298,7 +305,7 @@ module Elaborate =
                 | SemanticConstraintKind.Coercion target ->
                     // Append the first-appearance roots of the coercion-bound target
                     // (link-following, deduped against the seed). The shared collector.
-                    SemTypeWalk.collectLinkedRoots acc seen (Unification.zonk target)
+                    SemTypeWalk.collectLinkedRoots store acc seen (Unification.zonk store target)
                 | _ -> ()
 
             depIdx <- depIdx + 1
@@ -340,7 +347,7 @@ module Elaborate =
             | ValueSome scheme ->
                 // Index of `tv`'s zonked root in `quantEnv` (its `TyTypar(Method, i)`).
                 let methodIndexOf (tv: TypeVar) : int option =
-                    match Unification.zonk (TyVar tv) with
+                    match Unification.zonk ctx.Store (TyVar tv) with
                     | TyVar root ->
                         quantEnv
                         |> List.tryPick (fun (r, target) ->
@@ -359,7 +366,7 @@ module Elaborate =
                                 | Some idx ->
                                     // Freeze the target with the SAME typar env the body
                                     // uses, so its leaves carry matching method indices.
-                                    let frozenTarget = toFrozen (remapDeclTypars quantEnv target)
+                                    let frozenTarget = toFrozen (remapDeclTypars ctx.Store quantEnv target)
                                     FrozenConstraint.Coercion(idx, frozenTarget)
                                 | None -> ()
                             | _ -> ()
@@ -374,8 +381,8 @@ module Elaborate =
     /// remaps each root to `TyTypar(Declaring, i)`. The
     /// index `i` is the typar's declaration position — the same index
     /// `mkDeclTyparEnv` pairs the root with — so the round-trip is faithful.
-    let private declTyparArgs (typeParams: EqArray<string * TypeVar>) : EqArray<SemType> =
-        EqArray.ofSeq (seq { for (_, ptv) in typeParams -> Unification.zonk (TyVar ptv) })
+    let private declTyparArgs (store: TypeStore) (typeParams: EqArray<string * TypeVar>) : EqArray<SemType> =
+        EqArray.ofSeq (seq { for (_, ptv) in typeParams -> Unification.zonk store (TyVar ptv) })
 
     /// Elaborate one type member: stamp its `ThisTy` with the `TyVar`-rooted
     /// `selfTy` and surface its *method-axis* typar roots so the caller folds them
@@ -522,8 +529,8 @@ module Elaborate =
     /// `remapDeclTypars` zonks as it recurses, so an empty `env` is a pure
     /// zonk-rebuild — exactly the old monomorphic `remapDeclTypars []` path every
     /// surfacer applied inline.
-    let private freezeTypars (env: (TypeVar * SemType) list) (d: TDecl) : TDecl =
-        let f = remapDeclTypars env
+    let private freezeTypars (store: TypeStore) (env: (TypeVar * SemType) list) (d: TDecl) : TDecl =
+        let f = remapDeclTypars store env
 
         match d with
         | TDecl.Let(binding, value, isInline, ty) ->
@@ -572,7 +579,7 @@ module Elaborate =
                 // The member signatures share these prototype TyVars (Unification
                 // typed them under the class's typar scope), so the remap reaches
                 // every typar.
-                let markers = mkDeclTyparEnv info.TypeParams
+                let markers = mkDeclTyparEnv ctx.Store info.TypeParams
                 // Accumulate the decl's freeze env: the declaring typars plus every
                 // generic method's own typars. `freezeTypars` later applies this to
                 // each `Signature` (left verbatim here) — the deferred typar cut.
@@ -884,7 +891,7 @@ module Elaborate =
         // typar list for a monomorphic class; the declaring typars ride as
         // `TyVar` roots (not `TyTypar`), which `freezeTypars` cuts over the
         // whole member body.
-        let classTy = TyClass(info.TypeKey, declTyparArgs info.TypeParams)
+        let classTy = TyClass(info.TypeKey, declTyparArgs ctx.Store info.TypeParams)
 
         // `base` is in scope only when the class has an `inherit` clause; an
         // instance member then carries the shared `BaseKey` so codegen maps a
@@ -957,7 +964,7 @@ module Elaborate =
                     // real typar (keeping it would inflate the GenericParam arity).
                     mi.Generalized
                     |> GeneralizedTypars.refreshRoots (fun tv ->
-                        match Unification.zonk (TyVar tv) with
+                        match Unification.zonk ctx.Store (TyVar tv) with
                         | TyVar r -> ValueSome r
                         | _ -> ValueNone
                     )
@@ -1016,7 +1023,7 @@ module Elaborate =
     /// conditional preambles recurse to the chain and drop intervening statements.
     let private translateSecondaryCtor (ctx: PassContext) (sc: ClassSecondaryCtorInfo) : TSecondaryCtor =
         let parms =
-            EqArray.ofSeq (seq { for p in sc.Params -> (p.DeclKey, Unification.zonk p.Type) })
+            EqArray.ofSeq (seq { for p in sc.Params -> (p.DeclKey, Unification.zonk ctx.Store p.Type) })
 
         // Binder NodeKey for a `let`-preamble head (simple names only in v1); the
         // key matches `bindingsOfPat` (the innermost `NamedSimple`'s own key).
@@ -1142,7 +1149,7 @@ module Elaborate =
         match resolved with
         | ValueNone -> None
         | ValueSome info ->
-            let markers = mkDeclTyparEnv info.TypeParams
+            let markers = mkDeclTyparEnv ctx.Store info.TypeParams
             // The decl's freeze env (declaring typars + any member method typars),
             // collected here at the single index-minting point; `freezeTypars`
             // applies it to the whole decl, performing the deferred `TyVar` cut.
@@ -1177,7 +1184,7 @@ module Elaborate =
             // self-type untouched, so the path stays byte-identical.
             let declTypars = [ for (n, _) in info.TypeParams -> n ]
 
-            let selfTy = TyUnion(info.TypeKey, declTyparArgs info.TypeParams)
+            let selfTy = TyUnion(info.TypeKey, declTyparArgs ctx.Store info.TypeParams)
             let elaborateOne = mkMemberElaborator selfTy declTypars env
 
             let members, interfaces =
@@ -1423,7 +1430,7 @@ module Elaborate =
         match resolved with
         | ValueNone -> None
         | ValueSome info ->
-            let markers = mkDeclTyparEnv info.TypeParams
+            let markers = mkDeclTyparEnv ctx.Store info.TypeParams
             // The decl's freeze env (declaring typars + any member method typars),
             // collected here at the single index-minting point; mirrors `tryUnionType`.
             let env = ResizeArray markers
@@ -1441,7 +1448,7 @@ module Elaborate =
                 )
 
             let declTypars = [ for (n, _) in info.TypeParams -> n ]
-            let selfTy = TyRecord(info.TypeKey, declTyparArgs info.TypeParams)
+            let selfTy = TyRecord(info.TypeKey, declTyparArgs ctx.Store info.TypeParams)
             let elaborateOne = mkMemberElaborator selfTy declTypars env
 
             let members, interfaces =
@@ -1490,7 +1497,7 @@ module Elaborate =
         match TypeRegistry.tryClassByKey ctx.Types (ctx.DeclaredTypeKey(name, arity)) with
         | ValueNone -> None
         | ValueSome info ->
-            let markers = mkDeclTyparEnv info.TypeParams
+            let markers = mkDeclTyparEnv ctx.Store info.TypeParams
             // The decl's freeze env: declaring typars plus every generic member's
             // method typars, accumulated as members are surfaced. `freezeTypars`
             // applies it to the whole class decl, cutting `TyVar → TyTypar`.
@@ -1525,7 +1532,7 @@ module Elaborate =
 
             let declTypars = [ for (n, _) in info.TypeParams -> n ]
 
-            let selfTy = TyClass(info.TypeKey, declTyparArgs info.TypeParams)
+            let selfTy = TyClass(info.TypeKey, declTyparArgs ctx.Store info.TypeParams)
 
             // Surface a member when the declaring type is generic (declaring axis)
             // *or* the member itself is generic (method axis): stamp its
@@ -1572,7 +1579,7 @@ module Elaborate =
                     TPreambleEntry.Let
                         {
                             Name = l.Name
-                            Type = Unification.zonk l.Type
+                            Type = Unification.zonk ctx.Store l.Type
                             IsMutable = l.IsMutable
                             Init = translateBinding ctx l.Binding |> rewrite
                         }
@@ -1648,7 +1655,9 @@ module Elaborate =
                 match info.BaseType, info.BaseCtorArgs with
                 | ValueSome _, ValueSome argExpr ->
                     let ctorParamKeys =
-                        EqArray.ofSeq (seq { for p in info.CtorParams -> (p.DeclKey, Unification.zonk p.Type) })
+                        EqArray.ofSeq (
+                            seq { for p in info.CtorParams -> (p.DeclKey, Unification.zonk ctx.Store p.Type) }
+                        )
 
                     // The base-ctor args run before `this` exists (they are `ldarg`-only), so the
                     // INSTANCE rewrite must not apply — but the `.cctor` has already run, so a
@@ -1732,10 +1741,10 @@ module Elaborate =
         match ctx.Types.IntrinsicAbbrevHost.TryGetValue name with
         | false, _ -> None
         | true, info ->
-            let markers = mkDeclTyparEnv info.TypeParams
+            let markers = mkDeclTyparEnv ctx.Store info.TypeParams
             let env = ResizeArray markers
             let declTypars = [ for (n, _) in info.TypeParams -> n ]
-            let selfTy = TyConst(info.SelfKey, declTyparArgs info.TypeParams)
+            let selfTy = TyConst(info.SelfKey, declTyparArgs ctx.Store info.TypeParams)
             let elaborateOne = mkMemberElaborator selfTy declTypars env
 
             let members, _ =
@@ -1952,7 +1961,7 @@ module Elaborate =
                         if b.inlineToken.IsSome then
                             mkMethodQuantEnv ctx.Store declaredTypars declTy
                         else
-                            match Unification.zonk declTy with
+                            match Unification.zonk ctx.Store declTy with
                             | TyFun _ -> mkMethodQuantEnv ctx.Store declaredTypars declTy
                             // A bare free var is value-restricted — never a method typar.
                             | TyVar _
@@ -2037,7 +2046,7 @@ module Elaborate =
         let elaborateDecls () =
             elaborate ctx file
             |> InlineExpansion.run ctx
-            |> List.map (fun (d, env) -> freezeTypars env d)
+            |> List.map (fun (d, env) -> freezeTypars ctx.Store env d)
 
         // Elaborate assumes well-typed input: it asserts its invariants with `failwith`
         // (it never diagnoses). Under an already-diagnosed type error — malformed

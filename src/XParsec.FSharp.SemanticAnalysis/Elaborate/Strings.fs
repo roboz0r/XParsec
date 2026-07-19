@@ -93,7 +93,7 @@ module internal ElaborateStrings =
                     hasHole <- true
                     let holeTy = typeOfKey ctx (CstKeys.ofExpr holeExpr)
 
-                    match Unification.zonk holeTy with
+                    match Unification.zonk ctx.Store holeTy with
                     // A free hole type can't pick an `AppendFormatted<T>` — bail.
                     | TyVar _ -> lowerable <- false
                     | zHoleTy ->
@@ -145,7 +145,7 @@ module internal ElaborateStrings =
         : TExpr =
         match e with
         | Expr.String(parts = parts) ->
-            match Unification.zonk ty with
+            match Unification.zonk ctx.Store ty with
             | TyClass(key, _) when RuntimeNames.isPrintfFormatKey key ->
                 // Format literal at a printf call site (typed by
                 // `Unification.tryInferPrintfApp`). It denotes `new

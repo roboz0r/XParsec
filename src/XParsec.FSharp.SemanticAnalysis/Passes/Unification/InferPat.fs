@@ -25,7 +25,7 @@ module internal UnificationInferPat =
             expandAbbreviation ctx key info (EqArray.singleton elemTy)
         | ValueNone ->
             let tv = freshTyVar ctx
-            ctx.ListLiterals.Add(UnionFind.find tv, elemTy)
+            ctx.ListLiterals.Add(UnionFind.find ctx.Store tv, elemTy)
             TyVar tv
 
     let rec inferPat (ctx: PassContext) (p: Pat<SyntaxToken>) : SemType =
@@ -57,7 +57,7 @@ module internal UnificationInferPat =
                 let args, _ = freshNamedInstance ctx unionInfo.TypeParams
                 let ty = TyUnion(unionInfo.TypeKey, args)
                 let nodeTv = freshTv ctx key
-                nodeTv.Link <- ValueSome ty
+                ctx.Store.SetLink(nodeTv, ValueSome ty)
                 ty
             | ValueSome i ->
                 ctx.Diagnostics.Add
@@ -76,7 +76,7 @@ module internal UnificationInferPat =
                 let args, _ = freshNamedInstance ctx unionInfo.TypeParams
                 let ty = TyUnion(unionInfo.TypeKey, args)
                 let nodeTv = freshTv ctx key
-                nodeTv.Link <- ValueSome ty
+                ctx.Store.SetLink(nodeTv, ValueSome ty)
                 ty
             | ValueNone when count >= 2 ->
                 ctx.Diagnostics.Add
@@ -114,7 +114,7 @@ module internal UnificationInferPat =
                     }
 
             let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome unionTy
+            ctx.Store.SetLink(nodeTv, ValueSome unionTy)
             unionTy
         | Pat.NamedSimple _ ->
             // Use tvOf so a let-rec sibling whose TyVar was already lazy-minted
@@ -138,7 +138,7 @@ module internal UnificationInferPat =
 
             let ty = TyEnum enumKey
             let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome ty
+            ctx.Store.SetLink(nodeTv, ValueSome ty)
             ty
         | Pat.Named(longIdent = li; argumentPats = args) when
             li.Idents.Length = 2
@@ -174,7 +174,7 @@ module internal UnificationInferPat =
 
             let ty = TyEnum einfo.TypeKey
             let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome ty
+            ctx.Store.SetLink(nodeTv, ValueSome ty)
             ty
         | Pat.Named(longIdent = li; argumentPats = args) when
             li.Idents.Length >= 1
@@ -253,7 +253,7 @@ module internal UnificationInferPat =
                 for j = 0 to m - 1 do
                     let sub = subPats.[j]
                     let subTy = inferPat ctx sub
-                    unify ctx (CstKeys.ofPat sub) subTy (substituteWith subst i.Fields.[j])
+                    unify ctx (CstKeys.ofPat sub) subTy (substituteWith ctx.Store subst i.Fields.[j])
 
                 // Walk any extra sub-patterns so binders still register.
                 for j = m to subPats.Length - 1 do
@@ -261,7 +261,7 @@ module internal UnificationInferPat =
 
                 let ty = TyUnion(unionInfo.TypeKey, args)
                 let nodeTv = freshTv ctx key
-                nodeTv.Link <- ValueSome ty
+                ctx.Store.SetLink(nodeTv, ValueSome ty)
                 ty
         | Pat.Named(longIdent = li; argumentPats = args) & Stamped ctx.Resolution.ExternalUnionCaseStamp key uc ->
             // A case (with fields) of an *external* union (`Some x`, `Result.Ok x`),
@@ -307,7 +307,7 @@ module internal UnificationInferPat =
                 inferPat ctx subPats.[j] |> ignore
 
             let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome unionTy
+            ctx.Store.SetLink(nodeTv, ValueSome unionTy)
             unionTy
         | Pat.Wildcard _ -> TyVar(freshTv ctx key)
         | Pat.Null _ ->
@@ -334,29 +334,29 @@ module internal UnificationInferPat =
 
             let listTy = consListTy ctx key elemTy
             let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome listTy
+            ctx.Store.SetLink(nodeTv, ValueSome listTy)
             listTy
         | Pat.EnclosedBlock(pat = inner)
         | Pat.Attributed(pat = inner) ->
             let innerTy = inferPat ctx inner
             let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome innerTy
+            ctx.Store.SetLink(nodeTv, ValueSome innerTy)
             innerTy
         | Pat.Tuple(patterns = pats) ->
             let elemTys = EqArray.ofSeq (seq { for p in pats -> inferPat ctx p })
             let tupleTy = TyTuple elemTys
             let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome tupleTy
+            ctx.Store.SetLink(nodeTv, ValueSome tupleTy)
             tupleTy
         | Pat.Const c ->
             let constTy = inferConst ctx c
             let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome constTy
+            ctx.Store.SetLink(nodeTv, ValueSome constTy)
             constTy
         | Pat.As(pat = inner) ->
             let innerTy = inferPat ctx inner
             let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome innerTy
+            ctx.Store.SetLink(nodeTv, ValueSome innerTy)
             innerTy
         | Pat.Typed(pat = inner; typ = t) ->
             let innerTy = inferPat ctx inner
@@ -372,7 +372,7 @@ module internal UnificationInferPat =
             // `headPat`.
             ctx.MarkTypeDeclared(CstKeys.ofPat inner, annTy)
             let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome annTy
+            ctx.Store.SetLink(nodeTv, ValueSome annTy)
             annTy
         | Pat.TypeTestAs(typ = t; pat = inner) ->
             // `:? T as x` — the inner binder `x` sees the tested type `T`; the
@@ -402,7 +402,7 @@ module internal UnificationInferPat =
             let elemTy = TyVar(freshTyVar ctx)
             let listTy = consListTy ctx key elemTy
             let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome listTy
+            ctx.Store.SetLink(nodeTv, ValueSome listTy)
             listTy
         | Pat.Cons(head = headPat; tail = tailPat) ->
             // `h :: t`: `h` is an element, `t` the same list type.
@@ -411,11 +411,11 @@ module internal UnificationInferPat =
             let tailTy = inferPat ctx tailPat
             unify ctx (CstKeys.ofPat tailPat) tailTy listTy
             let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome listTy
+            ctx.Store.SetLink(nodeTv, ValueSome listTy)
             listTy
         | Pat.EmptyBlock _ ->
             let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome ctx.Intrinsics.Unit
+            ctx.Store.SetLink(nodeTv, ValueSome ctx.Intrinsics.Unit)
             ctx.Intrinsics.Unit
         | Pat.Or(left = leftPat; right = rightPat) ->
             // Here we only unify the alternatives' overall types for scrutinee
@@ -426,7 +426,7 @@ module internal UnificationInferPat =
             let rightTy = inferPat ctx rightPat
             unify ctx key leftTy rightTy
             let nodeTv = freshTv ctx key
-            nodeTv.Link <- ValueSome leftTy
+            ctx.Store.SetLink(nodeTv, ValueSome leftTy)
             leftTy
         | Pat.Record(fieldPats = fieldPats) ->
             let pairs =
@@ -470,7 +470,7 @@ module internal UnificationInferPat =
 
                 let recTy = TyRecord(recKey, args)
                 let nodeTv = freshTv ctx key
-                nodeTv.Link <- ValueSome recTy
+                ctx.Store.SetLink(nodeTv, ValueSome recTy)
                 recTy
         | _ ->
             // TODO: Named (DU ctor) / Cons patterns — they need

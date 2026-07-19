@@ -39,7 +39,7 @@ module internal UnificationInferCtor =
         let ctors = surface.Members |> Array.filter (fun m -> m.Name = ".ctor")
         let argTy = infer ctx argExpr
 
-        match pickBestOverload ctx typeArgs ctors (argElemsOf argTy) with
+        match pickBestOverload ctx typeArgs ctors (argElemsOf ctx.Store argTy) with
         | ValueSome chosen ->
             let ctorSig = ExternalSymbols.openSignature chosen typeArgs
             let resultTy = TyVar(freshTyVar ctx)
@@ -63,13 +63,13 @@ module internal UnificationInferCtor =
         // Type provenance: `new T(…)` writes the constructed node's type explicitly.
         ctx.MarkTypeDeclared(key, receiverTy)
 
-        match resolveStep receiverTy with
+        match resolveStep ctx.Store receiverTy with
         | TyClass(clsKey, args) ->
             match TypeRegistry.tryClassByKey ctx.Types clsKey with
             | ValueSome info ->
-                let subst = mkNamedTypeSubst info.TypeParams args
+                let subst = mkNamedTypeSubst ctx.Store info.TypeParams args
                 let argTy = infer ctx argExpr
-                let argArity = argArityOf argTy
+                let argArity = argArityOf ctx.Store argTy
 
                 // Prefer the primary constructor when its arity matches; otherwise
                 // fall back to a secondary `new(...)` constructor of the right arity.
@@ -86,10 +86,13 @@ module internal UnificationInferCtor =
 
                 let expected =
                     match secondary with
-                    | Some sc -> sc.Params |> Array.map (fun p -> substituteWith subst p.Type) |> Array.toList
+                    | Some sc ->
+                        sc.Params
+                        |> Array.map (fun p -> substituteWith ctx.Store subst p.Type)
+                        |> Array.toList
                     | None ->
                         info.CtorParams
-                        |> Array.map (fun p -> substituteWith subst p.Type)
+                        |> Array.map (fun p -> substituteWith ctx.Store subst p.Type)
                         |> Array.toList
                     |> tupleOrSingle ctx
 
@@ -201,7 +204,7 @@ module internal UnificationInferCtor =
 
         let argTy = infer ctx argExpr
         let typeArgs = args |> EqArray.toList |> List.toArray
-        let argElems = argElemsOf argTy
+        let argElems = argElemsOf ctx.Store argTy
 
         // A 0-argument construction of an external *value type* is `default(T)`,
         // not a real ctor call — `Span<char>()`, `default(SomeStruct)`. A .NET
@@ -386,7 +389,7 @@ module internal UnificationInferCtor =
             | ValueNone -> ValueNone
             | ValueSome info ->
                 let argTy = infer ctx argExpr
-                let argArity = argArityOf argTy
+                let argArity = argArityOf ctx.Store argTy
 
                 if argArity = info.CtorParams.Length then
                     ValueNone
@@ -405,7 +408,9 @@ module internal UnificationInferCtor =
                         | _ -> ()
 
                         let paramTys =
-                            sc.Params |> Array.map (fun p -> substituteWith subst p.Type) |> Array.toList
+                            sc.Params
+                            |> Array.map (fun p -> substituteWith ctx.Store subst p.Type)
+                            |> Array.toList
 
                         unify ctx key (tupleOrSingle ctx paramTys) argTy
                         ValueSome receiverTy

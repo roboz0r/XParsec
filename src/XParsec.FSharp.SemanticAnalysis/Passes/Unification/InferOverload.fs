@@ -15,10 +15,10 @@ module UnificationInferOverload =
     /// A union whose every member is a structural literal — kept by-VALUE in overload
     /// filtering (its `argSigOf` spelling is sharp), unlike a union with a function /
     /// carried-node member, which is applicability-opaque.
-    let isPureLiteralUnion (ms: UnionMembers) : bool =
+    let isPureLiteralUnion (store: TypeStore) (ms: UnionMembers) : bool =
         ms.Members
         |> EqSet.forall (fun m ->
-            match zonk m with
+            match zonk store m with
             | TyLiteral _ -> true
             | _ -> false
         )
@@ -28,12 +28,12 @@ module UnificationInferOverload =
     /// primitive union must NOT act as a filtering wildcard (it would perturb BCL
     /// overload sets — any union-typed argument would match every same-arity
     /// parameter of every overloaded external method).
-    let rec hasCarriedNode (t: SemType) : bool =
-        match zonk t with
+    let rec hasCarriedNode (store: TypeStore) (t: SemType) : bool =
+        match zonk store t with
         | TyKeyOf _
         | TyIndexedAccess _
         | TyConditional _ -> true
-        | t -> SemType.existsChild hasCarriedNode t
+        | t -> SemType.existsChild (hasCarriedNode store) t
 
     /// The trial substitution accumulated by `matchTypes` for ONE candidate — the
     /// scratch that makes the applicability pre-check exact WITHOUT touching the
@@ -83,13 +83,19 @@ module UnificationInferOverload =
     /// `Link` (subsuming `resolveStep`), so a bound caller var is resolved BEFORE the
     /// metavar arm; a still-free var reaches the arm and is looked up two-tier — the
     /// scratch `binds.CallerVars` after the graph — binding it if unseen.
-    let rec private matchTypes (canon: SymbolKey -> SymbolKey) (binds: TrialBindings) (a: SemType) (b: SemType) : bool =
-        match zonk a, zonk b with
+    let rec private matchTypes
+        (store: TypeStore)
+        (canon: SymbolKey -> SymbolKey)
+        (binds: TrialBindings)
+        (a: SemType)
+        (b: SemType)
+        : bool =
+        match zonk store a, zonk store b with
         // Binder arm (was the `-> true` wildcard): a generic method's own typar
         // (`TyTypar(Method, i)`) binds to whatever it first meets and must AGREE at every
         // later occurrence — index equality across positions.
         | TyTypar(TyparAxis.Method, i), other
-        | other, TyTypar(TyparAxis.Method, i) -> matchMethodTypar canon binds i other
+        | other, TyTypar(TyparAxis.Method, i) -> matchMethodTypar store canon binds i other
         // Applicability-OPAQUE, not bindable: their structural identity can't be decided
         // until a call site grounds them, so they stay "matches anything" (the
         // `unifyAppliedSig` commit seam does the real work).
@@ -97,34 +103,35 @@ module UnificationInferOverload =
         | _, (TyKeyOf _ | TyIndexedAccess _ | TyConditional _) -> true
         // A non-literal union parameter / a carried-node union argument stay opaque —
         // their members can carry a not-yet-ground node.
-        | _, TyOr ms when not (isPureLiteralUnion ms) -> true
-        | TyOr ms, _ when EqSet.exists hasCarriedNode ms.Members -> true
+        | _, TyOr ms when not (isPureLiteralUnion store ms) -> true
+        | TyOr ms, _ when EqSet.exists (hasCarriedNode store) ms.Members -> true
         | TyLiteral v1, TyLiteral v2 -> v1 = v2
-        | TyConst(k1, xs), TyConst(k2, ys) -> k1 = k2 && EqArray.forall2 (matchTypes canon binds) xs ys
+        | TyConst(k1, xs), TyConst(k2, ys) -> k1 = k2 && EqArray.forall2 (matchTypes store canon binds) xs ys
         // Binder arm (was `ReferenceEquals(find x, find y)`, which failed a free caller
         // var against a concrete parameter — the under-accept bug): a free metavar on
         // EITHER side binds to the opposite type, or agrees if already bound.
         | TyVar tv, other
-        | other, TyVar tv -> matchVar canon binds tv other
-        | TyFun(a1, r1), TyFun(a2, r2) -> matchTypes canon binds a1 a2 && matchTypes canon binds r1 r2
-        | TyTuple xs, TyTuple ys -> EqArray.forall2 (matchTypes canon binds) xs ys
+        | other, TyVar tv -> matchVar store canon binds tv other
+        | TyFun(a1, r1), TyFun(a2, r2) -> matchTypes store canon binds a1 a2 && matchTypes store canon binds r1 r2
+        | TyTuple xs, TyTuple ys -> EqArray.forall2 (matchTypes store canon binds) xs ys
         | TyRecord(n1, xs), TyRecord(n2, ys)
         | TyUnion(n1, xs), TyUnion(n2, ys)
         | TyClass(n1, xs), TyClass(n2, ys) ->
             (n1 = n2 || canon (SymbolKey.Type n1) = canon (SymbolKey.Type n2))
-            && EqArray.forall2 (matchTypes canon binds) xs ys
+            && EqArray.forall2 (matchTypes store canon binds) xs ys
         | _ -> false
 
     /// A method typar binds on first sight and must agree thereafter (index equality
     /// carries the shared-`'T` constraint the old per-position wildcard forgot).
     and private matchMethodTypar
+        (store: TypeStore)
         (canon: SymbolKey -> SymbolKey)
         (binds: TrialBindings)
         (i: int)
         (other: SemType)
         : bool =
         match binds.MethodTypars.TryGetValue i with
-        | true, bound -> matchTypes canon binds bound other
+        | true, bound -> matchTypes store canon binds bound other
         | _ ->
             binds.MethodTypars.[i] <- other
             true
@@ -134,14 +141,20 @@ module UnificationInferOverload =
     /// the scratch `binds.CallerVars`. Bound ⇒ recurse against the binding; unseen ⇒ record
     /// it (writing ONLY the scratch dictionary). Two free vars already unified in the graph
     /// match with no new binding — the success case of the old `ReferenceEquals` arm.
-    and private matchVar (canon: SymbolKey -> SymbolKey) (binds: TrialBindings) (tv: TypeVar) (other: SemType) : bool =
-        let root = UnionFind.find tv
+    and private matchVar
+        (store: TypeStore)
+        (canon: SymbolKey -> SymbolKey)
+        (binds: TrialBindings)
+        (tv: TypeVar)
+        (other: SemType)
+        : bool =
+        let root = UnionFind.find store tv
 
         match binds.CallerVars.TryGetValue root with
-        | true, bound -> matchTypes canon binds bound other
+        | true, bound -> matchTypes store canon binds bound other
         | _ ->
             match other with
-            | TyVar tv2 when System.Object.ReferenceEquals(UnionFind.find tv2, root) -> true
+            | TyVar tv2 when System.Object.ReferenceEquals(UnionFind.find store tv2, root) -> true
             | _ ->
                 binds.CallerVars.[root] <- other
                 true
@@ -149,10 +162,10 @@ module UnificationInferOverload =
     /// Flattens the tupled signature back to N parameters. The `argSig` length — the
     /// member's own identity — distinguishes a flattened N-param method from a genuine
     /// single tuple param; the signature alone cannot.
-    let memberParamTypes (typeArgs: SemType[]) (m: ExternalMember) : SemType list =
+    let memberParamTypes (store: TypeStore) (typeArgs: SemType[]) (m: ExternalMember) : SemType list =
         let n = m.Key.ArgSig.Length
 
-        match zonk (ExternalSymbols.openSignature m typeArgs) with
+        match zonk store (ExternalSymbols.openSignature m typeArgs) with
         | TyFun(TyTuple elems, _) when n >= 2 && elems.Length = n -> EqArray.toList elems
         | TyFun(TyUnit, _) when n = 0 -> []
         | TyFun(p, _) -> [ p ]
@@ -235,7 +248,7 @@ module UnificationInferOverload =
 
                     List.forall2
                         (fun a p ->
-                            matchTypes canon binds a p
+                            matchTypes ctx.Store canon binds a p
                             || (subtyping && subsumes ctx a p <> SubsumeOutcome.Unrelated)
                         )
                         argElems
@@ -316,7 +329,7 @@ module UnificationInferOverload =
             let rcs =
                 candidates
                 |> Array.choose (fun m ->
-                    let ps = memberParamTypes typeArgs m
+                    let ps = memberParamTypes ctx.Store typeArgs m
 
                     if m.Key.ArgSig.Length = arity && List.length ps = arity then
                         Some
@@ -344,9 +357,9 @@ module UnificationInferOverload =
     /// Peel a member's (single-tupled) arrow spine to its value parameters: `unit → r`
     /// is zero parameters, a single `TyTuple` domain flattens to its elements, any other
     /// single domain is one parameter. The by-VALUE analogue of `memberParamTypes`.
-    let private flatParamsOf (mty: SemType) : SemType list =
+    let private flatParamsOf (store: TypeStore) (mty: SemType) : SemType list =
         let rec arrows t =
-            match resolveStep t with
+            match resolveStep store t with
             | TyFun(a, b) ->
                 let ps, r = arrows b
                 a :: ps, r
@@ -354,7 +367,7 @@ module UnificationInferOverload =
 
         match arrows mty with
         | [ single ], _ ->
-            match resolveStep single with
+            match resolveStep store single with
             | TyTuple es -> EqArray.toList es
             | TyConst(k, a) when a.IsEmpty && k = RuntimeNames.unitKey -> []
             | o -> [ o ]
@@ -369,18 +382,18 @@ module UnificationInferOverload =
         (args: EqArray<SemType>)
         (m: TypeMemberInfo)
         : SemType list =
-        flatParamsOf (instantiateMemberCall ctx (typeParams, args) m.EffectiveMethodTypars m.Type)
+        flatParamsOf ctx.Store (instantiateMemberCall ctx (typeParams, args) m.EffectiveMethodTypars m.Type)
 
     /// Positional `TyVar root → axis index` map for a typar list, following any committed
     /// `Link` (mirrors `Elaborate.mkTyparEnv`). Used to freeze a member's parameter typars
     /// back to their self-describing `FTTypar(axis, i)` placeholders.
-    let private frozenAxisEnv (typars: EqArray<string * TypeVar>) : Dictionary<TypeVar, int> =
+    let private frozenAxisEnv (store: TypeStore) (typars: EqArray<string * TypeVar>) : Dictionary<TypeVar, int> =
         let d = Dictionary<TypeVar, int>(HashIdentity.Reference)
 
         for i in 0 .. typars.Length - 1 do
             let (_, ptv) = typars.[i]
 
-            match zonk (TyVar ptv) with
+            match zonk store (TyVar ptv) with
             | TyVar root ->
                 if not (d.ContainsKey root) then
                     d.[root] <- i
@@ -394,14 +407,18 @@ module UnificationInferOverload =
     /// mints for an external member. This is what makes the `MemberKey` a TOTAL overload
     /// identity: `Show(int)` and `Show(string)` freeze to `[int]` / `[string]` argSigs,
     /// distinct by construction.
-    let freezeUserMemberArgSig (declTypars: EqArray<string * TypeVar>) (m: TypeMemberInfo) : EqArray<FrozenType> =
-        let declEnv = frozenAxisEnv declTypars
-        let methodEnv = frozenAxisEnv m.EffectiveMethodTypars
+    let freezeUserMemberArgSig
+        (store: TypeStore)
+        (declTypars: EqArray<string * TypeVar>)
+        (m: TypeMemberInfo)
+        : EqArray<FrozenType> =
+        let declEnv = frozenAxisEnv store declTypars
+        let methodEnv = frozenAxisEnv store m.EffectiveMethodTypars
 
         let onVar (v: SemType) : FrozenType =
             match v with
             | TyVar tv ->
-                let root = UnionFind.find tv
+                let root = UnionFind.find store tv
 
                 match declEnv.TryGetValue root with
                 | true, i -> FTTypar(TyparAxis.Declaring, i)
@@ -413,7 +430,7 @@ module UnificationInferOverload =
 
         EqArray.ofList
             [
-                for p in flatParamsOf (zonk m.Type) -> FrozenTypeBridge.toFrozenWith onVar (zonk p)
+                for p in flatParamsOf store (zonk store m.Type) -> FrozenTypeBridge.toFrozenWith onVar (zonk store p)
             ]
 
     /// The kind-mapped `MemberKind` of a member (methods dispatch, properties store).
@@ -426,11 +443,16 @@ module UnificationInferOverload =
     /// `declKey`: the frozen argSig (declaring-open) + real method-typar arity, so two
     /// same-name overloads mint DISTINCT keys. Recorded by inference on the overloaded
     /// call node's side table and read back verbatim by Elaborate/Freeze.
-    let frozenUserMemberKey (declKey: TypeKey) (declTypars: EqArray<string * TypeVar>) (m: TypeMemberInfo) : SymbolKey =
+    let frozenUserMemberKey
+        (store: TypeStore)
+        (declKey: TypeKey)
+        (declTypars: EqArray<string * TypeVar>)
+        (m: TypeMemberInfo)
+        : SymbolKey =
         SymbolKeyOps.memberKey
             declKey
             m.Name
-            (freezeUserMemberArgSig declTypars m)
+            (freezeUserMemberArgSig store declTypars m)
             m.EffectiveMethodTypars.Length
             (memberKindOf m)
 
@@ -439,10 +461,15 @@ module UnificationInferOverload =
     /// and method-typar arity are the axes fsc's FS0438 collapses. A genuine overload
     /// (distinct param types / arity) mints a distinct key and coexists.
     let memberSignatureKey
+        (store: TypeStore)
         (declTypars: EqArray<string * TypeVar>)
         (m: TypeMemberInfo)
         : struct (string * bool * MemberKind * EqArray<FrozenType> * int) =
-        struct (m.Name, m.IsStatic, memberKindOf m, freezeUserMemberArgSig declTypars m, m.EffectiveMethodTypars.Length)
+        struct (m.Name,
+                m.IsStatic,
+                memberKindOf m,
+                freezeUserMemberArgSig store declTypars m,
+                m.EffectiveMethodTypars.Length)
 
     /// The user-member resolution verdict. `NotOverloaded` (0/1 candidate) tells the caller
     /// to keep its single-pick path unchanged; the other three mirror `PickResult`.

@@ -68,7 +68,7 @@ module PlatformTypes =
             // platform type); leaves contribute nothing.
             | ty -> SemType.iterChildren go ty
 
-        go (Unification.zonk t)
+        go (Unification.zonk ctx.Store t)
 
     /// Visit every expression / pattern type, plus a `Format` hole's side type (which
     /// the default walker doesn't surface) — the same coverage `ResolvedTypes` uses.

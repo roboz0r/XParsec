@@ -41,10 +41,10 @@ module NameResolutionMemberRegistration =
         // Pat.NamedSimple at the same offset.
         let addParam (id: SyntaxToken) (annotation: Type<SyntaxToken> voption) =
             let tv = ctx.NewTypeVar()
-            tv.Level <- 0
+            ctx.Store.SetLevel(tv, 0)
 
             match annotation with
-            | ValueSome t -> tv.Link <- ValueSome(translateType ctx t)
+            | ValueSome t -> ctx.Store.SetLink(tv, ValueSome(translateType ctx t))
             | ValueNone -> ()
 
             results.Add(ClassCtorParamInfo(ctx.NameOf id, TyVar tv, NodeKey.ofToken id NodeKind.PatIdent))
@@ -267,7 +267,7 @@ module NameResolutionMemberRegistration =
 
         let addMember mName kind isStatic isOverride (mKey: NodeKey) : TypeMemberInfo =
             let tv = ctx.NewTypeVar()
-            tv.Level <- 0
+            ctx.Store.SetLevel(tv, 0)
             let cmi = TypeMemberInfo(mName, kind, isStatic, TyVar tv, mKey)
             cmi.IsOverride <- isOverride
             memberInfos.Add cmi
@@ -520,7 +520,7 @@ module NameResolutionMemberRegistration =
                         match bindingsOfPat ctx b.headPat with
                         | [ (name, key) ] ->
                             let tv = ctx.NewTypeVar()
-                            tv.Level <- 0
+                            ctx.Store.SetLevel(tv, 0)
                             acc.Add(ClassPreambleEntry.Let(ClassLetInfo(name, TyVar tv, key, b, isRec.IsSome)))
                         | _ -> diagnose "Only simple `let x = …` bindings are supported in a class preamble"
                 | ValueNone -> ()
@@ -720,7 +720,7 @@ module NameResolutionMemberRegistration =
         : SemType =
         let freshTv () =
             let tv = ctx.NewTypeVar()
-            tv.Level <- 0
+            ctx.Store.SetLevel(tv, 0)
             TyVar tv
 
         match t with
@@ -1064,8 +1064,8 @@ module NameResolutionMemberRegistration =
     /// The nominal a `SemType` names DIRECTLY, if any. A type argument is NOT direct: a
     /// `B option` field stores a reference to a `B`, so it is an indirection, and only the
     /// head of a field's type is an immediate containment edge.
-    let private directNominal (t: SemType) : TypeKey voption =
-        match zonk t with
+    let private directNominal (store: TypeStore) (t: SemType) : TypeKey voption =
+        match zonk store t with
         | TyRecord(key, _)
         | TyUnion(key, _)
         | TyClass(key, _) -> ValueSome key
@@ -1129,7 +1129,7 @@ module NameResolutionMemberRegistration =
 
             let rec walk (id: TypeIdentity) =
                 for fieldTy in inlineFieldTypes ctx id do
-                    match directNominal fieldTy with
+                    match directNominal ctx.Store fieldTy with
                     | ValueSome fieldKey when not cyclic ->
                         if fieldKey = startKey then
                             cyclic <- true

@@ -66,7 +66,7 @@ let boxMember (paramFt: FrozenType) : ExternalMember =
     }
 
 let chosenParamsWith (typeArgs: SemType[]) (m: ExternalMember) : SemType list =
-    UnificationInferOverload.memberParamTypes typeArgs m
+    UnificationInferOverload.memberParamTypes (TypeStore()) typeArgs m
 
 let pickWith
     (ctx: PassContext)
@@ -77,7 +77,7 @@ let pickWith
     UnificationInferOverload.pickBestOverload ctx typeArgs candidates args
 
 let chosenParams (m: ExternalMember) : SemType list =
-    UnificationInferOverload.memberParamTypes [||] m
+    UnificationInferOverload.memberParamTypes (TypeStore()) [||] m
 
 // Immutable class-type values from the `GrandBase :> Base :> Derived` chain the
 // subtyping cases exercise — pure data, safe to share across parallel tests.

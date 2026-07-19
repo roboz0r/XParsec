@@ -65,7 +65,7 @@ module internal UnificationInferApp =
         let lambdaSlots = ResizeArray<NodeKey * SemType>()
 
         for i in 0 .. args.Length - 1 do
-            match resolveStep currTy with
+            match resolveStep ctx.Store currTy with
             | TyFun(dom, cod) ->
                 // An argument lambda is usually parenthesised (`apply2 (fun … )`), so
                 // peel `EnclosedBlock` / `TypeAnnotation` wrappers — `Elaborate` strips
@@ -111,7 +111,7 @@ module internal UnificationInferApp =
         // (`fold`/`apply2`, result `'State`/`int`) records nothing, so its stored
         // bindings are never rewritten.
         if lambdaSlots.Count > 0 then
-            match resolveStep currTy with
+            match resolveStep ctx.Store currTy with
             | TyConst(_, resArgs)
             | TyRecord(_, resArgs)
             | TyUnion(_, resArgs)
@@ -121,8 +121,8 @@ module internal UnificationInferApp =
                 // `TyVar`'s `resolveStep` re-wraps a fresh `TyVar` each call, so compare
                 // the underlying roots, not the wrappers.
                 let rootOf (t: SemType) : TypeVar voption =
-                    match resolveStep t with
-                    | TyVar tv -> ValueSome(UnionFind.find tv)
+                    match resolveStep ctx.Store t with
+                    | TyVar tv -> ValueSome(UnionFind.find ctx.Store tv)
                     | _ -> ValueNone
 
                 for (lamKey, dom) in lambdaSlots do
@@ -183,7 +183,7 @@ module internal UnificationInferApp =
             // folds to its literal-name union here, so a syntactic string constant
             // admits into it by the same set-membership rule as an explicit literal
             // union (a bare `TyLiteral` slot is a singleton set).
-            match tryLiteralMembers (evalTypeLevel ctx (resolveStep dom)) with
+            match tryLiteralMembers ctx.Store (evalTypeLevel ctx (resolveStep ctx.Store dom)) with
             | ValueNone -> false
             | ValueSome members ->
                 if List.contains lit members then
@@ -222,7 +222,7 @@ module internal UnificationInferApp =
             for i in 0 .. argTys.Length - 1 do
                 let argTy = argTys.[i]
 
-                match resolveStep currTy with
+                match resolveStep ctx.Store currTy with
                 | TyFun(dom, cod) ->
                     // A literal / literal-union parameter consults the argument
                     // EXPRESSION for a syntactic constant (directional admission); when
@@ -358,7 +358,7 @@ module internal UnificationInferApp =
                             | ValueSome(fnTy, fmtTy, _) ->
                                 // Stamp the function node so Elaborate threads the
                                 // curried result type through the App chain.
-                                (freshTv ctx fnKey).Link <- ValueSome fnTy
+                                ctx.Store.SetLink(freshTv ctx fnKey, ValueSome fnTy)
 
                                 let mutable currTy = fnTy
 
@@ -368,12 +368,12 @@ module internal UnificationInferApp =
                                     let argTy =
                                         if i = idx then
                                             // The format literal types as the PrintfFormat, not `string`.
-                                            (freshTv ctx (CstKeys.ofExpr a)).Link <- ValueSome fmtTy
+                                            ctx.Store.SetLink(freshTv ctx (CstKeys.ofExpr a), ValueSome fmtTy)
                                             fmtTy
                                         else
                                             infer ctx a
 
-                                    match resolveStep currTy with
+                                    match resolveStep ctx.Store currTy with
                                     | TyFun(dom, cod) ->
                                         // Uniform over every arg, leading writer included: the
                                         // writer slot is now the provider-resolved

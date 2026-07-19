@@ -20,8 +20,8 @@ module internal UnificationInferGeneralize =
     /// own bespoke walks. A thin wrapper now: it delegates the traversal to the
     /// shared `SemTypeWalk.iterSemTypeVars`, supplying only the `find`-then-`onRoot`
     /// leaf policy.
-    let iterTypeVarRoots (onRoot: TypeVar -> unit) (t: SemType) : unit =
-        t |> SemTypeWalk.iterSemTypeVars (fun tv -> onRoot (UnionFind.find tv))
+    let iterTypeVarRoots (store: TypeStore) (onRoot: TypeVar -> unit) (t: SemType) : unit =
+        t |> SemTypeWalk.iterSemTypeVars (fun tv -> onRoot (UnionFind.find store tv))
 
     /// Non-quantified TyVars are left alone — they're free w.r.t. the
     /// surrounding scope and must keep their identity. `scheme.Body` is
@@ -31,9 +31,9 @@ module internal UnificationInferGeneralize =
         let freshOf = Dictionary<TypeVar, TypeVar>(HashIdentity.Reference)
 
         for q in scheme.Quantified do
-            let qRoot = UnionFind.find q
+            let qRoot = UnionFind.find ctx.Store q
             let fresh = ctx.NewTypeVar()
-            fresh.Level <- ctx.CurrentLevel
+            ctx.Store.SetLevel(fresh, ctx.CurrentLevel)
             subst.[qRoot] <- TyVar fresh
             freshOf.[qRoot] <- fresh
 
@@ -77,21 +77,23 @@ module internal UnificationInferGeneralize =
             match c.Kind with
             | SemanticConstraintKind.Coercion target ->
                 target
-                |> zonk
-                |> iterTypeVarRoots (fun root ->
-                    if
-                        root.Link.IsNone
-                        && not (quantifiedRoots.Contains root)
-                        && not (constraintSubst.ContainsKey root)
-                    then
-                        let fresh = ctx.NewTypeVar()
-                        fresh.Level <- ctx.CurrentLevel
-                        constraintSubst.[root] <- TyVar fresh
-                )
+                |> zonk ctx.Store
+                |> iterTypeVarRoots
+                    ctx.Store
+                    (fun root ->
+                        if
+                            (ctx.Store.Link root).IsNone
+                            && not (quantifiedRoots.Contains root)
+                            && not (constraintSubst.ContainsKey root)
+                        then
+                            let fresh = ctx.NewTypeVar()
+                            ctx.Store.SetLevel(fresh, ctx.CurrentLevel)
+                            constraintSubst.[root] <- TyVar fresh
+                    )
             | _ -> ()
 
         for (qTv, c) in scheme.Constraints do
-            let qRoot = UnionFind.find qTv
+            let qRoot = UnionFind.find ctx.Store qTv
 
             match freshOf.TryGetValue qRoot with
             | true, fresh ->
@@ -99,14 +101,14 @@ module internal UnificationInferGeneralize =
                     match c.Kind with
                     | SemanticConstraintKind.Coercion target ->
                         { c with
-                            Kind = SemanticConstraintKind.Coercion(substituteWith constraintSubst target)
+                            Kind = SemanticConstraintKind.Coercion(substituteWith ctx.Store constraintSubst target)
                         }
                     | _ -> c
 
                 addConstraintByKind ctx.Store fresh c
             | false, _ -> ()
 
-        substituteWith subst scheme.Body
+        substituteWith ctx.Store subst scheme.Body
 
     /// Resolve a bound name to its type: instantiate its generalised scheme if
     /// one was written, else take the monomorphic binding-site TyVar (a sibling
@@ -128,12 +130,12 @@ module internal UnificationInferGeneralize =
     let rec hasPendingDotAccess (store: TypeStore) (t: SemType) : bool =
         match t with
         | TyVar tv ->
-            let root = UnionFind.find tv
+            let root = UnionFind.find store tv
 
             if not (List.isEmpty (store.Pda.Live root.Id)) then
                 true
             else
-                match root.Link with
+                match store.Link root with
                 | ValueSome target -> hasPendingDotAccess store target
                 | ValueNone -> false
         // A compound carries pending dot access iff a child does; leaves hold none.
@@ -156,12 +158,12 @@ module internal UnificationInferGeneralize =
             let rec go (t: SemType) =
                 match t with
                 | TyVar tv ->
-                    let root = UnionFind.find tv
+                    let root = UnionFind.find store tv
 
                     if visited.Add root then
                         if
-                            root.Level > outerLevel
-                            && root.Link.IsNone
+                            store.Level root > outerLevel
+                            && (store.Link root).IsNone
                             && not (store.Defaults.IsEmpty root.Id)
                         then
                             acc.Add root
@@ -174,7 +176,7 @@ module internal UnificationInferGeneralize =
                             for target in store.Defaults.Items root.Id do
                                 go target
 
-                        match root.Link with
+                        match store.Link root with
                         | ValueSome target -> go target
                         | ValueNone -> ()
                 | t -> SemType.iterChildren go t
@@ -187,9 +189,9 @@ module internal UnificationInferGeneralize =
         let rec resolveTarget (t: SemType) : SemType voption =
             match t with
             | TyVar tv ->
-                let root = UnionFind.find tv
+                let root = UnionFind.find store tv
 
-                match root.Link with
+                match store.Link root with
                 | ValueSome target -> resolveTarget target
                 | ValueNone -> ValueNone
             | _ -> ValueSome t
@@ -208,13 +210,13 @@ module internal UnificationInferGeneralize =
             for target in defaults do
                 if not fired then
                     match resolveTarget target with
-                    | ValueSome concrete when not (occursAndAdjust tv concrete) ->
+                    | ValueSome concrete when not (occursAndAdjust store tv concrete) ->
                         // Occurs guard: a chain like `default ^T3 : ^T1`
                         // with a structural target (`^T1 list`) could build
                         // a `concrete` transitively containing tv; linking
                         // through would create an infinite type. Skip on
                         // occurs — the default is unsatisfiable.
-                        tv.Link <- ValueSome concrete
+                        store.SetLink(tv, ValueSome concrete)
                         fired <- true
                     | ValueSome _ -> () // resolved but occurs-unsafe — permanently dead
                     | ValueNone -> anyDeferrable <- true // target still free — retry next pass
@@ -234,7 +236,7 @@ module internal UnificationInferGeneralize =
             changed <- false
 
             for tv in candidates do
-                if tv.Link.IsNone && not (store.Defaults.IsEmpty tv.Id) then
+                if (store.Link tv).IsNone && not (store.Defaults.IsEmpty tv.Id) then
                     if tryDefault tv then
                         changed <- true
 
@@ -246,7 +248,10 @@ module internal UnificationInferGeneralize =
         let mutable result = ValueNone
 
         for (lv, elem) in ctx.ListLiterals do
-            if result.IsNone && System.Object.ReferenceEquals(UnionFind.find lv, root) then
+            if
+                result.IsNone
+                && System.Object.ReferenceEquals(UnionFind.find ctx.Store lv, root)
+            then
                 result <- ValueSome elem
 
         result
@@ -269,15 +274,15 @@ module internal UnificationInferGeneralize =
             let rec walk (t: SemType) =
                 match t with
                 | TyVar tv ->
-                    let root = UnionFind.find tv
+                    let root = UnionFind.find ctx.Store tv
 
                     if seen.Add root then
-                        match root.Link with
+                        match ctx.Store.Link root with
                         | ValueSome target -> walk target
                         | ValueNone ->
                             match tryListLiteralElem ctx root with
-                            | ValueSome elemTy when root.Level > outerLevel ->
-                                match zonk elemTy with
+                            | ValueSome elemTy when ctx.Store.Level root > outerLevel ->
+                                match zonk ctx.Store elemTy with
                                 | TyVar _ ->
                                     // Self-host (no FSharp.Core) defaults the bare
                                     // container to the Vesper cons-list, mirroring
@@ -288,8 +293,8 @@ module internal UnificationInferGeneralize =
                                         else
                                             TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy)
 
-                                    root.Link <- ValueSome listTy
-                                | _ -> root.Level <- outerLevel
+                                    ctx.Store.SetLink(root, ValueSome listTy)
+                                | _ -> ctx.Store.SetLevel(root, outerLevel)
                             | _ -> ()
                 | t -> SemType.iterChildren walk t
 
@@ -306,10 +311,10 @@ module internal UnificationInferGeneralize =
         let seen = HashSet<TypeVar>(HashIdentity.Reference)
 
         let addRoot (root: TypeVar) =
-            if root.Level > outerLevel && root.Link.IsNone && seen.Add(root) then
+            if store.Level root > outerLevel && (store.Link root).IsNone && seen.Add(root) then
                 quantified.Add(root)
 
-        zonkedTy |> iterTypeVarRoots addRoot
+        zonkedTy |> iterTypeVarRoots store addRoot
 
         // Dependent typars: a quantified typar's `Coercion` bound may name *further*
         // typars that appear ONLY in constraints, never in the binding type itself
@@ -324,7 +329,7 @@ module internal UnificationInferGeneralize =
         while i < quantified.Count do
             for c in store.Constraints.Items quantified.[i].Id do
                 match c.Kind with
-                | SemanticConstraintKind.Coercion target -> iterTypeVarRoots addRoot (zonk target)
+                | SemanticConstraintKind.Coercion target -> iterTypeVarRoots store addRoot (zonk store target)
                 | _ -> ()
 
             i <- i + 1

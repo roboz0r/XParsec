@@ -50,7 +50,7 @@ module Freeze =
 
         for KeyValue(binder, scheme) in ctx.Bindings.Scheme.AsDictionary() do
             scheme.Quantified
-            |> Seq.iteri (fun i tv -> map.[UnionFind.find tv] <- struct (binder, i))
+            |> Seq.iteri (fun i tv -> map.[UnionFind.find ctx.Store tv] <- struct (binder, i))
 
         map
 
@@ -117,13 +117,17 @@ module Freeze =
     /// The binder attribution is a property of the SCHEME TABLE, not of tree
     /// position, so it is built once per file and the freeze stays the pure per-type
     /// map it has always been.
-    let private freezeTy (binders: Dictionary<TypeVar, struct (NodeKey * int)>) (t: SemType) : FrozenType =
+    let private freezeTy
+        (store: TypeStore)
+        (binders: Dictionary<TypeVar, struct (NodeKey * int)>)
+        (t: SemType)
+        : FrozenType =
         let onVar (v: SemType) : FrozenType =
             match v with
             | TyVar tv ->
                 // Key on the union-find ROOT: two `TyVar` nodes in the same class are
                 // the same typar and must land on the same leaf.
-                match binders.TryGetValue(UnionFind.find tv) with
+                match binders.TryGetValue(UnionFind.find store tv) with
                 | true, struct (binder, index) -> FTLocalTypar(binder, index)
                 // No scheme quantified it ⇒ a genuine metavar leak, already an
                 // error-severity `ResolvedTypes` diagnostic on this decl. Degrade
@@ -135,7 +139,7 @@ module Freeze =
         // `toFrozenWith` is the one structural fold; only the `TyVar` POLICY differs
         // here. Each `.ty` is deep-`zonk`ed first, so only a genuinely UNLINKED root
         // reaches `onVar`.
-        Unification.zonk t |> FrozenTypeBridge.toFrozenWith onVar
+        Unification.zonk store t |> FrozenTypeBridge.toFrozenWith onVar
 
     /// Is this decl a splice TEMPLATE — a member of the unit's inline vocabulary?
     ///
@@ -295,7 +299,7 @@ module Freeze =
                 Diagnostics = List.ofSeq ctx.Diagnostics
             }
 
-        let converted = TastConvert.file (freezeTy (schemeBinders ctx)) frozen
+        let converted = TastConvert.file (freezeTy ctx.Store (schemeBinders ctx)) frozen
 
         // The SOURCE `ValRepr` grouping, computed now the lambda spine is FROZEN
         // (`peelValRepr`) — backend-neutral, read by both the codegen boundary and

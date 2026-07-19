@@ -118,7 +118,7 @@ module Unification =
         : unit =
         match mInfo.Type with
         | TyVar tv ->
-            let memberTy = zonk (TyVar tv)
+            let memberTy = zonk ctx.Store (TyVar tv)
             // Resolve defaults first (as `generalise` does) so a defaulted typar
             // links its source and the walk below skips it — `member m.Add a b = a + b`
             // grounds to `int` rather than quantifying the arithmetic typar.
@@ -135,8 +135,8 @@ module Unification =
             let fixedRoots = HashSet<TypeVar>(HashIdentity.Reference)
 
             for (_, ptv) in classTypars do
-                match zonk (TyVar ptv) with
-                | TyVar r -> fixedRoots.Add(UnionFind.find r) |> ignore
+                match zonk ctx.Store (TyVar ptv) with
+                | TyVar r -> fixedRoots.Add(UnionFind.find ctx.Store r) |> ignore
                 | _ -> ()
 
             // The pre-recompute registration order: the leading `DeclaredTyparCount`
@@ -155,10 +155,14 @@ module Unification =
                 pre
                 |> List.truncate mInfo.DeclaredTyparCount
                 |> List.choose (fun (name, ptv) ->
-                    match zonk (TyVar ptv) with
+                    match zonk ctx.Store (TyVar ptv) with
                     | TyVar r ->
-                        let root = UnionFind.find r
-                        if root.Link.IsNone then Some(name, root) else None
+                        let root = UnionFind.find ctx.Store r
+
+                        if (ctx.Store.Link root).IsNone then
+                            Some(name, root)
+                        else
+                            None
                     | _ -> None
                 )
 
@@ -171,9 +175,9 @@ module Unification =
             let knownNames = Dictionary<TypeVar, string>(HashIdentity.Reference)
 
             for (name, ptv) in pre do
-                match zonk (TyVar ptv) with
+                match zonk ctx.Store (TyVar ptv) with
                 | TyVar r ->
-                    let root = UnionFind.find r
+                    let root = UnionFind.find ctx.Store r
 
                     if not (knownNames.ContainsKey root) then
                         knownNames.[root] <- name
@@ -187,7 +191,8 @@ module Unification =
             // `canonical` now labels the appearance tail from `knownNames` itself
             // (real source name, else synthetic `M%d`), so its result is the final
             // ABI order — no post-relabel needed.
-            let gt = GeneralizedTypars.canonical declared fixedRoots knownNames (zonk memberTy)
+            let gt =
+                GeneralizedTypars.canonical ctx.Store declared fixedRoots knownNames (zonk ctx.Store memberTy)
 
             mInfo.Generalized <- gt
         | _ -> ()
@@ -218,9 +223,9 @@ module Unification =
             // declaration's prototype typars, so a generic member body
             // mentioning `'a` shares identity with them.
             let thisTv = ctx.NewTypeVar()
-            thisTv.Level <- ctx.CurrentLevel
+            ctx.Store.SetLevel(thisTv, ctx.CurrentLevel)
             let selfArgs = EqArray.ofSeq (seq { for (_, ptv) in fc.TypeParams -> TyVar ptv })
-            thisTv.Link <- ValueSome(fc.MkSelfType selfArgs)
+            ctx.Store.SetLink(thisTv, ValueSome(fc.MkSelfType selfArgs))
             ctx.Bindings.TypeVar.Set(fc.ThisKey, thisTv)
 
             // Static member bodies never see `this` / ctor params
@@ -345,7 +350,7 @@ module Unification =
                             match fc.Members |> Array.tryFind (fun m -> m.DeclKey = mKey) with
                             | Some mInfo ->
                                 match mInfo.Type with
-                                | TyVar tv -> (UnionFind.find tv).Link <- ValueSome resultTy
+                                | TyVar tv -> ctx.Store.SetLink(UnionFind.find ctx.Store tv, ValueSome resultTy)
                                 | _ -> ()
                             | None -> ()
                         finally
@@ -369,7 +374,7 @@ module Unification =
                             | Some mInfo ->
                                 match mInfo.Type with
                                 | TyVar tv ->
-                                    let root = UnionFind.find tv
+                                    let root = UnionFind.find ctx.Store tv
 
                                     // Extend the scope with the method's own
                                     // `<'C, …>` typars so they resolve to their
@@ -387,7 +392,7 @@ module Unification =
 
                                     try
                                         let sigTy = curriedSigToSemType ctx csig
-                                        root.Link <- ValueSome sigTy
+                                        ctx.Store.SetLink(root, ValueSome sigTy)
 
                                         // Abstract methods never reach `generaliseMemberTypars`,
                                         // so mint their canonical ABI order here from the just-
@@ -398,8 +403,8 @@ module Unification =
                                             let fixedRoots = HashSet<TypeVar>(HashIdentity.Reference)
 
                                             for (_, ptv) in fc.TypeParams do
-                                                match zonk (TyVar ptv) with
-                                                | TyVar r -> fixedRoots.Add(UnionFind.find r) |> ignore
+                                                match zonk ctx.Store (TyVar ptv) with
+                                                | TyVar r -> fixedRoots.Add(UnionFind.find ctx.Store r) |> ignore
                                                 | _ -> ()
 
                                             let seed = EqArray.toList mInfo.MethodTypeParams
@@ -408,26 +413,35 @@ module Unification =
                                                 seed
                                                 |> List.truncate mInfo.DeclaredTyparCount
                                                 |> List.choose (fun (name, ptv) ->
-                                                    match zonk (TyVar ptv) with
+                                                    match zonk ctx.Store (TyVar ptv) with
                                                     | TyVar r ->
-                                                        let dRoot = UnionFind.find r
-                                                        if dRoot.Link.IsNone then Some(name, dRoot) else None
+                                                        let dRoot = UnionFind.find ctx.Store r
+
+                                                        if (ctx.Store.Link dRoot).IsNone then
+                                                            Some(name, dRoot)
+                                                        else
+                                                            None
                                                     | _ -> None
                                                 )
 
                                             let knownNames = Dictionary<TypeVar, string>(HashIdentity.Reference)
 
                                             for (name, ptv) in seed do
-                                                match zonk (TyVar ptv) with
+                                                match zonk ctx.Store (TyVar ptv) with
                                                 | TyVar r ->
-                                                    let kRoot = UnionFind.find r
+                                                    let kRoot = UnionFind.find ctx.Store r
 
                                                     if not (knownNames.ContainsKey kRoot) then
                                                         knownNames.[kRoot] <- name
                                                 | _ -> ()
 
                                             mInfo.Generalized <-
-                                                GeneralizedTypars.canonical declared fixedRoots knownNames (zonk sigTy)
+                                                GeneralizedTypars.canonical
+                                                    ctx.Store
+                                                    declared
+                                                    fixedRoots
+                                                    knownNames
+                                                    (zonk ctx.Store sigTy)
                                     finally
                                         ctx.Resolution.TyparScope <- savedMScope
                                 | _ -> ()
@@ -563,11 +577,11 @@ module Unification =
         | ValueSome(TyClass(baseKey, baseArgs)), ValueSome argExpr ->
             match TypeRegistry.tryClassByKey ctx.Types baseKey with
             | ValueSome baseInfo ->
-                let subst = mkNamedTypeSubst baseInfo.TypeParams baseArgs
+                let subst = mkNamedTypeSubst ctx.Store baseInfo.TypeParams baseArgs
 
                 let expected =
                     baseInfo.CtorParams
-                    |> Array.map (fun p -> substituteWith subst p.Type)
+                    |> Array.map (fun p -> substituteWith ctx.Store subst p.Type)
                     |> Array.toList
                     |> tupleOrSingle ctx
 
@@ -623,8 +637,8 @@ module Unification =
         match info.BaseType with
         | ValueSome parentTy ->
             let baseTv = ctx.NewTypeVar()
-            baseTv.Level <- ctx.CurrentLevel
-            baseTv.Link <- ValueSome parentTy
+            ctx.Store.SetLevel(baseTv, ctx.CurrentLevel)
+            ctx.Store.SetLink(baseTv, ValueSome parentTy)
             ctx.Bindings.TypeVar.Set(info.BaseKey, baseTv)
         | ValueNone -> ()
 
@@ -665,7 +679,11 @@ module Unification =
                         // `obj | null` and `obj` are the same `System.Object` slot — so
                         // erase reference-nullability on BOTH sides before the invariant
                         // unify (the interface slot may itself be nullable-annotated).
-                        unify ctx mInfo.DeclKey (stripReferenceNull mInfo.Type) (stripReferenceNull expected)
+                        unify
+                            ctx
+                            mInfo.DeclKey
+                            (stripReferenceNull ctx.Store mInfo.Type)
+                            (stripReferenceNull ctx.Store expected)
                     | None ->
                         ctx.Error(
                             mInfo.DeclKey,
@@ -716,7 +734,7 @@ module Unification =
                 // Erase reference-nullability so an `override Equals(that: objnull)`
                 // conforms to the `Equals(obj)` Object slot (ABI-level match, as in
                 // `checkInterfaceConformance`).
-                | ValueSome expectedTy -> unify ctx mInfo.DeclKey (stripReferenceNull mInfo.Type) expectedTy
+                | ValueSome expectedTy -> unify ctx mInfo.DeclKey (stripReferenceNull ctx.Store mInfo.Type) expectedTy
                 | ValueNone -> ()
 
     /// A CAPABILITY (`seq<'T>`, `enumerator<'T>`, `disposable`) is not implemented
@@ -839,7 +857,7 @@ module Unification =
                 impl.Resolved <- ValueSome resolved
             else
                 let shown =
-                    match zonk resolved with
+                    match zonk ctx.Store resolved with
                     | TyClass(n, _) -> SymbolKeyOps.typeMetaName n
                     | other -> sprintf "%A" other
 
@@ -1129,12 +1147,12 @@ module Unification =
                 TyRecord(RuntimeNames.fsharpCoreListKey, EqArray.singleton elemTy)
 
         for (lv, elemTy) in ctx.ListLiterals do
-            let root = UnionFind.find lv
+            let root = UnionFind.find ctx.Store lv
 
-            match root.Link with
+            match ctx.Store.Link root with
             | ValueNone -> unify ctx key (TyVar root) (defaultListTy elemTy)
             | ValueSome target ->
-                match zonk target with
+                match zonk ctx.Store target with
                 | TyRecord(_, args) when args.Length = 1 -> unify ctx key args.[0] elemTy
                 | TyUnion(_, args) when args.Length = 1 -> unify ctx key args.[0] elemTy
                 | _ -> ()
@@ -1166,7 +1184,7 @@ module Unification =
 
         // The declaring type's own nominal key — Self is `TyClass`/`TyUnion(info.Key, _)`.
         let argIsSelf (info: IInterfaceImplHost) (arg: SemType) : bool =
-            match zonk arg with
+            match zonk ctx.Store arg with
             | TyClass(k, _)
             | TyRecord(k, _)
             | TyUnion(k, _) -> k = info.TypeKey
@@ -1258,7 +1276,7 @@ module Unification =
             let seen = HashSet<_>(HashIdentity.Structural)
 
             for m in members do
-                if not (seen.Add(UnificationInferOverload.memberSignatureKey typeParams m)) then
+                if not (seen.Add(UnificationInferOverload.memberSignatureKey ctx.Store typeParams m)) then
                     ctx.Diagnostics.Add
                         {
                             Key = m.DeclKey

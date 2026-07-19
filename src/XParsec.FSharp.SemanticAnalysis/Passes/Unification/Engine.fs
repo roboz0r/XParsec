@@ -24,15 +24,15 @@ module UnificationEngine =
     /// argument's node (the value-struct flat-`Invoke` lowering reads it at codegen).
     /// Reads the coercion bound off the still-free typar's union-find root.
     let funSlotArityOf (store: TypeStore) (param: SemType) : int voption =
-        match resolveStep param with
+        match resolveStep store param with
         | TyVar tv ->
-            let root = UnionFind.find tv
+            let root = UnionFind.find store tv
 
             store.Constraints.Items root.Id
             |> List.tryPick (fun c ->
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target ->
-                    match resolveStep target with
+                    match resolveStep store target with
                     | TyClass(tk, targs) ->
                         // `Fun`2`..`Fun`5` share this one qualified name, discriminated
                         // by type-arg count (arity = length - 1, for 2..5 args); anything
@@ -88,7 +88,7 @@ module UnificationEngine =
         | ExternalClass of key: SymbolKey * args: EqArray<SemType>
 
     let private resolveDotSource (ctx: PassContext) (linkTarget: SemType) : DotSource =
-        match tryResolveNominal linkTarget with
+        match tryResolveNominal ctx.Store linkTarget with
         | ValueNone -> DotSource.NotNominal
         | ValueSome(NominalKind.Record, key, args) ->
             let (DisplayName name) = SymbolKeyOps.typeSimpleName key
@@ -97,7 +97,12 @@ module UnificationEngine =
             // (`Point`2`/`Point`3`) does not resolve by bare name. `name` still labels the DotSource.
             match TypeRegistry.tryRecordByKey ctx.Types key with
             | ValueSome info ->
-                DotSource.Resolved(name, "field", mkNamedTypeSubst info.TypeParams args, fieldLookup info.Fields)
+                DotSource.Resolved(
+                    name,
+                    "field",
+                    mkNamedTypeSubst ctx.Store info.TypeParams args,
+                    fieldLookup info.Fields
+                )
             | ValueNone -> DotSource.UnknownType(name, "record")
         | ValueSome(NominalKind.Class, key, args) ->
             // Membership by the class's key (arity included): an arity-overloaded
@@ -121,7 +126,7 @@ module UnificationEngine =
                 DotSource.Resolved(
                     name,
                     "instance member",
-                    mkNamedTypeSubst info.TypeParams args,
+                    mkNamedTypeSubst ctx.Store info.TypeParams args,
                     memberLookup info.Members
                 )
             | ValueNone -> DotSource.UnknownType(name, "union")
@@ -168,7 +173,7 @@ module UnificationEngine =
     /// `unifyAppliedSig` (the in-`unify`-group deferred dot-access drain); the two
     /// coercion walkers exist only because they sit either side of `tryCoerceUpcast`
     /// in declaration order, not because the policy differs.
-    let absorbsAsObj (expected: SemType) : bool = isObjType (resolveStep expected)
+    let absorbsAsObj (store: TypeStore) (expected: SemType) : bool = isObjType (resolveStep store expected)
 
     /// Matches a carried type-level node (`keyof`/`T[K]`/conditional) that
     /// ground-folds to a CONCRETE (non-carrier) type, binding the folded result —
@@ -192,7 +197,7 @@ module UnificationEngine =
     /// argument-coercion seams below (`unifyArgCoerce` / `tryCoerceUpcast`) — never a
     /// general `unify`/`subsumes` edge, so nothing widens outside a foreign-call arg.
     let private numericFamilyOr (ctx: PassContext) (ty: SemType) : SemType voption =
-        match resolveStep ty with
+        match resolveStep ctx.Store ty with
         // The reverse axis is keyed by the PLATFORM REPR, which is a string — so the only
         // types that can hit it are the ones whose identity IS a platform name: a foreign
         // (TS-manifest / native) type, minted `opaqueKey` in the global namespace. That is
@@ -217,7 +222,7 @@ module UnificationEngine =
     /// plain `subsumes` sees `int`≁`float`, but they carry the same runtime repr, so the
     /// value flows. Confined to that seam, never a general `subsumes`/`unify` edge.
     let private reprSiblings (ctx: PassContext) (a: SemType) (b: SemType) : bool =
-        match resolveStep a, resolveStep b with
+        match resolveStep ctx.Store a, resolveStep ctx.Store b with
         | TyConst(k1, a1), TyConst(k2, a2) when a1.Length = 0 && a2.Length = 0 ->
             let fwd = ctx.Provider.IntrinsicForwardRepr
 
@@ -238,22 +243,22 @@ module UnificationEngine =
     /// before the plain-`unify` fallback. A Vesper CLASS arg (`TyClass`) is left to the
     /// nominal class→interface upcast path (`subtypeNominalOf`); only a record widens here.
     let private tryStructuralWiden (ctx: PassContext) (actual: SemType) (expected: SemType) : bool =
-        match resolveStep expected with
+        match resolveStep ctx.Store expected with
         | TyClass(ikey, iargs) ->
             match ctx.Provider.TryLookupType(SymbolKey.Type ikey) with
             // Only an interface is a record-widen target (a capability `IntrinsicInterface` or
             // an interface-flagged `Class`); a non-interface class is excluded off its member
             // surface.
             | ValueSome(ExternalSymbols.ExternalInterfaceMembers ifaceMembers) ->
-                match resolveStep actual with
+                match resolveStep ctx.Store actual with
                 | TyRecord(rkey, rargs) ->
                     match TypeRegistry.tryRecordByKey ctx.Types rkey with
                     | ValueSome info ->
-                        let subst = mkNamedTypeSubst info.TypeParams rargs
+                        let subst = mkNamedTypeSubst ctx.Store info.TypeParams rargs
 
                         let fieldTy (name: string) : SemType voption =
                             match info.Fields |> Array.tryFind (fun f -> f.Name = name) with
-                            | Some f -> ValueSome(substituteWith subst f.Type)
+                            | Some f -> ValueSome(substituteWith ctx.Store subst f.Type)
                             | None -> ValueNone
 
                         let declArgs = iargs |> EqArray.toList |> List.toArray
@@ -282,8 +287,8 @@ module UnificationEngine =
         | _ -> false
 
     let rec unify (ctx: PassContext) (key: NodeKey) (a: SemType) (b: SemType) =
-        let a = resolveStep a
-        let b = resolveStep b
+        let a = resolveStep ctx.Store a
+        let b = resolveStep ctx.Store b
 
         match a, b with
         // Ground-fold any carried type-level computation (`keyof`/`T[K]`/conditional)
@@ -369,15 +374,15 @@ module UnificationEngine =
             unify ctx key c1.WhenFalse c2.WhenFalse
         | TyVar tv1, TyVar tv2 when System.Object.ReferenceEquals(tv1, tv2) -> ()
         | TyVar tv1, TyVar tv2 ->
-            let r1 = UnionFind.find tv1
-            let r2 = UnionFind.find tv2
-            let unitsA = r1.Units
-            let unitsB = r2.Units
-            let linkA = r1.Link
-            let linkB = r2.Link
-            UnionFind.union r1 r2
+            let r1 = UnionFind.find ctx.Store tv1
+            let r2 = UnionFind.find ctx.Store tv2
+            let unitsA = ctx.Store.Units r1
+            let unitsB = ctx.Store.Units r2
+            let linkA = ctx.Store.Link r1
+            let linkB = ctx.Store.Link r2
+            UnionFind.union ctx.Store r1 r2
             // After union, exactly one of r1/r2 still has Parent = ValueNone.
-            let newRoot = UnionFind.find r1
+            let newRoot = UnionFind.find ctx.Store r1
 
             let merged =
                 if System.Object.ReferenceEquals(newRoot, r1) then
@@ -402,33 +407,36 @@ module UnificationEngine =
             | ValueNone, ValueNone -> ()
             | ValueSome t, ValueNone
             | ValueNone, ValueSome t ->
-                newRoot.Link <- ValueSome t
+                ctx.Store.SetLink(newRoot, ValueSome t)
                 drainAll ctx key newRoot t
             | ValueSome a, ValueSome b ->
-                newRoot.Link <- linkA
+                ctx.Store.SetLink(newRoot, linkA)
                 unify ctx key a b
                 drainAll ctx key newRoot a
         | TyVar tv, other
         | other, TyVar tv ->
-            let root = UnionFind.find tv
+            let root = UnionFind.find ctx.Store tv
 
-            if occursAndAdjust root other then
+            if occursAndAdjust ctx.Store root other then
                 ctx.Error(
                     key,
-                    sprintf "Occurs check: cannot construct infinite type %A = %A" (zonk (TyVar root)) (zonk other)
+                    sprintf
+                        "Occurs check: cannot construct infinite type %A = %A"
+                        (zonk ctx.Store (TyVar root))
+                        (zonk ctx.Store other)
                 )
             else
                 // Linking to a plain TyConst (a dimensionless carrier) when
                 // the variable is already known to be measured is a
                 // dimensionless-vs-measured mismatch.
-                match root.Units, other with
+                match ctx.Store.Units root, other with
                 | ValueSome m, TyConst _ when not m.IsDimensionless ->
                     ctx.Error(key, sprintf "Dimensionless %A used where <%O> expected" other m)
                 | _ -> ()
 
-                root.Link <- ValueSome other
+                ctx.Store.SetLink(root, ValueSome other)
                 drainAll ctx key root other
-        | _ -> ctx.Error(key, sprintf "Type mismatch: %A vs %A" (zonk a) (zonk b))
+        | _ -> ctx.Error(key, sprintf "Type mismatch: %A vs %A" (zonk ctx.Store a) (zonk ctx.Store b))
 
     /// Unify two same-length type-argument vectors positionally — the shared body
     /// of the `TyConst` / `TyRecord` / `TyUnion` / `TyClass` / `TyTuple` arms (each
@@ -448,14 +456,14 @@ module UnificationEngine =
     /// two no-pin absorptions here; richer class→interface witness coercion stays in
     /// `unifyArg`/`tryCoerceUpcast` for the eager application path.
     and private unifyArgCoerce (ctx: PassContext) (key: NodeKey) (actual: SemType) (expected: SemType) : unit =
-        match resolveStep actual, resolveStep expected with
+        match resolveStep ctx.Store actual, resolveStep ctx.Store expected with
         | TyTuple aa, TyTuple bb when aa.Length = bb.Length ->
             for i in 0 .. aa.Length - 1 do
                 unifyArgCoerce ctx key aa.[i] bb.[i]
         | a, b ->
             // `b` is already `resolveStep`-ed by the match; `absorbsAsObj` (the one
             // obj-policy home) re-steps idempotently.
-            if absorbsAsObj b then
+            if absorbsAsObj ctx.Store b then
                 ()
             else
                 match b with
@@ -484,7 +492,7 @@ module UnificationEngine =
     /// pre-built `TyFun` (the deferred dot-access drain, the overload-commit), unlike
     /// `inferApp`'s spine walk which already coerces each argument as it applies it.
     and unifyAppliedSig (ctx: PassContext) (key: NodeKey) (actual: SemType) (expected: SemType) : unit =
-        match resolveStep actual, resolveStep expected with
+        match resolveStep ctx.Store actual, resolveStep ctx.Store expected with
         | TyFun(ad, ar), TyFun(ed, er) ->
             unifyArgCoerce ctx key ad ed
             unifyAppliedSig ctx key ar er
@@ -520,7 +528,7 @@ module UnificationEngine =
 
                 for d in pending do
                     match lookup d.MemberName with
-                    | ValueSome ty -> unify ctx d.UseKey (TyVar d.ResultTv) (substituteWith subst ty)
+                    | ValueSome ty -> unify ctx d.UseKey (TyVar d.ResultTv) (substituteWith ctx.Store subst ty)
                     | ValueNone -> ctx.Error(d.UseKey, sprintf "Type '%s' has no %s '%s'" name memberNoun d.MemberName)
             | DotSource.ClassChain(key, args) ->
                 // `tryClassChainMember` already returns the type instantiated
@@ -660,7 +668,7 @@ module UnificationEngine =
             | SemanticConstraintKind.Comparison, _, ComparisonVerdict.Custom -> Satisfied
             | _ -> reduceOutcome (checkConstraint ctx c) (fieldsOf ())
 
-        match c.Kind, resolveStep t with
+        match c.Kind, resolveStep ctx.Store t with
         | _, TyVar _ -> Defer
         // An unresolved contract head supports no constraint, but the
         // mismatch is already reported where it unified — defer here so the
@@ -721,9 +729,9 @@ module UnificationEngine =
                     info.EqualitySupport
                     info.ComparisonSupport
                     (fun () ->
-                        let subst = mkNamedTypeSubst info.TypeParams args
+                        let subst = mkNamedTypeSubst ctx.Store info.TypeParams args
 
-                        info.Fields |> Seq.map (fun f -> substituteWith subst f.Type)
+                        info.Fields |> Seq.map (fun f -> substituteWith ctx.Store subst f.Type)
                     )
             | ValueNone -> Defer
         | (SemanticConstraintKind.Equality | SemanticConstraintKind.Comparison), TyUnion(unionKey, args) ->
@@ -733,12 +741,12 @@ module UnificationEngine =
                     info.EqualitySupport
                     info.ComparisonSupport
                     (fun () ->
-                        let subst = mkNamedTypeSubst info.TypeParams args
+                        let subst = mkNamedTypeSubst ctx.Store info.TypeParams args
                         let fields = ResizeArray<SemType>()
 
                         for case in info.Cases do
                             for field in case.Fields do
-                                fields.Add(substituteWith subst field)
+                                fields.Add(substituteWith ctx.Store subst field)
 
                         fields :> seq<SemType>
                     )
@@ -754,9 +762,9 @@ module UnificationEngine =
                     info.EqualitySupport
                     info.ComparisonSupport
                     (fun () ->
-                        let subst = mkNamedTypeSubst info.TypeParams args
+                        let subst = mkNamedTypeSubst ctx.Store info.TypeParams args
 
-                        info.InstanceFields |> Seq.map (fun f -> substituteWith subst f.Type)
+                        info.InstanceFields |> Seq.map (fun f -> substituteWith ctx.Store subst f.Type)
                     )
             | ValueNone -> Defer
         | SemanticConstraintKind.Equality, TyOr members ->
@@ -822,12 +830,12 @@ module UnificationEngine =
                 // `'e :> exn`) have no free-var args, so this is a no-op for them.
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target ->
-                    match subtypeNominalOf ctx (zonk target) with
+                    match subtypeNominalOf ctx (zonk ctx.Store target) with
                     | ValueSome(struct (tname, targs)) when
                         targs.Length > 0
                         && targs
                            |> EqArray.exists (fun a ->
-                               match resolveStep a with
+                               match resolveStep ctx.Store a with
                                | TyVar _ -> true
                                | _ -> false
                            )
@@ -855,7 +863,7 @@ module UnificationEngine =
                 // non-arrow `linkTarget` are untouched.
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target ->
-                    match subtypeNominalOf ctx (zonk target), resolveStep linkTarget with
+                    match subtypeNominalOf ctx (zonk ctx.Store target), resolveStep ctx.Store linkTarget with
                     | ValueSome(struct (tname, targs)), TyFun(a, b) when
                         funSlotArityOfArgs (SymbolKeyOps.bareName (SymbolKeyOps.qualifiedName tname)) targs.Length
                         |> Option.isSome
@@ -864,7 +872,7 @@ module UnificationEngine =
                         // aligned to `targs` — a too-short spine grounds NOTHING. The
                         // check-side and this grounding side peel identically by
                         // construction.
-                        match peelFunSpine (targs.Length - 1) a b with
+                        match peelFunSpine ctx.Store (targs.Length - 1) a b with
                         | Some tys -> tys |> List.iteri (fun i s -> unify ctx key s targs.[i])
                         | None -> ()
                     | _ -> ()
@@ -877,7 +885,7 @@ module UnificationEngine =
                         key,
                         sprintf
                             "The type '%A' does not support the '%s' constraint"
-                            (zonk linkTarget)
+                            (zonk ctx.Store linkTarget)
                             (constraintKindName c.Kind)
                     )
                 | Defer ->
@@ -896,9 +904,9 @@ module UnificationEngine =
         // computation defers its constraint, so its still-free children take it
         // so the check re-fires on grounding.
         let rec walk t =
-            match resolveStep t with
+            match resolveStep ctx.Store t with
             | TyVar tv ->
-                let root = UnionFind.find tv
+                let root = UnionFind.find ctx.Store tv
                 addConstraintByKind ctx.Store root c
             | t -> SemType.iterChildren walk t
 
@@ -996,7 +1004,7 @@ module UnificationEngine =
             | 1 -> TyFun(argTys.[0], bound.ReturnType)
             | _ -> TyFun(TyTuple argTys, bound.ReturnType)
 
-        match resolveStep candidate with
+        match resolveStep ctx.Store candidate with
         | TyFun(TyTuple _, _) -> unify ctx key candidate tupled
         | _ when argTys.Length >= 2 ->
             let curried = EqArray.foldBack (fun a r -> TyFun(a, r)) argTys bound.ReturnType
@@ -1026,7 +1034,7 @@ module UnificationEngine =
                 // `b` since this snapshot — skip it, as the shared `Resolved` flag used
                 // to.
                 if not (ctx.Store.Srtp.IsSolved b) then
-                    match resolveStep linkTarget with
+                    match resolveStep ctx.Store linkTarget with
                     | TyConst(primKey, _) ->
                         let primName = SymbolKeyOps.intrinsicName primKey
 
@@ -1042,7 +1050,7 @@ module UnificationEngine =
                         | ValueSome info ->
                             match info.Members |> Array.tryFind (fun m -> m.IsStatic && m.Name = b.MemberName) with
                             | Some m ->
-                                let candTy = instantiateMember (info.TypeParams, classArgs) m.Type
+                                let candTy = instantiateMember ctx.Store (info.TypeParams, classArgs) m.Type
                                 ctx.Store.Srtp.Solve b
                                 unifySrtpAgainst ctx key candTy b
                             | None ->
@@ -1097,7 +1105,7 @@ module UnificationEngine =
         // enclosing type's parameter (the Vesper.Set `Set<'T>` whole-class-typar
         // grounding). The box is inserted at codegen (the call site sees the param
         // is `obj` and the arg's static type is a typar / value type).
-        if absorbsAsObj tgt then
+        if absorbsAsObj ctx.Store tgt then
             true
         else
 
@@ -1106,7 +1114,7 @@ module UnificationEngine =
             // no-pin discipline as `obj` above. `subsumes` is a pure read (no `Link`),
             // so a generic value threaded through a union-typed parameter is not wrongly
             // grounded — the `acceptsByAssignability` generalisation of `absorbsAsObj`.
-            match resolveStep tgt with
+            match resolveStep ctx.Store tgt with
             // `subsumes` itself folds carried nodes nested in union members
             // (`foldMemberCarried`), so no pre-fold here.
             | TyOr _ -> subsumes ctx src tgt <> SubsumeOutcome.Unrelated
@@ -1144,7 +1152,7 @@ module UnificationEngine =
     /// (`Set(comparer, tree)`) coerces each component independently. Used at every
     /// argument / chain-call coercion site (application, primary/secondary ctors).
     let rec unifyArg (ctx: PassContext) (key: NodeKey) (actual: SemType) (expected: SemType) : unit =
-        match resolveStep actual, resolveStep expected with
+        match resolveStep ctx.Store actual, resolveStep ctx.Store expected with
         | TyTuple aa, TyTuple bb when aa.Length = bb.Length ->
             for i in 0 .. aa.Length - 1 do
                 unifyArg ctx key aa.[i] bb.[i]
@@ -1172,7 +1180,7 @@ module UnificationEngine =
         // outward-widening arm below (keeps that arm strictly additive: a non-literal
         // union still grounds via symmetric `unify`, unchanged).
         let rec isLiteralBearing t =
-            match resolveStep t with
+            match resolveStep ctx.Store t with
             | TyLiteral _ -> true
             | TyOr ms -> ms.Members |> EqSet.forall isLiteralBearing
             | _ -> false
@@ -1185,7 +1193,7 @@ module UnificationEngine =
         // getMode()`, design §"reading a literal-typed value back into Vesper needs
         // nothing new"). Everything else — a plain nominal / non-literal union
         // annotated to a supertype — still GROUNDS via symmetric `unify`.
-        match resolveStep expected with
+        match resolveStep ctx.Store expected with
         | expected' when
             (match expected' with
              | TyOr _ -> true

@@ -20,14 +20,14 @@ module internal UnificationTranslate =
     /// a CST node's NodeKey.
     let freshTyVar (ctx: PassContext) : TypeVar =
         let tv = ctx.NewTypeVar()
-        tv.Level <- ctx.CurrentLevel
+        ctx.Store.SetLevel(tv, ctx.CurrentLevel)
         tv
 
     /// Overwrites any prior entry — callers that need "get or allocate"
     /// (e.g. forward-referenced let-rec siblings) must go through `tvOf`.
     let freshTv (ctx: PassContext) (key: NodeKey) : TypeVar =
         let tv = ctx.NewTypeVar()
-        tv.Level <- ctx.CurrentLevel
+        ctx.Store.SetLevel(tv, ctx.CurrentLevel)
         ctx.Bindings.TypeVar.Set(key, tv)
         tv
 
@@ -240,7 +240,7 @@ module internal UnificationTranslate =
                         }
 
                     let tv = ctx.NewTypeVar()
-                    tv.Level <- ctx.CurrentLevel
+                    ctx.Store.SetLevel(tv, ctx.CurrentLevel)
                     ctx.Resolution.TyparScope.[name] <- tv
                     TyVar tv
                 else
@@ -248,7 +248,7 @@ module internal UnificationTranslate =
                     // generalisation at binding-group exit picks it up;
                     // memoise so later occurrences share identity.
                     let tv = ctx.NewTypeVar()
-                    tv.Level <- ctx.CurrentLevel
+                    ctx.Store.SetLevel(tv, ctx.CurrentLevel)
                     ctx.Resolution.TyparScope.[name] <- tv
                     TyVar tv
         | Type.VarType(Typar.Anon _) ->
@@ -327,12 +327,14 @@ module internal UnificationTranslate =
                 // a stamp. Every WRITTEN annotation is stamped upstream and reads the
                 // store face through `tryResolveExternalTypeStamped`, which has no
                 // by-name fallback.
-                tv.Link <-
+                ctx.Store.SetLink(
+                    tv,
                     ValueSome(
                         resolveBareTypeName ctx carrierTok (fun name -> tryResolveExternalType ctx name EqArray.empty)
                     )
+                )
 
-                tv.Units <- ValueSome mt
+                ctx.Store.SetUnits(tv, ValueSome mt)
                 TyVar tv
             | ValueNone -> TyVar(freshTyVar ctx)
         | Type.GenericType(longIdent = li; typeArgs = args) when li.Idents.Length = 1 ->
@@ -795,7 +797,7 @@ module internal UnificationTranslate =
 
                 match ctx.Resolution.TyparScope.TryGetValue name with
                 | true, tv ->
-                    let root = UnionFind.find tv
+                    let root = UnionFind.find ctx.Store tv
 
                     let sc =
                         {
@@ -913,7 +915,7 @@ module internal UnificationTranslate =
         for i = 0 to n - 1 do
             let (_, protoTv) = info.TypeParams.[i]
             let arg = args.[i]
-            let protoRoot = UnionFind.find protoTv
+            let protoRoot = UnionFind.find ctx.Store protoTv
 
             for c in ctx.Store.Constraints.Items protoRoot.Id do
                 match checkConstraint ctx c arg with
@@ -925,7 +927,7 @@ module internal UnificationTranslate =
                             Message =
                                 sprintf
                                     "The type '%A' does not support the '%s' constraint"
-                                    (zonk arg)
+                                    (zonk ctx.Store arg)
                                     (constraintKindName c.Kind)
                             Code = ""
                             Severity = Severity.Error
@@ -933,5 +935,5 @@ module internal UnificationTranslate =
                 | Defer -> propagateToFreeArgs ctx c arg
 
         match info.Body with
-        | ValueSome body -> instantiateMember (info.TypeParams, args) body
+        | ValueSome body -> instantiateMember ctx.Store (info.TypeParams, args) body
         | ValueNone -> TyVar(freshTyVar ctx)

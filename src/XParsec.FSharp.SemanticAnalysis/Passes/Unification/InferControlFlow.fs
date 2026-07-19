@@ -103,9 +103,9 @@ module internal UnificationInferControlFlow =
     /// []` already types as the Vesper union, so it bypasses this and is admitted
     /// directly.) A non-literal source is left untouched.
     let private pinListLiteralToVesper (ctx: PassContext) (key: NodeKey) (srcTy: SemType) : unit =
-        match zonk srcTy with
+        match zonk ctx.Store srcTy with
         | TyVar tv ->
-            match tryListLiteralElem ctx (UnionFind.find tv) with
+            match tryListLiteralElem ctx (UnionFind.find ctx.Store tv) with
             | ValueSome elemTy -> unify ctx key srcTy (TyUnion(RuntimeNames.vesperListKey, EqArray.singleton elemTy))
             | ValueNone -> ()
         | _ -> ()
@@ -123,7 +123,7 @@ module internal UnificationInferControlFlow =
         (enumArgs: EqArray<SemType>)
         : (SemType * bool * bool) voption =
         let inst (t: SemType) =
-            zonk (instantiateMember (enumInfo.TypeParams, enumArgs) t)
+            zonk ctx.Store (instantiateMember ctx.Store (enumInfo.TypeParams, enumArgs) t)
 
         let moveNext =
             enumInfo.Members
@@ -163,7 +163,11 @@ module internal UnificationInferControlFlow =
                     )
 
                 // `Current`'s instantiated type is the loop element type.
-                ValueSome(instantiateMember (enumInfo.TypeParams, enumArgs) cur.Type, enumInfo.IsValueType, disposable)
+                ValueSome(
+                    instantiateMember ctx.Store (enumInfo.TypeParams, enumArgs) cur.Type,
+                    enumInfo.IsValueType,
+                    disposable
+                )
             | _ -> ValueNone
         | _ -> ValueNone
 
@@ -171,15 +175,15 @@ module internal UnificationInferControlFlow =
     /// diagnostic. v1 members are ground annotation types (`int`, `string`,
     /// `null`), so the bare `TyConst` name reads well; anything compound falls
     /// back to `%A`.
-    let rec private describeUnionMember (m: SemType) : string =
-        match resolveStep m with
+    let rec private describeUnionMember (store: TypeStore) (m: SemType) : string =
+        match resolveStep store m with
         | TyConst(key, args) when args.IsEmpty ->
             let (DisplayName shown) = SymbolKeyOps.simpleName key
             shown
         | TyOr inner ->
             inner.Members
             |> EqSet.toList
-            |> List.map describeUnionMember
+            |> List.map (describeUnionMember store)
             |> String.concat " | "
         | other -> sprintf "%A" other
 
@@ -200,7 +204,7 @@ module internal UnificationInferControlFlow =
         (scrutineeTy: SemType)
         (rules: ImmutableArray<Rule<SyntaxToken>>)
         : SemType list * SemType list =
-        match zonk scrutineeTy with
+        match zonk ctx.Store scrutineeTy with
         | TyOr members ->
             // The members a `:? T` / `:? T as _` arm tests for, recursing through
             // `|` alternatives. Anything else tests no member.
@@ -351,7 +355,7 @@ module internal UnificationInferControlFlow =
         unify ctx key endTy ctx.Intrinsics.Int
         let varKey = CstKeys.ofForToVar ident
         let varTv = freshTv ctx varKey
-        varTv.Link <- ValueSome ctx.Intrinsics.Int
+        ctx.Store.SetLink(varTv, ValueSome ctx.Intrinsics.Int)
         let bodyTy = infer ctx body
         unify ctx key bodyTy ctx.Intrinsics.Unit
         ctx.Intrinsics.Unit
@@ -427,7 +431,7 @@ module internal UnificationInferControlFlow =
             | Some ge ->
                 // `GetEnumerator : unit → E`; instantiate the source's typars so `E`
                 // carries the use-site element type.
-                match zonk (instantiateMember (info.TypeParams, args) ge.Type) with
+                match zonk ctx.Store (instantiateMember ctx.Store (info.TypeParams, args) ge.Type) with
                 | TyFun(_, (TyClass(enumKey, enumArgs) as enumTy)) ->
                     match TypeRegistry.tryClassByKey ctx.Types enumKey with
                     // A user enumerator, reference or value-type: a `[<Struct>]`
@@ -493,7 +497,7 @@ module internal UnificationInferControlFlow =
             |> Array.tryPick (fun impl ->
                 match impl.Resolved with
                 | ValueSome resolved ->
-                    match zonk (instantiateMember (host.TypeParams, args) resolved) with
+                    match zonk ctx.Store (instantiateMember ctx.Store (host.TypeParams, args) resolved) with
                     | TyClass(ifaceKey, ifaceArgs) when
                         RuntimeNames.matchesKey ctx.CapabilityIds.Enumerable ifaceKey
                         && ifaceArgs.Length = 1
@@ -526,7 +530,7 @@ module internal UnificationInferControlFlow =
         (ctx: PassContext)
         (enumTy: SemType)
         : (SemType * ForInEnumMembers * bool * bool) voption =
-        match zonk enumTy with
+        match zonk ctx.Store enumTy with
         | TyClass(enumKey, enumArgs) ->
             match TypeRegistry.tryClassByKey ctx.Types enumKey with
             | ValueSome enumInfo ->
@@ -555,7 +559,7 @@ module internal UnificationInferControlFlow =
             | c :: rest ->
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target ->
-                    match resolveStep target with
+                    match resolveStep ctx.Store target with
                     | TyClass(ifaceKey, ifaceArgs) ->
                         // Resolve by the interface's key, not a bare name: an
                         // arity-overloaded interface (`Fun`2`/`Fun`3`) does not resolve by bare name.
@@ -566,11 +570,11 @@ module internal UnificationInferControlFlow =
                                 tryClassChainMember ctx ifaceKey ifaceArgs "Current"
                             with
                             | ValueSome mnTy, ValueSome curTy ->
-                                match zonk mnTy with
+                                match zonk ctx.Store mnTy with
                                 | TyFun(_, TyBool) ->
                                     // `Current` is a property — its type IS the element type.
                                     ValueSome(
-                                        zonk curTy,
+                                        zonk ctx.Store curTy,
                                         ForInEnumMembersG.ConstrainedInterface(ifaceKey, ifaceArgs),
                                         false,
                                         false
@@ -596,7 +600,7 @@ module internal UnificationInferControlFlow =
             | c :: rest ->
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target ->
-                    match resolveStep target with
+                    match resolveStep ctx.Store target with
                     | TyClass(ifaceKey, ifaceArgs) ->
                         // Resolve by the interface's key, not a bare name: an
                         // arity-overloaded interface (`Fun`2`/`Fun`3`) does not resolve by bare name.
@@ -604,7 +608,7 @@ module internal UnificationInferControlFlow =
                         | ValueSome info when info.IsInterface ->
                             match tryClassChainMember ctx ifaceKey ifaceArgs "GetEnumerator" with
                             | ValueSome mty ->
-                                match zonk mty with
+                                match zonk ctx.Store mty with
                                 | TyFun(_, enumTy) ->
                                     match tryConstrainedEnumeratorMembers ctx enumTy with
                                     | ValueSome(elemTy, members, isValueType, dispose) ->
@@ -634,7 +638,7 @@ module internal UnificationInferControlFlow =
     /// `'T` so `inferForIn` can pin the loop pattern's type, plus the
     /// `ForInEnumerator` codegen reads off the frozen node.
     and tryForInEnumerator (ctx: PassContext) (srcTy: SemType) : (SemType * ForInEnumerator) voption =
-        match zonk srcTy with
+        match zonk ctx.Store srcTy with
         | TyClass(nameKey, args) when RuntimeNames.matchesKey ctx.CapabilityIds.Enumerable nameKey && args.Length = 1 ->
             ValueSome(args.[0], ForInEnumeratorG.Interface)
         | TyClass(nameKey, args) ->
@@ -768,7 +772,8 @@ module internal UnificationInferControlFlow =
 
         match residual with
         | _ :: _ ->
-            let names = residual |> List.map describeUnionMember |> String.concat " | "
+            let names =
+                residual |> List.map (describeUnionMember ctx.Store) |> String.concat " | "
 
             ctx.Warn(key, sprintf "Incomplete pattern match on anonymous union: member(s) '%s' not handled" names)
         | [] -> ()
@@ -856,7 +861,7 @@ module internal UnificationInferControlFlow =
 
         match unwrapLhs left with
         | Expr.IndexedLookup(expr = arrE) ->
-            let arrTy = zonk (TyVar(tvOf ctx (CstKeys.ofExpr arrE)))
+            let arrTy = zonk ctx.Store (TyVar(tvOf ctx (CstKeys.ofExpr arrE)))
 
             let setSym =
                 match arrTy with

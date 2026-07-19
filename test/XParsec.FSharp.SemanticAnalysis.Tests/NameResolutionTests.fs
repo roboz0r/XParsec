@@ -284,12 +284,12 @@ let tests =
 
                 let info = expectRecord ctx "Box"
                 let _, tparTv = info.TypeParams.[0]
-                let tparRoot = UnionFind.find tparTv
-                let fieldTy = Unification.zonk info.Fields.[0].Type
+                let tparRoot = UnionFind.find ctx.Store tparTv
+                let fieldTy = Unification.zonk ctx.Store info.Fields.[0].Type
 
                 match fieldTy with
                 | TyVar fieldTv ->
-                    let fieldRoot = UnionFind.find fieldTv
+                    let fieldRoot = UnionFind.find ctx.Store fieldTv
                     Expect.isTrue (System.Object.ReferenceEquals(tparRoot, fieldRoot)) "field shares typar root"
                 | other -> failtestf "expected TyVar, got %A" other
             }

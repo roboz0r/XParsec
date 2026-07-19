@@ -67,12 +67,12 @@ let rec private typarLeavesIn (t: FrozenType) : FrozenType list =
         List.ofSeq acc
 
 /// Every `TypeVar` root in a `SemType`, in first-occurrence pre-order.
-let rec private semRootsOf (t: SemType) : TypeVar list =
+let rec private semRootsOf (store: TypeStore) (t: SemType) : TypeVar list =
     match t with
-    | TyVar tv -> [ UnionFind.find tv ]
+    | TyVar tv -> [ UnionFind.find store tv ]
     | t ->
         let acc = ResizeArray<TypeVar>()
-        SemType.iterChildren (fun c -> acc.AddRange(semRootsOf c)) t
+        SemType.iterChildren (fun c -> acc.AddRange(semRootsOf store c)) t
         List.ofSeq acc
 
 /// Run over every `.ty` slot of a decl, collecting them. `TastConvert` is the
@@ -367,10 +367,12 @@ let tests =
                 // One decl-scoped thaw: one fresh cell per distinct leaf, shared across every
                 // occurrence of it. `thawBody` mints on all three axes, so the expected count
                 // is every leaf the frozen decl names — not just the local ones.
+                let store = TypeStore()
+
                 let cells =
-                    Inline.thawBody (TypeStore()) fDecl
+                    Inline.thawBody store fDecl
                     |> collectTys
-                    |> List.collect semRootsOf
+                    |> List.collect (semRootsOf store)
                     |> distinctCells
 
                 Expect.equal
@@ -430,27 +432,31 @@ let tests =
 
                 // The consumer's own live inference cells, before anything is thawed into it.
                 let consumerOwnCells =
-                    let tast = analyse consumer
+                    let ctx, tast = analyseWithCtx consumer
 
                     tast.Decls
                     |> EqArray.toList
                     |> List.collect collectTys
-                    |> List.collect semRootsOf
+                    |> List.collect (semRootsOf ctx.Store)
                     |> distinctCells
 
                 // Each body is thawed with its OWN decl-scoped cache (design constraint: one
                 // cache per thawed decl). Despite the identical binder key, the two thaws mint
                 // independent cells — nothing is keyed by NodeKey in any shared table.
+                let pStore = TypeStore()
+
                 let pCells =
-                    Inline.thawBody (TypeStore()) pDecl
+                    Inline.thawBody pStore pDecl
                     |> collectTys
-                    |> List.collect semRootsOf
+                    |> List.collect (semRootsOf pStore)
                     |> distinctCells
 
+                let cStore = TypeStore()
+
                 let cCells =
-                    Inline.thawBody (TypeStore()) cDecl
+                    Inline.thawBody cStore cDecl
                     |> collectTys
-                    |> List.collect semRootsOf
+                    |> List.collect (semRootsOf cStore)
                     |> distinctCells
 
                 let disjointFrom (xs: TypeVar list) (ys: TypeVar list) =

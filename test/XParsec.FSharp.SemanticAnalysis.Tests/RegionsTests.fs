@@ -68,9 +68,12 @@ let private regionOf (input: string) (name: string) : RegionId option =
 
     match ctx.Bindings.TypeVar.TryGetValue key with
     | ValueSome tv ->
-        let root = UnionFind.find tv
+        let root = UnionFind.find ctx.Store tv
 
-        if root.Region.Raw >= 0 then Some root.Region else None
+        if (ctx.Store.Region root).Raw >= 0 then
+            Some(ctx.Store.Region root)
+        else
+            None
     | ValueNone -> None
 
 /// Axis-2 representation verdict of a *module-level* binding.
@@ -283,9 +286,12 @@ let tests =
 
                         match ctx.Bindings.TypeVar.TryGetValue k with
                         | ValueSome tv ->
-                            let root = UnionFind.find tv
+                            let root = UnionFind.find ctx.Store tv
 
-                            if root.Region.Raw >= 0 then Some(k, root.Region) else None
+                            if (ctx.Store.Region root).Raw >= 0 then
+                                Some(k, ctx.Store.Region root)
+                            else
+                                None
                         | ValueNone -> None
 
                     let rec walk e =
@@ -390,8 +396,12 @@ let tests =
                 let regionOfKey k =
                     match ctx.Bindings.TypeVar.TryGetValue k with
                     | ValueSome tv ->
-                        let root = UnionFind.find tv
-                        if root.Region.Raw >= 0 then Some root.Region else None
+                        let root = UnionFind.find ctx.Store tv
+
+                        if (ctx.Store.Region root).Raw >= 0 then
+                            Some(ctx.Store.Region root)
+                        else
+                            None
                     | ValueNone -> None
 
                 Expect.isSome (regionOfKey innerKey) "the as-pattern's surfaced inner binder has a region"
@@ -430,8 +440,12 @@ let tests =
                 let regionOfKey k =
                     match ctx.Bindings.TypeVar.TryGetValue k with
                     | ValueSome tv ->
-                        let root = UnionFind.find tv
-                        if root.Region.Raw >= 0 then Some root.Region else None
+                        let root = UnionFind.find ctx.Store tv
+
+                        if (ctx.Store.Region root).Raw >= 0 then
+                            Some(ctx.Store.Region root)
+                        else
+                            None
                     | ValueNone -> None
 
                 let rA = regionOfKey aKey

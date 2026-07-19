@@ -38,7 +38,7 @@ module UnificationSubsume =
         let litValues = HashSet<string>()
 
         for m in members do
-            match resolveStep m with
+            match resolveStep ctx.Store m with
             | TyLiteral(LiteralConst.String s) -> litValues.Add s |> ignore
             | _ -> ()
 
@@ -69,7 +69,7 @@ module UnificationSubsume =
     /// shape's INSTANCE members (declared `.d.ts` order preserved, deduped across method
     /// overloads).
     let private groundMemberNames (ctx: PassContext) (t: SemType) : string list voption =
-        match resolveStep t with
+        match resolveStep ctx.Store t with
         | TyRecord(key, _) ->
             match TypeRegistry.tryRecordByKey ctx.Types key with
             | ValueSome info -> ValueSome [ for f in info.Fields -> f.Name ]
@@ -100,12 +100,12 @@ module UnificationSubsume =
     /// `instantiateSignature` here — but stating the non-freshening realiser makes the
     /// read-only-ness structural rather than a load-bearing coincidence.
     let private groundMemberType (ctx: PassContext) (t: SemType) (name: string) : SemType voption =
-        match resolveStep t with
+        match resolveStep ctx.Store t with
         | TyRecord(key, args) ->
             match TypeRegistry.tryRecordByKey ctx.Types key with
             | ValueSome info ->
                 match info.Fields |> Array.tryFind (fun f -> f.Name = name) with
-                | Some field -> ValueSome(instantiateMember (info.TypeParams, args) field.Type)
+                | Some field -> ValueSome(instantiateMember ctx.Store (info.TypeParams, args) field.Type)
                 | None -> ValueNone
             | ValueNone -> ValueNone
         | TyClass(key, args) when (TypeRegistry.tryClassByKey ctx.Types key).IsNone ->
@@ -122,15 +122,15 @@ module UnificationSubsume =
     /// sets, literal parameter slots) all specialise this rather than re-rolling
     /// the collect-and-check loop. Callers pre-fold (`evalTypeLevel`) per their
     /// own seam; this only `resolveStep`s.
-    let tryLiteralMembers (t: SemType) : LiteralConst list voption =
-        match resolveStep t with
+    let tryLiteralMembers (store: TypeStore) (t: SemType) : LiteralConst list voption =
+        match resolveStep store t with
         | TyLiteral v -> ValueSome [ v ]
         | TyOr ms ->
             let acc = ResizeArray<LiteralConst>()
             let mutable allLit = true
 
             for m in ms.Members do
-                match resolveStep m with
+                match resolveStep store m with
                 | TyLiteral v -> acc.Add v
                 | _ -> allLit <- false
 
@@ -142,8 +142,8 @@ module UnificationSubsume =
 
     /// `tryLiteralMembers` narrowed to ALL-STRING literals (`ValueNone` when any
     /// member is a non-string literal or a non-literal).
-    let tryLiteralStrings (t: SemType) : string list voption =
-        match tryLiteralMembers t with
+    let tryLiteralStrings (store: TypeStore) (t: SemType) : string list voption =
+        match tryLiteralMembers store t with
         | ValueSome vs ->
             let strings =
                 vs
@@ -162,26 +162,27 @@ module UnificationSubsume =
     /// The STRING literal keys an indexed-access index selects: a single `TyLiteral`, or a
     /// union of them (`T[keyof T]`). `ValueNone` for a non-literal / mixed index, so the
     /// access stays carried (the documented precision fallback, not a hard error).
-    let private indexLiteralKeys (index: SemType) : string list voption = tryLiteralStrings index
+    let private indexLiteralKeys (store: TypeStore) (index: SemType) : string list voption =
+        tryLiteralStrings store index
 
     /// No free `TyVar` and no still-carried type-level node anywhere in `t` — the gate a
     /// conditional's `check`/`extends` must pass before its `extends` test can decide.
-    let rec private isGroundEval (t: SemType) : bool =
-        match resolveStep t with
+    let rec private isGroundEval (store: TypeStore) (t: SemType) : bool =
+        match resolveStep store t with
         | TyVar _
         | TyKeyOf _
         | TyIndexedAccess _
         | TyConditional _ -> false
-        | t -> SemType.forallChildren isGroundEval t
+        | t -> SemType.forallChildren (isGroundEval store) t
 
     /// A carried type-level node (`keyof`/`T[K]`/conditional) occurs anywhere in
     /// `t` — the gate behind which `foldMemberCarried` pays for `evalTypeLevel`.
-    let rec private hasCarriedNode (t: SemType) : bool =
-        match resolveStep t with
+    let rec private hasCarriedNode (store: TypeStore) (t: SemType) : bool =
+        match resolveStep store t with
         | TyKeyOf _
         | TyIndexedAccess _
         | TyConditional _ -> true
-        | t -> SemType.existsChild hasCarriedNode t
+        | t -> SemType.existsChild (hasCarriedNode store) t
 
     /// Subtyping query distinct from `unify`: does a value of type `src`
     /// coerce to the statically-known type `tgt`? A **pure read** of
@@ -209,7 +210,7 @@ module UnificationSubsume =
     /// nested carried type-level nodes before comparison (`foldMemberCarried`),
     /// so callers never pre-fold a union operand.
     let rec subsumes (ctx: PassContext) (src: SemType) (tgt: SemType) : SubsumeOutcome =
-        match resolveStep src, resolveStep tgt with
+        match resolveStep ctx.Store src, resolveStep ctx.Store tgt with
         // union → union (`A | B ≤ A | B | C`, order-insensitive): every member of
         // the source must land in some member of the target. Identical member sets
         // are `Equal` (reflexivity, sound because `ssm = tsm` is EqSet set-equality —
@@ -296,7 +297,7 @@ module UnificationSubsume =
             ->
             let k = targs.Length - 1
 
-            match peelFunSpine k a b with
+            match peelFunSpine ctx.Store k a b with
             | Some tys when List.forall2 (fun s t -> subsumes ctx s t = SubsumeOutcome.Equal) tys (EqArray.toList targs) ->
                 SubsumeOutcome.Subtype
             | _ -> SubsumeOutcome.Unrelated
@@ -329,7 +330,7 @@ module UnificationSubsume =
             | _ -> SubsumeOutcome.Unrelated
         | _ ->
             // Non-nominal operands (vars, funcs, tuples): identity only.
-            if resolveStep src = resolveStep tgt then
+            if resolveStep ctx.Store src = resolveStep ctx.Store tgt then
                 SubsumeOutcome.Equal
             else
                 SubsumeOutcome.Unrelated
@@ -345,14 +346,17 @@ module UnificationSubsume =
     /// `openSignature`, so no call-site vars enter the graph — so `subsumes` stays
     /// side-effect-free.
     and private foldMemberCarried (ctx: PassContext) (m: SemType) : SemType =
-        if hasCarriedNode m then evalTypeLevel ctx m else m
+        if hasCarriedNode ctx.Store m then
+            evalTypeLevel ctx m
+        else
+            m
 
     /// Ground-evaluate a carried type-level computation as far as its inputs allow.
     /// Returns the FOLDED type when a rule fires; otherwise returns the (child-eval'd)
     /// carrier unchanged so it stays inert. Never mints a literal for a Vesper expression
     /// — the folds only rewrite nodes that already exist in an external signature.
     and evalTypeLevel (ctx: PassContext) (t: SemType) : SemType =
-        match resolveStep t with
+        match resolveStep ctx.Store t with
         // `keyof T` → the union of `T`'s member NAMES as string literals.
         | TyKeyOf inner ->
             let inner = evalTypeLevel ctx inner
@@ -366,7 +370,7 @@ module UnificationSubsume =
             let objTy = evalTypeLevel ctx objTy
             let index = evalTypeLevel ctx index
 
-            match indexLiteralKeys index with
+            match indexLiteralKeys ctx.Store index with
             | ValueSome keys ->
                 let tys = ResizeArray<SemType>()
                 let mutable allFound = true
@@ -389,7 +393,7 @@ module UnificationSubsume =
             let check = evalTypeLevel ctx c.Check
             let extends = evalTypeLevel ctx c.Extends
 
-            if isGroundEval check && isGroundEval extends then
+            if isGroundEval ctx.Store check && isGroundEval ctx.Store extends then
                 match subsumes ctx check extends with
                 | SubsumeOutcome.Unrelated -> evalTypeLevel ctx c.WhenFalse
                 | _ -> evalTypeLevel ctx c.WhenTrue
@@ -411,7 +415,7 @@ module UnificationSubsume =
         // (a folded member can collapse/reorder the set). A carrier-free type has
         // nothing to fold, so return it BY REFERENCE — a casual `evalTypeLevel` on an
         // already-ground / non-foldable operand allocates nothing.
-        | t when hasCarriedNode t -> SemType.mapChildren (evalTypeLevel ctx) t
+        | t when hasCarriedNode ctx.Store t -> SemType.mapChildren (evalTypeLevel ctx) t
         | t -> t
 
     /// A carried type-level node folded to a CONCRETE (non-carrier) type, or `ValueNone`

@@ -267,7 +267,7 @@ let tests =
 
                 let rTy =
                     match ctx.Bindings.TypeVar.TryGetValue rKey with
-                    | ValueSome tv -> Unification.zonk (TyVar tv)
+                    | ValueSome tv -> Unification.zonk ctx.Store (TyVar tv)
                     | ValueNone -> failtest "no TypeVar for r"
 
                 let intToInt = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)

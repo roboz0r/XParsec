@@ -120,27 +120,27 @@ module Inline =
     /// `thawBody` re-mints a fresh `TyVar` cell per frozen typar leaf BEFORE the
     /// splice, so by the time this runs the template's typars are roots again — this
     /// unit's roots. It never sees a `TyTypar`.
-    let quantifiedTypars (declTy: SemType) : TypeVar[] =
+    let quantifiedTypars (store: TypeStore) (declTy: SemType) : TypeVar[] =
         let acc = ResizeArray<TypeVar>()
         let seen = HashSet<TypeVar>(HashIdentity.Reference)
-        SemTypeWalk.collectLinkedRoots acc seen declTy
+        SemTypeWalk.collectLinkedRoots store acc seen declTy
         acc.ToArray()
 
     /// Substitute typar roots present in `subst`. A template's free typar is a
     /// `TyVar` root with no Link (the producer's, pre-freeze; a freshly minted one
     /// of this unit's, post-`thawBody`); chase to the union-find root and swap.
     /// Roots absent from `subst` stay abstract.
-    let rec private substType (subst: Dictionary<TypeVar, SemType>) (t: SemType) : SemType =
+    let rec private substType (store: TypeStore) (subst: Dictionary<TypeVar, SemType>) (t: SemType) : SemType =
         match t with
         | TyVar tv ->
-            let root = UnionFind.find tv
+            let root = UnionFind.find store tv
 
             match subst.TryGetValue root with
             | true, repl -> repl
             | _ -> TyVar root
         // Pure child recursion (`mapChildren` routes `TyOr` through the smart
         // constructor: substituting a typar member can collapse / reorder the set).
-        | t -> SemType.mapChildren (substType subst) t
+        | t -> SemType.mapChildren (substType store subst) t
 
     /// Structural match of two (already typar-substituted) `SemType`s for a
     /// static-optimization `when ^T : Type` clause. `TyVar`s compare by union-find
@@ -156,15 +156,15 @@ module Inline =
     /// by `Translate.resolveBareTypeName`. Both the operand's type and the clause's required
     /// type pass through it, so both sides arrive here already canonical, and a name compare
     /// would only be a lossy `=` that drops the identity's declaring namespace.
-    let rec private staticOptTypesMatch (a: SemType) (b: SemType) : bool =
+    let rec private staticOptTypesMatch (store: TypeStore) (a: SemType) (b: SemType) : bool =
         match a, b with
-        | TyVar x, TyVar y -> System.Object.ReferenceEquals(UnionFind.find x, UnionFind.find y)
-        | TyConst(k1, xs), TyConst(k2, ys) -> k1 = k2 && EqArray.forall2 staticOptTypesMatch xs ys
-        | TyFun(a1, r1), TyFun(a2, r2) -> staticOptTypesMatch a1 a2 && staticOptTypesMatch r1 r2
-        | TyTuple xs, TyTuple ys -> EqArray.forall2 staticOptTypesMatch xs ys
+        | TyVar x, TyVar y -> System.Object.ReferenceEquals(UnionFind.find store x, UnionFind.find store y)
+        | TyConst(k1, xs), TyConst(k2, ys) -> k1 = k2 && EqArray.forall2 (staticOptTypesMatch store) xs ys
+        | TyFun(a1, r1), TyFun(a2, r2) -> staticOptTypesMatch store a1 a2 && staticOptTypesMatch store r1 r2
+        | TyTuple xs, TyTuple ys -> EqArray.forall2 (staticOptTypesMatch store) xs ys
         | TyRecord(n1, xs), TyRecord(n2, ys)
         | TyUnion(n1, xs), TyUnion(n2, ys)
-        | TyClass(n1, xs), TyClass(n2, ys) -> n1 = n2 && EqArray.forall2 staticOptTypesMatch xs ys
+        | TyClass(n1, xs), TyClass(n2, ys) -> n1 = n2 && EqArray.forall2 (staticOptTypesMatch store) xs ys
         | _ -> false
 
     /// Approximate `when ^T : struct` for the value-type primitives the operator
@@ -192,8 +192,8 @@ module Inline =
     /// trait call can dispatch to. The single definition of "is a nominal operand";
     /// `resolveTraitCall` alone consults it, and a receiver it declines becomes an
     /// `UnresolvedTrait` — "this type does not support this operator".
-    let private nominalHeadKey (t: SemType) : TypeKey voption =
-        match UnionFind.headZonk t with
+    let private nominalHeadKey (store: TypeStore) (t: SemType) : TypeKey voption =
+        match UnionFind.headZonk store t with
         | TyClass(k, _)
         | TyUnion(k, _)
         | TyRecord(k, _) -> ValueSome k
@@ -214,11 +214,12 @@ module Inline =
         (declined: ResizeArray<UnresolvedTrait>)
         (subst: Dictionary<TypeVar, SemType>)
         : TastWalk.Mapper =
-        let sub = substType subst
+        let sub = substType ctx.Store subst
 
         let holds (c: TStaticOptConstraint) =
             match c with
-            | TStaticOptConstraint.TyconEquals(typar, required) -> staticOptTypesMatch (sub typar) (sub required)
+            | TStaticOptConstraint.TyconEquals(typar, required) ->
+                staticOptTypesMatch ctx.Store (sub typar) (sub required)
             | TStaticOptConstraint.IsStruct typar -> isStructType (sub typar)
 
         // The clause conditions ALONE decide. No clause body is a trait call: the
@@ -263,7 +264,7 @@ module Inline =
 
                 ValueNone
 
-            match nominalHeadKey (sub recvTy) with
+            match nominalHeadKey ctx.Store (sub recvTy) with
             | ValueSome k ->
                 // The total `MemberKey` freezes the resolved operator's real parameter
                 // signature; its `ArgSig.Length` still carries the operand arity codegen's
@@ -279,7 +280,8 @@ module Inline =
                 // the best-by-arity single inside the minter.
                 let operands =
                     LocalMemberKeys.externalOperands
-                        (LocalMemberKeys.nominalArgs (sub recvTy))
+                        ctx.Store
+                        (LocalMemberKeys.nominalArgs ctx.Store (sub recvTy))
                         [ for a in args -> sub (TastWalk.exprTy a) ]
 
                 match LocalMemberKeys.totalMemberKey ctx k memberName operands with
@@ -318,7 +320,7 @@ module Inline =
     let inlineExpand (ctx: PassContext) (decl: TDecl) (typeArgs: SemType[]) : TExpr * UnresolvedTrait list =
         match decl with
         | TDecl.Let(_, value, _, declTy) ->
-            let typars = quantifiedTypars declTy
+            let typars = quantifiedTypars ctx.Store declTy
             let subst = Dictionary<TypeVar, SemType>(HashIdentity.Reference)
 
             typars

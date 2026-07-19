@@ -154,41 +154,41 @@ module InlineExpansion =
     module private Arrows =
 
         /// The number of `->` in the spine.
-        let rec count (t: SemType) : int =
-            match Unification.zonk t with
-            | TyFun(_, r) -> 1 + count r
+        let rec count (store: TypeStore) (t: SemType) : int =
+            match Unification.zonk store t with
+            | TyFun(_, r) -> 1 + count store r
             | _ -> 0
 
         /// The first `n` domain types, left to right.
-        let rec domains (n: int) (t: SemType) : SemType list =
+        let rec domains (store: TypeStore) (n: int) (t: SemType) : SemType list =
             if n <= 0 then
                 []
             else
-                match Unification.zonk t with
-                | TyFun(a, b) -> a :: domains (n - 1) b
+                match Unification.zonk store t with
+                | TyFun(a, b) -> a :: domains store (n - 1) b
                 | _ -> []
 
         /// What the spine returns once `n` arguments have been applied.
-        let rec resultAfter (n: int) (t: SemType) : SemType =
-            let t = Unification.zonk t
+        let rec resultAfter (store: TypeStore) (n: int) (t: SemType) : SemType =
+            let t = Unification.zonk store t
 
             if n <= 0 then
                 t
             else
                 match t with
-                | TyFun(_, b) -> resultAfter (n - 1) b
+                | TyFun(_, b) -> resultAfter store (n - 1) b
                 | _ -> t
 
     /// A (zonked) `SemType` with no free `TyVar` anywhere — fully monomorphic. The
     /// `SemType` sibling of `FrozenTypeBridge.ftIsGround` (this one zonks; the frozen
     /// one has no vars to zonk). Used to rank competing candidates for one typar in
     /// `deriveInlineTypeArgs` — a ground candidate beats an abstract one.
-    let rec private isGroundType (t: SemType) : bool =
-        match Unification.zonk t with
+    let rec private isGroundType (store: TypeStore) (t: SemType) : bool =
+        match Unification.zonk store t with
         | TyVar _
         | TyUnknown _
         | TyTypar _ -> false
-        | t -> SemType.forallChildren isGroundType t
+        | t -> SemType.forallChildren (isGroundType store) t
 
     /// Recover an inline binding's type arguments at a call site by matching its
     /// declared parameter (and return) types — carrying the quantified typars —
@@ -197,19 +197,23 @@ module InlineExpansion =
     /// to the body's base. Returned in `Inline.quantifiedTypars` order. A verbatim port of
     /// `EmitLower.deriveInlineTypeArgs` (`zonk` → `Unification.zonk`,
     /// `typeOfExpr` → `TastWalk.exprTy`).
-    let private deriveInlineTypeArgs (declTy: SemType) (spineArgs: (TExpr * SemType * SyntaxToken) list) : SemType[] =
-        let typars = Inline.quantifiedTypars declTy
+    let private deriveInlineTypeArgs
+        (store: TypeStore)
+        (declTy: SemType)
+        (spineArgs: (TExpr * SemType * SyntaxToken) list)
+        : SemType[] =
+        let typars = Inline.quantifiedTypars store declTy
 
         if typars.Length = 0 then
             [||]
         else
-            let roots = typars |> Array.map UnionFind.find
+            let roots = typars |> Array.map (UnionFind.find store)
             let result = Array.create roots.Length ValueNone
 
             let rec go (defT: SemType) (actT: SemType) =
-                match Unification.zonk defT, Unification.zonk actT with
+                match Unification.zonk store defT, Unification.zonk store actT with
                 | TyVar tv, act ->
-                    let r = UnionFind.find tv
+                    let r = UnionFind.find store tv
 
                     match roots |> Array.tryFindIndex (fun x -> System.Object.ReferenceEquals(x, r)) with
                     | Some i ->
@@ -227,7 +231,8 @@ module InlineExpansion =
                         // Keeping the first ground match is intentional: a genuinely
                         // generic `let f a b = a = b` never sees a ground candidate, so
                         // the typar stays abstract and the body falls to its base.
-                        | ValueSome prev when not (isGroundType prev) && isGroundType act -> result.[i] <- ValueSome act
+                        | ValueSome prev when not (isGroundType store prev) && isGroundType store act ->
+                            result.[i] <- ValueSome act
                         | ValueSome _ -> ()
                     | None -> ()
                 | TyFun(a1, r1), TyFun(a2, r2) ->
@@ -264,7 +269,7 @@ module InlineExpansion =
 
             let nArgs = List.length spineArgs
 
-            pairGo (Arrows.domains nArgs declTy) [ for (a, _, _) in spineArgs -> TastWalk.exprTy a ]
+            pairGo (Arrows.domains store nArgs declTy) [ for (a, _, _) in spineArgs -> TastWalk.exprTy a ]
 
             // Pair the result position too: `failwith`'s only typar `'T` sits in
             // the *return* (`string -> 'T`), so the param walk leaves it unbound.
@@ -273,7 +278,7 @@ module InlineExpansion =
             // unifying it against `declTy`'s return position grounds the result
             // typars.
             if nArgs > 0 then
-                let declRetTy = Arrows.resultAfter nArgs declTy
+                let declRetTy = Arrows.resultAfter store nArgs declTy
                 let _, actualRetTy, _ = spineArgs |> List.last
                 go declRetTy actualRetTy
 
@@ -289,8 +294,8 @@ module InlineExpansion =
     /// typar prints as F#'s anonymous `'a` — the honest rendering of "a type parameter
     /// nothing pinned". Total by construction: this text reaches the USER, so no case
     /// may fall through to a `%A` dump of the internal `SemType` DU.
-    let rec private receiverName (t: SemType) : string =
-        match UnionFind.headZonk t with
+    let rec private receiverName (store: TypeStore) (t: SemType) : string =
+        match UnionFind.headZonk store t with
         | TyConst(key, _) ->
             let (DisplayName shown) = SymbolKeyOps.simpleName key
             shown
@@ -302,7 +307,11 @@ module InlineExpansion =
         | TyTypar _ -> "'a"
         | TyFun _ -> "function"
         | TyTuple _ -> "tuple"
-        | TyOr ms -> ms.Members |> EqSet.toList |> List.map receiverName |> String.concat " | "
+        | TyOr ms ->
+            ms.Members
+            |> EqSet.toList
+            |> List.map (receiverName store)
+            |> String.concat " | "
         | TyLiteral v -> sprintf "%A" v
         | TyUnknown name -> name
         | TyKeyOf _
@@ -314,11 +323,12 @@ module InlineExpansion =
     /// to (`op_Addition`) — `OperatorNames.sourceSymbol` inverts the lexer's own table,
     /// so the spelling cannot drift from the name. A member outside that table is not an
     /// operator at all (a user-written `(^T: (member GetAwaiter: …) x)`), and says so.
-    let private unsupportedTraitMessage (u: Inline.UnresolvedTrait) : string =
+    let private unsupportedTraitMessage (store: TypeStore) (u: Inline.UnresolvedTrait) : string =
         match OperatorNames.sourceSymbol u.MemberName with
         | ValueSome symbol ->
-            sprintf "The type '%s' does not support the operator '%s'" (receiverName u.Receiver) symbol
-        | ValueNone -> sprintf "The type '%s' does not support the member '%s'" (receiverName u.Receiver) u.MemberName
+            sprintf "The type '%s' does not support the operator '%s'" (receiverName store u.Receiver) symbol
+        | ValueNone ->
+            sprintf "The type '%s' does not support the member '%s'" (receiverName store u.Receiver) u.MemberName
 
     /// Expand the module-level inlines in one decl-list (the elaborated,
     /// `TyVar`-carrying decls paired with their freeze envs). The cross-unit inline-body
@@ -436,8 +446,8 @@ module InlineExpansion =
                             | TDecl.Let(_, value, _, _) -> lambdaArity value
                             | _ -> 0
 
-                        min (Arrows.count refTy) bodyArity
-                    | ValueNone -> Arrows.count refTy
+                        min (Arrows.count ctx.Store refTy) bodyArity
+                    | ValueNone -> Arrows.count ctx.Store refTy
 
                 if arity = 0 then
                     ValueNone
@@ -445,13 +455,14 @@ module InlineExpansion =
                     // Fresh binders come from the pass's own `mint`, so an eta site
                     // can never alias the binders of the body about to be spliced
                     // into it.
-                    let binders = Arrows.domains arity refTy |> List.mapi (fun i pty -> mint (), pty, i)
+                    let binders =
+                        Arrows.domains ctx.Store arity refTy |> List.mapi (fun i pty -> mint (), pty, i)
 
                     let appBody =
                         binders
                         |> List.fold
                             (fun acc (k, pty, i) ->
-                                let resTy = Arrows.resultAfter (i + 1) refTy
+                                let resTy = Arrows.resultAfter ctx.Store (i + 1) refTy
                                 TExpr.App(acc, TExpr.Var(k, pty, tok), resTy, tok)
                             )
                             (TExpr.External(name, keyOpt, refTy, tok))
@@ -461,7 +472,7 @@ module InlineExpansion =
                         let lamTy = TyFun(pty, innerTy)
                         TExpr.Lambda(TPat.NamedSimple(k, pty, tok), innerBody, lamTy, tok), lamTy
                     )
-                    <| (appBody, Arrows.resultAfter arity refTy)
+                    <| (appBody, Arrows.resultAfter ctx.Store arity refTy)
                     |> fst
                     |> ValueSome
 
@@ -495,10 +506,10 @@ module InlineExpansion =
                 match decl with
                 | TDecl.Let(_, _, _, declTy) ->
                     let expanded, unresolved =
-                        Inline.inlineExpand ctx decl (deriveInlineTypeArgs declTy spineArgs)
+                        Inline.inlineExpand ctx decl (deriveInlineTypeArgs ctx.Store declTy spineArgs)
 
                     for u in unresolved do
-                        ctx.Error(NodeKey.ofToken siteTok NodeKind.ExprApp, unsupportedTraitMessage u)
+                        ctx.Error(NodeKey.ofToken siteTok NodeKind.ExprApp, unsupportedTraitMessage ctx.Store u)
 
                     Inline.freshen mint expanded
                 | _ -> failwith "InlineExpansion: an inline body must be a TDecl.Let"

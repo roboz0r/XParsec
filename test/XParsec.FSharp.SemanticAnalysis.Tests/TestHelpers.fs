@@ -185,7 +185,7 @@ let firstBindingExpr (file: ImplementationFile<SyntaxToken>) : Expr<SyntaxToken>
 /// clashes exactly like a resolved one.
 let typeOf (ctx: PassContext) (key: NodeKey) : SemType =
     match ctx.Bindings.TypeVar.TryGetValue key with
-    | ValueSome tv -> Passes.Unification.zonk (TyVar tv)
+    | ValueSome tv -> Passes.Unification.zonk ctx.Store (TyVar tv)
     | ValueNone -> failwithf "no TypeVar entry for %O" key
 
 /// The registered record / union / class named `name`, resolved from the whole-unit

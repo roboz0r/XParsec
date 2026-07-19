@@ -35,7 +35,7 @@ let tests =
                     [ BuiltinTypes.tyString; BuiltinTypes.tyString ]
                     "the string overload wins"
 
-                Expect.equal freeTv.Link ValueNone "the failed trial left the caller TyVar free"
+                Expect.equal (overloadCtx.Store.Link freeTv) ValueNone "the failed trial left the caller TyVar free"
             }
 
             test "a shared method typar must bind consistently across argument positions" {

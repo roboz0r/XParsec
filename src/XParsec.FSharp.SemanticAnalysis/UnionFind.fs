@@ -1,30 +1,32 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
-// Algorithm decoupled from data (Parent/Rank fields live on TypeVar in
-// SemanticInfo.fs) so we can swap path-compression for path-halving later
-// without touching the record definition.
+// Algorithm decoupled from data: the union-find slots (`parent`/`rank`/`level`/
+// `link`/`units`) live id-indexed on the per-file `TypeStore`, not on the `TypeVar`
+// node. Every entry point takes the `store` so it can read/write those arrays and
+// still RETURN the root `TypeVar` handle (looked up from the store's id table) that
+// the reference-identity call sites depend on.
 
 module UnionFind =
 
     /// Iterative rather than recursive to avoid stack pressure on long chains.
-    let find (tv: TypeVar) : TypeVar =
+    let find (store: TypeStore) (tv: TypeVar) : TypeVar =
         let mutable root = tv
         let mutable continueLoop = true
 
         while continueLoop do
-            match root.Parent with
+            match store.Parent root with
             | ValueNone -> continueLoop <- false
             | ValueSome p -> root <- p
 
         let mutable cursor = tv
 
         while not (System.Object.ReferenceEquals(cursor, root)) do
-            match cursor.Parent with
+            match store.Parent cursor with
             | ValueNone ->
                 // Unreachable post-phase-1; defensive terminate.
                 cursor <- root
             | ValueSome next ->
-                cursor.Parent <- ValueSome root
+                store.SetParent(cursor, ValueSome root)
                 cursor <- next
 
         root
@@ -34,29 +36,29 @@ module UnionFind =
     /// The surviving root inherits `min` of the two roots' Levels so the
     /// representative remains authoritative for Rémy's level-based
     /// generalisation.
-    let union (a: TypeVar) (b: TypeVar) : unit =
-        let rootA = find a
-        let rootB = find b
+    let union (store: TypeStore) (a: TypeVar) (b: TypeVar) : unit =
+        let rootA = find store a
+        let rootB = find store b
 
         if not (System.Object.ReferenceEquals(rootA, rootB)) then
-            let mergedLevel = min rootA.Level rootB.Level
+            let mergedLevel = min (store.Level rootA) (store.Level rootB)
 
             let survivor =
-                if rootA.Rank < rootB.Rank then
-                    rootA.Parent <- ValueSome rootB
+                if store.Rank rootA < store.Rank rootB then
+                    store.SetParent(rootA, ValueSome rootB)
                     rootB
-                elif rootA.Rank > rootB.Rank then
-                    rootB.Parent <- ValueSome rootA
+                elif store.Rank rootA > store.Rank rootB then
+                    store.SetParent(rootB, ValueSome rootA)
                     rootA
                 else
-                    rootB.Parent <- ValueSome rootA
-                    rootA.Rank <- rootA.Rank + 1
+                    store.SetParent(rootB, ValueSome rootA)
+                    store.SetRank(rootA, store.Rank rootA + 1)
                     rootA
 
-            survivor.Level <- mergedLevel
+            store.SetLevel(survivor, mergedLevel)
 
-    let inSameClass (a: TypeVar) (b: TypeVar) : bool =
-        System.Object.ReferenceEquals(find a, find b)
+    let inSameClass (store: TypeStore) (a: TypeVar) (b: TypeVar) : bool =
+        System.Object.ReferenceEquals(find store a, find store b)
 
     /// Follow union-find roots + `.Link` to the concrete *head* of a type: the
     /// shared core of the union-find walk. Resolves only the head constructor —
@@ -65,12 +67,12 @@ module UnionFind =
     /// A root carrying a `Units` measure stops the follow so the measure rides on
     /// the returned `TyVar`, matching `zonk`. The single home of the root-following
     /// walk, so every caller shares it rather than re-deriving the chase.
-    let rec headZonk (t: SemType) : SemType =
+    let rec headZonk (store: TypeStore) (t: SemType) : SemType =
         match t with
         | TyVar tv ->
-            let root = find tv
+            let root = find store tv
 
-            match root.Link with
-            | ValueSome target when root.Units.IsNone -> headZonk target
+            match store.Link root with
+            | ValueSome target when (store.Units root).IsNone -> headZonk store target
             | _ -> TyVar root
         | _ -> t
