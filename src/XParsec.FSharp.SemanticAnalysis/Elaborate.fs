@@ -34,6 +34,14 @@ module Elaborate =
         | ValueSome t when t.Token = Token.KWInternal -> Accessibility.Internal
         | _ -> Accessibility.Public
 
+    /// An auto-property carries its OWN access token (`member val private X = …`) in
+    /// addition to the enclosing member-level one; the property's own modifier wins
+    /// when present, otherwise it inherits the member-level accessibility.
+    let private autoPropertyAccess (memberLevel: Accessibility) (propToken: SyntaxToken voption) : Accessibility =
+        match accessibilityOfToken propToken with
+        | Accessibility.Public -> memberLevel
+        | own -> own
+
     /// The declared `access` keyword token of a `type` definition, off its
     /// `TypeName`. Every `TypeName`-headed `TypeDefn` variant carries it; the
     /// remainder (a bare delegate/exception form) reports absence (⇒ `Public`).
@@ -687,9 +695,14 @@ module Elaborate =
         let selfTy = host.MkSelfType EqArray.empty
 
         match el with
-        | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; keyword = kw; defn = d)) ->
+        | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; keyword = kw; access = memberAccess; defn = d)) ->
             let isStatic = s.IsSome
             let isOverride = isOverrideKeyword kw
+            // Member-level accessibility rides `MemberDefn.Member.access` (`member
+            // private this.M`), NOT the inner `Binding.access` (always `ValueNone` for a
+            // member). An auto-property's own `member val private X` access takes
+            // precedence over the member-level one via `autoPropertyAccess`.
+            let memberAccessibility = accessibilityOfToken memberAccess
 
             let build (kind: TMemberKind) (b: Binding<SyntaxToken>) : TTypeMember voption =
                 match memberNameOfBinding ctx b with
@@ -698,6 +711,7 @@ module Elaborate =
                         {
                             Name = n
                             IsStatic = isStatic
+                            Accessibility = memberAccessibility
                             Kind = kind
                             IsOverride = isOverride
                             ThisKey = (if isStatic then ValueNone else ValueSome host.ThisKey)
@@ -715,11 +729,12 @@ module Elaborate =
             match d with
             | MethodOrPropDefn.Method(defn = b) -> build TMemberKind.Method b
             | MethodOrPropDefn.Property(defn = b) -> build TMemberKind.Property b
-            | MethodOrPropDefn.AutoProperty(ident = id; expr = e) ->
+            | MethodOrPropDefn.AutoProperty(access = acc; ident = id; expr = e) ->
                 ValueSome
                     {
                         Name = ctx.NameOf id
                         IsStatic = isStatic
+                        Accessibility = autoPropertyAccess memberAccessibility acc
                         Kind = TMemberKind.Property
                         IsOverride = isOverride
                         ThisKey = (if isStatic then ValueNone else ValueSome host.ThisKey)
@@ -881,9 +896,12 @@ module Elaborate =
         let instanceRewrite = instanceFieldRewrite info classTy
 
         match el with
-        | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; keyword = kw; defn = d)) ->
+        | TypeDefnElement.Member(MemberDefn.Member(staticToken = s; keyword = kw; access = memberAccess; defn = d)) ->
             let isStatic = s.IsSome
             let isOverride = isOverrideKeyword kw
+            // Member-level accessibility (`member private this.M`) rides
+            // `MemberDefn.Member.access`, not the inner `Binding.access`.
+            let memberAccessibility = accessibilityOfToken memberAccess
 
             let lowerBody (e: Expr<SyntaxToken>) : TExpr =
                 let body = translateExpr ctx e |> rewriteFieldRefs staticRewrite
@@ -948,6 +966,7 @@ module Elaborate =
                         {
                             Name = n
                             IsStatic = isStatic
+                            Accessibility = memberAccessibility
                             Kind = kind
                             IsOverride = isOverride
                             ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)
@@ -963,11 +982,12 @@ module Elaborate =
             match d with
             | MethodOrPropDefn.Method(defn = b) -> build TMemberKind.Method b
             | MethodOrPropDefn.Property(defn = b) -> build TMemberKind.Property b
-            | MethodOrPropDefn.AutoProperty(ident = id; expr = e) ->
+            | MethodOrPropDefn.AutoProperty(access = acc; ident = id; expr = e) ->
                 ValueSome
                     {
                         Name = ctx.NameOf id
                         IsStatic = isStatic
+                        Accessibility = autoPropertyAccess memberAccessibility acc
                         Kind = TMemberKind.Property
                         IsOverride = isOverride
                         ThisKey = (if isStatic then ValueNone else ValueSome info.ThisKey)

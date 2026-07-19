@@ -842,6 +842,13 @@ and TTypeMemberG<'ty, 'tok> =
     {
         Name: string
         IsStatic: bool
+        /// Declared accessibility of the member (`member private`, `member internal`,
+        /// or the public default). Carried physically on the member — not in
+        /// `TastFile.Accessibility`, which keys top-level entities — so the frozen
+        /// file→file projection (`FrozenSignature`) can honour member-level
+        /// accessibility and NOT leak a `member private` across the unit boundary
+        /// (internal-or-better threshold: same-assembly visible, `Private` dropped).
+        Accessibility: Accessibility
         Kind: TMemberKind
         /// `true` when declared with the `override`/`default` keyword — i.e. it
         /// overrides a base virtual slot. For a class with no `inherit` clause
@@ -1116,13 +1123,15 @@ type TastFileG<'ty, 'tok> =
         ///
         /// EMPTY pre-freeze: the SemType tree still carries the templates in `Decls`.
         InlineBodies: EqArray<TInlineValueG<'ty, 'tok>>
-        /// Declared accessibility of each EXPORTED entity (type / member / module
+        /// Declared accessibility of each top-level EXPORTED entity (type / module
         /// value / inline value), keyed by its `SymbolKey`. Stored HONESTLY (not
         /// pre-thresholded): the file→file projection applies internal-or-better, the
         /// `.fsi` extractor public-only, over the SAME fact. Captured by `Elaborate`
         /// from the CST `access` tokens. A key ABSENT here is `Public` (the F# default
         /// for an unmarked declaration). `SymbolKey`-keyed and `'ty`-free — carried
-        /// verbatim across the freeze, modeled on `IntrinsicReprKeys`.
+        /// verbatim across the freeze, modeled on `IntrinsicReprKeys`. Type MEMBER
+        /// accessibility rides `TTypeMemberG.Accessibility` (physically on the member,
+        /// not here), read on the same threshold by the projection's member filter.
         Accessibility: System.Collections.Generic.IReadOnlyDictionary<SymbolKey, Accessibility>
         /// A module binding's SOURCE `ValRepr` (curried / tupled group structure),
         /// keyed by the binding's headPat `NodeKey`. Computed UPSTREAM at FREEZE

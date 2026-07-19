@@ -107,6 +107,7 @@ let private pokeMemberOf (template: string) (paramTy: FrozenType) : Frozen.TType
     {
         Name = "Poke"
         IsStatic = false
+        Accessibility = Accessibility.Public
         Kind = TMemberKind.Method
         IsOverride = false
         ThisKey = ValueSome thisKey

@@ -12,8 +12,8 @@ The item numbers are kept as originally written so the WHY comments at each seam
 
 - **INCOMPLETE** — a *valid* cross-unit program fails to resolve. User-visible; fix on demand.
   Items 4 (obj-field boxing), 5 (enums), 6 (interface members).
-- **OVER-PERMISSIVE** — an *invalid* program wrongly resolves; **never a miscompile**. Item 6
-  (member-level accessibility).
+- **OVER-PERMISSIVE** — an *invalid* program wrongly resolves; **never a miscompile**. Item 6's
+  member-level accessibility was this class; it has since landed (see below).
 - **SEPARATE TRACK** — item 7 (cross-package records) rides `publishing-format-plan.md`.
 
 Every deferred item already carries a WHY comment at its seam in the code; this plan is the
@@ -48,13 +48,22 @@ currently prevents.
 `TyConst` (also listed under the multi-file plan's "Projection coverage boundaries"). **Fix:**
 project enums as records/unions are. Closes when the corpus references a cross-unit enum.
 
-## 6. Interface-member decurrying + member-level accessibility (projection boundaries)
+## 6. Interface-member decurrying (projection boundary; member accessibility DONE)
 
 From the multi-file plan's "Projection coverage boundaries": interface member surfaces publish
-name/arity but not decurried members (INCOMPLETE for a cross-unit interface call), and
-member-level accessibility is not captured, so a `member private` leaks across the unit boundary
-(OVER-PERMISSIVE — the `.fsi` extractor is public-only here). Close each when the corpus
-references it.
+name/arity but not decurried members (INCOMPLETE for a cross-unit interface call). Close when the
+corpus references it.
+
+**Member-level accessibility — DONE.** A member's declared accessibility now rides
+`TTypeMemberG.Accessibility` (captured in `Elaborate` from `MemberDefn.Member.access` — the
+member-level `private`/`internal` token, NOT the inner `Binding.access`, which is always absent
+for a member; an auto-property's own `member val private X` token wins via `autoPropertyAccess`),
+and `FrozenSignature.membersOf` drops `Private` on the SAME internal-or-better threshold
+`exported` applies to top-level entities. So a cross-unit `receiver.PrivateMember` no longer
+resolves — it errors — while `internal`/public members stay same-assembly visible. The design
+lives in the code and its test (`AssemblyUnitsTests`, the paired public/private dispatch case).
+The `.fsi` extractor was already public-only here (a signature file lists no private members), so
+only the frozen file→file projector needed the filter.
 
 ## 7. Cross-package records (SEPARATE TRACK — publishing-format)
 

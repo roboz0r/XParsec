@@ -84,11 +84,12 @@ type PassContextBindings =
         /// reads this to order method typars declared-first (the F# rule); absent
         /// when the binding declared no typars.
         DeclaredTypars: SideTable<(string * TypeVar) list>
-        /// Declared accessibility of each EXPORTED entity (type / member / module
+        /// Declared accessibility of each top-level EXPORTED entity (type / module
         /// value / inline value), keyed by its `SymbolKey`. Captured by `Elaborate`
         /// from the CST `access` tokens (classified token-free); snapshotted into
         /// `TastFile.Accessibility`. Stored honestly (not thresholded) — the two
-        /// export filters each apply their own threshold over the one fact.
+        /// export filters each apply their own threshold over the one fact. Type MEMBER
+        /// accessibility rides `TTypeMemberG.Accessibility` on the member, not here.
         Accessibility: Dictionary<SymbolKey, Accessibility>
         /// A module binding's typar-axis width, keyed by the binding's headPat
         /// `NodeKey`. Recorded by `Elaborate` at the single method-axis index-minting

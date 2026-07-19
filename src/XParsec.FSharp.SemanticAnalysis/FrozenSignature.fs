@@ -201,8 +201,14 @@ module FrozenSignature =
             : ResizeArray<ExternalMember> =
             let acc = ResizeArray<ExternalMember>()
 
+            // Honour member-level accessibility on the SAME internal-or-better
+            // threshold `exported` applies to top-level entities: a `member private`
+            // is not visible to another file, so it is dropped from the projection (an
+            // `internal` / public member stays — same-assembly visible). Without this a
+            // cross-unit `receiver.PrivateMember` would wrongly resolve (OVER-PERMISSIVE).
             for m in ms do
-                acc.Add(memberOf declKey declArity m)
+                if m.Accessibility <> Accessibility.Private then
+                    acc.Add(memberOf declKey declArity m)
 
             acc
 

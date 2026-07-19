@@ -664,6 +664,65 @@ module N =
                         f2.Frozen.Diagnostics)
             }
 
+            test "a cross-unit `member private` does NOT resolve for dispatch (member-level accessibility honoured)" {
+                // unit 1 declares a class with a PUBLIC method and a `member private` one;
+                // unit 2 dispatches on each. A `private` member is not visible to another
+                // file, so the private dispatch must NOT resolve — an error — while the
+                // public one stays clean. Member accessibility rides
+                // `TTypeMemberG.Accessibility` (captured from the CST `access` token) and
+                // `FrozenSignature.membersOf` drops `Private` on the same internal-or-better
+                // threshold `exported` applies to top-level entities, so the private member
+                // never reaches the projected class shape's member set. The paired
+                // public/private cases make the drop falsifiable: before this landed BOTH
+                // resolved (OVER-PERMISSIVE — a leak, never a miscompile).
+                let file1 =
+                    "\
+namespace Test.A
+
+module M =
+    type Gadget() =
+        member _.Pub(x: int) : int = x
+        member private _.Priv(x: int) : int = x
+"
+
+                let publicCaller =
+                    "\
+namespace Test.B
+
+open Test.A.M
+
+module N =
+    let call (g: Gadget) : int = g.Pub 1
+"
+
+                let privateCaller =
+                    "\
+namespace Test.B
+
+open Test.A.M
+
+module N =
+    let call (g: Gadget) : int = g.Priv 1
+"
+
+                let errorsOf (caller: string) =
+                    analyseAssembly asm realProvider.Value [ "file1.fs", file1; "file2.fs", caller ]
+                    |> units
+                    |> fun all -> all.[1].Frozen.Diagnostics
+                    |> List.filter (fun d -> d.Severity = Severity.Error)
+
+                let pubErrs = errorsOf publicCaller
+                let privErrs = errorsOf privateCaller
+
+                Expect.isEmpty
+                    pubErrs
+                    (sprintf "a cross-unit PUBLIC member dispatch resolves (diagnostics: %A)" pubErrs)
+
+                Expect.isNonEmpty
+                    privErrs
+                    (sprintf "a cross-unit `member private` dispatch must be rejected (diagnostics: %A)" privErrs)
+            }
+
             test "cross-unit INTRINSIC: a prior unit's primitive resolves in a later unit's annotation" {
                 // unit 1 declares an intrinsic-repr primitive (`type x = (# "…" #)` — an
                 // `ILIntrinsic` abbrev kept OUT of `Decls`); unit 2 annotates a binding with
