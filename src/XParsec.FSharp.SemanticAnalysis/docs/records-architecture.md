@@ -110,14 +110,16 @@ Storage lives on `PassContextTypes` (`PassContext.fs`):
   literal's field names that leaves more than one record means the set is
   ambiguous and needs a qualifier or annotation.
 
-### `TypeVar.PendingDotAccess` (`SemanticInfo.fs:500`)
+### `TypeStore.Pda` (deferred dot-access)
 
 The deferred-resolution channel for field access on a not-yet-pinned
 receiver. A `r.X` whose receiver types to a free TyVar parks a
-`DeferredMemberAccess` (`:453` — member name, use-site key, result TyVar)
-on the TyVar's root. When `unify` later links that root to a `TyRecord`
-(or `TyClass`), the list drains and each access resolves; anything still
-pending at end of analysis is a Validation diagnostic. Generalised from
+`DeferredMemberAccess` (member name, use-site key, result TyVar) under the
+root's representative id in the store's `Pda` table (a `BoundTable`, formerly
+the on-node `TypeVar.PendingDotAccess` slot). When `unify` later links that
+root to a `TyRecord` (or `TyClass`), the live entries drain and each access
+resolves; anything still pending at end of analysis is a Validation
+diagnostic. Generalised from
 records' original pending-field-access gate to cover class members too —
 hence "dot access", not "field access".
 
@@ -194,9 +196,9 @@ both of which carry a `TyRecord` arm) likewise treat records identically.
 
 **Engine arms** (`Passes/Unification/Engine.fs`): `zonk`,
 `occursAndAdjust`, `substituteWith`, and `unify` (key + arg-vector
-equality) all carry the combined nominal-kind arm. `migrateBounds` on a
-TyVar–TyVar union appends `PendingDotAccess` (`:93`); the
-`TyVar → TyRecord` link drains it. `checkConstraint` reads
+equality) all carry the combined nominal-kind arm. A TyVar–TyVar `union`
+folds the loser's deferred dot-accesses onto the survivor via the store's
+`Pda` join; the `TyVar → TyRecord` link drains them. `checkConstraint` reads
 `EqualitySupport` / `ComparisonSupport` and recurses into field types so
 `r1 = r2` / `r1 < r2` diagnose against a `NoEquality` / un-annotated
 record. `translateType` (`Translate.fs`) maps a `Type.NamedType` to

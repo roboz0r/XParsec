@@ -1,8 +1,30 @@
 # Inference engine rewrite — SemType / UnionFind / Unification
 
 Status: **design doc, not a landed contract.** Records a decided direction and the
-invariants a rewrite must preserve; open points marked ⟨OPEN⟩. Supersedes nothing yet —
-existing code is authoritative until a step lands.
+invariants a rewrite must preserve; open points marked ⟨OPEN⟩. Existing code is
+authoritative; where a step below has **landed**, the code is the record and this doc is
+history for that part.
+
+## Progress (updated 2026-07-19)
+
+**Phase A substrate — the arena is landed** (three commits on `semantic-analysis`, each
+frozen-output-identical, corpus/IL/JS goldens unchanged):
+
+1. Dense `TyVarId` + per-file `TypeStore` arena; every `TypeVar` minted through one factory.
+2. The four deferred-constraint families (`SrtpBounds`/`Constraints`/`PendingDotAccess`/
+   `Defaults`) moved into `TypeStore` side-tables; `EngineCore.migrateBounds` and
+   `MemberSignature.Resolved` **deleted**; join-on-`union` replaces hand-migration.
+3. The structural slots (`Parent`/`Rank`/`Level`/`Link`/`Units`/`Region`) moved into
+   `TypeStore` arrays; `TypeVar` is now a **bare handle** carrying only its `Id`.
+
+**Where a fresh session picks up:** the arena is complete. The remaining Phase A steps are
+**interning** (store-plan step 4 — hash-cons resolved *ground* SemTypes; lands the two-level
+home) and **result caching** (step 5). Per an explicit decision we **PAUSE before caching**:
+its payoff is benchmark-gated ("if a cache can't be shown to pay, it doesn't land"), and
+interning's chief value is unlocking caching — so interning + caching are to be sequenced
+**together, behind a benchmark**, not before. Phase B (constraint solver) is **not started**;
+re-decide the ⟨OPEN B-vs-A boundary⟩ (below) after benchmarking — the arena alone may suffice.
+Detail + open decisions: [unification-store-redesign-plan](unification-store-redesign-plan.md).
 
 ## Decision
 
@@ -214,7 +236,8 @@ part of the total immutable contract.
 
 Phase A: follow the store plan's integration steps (add `Id` + counter → route mutations through
 a single store accessor → move one payload family at a time behind existing accessor names →
-intern → cache). Every step is payload-preserving and frozen-output-identical.
+intern → cache). Every step is payload-preserving and frozen-output-identical. **Landed through
+the arena** (see Progress above); `intern → cache` remain, paused before `cache`.
 
 Phase B (only once A's side-tables exist):
 1. Define the constraint DU; make elaboration **emit** it alongside today's inline unify (shadow

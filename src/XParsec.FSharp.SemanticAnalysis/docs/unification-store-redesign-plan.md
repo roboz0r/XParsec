@@ -1,7 +1,34 @@
 # Unification store redesign — sketch + integration path
 
-Status: A **design sketch**, not a landed contract; open
-decisions are marked ⟨OPEN⟩.
+Status: **integration steps 1–3 + 6 have LANDED** (2026-07-19, three frozen-output-identical
+commits on `semantic-analysis`); steps 4 (interning) and 5 (caching) remain, **paused before 5**.
+Open decisions are marked ⟨OPEN⟩. The "Current state" and "Target data structures" sections
+below are now largely *history* — the target is built. See "Integration path" for the
+per-step landed/remaining status.
+
+## Landed vs remaining (fresh-session handoff)
+
+- **Landed:** dense `TyVarId`; per-file `TypeStore` arena (union-find `parent`/`rank`,
+  root-authoritative `level`/`link`/`units`, write-once `region`, plus an id→handle `Node`
+  table so `find`/`union` still return the root `TypeVar`); the four deferred-constraint
+  families as store side-tables (`Constraints`/`Defaults` grow-only lists; `Srtp`/`Pda`
+  = `BoundTable`, grow-only + reference-keyed `solved`); `migrateBounds` and
+  `MemberSignature.Resolved` **deleted**; `TypeVar` is a bare `Id` handle.
+- **Step-2 finding (important):** "make the node's setters *private to the store module* so
+  the compiler enforces the one seam" is **not achievable standalone** here — `TypeVar` is in
+  the mutually-recursive `SemType` block, there are no `.fsi` files, and it is one assembly,
+  so F#'s only true "one writer" enforcement is **deleting the field** (step 3). The seam
+  therefore became compiler-proven *per family, as each slot was deleted* — steps 2 and 3
+  are inseparable here, and that is how they landed.
+- **⟨OPEN B⟩ resolved by outcome:** `Srtp`/`Pda` went **grow-only + `solved`**; but
+  `Constraints` and `Defaults` **kept consumption** (remainder writeback / wholesale clear,
+  now routed through the store) — a struct `SemanticConstraint` has no reference identity and
+  `propagateToFreeArgs` needs value independence; `Defaults` discharges a chain wholesale with
+  shared singleton targets. Making those two grow-only belongs to Phase B's solver.
+- **Remaining:** step 4 (interning — lands the two-level home, step 4 note) then step 5
+  (caching). **Do 4 + 5 together behind a benchmark**; interning's payoff is realized through
+  caching, and step 5 is benchmark-gated. The arena alone may suffice — re-decide after
+  profiling (engine-rewrite-plan ⟨OPEN B-vs-A boundary⟩).
 
 **Driver: reasonability and performance — NOT reversible speculation.** The disjunctive
 SRTP dispatch that first motivated a reversible store lands via *deferral* on the existing
@@ -149,19 +176,21 @@ pure substrate refactor — **no dispatch-semantics change** (the suspension gat
 support-set candidates belong to the disjunctive-dispatch work in `codegen-by-key-plan.md`,
 and can land before, after, or independently of this).
 
-1. **Add `Id` to `TypeVar`, mint from a store counter** — purely additive, no behavior
+1. **[LANDED] Add `Id` to `TypeVar`, mint from a store counter** — purely additive, no behavior
    change. Introduce `TypeStore` holding the counter + empty arrays. Proves the arena
    allocation seam.
-2. **Route every `TypeVar`-mutation site through a store accessor** — still writing the same
-   slots, the accessor just forwards. Make the node's setters `private` to the store module
-   so the compiler enforces the single seam. Behavior identical. This is the step that lets
-   later steps move state and add caching invalidation without hunting scattered writes.
-3. **Move one payload family at a time off the node into a store array**, starting with
+2. **[LANDED — folded into 3] Route every `TypeVar`-mutation site through a store accessor.**
+   The intended standalone form — make the node's setters `private` so the compiler enforces the
+   single seam — is **not achievable** in this single-assembly, no-`.fsi` codebase (see the
+   step-2 finding above); the seam becomes compiler-proven only as each slot is *deleted*. So this
+   landed per-family, inseparable from step 3.
+3. **[LANDED] Move one payload family at a time off the node into a store array**, starting with
    `SrtpBounds` (smallest), behind existing accessor names, with a join on union replacing
    its `migrateBounds` arm. Delete that node slot. Repeat for `Constraints`,
    `PendingDotAccess`, `Defaults`, then `Link`/`Units`/`Level`/`Parent`/`Rank`. After each,
-   `migrateBounds` shrinks by one arm and eventually vanishes.
-4. **Intern resolved `SemType`s** (hash-cons) — structural equality becomes identity.
+   `migrateBounds` shrinks by one arm and eventually vanishes. (`Constraints`/`Defaults` kept
+   consumption; `Srtp`/`Pda` went grow-only + `solved` — see ⟨OPEN B⟩ note above.)
+4. **[REMAINING — do with 5, behind a benchmark] Intern resolved `SemType`s** (hash-cons) — structural equality becomes identity.
    Independently valuable; unlocks step 5. **Two-level home — the intern pool is NOT the
    arena kept longer.** The mutable arena (`parent`/`rank`/`level`/`solution`/`units` + pending
    payloads) is strictly per-file and discarded at `Freeze`: every metavar is resolved and frozen
@@ -178,24 +207,28 @@ and can land before, after, or independently of this).
    into the next. Natural shape: compilation-scoped intern pool of ground types + a per-file scratch
    for in-flight (non-ground) types. Refines ⟨OPEN A⟩ — the intern table's home is the compilation
    scope; this decides nothing for steps 1–3 (the per-file arena is right regardless).
-5. **Add result caching** (`zonk`, `matchTypes`/`subsumes`, member lookups) keyed by id, with
+5. **[REMAINING — the pause point] Add result caching** (`zonk`, `matchTypes`/`subsumes`, member lookups) keyed by id, with
    generation-stamp invalidation (⟨OPEN F⟩). This is where the profiled perf win should land;
    gate it behind benchmarks so a cache that doesn't pay is not kept.
-6. **Delete `MemberSignature.Resolved`** and its by-reference sharing once step 3 makes it
+6. **[LANDED — with step 3] Delete `MemberSignature.Resolved`** and its by-reference sharing once step 3 makes it
    dead — correct-by-construction: no shared mutable dedup flag survives.
 
-Steps 1–3 are mechanical and payload-preserving; **step 2 is load-bearing** (single mutation
-seam). Steps 4–5 are the performance payoff and must be benchmark-gated.
+Steps 1–3 + 6 landed and are payload-preserving; the single mutation seam became
+compiler-proven per-family as slots were deleted (step-2 finding). Steps 4–5 are the
+performance payoff and must be benchmark-gated — do them together.
 
 ## Open decisions
 
 - ⟨OPEN A⟩ thin-handle `TypeVar {Id}` vs raw `SemType.TyVar of TyVarId`. **Lean: handle.** The
   arena's *home* is settled (per-file `PassContext`); the intern pool's home is separate and
   compilation-scoped — see step 4's two-level split.
-- ⟨OPEN B⟩ grow-only sets + `solved` table vs trailed consumption. **Lean: grow-only.**
+- ⟨OPEN B⟩ grow-only sets + `solved` table vs trailed consumption. **RESOLVED (mixed):**
+  `Srtp`/`Pda` grow-only + `solved`; `Constraints`/`Defaults` kept consumption (struct/no-ref-identity
+  and wholesale-clear respectively) — full grow-only for those belongs to Phase B's solver.
 - ⟨OPEN D⟩ trail vs semi-persistent — **defer; no rollback requirement in scope.**
-- ⟨OPEN E⟩ does `Region` ever need special handling, or is it write-once? (Not migrated on
-  union today — likely write-once, stays a plain array cell.)
+- ⟨OPEN E⟩ does `Region` ever need special handling, or is it write-once? **RESOLVED:**
+  write-once — it landed as a plain store array cell (`store.Region`/`SetRegion`), NOT folded
+  into the union join.
 - ⟨OPEN F⟩ cache-invalidation granularity: global generation stamp vs per-var dependency.
   **Lean: generation stamp first.**
 

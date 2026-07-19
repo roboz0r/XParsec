@@ -20,50 +20,59 @@ least-upper-bound, not equality.
 
 ## Storage
 
-The live definition is in [`SemanticInfo.fs`](../SemanticInfo.fs) and has grown
-past the original sketch; read it there. In outline:
+The live definitions are in [`SemanticInfo.fs`](../SemanticInfo.fs); read them
+there. `TypeVar` is a **thin handle** — it carries only its dense, immutable
+identity, and all metavar state lives id-indexed on the per-file `TypeStore`
+(one instance per `PassContext`):
 
 ```fsharp
 [<Sealed>]
-type TypeVar() =
-    member val Link   : SemType voption     = ValueNone         // solved? (union-find)
-    member val Units  : MeasureTerm voption = ValueNone         // axis 2
-    member val Region : RegionId            = RegionId.Unknown  // axis 3
-    member val Level  : int                 = 0                 // Rémy's let-depth
-    member val Parent : TypeVar voption     = ValueNone         // union-find
-    member val Rank   : int                 = 0                 // union-find
-    // Deferred obligations, all drained by `unify` when `Link` is set and
-    // merged across a `union` by `migrateBounds`:
-    member val Constraints      : SemanticConstraint list  = []  // `when 'a : equality`, `:> T`, …
-    member val SrtpBounds       : MemberSignature list     = []  // `when ^a : (member …)`
-    member val PendingDotAccess : DeferredMemberAccess list = [] // `x.Foo` on a still-free `x`
-    member val Defaults         : SemType list             = []  // `default ^T : dynamic`
+type TypeVar(id: TyVarId) =
+    member _.Id: TyVarId = id   // dense, monotone, per-file; never reused
 ```
 
-**Everything except `Parent` / `Rank` is authoritative only on the union-find
-representative — call `UnionFind.find` before reading it.** That is the single
-easiest mistake to make against this type.
+`TypeStore` holds, keyed by `TyVarId`:
+
+- **Union-find + root-authoritative cells** — parallel arrays grown together by
+  amortized doubling: `parent`/`rank` (structure; `parent.[i] = i` marks a root),
+  and `level`/`link`/`units` (Rémy level, the solution, the measure). `region` is a
+  write-once cell. Every read/write goes through a store accessor —
+  `store.Parent`/`SetParent`, `Link`/`SetLink`, `Level`/`SetLevel`,
+  `Units`/`SetUnits`, `Region`/`SetRegion` — the **single mutation seam**.
+- **Deferred-obligation side-tables** — keyed by the *representative* id:
+  `store.Constraints` and `store.Defaults` (grow-only lists), `store.Srtp` and
+  `store.Pda` (grow-only lists + a reference-keyed `solved` set). These replace the
+  former on-node `Constraints` / `Defaults` / `SrtpBounds` / `PendingDotAccess` slots.
+
+A `store.Node : TyVarId -> TypeVar` table lets `UnionFind.find` / `union` still
+return the root **handle** that the reference-identity call sites depend on.
+
+**`level` / `link` / `units` and every side-table are authoritative only on the
+union-find representative — call `UnionFind.find store` before reading.** That is
+the single easiest mistake to make against this type.
 
 A few choices worth noting:
 
-- **Class, not record.** `TypeVar` participates in union-find and is mutated
-  in place by `Unification`. Records-with-mutable-fields work, but a sealed
-  class makes the identity semantics (each `new TypeVar()` is its own
-  variable) read more naturally.
-- **`voption` not `option`.** All mutable fields use `voption` to avoid
-  per-field heap allocations on every parse. The semantic-info path is
-  hot — fresh `TypeVar`s are minted per CST expression node.
-- **Union-find on the `TypeVar` itself.** `Parent`/`Rank` live directly on
-  the record. No separate `Dictionary<TypeVar, TypeVarRef>` indirection.
-  `find` walks pointers; `union` rewires them.
+- **Handle, not raw id.** `TypeVar` stays a sealed class with reference identity
+  (each `store.NewTypeVar()` is its own variable) rather than collapsing to
+  `SemType.TyVar of TyVarId`, so the ~dozen `HashIdentity.Reference` keying sites
+  keep working and `find` can hand back a node.
+- **Dense arrays, not per-object slots.** State is id-indexed store arrays —
+  cache-friendly, and the immutable parts are internable — rather than a
+  payload-heavy mutable node. `voption` cells (`link` / `units`) avoid per-entry
+  heap allocation on the hot path.
+- **Union-find in the store, not on the node.** `parent` / `rank` are store arrays;
+  `find` walks and path-compresses them and `union` rewires them, both parameterised
+  on the store. No `Dictionary<TypeVar, _>` indirection — the id *is* the index.
 
 ## Deferred obligations (the on-unified callbacks)
 
 A constraint on a *free* TyVar cannot be checked yet — there is nothing to check
 it against. So it is parked on the variable and **drained when the variable is
-solved**: when `Unification` writes `Link`, it walks the obligation lists and
-dispatches. A `union` merges two variables' obligations onto the survivor via
-`migrateBounds`. Newly-discovered obligations can fire further unifications; that
+solved**: when `Unification` sets the root's `link`, it walks the obligation
+side-tables and dispatches. A `union` folds the loser's obligations onto the
+survivor via one associative join per family at the store's union seam (replacing
+the former `migrateBounds`). Newly-discovered obligations can fire further unifications; that
 iteration is internal to the pass and never escapes into pass-level re-running
 (see [architecture.md](architecture.md#pass-order-is-strictly-forward)).
 
