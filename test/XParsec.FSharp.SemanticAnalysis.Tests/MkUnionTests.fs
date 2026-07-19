@@ -98,7 +98,7 @@ let tests =
             // set rather than leaving a stale `string | string`. `zonk` is the
             // exemplar; `substituteWith` / `Inline.substType` share the path.
             test "zonk collapses a union when a member resolves to another member" {
-                let tv = TypeVar()
+                let tv = TypeStore().NewTypeVar()
                 tv.Link <- ValueSome tString
                 // `'a | string` with `'a ↦ string` — a raw pre-resolution union.
                 let u = rawOr [ TyVar tv; tString ]
@@ -106,7 +106,7 @@ let tests =
             }
 
             test "zonk keeps distinct resolved members and re-canonicalises" {
-                let tv = TypeVar()
+                let tv = TypeStore().NewTypeVar()
                 tv.Link <- ValueSome tInt
                 let u = rawOr [ TyVar tv; tString ]
                 Expect.equal (Unification.zonk u) (mkUnion [ tInt; tString ]) "('a | string)[a:=int] ≡ int | string"

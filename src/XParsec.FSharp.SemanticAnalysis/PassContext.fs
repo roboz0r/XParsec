@@ -823,6 +823,16 @@ type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed)
     /// clause; the typar carries the inline binding's quantified root so
     /// `Inline.inlineExpand` can substitute it at the call site.
     member val StaticOpt = SideTable<EqArray<TStaticOptConstraint>>() with get
+    /// The metavar arena for this file: the single authority that mints `TypeVar`
+    /// handles (`ctx.NewTypeVar()`) with dense per-file ids and owns the id-indexed
+    /// side-tables payload families migrate into. One per `PassContext`, like the
+    /// `TypeVar` graph it governs.
+    member val Store = TypeStore() with get
+
+    /// Mint a fresh metavar through this file's arena — the `ctx`-level construction
+    /// seam every inference / name-resolution site routes through.
+    member this.NewTypeVar() : TypeVar = this.Store.NewTypeVar()
+
     /// Current let-depth (Rémy's levels). Push on entering a binding group's
     /// RHSes, pop after typing them; generalisation uses the pre-push value as
     /// the threshold for "which TyVars do I quantify?".

@@ -53,7 +53,7 @@ let private thawedTemplate (letInline: string) : TDecl =
     let frozen = Pipeline.analyse realProvider.Value input lexed file
 
     match frozen.InlineBodies |> EqArray.toList with
-    | [ v ] -> Inline.thawBody v.Body.Decl
+    | [ v ] -> Inline.thawBody (TypeStore()) v.Body.Decl
     | other -> failwithf "expected exactly one published inline body for %s, got %d" letInline (List.length other)
 
 [<Tests>]
@@ -368,7 +368,7 @@ let tests =
 
                 let body =
                     match frozen.InlineBodies |> EqArray.toList with
-                    | [ v ] -> Inline.thawBody v.Body.Decl
+                    | [ v ] -> Inline.thawBody (TypeStore()) v.Body.Decl
                     | other -> failtestf "expected exactly one published body, got %d" (List.length other)
 
                 let refs = ResizeArray<string * SymbolKey>()

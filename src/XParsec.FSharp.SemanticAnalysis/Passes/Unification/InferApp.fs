@@ -613,7 +613,7 @@ module internal UnificationInferApp =
                     unify
                         ctx
                         key
-                        (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel)
+                        (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
                         (TyFun(leftTy, TyFun(rightTy, resultTy)))
 
                     resultTy
@@ -655,7 +655,7 @@ module internal UnificationInferApp =
             unify
                 ctx
                 key
-                (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel)
+                (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
                 (TyFun(recvTy, TyFun(ctx.Intrinsics.String, resultTy)))
 
             // Record for the post-settle escape sweep: if context pins `resultVar` to a
@@ -688,7 +688,7 @@ module internal UnificationInferApp =
             unify
                 ctx
                 key
-                (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel)
+                (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
                 (TyFun(recvTy, TyFun(ctx.Intrinsics.String, TyFun(valueTy, ctx.Intrinsics.Unit))))
 
             ctx.Intrinsics.Unit
@@ -726,7 +726,13 @@ module internal UnificationInferApp =
                 // the infix twin above) so the prefix operator splices by KEY.
                 ctx.Resolution.IntrinsicKey.Set(key, SymbolKey.Binding sym.Key)
                 let resultTy = TyVar(freshTyVar ctx)
-                unify ctx key (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel) (TyFun(operandTy, resultTy))
+
+                unify
+                    ctx
+                    key
+                    (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
+                    (TyFun(operandTy, resultTy))
+
                 resultTy
             | ValueNone -> unresolvedOperator ctx key name
         | ValueSome _

@@ -270,7 +270,8 @@ module UnificationEngine =
                                 // not by `subsumes` (int ≁ float) but because the two are
                                 // REPR-SIBLINGS (both carry JS repr `number`), so the value
                                 // flows at this width seam.
-                                let expectedTy = ExternalSymbols.instantiateSignature m declArgs ctx.CurrentLevel
+                                let expectedTy =
+                                    ExternalSymbols.instantiateSignature ctx.Store m declArgs ctx.CurrentLevel
 
                                 subsumes ctx argTy expectedTy <> SubsumeOutcome.Unrelated
                                 || reprSiblings ctx argTy expectedTy

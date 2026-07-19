@@ -42,7 +42,7 @@ module internal UnificationInferIdentExpr =
                 // ambient-prelude leg included) and stamped its `ExternalSymbol` here;
                 // instantiate the scheme by key rather than re-resolving.
                 match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
-                | ValueSome sym -> ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel
+                | ValueSome sym -> ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel
                 | ValueNone -> errorTy ctx key (sprintf "Operator '%s' is not available from the symbol provider" name)
             | ValueNone -> TyVar(freshTyVar ctx)
         | Expr.LongIdentOrOp(LongIdentOrOp.LongIdent li) when
@@ -143,7 +143,7 @@ module internal UnificationInferIdentExpr =
             // resolved this spelling (opens-aware) and stamped its
             // `ExternalSymbol`; instantiate the scheme by key.
             match ctx.Resolution.ExternalSymbolStamp.TryGetValue key with
-            | ValueSome sym -> ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel
+            | ValueSome sym -> ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel
             | ValueNone ->
 
                 match tryExternalStaticLongIdent ctx key e with

@@ -18,7 +18,7 @@ module internal ElaborateResolve =
     let typeOfKey (ctx: PassContext) (key: NodeKey) : SemType =
         match ctx.Bindings.TypeVar.TryGetValue key with
         | ValueSome tv -> Unification.zonk (TyVar tv)
-        | ValueNone -> TyVar(TypeVar())
+        | ValueNone -> TyVar(ctx.NewTypeVar())
 
     /// The enum `TypeKey` a node's type carries, if it is an enum. Both the
     /// project-local and the external (TS-manifest) `E.C1` arms type their node

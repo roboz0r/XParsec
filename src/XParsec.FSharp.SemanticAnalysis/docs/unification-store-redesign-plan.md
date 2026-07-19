@@ -162,7 +162,22 @@ and can land before, after, or independently of this).
    `PendingDotAccess`, `Defaults`, then `Link`/`Units`/`Level`/`Parent`/`Rank`. After each,
    `migrateBounds` shrinks by one arm and eventually vanishes.
 4. **Intern resolved `SemType`s** (hash-cons) — structural equality becomes identity.
-   Independently valuable; unlocks step 5.
+   Independently valuable; unlocks step 5. **Two-level home — the intern pool is NOT the
+   arena kept longer.** The mutable arena (`parent`/`rank`/`level`/`solution`/`units` + pending
+   payloads) is strictly per-file and discarded at `Freeze`: every metavar is resolved and frozen
+   away (post-`Freeze` a metavar is unrepresentable), and the next file thaws the frozen
+   signatures it needs into a *fresh* arena via `Inline.freshen`. Nothing in the arena is
+   invariant to the next file — the metavar-free `FrozenType` is deliberately the whole cross-file
+   contract. The intern pool, by contrast, holds the *immutable* side (ground resolved `SemType`s,
+   generalized `TypeScheme`s, intrinsic identities, thawed external signatures), which every
+   referencing file re-thaws/re-walks identically — so it hangs at **compilation scope** (on / beside
+   the cross-unit `IExternalSymbolProvider`, `PassContext.fs:551`), not on the per-file `PassContext`,
+   making cross-file structural equality a pointer compare and avoiding re-thawing the same signature
+   per file. **Hard constraint: only ground (metavar-free) types may be shared cross-file** — a value
+   still holding a per-file `TypeVar` handle must stay per-file, or one file's arena identity leaks
+   into the next. Natural shape: compilation-scoped intern pool of ground types + a per-file scratch
+   for in-flight (non-ground) types. Refines ⟨OPEN A⟩ — the intern table's home is the compilation
+   scope; this decides nothing for steps 1–3 (the per-file arena is right regardless).
 5. **Add result caching** (`zonk`, `matchTypes`/`subsumes`, member lookups) keyed by id, with
    generation-stamp invalidation (⟨OPEN F⟩). This is where the profiled perf win should land;
    gate it behind benchmarks so a cache that doesn't pay is not kept.
@@ -174,7 +189,9 @@ seam). Steps 4–5 are the performance payoff and must be benchmark-gated.
 
 ## Open decisions
 
-- ⟨OPEN A⟩ thin-handle `TypeVar {Id}` vs raw `SemType.TyVar of TyVarId`. **Lean: handle.**
+- ⟨OPEN A⟩ thin-handle `TypeVar {Id}` vs raw `SemType.TyVar of TyVarId`. **Lean: handle.** The
+  arena's *home* is settled (per-file `PassContext`); the intern pool's home is separate and
+  compilation-scoped — see step 4's two-level split.
 - ⟨OPEN B⟩ grow-only sets + `solved` table vs trailed consumption. **Lean: grow-only.**
 - ⟨OPEN D⟩ trail vs semi-persistent — **defer; no rollback requirement in scope.**
 - ⟨OPEN E⟩ does `Region` ever need special handling, or is it write-once? (Not migrated on

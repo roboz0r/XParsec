@@ -627,7 +627,7 @@ module internal ElaborateExpr =
             | TyConst(_, args) when args.Length = 1 -> args.[0]
             | TyRecord(_, args) when args.Length = 1 -> args.[0]
             | TyUnion(_, args) when args.Length = 1 -> args.[0]
-            | _ -> TyVar(TypeVar())
+            | _ -> TyVar(ctx.NewTypeVar())
 
         // A program-declared list union (resolved via the `'T list = List<'T>`
         // abbrev — see `Unification.listLiteralTy`) drives `[…]` construction

@@ -70,14 +70,14 @@ module Inline =
     /// it and nothing else. That is what makes an `FTLocalTypar`'s body-relative `NodeKey`
     /// binder safe across units, whose `NodeKey`s collide freely (there is no file id in
     /// one, by design).
-    let thawBody (decl: Frozen.TDecl) : TDecl =
+    let thawBody (store: TypeStore) (decl: Frozen.TDecl) : TDecl =
         let cache = Dictionary<TyparLeaf, SemType>()
 
         let mint (leaf: TyparLeaf) : SemType =
             match cache.TryGetValue leaf with
             | true, v -> v
             | _ ->
-                let v = TyVar(TypeVar())
+                let v = TyVar(store.NewTypeVar())
                 cache.[leaf] <- v
                 v
 

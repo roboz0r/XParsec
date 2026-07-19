@@ -375,7 +375,7 @@ module InlineExpansion =
             // cell either.
             let thaw (ib: InlineBody) : TInlineBody =
                 {
-                    Decl = Inline.thawBody ib.Decl
+                    Decl = Inline.thawBody ctx.Store ib.Decl
                     ParamAttrs = ib.ParamAttrs
                 }
 

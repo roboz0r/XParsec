@@ -102,11 +102,11 @@ module NameResolutionTypeRegistration =
     /// Mint a prototype TyVar per declared typar name. Stored on the registry
     /// entry and substituted out at every use site, so two instantiations share
     /// no variables.
-    let mkTypeParams (names: string list) : EqArray<string * TypeVar> =
+    let mkTypeParams (store: TypeStore) (names: string list) : EqArray<string * TypeVar> =
         EqArray.ofSeq (
             seq {
                 for n in names ->
-                    let tv = TypeVar()
+                    let tv = store.NewTypeVar()
                     tv.Level <- 0
                     n, tv
             }
@@ -674,7 +674,7 @@ module NameResolutionTypeRegistration =
         | TypeDefn.Record(typeName = tn; fields = fields) ->
             let name = id.Name
             let declKey = id.DeclKey
-            let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
+            let typeParams = mkTypeParams ctx.Store (typarNamesOfTypeName ctx tn)
             let typarConstraints = typarConstraintsOfTypeName tn
 
             let fieldInfos = ResizeArray<RecordFieldInfo>(fields.Length)
@@ -839,7 +839,7 @@ module NameResolutionTypeRegistration =
         | TypeDefn.Union(typeName = tn; cases = cases) ->
             let name = id.Name
             let declKey = id.DeclKey
-            let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
+            let typeParams = mkTypeParams ctx.Store (typarNamesOfTypeName ctx tn)
             let typarConstraints = typarConstraintsOfTypeName tn
             let caseInfos = ResizeArray<UnionCaseInfo>(cases.Length)
 
@@ -1009,7 +1009,7 @@ module NameResolutionTypeRegistration =
             let name = id.Name
             let declKey = id.DeclKey
             let key = id.Key
-            let typeParams = mkTypeParams (typarNamesOfTypeName ctx tn)
+            let typeParams = mkTypeParams ctx.Store (typarNamesOfTypeName ctx tn)
 
             // An inline intrinsic-abbrev may carry a `with member …`
             // augmentation (`type X = (# … #) with member …`) — but ONLY an

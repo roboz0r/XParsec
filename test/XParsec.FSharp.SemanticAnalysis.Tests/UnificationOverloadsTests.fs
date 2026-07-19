@@ -17,8 +17,8 @@ let tests =
                 // its scratch substitution is dropped. `M(string, string)` then wins (its
                 // own fresh scratch binds the free var to `string`). The trial must never
                 // touch the shared union-find, so the free var stays free afterwards.
-                let freeTv = TypeVar()
                 let overloadCtx = overloadCtx ()
+                let freeTv = overloadCtx.Store.NewTypeVar()
 
                 let pick candidates args =
                     pickWith overloadCtx [||] candidates args
@@ -78,7 +78,7 @@ let tests =
                     pickWith overloadCtx [||] candidates args
 
                 let candidates = [| overloadMember [ intFt ] 0; overloadMember [ intFt; intFt ] 0 |]
-                let chosen = pick candidates [ TyVar(TypeVar()) ]
+                let chosen = pick candidates [ TyVar(overloadCtx.Store.NewTypeVar()) ]
 
                 Expect.equal chosen.IsSome true "the free argument binds against M(int) — the set is not killed"
                 Expect.equal (chosenParams chosen.Value) [ BuiltinTypes.tyInt ] "M(int) is chosen"

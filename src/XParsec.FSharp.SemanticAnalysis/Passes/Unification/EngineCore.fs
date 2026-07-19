@@ -256,7 +256,7 @@ module UnificationEngineCore =
     /// of `constraints`, so the use site re-evaluates SRTP / equality
     /// satisfaction against its own substitution rather than the shared prototype.
     let freshConstrainedTyVar (ctx: PassContext) (constraints: SemanticConstraint list) : TypeVar =
-        let fresh = TypeVar()
+        let fresh = ctx.NewTypeVar()
         fresh.Level <- ctx.CurrentLevel
 
         for c in constraints do

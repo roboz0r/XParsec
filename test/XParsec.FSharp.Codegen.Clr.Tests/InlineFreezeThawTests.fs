@@ -368,7 +368,10 @@ let tests =
                 // occurrence of it. `thawBody` mints on all three axes, so the expected count
                 // is every leaf the frozen decl names — not just the local ones.
                 let cells =
-                    Inline.thawBody fDecl |> collectTys |> List.collect semRootsOf |> distinctCells
+                    Inline.thawBody (TypeStore()) fDecl
+                    |> collectTys
+                    |> List.collect semRootsOf
+                    |> distinctCells
 
                 Expect.equal
                     cells.Length
@@ -439,10 +442,16 @@ let tests =
                 // cache per thawed decl). Despite the identical binder key, the two thaws mint
                 // independent cells — nothing is keyed by NodeKey in any shared table.
                 let pCells =
-                    Inline.thawBody pDecl |> collectTys |> List.collect semRootsOf |> distinctCells
+                    Inline.thawBody (TypeStore()) pDecl
+                    |> collectTys
+                    |> List.collect semRootsOf
+                    |> distinctCells
 
                 let cCells =
-                    Inline.thawBody cDecl |> collectTys |> List.collect semRootsOf |> distinctCells
+                    Inline.thawBody (TypeStore()) cDecl
+                    |> collectTys
+                    |> List.collect semRootsOf
+                    |> distinctCells
 
                 let disjointFrom (xs: TypeVar list) (ys: TypeVar list) =
                     ys

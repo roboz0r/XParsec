@@ -33,7 +33,7 @@ module internal UnificationInferResolve =
         let acc = ResizeArray<SemType>(typeParams.Length)
 
         for (_, tp) in typeParams do
-            let fresh = TypeVar()
+            let fresh = ctx.NewTypeVar()
             fresh.Level <- ctx.CurrentLevel
             let protoRoot = UnionFind.find tp
             // Copy prototype constraints onto the fresh instance so

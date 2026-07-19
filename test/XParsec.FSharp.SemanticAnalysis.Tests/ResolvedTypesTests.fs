@@ -60,7 +60,7 @@ let tests =
                 let ctx, _ =
                     Pipeline.analyseSemWithContext realProvider.Value "let x = 1" lexed file
 
-                let freeTv = TypeVar()
+                let freeTv = ctx.Store.NewTypeVar()
                 let freeTy = TyVar freeTv
 
                 let synthDecls =

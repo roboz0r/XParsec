@@ -134,7 +134,11 @@ let tests =
                     // Instantiated at `'T = int`, the property type is
                     // `EqualityComparer<int>` (the §7.3 per-use substitution).
                     match
-                        ExternalSymbols.instantiateSignature m [| TyConst(RuntimeNames.intKey, EqArray.empty) |] 0
+                        ExternalSymbols.instantiateSignature
+                            (TypeStore())
+                            m
+                            [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
+                            0
                     with
                     | TyClass(key, args) when
                         args.Length = 1
@@ -157,7 +161,11 @@ let tests =
 
                     // Instantiated at `'T = int`: `int -> int`.
                     match
-                        ExternalSymbols.instantiateSignature m [| TyConst(RuntimeNames.intKey, EqArray.empty) |] 0
+                        ExternalSymbols.instantiateSignature
+                            (TypeStore())
+                            m
+                            [| TyConst(RuntimeNames.intKey, EqArray.empty) |]
+                            0
                     with
                     | TyFun(TyConst(k1, _), TyConst(k2, _)) when
                         SymbolKeyOps.simpleName k1 = DisplayName "int"
@@ -178,7 +186,7 @@ let tests =
                     Expect.equal m.Storage MemberStorage.Field "Empty is a field"
                     Expect.isTrue m.IsStatic "Empty is static"
 
-                    match ExternalSymbols.instantiateSignature m [||] 0 with
+                    match ExternalSymbols.instantiateSignature (TypeStore()) m [||] 0 with
                     | TyConst(key, _) when SymbolKeyOps.simpleName key = DisplayName "string" -> ()
                     | other -> failtestf "Empty should be typed string, got %A" other
                 | ValueNone -> failtest "String.Empty did not resolve as a field"
@@ -218,7 +226,7 @@ let tests =
                     // Every member's signature instantiates without throwing — the
                     // declaring typar resolves and any method typar freshens.
                     for m in info.Members do
-                        ExternalSymbols.instantiateSignature m intArg 0 |> ignore
+                        ExternalSymbols.instantiateSignature (TypeStore()) m intArg 0 |> ignore
                 | other -> failtestf "expected List`1 as a Class shape, got %A" other
             }
 

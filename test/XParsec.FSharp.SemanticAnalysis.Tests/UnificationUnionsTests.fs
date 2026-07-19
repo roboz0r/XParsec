@@ -173,7 +173,7 @@ let tests =
                 // typar stays free. A plain `unify` against the union would link the
                 // var; the `TyOr` arm of `tryCoerceUpcast` must not.
                 let ctx = subsumeCtx ()
-                let tv = TypeVar()
+                let tv = ctx.Store.NewTypeVar()
                 let actual = TyVar tv
                 let target = mkUnion [ TyVar tv; intTy ]
                 let key = NodeKey.ofSource 0 NodeKind.PatIdent
@@ -208,7 +208,10 @@ let tests =
                 let ctx = subsumeCtx ()
 
                 Expect.equal
-                    (checkConstraintKind ctx SemanticConstraintKind.Equality (mkUnion [ intTy; TyVar(TypeVar()) ]))
+                    (checkConstraintKind
+                        ctx
+                        SemanticConstraintKind.Equality
+                        (mkUnion [ intTy; TyVar(ctx.Store.NewTypeVar()) ]))
                     UnificationEngine.ConstraintOutcome.Defer
                     "int | 'a — defers on the free member"
             }
@@ -298,6 +301,10 @@ let tests =
                 // mutual inverses (FrozenTypeTests proves it on synthetic samples);
                 // assert it holds on a union that travelled the *real* freeze.
                 let frozen = frozenLetTy (freezeDecls "let f (x: int | string) : int | string = x")
-                Expect.equal (toFrozen (ofFrozen frozen)) frozen "ofFrozen >> toFrozen = id on the frozen signature"
+
+                Expect.equal
+                    (toFrozen (ofFrozen (TypeStore()) frozen))
+                    frozen
+                    "ofFrozen >> toFrozen = id on the frozen signature"
             }
         ]

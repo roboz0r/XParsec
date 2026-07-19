@@ -239,7 +239,7 @@ module internal UnificationInferRecordAccess =
         // and record-member-fallback arms all commit through ONE helper (no copy).
         let commitExternalMember (m: ExternalMember) (memberArgs: EqArray<SemType>) : SemType =
             let memberSig =
-                ExternalSymbols.instantiateSignature m (memberArgs.AsSpan().ToArray()) ctx.CurrentLevel
+                ExternalSymbols.instantiateSignature ctx.Store m (memberArgs.AsSpan().ToArray()) ctx.CurrentLevel
 
             ctx.Resolution.ExternalAccess.Set(
                 diagKey,
@@ -455,7 +455,13 @@ module internal UnificationInferRecordAccess =
                 // forms) so `InlineExpansion` splices the `ldlen` body by KEY.
                 ctx.Resolution.IntrinsicKey.Set(diagKey, SymbolKey.Binding sym.Key)
                 let resultTy = TyVar(freshTyVar ctx)
-                unify ctx diagKey (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel) (TyFun(rTy, resultTy))
+
+                unify
+                    ctx
+                    diagKey
+                    (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
+                    (TyFun(rTy, resultTy))
+
                 resultTy
             | ValueNone ->
                 errorTy ctx diagKey "Array 'Length' intrinsic 'GetArrayLength' is not in scope (Vesper.Core missing?)"
@@ -504,7 +510,7 @@ module internal UnificationInferRecordAccess =
                 unify
                     ctx
                     key
-                    (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel)
+                    (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
                     (TyFun(recvTy, TyFun(idxTy, resultTy)))
 
                 resultTy
@@ -526,7 +532,7 @@ module internal UnificationInferRecordAccess =
                 unify
                     ctx
                     key
-                    (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel)
+                    (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
                     (TyFun(recvTy, TyFun(idxTy, resultTy)))
 
                 resultTy
@@ -636,7 +642,7 @@ module internal UnificationInferRecordAccess =
                     unify
                         ctx
                         key
-                        (ExternalSymbols.instantiateSymbol sym ctx.CurrentLevel)
+                        (ExternalSymbols.instantiateSymbol ctx.Store sym ctx.CurrentLevel)
                         (TyFun(recvTy, TyFun(idxTy, resultTy)))
 
                     // Pin `'K`/`'V` (which the generic scheme leaves free) to the declared

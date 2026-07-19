@@ -32,7 +32,7 @@ module internal UnificationInferGeneralize =
 
         for q in scheme.Quantified do
             let qRoot = UnionFind.find q
-            let fresh = TypeVar()
+            let fresh = ctx.NewTypeVar()
             fresh.Level <- ctx.CurrentLevel
             subst.[qRoot] <- TyVar fresh
             freshOf.[qRoot] <- fresh
@@ -85,7 +85,7 @@ module internal UnificationInferGeneralize =
                         && not (quantifiedRoots.Contains root)
                         && not (constraintSubst.ContainsKey root)
                     then
-                        let fresh = TypeVar()
+                        let fresh = ctx.NewTypeVar()
                         fresh.Level <- ctx.CurrentLevel
                         constraintSubst.[root] <- TyVar fresh
                 )

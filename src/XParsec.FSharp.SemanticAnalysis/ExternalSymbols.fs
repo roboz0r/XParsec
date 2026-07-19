@@ -1383,6 +1383,7 @@ module ExternalSymbols =
     /// already baked into the member's `FrozenType` before it reaches here
     /// (`Codegen.Js.NumberCovariance`), so this front-end realiser is number-agnostic.
     let instantiateSignatureWith
+        (store: TypeStore)
         (seed: (int * SemType) list)
         (m: ExternalMember)
         (declaringArgs: SemType[])
@@ -1393,7 +1394,7 @@ module ExternalSymbols =
         for (j, ty) in seed do
             cache.[j] <- ty
 
-        let methodVar = methodFreshener cache level
+        let methodVar = methodFreshener store cache level
         let decl i = declaringArgs.[i]
         let noLocal = localTyparInTemplate "ExternalSymbols.instantiateSignatureWith"
         let s = m.Signature
@@ -1410,8 +1411,8 @@ module ExternalSymbols =
     /// value type for a property. The data-form replacement for
     /// `member.BuildSignature args` followed by `Infer.instantiateMethodTypars`;
     /// equal to it on the post-freeze subset.
-    let instantiateSignature (m: ExternalMember) (declaringArgs: SemType[]) (level: int) : SemType =
-        instantiateSignatureWith [] m declaringArgs level
+    let instantiateSignature (store: TypeStore) (m: ExternalMember) (declaringArgs: SemType[]) (level: int) : SemType =
+        instantiateSignatureWith store [] m declaringArgs level
 
     /// The *open* realisation of a member's `Signature`: declaring typars
     /// substituted from `declaringArgs`, but the member's own method typars left
@@ -1540,7 +1541,7 @@ module ExternalSymbols =
     /// (`typarCount = 0`) realises directly. The single `FrozenType → SemType`
     /// realiser for the value/`TryLookup` channel (relocated from
     /// `VesperLib.makeInstantiate`); the value-channel twin of `instantiateSignature`.
-    let instantiateSymbol (sym: ExternalSymbol) (level: int) : SemType =
+    let instantiateSymbol (store: TypeStore) (sym: ExternalSymbol) (level: int) : SemType =
         let inst ft fresh =
             FrozenTypeBridge.instantiateDeclaring ft fresh
 
@@ -1554,7 +1555,7 @@ module ExternalSymbols =
                 Array.init
                     sym.TyparArity
                     (fun _ ->
-                        let tv = TypeVar()
+                        let tv = store.NewTypeVar()
                         tv.Level <- level
                         tv
                     )

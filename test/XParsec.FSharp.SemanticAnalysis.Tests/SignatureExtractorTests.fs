@@ -91,7 +91,7 @@ let tests =
 
                     for kv in ctx.Symbols do
                         if found.IsNone && kv.Key.EndsWith("." + suffix) then
-                            found <- ValueSome(ExternalSymbols.instantiateSymbol kv.Value 0)
+                            found <- ValueSome(ExternalSymbols.instantiateSymbol (TypeStore()) kv.Value 0)
 
                     match found with
                     | ValueSome ty -> ty
@@ -129,7 +129,7 @@ let tests =
 
                 for kv in ctx.Symbols do
                     if found.IsNone && kv.Key.EndsWith(".broken") then
-                        found <- ValueSome(ExternalSymbols.instantiateSymbol kv.Value 0)
+                        found <- ValueSome(ExternalSymbols.instantiateSymbol (TypeStore()) kv.Value 0)
 
                 match found with
                 | ValueNone ->
@@ -832,7 +832,7 @@ let tests =
 
                 Expect.isTrue equalityTrait (sprintf "Constraints carries Equality on typar 0; got %A" sym.Constraints)
 
-                match ExternalSymbols.instantiateSymbol sym 0 with
+                match ExternalSymbols.instantiateSymbol (TypeStore()) sym 0 with
                 | TyFun(TyVar a, TyFun(TyVar _, TyConst(k, _))) when SymbolKeyOps.simpleName k = DisplayName "bool" ->
                     Expect.isTrue
                         (a.Constraints |> List.exists (fun c -> c.Kind = SemanticConstraintKind.Equality))
@@ -886,7 +886,7 @@ let tests =
                     Expect.equal ret (FTTypar(TyparAxis.Declaring, 0)) "the trait returns the declaring typar"
 
                 // The instantiation half: the realised signature lands on the fresh TyVar.
-                match ExternalSymbols.instantiateSymbol sym 0 with
+                match ExternalSymbols.instantiateSymbol (TypeStore()) sym 0 with
                 | TyFun(TyVar a, TyFun(TyVar _, TyVar _)) ->
                     match a.SrtpBounds with
                     | [ bound ] ->

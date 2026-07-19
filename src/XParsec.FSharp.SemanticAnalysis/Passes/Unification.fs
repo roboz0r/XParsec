@@ -217,7 +217,7 @@ module Unification =
             // `this`: fresh TyVar pre-linked to the self-type over the
             // declaration's prototype typars, so a generic member body
             // mentioning `'a` shares identity with them.
-            let thisTv = TypeVar()
+            let thisTv = ctx.NewTypeVar()
             thisTv.Level <- ctx.CurrentLevel
             let selfArgs = EqArray.ofSeq (seq { for (_, ptv) in fc.TypeParams -> TyVar ptv })
             thisTv.Link <- ValueSome(fc.MkSelfType selfArgs)
@@ -622,7 +622,7 @@ module Unification =
     let private mintBaseTyVar (ctx: PassContext) (info: ClassTypeInfo) : unit =
         match info.BaseType with
         | ValueSome parentTy ->
-            let baseTv = TypeVar()
+            let baseTv = ctx.NewTypeVar()
             baseTv.Level <- ctx.CurrentLevel
             baseTv.Link <- ValueSome parentTy
             ctx.Bindings.TypeVar.Set(info.BaseKey, baseTv)

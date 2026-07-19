@@ -121,7 +121,9 @@ let tests =
                     }
 
                 let level = 7
-                let result = ExternalSymbols.instantiateSignature m (argsForArity 1) level
+
+                let result =
+                    ExternalSymbols.instantiateSignature (TypeStore()) m (argsForArity 1) level
 
                 match result with
                 | TyFun(TyTuple ins, TyTuple outs) ->
@@ -181,7 +183,7 @@ let tests =
                     match expected with
                     | Some exp ->
                         Expect.equal
-                            (ExternalSymbols.instantiateSignature m args 0)
+                            (ExternalSymbols.instantiateSignature (TypeStore()) m args 0)
                             exp
                             "instantiateSignature ≡ expected"
                     | None ->
@@ -191,7 +193,7 @@ let tests =
                         Expect.equal m.Signature.DeclaringTyparArity declTyparArity "declaring arity preserved"
                         Expect.equal m.Signature.MethodTyparArity methodTyparArity "method arity preserved"
 
-                        match ExternalSymbols.instantiateSignature m args 0 with
+                        match ExternalSymbols.instantiateSignature (TypeStore()) m args 0 with
                         | TyFun _ -> ()
                         | other -> failtestf "expected a TyFun member signature, got %A" other
                 }

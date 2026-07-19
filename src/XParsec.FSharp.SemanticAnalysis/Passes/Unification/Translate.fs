@@ -19,14 +19,14 @@ module internal UnificationTranslate =
     /// Fresh unkeyed TypeVar — for intermediate "result" TyVars not tied to
     /// a CST node's NodeKey.
     let freshTyVar (ctx: PassContext) : TypeVar =
-        let tv = TypeVar()
+        let tv = ctx.NewTypeVar()
         tv.Level <- ctx.CurrentLevel
         tv
 
     /// Overwrites any prior entry — callers that need "get or allocate"
     /// (e.g. forward-referenced let-rec siblings) must go through `tvOf`.
     let freshTv (ctx: PassContext) (key: NodeKey) : TypeVar =
-        let tv = TypeVar()
+        let tv = ctx.NewTypeVar()
         tv.Level <- ctx.CurrentLevel
         ctx.Bindings.TypeVar.Set(key, tv)
         tv
@@ -239,7 +239,7 @@ module internal UnificationTranslate =
                             Severity = Severity.Error
                         }
 
-                    let tv = TypeVar()
+                    let tv = ctx.NewTypeVar()
                     tv.Level <- ctx.CurrentLevel
                     ctx.Resolution.TyparScope.[name] <- tv
                     TyVar tv
@@ -247,7 +247,7 @@ module internal UnificationTranslate =
                     // Implicit typar: mint at the binding's current level so
                     // generalisation at binding-group exit picks it up;
                     // memoise so later occurrences share identity.
-                    let tv = TypeVar()
+                    let tv = ctx.NewTypeVar()
                     tv.Level <- ctx.CurrentLevel
                     ctx.Resolution.TyparScope.[name] <- tv
                     TyVar tv

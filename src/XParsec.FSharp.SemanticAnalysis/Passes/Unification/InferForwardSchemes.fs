@@ -46,11 +46,11 @@ module internal UnificationInferForwardSchemes =
                                 match seed.TryGetValue n with
                                 | true, proto -> proto
                                 | _ ->
-                                    let tv = TypeVar()
+                                    let tv = ctx.NewTypeVar()
                                     tv.Level <- ctx.CurrentLevel
                                     tv
                             | ValueNone ->
-                                let tv = TypeVar()
+                                let tv = ctx.NewTypeVar()
                                 tv.Level <- ctx.CurrentLevel
                                 tv
 

@@ -3,6 +3,10 @@ module XParsec.FSharp.SemanticAnalysis.Tests.FrozenTypeTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
+// `ofFrozen` mints local-typar metavars through an arena; the round-trip samples
+// carry no `FTLocalTypar`, so this store stays empty — it only satisfies the seam.
+let private store = TypeStore()
+
 // The `SemType` ↔ `FrozenType` round-trip oracle. The
 // bridge is the keystone of the 3B cutover: every later slice (3B-2's encoder
 // flip, 3B-4's tree flip) relies on `toFrozen` / `ofFrozen` being mutual
@@ -120,15 +124,15 @@ let tests =
         [
             test "ofFrozen >> toFrozen = id on every FrozenType shape" {
                 for ft in sampleFrozenTypes do
-                    Expect.equal (toFrozen (ofFrozen ft)) ft (sprintf "round-trips: %A" ft)
+                    Expect.equal (toFrozen (ofFrozen store ft)) ft (sprintf "round-trips: %A" ft)
             }
 
             test "toFrozen >> ofFrozen = id on the post-freeze SemType subset" {
                 // Each `ofFrozen ft` is a representative of the post-freeze subset
                 // (the cases `freeze` can legally produce — no `TyVar`).
                 for ft in sampleFrozenTypes do
-                    let ty = ofFrozen ft
-                    Expect.equal (ofFrozen (toFrozen ty)) ty (sprintf "round-trips: %A" ty)
+                    let ty = ofFrozen store ft
+                    Expect.equal (ofFrozen store (toFrozen ty)) ty (sprintf "round-trips: %A" ty)
             }
 
             test "every post-freeze SemType case is covered by the sample" {
@@ -152,7 +156,7 @@ let tests =
                     | TyConditional _ -> "TyConditional"
                     | TyVar _ -> "TyVar"
 
-                let seen = sampleFrozenTypes |> List.map (ofFrozen >> tag) |> Set.ofList
+                let seen = sampleFrozenTypes |> List.map (ofFrozen store >> tag) |> Set.ofList
 
                 for expected in
                     [
@@ -175,7 +179,7 @@ let tests =
             }
 
             test "toFrozen on a TyVar is a hard error (the sole case with no FrozenType counterpart)" {
-                let metavar = TyVar(TypeVar())
+                let metavar = TyVar(TypeStore().NewTypeVar())
 
                 Expect.throws
                     (fun () -> toFrozen metavar |> ignore)
@@ -183,7 +187,8 @@ let tests =
             }
 
             test "toFrozen rejects a TyVar nested inside an otherwise-frozen shape" {
-                let nested = TyFun(TyConst(RuntimeNames.intKey, EqArray.empty), TyVar(TypeVar()))
+                let nested =
+                    TyFun(TyConst(RuntimeNames.intKey, EqArray.empty), TyVar(TypeStore().NewTypeVar()))
 
                 Expect.throws
                     (fun () -> toFrozen nested |> ignore)

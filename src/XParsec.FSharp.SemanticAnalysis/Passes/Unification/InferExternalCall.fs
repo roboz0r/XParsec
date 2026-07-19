@@ -218,6 +218,7 @@ module internal UnificationInferExternalCall =
 
         let memberSig =
             ExternalSymbols.instantiateSignatureWith
+                ctx.Store
                 (methodTyparConstantSeed ctx chosen declArgs facts)
                 chosen
                 declArgs

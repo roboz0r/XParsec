@@ -40,7 +40,7 @@ module NameResolutionMemberRegistration =
         // Synthetic kind keeps the param's binding-site key distinct from a regular
         // Pat.NamedSimple at the same offset.
         let addParam (id: SyntaxToken) (annotation: Type<SyntaxToken> voption) =
-            let tv = TypeVar()
+            let tv = ctx.NewTypeVar()
             tv.Level <- 0
 
             match annotation with
@@ -266,7 +266,7 @@ module NameResolutionMemberRegistration =
                 }
 
         let addMember mName kind isStatic isOverride (mKey: NodeKey) : TypeMemberInfo =
-            let tv = TypeVar()
+            let tv = ctx.NewTypeVar()
             tv.Level <- 0
             let cmi = TypeMemberInfo(mName, kind, isStatic, TyVar tv, mKey)
             cmi.IsOverride <- isOverride
@@ -296,7 +296,7 @@ module NameResolutionMemberRegistration =
                     | ClassMemberKind.Method -> implicitMemberTypars ctx classTypars b
                     | _ -> []
 
-                cmi.MethodTypeParams <- mkTypeParams (explicit @ implicit)
+                cmi.MethodTypeParams <- mkTypeParams ctx.Store (explicit @ implicit)
                 // The explicit `<'C>` typars are exactly the leading `explicit`
                 // prefix; record the count so `generaliseMemberTypars` can pass
                 // ONLY them as `canonical`'s `declared` (the implicit tail must be
@@ -323,7 +323,7 @@ module NameResolutionMemberRegistration =
                 // Unification scopes the signature against them and Elaborate can
                 // surface them as GenericMethodParameters.
                 let explicit = memberTyparNames ctx tds
-                cmi.MethodTypeParams <- mkTypeParams explicit
+                cmi.MethodTypeParams <- mkTypeParams ctx.Store explicit
                 cmi.DeclaredTyparCount <- List.length explicit
             | ValueNone -> ()
 
@@ -519,7 +519,7 @@ module NameResolutionMemberRegistration =
                     for b in bindings do
                         match bindingsOfPat ctx b.headPat with
                         | [ (name, key) ] ->
-                            let tv = TypeVar()
+                            let tv = ctx.NewTypeVar()
                             tv.Level <- 0
                             acc.Add(ClassPreambleEntry.Let(ClassLetInfo(name, TyVar tv, key, b, isRec.IsSome)))
                         | _ -> diagnose "Only simple `let x = …` bindings are supported in a class preamble"
@@ -546,7 +546,7 @@ module NameResolutionMemberRegistration =
             let name = id.Name
             let declKey = id.DeclKey
             let classTyparNames = typarNamesOfTypeName ctx tn
-            let typeParams = mkTypeParams classTyparNames
+            let typeParams = mkTypeParams ctx.Store classTyparNames
 
             // Every annotated position in the class's declared surface, resolved under the
             // class typar scope in ONE entry so a `'a` in a ctor param, a `val` field or a
@@ -719,7 +719,7 @@ module NameResolutionMemberRegistration =
         (t: Type<SyntaxToken>)
         : SemType =
         let freshTv () =
-            let tv = TypeVar()
+            let tv = ctx.NewTypeVar()
             tv.Level <- 0
             TyVar tv
 

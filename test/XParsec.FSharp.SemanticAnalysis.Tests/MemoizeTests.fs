@@ -87,7 +87,7 @@ let tests =
 
                 match cached.TryLookup "known" with
                 | ValueSome s ->
-                    match ExternalSymbols.instantiateSymbol s 0 with
+                    match ExternalSymbols.instantiateSymbol (TypeStore()) s 0 with
                     | TyConst(key, _) ->
                         Expect.equal
                             (SymbolKeyOps.simpleName key)

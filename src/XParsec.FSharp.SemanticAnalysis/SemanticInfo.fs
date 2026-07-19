@@ -2,6 +2,15 @@ namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Numerics
 
+/// Unit of measure tagging the dense metavar id so it can never be confused with a
+/// `NodeKey`, a `RegionId`, or a raw array index. Erased to `int` at runtime.
+[<Measure>]
+type tyVarId
+
+/// A stable, dense, monotone metavar id minted per file by `TypeStore`. Erased to
+/// `int`; the arena keys its parallel arrays / side-tables by it.
+type TyVarId = int<tyVarId>
+
 // `SymbolOrigin` / `SymbolKey` / `MemberKind` live here (ahead of `SemType`)
 // because the nominal `SemType` cases (`TyUnion` / `TyRecord` / `TyClass` / `TyEnum`) carry
 // a `TypeKey` as their identity — pure string/EqArray records with no `SemType`
@@ -1160,7 +1169,12 @@ and [<NoEquality; NoComparison>] DeferredMemberAccess =
         ResultTv: TypeVar
     }
 
-and [<Sealed>] TypeVar() =
+and [<Sealed>] TypeVar(id: TyVarId) =
+    /// Dense, monotone, per-file identity minted by `TypeStore.NewTypeVar` — the
+    /// arena's array / side-table key. Immutable and never reused within a file;
+    /// reference identity is retained (this stays a handle, not a raw id) so the
+    /// existing `HashIdentity.Reference` keying keeps working during migration.
+    member _.Id: TyVarId = id
     /// Authoritative only on the representative — call UnionFind.find first.
     member val Link: SemType voption = ValueNone with get, set
     /// Measure constraint on this variable, when known to be a numeric
@@ -1205,6 +1219,26 @@ and [<Sealed>] TypeVar() =
     /// concrete shape it reaches. Migrated on union-find via
     /// `migrateBounds`. Empty for the overwhelming majority of TyVars.
     member val Defaults: SemType list = [] with get, set
+
+/// The metavar **arena** for one file: the single authority that mints `TypeVar`
+/// handles with dense, monotone ids. Grow-only per file; ids are never reused, so a
+/// `TyVarId` is a stable index into the parallel arrays / side-tables that later
+/// steps move the node's payload into. One instance lives on each `PassContext`.
+[<Sealed>]
+type TypeStore() =
+    let mutable nextId = 0
+
+    /// Mint a fresh metavar handle carrying the next dense id. THE single
+    /// construction seam — every `TypeVar` in a file is born here so its id
+    /// indexes this store.
+    member _.NewTypeVar() : TypeVar =
+        let id = LanguagePrimitives.Int32WithMeasure<tyVarId> nextId
+        nextId <- nextId + 1
+        TypeVar id
+
+    /// Count of metavars minted so far (the dense id upper bound); sizes the arena's
+    /// parallel arrays as payload families migrate off the node.
+    member _.Count = nextId
 
 module MeasureTerm =
     let empty = MeasureTerm.Empty
@@ -1727,7 +1761,7 @@ module FrozenTypeBridge =
     /// arm; the contract it actually owes is intact, because the cells it mints are
     /// the CALLER's, never a producer's (nothing on the other side of a frozen
     /// boundary can hold a reference to one).
-    let ofFrozen (ft: FrozenType) : SemType =
+    let ofFrozen (store: TypeStore) (ft: FrozenType) : SemType =
         let localCache =
             System.Collections.Generic.Dictionary<struct (NodeKey * int), SemType>()
 
@@ -1740,7 +1774,7 @@ module FrozenTypeBridge =
                 match localCache.TryGetValue key with
                 | true, v -> v
                 | _ ->
-                    let v = TyVar(TypeVar())
+                    let v = TyVar(store.NewTypeVar())
                     localCache.[key] <- v
                     v
             )
@@ -1767,11 +1801,16 @@ module FrozenTypeBridge =
     /// The standard method-typar freshener: a fresh `TyVar` at `level` per
     /// distinct index, memoised in `cache` so repeated occurrences of the same
     /// method index share one var. Mirrors `Infer.instantiateMethodTypars`.
-    let methodFreshener (cache: System.Collections.Generic.Dictionary<int, SemType>) (level: int) (j: int) : SemType =
+    let methodFreshener
+        (store: TypeStore)
+        (cache: System.Collections.Generic.Dictionary<int, SemType>)
+        (level: int)
+        (j: int)
+        : SemType =
         match cache.TryGetValue j with
         | true, v -> v
         | _ ->
-            let tv = TypeVar()
+            let tv = store.NewTypeVar()
             tv.Level <- level
             let v = TyVar tv
             cache.[j] <- v
