@@ -239,7 +239,7 @@ type private Renderer() =
             push " do "
             this.Expr b
 
-        | TExpr.ForTo(v, s, e2, b, _, _) ->
+        | TExpr.ForTo(v, _, s, e2, b, _, _) ->
             push "for "
             push (nameOf v)
             push " = "

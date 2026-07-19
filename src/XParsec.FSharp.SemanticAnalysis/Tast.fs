@@ -250,6 +250,7 @@ type TExprG<'ty, 'tok> =
     /// `startExpr`, `endExpr`, `body` are int, int, unit respectively.
     | ForTo of
         var: NodeKey *
+        identTok: 'tok *
         startExpr: TExprG<'ty, 'tok> *
         endExpr: TExprG<'ty, 'tok> *
         body: TExprG<'ty, 'tok> *

@@ -397,7 +397,7 @@ module TastWalk =
             // `var` is a `NodeKey`, not a `TPat`, so `OverridePat` cannot see
             // it — passes that rename binders (`Inline.freshen`) must override
             // `ForTo` at the expr level.
-            | TExpr.ForTo(k, s, e2, b, ty, tok) ->
+            | TExpr.ForTo(k, it, s, e2, b, ty, tok) ->
                 let s' = pe s
                 let e2' = pe e2
                 let b' = pe b
@@ -406,7 +406,7 @@ module TastWalk =
                 if refEq s' s && refEq e2' e2 && refEq b' b && refEq ty' ty then
                     e
                 else
-                    TExpr.ForTo(k, s', e2', b', ty', tok)
+                    TExpr.ForTo(k, it, s', e2', b', ty', tok)
             // The enumerator descriptor carries `'ty` payloads — the enumerator type
             // and, for a rung-3 constrained-typar source, the seq/enumerator interface
             // instantiation args. They reference the enclosing function's typars, so a
@@ -809,7 +809,7 @@ module TastWalk =
             | TExpr.While(c, b, _, _) ->
                 walk c
                 walk b
-            | TExpr.ForTo(_, s, e2, b, _, _) ->
+            | TExpr.ForTo(_, _, s, e2, b, _, _) ->
                 walk s
                 walk e2
                 walk b
@@ -987,7 +987,7 @@ module TastWalk =
                             iterExpr it b
                             removeBinders added
                             false
-                        | TExpr.ForTo(k, st, en, b, _, _) ->
+                        | TExpr.ForTo(k, _, st, en, b, _, _) ->
                             iterExpr it st
                             iterExpr it en
                             let isNew = bound.Add k
@@ -1049,7 +1049,7 @@ module TastWalk =
                             iterExpr iter b
                             depth <- depth - 1
                             false
-                        | TExpr.ForTo(_, s, e2, b, _, _) ->
+                        | TExpr.ForTo(_, _, s, e2, b, _, _) ->
                             iterExpr iter s
                             iterExpr iter e2
                             depth <- depth + 1

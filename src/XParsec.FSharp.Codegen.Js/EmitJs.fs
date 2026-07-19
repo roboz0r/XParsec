@@ -700,7 +700,7 @@ module EmitJs =
         // `const` before the loop; the JS `for` then counts `i` from `a` up to that
         // limit inclusive. (JS numbers are doubles, so the CLR overflow-at-MaxValue
         // dance the IL backend needs is unnecessary — `i <= limit` is safe.)
-        | TExprG.ForTo(var, startExpr, endExpr, body, _, _) ->
+        | TExprG.ForTo(var, _, startExpr, endExpr, body, _, _) ->
             let name = identName ctx.Source var
             let limit = "_lim" + string (TastWalk.exprTok e).StartIndex
 

@@ -72,7 +72,7 @@ module EmitClosures =
             | TExprG.Use(p, v, b, _, _, _) ->
                 go v
                 scoped (patKeys p) (fun () -> go b)
-            | TExprG.ForTo(var, s, e2, b, _, _) ->
+            | TExprG.ForTo(var, _, s, e2, b, _, _) ->
                 go s
                 go e2
                 scoped [ var ] (fun () -> go b)

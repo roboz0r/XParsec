@@ -379,12 +379,13 @@ module Inline =
                     fun m e ->
                         match e with
                         | TExpr.Var(k, t, tok) -> ValueSome(TExpr.Var(useKey k, t, tok))
-                        | TExpr.ForTo(var, s, e2, b, t, tok) ->
+                        | TExpr.ForTo(var, identTok, s, e2, b, t, tok) ->
                             let var = bind var
 
                             ValueSome(
                                 TExpr.ForTo(
                                     var,
+                                    identTok,
                                     TastWalk.mapExpr m s,
                                     TastWalk.mapExpr m e2,
                                     TastWalk.mapExpr m b,

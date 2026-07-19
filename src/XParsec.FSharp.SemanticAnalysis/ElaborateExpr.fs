@@ -287,7 +287,16 @@ module internal ElaborateExpr =
             TExpr.While(translateExpr ctx cond, translateExpr ctx body, ty, tok)
         | Expr.ForTo(ident = ident; startExpr = startE; endExpr = endE; body = body) ->
             let varKey = CstKeys.ofForToVar ident
-            TExpr.ForTo(varKey, translateExpr ctx startE, translateExpr ctx endE, translateExpr ctx body, ty, tok)
+
+            TExpr.ForTo(
+                varKey,
+                ident,
+                translateExpr ctx startE,
+                translateExpr ctx endE,
+                translateExpr ctx body,
+                ty,
+                tok
+            )
         | Expr.ForIn(pat = pat; enumerableExpr = src; body = body) -> translateForIn ctx key pat src body ty tok
         | Expr.String _ -> ElaborateStrings.translateString translateExpr ctx e ty tok
         | Expr.Match(matchExpr = scrutinee; rules = Rules(rules = rules)) ->
@@ -424,8 +433,8 @@ module internal ElaborateExpr =
         let tpat = translatePat ctx pat
 
         match rangeBounds, tpat with
-        | ValueSome(a, b), TPat.NamedSimple(varKey, _, _) ->
-            TExpr.ForTo(varKey, translateExpr ctx a, translateExpr ctx b, translateExpr ctx body, ty, tok)
+        | ValueSome(a, b), TPat.NamedSimple(varKey, _, identTok) ->
+            TExpr.ForTo(varKey, identTok, translateExpr ctx a, translateExpr ctx b, translateExpr ctx body, ty, tok)
         | _ ->
             // How the source yields its enumerator was resolved by Unification
             // and stashed by this node's key; absent ⇒ the §4.2 interface path.

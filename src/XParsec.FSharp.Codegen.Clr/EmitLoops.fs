@@ -468,7 +468,7 @@ module EmitLoops =
 
     let buildForTo (recur: Recur) (env: EmitEnv) (b: IlBuilder) (e: Frozen.TExpr) : unit =
         match e with
-        | TExprG.ForTo(var, startExpr, endExpr, body, _, _) ->
+        | TExprG.ForTo(var, _, startExpr, endExpr, body, _, _) ->
             // `for i = a to b do body` — a unit expression. `a`/`b` are evaluated
             // once (F# semantics) into the loop-variable and a hidden limit local;
             // the loop is exited *before* the increment when `i = limit`, so the

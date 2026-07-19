@@ -246,7 +246,7 @@ module TastLower =
         | TExprG.Tuple(xs, t, tk) -> TExprG.Tuple(EqArray.map f xs, t, tk)
         | TExprG.Sequential(xs, t, tk) -> TExprG.Sequential(EqArray.map f xs, t, tk)
         | TExprG.While(c, b, t, tk) -> TExprG.While(f c, f b, t, tk)
-        | TExprG.ForTo(v, s, e2, b, t, tk) -> TExprG.ForTo(v, f s, f e2, f b, t, tk)
+        | TExprG.ForTo(v, it, s, e2, b, t, tk) -> TExprG.ForTo(v, it, f s, f e2, f b, t, tk)
         | TExprG.ForIn(p, src, b, en, t, tk) -> TExprG.ForIn(p, f src, f b, en, t, tk)
         | TExprG.Match(sc, arms, t, tk) ->
             TExprG.Match(

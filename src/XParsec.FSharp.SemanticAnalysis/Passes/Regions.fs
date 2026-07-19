@@ -367,7 +367,7 @@ module Regions =
             inferRegion s ctx c |> ignore
             inferRegion s ctx b |> ignore
             RegionId.Unknown
-        | TExpr.ForTo(_, st, en, b, _, _) ->
+        | TExpr.ForTo(_, _, st, en, b, _, _) ->
             inferRegion s ctx st |> ignore
             inferRegion s ctx en |> ignore
             inferRegion s ctx b |> ignore
