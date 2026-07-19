@@ -1,0 +1,309 @@
+module XParsec.FSharp.SemanticAnalysis.Tests.UnificationBasicsTests
+
+open Expecto
+open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.SemanticAnalysis.Passes
+open XParsec.FSharp.SemanticAnalysis.Tests.TestHelpers
+open XParsec.FSharp.SemanticAnalysis.Tests.UnificationTestHelpers
+
+[<Tests>]
+let tests =
+    testList
+        "Unification.Basics"
+        [
+            test "integer literal types as int" {
+                // pat x at offset 4.
+                let ctx = analyse "let x = 1"
+                let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "x : int"
+            }
+
+            test "infix `+` types as int -> int -> int -> int (mono operator)" {
+                let ctx = analyse "let x = 1 + 2"
+                let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "x : int"
+            }
+
+            test "lambda body type propagates to function type" {
+                let ctx = analyse "let f = fun x -> x + 1"
+                let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
+                let expected = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
+                Expect.equal (typeOf ctx patKey) expected "f : int -> int"
+            }
+
+            test "function-form let infers parameter type from body" {
+                let ctx = analyse "let f x = x + 1"
+                let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
+                let expected = TyFun(BuiltinTypes.tyInt, BuiltinTypes.tyInt)
+                Expect.equal (typeOf ctx patKey) expected "f : int -> int"
+            }
+
+            test "application instantiates identity to argument type" {
+                // Wrap in a named binding so the let-in is unambiguously an
+                // expression (else the parser picks a different top-level shape).
+                let ctx = analyse "let result = let id = fun x -> x in id 42"
+                let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "result : int"
+            }
+
+            test "type mismatch on int + bool emits a diagnostic" {
+                let ctx = analyse "let x = 1 + true"
+
+                let hasMismatch =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "Type mismatch diagnostic emitted"
+            }
+
+            // `null` / `undefined` are distinct absence sentinels (the members of a
+            // TS-style `T | null` / `T | undefined`), NOT folded onto `unit` — even
+            // though `unit` *also* lowers to JS `undefined` at the VALUE level. The
+            // type identities stay distinct: each resolves to its own opaque
+            // `TyConst`, so neither unifies with `unit`.
+            test "`undefined` and `unit` resolve to distinct types and do not unify" {
+                let ctx = analyse "let f (x: undefined) : unit = x"
+                // `x : undefined`, pat at offset 7.
+                let patKey = NodeKey.ofSource 7 NodeKind.PatIdent
+
+                Expect.equal (typeOf ctx patKey) (TyConst(RuntimeNames.undefinedKey, EqArray.empty)) "x : undefined"
+
+                let hasMismatch =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "returning an `undefined`-typed value as `unit` must mismatch"
+            }
+
+            test "`null` and `unit` resolve to distinct types and do not unify" {
+                let ctx = analyse "let f (x: unit) : null = x"
+
+                let hasMismatch =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "returning a `unit`-typed value as `null` must mismatch"
+            }
+
+            test "`null` and `undefined` are distinct types and do not unify" {
+                let ctx = analyse "let f (x: null) : undefined = x"
+
+                let hasMismatch =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "mismatch")
+
+                Expect.isTrue hasMismatch "`null` and `undefined` must not unify"
+            }
+
+            test "Using a TyUnknown-typed external value emits a use-site diagnostic" {
+                // A contract val whose signature named an out-of-scope type bakes a
+                // `TyUnknown` leaf. Referencing that symbol must fire a diagnostic when
+                // its `TyUnknown` type reaches unification — not silently succeed.
+                // The malformation is in the PAYLOAD (a symbol whose frozen type is an
+                // unresolved `FTUnknown` leaf), not in the provider shape — so the leaf
+                // carries it verbatim.
+                let brokenProvider =
+                    ExternalSymbolProviders.ofNamedLeaf
+                        { ExternalSymbolProviders.NamedLeaf.empty with
+                            TryLookup =
+                                fun name ->
+                                    if name = "broken" then
+                                        ValueSome(
+                                            ExternalSymbols.monoFrozen
+                                                (SymbolKeyOps.inNamespace "")
+                                                "broken"
+                                                (FTUnknown "Missing.Thing")
+                                        )
+                                    else
+                                        ValueNone
+                        }
+
+                let provider =
+                    ExternalSymbolProviders.composite [ brokenProvider; realProvider.Value ]
+
+                let input = "let y = broken"
+                let lexed, file = parseFile input
+                let ctx = PassContext(provider, input, lexed)
+                Desugar.run ctx file
+                NameResolution.run ctx file
+                Unification.run ctx file
+
+                let hasUnknownDiag =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "could not be resolved")
+
+                Expect.isTrue
+                    hasUnknownDiag
+                    (sprintf
+                        "use-site TyUnknown diagnostic expected; diagnostics: %A"
+                        (ctx.Diagnostics |> Seq.map (fun d -> d.Message) |> Seq.toList))
+            }
+
+            test "ident `true` types as bool via provider" {
+                let ctx = analyse "let b = true"
+                let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyBool "b : bool"
+            }
+
+            test "nested infix: 1 + 2 * 3 types as int" {
+                let ctx = analyse "let x = 1 + 2 * 3"
+                let patKey = NodeKey.ofSource 4 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) BuiltinTypes.tyInt "x : int"
+            }
+
+            test "record literal infers record type from field set" {
+                // pat r at 32: 27-char type decl + "let r = ".
+                let ctx = analyse "type R = { X: int; Y: int }\nlet r = { X = 1; Y = 2 }"
+
+                let patKey = NodeKey.ofSource 32 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyRecord("R", EqArray.empty)) "r : TyRecord R"
+
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "ambiguous field set requires qualifier" {
+                let ctx =
+                    analyse "type R = { X: int; Y: int }\ntype S = { X: int; Y: int }\nlet r = { X = 1; Y = 2 }"
+
+                let hasAmbig =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "ambiguous")
+
+                Expect.isTrue hasAmbig "ambiguous-field-set diagnostic emitted"
+            }
+
+            test "unknown field set diagnoses" {
+                let ctx = analyse "type R = { X: int; Y: int }\nlet r = { X = 1; Z = 3 }"
+
+                let hasUnknown =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "No record type matches")
+
+                Expect.isTrue hasUnknown "unknown-field-set diagnostic emitted"
+            }
+
+            test "record obj field accepts a value initialiser (implicit box)" {
+                // `{ X = 5 }` into an `obj` field: F# boxes the int, so field-init COERCES via
+                // `unifyArg` (was a spurious `int vs obj` mismatch under symmetric `unify`).
+                // pat r at 24: 19-char type decl + "\n" + "let r = ".
+                let ctx = analyse "type R = { X: obj }\nlet r = { X = 5 }"
+
+                let patKey = NodeKey.ofSource 24 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyRecord("R", EqArray.empty)) "r : R"
+                Expect.isEmpty ctx.Diagnostics "the value boxes into the obj field — no mismatch"
+            }
+
+            test "record field still rejects an unrelated initialiser type" {
+                // The coercion is obj / subtype only: a string into an `int` field is not
+                // assignable, so `unifyArg` falls through to `unify` and diagnoses.
+                let ctx = analyse "type R = { X: int }\nlet r = { X = \"s\" }"
+
+                let hasError = ctx.Diagnostics |> Seq.exists (fun d -> d.Severity = Severity.Error)
+
+                Expect.isTrue hasError "a string into an int field is still a type error"
+            }
+
+            test "field access on annotated parameter types as the field type" {
+                let ctx = analyse "type R = { X: int }\nlet f (r: R) = r.X"
+
+                let patKey = NodeKey.ofSource 24 NodeKind.PatIdent
+                let expected = TyFun(TyRecord("R", EqArray.empty), BuiltinTypes.tyInt)
+                Expect.equal (typeOf ctx patKey) expected "f : R -> int"
+
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "field access on free TyVar pinned by use" {
+                // The use `f { X = 1 }` pins r to R.
+                let ctx = analyse "type R = { X: int }\nlet f r = r.X\nlet u = f { X = 1 }"
+
+                let fatigueFree =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "Cannot resolve field")
+
+                Expect.isFalse fatigueFree "no unresolved-field diagnostic when use pins receiver"
+            }
+
+            test "record clone types as source record" {
+                let ctx =
+                    analyse "type R = { X: int; Y: int }\nlet p = { X = 1; Y = 2 }\nlet q = { p with Y = 5 }"
+
+                // q pat at offset 57.
+                let qKey = NodeKey.ofSource 57 NodeKind.PatIdent
+                Expect.equal (typeOf ctx qKey) (TyRecord("R", EqArray.empty)) "q : R"
+
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "record clone with unknown field diagnoses" {
+                let ctx = analyse "type R = { X: int }\nlet p = { X = 1 }\nlet q = { p with Z = 5 }"
+
+                let hasNoField =
+                    ctx.Diagnostics |> Seq.exists (fun d -> d.Message.Contains "has no field")
+
+                Expect.isTrue hasNoField "unknown-field diagnostic emitted"
+            }
+
+            test "nullary ctor reference types as the union" {
+                // pat p at 21: 16-char type decl + "let p = ".
+                let ctx = analyse "type S = | Point\nlet p = Point"
+
+                let patKey = NodeKey.ofSource 21 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyUnion("S", EqArray.empty)) "p : S"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "single-arg ctor application types as the union" {
+                // pat c at 31: 26-char type decl + "let c = ".
+                let ctx = analyse "type S = | Circle of float\nlet c = Circle 1.0"
+
+                let patKey = NodeKey.ofSource 31 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyUnion("S", EqArray.empty)) "c : S"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "multi-arg ctor application takes a tuple" {
+                // pat r at 37: 32-char type decl + "let r = ".
+                let ctx = analyse "type S = | Rect of float * float\nlet r = Rect(2.0, 3.0)"
+
+                let patKey = NodeKey.ofSource 37 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyUnion("S", EqArray.empty)) "r : S"
+                Expect.isEmpty ctx.Diagnostics "no diagnostics"
+            }
+
+            test "ctor used as a value types as a function" {
+                // pat f at 31: 26-char type decl + "let f = ".
+                let ctx = analyse "type S = | Circle of float\nlet f = Circle"
+
+                let patKey = NodeKey.ofSource 31 NodeKind.PatIdent
+                let expected = TyFun(BuiltinTypes.tyFloat, TyUnion("S", EqArray.empty))
+                Expect.equal (typeOf ctx patKey) expected "f : float -> S"
+            }
+
+            test "ctor pattern unifies scrutinee with TyUnion" {
+                // Via the `Circle r` arm the scrutinee unifies with TyUnion("S", EqArray.empty),
+                // so `area : S -> float`.
+                let ctx =
+                    analyse "type S = | Circle of float\nlet area s = match s with | Circle r -> r"
+
+                // area pat at 31 (27-char type decl + "let "), s param at 36.
+                let areaKey = NodeKey.ofSource 31 NodeKind.PatIdent
+                let expected = TyFun(TyUnion("S", EqArray.empty), BuiltinTypes.tyFloat)
+                Expect.equal (typeOf ctx areaKey) expected "area : S -> float"
+            }
+
+            test "ambiguous ctor name requires qualifier" {
+                // Two unions share an `Ok` case.
+                let ctx = analyse "type R1 = | Ok of int\ntype R2 = | Ok of float\nlet x = Ok 1"
+
+                let hasAmbig =
+                    ctx.Diagnostics
+                    |> Seq.exists (fun d -> d.Message.Contains "Ambiguous constructor")
+
+                Expect.isTrue hasAmbig "ambiguous-ctor diagnostic emitted"
+            }
+
+            test "qualified ctor resolves an ambiguous case name" {
+                let ctx =
+                    analyse "type R1 = | Ok of int\ntype R2 = | Ok of float\nlet x = R2.Ok 1.0"
+
+                // Pat x starts at offset 50: 21 (type R1...) + 1 (\n) + 23 (type R2...) + 1 (\n) + 4 ("let ").
+                let patKey = NodeKey.ofSource 50 NodeKind.PatIdent
+                Expect.equal (typeOf ctx patKey) (TyUnion("R2", EqArray.empty)) "x : R2"
+            }
+        ]

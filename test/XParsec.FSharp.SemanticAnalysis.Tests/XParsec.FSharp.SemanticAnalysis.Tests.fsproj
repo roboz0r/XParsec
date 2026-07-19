@@ -15,7 +15,13 @@
     <Compile Include="CstKeysTests.fs" />
     <Compile Include="DesugarTests.fs" />
     <Compile Include="NameResolutionTests.fs" />
-    <Compile Include="UnificationTests.fs" />
+    <Compile Include="UnificationTestHelpers.fs" />
+    <Compile Include="UnificationBasicsTests.fs" />
+    <Compile Include="UnificationGenericsTests.fs" />
+    <Compile Include="UnificationClassesTests.fs" />
+    <Compile Include="UnificationInheritanceTests.fs" />
+    <Compile Include="UnificationUnionsTests.fs" />
+    <Compile Include="UnificationOverloadsTests.fs" />
     <Compile Include="ElaborateTests.fs" />
     <Compile Include="EqSetTests.fs" />
     <Compile Include="RecordFieldClassifierTests.fs" />
