@@ -513,9 +513,9 @@ module UnificationInfer =
                 let headTv = tvOf ctx key
                 let zonked = zonk (TyVar headTv)
 
-                if not (hasPendingDotAccess zonked) then
+                if not (hasPendingDotAccess ctx.Store zonked) then
                     // Settle flexible list-literal containers first (R3), then
                     // re-zonk so the (now-linked) FSharpList element generalises.
                     prepareListLiterals ctx zonked outerLevel
-                    let scheme = generalise (zonk zonked) outerLevel
+                    let scheme = generalise ctx.Store (zonk zonked) outerLevel
                     ctx.Bindings.Scheme.Set(key, scheme)

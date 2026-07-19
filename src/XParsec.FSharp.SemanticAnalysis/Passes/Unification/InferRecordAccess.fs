@@ -221,7 +221,7 @@ module internal UnificationInferRecordAccess =
                     | _ -> scan rest
                 | _ -> scan rest
 
-        scan root.Constraints
+        scan (ctx.Store.Constraints.Items root.Id)
 
     and resolveFieldStep (ctx: PassContext) (diagKey: NodeKey) (rTy: SemType) (memberName: string) : SemType =
         // Commit a resolved external instance member `m` whose signature is written
@@ -411,7 +411,7 @@ module internal UnificationInferRecordAccess =
                         ResultTv = resultTv
                     }
 
-                root.PendingDotAccess <- access :: root.PendingDotAccess
+                ctx.Store.Pda.Prepend(root.Id, access)
                 TyVar resultTv
         // `arr.Length` on a rank-1 intrinsic array resolves to the core
         // `GetArrayLength` inline function (scheme `'T[] -> int`), grounding the

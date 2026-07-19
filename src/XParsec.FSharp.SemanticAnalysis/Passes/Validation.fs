@@ -152,8 +152,10 @@ module Validation =
         for kv in ctx.Bindings.TypeVar.AsDictionary() do
             let root = UnionFind.find kv.Value
 
-            if seenRoots.Add(root) && not (List.isEmpty root.PendingDotAccess) then
-                for d in root.PendingDotAccess do
+            let pending = ctx.Store.Pda.Live root.Id
+
+            if seenRoots.Add(root) && not (List.isEmpty pending) then
+                for d in pending do
                     ctx.Diagnostics.Add
                         {
                             Key = d.UseKey

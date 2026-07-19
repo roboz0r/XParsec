@@ -581,7 +581,7 @@ module internal UnificationInferControlFlow =
                     | _ -> scan rest
                 | _ -> scan rest
 
-        scan tv.Constraints
+        scan (ctx.Store.Constraints.Items tv.Id)
 
     /// Rung-3: resolve `for x in s` where the source `s` is a *generic typar*
     /// constrained to a project-local seq interface (`'S :> ISeq` / `'S :> IStructSeq<'E>`)
@@ -625,7 +625,7 @@ module internal UnificationInferControlFlow =
                     | _ -> scan rest
                 | _ -> scan rest
 
-        scan tv.Constraints
+        scan (ctx.Store.Constraints.Items tv.Id)
 
     /// `srcTy` is either `IEnumerable<'T>` itself, an external class that
     /// implements it (the directly-implemented interface set the metadata layer

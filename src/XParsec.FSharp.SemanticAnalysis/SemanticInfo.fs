@@ -1117,12 +1117,6 @@ and MemberSignature =
         MemberName: string
         ArgTypes: EqArray<SemType>
         ReturnType: SemType
-        /// Shared across every stamp of the *same* trait (one per
-        /// participating typar) by reference identity: all participating
-        /// TyVars' `SrtpBounds` lists hold the same record instance.
-        /// First successful dispatch flips this so other typars' drain
-        /// paths no-op when their `Link` is later set.
-        mutable Resolved: bool
     }
 
 /// Type-parameter constraint attached to a `TypeVar`. Built from
@@ -1186,13 +1180,6 @@ and [<Sealed>] TypeVar(id: TyVarId) =
     /// numeric"; `ValueSome <non-empty>` means measured.
     member val Units: MeasureTerm voption = ValueNone with get, set
     member val Region: RegionId = RegionId.Unknown with get, set
-    /// Type-parameter constraints attached to this TyVar at declaration
-    /// or use sites. Drained by `Unification.unify` when `Link` is set
-    /// (on-unified callback); merged on union-find via `migrateBounds`.
-    /// Empty for the overwhelming majority of TyVars.
-    member val Constraints: SemanticConstraint list = [] with get, set
-    /// Fires when Link is set (on-unified callback in Unification).
-    member val SrtpBounds: MemberSignature list = [] with get, set
     // Owned by UnionFind; do not mutate directly.
     member val Parent: TypeVar voption = ValueNone with get, set
     member val Rank: int = 0 with get, set
@@ -1203,27 +1190,87 @@ and [<Sealed>] TypeVar(id: TyVarId) =
     /// UnionFind.find before reading. `union` propagates `min` of the two
     /// roots' levels to the survivor.
     member val Level: int = 0 with get, set
-    /// Pending dot-access constraints accumulated while this TyVar was
-    /// free. Drained by `unify` when the TyVar's `Link` becomes a
-    /// `TyRecord _`, `TyClass _`, or another shape that supports dotted
-    /// dispatch. The drain code branches on the link-target shape to
-    /// resolve against record fields vs class members. Authoritative on
-    /// the union-find root.
-    member val PendingDotAccess: DeferredMemberAccess list = [] with get, set
-    /// Default-constraint chain for this TyVar. Built from
-    /// `ExternalConstraint.Default` clauses captured on external symbols
-    /// (notably `(+)`, `(-)` etc.): `default ^T3 : ^T1` records `TyVar t1`
-    /// here, `default ^T1 : int` records `TyConst "int"`. Order matches
-    /// the source clause order; generalisation walks the list, chasing
-    /// each target through union-find, and links the TyVar to the first
-    /// concrete shape it reaches. Migrated on union-find via
-    /// `migrateBounds`. Empty for the overwhelming majority of TyVars.
-    member val Defaults: SemType list = [] with get, set
+
+/// The **storage core** every deferred-constraint payload family shares: a grow-only
+/// per-representative list keyed by the metavar's id. The backing dictionary is
+/// PRIVATE — the only writes are `Set`/`Prepend`/`Append`/`Join`, so a family has no
+/// off-seam setter once its node slot is gone (the single-mutation-seam guarantee).
+/// Payload lives only under the representative id; `Join` folds a `union` loser's
+/// items into the winner, order preserved so diagnostics stay deterministic.
+[<Sealed>]
+type PayloadList<'T>() =
+    let table = System.Collections.Generic.Dictionary<int, 'T list>()
+
+    let at (root: TyVarId) : 'T list =
+        match table.TryGetValue(int root) with
+        | true, xs -> xs
+        | _ -> []
+
+    /// Every item accrued under `root`, in insertion / merge order.
+    member _.Items(root: TyVarId) : 'T list = at root
+
+    member _.IsEmpty(root: TyVarId) : bool = List.isEmpty (at root)
+
+    /// Replace `root`'s items; an empty list drops the entry so an ungrounded-but-empty
+    /// root leaves no residue. THE single write path.
+    member _.Set(root: TyVarId, items: 'T list) : unit =
+        if List.isEmpty items then
+            table.Remove(int root) |> ignore
+        else
+            table.[int root] <- items
+
+    /// Accrue `item` at the head (`item :: node.slot`).
+    member this.Prepend(root: TyVarId, item: 'T) : unit = this.Set(root, item :: at root)
+
+    /// Accrue `item` at the tail (`node.slot @ [item]`).
+    member this.Append(root: TyVarId, item: 'T) : unit = this.Set(root, at root @ [ item ])
+
+    /// The `union` join: fold `loser`'s items into `winner` via `combine`
+    /// (winnerItems → loserItems → joined, so each family fixes its own order), then
+    /// empty `loser`. Associative/idempotent set-union in spirit.
+    member this.Join(winner: TyVarId, loser: TyVarId, combine: 'T list -> 'T list -> 'T list) : unit =
+        let l = at loser
+
+        if not (List.isEmpty l) then
+            this.Set(winner, combine (at winner) l)
+            table.Remove(int loser) |> ignore
+
+/// A payload family whose items DISCHARGE ONE AT A TIME through a shared reference
+/// identity — SRTP bounds and deferred dot-accesses. Wraps the grow-only
+/// `PayloadList` with a reference-keyed `solved` set: a discharged item is recorded
+/// (never removed), so a drain reads only the `Live` items, never rewrites a
+/// shrinking remainder, and never re-fires an item. Because `solved` keys by
+/// reference, ONE shared item stamped on several participating typars discharges
+/// exactly once, and the marking survives a `union` remap (the item objects are
+/// unchanged). `'T` is therefore a reference type.
+[<Sealed>]
+type BoundTable<'T when 'T: not struct>() =
+    let items = PayloadList<'T>()
+
+    let solved = System.Collections.Generic.HashSet<'T>(HashIdentity.Reference)
+
+    member _.Items(root: TyVarId) : 'T list = items.Items root
+
+    /// The still-undischarged items under `root`, in insertion / merge order.
+    member _.Live(root: TyVarId) : 'T list =
+        items.Items root |> List.filter (fun x -> not (solved.Contains x))
+
+    member _.IsEmpty(root: TyVarId) : bool = items.IsEmpty root
+    member _.Prepend(root: TyVarId, item: 'T) : unit = items.Prepend(root, item)
+
+    member _.Join(winner: TyVarId, loser: TyVarId, combine: 'T list -> 'T list -> 'T list) : unit =
+        items.Join(winner, loser, combine)
+
+    /// Record `item` as discharged so `Live` skips it from now on.
+    member _.Solve(item: 'T) : unit = solved.Add item |> ignore
+
+    member _.IsSolved(item: 'T) : bool = solved.Contains item
 
 /// The metavar **arena** for one file: the single authority that mints `TypeVar`
-/// handles with dense, monotone ids. Grow-only per file; ids are never reused, so a
-/// `TyVarId` is a stable index into the parallel arrays / side-tables that later
-/// steps move the node's payload into. One instance lives on each `PassContext`.
+/// handles with dense, monotone ids, and the owner of the id-indexed side-tables
+/// the node's deferred-constraint payload migrates into. Grow-only per file; ids
+/// are never reused, so a `TyVarId` is a stable key. One instance lives on each
+/// `PassContext`.
 [<Sealed>]
 type TypeStore() =
     let mutable nextId = 0
@@ -1239,6 +1286,32 @@ type TypeStore() =
     /// Count of metavars minted so far (the dense id upper bound); sizes the arena's
     /// parallel arrays as payload families migrate off the node.
     member _.Count = nextId
+
+    /// SRTP member-trait bounds, keyed by representative id — the store home of the
+    /// former `TypeVar.SrtpBounds` slot. Grow-only + `solved` replaces the shared
+    /// `MemberSignature.Resolved` dedup flag.
+    member val Srtp = BoundTable<MemberSignature>() with get
+
+    /// Type-parameter constraints, keyed by representative id — the store home of the
+    /// former `TypeVar.Constraints` slot. A `[<Struct>]` `SemanticConstraint` carries
+    /// no reference identity, and `drainConstraints`' compositional `propagateToFreeArgs`
+    /// depends on value independence, so this family keeps its per-drain remainder
+    /// (rewritten through `Set`, off-node) rather than a reference `solved` set; the
+    /// `union` join dedups by `Kind`.
+    member val Constraints = PayloadList<SemanticConstraint>() with get
+
+    /// Deferred dot-accesses parked on a still-free receiver, keyed by representative
+    /// id — the store home of the former `TypeVar.PendingDotAccess` slot. Grow-only +
+    /// `solved`: an access resolved once the receiver grounds is recorded, so a
+    /// re-drain and the leftover-unresolved check see only the live (unsolved) ones.
+    member val Pda = BoundTable<DeferredMemberAccess>() with get
+
+    /// Default-constraint chains (`default ^T : …`), keyed by representative id — the
+    /// store home of the former `TypeVar.Defaults` slot. Generalisation consumes a
+    /// TyVar's chain WHOLESALE (clearing it when a default fires or nothing is left to
+    /// chase), so this family keeps its per-tv clear (through `Set`) rather than a
+    /// per-item `solved` set; the `union` join preserves `target @ source`.
+    member val Defaults = PayloadList<SemType>() with get
 
 module MeasureTerm =
     let empty = MeasureTerm.Empty

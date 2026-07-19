@@ -23,12 +23,12 @@ module UnificationEngine =
     /// nominal bound so `inferApp` can record the verdict against the lambda
     /// argument's node (the value-struct flat-`Invoke` lowering reads it at codegen).
     /// Reads the coercion bound off the still-free typar's union-find root.
-    let funSlotArityOf (param: SemType) : int voption =
+    let funSlotArityOf (store: TypeStore) (param: SemType) : int voption =
         match resolveStep param with
         | TyVar tv ->
             let root = UnionFind.find tv
 
-            root.Constraints
+            store.Constraints.Items root.Id
             |> List.tryPick (fun c ->
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target ->
@@ -385,7 +385,17 @@ module UnificationEngine =
                 else
                     r1
 
-            migrateBounds newRoot merged
+            // Fold the loser's deferred-constraint payload into the surviving
+            // representative — one associative set-union join per family, replacing the
+            // former bespoke `migrateBounds`. Payload lives only under the rep id.
+            // Constraints dedup by `Kind`; SRTP / pending dot-accesses preserve
+            // `loser @ winner`; defaults preserve `winner @ loser` — each the order the
+            // node slot carried.
+            let store = ctx.Store
+            store.Constraints.Join(newRoot.Id, merged.Id, joinConstraints)
+            store.Srtp.Join(newRoot.Id, merged.Id, (fun w l -> l @ w))
+            store.Pda.Join(newRoot.Id, merged.Id, (fun w l -> l @ w))
+            store.Defaults.Join(newRoot.Id, merged.Id, (fun w l -> w @ l))
             mergeUnits ctx key newRoot unitsA unitsB
             // If both sides carried links, unify them so the carriers agree.
             match linkA, linkB with
@@ -493,18 +503,20 @@ module UnificationEngine =
         drainSrtpBounds ctx key root t
 
     and private drainPendingDotAccess (ctx: PassContext) (root: TypeVar) (linkTarget: SemType) : unit =
-        if not (List.isEmpty root.PendingDotAccess) then
+        let pending = ctx.Store.Pda.Live root.Id
+
+        if not (List.isEmpty pending) then
             match resolveDotSource ctx linkTarget with
             | DotSource.NotNominal -> ()
             | DotSource.UnknownType(name, kind) ->
-                let pending = root.PendingDotAccess
-                root.PendingDotAccess <- []
+                for d in pending do
+                    ctx.Store.Pda.Solve d
 
                 for d in pending do
                     ctx.Error(d.UseKey, sprintf "Unknown %s type '%s'" kind name)
             | DotSource.Resolved(name, memberNoun, subst, lookup) ->
-                let pending = root.PendingDotAccess
-                root.PendingDotAccess <- []
+                for d in pending do
+                    ctx.Store.Pda.Solve d
 
                 for d in pending do
                     match lookup d.MemberName with
@@ -514,8 +526,8 @@ module UnificationEngine =
                 // `tryClassChainMember` already returns the type instantiated
                 // against `args` (and any parent typar substitution), so no
                 // further `substituteWith` is needed here.
-                let pending = root.PendingDotAccess
-                root.PendingDotAccess <- []
+                for d in pending do
+                    ctx.Store.Pda.Solve d
 
                 let (DisplayName shown) = SymbolKeyOps.typeSimpleName key
 
@@ -531,8 +543,9 @@ module UnificationEngine =
                 // member, pinned by the interface-conformance unify only *after* the
                 // body — and its dot-accesses — were deferred). Resolve each member
                 // through the provider and record it for Elaborate.
-                let pending = root.PendingDotAccess
-                root.PendingDotAccess <- []
+                for d in pending do
+                    ctx.Store.Pda.Solve d
+
                 let argArr = args.AsSpan().ToArray()
 
                 for d in pending do
@@ -790,11 +803,11 @@ module UnificationEngine =
     /// constraint onto each still-free arg so the next Link on any of them
     /// re-evaluates the rule compositionally.
     and private drainConstraints (ctx: PassContext) (key: NodeKey) (root: TypeVar) (linkTarget: SemType) : unit =
-        if List.isEmpty root.Constraints then
+        if ctx.Store.Constraints.IsEmpty root.Id then
             ()
         else
-            let cs = root.Constraints
-            root.Constraints <- []
+            let cs = ctx.Store.Constraints.Items root.Id
+            ctx.Store.Constraints.Set(root.Id, [])
             let mutable remaining = []
 
             for c in cs do
@@ -871,7 +884,7 @@ module UnificationEngine =
                     remaining <- c :: remaining
                     propagateToFreeArgs ctx c linkTarget
 
-            root.Constraints <- List.rev remaining
+            ctx.Store.Constraints.Set(root.Id, List.rev remaining)
 
     /// When a compound shape is partially resolved, the parent constraint is
     /// satisfied iff every component supports it, so a still-free component
@@ -886,9 +899,7 @@ module UnificationEngine =
             match resolveStep t with
             | TyVar tv ->
                 let root = UnionFind.find tv
-
-                if not (root.Constraints |> List.exists (fun e -> e.Kind = c.Kind)) then
-                    root.Constraints <- c :: root.Constraints
+                addConstraintByKind ctx.Store root c
             | t -> SemType.iterChildren walk t
 
         walk t
@@ -993,53 +1004,53 @@ module UnificationEngine =
             unify ctx key candidate curried
         | _ -> unify ctx key candidate tupled
 
-    /// On-unified callback for SRTP member-trait bounds. The `Resolved` flag
-    /// on the shared `MemberSignature` instance (all participating typars
-    /// hold the same record by reference) dedupes dispatch when multiple
-    /// participating typars resolve in sequence — whichever links first runs
-    /// the drain; the others see the flag set and skip. Bounds that can't
-    /// dispatch yet (target is still a free TyVar) remain on the root.
+    /// On-unified callback for SRTP member-trait bounds. Bounds live in the store's
+    /// `Srtp` table under the representative id; a dispatched bound is recorded in the
+    /// `solved` set — since the one `MemberSignature` instance is shared by reference
+    /// across every participating typar, solving it through whichever typar links
+    /// first makes the others' drains skip it. A bound that cannot dispatch yet
+    /// (target still a free TyVar, or an unknown class) is left UNSOLVED and grows in
+    /// place, so the next `Link` change re-attempts it — no remainder is written back.
     ///
     /// Diagnostics use `key` — the user's call site, threaded through from
     /// the caller — so "Type X has no static member Y" points there rather
     /// than at the prelude's `(+)` declaration.
     and private drainSrtpBounds (ctx: PassContext) (key: NodeKey) (root: TypeVar) (linkTarget: SemType) : unit =
-        if List.isEmpty root.SrtpBounds then
+        let bounds = ctx.Store.Srtp.Live root.Id
+
+        if List.isEmpty bounds then
             ()
         else
-            let bounds = root.SrtpBounds
-            root.SrtpBounds <- []
-            let mutable remaining = []
-
             for b in bounds do
-                if b.Resolved then
-                    ()
-                else
+                // A sibling / reentrant drain (via `unifySrtpAgainst`) may have solved
+                // `b` since this snapshot — skip it, as the shared `Resolved` flag used
+                // to.
+                if not (ctx.Store.Srtp.IsSolved b) then
                     match resolveStep linkTarget with
                     | TyConst(primKey, _) ->
                         let primName = SymbolKeyOps.intrinsicName primKey
 
                         match tryPrimitiveTraitCandidate b.MemberName primName b.ArgTypes.Length with
                         | ValueSome candTy ->
-                            b.Resolved <- true
+                            ctx.Store.Srtp.Solve b
                             unifySrtpAgainst ctx key candTy b
                         | ValueNone ->
                             ctx.Error(key, sprintf "Type '%s' has no built-in static member '%s'" primName b.MemberName)
-                            b.Resolved <- true
+                            ctx.Store.Srtp.Solve b
                     | TyClass(classKey, classArgs) ->
                         match TypeRegistry.tryClassByKey ctx.Types classKey with
                         | ValueSome info ->
                             match info.Members |> Array.tryFind (fun m -> m.IsStatic && m.Name = b.MemberName) with
                             | Some m ->
                                 let candTy = instantiateMember (info.TypeParams, classArgs) m.Type
-                                b.Resolved <- true
+                                ctx.Store.Srtp.Solve b
                                 unifySrtpAgainst ctx key candTy b
                             | None ->
                                 let (DisplayName shown) = SymbolKeyOps.typeSimpleName classKey
 
                                 ctx.Error(key, sprintf "Type '%s' has no static member '%s'" shown b.MemberName)
 
-                                b.Resolved <- true
+                                ctx.Store.Srtp.Solve b
                         | ValueNone ->
                             // Not a project-local class — try the external contract
                             // provider. A *consumer* dispatching `+` / `-` to an
@@ -1057,17 +1068,15 @@ module UnificationEngine =
                                 let candTy =
                                     ExternalSymbols.openSignature m (EqArray.toList classArgs |> List.toArray)
 
-                                b.Resolved <- true
+                                ctx.Store.Srtp.Solve b
                                 unifySrtpAgainst ctx key candTy b
                             | _ ->
-                                // Unknown class — keep the bound so a later
-                                // pass might still be able to dispatch.
-                                remaining <- b :: remaining
+                                // Unknown class — leave unsolved so a later pass may
+                                // dispatch.
+                                ()
                     | _ ->
-                        // Target not yet a concrete type-bearing shape — defer.
-                        remaining <- b :: remaining
-
-            root.SrtpBounds <- List.rev remaining
+                        // Target not yet a concrete type-bearing shape — leave unsolved.
+                        ()
 
     /// Coerce `src` to the nominal target `tgt` as an implicit/`:>` upcast: when
     /// `src` (or a base / interface) instantiates `tgt`'s nominal, `unify` the

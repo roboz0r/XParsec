@@ -122,7 +122,7 @@ module Unification =
             // Resolve defaults first (as `generalise` does) so a defaulted typar
             // links its source and the walk below skips it — `member m.Add a b = a + b`
             // grounds to `int` rather than quantifying the arithmetic typar.
-            UnificationInferGeneralize.applyDefaults memberTy outerLevel
+            UnificationInferGeneralize.applyDefaults ctx.Store memberTy outerLevel
 
             // Typars already accounted for: the enclosing class typars (a `'T` is
             // a declaring-axis param, not a method one) and the member's already-

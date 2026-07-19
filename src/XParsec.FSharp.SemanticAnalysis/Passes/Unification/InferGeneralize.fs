@@ -59,9 +59,8 @@ module internal UnificationInferGeneralize =
 
         // A `Coercion` target may ALSO reference still-free roots that are NOT
         // quantified at all: a placeholder typar that leaked into the bound when
-        // the combinator's param typar unified with a CONSTRUCTED type's own
-        // declared typar (the `WSeq`/`MapSeq` ctor's `'S :> ISeq<…>` bound migrating
-        // onto `wrap`/`map`'s `'S` via `migrateBounds`). Its root sits at the
+        // declared typar (the `WSeq`/`MapSeq` ctor's `'S :> ISeq<…>` bound joined
+        // onto `wrap`/`map`'s `'S` when their roots unified). Its root sits at the
         // registry/outer level, so `generalise`'s level test never quantified it,
         // yet it rides the constraint. Left verbatim it is SHARED across every
         // instantiation of the scheme, so the FIRST call grounds it (its
@@ -104,7 +103,7 @@ module internal UnificationInferGeneralize =
                         }
                     | _ -> c
 
-                addConstraintByKind fresh c
+                addConstraintByKind ctx.Store fresh c
             | false, _ -> ()
 
         substituteWith subst scheme.Body
@@ -126,19 +125,19 @@ module internal UnificationInferGeneralize =
     /// the original (still-quantified) constraint dangling. Keeping the
     /// binding monomorphic lets the first use site unify directly with the
     /// pre-instantiation TyVar, which drains the constraint normally.
-    let rec hasPendingDotAccess (t: SemType) : bool =
+    let rec hasPendingDotAccess (store: TypeStore) (t: SemType) : bool =
         match t with
         | TyVar tv ->
             let root = UnionFind.find tv
 
-            if not (List.isEmpty root.PendingDotAccess) then
+            if not (List.isEmpty (store.Pda.Live root.Id)) then
                 true
             else
                 match root.Link with
-                | ValueSome target -> hasPendingDotAccess target
+                | ValueSome target -> hasPendingDotAccess store target
                 | ValueNone -> false
         // A compound carries pending dot access iff a child does; leaves hold none.
-        | t -> SemType.existsChild hasPendingDotAccess t
+        | t -> SemType.existsChild (hasPendingDotAccess store) t
 
     /// A chained default like `default ^T3 : ^T1 ; default ^T1 : int` needs
     /// two passes, hence the fixpoint iteration.
@@ -148,7 +147,7 @@ module internal UnificationInferGeneralize =
     /// passes don't re-walk dead targets. A TyVar generalised at a use-site
     /// instantiation is re-stamped with fresh defaults on the next call to
     /// its `Instantiate` closure.
-    let applyDefaults (zonkedTy: SemType) (outerLevel: int) : unit =
+    let applyDefaults (store: TypeStore) (zonkedTy: SemType) (outerLevel: int) : unit =
         let visited = HashSet<TypeVar>(HashIdentity.Reference)
 
         let rec collect (t: SemType) : ResizeArray<TypeVar> =
@@ -160,7 +159,11 @@ module internal UnificationInferGeneralize =
                     let root = UnionFind.find tv
 
                     if visited.Add root then
-                        if root.Level > outerLevel && root.Link.IsNone && not (List.isEmpty root.Defaults) then
+                        if
+                            root.Level > outerLevel
+                            && root.Link.IsNone
+                            && not (store.Defaults.IsEmpty root.Id)
+                        then
                             acc.Add root
                             // Follow the default-target graph: a chained default
                             // (`default ^T3 : ^T1`) names another TyVar that may be
@@ -168,7 +171,7 @@ module internal UnificationInferGeneralize =
                             // `a + b + c`) not reachable from the binding's surface
                             // type. Without this it never becomes a candidate and the
                             // tail of the chain never grounds.
-                            for target in root.Defaults do
+                            for target in store.Defaults.Items root.Id do
                                 go target
 
                         match root.Link with
@@ -193,7 +196,7 @@ module internal UnificationInferGeneralize =
 
         let tryDefault (tv: TypeVar) : bool =
             let mutable fired = false
-            let defaults = tv.Defaults
+            let defaults = store.Defaults.Items tv.Id
             // A target that resolves only to a still-free TyVar is *deferrable*:
             // a chained default like `default ^T2 : ^T3` can't fire until ^T3 is
             // itself defaulted (e.g. to `int`) on a later pass. We must keep such
@@ -221,7 +224,7 @@ module internal UnificationInferGeneralize =
             // links; `while changed` only re-iterates while some default *fires*,
             // so each TyVar is retried a bounded number of times.
             if fired || not anyDeferrable then
-                tv.Defaults <- []
+                store.Defaults.Set(tv.Id, [])
 
             fired
 
@@ -231,7 +234,7 @@ module internal UnificationInferGeneralize =
             changed <- false
 
             for tv in candidates do
-                if tv.Link.IsNone && not (List.isEmpty tv.Defaults) then
+                if tv.Link.IsNone && not (store.Defaults.IsEmpty tv.Id) then
                     if tryDefault tv then
                         changed <- true
 
@@ -292,12 +295,12 @@ module internal UnificationInferGeneralize =
 
             walk ty
 
-    let generalise (zonkedTy: SemType) (outerLevel: int) : TypeScheme =
+    let generalise (store: TypeStore) (zonkedTy: SemType) (outerLevel: int) : TypeScheme =
         // Apply defaults before quantifying: a default that resolves links
         // its source TyVar, which the quantifier walk then skips. Without
         // this, `let x = 1 + 2` would generalise as `∀'a. 'a` instead of
         // `int` (the unbound `^T3` from external-symbol Instantiate).
-        applyDefaults zonkedTy outerLevel
+        applyDefaults store zonkedTy outerLevel
 
         let quantified = ResizeArray<TypeVar>()
         let seen = HashSet<TypeVar>(HashIdentity.Reference)
@@ -319,7 +322,7 @@ module internal UnificationInferGeneralize =
         let mutable i = 0
 
         while i < quantified.Count do
-            for c in quantified.[i].Constraints do
+            for c in store.Constraints.Items quantified.[i].Id do
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target -> iterTypeVarRoots addRoot (zonk target)
                 | _ -> ()
@@ -331,7 +334,7 @@ module internal UnificationInferGeneralize =
         let constraints =
             [
                 for tv in quantified do
-                    for c in tv.Constraints -> tv, c
+                    for c in store.Constraints.Items tv.Id -> tv, c
             ]
 
         TypeScheme(List.ofSeq quantified, zonkedTy, constraints)

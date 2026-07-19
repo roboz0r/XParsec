@@ -102,41 +102,18 @@ module UnificationEngineCore =
         | [ t ] -> t
         | many -> TyTuple(EqArray.ofList many)
 
-    /// Collapses any pair whose `Kind` already appears on the target: two
-    /// constraints with the same `Kind` discharge to the same predicate, so
-    /// keeping both would fire the diagnostic twice for one rule.
-    let private mergeConstraints (target: TypeVar) (additions: SemanticConstraint list) : unit =
-        let mutable acc = target.Constraints
+    /// The `union` join for the constraint family: fold the loser's constraints into
+    /// the winner's, skipping any whose `Kind` already appears (two same-`Kind`
+    /// constraints discharge to one predicate — keeping both fires the diagnostic
+    /// twice). Mirrors the former `mergeConstraints` fold, so order is unchanged.
+    let joinConstraints (winner: SemanticConstraint list) (loser: SemanticConstraint list) : SemanticConstraint list =
+        let mutable acc = winner
 
-        for c in additions do
+        for c in loser do
             if not (acc |> List.exists (fun existing -> existing.Kind = c.Kind)) then
                 acc <- c :: acc
 
-        target.Constraints <- acc
-
-    /// Called whenever a TyVar is no longer the equivalence-class
-    /// representative (either after union-find collapse, or when its Link is
-    /// set). Bounds attached to a non-representative would otherwise never
-    /// fire their on-unified callbacks.
-    let migrateBounds (target: TypeVar) (source: TypeVar) : unit =
-        if not (System.Object.ReferenceEquals(target, source)) then
-            if not (List.isEmpty source.Constraints) then
-                mergeConstraints target source.Constraints
-                source.Constraints <- []
-
-            if not (List.isEmpty source.SrtpBounds) then
-                target.SrtpBounds <- source.SrtpBounds @ target.SrtpBounds
-                source.SrtpBounds <- []
-
-            if not (List.isEmpty source.PendingDotAccess) then
-                target.PendingDotAccess <- source.PendingDotAccess @ target.PendingDotAccess
-                source.PendingDotAccess <- []
-
-            if not (List.isEmpty source.Defaults) then
-                target.Defaults <- target.Defaults @ source.Defaults
-                source.Defaults <- []
-    // TODO: fire on-unified callbacks for newly-stable SRTP bounds once
-    // the SRTP / IWSAM resolution machinery exists.
+        acc
 
     /// Two passes folded into one walk:
     /// (a) **Occurs check** — does `target` (already a union-find root) appear
@@ -248,9 +225,9 @@ module UnificationEngineCore =
     /// present. Both per-use freshening paths (`freshConstrainedTyVar` here and
     /// `UnificationInferGeneralize.instantiate`'s scheme re-stamp) apply this
     /// dedup so a use site never accumulates duplicate SRTP / equality bounds.
-    let addConstraintByKind (tv: TypeVar) (c: SemanticConstraint) : unit =
-        if not (tv.Constraints |> List.exists (fun e -> e.Kind = c.Kind)) then
-            tv.Constraints <- c :: tv.Constraints
+    let addConstraintByKind (store: TypeStore) (tv: TypeVar) (c: SemanticConstraint) : unit =
+        if not (store.Constraints.Items tv.Id |> List.exists (fun e -> e.Kind = c.Kind)) then
+            store.Constraints.Prepend(tv.Id, c)
 
     /// Mint a fresh instance TyVar at the current level carrying a deduped copy
     /// of `constraints`, so the use site re-evaluates SRTP / equality
@@ -260,7 +237,7 @@ module UnificationEngineCore =
         fresh.Level <- ctx.CurrentLevel
 
         for c in constraints do
-            addConstraintByKind fresh c
+            addConstraintByKind ctx.Store fresh c
 
         fresh
 
@@ -299,7 +276,7 @@ module UnificationEngineCore =
             if root.Link.IsNone && not (subst.ContainsKey root) then
                 // Re-stamp constraints (SRTP / equality bounds) onto the fresh
                 // instance so each site re-evaluates satisfaction independently.
-                subst.[root] <- TyVar(freshConstrainedTyVar ctx root.Constraints)
+                subst.[root] <- TyVar(freshConstrainedTyVar ctx (ctx.Store.Constraints.Items root.Id))
 
         substituteWith subst ty
 

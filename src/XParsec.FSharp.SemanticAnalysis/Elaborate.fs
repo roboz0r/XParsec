@@ -244,7 +244,11 @@ module Elaborate =
     /// `remapDeclTypars`, exactly like the declaring-typar env in 2A. Caller
     /// restricts this to function bindings (a non-function value's free var is a
     /// value-restriction case, not a method typar).
-    let private mkMethodQuantEnv (declared: (string * TypeVar) list) (declTy: SemType) : (TypeVar * SemType) list =
+    let private mkMethodQuantEnv
+        (store: TypeStore)
+        (declared: (string * TypeVar) list)
+        (declTy: SemType)
+        : (TypeVar * SemType) list =
         // The canonical F# order — declared typars first in source order, then the
         // remaining free roots by first-left-to-right-appearance — is computed by the
         // ONE shared `GeneralizedTypars.canonical`. Free functions have no enclosing
@@ -289,7 +293,7 @@ module Elaborate =
         let mutable depIdx = 0
 
         while depIdx < acc.Count do
-            for c in acc.[depIdx].Constraints do
+            for c in store.Constraints.Items acc.[depIdx].Id do
                 match c.Kind with
                 | SemanticConstraintKind.Coercion target ->
                     // Append the first-appearance roots of the coercion-bound target
@@ -1946,14 +1950,14 @@ module Elaborate =
                         // Its verifiability rationale does not apply either: no `ldnull :
                         // !!0` is ever emitted for a template.
                         if b.inlineToken.IsSome then
-                            mkMethodQuantEnv declaredTypars declTy
+                            mkMethodQuantEnv ctx.Store declaredTypars declTy
                         else
                             match Unification.zonk declTy with
-                            | TyFun _ -> mkMethodQuantEnv declaredTypars declTy
+                            | TyFun _ -> mkMethodQuantEnv ctx.Store declaredTypars declTy
                             // A bare free var is value-restricted — never a method typar.
                             | TyVar _
                             | TyTypar _ -> []
-                            | _ when bindingWasGeneralised ctx b -> mkMethodQuantEnv declaredTypars declTy
+                            | _ when bindingWasGeneralised ctx b -> mkMethodQuantEnv ctx.Store declaredTypars declTy
                             | _ -> []
 
                     // Record the binding's frozen typar

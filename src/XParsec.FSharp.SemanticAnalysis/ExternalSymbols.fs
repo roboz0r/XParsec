@@ -1573,16 +1573,14 @@ module ExternalSymbols =
                             DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
                         }
 
-                    freshTvs.[i].Constraints <- cstr :: freshTvs.[i].Constraints
+                    store.Constraints.Prepend(freshTvs.[i].Id, cstr)
                 | _ -> ()
 
             // Defaults accumulate newest-last so source order is preserved when
             // generalisation later walks the list for the first concrete shape.
             for c in constraints do
                 match c with
-                | ExternalConstraint.Default(i, target) ->
-                    let tv = freshTvs.[i]
-                    tv.Defaults <- tv.Defaults @ [ inst target fresh ]
+                | ExternalConstraint.Default(i, target) -> store.Defaults.Append(freshTvs.[i].Id, inst target fresh)
                 | _ -> ()
 
             for c in constraints do
@@ -1593,11 +1591,10 @@ module ExternalSymbols =
                             MemberName = mName
                             ArgTypes = EqArray.ofSeq (seq { for ft in argFts -> inst ft fresh })
                             ReturnType = inst retFt fresh
-                            Resolved = false
                         }
 
                     for i in idxs do
-                        freshTvs.[i].SrtpBounds <- sig_ :: freshTvs.[i].SrtpBounds
+                        store.Srtp.Prepend(freshTvs.[i].Id, sig_)
                 | _ -> ()
 
             for c in constraints do
@@ -1609,7 +1606,7 @@ module ExternalSymbols =
                             DeclKey = NodeKey.ofSource 0 NodeKind.Unknown
                         }
 
-                    freshTvs.[i].Constraints <- cstr :: freshTvs.[i].Constraints
+                    store.Constraints.Prepend(freshTvs.[i].Id, cstr)
                 | _ -> ()
 
             inst scheme fresh

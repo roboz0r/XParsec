@@ -832,11 +832,14 @@ let tests =
 
                 Expect.isTrue equalityTrait (sprintf "Constraints carries Equality on typar 0; got %A" sym.Constraints)
 
-                match ExternalSymbols.instantiateSymbol (TypeStore()) sym 0 with
+                let store = TypeStore()
+
+                match ExternalSymbols.instantiateSymbol store sym 0 with
                 | TyFun(TyVar a, TyFun(TyVar _, TyConst(k, _))) when SymbolKeyOps.simpleName k = DisplayName "bool" ->
                     Expect.isTrue
-                        (a.Constraints |> List.exists (fun c -> c.Kind = SemanticConstraintKind.Equality))
-                        "the fresh TyVar minted for 'T carries Equality on its Constraints list"
+                        (store.Constraints.Items a.Id
+                         |> List.exists (fun c -> c.Kind = SemanticConstraintKind.Equality))
+                        "the fresh TyVar minted for 'T carries Equality in the store's constraint table"
                 | other -> failtestf "expected ('T -> 'T -> bool) over a fresh TyVar; got %A" other
             }
 
@@ -885,14 +888,17 @@ let tests =
 
                     Expect.equal ret (FTTypar(TyparAxis.Declaring, 0)) "the trait returns the declaring typar"
 
-                // The instantiation half: the realised signature lands on the fresh TyVar.
-                match ExternalSymbols.instantiateSymbol (TypeStore()) sym 0 with
+                // The instantiation half: the realised signature lands in the store's
+                // `Srtp` table under the fresh TyVar's representative id.
+                let store = TypeStore()
+
+                match ExternalSymbols.instantiateSymbol store sym 0 with
                 | TyFun(TyVar a, TyFun(TyVar _, TyVar _)) ->
-                    match a.SrtpBounds with
+                    match store.Srtp.Items a.Id with
                     | [ bound ] ->
                         Expect.equal bound.MemberName "op_Addition" "the stamped bound names the compiled member"
                         Expect.equal bound.ArgTypes.Length 2 "the stamped bound keeps both args"
-                        Expect.isFalse bound.Resolved "a freshly stamped bound is unresolved"
+                        Expect.isFalse (store.Srtp.IsSolved bound) "a freshly stamped bound is undischarged"
                     | other -> failtestf "expected exactly one SrtpBound on the fresh TyVar; got %A" other
                 | other -> failtestf "expected (^T -> ^T -> ^T) over a fresh TyVar; got %A" other
             }

@@ -40,7 +40,7 @@ module internal UnificationInferResolve =
             // every use site re-evaluates satisfaction independently
             // (a `Set<int>` and a `Set<int -> int>` each get their own
             // copy of `'a : comparison`).
-            fresh.Constraints <- protoRoot.Constraints
+            ctx.Store.Constraints.Set(fresh.Id, ctx.Store.Constraints.Items protoRoot.Id)
             let asTy = TyVar fresh
             subst.[protoRoot] <- asTy
             acc.Add asTy

@@ -803,8 +803,8 @@ module internal UnificationTranslate =
                             DeclKey = NodeKey.ofToken declTok NodeKind.TypeVarRef
                         }
 
-                    if not (root.Constraints |> List.exists (fun e -> e.Kind = sc.Kind)) then
-                        root.Constraints <- sc :: root.Constraints
+                    if not (ctx.Store.Constraints.Items root.Id |> List.exists (fun e -> e.Kind = sc.Kind)) then
+                        ctx.Store.Constraints.Prepend(root.Id, sc)
                 | false, _ ->
                     ctx.Diagnostics.Add
                         {
@@ -915,7 +915,7 @@ module internal UnificationTranslate =
             let arg = args.[i]
             let protoRoot = UnionFind.find protoTv
 
-            for c in protoRoot.Constraints do
+            for c in ctx.Store.Constraints.Items protoRoot.Id do
                 match checkConstraint ctx c arg with
                 | Satisfied -> ()
                 | Violated ->

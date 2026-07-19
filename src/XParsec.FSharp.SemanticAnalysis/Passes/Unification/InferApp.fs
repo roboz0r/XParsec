@@ -82,7 +82,7 @@ module internal UnificationInferApp =
 
                 match peelLambda args.[i] with
                 | ValueSome arg0Pat ->
-                    match funSlotArityOf dom with
+                    match funSlotArityOf ctx.Store dom with
                     | ValueSome arity ->
                         let lamKey = NodeKey.ofToken (CstKeys.firstTokenOfPat arg0Pat) NodeKind.ExprLambda
                         // Arity now; the result-typar position (if any) is filled in by

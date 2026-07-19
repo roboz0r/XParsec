@@ -120,7 +120,7 @@ module internal UnificationInferForwardSchemes =
 
                         let fnTy = List.foldBack (fun a r -> TyFun(a, r)) argTypes retTy
                         exitLevel ctx
-                        let scheme = generalise (zonk fnTy) outerLevel
+                        let scheme = generalise ctx.Store (zonk fnTy) outerLevel
                         ctx.Bindings.Scheme.Set(key, scheme)
                     finally
                         ctx.Resolution.TyparScope <- savedScope
