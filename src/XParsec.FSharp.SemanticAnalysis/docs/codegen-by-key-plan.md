@@ -27,25 +27,116 @@ don't, which is what licenses the "or diagnose" escape hatch. **Position: go as 
 this takes us.** If the diagnostic ever fires on code that genuinely should compile, that
 is the signal to reconsider — not before.
 
-## Deferred: disjunctive dispatch — lands with overload resolution
+## Deferred: disjunctive dispatch — lands via deferral on the existing read-only filter
 
 The arithmetic bodies are 3-typar (`^T1 -> ^T2 -> ^T3`, faithful to the `.fsi`) but the
 trait call is **left-biased**: `TExpr.TraitCall` carries a single `receiver`, set to the
 left operand's type. So `Vector + int` (nominal left) resolves; `int + Vector` does not —
-it errors in `Engine.drainSrtpBounds`, which fires eagerly on whichever participant links
-first and, for a primitive `^T1`, manufactures a homogeneous `t*t -> t` candidate that
-pins `^T2 := int` before the right operand is consulted.
+it errors in `Engine.drainSrtpBounds` (`Engine.fs:1005`), which fires eagerly on whichever
+participant links first and, for a primitive `^T1`, manufactures a homogeneous `t*t -> t`
+candidate that pins `^T2 := int` before the right operand is consulted. **That is a policy
+bug — eager dispatch — not a missing mechanism.**
 
-Making it work needs the SRTP drain to **defer** until enough participants are ground, or
-to **trial-unify both candidates and undo** — and this codebase has an explicit
-no-speculative-unification stop (`InferTypeOps.fs:110-113`). Overload resolution has since
-landed its own speculative primitive — the read-only scratch-substitution matcher
-`matchTypes` (`Passes/Unification/InferOverload.fs`) — but that is a *filtering* query that
-never fires the constraint drains, so the trial-and-**undo of the real drain** this needs is
-still unbuilt. **Accepted deferral: it lands with SRTPs.** Widening `TraitCall` to a
-candidate set is the small half (~8 mechanical walker sites; neither backend has a
-`TraitCall` arm). The unifier trial-and-undo change is the real work and belongs with the
-SRTP dispatch effort.
+The fix is **deferral, not speculation.** Suspend the bound until its whole support set is
+ground (F#'s `SupportOfMemberConstraintIsFullySolved`), then collect `op_Addition`
+candidates from the support *set* — widen the single `receiver` to a candidate set, the
+small half (~8 mechanical walker sites; neither backend has a `TraitCall` arm) — and pick
+among them **read-only**, exactly as method-overload resolution already does via the
+scratch-substitution matcher `matchTypes` (`InferOverload.fs:86`) + the `unifyAppliedSig`
+commit seam. Because this codebase **rejects implicit conversions** (they may fire only at a
+narrow post-resolution point — the argument to an already-resolved method — never as a
+driver of selection), the operands are concrete at dispatch time and the read-only filter
+*decides*; nothing is tentative, so the explicit no-speculative-unification stop
+(`InferTypeOps.fs:110-113`) **stays put**. Guard the homogeneous-primitive default
+(`tryPrimitiveTraitCandidate`) so it fires only when no nominal support type supplies a real
+member, and only in the final defaulting pass.
+
+**Trial-unify-and-undo is NOT required.** The reversible-store line was investigated and set
+aside — see `unification-store-redesign-plan.md`. The residual genuinely-ambiguous cases (a
+free *input* operand with >1 viable candidate) are handled by suspend-then-default-or-error,
+which rollback would not resolve anyway. The store redesign proceeds on its own
+reasonability/perf merits, not as a prerequisite here.
+
+### Boundary: static-abstract interface members (SAIM) / generic math — two regimes, one a non-goal
+
+Resolving `((^T1 or ^T2): (static member (+): ^T1 * ^T2 -> ^T3))` does **not** resolve *into*
+`IAdditionOperators<TSelf,TOther,TResult>`; it resolves by **finding a member**, and a type
+implementing the interface is one *source* of that member. (The shapes coincide:
+`IAdditionOperators<TSelf,TOther,TResult>` *is* the heterogeneous `^T1 * ^T2 -> ^T3`, which
+is the confirmation that the 3-typar signature was worth carrying.)
+
+- **Ground operand — falls out, in scope.** A ground SAIM-implementer reaches the existing
+  `TyClass` arm of `drainSrtpBounds` (`Engine.fs:1028`) and its static `op_Addition` is found
+  like any other nominal's. Bounded extra work: an *explicit* static interface implementation
+  is not a public member, so the lookup must also walk implemented interfaces' static abstract
+  members and codegen must emit a **constrained** call (`constrained.` + `call`), not a direct
+  one. The common case (public operators, incl. the BCL numerics) needs neither.
+- **Free typar constrained by the interface — does NOT fall out; a NON-GOAL for now.**
+  Generic-math-style `let f<'T when 'T :> IAdditionOperators<'T,'T,'T>> x y = x + y`
+  (non-inline) must resolve `x + y` while `'T` is still a typar, via `'T`'s interface
+  constraint, emitting a **real generic method** with the constraint in metadata and a
+  constrained call to the static abstract member — runtime-witnessed, JIT-specialised. SRTP
+  is the opposite mechanism: compile-time, `inline`-only, structural, no runtime witness. This
+  codebase's operators are `inline`-spliced by key (`Freeze` drops the templates), so there is
+  no generic-method-with-constraint emission today; supporting this is a new backend
+  capability, not a resolution tweak.
+- **The hook, if/when Regime 2 is wanted.** F#'s readiness predicate is
+  `SupportOfMemberConstraintIsFullySolved` **or an IWSAM special case** (Interface With Static
+  Abstract Members): a support typar carrying a matching SAIM constraint is "ready" though not
+  ground, and resolves to a constrained call. That is precisely the second admission rule the
+  suspension gate would grow — a second `ready` condition feeding the constrained-call codegen
+  path — not a redesign of the deferral.
+
+## Future: chained constrained `inline` (F#+ style) and inline-to-erasure CEs
+
+Not yet implemented; a wanted capability. Two related features, and both stress the
+decisions above rather than riding free on them.
+
+**(a) Chained constrained `inline` dispatch — the F#+ witness pattern.** A witness type with
+overloaded static members plus an `inline Invoke` that dispatches via SRTP
+`((^M or ^I or ^R): (static member Map: _ * _ -> _))` — disjunctive over 3+ support types,
+*chained* because each `inline` layer's constraint surfaces as its caller's, resolved only at
+a fully-ground use site possibly many expansions deep. Two pieces this needs are **not
+built**:
+
+- **Constraint-carrying generalisation.** An `inline` binding must generalise *with its
+  residual SRTP constraints intact* (like `Num a =>`) and re-dispatch them per instantiation.
+  This is the machinery flagged elsewhere as "F# does this only for `inline`"; F#+ lives or
+  dies on it. It interacts with Rémy levels (a carried constraint keeps its vars from
+  generalising the wrong way) and is the real inference work here.
+- **Recursive inline expansion to fixpoint**, resolving each layer's constraints against the
+  now-concrete instantiation as it splices. The engine already splices by key; "chained +
+  constrained + recursive" is the generalisation.
+
+Two honest caveats against earlier claims in this doc:
+
+- **Betterness does not fully collapse.** The disjunctive-dispatch section leans on "no
+  implicit conversions ⇒ selection is exact/subtype match." True for BCL overloading — but
+  the F#+ `Default1/Default2` hierarchy *is* an overload-**priority** mechanism, so this
+  pattern needs a priority axis among candidates even with conversions rejected. Selection
+  stays **read-only** (priority + `subsumes`, no tentative unification), but it is more than
+  bare subtype specificity.
+- **The parked rollback question could reopen here.** Each layer stays read-only *if* resolved
+  outside-in with ground support and a unique best candidate — which F#+ is deliberately
+  engineered to guarantee. But chained constrained resolution is the one in-scope-ish feature
+  where a witness choice at one layer can fail deeper and need another — genuine cross-layer
+  backtracking. F# handles that with its trial-and-undo. So this is the **named future
+  trigger** for the reversible-store line parked in `unification-store-redesign-plan.md`:
+  build deferral first, and only if real F#+-style usage demonstrates cross-layer backtracking
+  does rollback come back on the table.
+
+**(b) Inline-to-erasure computation expressions.** CE desugaring emits `builder.Bind/Return/
+Combine/Delay/Run` calls; when those are `inline` and the builder is a singleton/struct, the
+allocation and closures must reduce away to flat code. Needs: **`[<InlineIfLambda>]`** (inline
+a lambda *argument* into the body rather than pass a closure — the piece that erases the
+continuation), plus an **erasure/simplification pass** on the inline-expanded TAST
+(beta-reduction, dead-builder elimination, copy propagation). This is an optimisation-pass
+capability on top of the recursive inline expansion in (a), not a resolution change.
+
+**Perf consequence.** F#+ is the canonical case of SRTP compile-time blow-up. That moves the
+store redesign's dispatch-resolution **memoisation** (`matchTypes`/`subsumes` verdicts, member
+lookups, keyed by id across instantiations) from a nice-to-have to **load-bearing** for this
+feature — see `unification-store-redesign-plan.md`.
 
 ## Independent follow-ons — one commit + tests each
 
@@ -67,14 +158,24 @@ base, fails `nominalHeadKey`, and now diagnoses — where it used to emit CIL `a
 a clause calling `Decimal::op_Addition`, or a `nominalHeadKey` that accepts BCL `TyConst`
 heads.
 
-**Narrow signed literals do not project.** `Freeze.parseConst` throws "non-representable
-literal NumSByte" on a NEGATIVE `sbyte` / `int16` literal (`-56y`, `-25536s`):
-`Lexing.tryParseNumericLiteral` folds every width `TConstValue` cannot hold through
-`Convert.ToUInt64`, which rejects the minus sign. `uint64` / `nativeint` / `unativeint`
-literals fold to a `TConstValue.Int` instead — silently. Pre-existing and independent of
-the operator work, but it is why `ArithmeticOperatorTests` pins those widths' clauses
-*structurally* (off annotated parameters) and writes `int (100y + 100y)` rather than
-`100y + 100y = -56y`. Those widths have no literal that can reach them.
+**Narrow / wide literals and clause selection — the cited mechanism was fictional.**
+Corrected: there is no `Freeze.parseConst` (it is `ElaborateLiterals.parseConst`,
+`Elaborate/Literals.fs:102`, throwing `"Elaborate.parseConst: non-representable literal …"`
+— the width is `%A` of the token, not a literal `NumSByte` string); there is no
+`Lexing.tryParseNumericLiteral` (the producer is `NumericLiterals.parseNumericLiteral` →
+`IntWidth.parseBits`, `NumericLiterals.fs:168`); and there is no blanket `Convert.ToUInt64`
+— `parseBits` uses a **per-width** `Convert.To*` as that width's range check. Values carry an
+`IntWidth` witness (`TConstValue.Integral(w, bits)`); there is **no** `TConstValue.Int` case,
+so the "`uint64`/`nativeint`/`unativeint` fold to `TConstValue.Int`" story is stale — it also
+appears verbatim in `ArithmeticOperatorTests.fs:44-46` and should be corrected there too.
+And `-56y` almost certainly **does** project: the lexer merges the sign into one `SByte`
+literal (`tryMergeNegativeLiteral`, `Lexing.fs:384`) and `Convert.ToSByte("-56", 10)` accepts
+a base-10 minus — so the premise "negative `sbyte`/`int16` literals do not project" is
+unconfirmed and likely false. What IS verified: `ArithmeticOperatorTests` pins every width's
+clause *structurally*, off annotated parameters (`let f (a: sbyte) (b: sbyte) = a + b`,
+`ArithmeticOperatorTests.fs:91-119`), which need no literal. **Whether a literal can now reach
+the narrow / wide-unsigned clauses needs a pipeline check, not an assertion** — resolve that
+(a two-line `analyse` on `-56y` / `5UL + 5UL`) before trusting this bullet.
 
 **Typar defaulting fires too early.** `default ^T: int` is a *last resort*. F# leaves the
 typar open, lets every use site in scope constrain it, and only defaults what is *still*
@@ -91,8 +192,9 @@ let r = f 1.1 2.2
 - **Us**: two errors — `Type mismatch: float vs int`. We already committed `'a := int` at
   the binding, so the `float` use site collides with it.
 
-Fix shape: defer the `default` constraints out of per-binding generalisation
-(`InferGeneralize.fs:143-198`) to an end-of-scope drain, applied only to typars still
+Fix shape: defer the `default` constraints out of per-binding generalisation —
+`applyDefaults` (`InferGeneralize.fs:151-236`), invoked eagerly inside `generalise` at
+`InferGeneralize.fs:300` — to an end-of-scope drain, applied only to typars still
 unconstrained. Emit the FS0064-equivalent warning when a use site narrows an explicitly
 annotated typar.
 
@@ -106,18 +208,20 @@ use site or a default *should* have grounded the typar, the bug is here, not the
 
 Not blocked by the above, and each stands on its own.
 
-- **JS: narrow the provider handle.** `JsFlatFns.fs:49-58` and `EmitJsContext.fs:306-312`
-  round-trip a key back to a string to reach the resolver face. Read the store by key,
-  then narrow `WalkCtx.Provider` (`EmitJsContext.fs:76`) to `IExternalSymbolStore` —
-  which makes the resolver reach *structurally impossible* in JS codegen, as
-  `PassContext.Provider` did for the front end. This is the step that buys an invariant,
-  not just tidiness.
-- **`RuntimeNames.arrayOfListKey`.** `ElaborateExpr.fs:655` mints
+- **JS: narrow the provider handle.** `JsFlatFns.fs:52` and `externalValueRef`
+  (`EmitJsContext.fs:349-352`) round-trip a key back to a string
+  (`SymbolKeyOps.qualifiedName`) to reach the resolver face. Read the store by key, then
+  narrow `WalkCtx.Provider` (`EmitJsContext.fs:84`, currently the broad
+  `IExternalSymbolProvider`) to `IExternalSymbolStore` — which makes the resolver reach
+  *structurally impossible* in JS codegen, as `PassContext.Provider` did for the front end.
+  This is the step that buys an invariant, not just tidiness.
+- **`RuntimeNames.arrayOfListKey`.** `ElaborateExpr.fs:672-674` mints
   `TExpr.External(arrayOfListName, ValueNone, …)` for an array literal — the one
-  genuinely keyless head, and the sole supply for `EmitCall.fs:152`'s string match.
-  Give it a well-known key (the `EmitJsContext.fs:320` `structuralFormatKey` precedent).
-- **`ClrProvider.fs:314`'s `compiledName = "List.fold"`** string test; drop
-  `compiledName` from `ICodegenProvider.TryEmitCall`.
+  genuinely keyless head, and the sole supply for `EmitCall.fs:149-150`'s string match.
+  Give it a well-known key (precedent: `structuralFormattableKey: TypeKey`,
+  `RuntimeNames.fs:77` — *not* `structuralFormatKey`, which does not exist).
+- **`ClrProvider.fs:323-324`'s `compiledName = "List.fold"`** string test; drop
+  `compiledName` from `ICodegenProvider.TryEmitCall` (`ICodegenProvider.fs:296`).
 - **Extend `ResolverAllowlistTests` to scan `src/XParsec.FSharp.Codegen.*`.** The only
   remaining reader should be `Codegen.Common/SymbolProviders.fs:161/208/232`, which is
   contract *extraction* (a producer resolving its own qualified names, not a consumer)
@@ -132,10 +236,13 @@ Not blocked by the above, and each stands on its own.
   scope boundary.
 - `Inline.isStructType` is a hardcoded primitive list, so `when ^T : struct` does not see
   user-defined structs.
-- Neither backend has a `StaticOptimization` / `TraitCall` arm — both rely wholly on the
-  inline pass having eliminated them. The unsupported-operator diagnostic is what protects
-  this (the driver stops on error-severity diagnostics); without it an unresolved node
-  reaches a catch-all `failwithf`.
+- The JS backend has neither a `StaticOptimization` nor a `TraitCall` arm, and the CLR
+  backend has no `TraitCall` arm — those rely wholly on the inline pass having eliminated
+  the node. The CLR backend **does** have a `StaticOptimization` arm (`EmitExpr.fs:119` →
+  `EmitIntrinsic.fs:146-154`), which emits the dynamic-default fallback body rather than
+  selecting a clause. Where no such arm exists, the unsupported-operator diagnostic is what
+  protects the gap (the driver stops on error-severity diagnostics); without it an
+  unresolved node reaches a catch-all `failwithf`.
 
 ## Non-goals — where the name IS the right key
 

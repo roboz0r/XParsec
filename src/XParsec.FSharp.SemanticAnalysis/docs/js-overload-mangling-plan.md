@@ -37,43 +37,19 @@ to survive a recompile of its callers — a version skew is exactly the F# story
 `MissingMethodException` at runtime, which we accept. This is what makes
 **only-when-overloaded** mangling safe (see Decision 6).
 
-## Identity source: `FrozenType`, not `argSig`
+## Identity source: `SymbolKey`
 
-`SymbolKey.MemberKey` carries `argSig: EqArray<string>`, but that field is lossy,
-never re-parsed, and minted with empty-string placeholders for locals — only its
-*length* (param arity) is load-bearing today (`SemanticInfo.fs`, `MemberKey` doc).
-Its designated successor is `FrozenType`: structural, value-equal, and total over
-every signature shape, explicitly intended as "the overload-identity key that
-retires the lossy `argSig` string."
-
-The mangle input is therefore **the ordered list of frozen parameter `FrozenType`s
-of the frozen member** (plus the return type — see Decision 2). Consequences:
-
-- `FTTypar(axis, index)` encodes an open type parameter **positionally** by
-  freeze-quantification order, so generic overloads mangle off `!0`/`!!0`-style
-  positions. Decl, impl, and every call site compute the same discriminant without
-  monomorphising — the name is over the *formal* signature, never the call-site
-  instantiation.
-- Nominal identity is the `SymbolKey` triple `(asm, ns, arity-name)`, already
-  guaranteed invariant per type across every mint path (`SymbolKeyOps`, the
-  "compare EQUAL" note). That invariant *is* the cross-assembly-stability
-  guarantee — reused, not rebuilt.
-- This plan depends on the argSig-retirement work only in that the JS mangler
-  consumes `FrozenType` directly at emit time. It does not require threading frozen
-  signatures back into `MemberKey` first.
+`MemberKey` or `BindingKey` carries the total identity of any callable member through to codegen.
 
 ## Decisions
 
-1. **Mangler consumes the `FrozenType` param list directly at emit time.** Treated
-   as part of retiring `argSig`; the dependency stays one-directional (mangler
-   reads FrozenType; MemberKey is not reshaped for this).
-2. **Fold the return type into the discriminant, always.** Overload resolution has
+1. **Fold the return type into the discriminant, always.** Overload resolution has
    already happened in the front end, so the mangler only needs to *uniquely name a
    resolved member*, never to resolve. Including the return type therefore cannot
    split a legal overload pair (F# forbids two members differing only in return,
    outside conversion operators) — it only adds entropy — and it makes
    `op_Explicit`/`op_Implicit` fall out with no special case.
-3. **Sigil = `$`, reserved by construction.** `$` is JS-idiomatic for generated
+2. **Sigil = `$`, reserved by construction.** `$` is JS-idiomatic for generated
    code. A hard "unspeakable in F#" guarantee is unachievable (F# ``quoted``
    identifiers admit nearly everything a JS identifier does; the F#-illegal chars
    are not JS-identifier-legal either), so instead we *reserve* `$` by escaping it
@@ -97,7 +73,7 @@ of the frozen member** (plus the return type — see Decision 2). Consequences:
    `` ``foo$0ABC23`` `` colliding with an overloaded sibling `foo`'s hash) — a
    cross-member clash the per-overload-set assertion does not see. Unconditional
    escaping makes it impossible by construction, in one trivial string pass.
-4. **Hash = truncated sha256, 30 bits → 6 base32 chars** (single-case, RFC 4648
+3. **Hash = truncated sha256, 30 bits → 6 base32 chars** (single-case, RFC 4648
    `A-Z2-7` or base32hex `0-9A-V`; base32 packs 5 bits/char). sha256 chosen for
    bit-exact cross-runtime reproducibility (CLR / Node / browser) — it runs at
    compile time over a tiny input, so performance is irrelevant.
@@ -130,7 +106,7 @@ of the frozen member** (plus the return type — see Decision 2). Consequences:
    Common` owns only the marker prefix + disjointness invariant. So base32 is the
    *default*; a case-sensitive target wanting shorter names can inject base64 without
    touching Common.
-5. **Well-known readable tokens for the primitive intrinsics (locked).** The
+4. **Well-known readable tokens for the primitive intrinsics (locked).** The
    readable-token set is the niladic scalar `extern` intrinsics declared across
    `Vesper.Core`'s `prim-types-*.fsi` — the "target primitive capability set." Each
    freezes to `FTConst(name, [])`, and **the token is that intrinsic's *simple*
@@ -205,7 +181,7 @@ of the frozen member** (plus the return type — see Decision 2). Consequences:
      if some primitive turns out to freeze *nominally* rather than as `FTConst`, it
      simply falls to the hash path — uglier, never wrong — and the emit-time
      collision assertion (below) still guarantees uniqueness.
-6. **Mangle only overload-participating members.** "Is this name overloaded" is a
+5. **Mangle only overload-participating members.** "Is this name overloaded" is a
    deterministic function of the frozen declaring type's member set, visible to
    every consumer, so non-overloaded members keep their clean `Type__member` name.
    The only hazard — adding an overload later *renames* the previously-bare member —
@@ -320,8 +296,3 @@ stub. The boundary and contract:
   the interface, the CLR emit side (`sinkChild` picks the typed handle by field
   `FrozenType`, else boxes to `Child(obj)`), and the runtime sink impls in
   `structural-printer.fs`.
-
-## Open / TBD
-
-*(None outstanding — the design is fully specified. Remaining work is implementation
-per the touch points above.)*
