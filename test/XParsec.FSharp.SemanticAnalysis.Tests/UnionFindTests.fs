@@ -3,21 +3,19 @@ module XParsec.FSharp.SemanticAnalysis.Tests.UnionFindTests
 open Expecto
 open XParsec.FSharp.SemanticAnalysis
 
-// Metavars must be minted through an arena so each carries a dense id; one shared
-// store for the module suffices (these tests only exercise union-find structure).
-let private store = TypeStore()
-
 [<Tests>]
 let tests =
     testList
         "UnionFind"
         [
             test "fresh TypeVar is its own root" {
+                let store = TypeStore()
                 let tv = store.NewTypeVar()
                 Expect.isTrue ((UnionFind.find store tv).Id = tv) "self-root"
             }
 
             test "union puts two vars in the same class" {
+                let store = TypeStore()
                 let a = store.NewTypeVar()
                 let b = store.NewTypeVar()
                 UnionFind.union store a b
@@ -25,6 +23,7 @@ let tests =
             }
 
             test "union is transitive" {
+                let store = TypeStore()
                 let a = store.NewTypeVar()
                 let b = store.NewTypeVar()
                 let c = store.NewTypeVar()
@@ -34,6 +33,7 @@ let tests =
             }
 
             test "unrelated vars stay in different classes" {
+                let store = TypeStore()
                 let a = store.NewTypeVar()
                 let b = store.NewTypeVar()
                 let c = store.NewTypeVar()
@@ -43,6 +43,7 @@ let tests =
             }
 
             test "path compression flattens chains" {
+                let store = TypeStore()
                 let a = store.NewTypeVar()
                 let b = store.NewTypeVar()
                 let c = store.NewTypeVar()
@@ -60,6 +61,7 @@ let tests =
             }
 
             test "rank-based union: smaller tree hangs off larger" {
+                let store = TypeStore()
                 let a = store.NewTypeVar()
                 let b = store.NewTypeVar()
                 let c = store.NewTypeVar()
