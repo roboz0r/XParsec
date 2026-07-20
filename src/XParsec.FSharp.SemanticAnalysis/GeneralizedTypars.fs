@@ -58,7 +58,7 @@ type GeneralizedTypars = private | GeneralizedTypars of (string * TyVarId)[]
 
 /// Same-file companion so it can construct the private case. `canonical` is the
 /// sole producer; everything else is read-only projection.
-module GeneralizedTypars =
+module internal GeneralizedTypars =
 
     /// THE single ordering implementation — the data analog of F#'s
     /// `PlaceTyparsInDeclarationOrder` + `freeInTypeLeftToRight`.

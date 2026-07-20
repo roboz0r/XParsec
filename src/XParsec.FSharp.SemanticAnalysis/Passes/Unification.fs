@@ -139,20 +139,19 @@ module Unification =
                 | TyVar r -> fixedRoots.Add((UnionFind.find ctx.Store r).Id) |> ignore
                 | _ -> ()
 
-            // The pre-recompute registration order: the leading `DeclaredTyparCount`
-            // entries are the member's EXPLICITLY-declared `<'C>` typars (source
-            // order); the rest are annotation-implicit typars. Per the F# rule only
-            // the explicit ones are "declared-first"; the annotation-implicit ones
-            // must be ordered by first-appearance in the final type, exactly like
-            // body-inferred ones.
-            let pre = EqArray.toList mInfo.MethodTypeParams
+            // The pre-recompute registration seed: the leading `DeclaredTyparCount`
+            // entries are the member's EXPLICITLY-declared `<'C>` typars (source order);
+            // the rest are annotation-implicit typars. Per the F# rule only the explicit
+            // ones are "declared-first"; the annotation-implicit ones must be ordered by
+            // first-appearance in the final type, exactly like body-inferred ones.
+            let seed = EqArray.toList mInfo.SeedTypars
 
             // `declared` = the explicit `<'C>` typars only, in source order, by their
             // (zonked) union-find roots. A declared typar inference pinned to a
             // concrete type is no longer a real method typar — drop it (mirrors the
             // free-fn `mkMethodQuantEnv` `declaredFree` filter).
             let declared =
-                pre
+                seed
                 |> List.truncate mInfo.DeclaredTyparCount
                 |> List.choose (fun (name, ptv) ->
                     match zonk ctx.Store (TyVar ptv) with
@@ -174,7 +173,7 @@ module Unification =
             // root with no registered name. First registration wins (source order).
             let knownNames = Dictionary<TyVarId, string>()
 
-            for (name, ptv) in pre do
+            for (name, ptv) in seed do
                 match zonk ctx.Store (TyVar ptv) with
                 | TyVar r ->
                     let root = UnionFind.find ctx.Store r
@@ -194,7 +193,7 @@ module Unification =
             let gt =
                 GeneralizedTypars.canonical ctx.Store declared fixedRoots knownNames (zonk ctx.Store memberTy)
 
-            mInfo.Generalized <- gt
+            mInfo.Generalise gt
         | _ -> ()
 
     /// Walk every method / property / auto-property body under a typar
@@ -276,10 +275,10 @@ module Unification =
                             let savedMemberEnclosing = ctx.Resolution.EnclosingTypars
 
                             match mInfoOpt with
-                            | Some mInfo when not mInfo.MethodTypeParams.IsEmpty ->
+                            | Some mInfo when not mInfo.SeedTypars.IsEmpty ->
                                 let seed = Dictionary<string, TyVarId>(System.StringComparer.Ordinal)
 
-                                for (n, ptv) in mInfo.MethodTypeParams do
+                                for (n, ptv) in mInfo.SeedTypars do
                                     seed.[n] <- ptv
 
                                 ctx.Resolution.BindingTyparSeed <- ValueSome seed
@@ -296,7 +295,7 @@ module Unification =
                                 let memberEnclosing =
                                     Dictionary<string, TyVarId>(classScope, System.StringComparer.Ordinal)
 
-                                for (n, ptv) in mInfo.MethodTypeParams do
+                                for (n, ptv) in mInfo.SeedTypars do
                                     memberEnclosing.[n] <- ptv
 
                                 ctx.Resolution.EnclosingTypars <- ValueSome memberEnclosing
@@ -381,11 +380,11 @@ module Unification =
                                     // prototype TyVars (not diagnosed as free).
                                     let savedMScope = ctx.Resolution.TyparScope
 
-                                    if not mInfo.MethodTypeParams.IsEmpty then
+                                    if not mInfo.SeedTypars.IsEmpty then
                                         let extended =
                                             Dictionary<string, TyVarId>(savedMScope, System.StringComparer.Ordinal)
 
-                                        for (n, ptv) in mInfo.MethodTypeParams do
+                                        for (n, ptv) in mInfo.SeedTypars do
                                             extended.[n] <- ptv
 
                                         ctx.Resolution.TyparScope <- extended
@@ -397,9 +396,7 @@ module Unification =
                                         // Abstract methods never reach `generaliseMemberTypars`,
                                         // so mint their canonical ABI order here from the just-
                                         // elaborated signature — same shape as that function.
-                                        if
-                                            mInfo.Kind = ClassMemberKind.Method && not mInfo.MethodTypeParams.IsEmpty
-                                        then
+                                        if mInfo.Kind = ClassMemberKind.Method && not mInfo.SeedTypars.IsEmpty then
                                             let fixedRoots = HashSet<TyVarId>()
 
                                             for (_, ptv) in fc.TypeParams do
@@ -407,7 +404,7 @@ module Unification =
                                                 | TyVar r -> fixedRoots.Add((UnionFind.find ctx.Store r).Id) |> ignore
                                                 | _ -> ()
 
-                                            let seed = EqArray.toList mInfo.MethodTypeParams
+                                            let seed = EqArray.toList mInfo.SeedTypars
 
                                             let declared =
                                                 seed
@@ -435,13 +432,14 @@ module Unification =
                                                         knownNames.[kRoot.Id] <- name
                                                 | _ -> ()
 
-                                            mInfo.Generalized <-
+                                            mInfo.Generalise(
                                                 GeneralizedTypars.canonical
                                                     ctx.Store
                                                     declared
                                                     fixedRoots
                                                     knownNames
                                                     (zonk ctx.Store sigTy)
+                                            )
                                     finally
                                         ctx.Resolution.TyparScope <- savedMScope
                                 | _ -> ()

@@ -67,10 +67,27 @@ type ClassMemberKind =
 ///
 /// Member types start as placeholder TyVars and get linked by Unification's
 /// `fillTypeMembers` after the registry is populated. Forward references
-/// between members in the same type therefore resolve against the placeholder.
+/// between members in the same type therefore resolve against the placeholder —
+/// which is why THIS is a shared mutable reference cell in `Members : TypeMemberInfo[]`:
+/// a call site within the same class can capture a member and must observe its
+/// one-way `Seed → Generalise` transition regardless of generalisation order.
+///
+/// The member's own method typars have two phases. The pre-inference registration
+/// SEED (`seedTypars` + `declaredTyparCount`) is IMMUTABLE — fixed at construction.
+/// The post-inference canonical ABI order is a WRITE-ONCE cell (`Generalise`), the
+/// single field that changes over the object's life. Nothing else drifts.
 [<Sealed>]
-type TypeMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: SemType, declKey: NodeKey) =
-    new(name, kind, ty, declKey) = TypeMemberInfo(name, kind, false, ty, declKey)
+type TypeMemberInfo
+    internal
+    (
+        name: string,
+        kind: ClassMemberKind,
+        isStatic: bool,
+        ty: SemType,
+        declKey: NodeKey,
+        seedTypars: EqArray<string * TyVarId>,
+        declaredTyparCount: int
+    ) =
     member val Name = name
     member val Kind = kind
     /// `true` for `static member`s. Instance members are looked up via
@@ -79,36 +96,48 @@ type TypeMemberInfo(name: string, kind: ClassMemberKind, isStatic: bool, ty: Sem
     member val IsStatic = isStatic
     member val Type = ty
     member val DeclKey = declKey
-    /// The member's *own* generic parameters (e.g. `abstract Map<'C> : ...`),
-    /// as prototype TyVars keyed by source name. Empty for a non-generic member.
-    /// REGISTRATION SEED ONLY: this is the pre-inference identity prototype set read
-    /// by body inference (lookups are by name / root identity, so its order is
-    /// irrelevant). It is NOT the final ABI order — that lives in `Generalized`,
-    /// written post-inference. `DeclaredTyparCount` still splits the explicit prefix.
-    member val MethodTypeParams: EqArray<string * TyVarId> = EqArray.empty with get, set
-    /// Canonical (post-inference) method typars — the ABI order, correct-by-construction.
-    /// Written ONCE by `generaliseMemberTypars` (regular methods) or the abstract-signature
-    /// path (abstract methods). `MethodTypeParams` above is only the pre-inference identity seed.
-    member val Generalized: GeneralizedTypars = GeneralizedTypars.empty with get, set
-    /// How many leading entries of `MethodTypeParams` are the member's
-    /// EXPLICITLY-declared `<'C, …>` typars (source order). The remaining entries
-    /// are annotation-implicit typars appended at registration. Captured here
-    /// because the explicit/implicit split is otherwise unrecoverable post-
-    /// registration, yet the F# ordering rule treats explicitly-declared typars
-    /// (and ONLY those) as "declared-first"; `Unification.generaliseMemberTypars`
-    /// passes exactly this prefix as `GeneralizedTypars.canonical`'s `declared`.
-    member val DeclaredTyparCount: int = 0 with get, set
 
-    /// The method typars to use at a member CALL site: the canonical `Generalized`
-    /// once it is populated, else the registration seed (forward references within a
-    /// class can call a member before it is generalised). Order-irrelevant here —
-    /// `instantiateMemberCall` freshens by union-find root. Faithfully reproduces the
-    /// pre-split read of `MethodTypeParams` (which was seed-then-canonical).
+    /// The pre-inference registration seed prototypes (e.g. `member Map<'C> : …`), by
+    /// source name — order-IRRELEVANT (lookups are by name / union-find root). Read by
+    /// body inference to seed the member's own typar scope. Empty for a non-generic
+    /// member. IMMUTABLE: fixed at registration, never rewritten.
+    member _.SeedTypars: EqArray<string * TyVarId> = seedTypars
+
+    /// How many leading entries of `SeedTypars` are the member's EXPLICITLY-declared
+    /// `<'C, …>` typars (source order) — the F# "declared-first" prefix
+    /// `Unification.generaliseMemberTypars` passes as `GeneralizedTypars.canonical`'s
+    /// `declared` (the implicit tail is ordered by appearance, not treated as declared).
+    member _.DeclaredTyparCount: int = declaredTyparCount
+
+    /// The canonical (post-inference) ABI order, minted ONCE at generalisation. `None`
+    /// until then — a Seed member (non-generic, a property, an override, or a not-yet-
+    /// generalised forward reference) legitimately has no canonical typars.
+    member val private canonical: GeneralizedTypars voption = ValueNone with get, set
+
+    /// Transition the member to its canonical ABI order. One-way and single-assignment:
+    /// a member generalises FROM its seed and SUPERSEDES it, so a second generalisation
+    /// (or a re-seed) is a logic error, surfaced rather than silently overwriting.
+    member this.Generalise(gt: GeneralizedTypars) : unit =
+        match this.canonical with
+        | ValueNone -> this.canonical <- ValueSome gt
+        | ValueSome _ -> invalidOp "member generalised twice"
+
+    /// The canonical ABI order once generalised, else `GeneralizedTypars.empty` — the
+    /// off-state is a real EMPTY (Elaborate reads this while iterating a mix of generic
+    /// and non-generic members).
+    member this.CanonicalTypars: GeneralizedTypars =
+        match this.canonical with
+        | ValueSome gt -> gt
+        | ValueNone -> GeneralizedTypars.empty
+
+    /// The method typars to use at a member CALL site: the canonical order once
+    /// generalised, else the registration seed (a forward reference within a class can
+    /// call a member before it is generalised). Order-irrelevant here —
+    /// `instantiateMemberCall` freshens by union-find root.
     member this.EffectiveMethodTypars: EqArray<string * TyVarId> =
-        if GeneralizedTypars.count this.Generalized > 0 then
-            EqArray.ofArray (GeneralizedTypars.toArray this.Generalized)
-        else
-            this.MethodTypeParams
+        match this.canonical with
+        | ValueSome gt -> EqArray.ofArray (GeneralizedTypars.toArray gt)
+        | ValueNone -> seedTypars
 
     /// `true` when the source declares the member with `MemberKeyword.Override`
     /// or `MemberKeyword.Default`. Stamped by member extraction; consumed by

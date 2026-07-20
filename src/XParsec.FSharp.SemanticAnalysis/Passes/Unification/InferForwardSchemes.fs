@@ -26,7 +26,7 @@ module internal UnificationInferForwardSchemes =
     /// as `CurrentLevel` `TypeVar`s, so later implicit `'a` mentions in the
     /// binding's annotations / body share the same var. Reuses the member's
     /// prototype typar from `BindingTyparSeed` when the name matches (B-12, so the
-    /// inferred signature shares roots with `TypeMemberInfo.MethodTypeParams`);
+    /// inferred signature shares roots with `TypeMemberInfo.SeedTypars`);
     /// otherwise mints fresh. Does *not* translate constraints — that stays with
     /// the body-typing caller (`inferBinding`); the annotation-only forward
     /// pre-pass (`prebindModuleFunctionSchemes`) needs only the var bindings.

@@ -598,13 +598,13 @@ module Elaborate =
                                 // A generic method's own typars join the env so
                                 // the backend routes them to `GenericMethodParameter`
                                 // (declaring typars stay `GenericTypeParameter`).
-                                if GeneralizedTypars.count m.Generalized > 0 then
-                                    env.AddRange(GeneralizedTypars.methodEnv m.Generalized)
+                                if GeneralizedTypars.count m.CanonicalTypars > 0 then
+                                    env.AddRange(GeneralizedTypars.methodEnv m.CanonicalTypars)
 
                                 yield
                                     {
                                         Name = m.Name
-                                        MethodTypeParams = EqArray.ofArray (GeneralizedTypars.names m.Generalized)
+                                        MethodTypeParams = EqArray.ofArray (GeneralizedTypars.names m.CanonicalTypars)
                                         Signature = m.Type
                                         IsProperty = (m.Kind = ClassMemberKind.Property)
                                     }
@@ -973,11 +973,11 @@ module Elaborate =
                     // Refresh each canonical root to its CURRENT union-find / link
                     // representative and DROP any that pinned to a concrete type since
                     // generalise — ORDER-PRESERVING, so the ABI index is untouched.
-                    // Mirrors the pre-split helper's per-entry `zonk`+drop: a root
-                    // unioned away keys the body's frozen `TyTypar(Method, i)` markers on
-                    // its survivor, and a root linked to a concrete type is no longer a
-                    // real typar (keeping it would inflate the GenericParam arity).
-                    mi.Generalized
+                    // Per-entry `zonk`+drop: a root unioned away keys the body's frozen
+                    // `TyTypar(Method, i)` markers on its survivor, and a root linked to a
+                    // concrete type is no longer a real typar (keeping it would inflate
+                    // the GenericParam arity).
+                    mi.CanonicalTypars
                     |> GeneralizedTypars.refreshRoots (fun tv ->
                         match Unification.zonk ctx.Store (TyVar tv) with
                         | TyVar r -> ValueSome r

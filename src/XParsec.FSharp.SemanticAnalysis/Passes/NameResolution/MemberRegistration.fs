@@ -265,10 +265,21 @@ module NameResolutionMemberRegistration =
                     Severity = Severity.Error
                 }
 
-        let addMember mName kind isStatic isOverride (mKey: NodeKey) : TypeMemberInfo =
+        // The seed typars + declared prefix are fixed here, at construction, and never
+        // change (immutable on `TypeMemberInfo`); only generalisation later mutates a
+        // member, via its write-once canonical cell.
+        let addMember
+            mName
+            kind
+            isStatic
+            isOverride
+            (mKey: NodeKey)
+            (seed: EqArray<string * TyVarId>)
+            declaredCount
+            : TypeMemberInfo =
             let tv = ctx.NewTypeVar()
             ctx.Store.SetLevel(UnionFind.find ctx.Store tv, 0)
-            let cmi = TypeMemberInfo(mName, kind, isStatic, TyVar tv, mKey)
+            let cmi = TypeMemberInfo(mName, kind, isStatic, TyVar tv, mKey, seed, declaredCount)
             cmi.IsOverride <- isOverride
             memberInfos.Add cmi
             cmi
@@ -276,7 +287,6 @@ module NameResolutionMemberRegistration =
         let registerNamed (b: Binding<SyntaxToken>) kind isStatic isOverride =
             match memberNameOf ctx b with
             | ValueSome(mName, mKey) ->
-                let cmi = addMember mName kind isStatic isOverride mKey
                 // A concrete generic method (`member this.Map<'C> …`) carries
                 // its own typars on the binding's `typarDefns`. Stamp prototype
                 // TyVars so Unification scopes the signature against them and Elaborate
@@ -296,12 +306,14 @@ module NameResolutionMemberRegistration =
                     | ClassMemberKind.Method -> implicitMemberTypars ctx classTypars b
                     | _ -> []
 
-                cmi.MethodTypeParams <- mkTypeParams ctx.Store (explicit @ implicit)
                 // The explicit `<'C>` typars are exactly the leading `explicit`
-                // prefix; record the count so `generaliseMemberTypars` can pass
-                // ONLY them as `canonical`'s `declared` (the implicit tail must be
-                // ordered by appearance per the F# rule, not treated as declared).
-                cmi.DeclaredTyparCount <- List.length explicit
+                // prefix; the count lets `generaliseMemberTypars` pass ONLY them as
+                // `canonical`'s `declared` (the implicit tail must be ordered by
+                // appearance per the F# rule, not treated as declared).
+                let seed = mkTypeParams ctx.Store (explicit @ implicit)
+
+                addMember mName kind isStatic isOverride mKey seed (List.length explicit)
+                |> ignore
             | ValueNone -> ()
 
         let registerAutoProperty id isStatic isOverride =
@@ -311,20 +323,21 @@ module NameResolutionMemberRegistration =
                 isStatic
                 isOverride
                 (NodeKey.ofToken id NodeKind.PatIdent)
+                EqArray.empty
+                0
             |> ignore
 
         let registerAbstractMethod idOrOp tds isStatic kind =
             match identOrOpNameTok ctx idOrOp with
             | ValueSome(mName, mTok) ->
-                // An `abstract` signature is a slot declaration, never an override.
-                let cmi =
-                    addMember mName kind isStatic false (NodeKey.ofToken mTok NodeKind.PatIdent)
                 // The method's own `<'C, …>` typars get prototype TyVars so
                 // Unification scopes the signature against them and Elaborate can
                 // surface them as GenericMethodParameters.
                 let explicit = memberTyparNames ctx tds
-                cmi.MethodTypeParams <- mkTypeParams ctx.Store explicit
-                cmi.DeclaredTyparCount <- List.length explicit
+                let seed = mkTypeParams ctx.Store explicit
+                // An `abstract` signature is a slot declaration, never an override.
+                addMember mName kind isStatic false (NodeKey.ofToken mTok NodeKind.PatIdent) seed (List.length explicit)
+                |> ignore
             | ValueNone -> ()
 
         for el in elements do

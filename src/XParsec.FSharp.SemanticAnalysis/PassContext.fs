@@ -183,7 +183,7 @@ type PassContextResolution =
         /// `<'C, …>` typars: `inferBinding` mints a fresh scope for a binding's
         /// declared typars, but when this seed is set it reuses the prototype TyVar
         /// for a matching name instead of allocating a fresh one. `fillTypeMembers`
-        /// sets it from a generic member's `TypeMemberInfo.MethodTypeParams`, so the
+        /// sets it from a generic member's `TypeMemberInfo.SeedTypars`, so the
         /// typars flowing into the inferred signature are the same roots `Elaborate`
         /// surfaces and codegen installs as the ambient `!!i` set. `ValueNone` ⇒ the
         /// binding gets fresh typars.
