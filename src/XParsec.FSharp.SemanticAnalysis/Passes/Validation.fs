@@ -151,9 +151,12 @@ module Validation =
         | _ -> ()
 
     let private checkUnresolvedDotAccesses (ctx: PassContext) : unit =
-        let seenRoots = System.Collections.Generic.HashSet<TyVarId>()
+        let byVar = ctx.Bindings.TypeVar.AsDictionary()
+        // Distinct roots are bounded by the entry count, so presize once rather than let an
+        // un-presized set resize log2(N) times (each a fresh backing array + rehash).
+        let seenRoots = System.Collections.Generic.HashSet<TyVarId>(byVar.Count)
 
-        for kv in ctx.Bindings.TypeVar.AsDictionary() do
+        for kv in byVar do
             let root = UnionFind.find ctx.Store kv.Value
 
             let pending = ctx.Store.Pda.Live root

@@ -604,10 +604,19 @@ module Regions =
         | TPat.Const _ -> ()
 
     /// Distinct lambda regions reachable from `start` via outlives edges (the
-    /// HeapShared seed rule's input).
-    let private countReachableLambdas (g: RegionGraph) (start: RegionId) : int =
-        let visited = HashSet<int>()
-        let stack = Stack<RegionId>()
+    /// HeapShared seed rule's input). `visited`/`stack` are caller-owned scratch, cleared
+    /// on entry and reused across `solve`'s per-node calls — one allocation for the whole
+    /// pass instead of a fresh (un-presized, self-resizing) pair per region node, which the
+    /// alloc profile flagged as the top analysis-path churn (`HashSet<int>.Resize` +
+    /// `Stack<RegionId>.PushWithResize`).
+    let private countReachableLambdas
+        (g: RegionGraph)
+        (visited: HashSet<int>)
+        (stack: Stack<RegionId>)
+        (start: RegionId)
+        : int =
+        visited.Clear()
+        stack.Clear()
         stack.Push(start)
         let mutable count = 0
 
@@ -643,6 +652,12 @@ module Regions =
         let n = g.Count
         let state = Array.create n LocalStack
 
+        // Reusable scratch for the per-node `countReachableLambdas` calls below — one
+        // allocation for the pass, presized to the node count (the reachable set and its
+        // worklist are both bounded by it), `Clear`ed and reused each call.
+        let reachVisited = HashSet<int>(n)
+        let reachStack = Stack<RegionId>(n)
+
         for i = 0 to n - 1 do
             let node = g.NodeOf(RegionId(i))
 
@@ -673,7 +688,7 @@ module Regions =
                 // any closure capture of a mutable forces heap allocation (.NET
                 // ref-cell hoisting / Rust Rc<RefCell<_>>).
                 if not node.IsLambda then
-                    let reach = countReachableLambdas g (RegionId(i))
+                    let reach = countReachableLambdas g reachVisited reachStack (RegionId(i))
                     let threshold = if node.IsMutableCell then 1 else 2
 
                     if reach >= threshold then

@@ -1,0 +1,151 @@
+/// Fixtures + provider wiring for the semantic-analysis benchmark: the realistic
+/// multi-file chain Vesper.Core → Vesper.List → Vesper.Set → a synthetic consumer.
+///
+/// Each package is analysed as its OWN assembly against a provider composed from its
+/// `depends-on` closure (self EXCLUDED — the package defines its own types here),
+/// mirroring the package-build wiring (`Codegen.Clr.Tests` `buildPackage`/`vesperListDll`).
+/// Why this shape (docs/engine-rewrite-plan.md "benchmarking"): the CROSS-STAGE re-thaw of
+/// shared upstream contracts — Core's `.fsi` thawed by List's provider AND again by Set's
+/// AND again by the synthetic consumer's — is the interning ceiling a single-file bench
+/// cannot see. The chain prefix is the size axis, not synthetic sizes.
+module XParsec.FSharp.Benchmarks.SemanticAnalysisFixtures
+
+open System.IO
+open XParsec.FSharp.SemanticAnalysis
+open XParsec.FSharp.Codegen.Clr
+
+/// repo `src/` dir, resolved from this bench file (`bench/XParsec.FSharp.Benchmarks`).
+let private srcDir =
+    Path.GetFullPath(Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "src"))
+
+let manifestPath (pkg: string) =
+    Path.Combine(srcDir, pkg, "manifest.toml")
+
+let private loadManifest (pkg: string) =
+    match ReferencedProject.loadManifest (manifestPath pkg) with
+    | Ok m -> m
+    | Error e -> failwithf "SemanticAnalysisFixtures: cannot load '%s' manifest: %s" pkg e
+
+/// One assembly's worth of analysable input: its home name, the external provider its
+/// files resolve against, and its ordered `(path, source)` impl files.
+type Stage =
+    {
+        Name: string
+        Provider: IExternalSymbolProvider
+        Files: (string * string) list
+    }
+
+/// Compose a contract provider from a set of package names — the SAME provider the CLR
+/// package build (`buildPackage`) uses: `ClrSymbolProviders.buildContract` supplies the
+/// BCL reflection leaf (`bclMetaTail`, over the host runtime) AND cross-package inline
+/// bodies. Both are load-bearing: Core's `(# "System.Int32" #)` reprs and Set's BCL-
+/// interface impls (`ICollection`/`IComparable`/…) do not resolve without the metadata
+/// leaf — omitting it (a bare `composeContract noMetaTail`) leaves Core/Set analysing on
+/// the ERROR path, which is not a workload worth timing. `composeContract` resolves the
+/// transitive `depends-on` closure itself, so the DIRECT deps are enough (an empty list is
+/// the empty contract — Core's case). This is faithful because these are the CLR self-host
+/// sources; the JS backend would inject its own leaf.
+let composeProvider (pkgs: string list) : IExternalSymbolProvider =
+    pkgs |> List.map manifestPath |> ClrSymbolProviders.buildContract
+
+/// A package analysed as its own assembly: provider = its `depends-on` closure (self
+/// EXCLUDED), files = its `impl` `.fs` in manifest order, read relative to the manifest dir.
+let packageStage (pkg: string) : Stage =
+    let m = loadManifest pkg
+    let dir = Path.GetDirectoryName(manifestPath pkg)
+
+    let files =
+        ReferencedProject.resolveImpl None m
+        |> List.map (fun rel ->
+            let abs = Path.Combine(dir, rel)
+            abs, File.ReadAllText abs
+        )
+
+    {
+        Name = m.Name
+        Provider = composeProvider m.DependsOn
+        Files = files
+    }
+
+/// A small hand-written consumer of Vesper.Set — the adversarial tail the plan calls for,
+/// kept CONSERVATIVE (list/primitive-based `Set` ops only; the `seq`-based members pull BCL
+/// enumerables unresolvable under `noMetaTail`). This is the one stage NOT proven green by
+/// an existing suite — the setup guard fails loudly if it regresses. Expand it toward the
+/// caching-adversarial shape (repeated same-type generic instantiations / SRTP dispatch)
+/// once the baseline is captured.
+let private syntheticSource =
+    """module Bench.Synthetic
+
+open Vesper.Collections
+
+let build (xs: int list) : Set<int> = Set.ofList xs
+
+let has (x: int) (s: Set<int>) : bool = Set.contains x s
+
+let size (s: Set<int>) : int = Set.count s
+
+let combine (a: Set<int>) (b: Set<int>) : Set<int> = Set.union a b
+
+let sum (s: Set<int>) : int = Set.fold (fun acc x -> acc + x) 0 s
+"""
+
+/// The synthetic consumer as its own assembly, resolved against Set's FULL contract
+/// (Set itself INCLUDED — it is external to this assembly), which pulls Set's transitive
+/// closure (Core, List, …) via `composeContract`.
+let syntheticStage () : Stage =
+    {
+        Name = "Bench.Synthetic"
+        Provider = composeProvider [ "Vesper.Set" ]
+        Files = [ "synthetic.fs", syntheticSource ]
+    }
+
+/// The chain-prefix size axis: how many packages of the spine to analyse in one run.
+type ChainDepth =
+    | Core = 0
+    | CoreList = 1
+    | CoreListSet = 2
+    | CoreListSetSynthetic = 3
+
+/// The stages to analyse (in dependency order) for a chain depth. Building a stage forces
+/// its provider composition, so call this in `[<GlobalSetup>]`, never in the measured body.
+let stagesFor (depth: ChainDepth) : Stage list =
+    match depth with
+    | ChainDepth.Core -> [ packageStage "Vesper.Core" ]
+    | ChainDepth.CoreList -> [ packageStage "Vesper.Core"; packageStage "Vesper.List" ]
+    | ChainDepth.CoreListSet ->
+        [
+            packageStage "Vesper.Core"
+            packageStage "Vesper.List"
+            packageStage "Vesper.Set"
+        ]
+    | ChainDepth.CoreListSetSynthetic ->
+        [
+            packageStage "Vesper.Core"
+            packageStage "Vesper.List"
+            packageStage "Vesper.Set"
+            syntheticStage ()
+        ]
+    | other -> failwithf "SemanticAnalysisFixtures: unknown chain depth %A" other
+
+/// Analyse one stage through the self-host front end (`analyseForSelfHost`, the entry the
+/// package build uses: bare `[]`/`::` default to the Vesper cons-list) and return every
+/// unit's result. `analyse` is a seam so the probe can inject a timing wrapper.
+let analyseStage (analyse: AssemblyUnits.AnalyseUnit) (s: Stage) =
+    AssemblyUnits.analyseAssemblyWith analyse s.Name s.Provider s.Files
+
+/// Count error-severity diagnostics across a stage's results (parse failures + analysis
+/// errors). The green-workload guard: a bench on an erroring workload measures the error
+/// path, so a non-zero count is a setup crash, not a silent number.
+let stageErrorCount (results: Result<AssemblyUnits.FrozenUnit, AssemblyUnits.UnitError> list) : int =
+    results
+    |> List.sumBy (
+        function
+        | Error e ->
+            e.Diagnostics
+            |> List.filter (fun d -> d.Severity = Severity.Error)
+            |> List.length
+        | Ok u ->
+            u.Frozen.Diagnostics
+            |> List.filter (fun d -> d.Severity = Severity.Error)
+            |> List.length
+    )

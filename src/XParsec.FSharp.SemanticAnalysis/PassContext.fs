@@ -522,6 +522,17 @@ type CoreAccessIntrinsics =
 /// tables), `Resolution` (name-resolution scopes).
 [<Sealed>]
 type PassContext(provider: IExternalSymbolProvider, input: string, lexed: Lexed) =
+    // Memoise the external-symbol lookups for this file's analysis. The provider handed in
+    // is the accumulated stack (prior-file views ahead of the referenced-contract leaf);
+    // one file re-asks the same `TryLookupType`/member queries many times, and each
+    // otherwise walks every composite layer (a dictionary miss + `voption` alloc per layer)
+    // before reaching the cached leaf. One `memoize` per `PassContext` amortises that
+    // layer-walk for the file's lifetime — sound because the external surface is immutable
+    // during a file's analysis (a file's own symbols resolve through the scope tables, not
+    // `ctx.Provider`). Cheap: a handful of small dictionaries per file. Shadows the ctor
+    // arg, so every member below (and the ambient seed) sees the memoised view.
+    let provider = ExternalSymbolProviders.memoize provider
+
     // Seed the ambient (implicit-open) prelude from the provider's
     // `AmbientOpenPrefixes` (the referenced-contract `[<AutoOpen>]` modules /
     // FSharp.Core prelude). This is the single seam: every path that builds a

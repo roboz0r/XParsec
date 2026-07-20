@@ -288,9 +288,16 @@ let aggregateCpu (tracePath: string) (filter: string) =
     let mutable totalCount = 0L
     let mutable samplesWithStack = 0
 
+    // A CPU/thread-time sample is EITHER the ETW kernel `SampledProfileTraceData` (a `.etl`
+    // capture) OR — for an EventPipe `.nettrace` collected under `dotnet-sampled-thread-time`
+    // / `cpu-sampling` — a `Microsoft-DotNETCore-SampleProfiler` event, which has no
+    // strongly-typed row, so match it by provider name.
+    let isCpuSample (e: Microsoft.Diagnostics.Tracing.TraceEvent) =
+        (e :? SampledProfileTraceData)
+        || e.ProviderName = "Microsoft-DotNETCore-SampleProfiler"
+
     for ev in traceLog.Events do
-        match ev with
-        | :? SampledProfileTraceData ->
+        if isCpuSample ev then
             totalCount <- totalCount + 1L
             let cs = ev.CallStack()
 
@@ -318,11 +325,13 @@ let aggregateCpu (tracePath: string) (filter: string) =
                         add totalSamples display 1L
 
                     frame <- frame.Caller
-        | _ -> ()
 
     printfn ""
 
-    printfn "CPU samples: %d   with stack: %d   (~%d ms of on-CPU time at 1 kHz)" totalCount samplesWithStack totalCount
+    // Sampling rate is source-dependent (ETW kernel ≈1 kHz; EventPipe thread-time ≈100 Hz),
+    // so report raw sample counts — the RELATIVE per-frame percentages are the valid signal,
+    // not an absolute ms estimate.
+    printfn "CPU/thread-time samples: %d   with stack: %d" totalCount samplesWithStack
 
     printfn "Filter: %s" filter
     printfn ""
