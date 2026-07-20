@@ -598,7 +598,7 @@ module TastLower =
                     }
                 ]
             | ArgGroupG.GSimple(k, ty) -> [ { Slot = k; Ty = ty; Pat = None } ]
-            | ArgGroupG.GTuple(TPatG.Tuple(items, _, _)) -> [ for it in EqArray.toList items -> flattenTupleItem it ]
+            | ArgGroupG.GTuple(TPatG.Tuple(items, _, _)) -> [ for it in items -> flattenTupleItem it ]
             | ArgGroupG.GTuple _ -> failwith "peelValRepr: GTuple must carry a TPatG.Tuple pattern"
 
         let ps =
@@ -703,7 +703,7 @@ module TastLower =
             match e with
             | TExprG.Sequential(items, _, _) ->
                 [
-                    for it in EqArray.toList items do
+                    for it in items do
                         yield! flattenTopLevel it
                 ]
             | TExprG.Let(pat, value, body, _, _) ->

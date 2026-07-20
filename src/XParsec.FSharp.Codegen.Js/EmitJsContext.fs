@@ -471,13 +471,13 @@ module EmitJsContext =
             let known = Set.ofList info.Fields
 
             let tests, binds =
-                EqArray.toList fields
-                |> List.map (fun (fieldName, sub) ->
-                    if not (Set.contains fieldName known) then
-                        failwithf "EmitJs: record pattern on '%s' names unknown field '%s'" info.Name fieldName
+                [
+                    for (fieldName, sub) in fields do
+                        if not (Set.contains fieldName known) then
+                            failwithf "EmitJs: record pattern on '%s' names unknown field '%s'" info.Name fieldName
 
-                    compileMatchPattern ctx (memberAccess fieldName) sub
-                )
+                        compileMatchPattern ctx (memberAccess fieldName) sub
+                ]
                 |> List.unzip
 
             conjoin tests, List.concat binds
@@ -509,8 +509,6 @@ module EmitJsContext =
         // binders — `ElaboratePatterns` rejects a binding alternative), so the binding
         // lists are empty and discarded.
         | TPatG.Or(alts, _, _) ->
-            let tests =
-                EqArray.toList alts
-                |> List.map (fun alt -> fst (compileMatchPattern ctx access alt))
+            let tests = [ for alt in alts -> fst (compileMatchPattern ctx access alt) ]
 
             disjoin tests, []

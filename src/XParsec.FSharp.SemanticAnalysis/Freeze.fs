@@ -291,7 +291,7 @@ module Freeze =
 
         let frozen =
             { tast with
-                Decls = tast.Decls |> EqArray.toList |> List.filter emittable |> EqArray.ofList
+                Decls = tast.Decls |> EqArray.filter emittable
                 InlineBodies = EqArray.ofList (List.ofSeq inlineBodies)
                 // Re-snapshot: the tree's `Diagnostics` were taken BEFORE the freeze, so a
                 // publish-invariant failure raised above would otherwise reach `ctx` and no

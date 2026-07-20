@@ -198,7 +198,7 @@ let tests =
                         "Wrap`1"
                         "generic key qualifiedName must be arity-suffixed"
 
-                    Expect.equal (args |> EqArray.toList |> List.length) 1 "Wrap<int> applies one type arg"
+                    Expect.equal args.Length 1 "Wrap<int> applies one type arg"
 
                     Expect.isTrue
                         (match boxProviderRaw.TryLookupType "Wrap`1" with

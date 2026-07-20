@@ -60,7 +60,7 @@ module internal UnificationInferExternalCall =
         : SemType =
         let elemTys =
             match resolveStep ctx.Store argTy with
-            | TyTuple ts -> ts |> EqArray.toList |> List.toArray
+            | TyTuple ts -> EqArray.toArray ts
             | single -> [| single |]
 
         if facts.Length <> elemTys.Length then
@@ -347,7 +347,7 @@ module internal UnificationInferExternalCall =
                     // 0 / 1 instance overload: the single-pick path is unambiguous.
                     ValueNone
                 else
-                    let declArgs = typeArgs |> EqArray.toList |> List.toArray
+                    let declArgs = EqArray.toArray typeArgs
                     // Constant facts computed once, shared by the pick refinement and
                     // the commit seed (so the two cannot derive divergent facts).
                     let facts = constArgFacts ctx argExpr
@@ -536,7 +536,7 @@ module internal UnificationInferExternalCall =
                         | TyFun(fullParams, ret) ->
                             let leading =
                                 match resolveStep ctx.Store fullParams with
-                                | TyTuple elems -> elems |> EqArray.toList |> List.truncate suppliedCount
+                                | TyTuple elems -> elems |> EqArray.truncate suppliedCount |> EqArray.toList
                                 | single -> [ single ]
 
                             let resultTy = TyVar(freshTyVar ctx)

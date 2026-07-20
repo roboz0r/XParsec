@@ -82,7 +82,7 @@ let tests =
                             "Box`1"
                             "the minted key must be the arity-suffixed foreign name (the arity law)"
 
-                        Expect.equal (args |> EqArray.toList |> List.length) 1 "Box<string> applies one type arg"
+                        Expect.equal args.Length 1 "Box<string> applies one type arg"
 
                         match
                             (stackTsMany [ manifestB; manifestA ] :> IExternalSymbolStore)

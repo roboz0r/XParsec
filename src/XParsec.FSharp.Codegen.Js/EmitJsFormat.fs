@@ -471,21 +471,21 @@ module EmitJsFormat =
         : JsExpr =
         let buildHole = buildHole buildExpr ctx
 
-        match EqArray.toList segments with
-        | [ FormatSegG.Lit s ] -> JsExpr.Literal(JsLiteral.String s, ValueNone)
-        | [ FormatSegG.Hole(hole, operand) ] -> buildHole hole operand ValueNone ValueNone
-        | [ FormatSegG.DynHole d ] -> buildHole d.Spec d.Value d.Width d.Precision
+        match segments with
+        | EqOne(FormatSegG.Lit s) -> JsExpr.Literal(JsLiteral.String s, ValueNone)
+        | EqOne(FormatSegG.Hole(hole, operand)) -> buildHole hole operand ValueNone ValueNone
+        | EqOne(FormatSegG.DynHole d) -> buildHole d.Spec d.Value d.Width d.Precision
         // `%a`/`%t`: Elaborate lowered the callback to an ordinary residue-string expr; the
         // splice is just that expr (on JS only `sprintf`'s `cb(undefined)[(v)]` reaches
         // here — writer/builder `%a` diagnoses at the capability gate before Elaborate).
-        | [ FormatSegG.CallbackHole(_, residue) ] -> buildExpr ctx residue
-        | segs ->
+        | EqOne(FormatSegG.CallbackHole(_, residue)) -> buildExpr ctx residue
+        | _ ->
             let pieces = ResizeArray<JsRawSeg>()
             // Seed with `""` so the first `+` already concatenates strings, even
             // when the format opens with two adjacent holes (`%d%d`).
             pieces.Add(JsRawSeg.Hole(JsExpr.Literal(JsLiteral.String "", ValueNone)))
 
-            for seg in segs do
+            for seg in segments do
                 pieces.Add(JsRawSeg.Verbatim " + ")
 
                 match seg with

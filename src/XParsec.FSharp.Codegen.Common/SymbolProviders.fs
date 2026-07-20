@@ -117,8 +117,8 @@ module SymbolProviders =
     /// overload identity there is no rendered `argSig` for producer and use site to
     /// disagree on; the key `m` mints here is the same one an external entry / use site
     /// mints from the same frozen signature by construction.
-    let private collectInlineBodies (tast: Frozen.TastFile) : Frozen.TInlineValue list * Frozen.TInlineValue list =
-        let values = tast.InlineBodies |> EqArray.toList
+    let private collectInlineBodies (tast: Frozen.TastFile) : EqArray<Frozen.TInlineValue> * Frozen.TInlineValue list =
+        let values = tast.InlineBodies
 
         let members =
             [

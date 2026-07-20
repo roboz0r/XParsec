@@ -286,10 +286,7 @@ let tests =
                 // The finalized keys DISAGREE (the `argSig` axis is what separates them);
                 // never hand-rolled here — the store minted them.
                 let keyOf (paramTy: FrozenType) =
-                    match
-                        overloads
-                        |> Array.tryFind (fun m -> m.Key.ArgSig |> EqArray.toList |> List.contains paramTy)
-                    with
+                    match overloads |> Array.tryFind (fun m -> m.Key.ArgSig |> EqArray.contains paramTy) with
                     | Some m -> SymbolKey.Member m.Key
                     | None ->
                         failtestf

@@ -164,7 +164,7 @@ module EmitJs =
         // positional constructor.
         | TExprG.RecordCons(srcFields, ty, _) ->
             let info = recordInfoOf ctx "RecordCons" ty
-            let srcMap = Map.ofSeq (EqArray.toList srcFields)
+            let srcMap = Map.ofSeq srcFields.Underlying
 
             let args =
                 [
@@ -182,7 +182,7 @@ module EmitJs =
         // once through an IIFE binder (avoids re-evaluating / duplicating it).
         | TExprG.RecordClone(source, overrides, ty, _) ->
             let info = recordInfoOf ctx "RecordClone" ty
-            let overrideMap = Map.ofSeq (EqArray.toList overrides)
+            let overrideMap = Map.ofSeq overrides.Underlying
 
             let argsFrom (srcRef: JsExpr) =
                 [
@@ -281,10 +281,7 @@ module EmitJs =
             | ValueNone, ValueNone ->
                 match JsExternalMembers.exnReprOf ctx.Provider ty with
                 | ValueSome repr ->
-                    let errArgs =
-                        match EqArray.toList args with
-                        | [] -> []
-                        | msg :: _ -> [ buildExpr ctx msg ]
+                    let errArgs = if args.IsEmpty then [] else [ buildExpr ctx args.[0] ]
 
                     JsExpr.New(JsExpr.Identifier(repr, ValueNone), errArgs, loc)
                 | ValueNone ->
@@ -421,7 +418,7 @@ module EmitJs =
 
             let body =
                 [
-                    for arm in EqArray.toList arms do
+                    for arm in arms do
                         yield! buildMatchArm ctx access arm
                     yield matchFailure
                 ]
@@ -481,8 +478,8 @@ module EmitJs =
             // the sparse `new Array(count)`), so `Object.keys` / iteration observe every
             // slot. Unset slots read as `null`, not the element type's zero — the JS
             // zero-init erasure corner (callers fill before reading).
-            match EqArray.toList args with
-            | [ count ] ->
+            match args with
+            | EqOne count ->
                 let alloc =
                     JsExpr.Call(JsExpr.Identifier("Array", ValueNone), [ buildExpr ctx count ], ValueNone)
 
@@ -494,22 +491,22 @@ module EmitJs =
 
         // `arr.[i]` → `arr[i]` (a computed member read).
         | TExprG.ILIntrinsic("ldelem", _, args, _, _) ->
-            match EqArray.toList args with
-            | [ arr; idx ] -> JsExpr.Member(buildExpr ctx arr, buildExpr ctx idx, true, loc)
+            match args with
+            | EqTwo(arr, idx) -> JsExpr.Member(buildExpr ctx arr, buildExpr ctx idx, true, loc)
             | _ -> failwith "EmitJs: 'ldelem' expects two operands (array, index)"
 
         // `arr.[i] <- v` → `(arr[i] = v)` (a computed-member assignment expression).
         | TExprG.ILIntrinsic("stelem", _, args, _, _) ->
-            match EqArray.toList args with
-            | [ arr; idx; value ] ->
+            match args with
+            | EqThree(arr, idx, value) ->
                 let target = JsExpr.Member(buildExpr ctx arr, buildExpr ctx idx, true, ValueNone)
                 JsExpr.Assign(target, buildExpr ctx value, loc)
             | _ -> failwith "EmitJs: 'stelem' expects three operands (array, index, value)"
 
         // `arr.Length` → `arr.length`.
         | TExprG.ILIntrinsic("ldlen", _, args, _, _) ->
-            match EqArray.toList args with
-            | [ arr ] -> JsExpr.Member(buildExpr ctx arr, JsExpr.Identifier("length", ValueNone), false, loc)
+            match args with
+            | EqOne arr -> JsExpr.Member(buildExpr ctx arr, JsExpr.Identifier("length", ValueNone), false, loc)
             | _ -> failwith "EmitJs: 'ldlen' expects one operand (the array)"
 
         // The empty-string identity intrinsic `(# "" x : 'U #)` — FSharp.Core's
@@ -609,10 +606,15 @@ module EmitJs =
         | TExprG.Let(TPatG.Wildcard _, value, body, _, _) when isPureValue value -> recur body
         | TExprG.Let(TPatG.Wildcard _, value, body, _, _) -> buildStatements ctx value @ recur body
         | TExprG.Sequential(xs, _, _) when xs.Length > 0 ->
-            let items = EqArray.toList xs
-            let init = items.[.. items.Length - 2]
-            let last = items.[items.Length - 1]
-            (init |> List.collect (buildStatements ctx)) @ recur last
+            let n = xs.Length
+
+            let init =
+                [
+                    for i in 0 .. n - 2 do
+                        yield! buildStatements ctx xs.[i]
+                ]
+
+            init @ recur xs.[n - 1]
         | TailSelfCall selfKey arity args ->
             // `_tc<i>` temporaries: evaluate every new argument before any write-back,
             // so a self-call arg that mentions a parameter reads its pre-iteration
@@ -630,8 +632,8 @@ module EmitJs =
     /// Curry `base` over `args` — one unary `Call` per argument, in source order
     /// (`base(a)(b)…`). Shared by the `MethodCall` / `StaticMethodCall` lowerings.
     and private applyArgs (ctx: WalkCtx) (baseExpr: JsExpr) (args: EqArray<Frozen.TExpr>) : JsExpr =
-        EqArray.toList args
-        |> List.fold (fun acc a -> JsExpr.Call(acc, [ buildExpr ctx a ], ValueNone)) baseExpr
+        args
+        |> EqArray.fold (fun acc a -> JsExpr.Call(acc, [ buildExpr ctx a ], ValueNone)) baseExpr
 
     /// Emit a local module FUNCTION as one FLAT arrow over its compiled parameters
     /// (`let f x y` → `(x, y) => …`; tuple groups flattened, a lone unit erased to

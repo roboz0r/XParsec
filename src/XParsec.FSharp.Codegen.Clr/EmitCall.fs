@@ -60,9 +60,9 @@ module EmitCall =
         let rec collect (acc: Frozen.TExpr list) (e: Frozen.TExpr) : Frozen.TExpr list option =
             match e with
             | TExprG.UnionCons(_, args, _, _) ->
-                match EqArray.toList args with
-                | [ x; rest ] -> collect (x :: acc) rest
-                | [] -> Some(List.rev acc)
+                match args with
+                | EqTwo(x, rest) -> collect (x :: acc) rest
+                | EqEmpty -> Some(List.rev acc)
                 | _ -> None
             | _ -> None
 

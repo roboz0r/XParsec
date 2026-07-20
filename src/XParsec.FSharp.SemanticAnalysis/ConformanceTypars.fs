@@ -198,8 +198,7 @@ module ConformanceTypars =
     /// `TTypeKindG.members`); an `Interface`'s abstract methods carry a different
     /// (`TAbstractMethodG`) shape and are not checked here (no concrete `.fs` impl pairs
     /// with them in the same file), and an enum is niladic — both yield no members.
-    let private bodyMembers (kind: Frozen.TTypeKind) : Frozen.TTypeMember list =
-        EqArray.toList (TTypeKindG.members kind)
+    let private bodyMembers (kind: Frozen.TTypeKind) : EqArray<Frozen.TTypeMember> = TTypeKindG.members kind
 
     /// Check every generic (method-owned-typar) MEMBER of a frozen `.fs` file against
     /// its `.fsi` contract `provider`. For each such member, the published overloads

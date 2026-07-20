@@ -261,7 +261,7 @@ module UnificationEngine =
                             | Some f -> ValueSome(substituteWith ctx.Store subst f.Type)
                             | None -> ValueNone
 
-                        let declArgs = iargs |> EqArray.toList |> List.toArray
+                        let declArgs = EqArray.toArray iargs
 
                         ifaceMembers
                         |> Array.filter (fun m -> not m.IsStatic && m.IsValueMember && not m.IsOptional)
@@ -1067,8 +1067,7 @@ module UnificationEngine =
                             // same `^T * ^T -> ^T` candidate shape the local arm builds.
                             match ctx.Provider.TryLookupMember(SymbolKey.Type classKey, b.MemberName) with
                             | ValueSome m when m.IsStatic ->
-                                let candTy =
-                                    ExternalSymbols.openSignature m (EqArray.toList classArgs |> List.toArray)
+                                let candTy = ExternalSymbols.openSignature m (EqArray.toArray classArgs)
 
                                 ctx.Store.Srtp.Solve b
                                 unifySrtpAgainst ctx key candTy b

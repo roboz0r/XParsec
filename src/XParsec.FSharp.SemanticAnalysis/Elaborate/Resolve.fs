@@ -659,7 +659,7 @@ module internal ElaborateResolve =
         let operands =
             LocalMemberKeys.externalOperands
                 ctx.Store
-                (EqArray.toList ifaceArgs |> List.toArray)
+                (EqArray.toArray ifaceArgs)
                 [ for a in args -> TastWalk.exprTy a ]
 
         match LocalMemberKeys.totalMemberKey ctx ifaceKey memberName operands with

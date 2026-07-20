@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System
+open System.Collections
 open System.Collections.Generic
 open System.Collections.Immutable
 open System.Runtime.CompilerServices
@@ -41,6 +42,14 @@ type EqArray<'T> =
 
     member this.GetEnumerator() = this.Underlying.GetEnumerator()
 
+    interface IEnumerable<'T> with
+        member this.GetEnumerator() : IEnumerator<'T> =
+            (this.Underlying :> IEnumerable<'T>).GetEnumerator()
+
+    interface IEnumerable with
+        member this.GetEnumerator() : IEnumerator =
+            (this.Underlying :> IEnumerable).GetEnumerator()
+
     interface IEquatable<EqArray<'T>> with
         member this.Equals(other: EqArray<'T>) =
             let a = this.Underlying
@@ -64,6 +73,20 @@ type EqArray<'T> =
             h <- (h * 397) ^^^ cmp.GetHashCode xs.[i]
 
         h
+
+    // Renders element contents (`%A` on an unrecognised struct falls back to this) so a
+    // collection value in a diagnostic reads as its items, not the bare type name.
+    override this.ToString() =
+        let xs = this.Underlying
+        let sb = System.Text.StringBuilder("EqArray [")
+
+        for i in 0 .. xs.Length - 1 do
+            if i > 0 then
+                sb.Append "; " |> ignore
+
+            sb.Append(sprintf "%A" xs.[i]) |> ignore
+
+        sb.Append(']').ToString()
 
 [<RequireQualifiedAccess>]
 module EqArray =
@@ -94,6 +117,18 @@ module EqArray =
     let ofImmutableBuilder (b: ImmutableArrayBuilder<'T>) : EqArray<'T> = EqArray<'T>(b.ToImmutable())
 
     let toList (xs: EqArray<'T>) : 'T list = List.ofSeq xs.Underlying
+
+    /// Copies into a fresh mutable array. Prefer this over `toList |> List.toArray`,
+    /// which builds a throwaway cons-list on the way.
+    let toArray (xs: EqArray<'T>) : 'T[] =
+        let src = xs.Underlying
+
+        if src.IsEmpty then
+            Array.empty
+        else
+            let out = Array.zeroCreate src.Length
+            src.CopyTo(out)
+            out
 
     let init (n: int) (f: int -> 'T) : EqArray<'T> =
         let mutable b = SmallArrayBuilder<'T>()
@@ -243,3 +278,85 @@ module EqArray =
             acc <- folder src.[i] acc
 
         acc
+
+    let tryLast (xs: EqArray<'T>) : 'T voption =
+        match xs.Length with
+        | 0 -> ValueNone
+        | n -> ValueSome xs.[n - 1]
+
+    let last (xs: EqArray<'T>) : 'T =
+        match xs.Length with
+        | 0 -> invalidArg "xs" "EqArray.last: the input array was empty"
+        | n -> xs.[n - 1]
+
+    let filter (predicate: 'T -> bool) (xs: EqArray<'T>) : EqArray<'T> =
+        let mutable b = SmallArrayBuilder<'T>()
+        let src = xs.Underlying
+
+        for i in 0 .. src.Length - 1 do
+            if predicate src.[i] then
+                b.Add src.[i]
+
+        EqArray<'T>(b.ToImmutable())
+
+    /// Uses `EqualityComparer<'T>.Default`, consistent with this type's own
+    /// structural equality — so no `'T: equality` constraint on callers.
+    let contains (value: 'T) (xs: EqArray<'T>) : bool =
+        let src = xs.Underlying
+        let cmp = EqualityComparer<'T>.Default
+        let mutable i = 0
+        let mutable hit = false
+
+        while not hit && i < src.Length do
+            if cmp.Equals(src.[i], value) then
+                hit <- true
+
+            i <- i + 1
+
+        hit
+
+    /// Returns the first `count` elements (all of them when `count` exceeds the
+    /// length; empty when `count <= 0`). Returns the SAME array when nothing is dropped.
+    let truncate (count: int) (xs: EqArray<'T>) : EqArray<'T> =
+        let src = xs.Underlying
+        let n = min (max count 0) src.Length
+
+        if n = src.Length then
+            xs
+        else
+            let mutable b = SmallArrayBuilder<'T>()
+
+            for i in 0 .. n - 1 do
+                b.Add src.[i]
+
+            EqArray<'T>(b.ToImmutable())
+
+/// Fixed-arity deconstruction patterns — allocation-free arity checks that bind
+/// elements by index (no cons-list, no tail slice). `[<AutoOpen>]` so consumers
+/// that `open XParsec.FSharp.SemanticAnalysis` get them unqualified, replacing the
+/// `match EqArray.toList xs with [ … ]` idiom.
+[<AutoOpen>]
+module EqArrayPatterns =
+    [<return: Struct>]
+    let inline (|EqEmpty|_|) (xs: EqArray<'T>) : unit voption =
+        match xs.Length with
+        | 0 -> ValueSome()
+        | _ -> ValueNone
+
+    [<return: Struct>]
+    let inline (|EqOne|_|) (xs: EqArray<'T>) : 'T voption =
+        match xs.Length with
+        | 1 -> ValueSome xs.[0]
+        | _ -> ValueNone
+
+    [<return: Struct>]
+    let inline (|EqTwo|_|) (xs: EqArray<'T>) : struct ('T * 'T) voption =
+        match xs.Length with
+        | 2 -> ValueSome(struct (xs.[0], xs.[1]))
+        | _ -> ValueNone
+
+    [<return: Struct>]
+    let inline (|EqThree|_|) (xs: EqArray<'T>) : struct ('T * 'T * 'T) voption =
+        match xs.Length with
+        | 3 -> ValueSome(struct (xs.[0], xs.[1], xs.[2]))
+        | _ -> ValueNone

@@ -36,17 +36,16 @@ module internal Layout =
         // such a type can't be a static field; computed from `tast.Decls` since
         // `Emit.lower` strips the type decls `lowered` would carry.
         let refStructNsNames =
-            tast.Decls
-            |> EqArray.toList
-            |> List.choose (fun d ->
-                match d with
-                | TDeclG.Type td ->
-                    match td.Kind with
-                    | TTypeKindG.Class c when c.ValueKind = ClassValueKind.RefStruct ->
-                        Some(Emit.typeKeyNsName td.TypeKey)
-                    | _ -> None
-                | _ -> None
-            )
+            [
+                for d in tast.Decls do
+                    match d with
+                    | TDeclG.Type td ->
+                        match td.Kind with
+                        | TTypeKindG.Class c when c.ValueKind = ClassValueKind.RefStruct ->
+                            Emit.typeKeyNsName td.TypeKey
+                        | _ -> ()
+                    | _ -> ()
+            ]
             |> HashSet
 
         // `HolderPlan.create` eta-expands every non-saturated reference to a

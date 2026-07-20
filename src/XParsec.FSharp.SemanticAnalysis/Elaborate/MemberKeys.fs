@@ -82,7 +82,7 @@ module LocalMemberKeys =
     /// non-generic static declarer, an intrinsic, an unpinned var).
     let nominalArgs (store: TypeStore) (t: SemType) : SemType[] =
         match Unification.zonk store t with
-        | TyNominal(_, args) -> EqArray.toList args |> List.toArray
+        | TyNominal(_, args) -> EqArray.toArray args
         | _ -> [||]
 
     /// Build the operand-type discriminator for `totalMemberKey`'s EXTERNAL arm. `declArgs`

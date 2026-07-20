@@ -261,9 +261,9 @@ let private splicedConst (provider: IExternalSymbolProvider) (src: string) : int
         | TExprG.Const(TConstValue.Integral(_, v), _, _) -> v
         | other -> failtestf "expected `r` to reduce to a spliced constant, got %A" other
 
-    match tast.Decls |> EqArray.toList |> List.rev with
-    | TDeclG.Let(_, value, _, _) :: _ -> result value
-    | other -> failtestf "expected a trailing `let r = …`, got %A" other
+    match EqArray.tryLast tast.Decls with
+    | ValueSome(TDeclG.Let(_, value, _, _)) -> result value
+    | _ -> failtestf "expected a trailing `let r = …`, got %A" (EqArray.toList tast.Decls)
 
 [<Tests>]
 let tests =

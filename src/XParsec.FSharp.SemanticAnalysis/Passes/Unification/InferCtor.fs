@@ -203,7 +203,7 @@ module internal UnificationInferCtor =
         let name = SymbolKeyOps.qualifiedName declTypeKey
 
         let argTy = infer ctx argExpr
-        let typeArgs = args |> EqArray.toList |> List.toArray
+        let typeArgs = EqArray.toArray args
         let argElems = argElemsOf ctx.Store argTy
 
         // A 0-argument construction of an external *value type* is `default(T)`,

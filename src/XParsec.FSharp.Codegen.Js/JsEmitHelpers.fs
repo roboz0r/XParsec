@@ -155,7 +155,7 @@ module JsEmitHelpers =
         // a fresh array each time, and `ldelem`/`ldlen` would re-read after an
         // intervening `stelem`. The scalar `$N` templates remain pure.
         | TExprG.ILIntrinsic(("newarr" | "ldelem" | "stelem" | "ldlen" | "ldobj" | "ldloca"), _, _, _, _) -> false
-        | TExprG.ILIntrinsic(_, _, args, _, _) -> EqArray.toList args |> List.forall isPureValue
+        | TExprG.ILIntrinsic(_, _, args, _, _) -> args |> EqArray.forall isPureValue
         // A pure `let` chain is pure when both value and body are — the recursive
         // collapse reduces it to a clean template rather than an IIFE.
         | TExprG.Let(TPatG.NamedSimple _, value, body, _, _) -> isPureValue value && isPureValue body
@@ -221,7 +221,7 @@ module JsEmitHelpers =
         | TPatG.Wildcard(_, tok) -> "_w" + string tok.StartIndex
         | TPatG.Const(TConstValue.Unit, _, tok) -> "_u" + string tok.StartIndex
         | TPatG.Tuple(items, _, _) ->
-            let parts = EqArray.toList items |> List.map (lambdaParamName source)
+            let parts = items |> EqArray.map (lambdaParamName source) |> EqArray.toArray
             "[" + System.String.Join(", ", parts) + "]"
         | other -> failwithf "EmitJs: unsupported lambda parameter pattern %A" other
 

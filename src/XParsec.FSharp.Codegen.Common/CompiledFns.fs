@@ -46,7 +46,7 @@ module CompiledFns =
         | Arg of Frozen.TExpr
         /// A tupled group whose argument is a literal `Tuple`: emit each element (one
         /// value per element), each evaluated directly.
-        | TupleLiteral of Frozen.TExpr list
+        | TupleLiteral of EqArray<Frozen.TExpr>
         /// A tupled group whose argument is a tuple *value*: N values read positionally
         /// from it (`elemTys` are its element types; `N = elemTys.Length`). The CLR
         /// spills to a local + reads `ItemN`; the JS reads `v[j]` (spilling an impure
@@ -71,7 +71,7 @@ module CompiledFns =
                 | ArgGroupG.GSimple _ -> FlatStep.Arg a
                 | ArgGroupG.GTuple _ ->
                     match a with
-                    | TExprG.Tuple(elems, _, _) -> FlatStep.TupleLiteral(EqArray.toList elems)
+                    | TExprG.Tuple(elems, _, _) -> FlatStep.TupleLiteral elems
                     | _ ->
                         match TastLower.typeOfExpr a with
                         | FTTuple xs -> FlatStep.TupleValue(a, EqArray.toList xs)

@@ -1068,7 +1068,7 @@ let tests =
                 let tast =
                     analyse "type B() =\n    member this.X = 1\ntype D() =\n    inherit B()\nlet s = (new D()) :> B"
 
-                let last = EqArray.toList tast.Decls |> List.last
+                let last = EqArray.last tast.Decls
                 Expect.stringContains (TastShape.prettyDecl last) ":> B" "upcast rendered"
             }
 
@@ -1077,7 +1077,7 @@ let tests =
                     analyse
                         "type B() =\n    member this.X = 1\ntype D() =\n    inherit B()\nlet d = ((new D()) :> B) :?> D"
 
-                let last = EqArray.toList tast.Decls |> List.last
+                let last = EqArray.last tast.Decls
                 Expect.stringContains (TastShape.prettyDecl last) ":?> D" "downcast rendered"
             }
 
@@ -1110,7 +1110,7 @@ let tests =
                     analyse
                         "type B() =\n    member this.X = 1\ntype D() =\n    inherit B()\nlet t = ((new D()) :> B) :? D"
 
-                let last = EqArray.toList tast.Decls |> List.last
+                let last = EqArray.last tast.Decls
                 Expect.stringContains (TastShape.prettyDecl last) ":? D" "type test rendered"
             }
 

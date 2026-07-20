@@ -68,10 +68,10 @@ module EmitIntrinsic =
             // is the local `Var`; emit `ldloca <slot>` rather than recurring (which
             // would `ldloc` the value). Mirrors the struct-receiver address dispatch
             // in `EmitCall`.
-            match EqArray.toList args with
-            | [ TExprG.Var(binding, _, _) ] when env.Slots.ContainsKey binding ->
+            match args with
+            | EqOne(TExprG.Var(binding, _, _)) when env.Slots.ContainsKey binding ->
                 b.Add(ILInstr.Ldloca env.Slots.[binding])
-            | [ other ] -> failwithf "Emit: address-of (&) requires an addressable mutable local, got %A" other
+            | EqOne other -> failwithf "Emit: address-of (&) requires an addressable mutable local, got %A" other
             | _ -> failwith "Emit: 'ldloca' intrinsic expects exactly one operand"
         | TExprG.ILIntrinsic("box", operand, args, _, _) ->
             // `box value` — push the value, then `box <T>`. The boxed type rides
