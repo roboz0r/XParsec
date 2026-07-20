@@ -84,7 +84,7 @@ module internal ClosureVerdictRewrite =
             let d = Dictionary<Frozen.TExpr, struct (FrozenType * int)>(HashIdentity.Reference)
 
             for KeyValue(node, closureFt) in closureValueTypeByNode do
-                let k = NodeKey.ofToken (TastWalk.exprTok node) NodeKind.ExprLambda
+                let k = TastWalk.lambdaKey node
 
                 match Map.tryFind k funVerdicts with
                 | Some { ResultTyparPos = ValueSome idx } -> d.[node] <- struct (closureFt, idx)

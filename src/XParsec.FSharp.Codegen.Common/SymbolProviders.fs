@@ -83,8 +83,10 @@ module SymbolProviders =
 
             let declTy = resultTy
             // The `TDecl.Let` binder is unread by `inlineExpand` (it matches
-            // `TDecl.Let(_, value, _, declTy)`); a synthetic key keeps the node total.
-            let patKey = NodeKey.ofSynthetic bodyTok.StartIndex NodeKind.SynthLambdaBody
+            // `TDecl.Let(_, value, _, declTy)`); this synthetic key is unread filler
+            // that keeps the node total. `synthLambdaBodyKey` is the sole home of its
+            // construction (shared with the ExprLambda recomputes).
+            let patKey = TastWalk.synthLambdaBodyKey bodyTok
 
             let decl =
                 TDeclG.Let(TPatG.NamedSimple(patKey, declTy, bodyTok), body, true, declTy)

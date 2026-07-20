@@ -1,6 +1,7 @@
 namespace XParsec.FSharp.SemanticAnalysis
 
 open System.Collections.Generic
+open XParsec.FSharp.Parser
 
 // Single point where the TAST's recursion shape is enumerated. Six passes used
 // to each hand-roll a match over every `TExpr` case (`Inline.substExpr`,
@@ -117,6 +118,26 @@ module TastWalk =
         | TExprG.Downcast(tok = tok)
         | TExprG.TraitCall(tok = tok)
         | TExprG.TypeTest(tok = tok) -> tok
+
+    // `lambdaKey` / `synthLambdaBodyKey` are the SINGLE home of frozen-key
+    // construction: the two shapes a codegen backend needs a `NodeKey` for that no
+    // frozen node carries inline. Backends call these and never spell
+    // `ofToken`/`ofSynthetic` + a `NodeKind` themselves, so the freeze-regime change
+    // that gives lambdas their identity inline (dense positional ids) is confined to
+    // these two bodies rather than scattered across the emit passes.
+
+    /// Recompute a frozen `Lambda`'s `NodeKey` from its own `fun`-keyword token —
+    /// the same token its CST node keyed off, so the key indexes the closure/verdict
+    /// side tables. Its frozen node carries no inline key today, hence the recompute.
+    let lambdaKey (node: Frozen.TExpr) : NodeKey =
+        NodeKey.ofToken (exprTok node) NodeKind.ExprLambda
+
+    /// Mint the filler `NodeKey` for a synthetic curried lambda-body decl (member
+    /// decurrying). NOT a recompute of an existing node: the decl's binder is unread
+    /// by `inlineExpand`, so this key is never looked up — it only keeps the
+    /// reconstructed inline node total. Extracts the source offset from `bodyTok`.
+    let synthLambdaBodyKey (bodyTok: SyntaxToken) : NodeKey =
+        NodeKey.ofSynthetic bodyTok.StartIndex NodeKind.SynthLambdaBody
 
     /// Project the `ty` field embedded in any `TPat`.
     let patTy (p: TPat) : SemType =

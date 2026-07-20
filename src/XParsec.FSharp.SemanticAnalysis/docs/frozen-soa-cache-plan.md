@@ -190,9 +190,19 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
 - **0.1 Byte-identity gate.** Extend the corpus/codegen tests to record emitted JS (and the
   CLR artifact hash) as goldens and assert equality — a regression tripwire for every later
   step. *Gate: goldens captured, green.*
-- **0.2 Single-source the recompute keys.** Route the three recompute sites
-  (`EmitClosures.fs:755`, `ClosureVerdictRewrite.fs:87`, `SymbolProviders.fs:87`) through one
-  `frozenLambdaKey` helper. Pure refactor; confines the future stamping change to one place.
+- **0.2 Single-source the recompute keys — construction homed in `SemanticAnalysis`.** The
+  three sites split by shape, so two small functions, **owned by `SemanticAnalysis`** (where
+  `NodeKey`/`NodeKind`/`TastWalk.exprTok` live, reachable from both `Codegen.Clr` and
+  `Codegen.Common`): `lambdaKey : Frozen.TExpr -> NodeKey` for the two `ExprLambda` recomputes
+  (`EmitClosures.fs:755`, `ClosureVerdictRewrite.fs:87`), and `synthLambdaBodyKey` for
+  `SymbolProviders.fs:87` — which is *not* a recompute but a fresh synthetic **mint** (unread
+  filler that keeps the reconstructed inline node total; its key is never looked up). The
+  backends call these and no longer assemble keys from `ofToken`/`ofSynthetic`/`NodeKind`
+  themselves, so **the only place that knows how a frozen key is constructed is
+  `SemanticAnalysis`** — the invariant B.k+3 later mutates. Deliberately *not* the heavier
+  option (freeze stamps each `Lambda` with its own `NodeKey` inline): that touches the shared
+  generic `TExprG.Lambda` case and so ripples into analysis construction and the DU serializer
+  — deferred to **B.k+3**, where the dense id it would carry actually exists. Pure refactor.
   *Gate: goldens hold.*
 - **0.3 Single-source binder naming.** Route `identName`'s callers through one
   `binderName : NodeKey -> string`. Confines the future "read the naming integer from node /

@@ -752,7 +752,7 @@ module EmitClosures =
         let rec walk (e: Frozen.TExpr) =
             (match e with
              | TExprG.Lambda _ ->
-                 let k = NodeKey.ofToken (TastWalk.exprTok e) NodeKind.ExprLambda
+                 let k = TastWalk.lambdaKey e
 
                  match Map.tryFind k funVerdicts with
                  | Some v -> stackNodes.[e] <- v.Arity
