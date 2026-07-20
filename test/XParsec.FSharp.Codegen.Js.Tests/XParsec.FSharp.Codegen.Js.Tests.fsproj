@@ -69,6 +69,7 @@
     <Compile Include="ArrayIndexMemberTests.fs" />
     <Compile Include="ConformanceTests.fs" />
     <Compile Include="ConformanceByteIdentityTests.fs" />
+    <Compile Include="ConformanceRoundTripByteIdentityTests.fs" />
     <Compile Include="FrozenCodecRoundTripTests.fs" />
     <Compile Include="FrozenCodecTreeRoundTripTests.fs" />
     <Compile Include="Program.fs" />

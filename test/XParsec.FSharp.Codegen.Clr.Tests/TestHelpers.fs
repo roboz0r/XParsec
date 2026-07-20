@@ -457,6 +457,25 @@ let private compileContract
 let compileSource (assemblyName: string) (input: string) : TastFile * ClrArtifact =
     compileContract defaultManifests (ProjectInfo.defaults assemblyName) input
 
+/// The two CLR artifacts a frozen-cache round-trip must reconcile: codegen from the
+/// DIRECT frozen tree and from `thaw (flatten direct)`. The freeze runs ONCE and
+/// `Codegen.compile` runs twice against the SAME provider / `withCore` project /
+/// `defaultManifests` as `compileSource`, so the two artifacts differ only by the
+/// round-trip — proving flatten/thaw is codegen-invariant. `compileContract` fuses
+/// freeze + compile and hides the frozen tree, so this reaches past it.
+let compileConformanceDirectAndRoundTripped (assemblyName: string) (input: string) : ClrArtifact * ClrArtifact =
+    let project = ProjectInfo.defaults assemblyName
+    let provider = ClrSymbolProviders.buildContract defaultManifests
+    let lexed, file = parseFile input
+
+    let ctx, tast =
+        Pipeline.analyseSemWithContextFor project.AssemblyName provider input lexed file
+
+    let frozen = Freeze.run ctx tast
+    let roundTripped = FrozenCodec.thaw (FrozenCodec.flatten frozen)
+    let cored = withCore project
+    Codegen.compile provider cored frozen, Codegen.compile provider cored roundTripped
+
 /// The conformance corpus names programs with hyphens (`arith-byte`); an assembly name
 /// has to be an identifier the emitted module can carry. Single-sourced (rather than
 /// duplicated into the corpus runner and the byte-identity gate) so the gate's digest is

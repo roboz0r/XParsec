@@ -73,6 +73,7 @@
     <Compile Include="PackageBuildTriage.fs" />
     <Compile Include="ConformanceTyparsTests.fs" />
     <Compile Include="ConformanceByteIdentityTests.fs" />
+    <Compile Include="ConformanceRoundTripByteIdentityTests.fs" />
     <Compile Include="OptionTests.fs" />
     <Compile Include="ResultTests.fs" />
     <Compile Include="ChoiceTests.fs" />
