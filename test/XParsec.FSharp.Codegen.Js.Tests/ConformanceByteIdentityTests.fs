@@ -23,17 +23,7 @@ let private goldensDir = Path.Combine(__SOURCE_DIRECTORY__, "goldens")
 /// name `conformance-<program>`, so this mirrors that project and strips the trailing
 /// `//# sourceMappingURL` line (as `emitJs` does).
 let private emitConformanceJs (name: string) (src: string) : string =
-    let project =
-        { JsProjectInfo.defaults name with
-            Source = Some { Path = name + ".fsx"; Content = src }
-        }
-
-    let source =
-        Codegen.compileWith jsProvider.Value jsManifests project (frozenOfJs src)
-        |> Codegen.toSource
-
-    let idx = source.IndexOf "//# sourceMappingURL"
-    if idx >= 0 then source.Substring(0, idx) else source
+    emitFrozenJs name src (frozenOfJs src)
 
 /// Programs the JS backend compiles (see the header).
 let private gated =

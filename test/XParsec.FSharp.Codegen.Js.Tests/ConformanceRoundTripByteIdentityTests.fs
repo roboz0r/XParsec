@@ -18,23 +18,6 @@ open XParsec.FSharp.Codegen.Js.Tests.TestHelpers
 // mirroring the direct byte-identity gate so `frozenOfJs` never trips on a `Diagnose`
 // program's error diagnostics.
 
-/// Emit JS through the exact project/pipeline shape the direct byte-identity gate
-/// (`emitConformanceJs`) uses, but from an already-frozen tree — so the round-tripped
-/// emit is judged against the identical pipeline and differs only by the round-trip.
-/// Strips the trailing `//# sourceMappingURL` line as the direct gate does.
-let private emitFrom (name: string) (src: string) (frozen: Frozen.TastFile) : string =
-    let project =
-        { JsProjectInfo.defaults name with
-            Source = Some { Path = name + ".fsx"; Content = src }
-        }
-
-    let source =
-        Codegen.compileWith jsProvider.Value jsManifests project frozen
-        |> Codegen.toSource
-
-    let idx = source.IndexOf "//# sourceMappingURL"
-    if idx >= 0 then source.Substring(0, idx) else source
-
 /// Programs the JS backend compiles (see the header).
 let private gated =
     programs
@@ -57,8 +40,8 @@ let tests =
                     let rt = FrozenCodec.thaw (FrozenCodec.flatten direct)
 
                     Expect.equal
-                        (emitFrom name p.Source rt)
-                        (emitFrom name p.Source direct)
+                        (emitFrozenJs name p.Source rt)
+                        (emitFrozenJs name p.Source direct)
                         "round-tripped frozen tree emits byte-identical JS"
                 }
 

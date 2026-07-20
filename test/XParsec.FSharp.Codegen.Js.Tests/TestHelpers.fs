@@ -121,6 +121,22 @@ let frozenOfJs (input: string) : Frozen.TastFile =
 
     Freeze.run ctx tast
 
+/// Emit a named program's JS from an ALREADY-frozen tree, through the exact project shape the
+/// byte-identity gates pin (assembly `name`, `name + ".fsx"` source), stripping the trailing
+/// `//# sourceMappingURL` line. Single-sourced so the direct, round-trip, and cache-parity gates
+/// judge the round-tripped/cached tree against the identical emit path — they cannot drift apart.
+let emitFrozenJs (name: string) (src: string) (frozen: Frozen.TastFile) : string =
+    let project =
+        { JsProjectInfo.defaults name with
+            Source = Some { Path = name + ".fsx"; Content = src }
+        }
+
+    let source =
+        Codegen.compileWith jsProvider.Value jsManifests project frozen |> Codegen.toSource
+
+    let idx = source.IndexOf "//# sourceMappingURL"
+    if idx >= 0 then source.Substring(0, idx) else source
+
 /// Compile a JS-target `input` to JS source text (strips `//# sourceMappingURL`).
 let emitJs (input: string) : string =
     let project =
