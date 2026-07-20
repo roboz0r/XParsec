@@ -26,3 +26,29 @@ module FrozenCache =
             let f = produce ()
             store.Store key (Compression.compress (FrozenCodec.flatten f))
             f
+
+    /// The error-aware `freeze`: for a front end that can FAIL (a parse error or an
+    /// error-severity diagnostic), which `freeze`'s unconditional store must not commit — an
+    /// errored compile is not a cacheable derivation, and storing it would serve a stale
+    /// failure (or a partial tree) back on the next run.
+    ///
+    /// HIT: same as `freeze` — decompress + thaw, `produce` not run. A hit is only ever
+    /// reachable if a PRIOR run stored under this key, and only an `Ok` ever stores, so a hit
+    /// is always a successful frozen tree; it is returned as `Ok`. MISS: run `produce`; on
+    /// `Ok f` flatten + compress + store `f` (the same store path as `freeze`) then return
+    /// `Ok f`; on `Error e` store NOTHING and return `Error e`. The cache is thus sound in
+    /// both directions — a hit re-emits byte-identically (the round-trip is codegen-invariant),
+    /// and a failure never poisons the store.
+    let freezeResult
+        (store: ICacheStore)
+        (key: CacheKey)
+        (produce: unit -> Result<Frozen.TastFile, 'e>)
+        : Result<Frozen.TastFile, 'e> =
+        match store.TryLoad key with
+        | ValueSome blob -> Ok(FrozenCodec.thaw (Compression.decompress blob))
+        | ValueNone ->
+            match produce () with
+            | Ok f ->
+                store.Store key (Compression.compress (FrozenCodec.flatten f))
+                Ok f
+            | Error e -> Error e

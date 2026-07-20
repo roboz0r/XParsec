@@ -58,6 +58,49 @@ module ClrDriver =
             | [] -> Ok(Codegen.compileWithBclReferences inputs.BclReferences provider inputs.Project tast)
             | errors -> Error errors
 
+    /// `compile`, but routing the per-file front end through the frozen-compile cache
+    /// (`store`). Opt-in: a caller enables caching only by passing a store; `compile` stays
+    /// cache-free and byte-identical. Behaviour is otherwise identical to `compile` — a HIT
+    /// (equal source + equal dependency signatures) skips parse + analyse + freeze and thaws
+    /// the cached tree; a MISS runs the front end and stores it; an errored front end is
+    /// returned as `Error` and NOT stored (`freezeResult`).
+    ///
+    /// The provider is built OUTSIDE the cache, on BOTH the hit and miss paths, because
+    /// codegen consumes it (`compileWithBclReferences`) even on a hit — the cache elides only
+    /// the front end that yields the frozen tree, never emission. This is sound: every
+    /// dependency's exported signature is already folded into the cache key
+    /// (`Hashing.fileInputHash source inputs.Manifests`), so a hit implies a provider
+    /// equivalent to the one that produced the cached tree, hence identical codegen. The key's
+    /// `QueryId.Freeze` / `Cache.CodeVersion` guards match the rest of the cache seam.
+    let compileCached
+        (store: ICacheStore)
+        (inputs: ClrCompilation)
+        (source: string)
+        : Result<ClrArtifact, Diagnostic list> =
+        let provider =
+            ClrSymbolProviders.buildContractWithRefs inputs.BclReferences None inputs.Manifests
+
+        let key =
+            {
+                Query = QueryId.Freeze
+                CodeVersion = Cache.CodeVersion
+                Input = Hashing.fileInputHash source inputs.Manifests
+            }
+
+        FrozenCache.freezeResult store key (fun () ->
+            match Pipeline.parse "DRV" source with
+            | Error ds -> Error ds
+            | Ok(lexed, file) ->
+                let tast =
+                    Pipeline.analyseFor inputs.Project.AssemblyName provider source lexed file
+
+                match tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error) with
+                | [] -> Ok tast
+                | errors -> Error errors
+        )
+        |> Result.map (fun frozen ->
+            Codegen.compileWithBclReferences inputs.BclReferences provider inputs.Project frozen)
+
     /// THE shared multi-file glue seam: analyse an ordered `(path, source)` list as one
     /// assembly through `analyse` (the front end — `Pipeline.analyseFor` for a package
     /// consumer, `analyseForSelfHost` for a BCL-only package), then emit ONE PE. A file
