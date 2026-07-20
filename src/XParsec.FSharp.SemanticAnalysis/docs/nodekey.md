@@ -3,6 +3,13 @@
 Every entry in every semantic side table is keyed by a `NodeKey` — a 64-bit
 value that identifies a CST node (real or synthetic).
 
+This document describes the **analysis regime**: `NodeKey` as a content address,
+recomputable from any CST node with no side index. That representation is
+load-bearing through the whole semantic pipeline. It is deliberately *not* what
+the frozen artifact uses — after freeze, identity becomes positional and the
+64-bit key dissolves. See § *Analysis identity vs. frozen identity* below, and
+`docs/frozen-soa-cache-plan.md` for the freeze regime in full.
+
 ## Wire format
 
 ```
@@ -108,6 +115,39 @@ We could mint fresh `int` IDs as we walk the CST. We don't, because:
 The trade-off is that re-parsing a file *does* invalidate every key whose
 offset changed — but you'd be invalidating semantic info for those spans
 anyway.
+
+## Analysis identity vs. frozen identity
+
+The argument just above ("don't allocate sequential IDs") holds only *during
+analysis*. After `freeze` it inverts, and both halves matter:
+
+- **During analysis**, consumers hold a bare CST token and must correlate it
+  against the shared side tables. The derived `(offset, kind)` key lets them do
+  that by *computing* the key — no `CstNode → id` map to build or thread. A
+  sequential ID would require exactly that map. The 64 bits earn themselves here.
+
+- **After freeze**, the opposite is true: nothing recomputes keys from tokens
+  (the frozen tree carries its own identities), so the property the derived key
+  buys is no longer needed — and it costs. `freeze` therefore assigns each
+  distinct `NodeKey` a **dense sequential id** (a pool index), and:
+  - **`kind` dissolves.** It existed only to keep `(offset, kind)` unique and to
+    let a reference name a def by value. Distinct pool slots are already unique,
+    and references name defs by dense id, so no frozen consumer reads
+    `NodeKey.Kind` — in fact the `.Kind` accessor is read nowhere in logic (only
+    in `ToString`); pre-freeze, kind acts purely through full-key equality in
+    `Map<NodeKey,_>` lookups. `kind` is a *pre-freeze content-address* freeze drops.
+  - **`offset` demotes from identity to naming data.** Codegen's only use of a
+    key's bits is `identName` (source slicing / `_s<n>` synthesis). Freeze keeps
+    the offset (or a synthetic's `NameIndex`) as node-local data, sourced from the
+    binder's own `tok` where present, so emitted names stay byte-identical — but
+    it is no longer part of *identity*.
+  - **Edges stay, shrunk.** Half of all `NodeKey` fields are resolved references
+    (`TExpr.Var.binding`, `Map<NodeKey,_>` keys). Those are irreducible name-
+    resolution output; freeze keeps them, as dense ids rather than 64-bit keys.
+
+So the two regimes are complements, not a contradiction: **content key with role
+during analysis** (role = the CST case; see `CstKeys.ofExpr`/`ofPat`),
+**positional identity after freeze** (role dissolves into pool position).
 
 ## Dictionary performance
 

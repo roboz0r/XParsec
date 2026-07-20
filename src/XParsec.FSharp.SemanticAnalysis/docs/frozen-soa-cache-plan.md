@@ -1,0 +1,247 @@
+# Frozen TastFile: wire format + per-file compile cache
+
+Status: design. Ephemeral plan doc — delete once the work lands.
+
+## Goal
+
+A serializable, compact encoding of `Frozen.TastFile` serving two ends:
+
+1. **Trivial serialization + hashing** for a file-based compilation cache.
+2. **CPU-friendly access on read** — the endgame is that Codegen and `FrozenSignature`
+   *project from* the encoded form directly (option B below), not a pointer-graph they
+   must first rebuild.
+
+Non-goal for this work: a queryable Merkle DAG of derivations, cross-file artifact dedup,
+or a demand-driven incremental engine. Those are deferred (see *Deferred*), but the cache
+**key shape** is chosen so it does not foreclose them.
+
+## What `Frozen.TastFile` is
+
+`TastFileG<FrozenType, SyntaxToken>` — three interlocking domains:
+
+1. **Expr/decl/pat tree** — `TExprG`/`TDeclG`/`TPatG` (recursive DUs, `EqArray` children).
+2. **Type lattice** — `FrozenType` (recursive DU, `EqArray`/`EqSet` children). Heavily
+   *shared* (`FTConst(intKey,[])` recurs thousands of times) → interning target.
+3. **Identity keys** — `NodeKey` (a flat `uint64`), plus `Map<NodeKey,_>` side tables and
+   `TypeKey`/`SymbolKey` string-bearing record trees.
+
+## The thesis: two identity regimes
+
+`NodeKey` today is a **content address** — `(offset, kind, synth)` packed in a `uint64`
+(`NodeKey.fs`). Its defining property is that it is a *pure function of the CST node*
+(`NodeKey.ofToken firstTok kind`), so any pass, holding only a CST token, recomputes the
+identical key with **no `CstNode → id` side index** to thread. That is load-bearing during
+analysis and worth keeping. It is *dead weight* after freeze. This work lives on that seam:
+**a content key with role during analysis; positional identity after freeze.** Kind is a
+pre-freeze content-address that freeze dissolves.
+
+### Analysis regime — content key, role = the CST case
+
+- **Role is the CST case, exactly.** `CstKeys.ofExpr`/`ofPat` are total `match case -> kind`
+  functions (`CstKeys.fs:207-273`): `Pat.NamedSimple → PatIdent`, `Expr.Fun → ExprLambda`,
+  … (A couple of nodes look one level deeper to avoid collisions — a method-call
+  `App(funcExpr = DotLookup …)` keys off the *member* token — but the *kind* stays
+  case-pure; only the token choice varies.)
+- **`(offset, kind)` are both needed** because two distinct nodes share a token: a
+  `let`-binding decl (`DeclLetBinding`) and its head pattern (`PatIdent`) both anchor at the
+  same ident; kind separates them.
+- **Why the key is stored on the tree at all** — neither reason is redundancy:
+  - It **memoizes a context-dependent identity.** The role (kind) is fixed by the
+    *syntactic position* the node occupied — known at mint, not at a downstream consumer
+    holding a bare token. The stored key transports that context.
+  - Half the `NodeKey` fields are **resolved edges, not self-identity.** `TExpr.Var.binding`
+    is the *definition* site's key (a different token than the `Var`'s own) — the output of
+    name resolution, irreducible; you cannot recompute it from the `Var`.
+- This regime is **unchanged** by this work — `NodeKey` stays a 64-bit content key through
+  the whole semantic pipeline. See also `docs/nodekey.md` (§ *Why not just allocate
+  sequential IDs?* — the same argument).
+
+### Freeze regime — positional identity, kind dissolves
+
+Freeze has all context. It assigns each distinct `NodeKey` a **dense `int` id** (pool
+index) once, and thereafter:
+
+- **Identity is positional.** A binder's identity *is* its slot in the binder pool. The
+  `let`-decl-vs-pattern collision that motivated `kind` becomes two distinct pool entries
+  with two distinct ids — disambiguated by *position*, with no help from `kind`.
+- **Kind is dead information.** It existed only to make `(offset, kind)` unique and to let a
+  reference name a def by value. Positional ids provide uniqueness; references name defs by
+  id. **No post-freeze consumer reads `NodeKey.Kind`** — verified: across codegen, freeze,
+  and `FrozenSignature` the `.Kind` accessor is read *nowhere in logic*, only in
+  `NodeKey.ToString` (debug). During analysis, kind acts solely through full-`Raw` equality
+  in `Map<NodeKey,_>` lookups, which positional ids replace. So freeze projects kind away
+  entirely — the sense in which *kind is a pre-freeze content-address that freeze dissolves.*
+- **Edges become dense ints.** `TExpr.Var.binding`, every `Map<NodeKey,_>` key → the
+  referent's dense id; side tables become dense-keyed arrays. (References still store
+  *something* — identity is never free; freeze only shrinks it from a 64-bit key to a pool
+  index.)
+- **Naming survives as node data, not as identity.** Codegen's one use of a key's *bits* is
+  naming: `identName` (`JsEmitHelpers.fs:73`) slices the source at the binder's offset, or
+  renders a synthetic as `_s<NameIndex>`. Freeze preserves each binder's **naming integer**
+  separately from its positional id:
+  - *real binders* — the source offset, read from the binder node's own `tok`
+    (`NamedSimple.tok`, `ForTo.identTok`), which equals the dissolved key's offset by the
+    mint invariant (corpus: 643 real `NamedSimple` binders with `offset = tok.StartIndex`,
+    **0 mismatches**), so names stay byte-identical; where a binder carries no token (a
+    `Params` slot), the offset is retained as data.
+  - *synthetics* — the original `NameIndex` verbatim, so `_s<n>` names don't renumber
+    (renumbering would desync cached vs. non-cached output).
+
+  So the synthetic negative-offset / counter space (`ofSyntheticCounter`) also dissolves:
+  post-freeze a synthetic is just an id with a retained naming integer.
+
+The one obligation freeze *adds*: a few codegen sites recompute a key from a token because
+the node carries no inline key. The complete set (verified — every `NodeKey.of*` call on the
+codegen/`FrozenSignature` path) is **3 recompute sites across 2 node kinds**:
+`EmitClosures.fs:755` and `ClosureVerdictRewrite.fs:87` (`ofToken (exprTok node) ExprLambda`)
+and `SymbolProviders.fs:87` (`ofSynthetic bodyTok … SynthLambdaBody`). Under positional ids
+these cannot recompute, so **freeze must stamp those recompute-target nodes (the lambda expr
+and its body) with their dense id inline**, and the codegen sites read it off the node.
+Out of scope: `ClrDriver.fs:34`'s `ofSynthetic 0 SynthUnsupportedDecl` is a *fresh* mint for
+a whole-file driver diagnostic (no node to correlate), and `FrozenSignature` and the JS
+backend recompute no keys at all.
+
+## The accessor API — the A→B spine
+
+A→B is cheap only if it rests on **one seam**: a TAST-shaped accessor API (`exprKind id`,
+`exprChildren id`, `patBinder id`, `binderName id`, …) that both the DU and the pools can
+back. It is introduced at the **start of Phase B, backed by the existing `Frozen.TastFile`
+DU**; consumers migrate onto it while it is a thin projection, and only the final step flips
+the backing to pools — so the consumers never move again. The accessor must exist *before*
+the pool byte-layout is designed, so the layout serves the real access pattern; Phase A's
+interim DU serializer imposes no constraint on it and is deliberately throwaway.
+
+## Wire format
+
+- **Id-indexable pools, not a decode stream.** B fetches "node id `k` and its children by
+  id" at random, so pools are fixed-width id-records (tag column + dense child-id columns),
+  indexable in O(1) — even though A only ever reads them linearly. A forward-only varint
+  stream would satisfy A and force a re-layout for B; don't build that.
+- **Binder pool**: identity by position; each entry carries its naming integer
+  (offset / `NameIndex`) and its type id. Kind not stored.
+- **Edges**: dense ids. Side tables: dense-keyed.
+- **`FrozenType` + `TypeKey`/`SymbolKey`**: interned (dedup by structural equality —
+  `EqArray`/`EqSet` already give it in-memory). A size/read optimization, decoupled from
+  correctness (the cache key hashes inputs, not the blob — see *Cache*), so it can trail the
+  first cut.
+- **Tokens / `Lexed`**: `SyntaxToken.StartIndex` retained where a node needs naming; `Lexed`
+  is not serialized (name recovery needs the source string, which is the cache key's input —
+  a re-lex is one linear pass, deferred as a pure read-speed question).
+- **Compression**: whole-blob `zstd`, eagerly decompressed to the in-memory pools on load.
+  Per-file blobs are small; skip mmap/block-framing. This is what actually pays for size —
+  including all offset redundancy — so the in-memory pools are free to hold real integers for
+  fast projection, with no reconstruction step.
+
+Thaw rebuilds the `Frozen.TastFile` DU under option A (the DU stays the working
+representation, so the compiler's invariants and F#'s exhaustive matching are retained);
+under option B, Codegen and `FrozenSignature` read the pools through the accessor and the DU
+is never materialized.
+
+### Rejected alternatives
+
+- **Reconstruct-on-read** (store a `Lexed` token *ordinal*, re-lex to recover the offset, so
+  the wire form carries no offsets): rejected. A hand-rolled disk-size codec whose whole
+  payoff — offset-free-ness — buys only source-relocatability, a non-goal (see *Deferred*).
+  `zstd` dedupes the offset bytes on disk for free, and in RAM you want the real offset
+  anyway. It also imported a load-bearing corpus invariant and a synthetic carve-out that the
+  store-then-compress path does not need.
+- **Serialize `NodeKey.Raw` verbatim** (it is a `uint64`): rejected for the *frozen* form.
+  Post-freeze the 64-bit content key is dead weight (kind dissolved); dense positional ids
+  are both the natural identity and a compaction of the edge/side-table representation.
+  (`Raw`-verbatim is, however, exactly what the *analysis* regime does — correctly.)
+
+## Cache
+
+- **Per-file, input-keyed.** Key = `hash(source ⊕ dependency-signature-hashes)`. Because the
+  key hashes *inputs*, the stored blob needs **no** byte-canonicalization for the hash — that
+  removes all canonicalization burden, and makes interning purely a size optimization.
+- **Store key shape:** `(QueryId, codeVersion, inputHash)`.
+  - `QueryId` names the derivation (`Freeze`, later `Signature`, `Lex`) — an enum today.
+  - `codeVersion` guards against cross-compiler-version cache poisoning: a bugfix to `freeze`
+    must invalidate everything it produced. Cheap now, painful to retrofit.
+  - `inputHash` folds in dependency-artifact hashes — the Merkle spine, the one thing to get
+    right today, because it is what makes cross-file caching correct.
+- **Dumb content-addressed KV store.** No demand-driven engine, no query EDSL yet.
+
+## Deferred
+
+- Typed query builder / EDSL — add it when there are many queries, not three.
+- Demand-driven incremental engine (Salsa-style red/green invalidation) — the hard, valuable
+  part; slots under the same store later.
+- Cross-file shared intern pool / Merkle-addressed sub-artifacts.
+- Self-contained artifact (name-baking / source-relocatable form) — only wins if an artifact
+  must travel without its source; out of scope while the cache is same-build and
+  source-keyed. (This is what reconstruct-on-read would have served; deferred with it.)
+
+## Staging
+
+The two phases are **very** asymmetric, which the coarse split hid. **Phase A** (cache on the
+existing DU) is modest and lands the cache with *zero* consumer churn — observable behavior
+is unchanged, exactly what "A first, let the format settle" wants. **Phase B** (accessor +
+pools + projection) is the large effort: a pervasive representation change plus a
+consumer-by-consumer migration. Do A fully first; schedule B separately. Cache-first is
+deliberate — the accessor is a Phase-B prerequisite, not needed to ship the cache, so it
+does not gate A's value.
+
+Every step is a standalone commit: green build, and (past 0.1) the byte-identity gate holds.
+
+### Phase 0 — scaffolding & de-risking (no behavior change)
+
+- **0.1 Byte-identity gate.** Extend the corpus/codegen tests to record emitted JS (and the
+  CLR artifact hash) as goldens and assert equality — a regression tripwire for every later
+  step. *Gate: goldens captured, green.*
+- **0.2 Single-source the recompute keys.** Route the three recompute sites
+  (`EmitClosures.fs:755`, `ClosureVerdictRewrite.fs:87`, `SymbolProviders.fs:87`) through one
+  `frozenLambdaKey` helper. Pure refactor; confines the future stamping change to one place.
+  *Gate: goldens hold.*
+- **0.3 Single-source binder naming.** Route `identName`'s callers through one
+  `binderName : NodeKey -> string`. Confines the future "read the naming integer from node /
+  pool data" change to one place. *Gate: goldens hold.*
+
+### Phase A — cache on the DU (option A; pipeline unchanged)
+
+- **A.1 KV store.** `(QueryId, codeVersion, inputHash)` key types + a content-addressed store
+  interface with filesystem and in-memory impls. *Gate: store round-trip unit tests.*
+- **A.2 Input hashing.** `inputHash` = hash of source folded with dependency-signature
+  hashes; computed in the pipeline but not yet consulted. *Gate: hash-stability +
+  dependency-sensitivity tests.*
+- **A.3 DU flatten/thaw — leaves.** Structural writer/reader for `FrozenType`,
+  `TypeKey`/`SymbolKey`, `NodeKey` (verbatim `Raw`), tokens. *Gate: round-trip equality on
+  those domains over the corpus.*
+- **A.4 DU flatten/thaw — tree.** Extend to `TExpr`/`TDecl`/`TPat` and the `Map<NodeKey,_>`
+  side tables (verbatim, no interning). *Gate: `thaw ∘ flatten = structural identity` on the
+  full corpus.* (Split by domain — exprs; decls+pats; side tables — if the diff is too large.)
+- **A.5 Byte-identity through the round-trip.** Run codegen on `thaw (flatten (freeze …))`
+  and assert output equals codegen on the direct freeze. *Gate: 0.1 goldens hold through the
+  round-trip.*
+- **A.6 Compress + store, flag-off.** `zstd`-wrap the blob; on the `Freeze` `QueryId`, miss ⇒
+  freeze + flatten + compress + store, hit ⇒ load + decompress + thaw. Disabled by default.
+  *Gate: hit/miss parity — cached output byte-identical.*
+- **A.7 Enable + incremental smoke test.** Turn the cache on in the driver; compile → edit →
+  recompile exercises hit/miss and dependency invalidation. *Gate: end-to-end incremental
+  test.*
+
+### Phase B — accessor + pools (option B; pools become the working rep)
+
+- **B.1 Accessor interface + DU backing.** Define the TAST-shaped accessor; implement it over
+  `Frozen.TastFile`. Unused. *Gate: compiles.*
+- **B.2 … B.k Migrate consumers, one per commit.** Switch each codegen/`FrozenSignature`
+  consumer from direct DU matching to the accessor, still DU-backed and output-identical —
+  roughly one commit per emit file (`EmitExpr`, `EmitBindings`, `EmitClosures`, `EmitMatch`,
+  `EmitTypes`, `EmitCall`, … then the JS emitters, then `FrozenSignature`): **~15–20
+  commits**, the bulk of the effort. *Gate (each): goldens hold.*
+- **B.k+1 Id-children pools.** Add the id-indexable pools; `freeze` populates them alongside
+  the DU (both coexist). *Gate: pools structurally mirror the DU — cross-check over the
+  corpus.*
+- **B.k+2 Dense-id remap.** Assign pool ids; remap side-table keys and references
+  (`Var.binding`, …) to dense ids in the pool form. *Gate: id resolution round-trips.*
+- **B.k+3 Stamp lambda ids.** Pool lambda / lambda-body nodes carry their dense id inline; the
+  0.2 helper reads it. *Gate: goldens hold.*
+- **B.k+4 Naming integers in pools.** Pool binders carry offset / `NameIndex`; the 0.3 helper
+  reads pool data. *Gate: goldens hold.*
+- **B.k+5 Flip the backing.** Point the accessor at the pools; `freeze` stops materializing
+  the DU. *Gate: goldens hold — the projection payoff.*
+- **B.k+6 Serialize pools directly.** Replace A's DU flatten/thaw with pool (de)serialization;
+  intern `FrozenType`/keys for size. *Gate: round-trip + size regression check.*
+- **B.k+7 Remove dead DU paths.** Delete the DU thaw and any now-unused DU plumbing. *Gate:
+  green.*
