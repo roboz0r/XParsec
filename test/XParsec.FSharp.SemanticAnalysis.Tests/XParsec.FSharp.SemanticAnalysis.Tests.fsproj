@@ -11,6 +11,7 @@
     <Compile Include="TastShape.fs" />
     <Compile Include="NodeKeyTests.fs" />
     <Compile Include="CacheTests.fs" />
+    <Compile Include="HashingTests.fs" />
     <Compile Include="SymbolKeyTests.fs" />
     <Compile Include="UnionFindTests.fs" />
     <Compile Include="CstKeysTests.fs" />

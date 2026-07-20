@@ -131,6 +131,7 @@
         "type": "Project",
         "dependencies": {
           "FSharp.Core": "[8.0.300, )",
+          "System.IO.Hashing": "[8.0.0, )",
           "XParsec.FSharp": "[1.0.0, )",
           "XParsec.Toml": "[1.0.0, )"
         }
@@ -141,6 +142,12 @@
           "FSharp.Core": "[8.0.300, )",
           "XParsec": "[1.0.0, )"
         }
+      },
+      "System.IO.Hashing": {
+        "type": "CentralTransitive",
+        "requested": "[8.0.0, )",
+        "resolved": "8.0.0",
+        "contentHash": "ne1843evDugl0md7Fjzy6QjJrzsjh46ZKbhf8GwBXb5f/gw97J4bxMs0NQKifDuThh/f0bZ0e62NPl1jzTuRqA=="
       }
     }
   }

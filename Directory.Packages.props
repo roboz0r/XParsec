@@ -8,6 +8,7 @@
     <PackageVersion Include="Fable.Package.SDK" Version="1.3.0" />
     <PackageVersion Include="FSharp.Core" Version="8.0.300" />
     <PackageVersion Include="System.Collections.Immutable" Version="8.0.0" />
+    <PackageVersion Include="System.IO.Hashing" Version="8.0.0" />
     <PackageVersion Include="System.Reflection.MetadataLoadContext" Version="8.0.0" />
   </ItemGroup>
   <!-- `IsTestLibrary` is a test-SUPPORT library: it is referenced by test exes and

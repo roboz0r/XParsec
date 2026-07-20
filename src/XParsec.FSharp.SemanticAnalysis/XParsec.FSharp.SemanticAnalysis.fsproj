@@ -42,6 +42,7 @@
     <Compile Include="ModuleRules.fs" />
     <Compile Include="VesperLib.fs" />
     <Compile Include="ReferencedProject.fs" />
+    <Compile Include="Hashing.fs" />
     <Compile Include="ConformancePass.fs" />
     <Compile Include="ConformanceTypars.fs" />
     <Compile Include="FrozenSignature.fs" />
@@ -108,5 +109,6 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="FSharp.Core" />
+    <PackageReference Include="System.IO.Hashing" />
   </ItemGroup>
 </Project>
