@@ -185,6 +185,12 @@ does not gate A's value.
 
 Every step is a standalone commit: green build, and (past 0.1) the byte-identity gate holds.
 
+> **Status: Phase 0 and Phase A are LANDED.** The opt-in, input-keyed frozen-compile cache
+> ships — XxHash128 keys, Brotli blobs, verbatim DU flatten/thaw, `ClrDriver.compileCached`.
+> Phase B (accessor + pools + projection) is NOT started; this doc stays live for it. A
+> `GeneralizedTypars.unsafeOfNames` concession made in A.4 is tracked in
+> `frozen-tree-semtype-residue-plan.md` (deferred, naturally folds into B).
+
 ### Phase 0 — scaffolding & de-risking (no behavior change)
 
 - **0.1 Byte-identity gate.** Extend the corpus/codegen tests to record emitted JS (and the
