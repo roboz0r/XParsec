@@ -51,7 +51,7 @@ module EmitJs =
         // consumer (or a partial application) sees the SOURCE-shaped currying. A simple
         // single-arg / lone-unit function needs no adapter (flat == curried there).
         | TExprG.Var(k, _, _) ->
-            let ident = JsExpr.Identifier(identName ctx.Source k, loc)
+            let ident = JsExpr.Identifier(binderName ctx.Source k, loc)
 
             match ctx.CompiledFns.TryGetValue k with
             | true, cf when JsFlatFns.needsAdapter cf.Groups -> JsFlatFns.curryAdapter ident cf.Groups k.Offset loc
@@ -89,7 +89,7 @@ module EmitJs =
         // so lowers to an IIFE `((x) => <body>)(<value>)` — the binder evaluated once,
         // and (for a mutable binder) reassignable as the arrow parameter.
         | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) ->
-            let name = identName ctx.Source k
+            let name = binderName ctx.Source k
 
             JsExpr.Call(
                 JsExpr.Arrow([ name ], JsFnBody.Expr(buildExpr ctx body), ValueNone),
@@ -144,7 +144,7 @@ module EmitJs =
                     match head with
                     | TExprG.Var(k, _, _) ->
                         match ctx.CompiledFns.TryGetValue k with
-                        | true, cf -> ValueSome(identAt (identName ctx.Source k), cf.Groups)
+                        | true, cf -> ValueSome(identAt (binderName ctx.Source k), cf.Groups)
                         | _ -> ValueNone
                     | TExprG.External(compiledName, key, _, _) ->
                         JsFlatFns.externalGroups ctx.Provider key
@@ -602,7 +602,7 @@ module EmitJs =
             [ JsStatement.If(buildExpr ctx cond, recur thenE, recur elseE) ]
         | InlinableLet reduced -> recur reduced
         | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) ->
-            let binding = localBinding k body (identName ctx.Source k) (buildExpr ctx value)
+            let binding = localBinding k body (binderName ctx.Source k) (buildExpr ctx value)
             binding :: recur body
         // `let _ = value in body` — discard the value (effects only); body stays in tail
         // position. A pure value drops away (see `buildExpr`).
@@ -688,7 +688,7 @@ module EmitJs =
         | InlinableLet reduced -> buildStatements ctx reduced
         // A mutable binder emits a reassignable `let`; an immutable one a `const`.
         | TExprG.Let(TPatG.NamedSimple(k, _, _), value, body, _, _) ->
-            let binding = localBinding k body (identName ctx.Source k) (emitBound ctx k value)
+            let binding = localBinding k body (binderName ctx.Source k) (emitBound ctx k value)
             binding :: buildStatements ctx body
         // `let _ = value in body` — emit the discarded value as its own statement(s)
         // (effects only), then the body. A pure value drops away (see `buildExpr`).
@@ -701,7 +701,7 @@ module EmitJs =
         // limit inclusive. (JS numbers are doubles, so the CLR overflow-at-MaxValue
         // dance the IL backend needs is unnecessary — `i <= limit` is safe.)
         | TExprG.ForTo(var, _, startExpr, endExpr, body, _, _) ->
-            let name = identName ctx.Source var
+            let name = binderName ctx.Source var
             let limit = "_lim" + string (TastWalk.exprTok e).StartIndex
 
             [
@@ -767,7 +767,7 @@ module EmitJs =
     /// destructuring binder (e.g. a tuple pattern) is rejected.
     and private patBinderName (ctx: WalkCtx) (prefix: string) (binding: Frozen.TPat) : string =
         match binding with
-        | TPatG.NamedSimple(k, _, _) -> identName ctx.Source k
+        | TPatG.NamedSimple(k, _, _) -> binderName ctx.Source k
         | TPatG.Wildcard(_, tok) -> prefix + string tok.StartIndex
         | other -> failwithf "EmitJs: unsupported single binder pattern %A" other
 
@@ -976,7 +976,7 @@ module EmitJs =
                             | true, cf -> emitFlatModuleFn ctx k cf (locOf ctx (TastWalk.exprTok value))
                             | _ -> emitBound ctx k value
 
-                        topLevelBinding ctx (reassignedAtTop k) (identName ctx.Source k) init
+                        topLevelBinding ctx (reassignedAtTop k) (binderName ctx.Source k) init
                     | other -> failwithf "EmitJs: unsupported declaration %A" other
             ]
 

@@ -33,7 +33,7 @@ module JsFlatFns =
     /// destructuring leaf (a nested tuple element) renders as a `[a, b]` pattern.
     let paramNameOf (source: string voption) (p: TastLower.StaticParam) : string =
         match p.Pat with
-        | None -> identName source p.Slot
+        | None -> binderName source p.Slot
         | Some pat -> lambdaParamName source pat
 
     /// The SOURCE groups of an EXTERNAL module function, read off the provider's

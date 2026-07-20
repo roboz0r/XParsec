@@ -18,7 +18,7 @@ module EmitJsMembers =
     /// leaving the body's `TExpr.Var(thisKey)` references intact. Empty when the binder
     /// already resolves to `this` (avoids a no-op `const this = this;`).
     let thisAlias (ctx: WalkCtx) (k: NodeKey) : JsStatement list =
-        let recvName = identName ctx.Source k
+        let recvName = binderName ctx.Source k
 
         if recvName = "this" then
             []
@@ -46,7 +46,7 @@ module EmitJsMembers =
         : JsClassMethod =
         {
             Key = key
-            Params = [ for (pk, _) in m.Params -> identName ctx.Source pk ]
+            Params = [ for (pk, _) in m.Params -> binderName ctx.Source pk ]
             Body = thisBinding ctx m @ [ JsStatement.Return(buildExpr ctx m.Body) ]
             Generator = false
         }
@@ -147,10 +147,10 @@ module EmitJsMembers =
                 []
             else
                 match m.ThisKey with
-                | ValueSome k -> [ identName ctx.Source k ]
+                | ValueSome k -> [ binderName ctx.Source k ]
                 | ValueNone -> [ "this$" ]
 
-        let paramNames = [ for (pk, _) in m.Params -> identName ctx.Source pk ]
+        let paramNames = [ for (pk, _) in m.Params -> binderName ctx.Source pk ]
         let allNames = receiverNames @ paramNames
         let body = buildExpr ctx m.Body
 

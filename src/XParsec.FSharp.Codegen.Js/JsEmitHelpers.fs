@@ -18,7 +18,7 @@ module JsEmitHelpers =
         System.Char.IsLetterOrDigit c || c = '_' || c = '\''
 
     /// JS reserved words that are legal F# identifiers. A collision is suffixed with `$`
-    /// (illegal in F#, so collision-free); binder and uses both go through `identName`.
+    /// (illegal in F#, so collision-free); binder and uses both go through `binderName`.
     let jsReserved =
         Set.ofList
             [
@@ -65,12 +65,12 @@ module JsEmitHelpers =
     let jsSafe (name: string) =
         if Set.contains name jsReserved then name + "$" else name
 
-    /// `NodeKey` → JS identifier. Real binders recover the source name from `Offset`
-    /// (apostrophes → `_`). A synthetic binder has no source name, so it is NAMED after
-    /// the key's `NameIndex` — a spawning offset or a mint counter, whichever the key
-    /// carries — as `_s<n>`, disjoint from `_v<n>`. `NameIndex`, not `Offset`: a
+    /// A binder's `NodeKey` → its emitted JS name. Real binders recover the source name
+    /// from `Offset` (apostrophes → `_`). A synthetic binder has no source name, so it is
+    /// NAMED after the key's `NameIndex` — a spawning offset or a mint counter, whichever
+    /// the key carries — as `_s<n>`, disjoint from `_v<n>`. `NameIndex`, not `Offset`: a
     /// counter-minted key's offset is negative, which is not a legal identifier tail.
-    let identName (source: string voption) (k: NodeKey) : string =
+    let binderName (source: string voption) (k: NodeKey) : string =
         match source with
         | ValueSome s when
             not k.IsSynthetic
@@ -217,7 +217,7 @@ module JsEmitHelpers =
     // verbatim). `Arrow.parameters` wants a real `JsPattern` for object-destructuring.
     let rec lambdaParamName (source: string voption) (p: Frozen.TPat) : string =
         match p with
-        | TPatG.NamedSimple(k, _, _) -> identName source k
+        | TPatG.NamedSimple(k, _, _) -> binderName source k
         | TPatG.Wildcard(_, tok) -> "_w" + string tok.StartIndex
         | TPatG.Const(TConstValue.Unit, _, tok) -> "_u" + string tok.StartIndex
         | TPatG.Tuple(items, _, _) ->

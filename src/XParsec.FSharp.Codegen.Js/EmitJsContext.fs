@@ -442,7 +442,7 @@ module EmitJsContext =
 
         match pat with
         | TPatG.Wildcard _ -> None, []
-        | TPatG.NamedSimple(k, _, _) -> None, [ JsStatement.Const(identName ctx.Source k, access) ]
+        | TPatG.NamedSimple(k, _, _) -> None, [ JsStatement.Const(binderName ctx.Source k, access) ]
         | TPatG.Const(value, _, _) -> Some(JsExpr.Binary("===", access, constExpr value ValueNone, ValueNone)), []
         | TPatG.Union(caseName, subPats, ty, _) ->
             let c = unionCaseOf ctx "match pattern" ty caseName

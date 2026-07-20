@@ -76,7 +76,7 @@ index) once, and thereafter:
   *something* — identity is never free; freeze only shrinks it from a 64-bit key to a pool
   index.)
 - **Naming survives as node data, not as identity.** Codegen's one use of a key's *bits* is
-  naming: `identName` (`JsEmitHelpers.fs:73`) slices the source at the binder's offset, or
+  naming: `binderName` (`JsEmitHelpers.fs:73`) slices the source at the binder's offset, or
   renders a synthetic as `_s<NameIndex>`. Freeze preserves each binder's **naming integer**
   separately from its positional id:
   - *real binders* — the source offset, read from the binder node's own `tok`
@@ -204,9 +204,17 @@ Every step is a standalone commit: green build, and (past 0.1) the byte-identity
   generic `TExprG.Lambda` case and so ripples into analysis construction and the DU serializer
   — deferred to **B.k+3**, where the dense id it would carry actually exists. Pure refactor.
   *Gate: goldens hold.*
-- **0.3 Single-source binder naming.** Route `identName`'s callers through one
-  `binderName : NodeKey -> string`. Confines the future "read the naming integer from node /
-  pool data" change to one place. *Gate: goldens hold.*
+- **0.3 Single-source binder naming.** `JsEmitHelpers.identName` is already the *sole* site
+  that unpacks a key's naming bits (`Offset` to slice the source name, `NameIndex` for the
+  `_s`/`_v` synthesis) — so this is a rename to the intent-revealing `binderName`, not a
+  consolidation. Signature stays `string voption -> NodeKey -> string`: source is ambient
+  (real-binder naming *slices* it, so it cannot be dropped — the plan's `NodeKey -> string` is
+  shorthand for "keyed on node identity"), and the arg stays a `NodeKey`, not a `SyntaxToken`
+  — tokenless `Params` slots and counter-minted synthetics (`ofSyntheticCounter`, negative
+  offset) have no token and are named by `NameIndex`. Confines the future "read the naming
+  integer off the node / pool" change (B.k+4) to this one body. (`EmitJs.fs:57` feeds
+  `k.Offset` to `curryAdapter` — a location, not naming — and is out of scope.) *Gate: goldens
+  hold.*
 
 ### Phase A — cache on the DU (option A; pipeline unchanged)
 
