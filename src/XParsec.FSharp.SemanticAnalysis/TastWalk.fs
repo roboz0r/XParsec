@@ -29,54 +29,48 @@ open XParsec.FSharp.Parser
 [<RequireQualifiedAccess>]
 module TastWalk =
 
-    /// Project the `ty` field embedded in any `TExpr`. Every case carries one.
-    /// Lets a visitor uniformly inspect a node's type without re-matching on
-    /// the case.
-    let exprTy (e: TExpr) : SemType =
+    let exprTy (e: TExprG<'ty, 'tok>) : 'ty =
         match e with
-        | TExpr.Const(ty = ty)
-        | TExpr.Var(ty = ty)
-        | TExpr.External(ty = ty)
-        | TExpr.Lambda(ty = ty)
-        | TExpr.App(ty = ty)
-        | TExpr.Let(ty = ty)
-        | TExpr.Use(ty = ty)
-        | TExpr.IfThenElse(ty = ty)
-        | TExpr.Tuple(ty = ty)
-        | TExpr.Sequential(ty = ty)
-        | TExpr.While(ty = ty)
-        | TExpr.ForTo(ty = ty)
-        | TExpr.ForIn(ty = ty)
-        | TExpr.Match(ty = ty)
-        | TExpr.TryWith(ty = ty)
-        | TExpr.TryFinally(ty = ty)
-        | TExpr.Assignment(ty = ty)
-        | TExpr.Null(ty = ty)
-        | TExpr.Range(ty = ty)
-        | TExpr.RecordCons(ty = ty)
-        | TExpr.RecordClone(ty = ty)
-        | TExpr.FieldGet(ty = ty)
-        | TExpr.FieldSet(ty = ty)
-        | TExpr.UnionCons(ty = ty)
-        | TExpr.New(ty = ty)
-        | TExpr.MethodCall(ty = ty)
-        | TExpr.PropertyGet(ty = ty)
-        | TExpr.StaticMethodCall(ty = ty)
-        | TExpr.StaticPropertyGet(ty = ty)
-        | TExpr.StaticFieldGet(ty = ty)
-        | TExpr.StaticFieldSet(ty = ty)
-        | TExpr.ExternalMember(ty = ty)
-        | TExpr.Format(ty = ty)
-        | TExpr.ILIntrinsic(ty = ty)
-        | TExpr.StaticOptimization(ty = ty)
-        | TExpr.Upcast(ty = ty)
-        | TExpr.Downcast(ty = ty)
-        | TExpr.TraitCall(ty = ty)
-        | TExpr.TypeTest(ty = ty) -> ty
+        | TExprG.Const(ty = ty)
+        | TExprG.Var(ty = ty)
+        | TExprG.External(ty = ty)
+        | TExprG.Lambda(ty = ty)
+        | TExprG.App(ty = ty)
+        | TExprG.Let(ty = ty)
+        | TExprG.Use(ty = ty)
+        | TExprG.IfThenElse(ty = ty)
+        | TExprG.Tuple(ty = ty)
+        | TExprG.Sequential(ty = ty)
+        | TExprG.While(ty = ty)
+        | TExprG.ForTo(ty = ty)
+        | TExprG.ForIn(ty = ty)
+        | TExprG.Match(ty = ty)
+        | TExprG.TryWith(ty = ty)
+        | TExprG.TryFinally(ty = ty)
+        | TExprG.Assignment(ty = ty)
+        | TExprG.Null(ty = ty)
+        | TExprG.Range(ty = ty)
+        | TExprG.RecordCons(ty = ty)
+        | TExprG.RecordClone(ty = ty)
+        | TExprG.FieldGet(ty = ty)
+        | TExprG.FieldSet(ty = ty)
+        | TExprG.UnionCons(ty = ty)
+        | TExprG.New(ty = ty)
+        | TExprG.MethodCall(ty = ty)
+        | TExprG.PropertyGet(ty = ty)
+        | TExprG.StaticMethodCall(ty = ty)
+        | TExprG.StaticPropertyGet(ty = ty)
+        | TExprG.StaticFieldGet(ty = ty)
+        | TExprG.StaticFieldSet(ty = ty)
+        | TExprG.ExternalMember(ty = ty)
+        | TExprG.Format(ty = ty)
+        | TExprG.ILIntrinsic(ty = ty)
+        | TExprG.StaticOptimization(ty = ty)
+        | TExprG.Upcast(ty = ty)
+        | TExprG.Downcast(ty = ty)
+        | TExprG.TraitCall(ty = ty)
+        | TExprG.TypeTest(ty = ty) -> ty
 
-    /// Project the `tok` source-anchor field embedded in any `TExpr`. Every case
-    /// carries one. Lets a construction/synthesis site reuse a sub-expression's
-    /// token when no more precise one is at hand.
     let exprTok (e: TExprG<'ty, 'tok>) : 'tok =
         match e with
         | TExprG.Const(tok = tok)
@@ -139,19 +133,31 @@ module TastWalk =
     let synthLambdaBodyKey (bodyTok: SyntaxToken) : NodeKey =
         NodeKey.ofSynthetic bodyTok.StartIndex NodeKind.SynthLambdaBody
 
-    /// Project the `ty` field embedded in any `TPat`.
-    let patTy (p: TPat) : SemType =
+    let patTy (p: TPatG<'ty, 'tok>) : 'ty =
         match p with
-        | TPat.NamedSimple(ty = ty)
-        | TPat.Wildcard(ty = ty)
-        | TPat.Tuple(ty = ty)
-        | TPat.Const(ty = ty)
-        | TPat.Record(ty = ty)
-        | TPat.Union(ty = ty)
-        | TPat.TypeTestAs(ty = ty)
-        | TPat.Null(ty = ty)
-        | TPat.EnumCase(ty = ty)
-        | TPat.Or(ty = ty) -> ty
+        | TPatG.NamedSimple(ty = ty)
+        | TPatG.Wildcard(ty = ty)
+        | TPatG.Tuple(ty = ty)
+        | TPatG.Const(ty = ty)
+        | TPatG.Record(ty = ty)
+        | TPatG.Union(ty = ty)
+        | TPatG.TypeTestAs(ty = ty)
+        | TPatG.Null(ty = ty)
+        | TPatG.EnumCase(ty = ty)
+        | TPatG.Or(ty = ty) -> ty
+
+    let patTok (p: TPatG<'ty, 'tok>) : 'tok =
+        match p with
+        | TPatG.NamedSimple(tok = tok)
+        | TPatG.Wildcard(tok = tok)
+        | TPatG.Tuple(tok = tok)
+        | TPatG.Const(tok = tok)
+        | TPatG.Record(tok = tok)
+        | TPatG.Union(tok = tok)
+        | TPatG.TypeTestAs(tok = tok)
+        | TPatG.Null(tok = tok)
+        | TPatG.EnumCase(tok = tok)
+        | TPatG.Or(tok = tok) -> tok
 
     /// Peel a curried `App` chain into its head and the arguments paired with
     /// each `App` node's *result* type. The inverse of `rebuildApp`. Shared by
