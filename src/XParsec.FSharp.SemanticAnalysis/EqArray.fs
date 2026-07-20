@@ -7,6 +7,10 @@ open System.Runtime.CompilerServices
 
 open XParsec // SmallArrayBuilder
 
+[<AutoOpen>]
+module internal RefEquality =
+    let inline refEq (x: 'T) (y: 'T) = System.Object.ReferenceEquals(x, y)
+
 /// An `ImmutableArray<'T>` with **structural (value) equality**: two `EqArray`s
 /// are equal iff they have equal length and element-wise-equal contents,
 /// recursing into `'T`'s own equality.
@@ -106,6 +110,38 @@ module EqArray =
             b.Add(mapping x)
 
         EqArray<'U>(b.ToImmutable())
+
+    /// Reference-preserving map. Returns `struct (false, xs)` — the SAME array, no
+    /// allocation — when `mapping` leaves EVERY element reference-unchanged (the common
+    /// case when a structural walk like `zonk`/`substitute` hits an already-resolved
+    /// subtree); otherwise `struct (true, mapped)`, built through the same stack-only
+    /// `SmallArrayBuilder` as `map` so the changed path costs no more than a plain `map`
+    /// (one result array for ≤4 elements, no heap builder). Reference-typed `'T` only
+    /// (`ReferenceEquals`); a struct element would box each item, so it is constrained out.
+    let mapPreserve<'T when 'T: not struct> (mapping: 'T -> 'T) (xs: EqArray<'T>) : EqArray<'T> voption =
+        let src = xs.Underlying
+        let n = src.Length
+        let mutable b = SmallArrayBuilder<'T>()
+        let mutable changed = false
+
+        for i in 0 .. n - 1 do
+            let x = src.[i]
+            let y = mapping x
+
+            if not changed && not (refEq x y) then
+                // First change: backfill the unchanged prefix, then accumulate the rest.
+                changed <- true
+
+                for j in 0 .. i - 1 do
+                    b.Add(src.[j])
+
+            if changed then
+                b.Add(y)
+
+        if changed then
+            ValueSome(EqArray<'T>(b.ToImmutable()))
+        else
+            ValueNone
 
     let mapi (mapping: int -> 'T -> 'U) (xs: EqArray<'T>) : EqArray<'U> =
         let mutable b = SmallArrayBuilder<'U>()

@@ -305,28 +305,79 @@ module SemTypePatterns =
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 [<RequireQualifiedAccess>]
 module SemType =
-    /// Rebuild with `f` applied to each DIRECT child; a leaf (incl. `TyVar`)
-    /// returns unchanged. `TyOr` rebuilds through `UnionMembers.Map`/`MkUnion`, so
-    /// every mapping walk inherits the canonical-form invariant structurally.
+    /// Rebuild with `f` applied to each DIRECT child; a leaf (incl. `TyVar`) returns
+    /// unchanged. `TyOr` rebuilds through `UnionMembers.Map`/`MkUnion`, so every mapping
+    /// walk inherits the canonical-form invariant structurally.
+    ///
+    /// SHARING-PRESERVING: when `f` leaves every child reference-unchanged — the common
+    /// case when a walk (`zonk`/`substitute`/`resolveStep`) hits an already-ground subtree
+    /// — the SAME node is returned with no allocation, so the sharing propagates up the
+    /// tree and a ground type walks allocation-free. Sound because `SemType` is immutable
+    /// and value-compared (identity is never observed); it mints nothing, so a `TyVar`
+    /// leaf's store-relative `TyVarId` is never fabricated or shared across stores.
     let mapChildren (f: SemType -> SemType) (t: SemType) : SemType =
         match t with
-        | TyConst(name, args) -> TyConst(name, EqArray.map f args)
-        | TyFun(arg, result) -> TyFun(f arg, f result)
-        | TyTuple items -> TyTuple(EqArray.map f items)
-        | TyRecord(key, args) -> TyRecord(key, EqArray.map f args)
-        | TyUnion(key, args) -> TyUnion(key, EqArray.map f args)
-        | TyClass(key, args) -> TyClass(key, EqArray.map f args)
+        | TyConst(name, args) ->
+            match EqArray.mapPreserve f args with
+            | ValueNone -> t
+            | ValueSome args' -> TyConst(name, args')
+        | TyFun(arg, result) ->
+            let arg' = f arg
+            let result' = f result
+
+            if refEq arg' arg && refEq result' result then
+                t
+            else
+                TyFun(arg', result')
+        | TyTuple items ->
+            match EqArray.mapPreserve f items with
+            | ValueNone -> t
+            | ValueSome items' -> TyTuple items'
+        | TyRecord(key, args) ->
+            match EqArray.mapPreserve f args with
+            | ValueNone -> t
+            | ValueSome args' -> TyRecord(key, args')
+        | TyUnion(key, args) ->
+            match EqArray.mapPreserve f args with
+            | ValueNone -> t
+            | ValueSome args' -> TyUnion(key, args')
+        | TyClass(key, args) ->
+            match EqArray.mapPreserve f args with
+            | ValueNone -> t
+            | ValueSome args' -> TyClass(key, args')
         | TyOr members -> members.Map f
-        | TyKeyOf ty -> TyKeyOf(f ty)
-        | TyIndexedAccess(objTy, index) -> TyIndexedAccess(f objTy, f index)
+        | TyKeyOf ty ->
+            let ty' = f ty
+            if refEq ty' ty then t else TyKeyOf ty'
+        | TyIndexedAccess(objTy, index) ->
+            let objTy' = f objTy
+            let index' = f index
+
+            if refEq objTy' objTy && refEq index' index then
+                t
+            else
+                TyIndexedAccess(objTy', index')
         | TyConditional c ->
-            TyConditional
-                {
-                    Check = f c.Check
-                    Extends = f c.Extends
-                    WhenTrue = f c.WhenTrue
-                    WhenFalse = f c.WhenFalse
-                }
+            let check = f c.Check
+            let extends = f c.Extends
+            let whenTrue = f c.WhenTrue
+            let whenFalse = f c.WhenFalse
+
+            if
+                refEq check c.Check
+                && refEq extends c.Extends
+                && refEq whenTrue c.WhenTrue
+                && refEq whenFalse c.WhenFalse
+            then
+                t
+            else
+                TyConditional
+                    {
+                        Check = check
+                        Extends = extends
+                        WhenTrue = whenTrue
+                        WhenFalse = whenFalse
+                    }
         | TyVar _
         | TyEnum _
         | TyLiteral _
