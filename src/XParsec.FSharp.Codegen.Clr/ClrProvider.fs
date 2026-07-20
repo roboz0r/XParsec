@@ -50,7 +50,7 @@ type ClrProvider
 
     /// Register a user type emitted into this assembly so `encodeType` can reference it (by its
     /// predicted `TypeDefinition` handle) before its row is added.
-    member _.RegisterUserType(key: SymbolKey, handle: EntityHandle) : unit = env.UserTypes.[key] <- handle
+    member _.RegisterUserType(key: TypeKey, handle: EntityHandle) : unit = env.UserTypes.[key] <- handle
 
     /// Register a module-level function emitted into this assembly (by its `ValueKey`) so a
     /// cross-file call to it resolves to its local `MethodDef` rather than an external member ref.
@@ -58,22 +58,43 @@ type ClrProvider
 
     /// Record a project-local `[<Struct>]` value type so `encodeType` emits it as
     /// `ELEMENT_TYPE_VALUETYPE`.
-    member _.RegisterUserValueType(key: SymbolKey) : unit = env.UserValueTypes.Add key |> ignore
+    member _.RegisterUserValueType(key: TypeKey) : unit = env.UserValueTypes.Add key |> ignore
 
     /// Register a *generic* union's shape (typar names + cases) so member refs can be minted on its
     /// `TypeSpec`. A no-op for a monomorphic union (its `Def` tokens are used).
     member _.RegisterGenericUnion
-        (key: TypeKey, typars: string list, cases: (string * (string * FrozenType) list) list)
+        (key: TypeKey, typars: EqArray<string>, cases: (string * (string * FrozenType) list) list)
         : unit =
-        env.GenericUnions.[key] <- (typars, cases)
+        env.GenericUnions.[key] <-
+            {
+                Typars = typars
+                Cases =
+                    cases
+                    |> EqArray.ofSeq
+                    |> EqArray.map (fun (name, fields) ->
+                        {
+                            Name = name
+                            Fields = EqArray.ofList fields
+                        }
+                    )
+            }
 
-    member _.RegisterGenericRecord(key: SymbolKey, typars: string list, fields: (string * FrozenType) list) : unit =
-        env.GenericRecords.[key] <- (typars, fields)
+    member _.RegisterGenericRecord(key: TypeKey, typars: EqArray<string>, fields: (string * FrozenType) list) : unit =
+        env.GenericRecords.[key] <-
+            {
+                Typars = typars
+                Fields = EqArray.ofList fields
+            }
 
     member _.RegisterGenericClass
-        (key: SymbolKey, typars: string list, ctorParamCount: int, fields: (string * FrozenType) list)
+        (key: TypeKey, typars: EqArray<string>, ctorParamCount: int, fields: (string * FrozenType) list)
         : unit =
-        env.GenericClasses.[key] <- (typars, ctorParamCount, fields)
+        env.GenericClasses.[key] <-
+            {
+                Typars = typars
+                CtorParamCount = ctorParamCount
+                Fields = EqArray.ofList fields
+            }
 
     member _.RecordCtorSignature(paramTys: FrozenType list) : BlobBuilder = enc.RecordCtorSignature(paramTys)
 
@@ -88,7 +109,7 @@ type ClrProvider
 
     member _.GenericUnionSelfSpec(key: TypeKey) : EntityHandle = generics.GenericUnionSelfSpec key
 
-    member _.GenericRecordSelfSpec(key: SymbolKey) : EntityHandle = generics.GenericRecordSelfSpec key
+    member _.GenericRecordSelfSpec(key: TypeKey) : EntityHandle = generics.GenericRecordSelfSpec key
 
     member _.GenericStaticFnSignature(typarCount: int, paramTys: FrozenType list, retTy: FrozenType) : BlobBuilder =
         enc.GenericStaticFnSignature(typarCount, paramTys, retTy)
@@ -144,7 +165,7 @@ type ClrProvider
             // interface). Was external-first, which self-`AssemblyRef`'d a cross-file
             // interface impl (`externalClassRef` succeeds for it — it is in the projected
             // view — so the local fallback was never reached).
-            match env.UserTypes.TryGetValue(SymbolKey.Type key) with
+            match env.UserTypes.TryGetValue key with
             | true, h -> h
             | false, _ ->
                 match env.ExternalClassRef(SymbolKey.Type key) with
@@ -186,7 +207,7 @@ type ClrProvider
             }
 
     /// Register a captureless `Stack` (value-struct) closure
-    /// under a synthetic project-local `SymbolKey` and return the `FrozenType` that
+    /// under a synthetic project-local `TypeKey` and return the `FrozenType` that
     /// names it. A closure has no `FrozenType` of its own (it is keyed by
     /// `TypeSlotKey.Closure name`, codegen-only), but a value-struct closure must be
     /// *encodable* — its by-value local, its `initobj`, and the constrained-slot
@@ -203,13 +224,12 @@ type ClrProvider
     /// that invariant is ever broken.
     member _.RegisterStackClosureValueType(name: string, defHandle: EntityHandle) : FrozenType =
         let typeKey = SymbolKeyOps.typeKeyOf "<closure>" name
-        let key = SymbolKey.Type typeKey
 
-        if env.UserTypes.ContainsKey key then
+        if env.UserTypes.ContainsKey typeKey then
             failwithf "Emit: synthetic value-struct closure key '%s' collides with a registered type" name
 
-        env.UserTypes.[key] <- defHandle
-        env.UserValueTypes.Add key |> ignore
+        env.UserTypes.[typeKey] <- defHandle
+        env.UserValueTypes.Add typeKey |> ignore
         FTClass(typeKey, EqArray.empty)
 
     member _.GenericClosureTypeSpec(name: string, args: FrozenType list) : EntityHandle =
@@ -255,7 +275,7 @@ type ClrProvider
 
     member _.HashCodeToHashCode: EntityHandle = env.EHashCodeToHashCode.Value
 
-    member _.UserTypeHandle(key: SymbolKey) : EntityHandle = env.UserTypes.[key]
+    member _.UserTypeHandle(key: TypeKey) : EntityHandle = env.UserTypes.[key]
 
     member _.EqualsOverrideSignature() : BlobBuilder = enc.EqualsOverrideSignature()
 
@@ -390,14 +410,11 @@ type ClrProvider
 
         member _.UserGenericMemberRef(key, args, kind) =
             let zonkedArgs = args
-            // The union table is `TypeKey`-keyed; the record / class / member tables are
-            // still part of the kind-blind emitted-symbol world, so they take the widened key.
-            let symKey = SymbolKey.Type key
 
             match kind with
             | UserMemberKind.UnionMember which -> generics.GenericUnionMemberRef(key, zonkedArgs, which)
-            | UserMemberKind.RecordMember which -> generics.GenericRecordMemberRef(symKey, zonkedArgs, which)
-            | UserMemberKind.ClassMember which -> generics.GenericClassMemberRef(symKey, zonkedArgs, which)
+            | UserMemberKind.RecordMember which -> generics.GenericRecordMemberRef(key, zonkedArgs, which)
+            | UserMemberKind.ClassMember which -> generics.GenericClassMemberRef(key, zonkedArgs, which)
             | UserMemberKind.Member(metaName, isStatic, methodTyparCount, paramTys, retTy) ->
                 generics.GenericMemberRef(key, zonkedArgs, metaName, isStatic, methodTyparCount, paramTys, retTy)
 

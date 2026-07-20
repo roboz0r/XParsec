@@ -25,6 +25,48 @@ type internal GenericClosureShape =
         DefHandle: EntityHandle
     }
 
+/// One case of a generic user union in the backend registry: its case name and its fields
+/// in declaration order, each a `(metadata field name, declared type)` pair whose
+/// `FrozenType` carries declaring-typar markers (`FTTypar(Declaring, i)`).
+type internal GenericUnionCase =
+    {
+        Name: string
+        Fields: EqArray<string * FrozenType>
+    }
+
+/// Registry shape of a *generic* user union, keyed by its nominal `TypeKey` (which embeds
+/// the arity, so same-named overloads `Choice`2`…`Choice`7` don't collide). A nominal head
+/// IS a type → the shape is (typar names, cases); it holds everything needed to mint
+/// `MemberRef`s on the type's `TypeSpec`. Monomorphic unions are not registered — their
+/// `Def` tokens suffice.
+type internal GenericUnionShape =
+    {
+        Typars: EqArray<string>
+        Cases: EqArray<GenericUnionCase>
+    }
+
+/// Registry shape of a *generic* user record: typar names + fields, each a
+/// `(field name, declared type)` pair whose `FrozenType` carries declaring-typar markers.
+type internal GenericRecordShape =
+    {
+        Typars: EqArray<string>
+        Fields: EqArray<string * FrozenType>
+    }
+
+/// Registry shape of a *generic* user class. `Fields` is the *full* field shape —
+/// ctor-param backing fields first, then `val` instance fields, then instance-`let` /
+/// `static let` backing fields — so a `ClassMember.Field` `MemberRef` resolves any of them
+/// by name. `CtorParamCount` records how many leading `Fields` entries are the *primary
+/// ctor's* parameters, so the `ClassMember.Ctor` `MemberRef` signature uses only those (not
+/// the `val`/`static let` fields, which a `Set<'T>(comparer, tree)` self-construction in the
+/// `.cctor` would otherwise see as phantom ctor args).
+type internal GenericClassShape =
+    {
+        Typars: EqArray<string>
+        CtorParamCount: int
+        Fields: EqArray<string * FrozenType>
+    }
+
 /// The CLR-only nominals the backend names DIRECTLY — a printf `TextWriter` sink, the
 /// `Vesper.Formatter` write-through handler, the `System.HashCode` accumulator. They reach
 /// the backend as `FTConst` over a bare platform name (`RuntimeNames.opaqueKey`), which is
@@ -352,11 +394,10 @@ type internal ClrEnv
     let fsharpCoreDeps = HashSet<string>()
     let markFSharpCoreDep (construct: string) : unit = fsharpCoreDeps.Add construct |> ignore
 
-    /// User types emitted into *this* assembly, by their nominal `SymbolKey` →
+    /// User types emitted into *this* assembly, by their nominal `TypeKey` →
     /// predicted `TypeDefinition` handle, so a field / factory / local signature
-    /// can reference the type before its row is added (was string-keyed by
-    /// simple/arity name).
-    let userTypes = Dictionary<SymbolKey, EntityHandle>()
+    /// can reference the type before its row is added.
+    let userTypes = Dictionary<TypeKey, EntityHandle>()
 
     // The `%A` structural-format interfaces. Owned by `Vesper.Core`: the synthesised
     // `Format` implements a Core-owned interface, so a record-bearing program links only
@@ -375,7 +416,7 @@ type internal ClrEnv
     // `buildPrelude`, so a value forced too early would cache the wrong side. `ctx.TypeRef`
     // dedupes by (scope, ns, name), so re-probing mints no extra row.
     let coreInterfaceEntity (key: TypeKey) (name: string) : EntityHandle =
-        match userTypes.TryGetValue(SymbolKey.Type key) with
+        match userTypes.TryGetValue key with
         | true, h -> h
         | _ -> toEntity (ctx.TypeRef(vesperCoreRef.Value, "Vesper", name))
 
@@ -395,28 +436,13 @@ type internal ClrEnv
     /// Project-local `[<Struct>]` value-type keys.
     /// `encodeType` reads this to emit a user struct as `ELEMENT_TYPE_VALUETYPE`
     /// rather than `ELEMENT_TYPE_CLASS` in every signature.
-    let userValueTypes = System.Collections.Generic.HashSet<SymbolKey>()
+    let userValueTypes = System.Collections.Generic.HashSet<TypeKey>()
 
-    /// Generic user unions by `TypeKey` — the narrow key the `UserGenericMemberRef` seam
-    /// carries, because a nominal head IS a type → (typar names, cases); a case is
-    /// `(caseName, [(fieldMetaName, declTy)])` with `declTy` carrying declaring-typar markers
-    /// (`TyConst "'T"`). Holds the shape needed to mint `MemberRef`s on the type's `TypeSpec`.
-    /// Monomorphic unions are not registered (their `Def` tokens suffice).
-    let genericUnions =
-        Dictionary<TypeKey, string list * (string * (string * FrozenType) list) list>()
+    let genericUnions = Dictionary<TypeKey, GenericUnionShape>()
 
-    let genericRecords =
-        Dictionary<SymbolKey, string list * (string * FrozenType) list>()
+    let genericRecords = Dictionary<TypeKey, GenericRecordShape>()
 
-    // `(typars, ctorParamCount, fields)`. `fields` is the *full* field shape —
-    // ctor-param backing fields first, then `val` instance fields, then `static let`
-    // backing fields — so a `ClassMember.Field` `MemberRef` resolves any of them by
-    // name. `ctorParamCount` records how many leading entries are the *primary
-    // ctor's* parameters, so the `ClassMember.Ctor` `MemberRef` signature uses only
-    // those (not the `val`/`static let` fields, which a `Set<'T>(comparer, tree)`
-    // self-construction in the `.cctor` would otherwise see as phantom ctor args).
-    let genericClasses =
-        Dictionary<SymbolKey, string list * int * (string * FrozenType) list>()
+    let genericClasses = Dictionary<TypeKey, GenericClassShape>()
     // Closures have no `SymbolKey` (synthetic names), so they stay string-keyed —
     // the nominal seam is key-based, closures ride their own provider methods.
     let genericClosures = Dictionary<string, GenericClosureShape>()

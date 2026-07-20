@@ -177,7 +177,7 @@ type internal Assembler
         // `userTypes` / `genericUnions`.
         for ud in partitioned.Unions do
             let td = ud.Decl
-            provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
+            provider.RegisterUserType(td.TypeKey, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
 
             if not td.TypeParams.IsEmpty then
                 let shape =
@@ -189,27 +189,27 @@ type internal Assembler
                             ]
                     ]
 
-                provider.RegisterGenericUnion(td.TypeKey, EqArray.toList td.TypeParams, shape)
+                provider.RegisterGenericUnion(td.TypeKey, td.TypeParams, shape)
 
         for rd in partitioned.Records do
             let td = rd.Decl
-            provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
+            provider.RegisterUserType(td.TypeKey, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
 
             // A `[<Struct>]` record is a project-local value type → `VALUETYPE` (not
             // `CLASS`) in every signature, exactly as a struct class.
             if rd.ValueKind <> ClassValueKind.RefType then
-                provider.RegisterUserValueType td.Key
+                provider.RegisterUserValueType td.TypeKey
 
             if not td.TypeParams.IsEmpty then
                 let shape = [ for f in rd.Fields -> f.Name, f.Type ]
-                provider.RegisterGenericRecord(td.Key, EqArray.toList td.TypeParams, shape)
+                provider.RegisterGenericRecord(td.TypeKey, td.TypeParams, shape)
 
         for cd in partitioned.Classes do
             let td = cd.Decl
-            provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
+            provider.RegisterUserType(td.TypeKey, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
 
             if cd.ValueKind <> ClassValueKind.RefType then
-                provider.RegisterUserValueType td.Key
+                provider.RegisterUserValueType td.TypeKey
 
             if not td.TypeParams.IsEmpty then
                 // The ctor-param backing fields, the explicit `val [mutable] x: T`
@@ -230,7 +230,7 @@ type internal Assembler
                     @ [ for l in TPreambleEntryG.lets cd.InstancePreamble -> l.Name, l.Type ]
                     @ [ for sl in TPreambleEntryG.lets cd.StaticPreamble -> sl.Name, sl.Type ]
 
-                provider.RegisterGenericClass(td.Key, EqArray.toList td.TypeParams, List.length ctorParamFields, shape)
+                provider.RegisterGenericClass(td.TypeKey, td.TypeParams, List.length ctorParamFields, shape)
 
         // Interfaces register their `TypeDef` too, so one Core interface naming another
         // as a member-signature type (`IStructuralFormattable.Format(IFormatSink)`)
@@ -239,10 +239,10 @@ type internal Assembler
         // constrained-typar dispatch can mint its abstract slot as a `MemberRef` on the
         // instantiated interface `TypeSpec`.
         for (td, _) in partitioned.Interfaces do
-            provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
+            provider.RegisterUserType(td.TypeKey, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
 
             if not td.TypeParams.IsEmpty then
-                provider.RegisterGenericClass(td.Key, EqArray.toList td.TypeParams, 0, [])
+                provider.RegisterGenericClass(td.TypeKey, td.TypeParams, 0, [])
 
         // Every enum — numeric (`System.Enum` subclass) or string/mixed (`[<Struct>]`
         // wrapper) — registers its layout-derived handle (its case fields are typed as
@@ -252,8 +252,8 @@ type internal Assembler
         for td in
             (partitioned.Enums |> List.map (fun ed -> ed.Decl))
             @ (partitioned.StructEnums |> List.map (fun sed -> sed.Decl)) do
-            provider.RegisterUserType(td.Key, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
-            provider.RegisterUserValueType td.Key
+            provider.RegisterUserType(td.TypeKey, toEntity (layoutHandles.TypeDefOf(TypeSlotKey.Nominal td.Key)))
+            provider.RegisterUserValueType td.TypeKey
 
         // Register this unit's home-local module functions so a SIBLING unit's cross-file
         // call resolves to the local `MethodDef` (`ClrRecipes.emitExternalCall` probes

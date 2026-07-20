@@ -205,7 +205,7 @@ type internal ClrExternalMembers(env: ClrEnv, enc: ClrEncoder) =
             // parents on the bare handle; a generic one is instantiated by `externalTypeSpec`
             // exactly as the external `tref` would be.
             let tref =
-                match env.UserTypes.TryGetValue(SymbolKey.Type declKey) with
+                match env.UserTypes.TryGetValue declKey with
                 | true, localHandle -> localHandle
                 | _ ->
                     match externalClassRef (SymbolKey.Type declKey) with

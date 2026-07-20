@@ -441,7 +441,7 @@ module internal NominalEmit =
                 if isStruct then
                     baseTypeHandle <- provider.ValueTypeBase
             | BaseShape.ExternalBase(_, tref) -> baseTypeHandle <- tref
-            | BaseShape.LocalMono baseKey -> baseTypeHandle <- provider.UserTypeHandle(SymbolKey.Type baseKey)
+            | BaseShape.LocalMono baseKey -> baseTypeHandle <- provider.UserTypeHandle baseKey
             | BaseShape.Generic bt -> baseTypeHandle <- icodegen.TypeToken bt
 
             // The val-field *reference* form (no primary ctor) emits no primary
@@ -812,12 +812,12 @@ module internal NominalEmit =
         // `TypeDef`.
         let selfTypeHandle =
             if not isGeneric then
-                provider.UserTypeHandle td.Key
+                provider.UserTypeHandle td.TypeKey
             else
                 match input with
                 | NominalEmissionInput.Union _ -> provider.GenericUnionSelfSpec td.TypeKey
-                | NominalEmissionInput.Record _ -> provider.GenericRecordSelfSpec td.Key
-                | NominalEmissionInput.Class _ -> provider.UserTypeHandle td.Key
+                | NominalEmissionInput.Record _ -> provider.GenericRecordSelfSpec td.TypeKey
+                | NominalEmissionInput.Class _ -> provider.UserTypeHandle td.TypeKey
 
         // The structural field set as `(handle, type)`, flat across a union's
         // cases in declaration order — sound because inactive-case fields are
