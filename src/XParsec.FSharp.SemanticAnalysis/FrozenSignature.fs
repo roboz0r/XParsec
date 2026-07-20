@@ -162,7 +162,7 @@ module FrozenSignature =
 
         let memberOf (declKey: TypeKey) (declArity: int) (m: Frozen.TTypeMember) : ExternalMember =
             let isValueMember = (m.Kind = TMemberKind.Property)
-            let methodArity = GeneralizedTypars.count m.MethodTypeParams
+            let methodArity = m.MethodTypeParams.Length
 
             let parameters =
                 if isValueMember then

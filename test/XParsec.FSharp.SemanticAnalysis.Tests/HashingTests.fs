@@ -131,10 +131,12 @@ let tests =
                     test "dependencySignatureHash is deterministic" {
                         let root = freshRoot "determinism"
                         let manifest = writePackage root "Pkg" "type a = extern\n"
+
                         Expect.equal
                             (Hashing.dependencySignatureHash manifest)
                             (Hashing.dependencySignatureHash manifest)
                             "same contract, same hash"
+
                         Directory.Delete(root, true)
                     }
 
@@ -142,8 +144,10 @@ let tests =
                         let root = freshRoot "file-input"
                         let manifest = writePackage root "Pkg" "type a = extern\n"
                         let viaSeam = Hashing.fileInputHash "let x = 1" [ manifest ]
+
                         let viaParts =
                             Hashing.inputHash "let x = 1" [ Hashing.dependencySignatureHash manifest ]
+
                         Expect.equal viaSeam viaParts "the seam function is the documented fold"
                         Directory.Delete(root, true)
                     }

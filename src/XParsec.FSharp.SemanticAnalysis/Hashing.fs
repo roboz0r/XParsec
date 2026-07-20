@@ -20,12 +20,11 @@ module Hashing =
     /// Raw hash of `bytes`, as the store's lowercase-hex `InputHash`. `XxHash128` produces a
     /// 16-byte digest.
     let hashBytes (bytes: byte[]) : InputHash =
-        InputHash.ofBytes(XxHash128.Hash bytes)
+        InputHash.ofBytes (XxHash128.Hash bytes)
 
     /// Hash of a string's UTF-8 encoding — the text-input entry point (source, identity
     /// strings). UTF-8 so the digest is culture- and platform-independent.
-    let hashString (s: string) : InputHash =
-        hashBytes(Encoding.UTF8.GetBytes s)
+    let hashString (s: string) : InputHash = hashBytes (Encoding.UTF8.GetBytes s)
 
     /// Append a variable-length byte run PREFIXED by its length, so a hash built from a
     /// sequence of such runs is injective in the run boundaries: two different splittings of
@@ -53,12 +52,16 @@ module Hashing =
         appendLengthPrefixed hasher (Encoding.UTF8.GetBytes source)
 
         let sortedDeps =
-            dependencyHashes |> Seq.map (fun h -> h.Hex) |> Seq.distinct |> Seq.sort |> Seq.toArray
+            dependencyHashes
+            |> Seq.map (fun h -> h.Hex)
+            |> Seq.distinct
+            |> Seq.sort
+            |> Seq.toArray
 
         for hex in sortedDeps do
             hasher.Append(ReadOnlySpan(Encoding.UTF8.GetBytes hex))
 
-        InputHash.ofBytes(hasher.GetCurrentHash())
+        InputHash.ofBytes (hasher.GetCurrentHash())
 
     /// Derive one referenced project's SIGNATURE hash from its `manifest.toml` — the artifact
     /// that actually determines cross-file compile correctness. A dependency exposes itself
@@ -92,7 +95,7 @@ module Hashing =
                 if File.Exists abs then
                     appendLengthPrefixed hasher (File.ReadAllBytes abs)
 
-            InputHash.ofBytes(hasher.GetCurrentHash())
+            InputHash.ofBytes (hasher.GetCurrentHash())
 
     /// The per-file compile-cache input hash a driver computes at its seam: fold `source`
     /// with the signature hash of every referenced project (named by its `manifest.toml`

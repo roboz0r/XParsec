@@ -148,7 +148,11 @@ let private collect () : Harvest =
 
     // ── hand-built edge cases: pin every case shape regardless of the corpus ──
     let nsGlobal = NamespaceKey.Global
-    let nsSystem = { Path = EqArray.ofList [ "System"; "Collections"; "Generic" ] }
+
+    let nsSystem =
+        {
+            Path = EqArray.ofList [ "System"; "Collections"; "Generic" ]
+        }
 
     let tkInt =
         {
@@ -231,9 +235,18 @@ let private collect () : Harvest =
                     Decl = ModuleHolder.InNamespace nsSystem
                     Name = "printfn"
                 }
-            SymbolKey.Binding { Decl = ModuleHolder.InModule modKey; Name = "map" }
+            SymbolKey.Binding
+                {
+                    Decl = ModuleHolder.InModule modKey
+                    Name = "map"
+                }
             SymbolKey.Member memberKey
-            SymbolKey.Member { memberKey with Kind = MemberKind.Property; Name = "Count"; ArgSig = EqArray.empty }
+            SymbolKey.Member
+                { memberKey with
+                    Kind = MemberKind.Property
+                    Name = "Count"
+                    ArgSig = EqArray.empty
+                }
             SymbolKey.Member
                 { memberKey with
                     Kind = MemberKind.InterfaceMethod tkList
@@ -248,8 +261,7 @@ let private collect () : Harvest =
                 }
         ]
 
-    let edgeTypes =
-        [ tkInMod; tkNested ]
+    let edgeTypes = [ tkInMod; tkNested ]
 
     let edgeFrozen =
         [
@@ -298,7 +310,11 @@ let private collect () : Harvest =
     for tk in edgeTypes do
         tks.Add tk |> ignore
 
-    for nk in [ NodeKey.ofSource 42 NodeKind.ExprLambda; NodeKey.ofSynthetic 10 NodeKind.SynthLambdaBody ] do
+    for nk in
+        [
+            NodeKey.ofSource 42 NodeKind.ExprLambda
+            NodeKey.ofSynthetic 10 NodeKind.SynthLambdaBody
+        ] do
         nks.Add nk |> ignore
 
     for tok in edgeTokens do
@@ -344,7 +360,10 @@ let tests =
 
             test "SyntaxToken round-trips structurally" {
                 for tok in h.Tokens do
-                    Expect.equal (roundTrips FrozenCodec.writeSyntaxToken FrozenCodec.readSyntaxToken tok) tok "SyntaxToken"
+                    Expect.equal
+                        (roundTrips FrozenCodec.writeSyntaxToken FrozenCodec.readSyntaxToken tok)
+                        tok
+                        "SyntaxToken"
             }
 
             // The harvest must actually reach the corpus, not just the edge cases —

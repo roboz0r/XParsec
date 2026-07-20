@@ -68,7 +68,5 @@ let tests =
                 }
 
             // The gate must exercise a non-trivial corpus, else an empty run passes vacuously.
-            test "the gated corpus is non-empty" {
-                Expect.isGreaterThan (List.length gated) 0 "JS-gated programs"
-            }
+            test "the gated corpus is non-empty" { Expect.isGreaterThan (List.length gated) 0 "JS-gated programs" }
         ]

@@ -17,7 +17,8 @@ let private freezeKey = key QueryId.Freeze Cache.CodeVersion "abcdef01"
 /// name. The repo convention keeps scratch files out of the system temp; each test removes its
 /// own tree on the way in so a prior run cannot leak a hit.
 let private freshRoot (name: string) : string =
-    let root = Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "tmp", "cache-tests", name)
+    let root =
+        Path.Combine(__SOURCE_DIRECTORY__, "..", "..", "tmp", "cache-tests", name)
 
     if Directory.Exists root then
         Directory.Delete(root, true)
@@ -85,8 +86,7 @@ let tests =
             // between its store and load. Sequencing the shared-root suite is what makes that safe;
             // the in-memory suite and the distinct-root persistence test below stay parallel.
             testSequenced (
-                roundTripSuite "FileSystemStore" (fun () ->
-                    Cache.FileSystemStore(freshRoot "roundtrip") :> ICacheStore)
+                roundTripSuite "FileSystemStore" (fun () -> Cache.FileSystemStore(freshRoot "roundtrip") :> ICacheStore)
             )
 
             test "FileSystemStore persists across a fresh instance on the same root" {

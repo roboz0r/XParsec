@@ -92,7 +92,7 @@ module internal Layout =
                     }
 
                 let memberRoot (td: Frozen.TTypeDecl) (m: Frozen.TTypeMember) =
-                    root td (GeneralizedTypars.count m.MethodTypeParams) m.Body
+                    root td m.MethodTypeParams.Length m.Body
 
                 let preambleRoot (td: Frozen.TTypeDecl) (entry: Frozen.TPreambleEntry) =
                     match entry with

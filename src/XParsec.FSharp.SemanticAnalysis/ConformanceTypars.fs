@@ -217,7 +217,7 @@ module ConformanceTypars =
                     let typeName = SymbolKeyOps.qualifiedName td.Key
 
                     for m in bodyMembers td.Kind do
-                        let arity = GeneralizedTypars.count m.MethodTypeParams
+                        let arity = m.MethodTypeParams.Length
 
                         if arity > 0 then
                             let isProperty = (m.Kind = TMemberKind.Property)

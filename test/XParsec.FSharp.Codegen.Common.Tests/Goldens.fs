@@ -35,4 +35,7 @@ let check (path: string) (label: string) (actual: string) : unit =
             else
                 failtestf "Created golden at %s, verify it is correct" path
     else
-        Expect.equal (normalise actual) (normalise (File.ReadAllText path)) (sprintf "byte-identity golden holds: %s" label)
+        Expect.equal
+            (normalise actual)
+            (normalise (File.ReadAllText path))
+            (sprintf "byte-identity golden holds: %s" label)

@@ -143,7 +143,7 @@ module SymbolProviders =
                                         tdecl.TypeKey
                                         m.Name
                                         (m.Params |> EqArray.map snd)
-                                        (GeneralizedTypars.count m.MethodTypeParams)
+                                        m.MethodTypeParams.Length
                                         kind
 
                                 yield { Key = key; Body = body }

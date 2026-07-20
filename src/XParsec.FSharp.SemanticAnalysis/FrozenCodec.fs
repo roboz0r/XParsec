@@ -321,7 +321,8 @@ module FrozenCodec =
         | 14uy -> FTUnknown(r.ReadString())
         | b -> failwithf "FrozenCodec: unknown FrozenType tag %d" b
 
-    and private readFtArray (r: BinaryReader) : EqArray<FrozenType> = EqArray.ofArray (readArrayWith r readFrozenType)
+    and private readFtArray (r: BinaryReader) : EqArray<FrozenType> =
+        EqArray.ofArray (readArrayWith r readFrozenType)
 
     and readSymbolKey (r: BinaryReader) : SymbolKey =
         match r.ReadByte() with
@@ -758,17 +759,20 @@ module FrozenCodec =
 
     let private readParamAttrs (r: BinaryReader) : ParamAttrs = { CallAtMostOnce = r.ReadBoolean() }
 
-    /// The carrier's `TypeVar` roots do not survive a byte round-trip (reference
-    /// identity), and post-freeze only its NAMES + arity are read — so the names, in
-    /// their already-canonical order, are the whole serializable content, thawed into
-    /// fresh roots via `GeneralizedTypars.unsafeOfNames` (an empty name list reproduces
-    /// `empty`). That this SemType carrier rides the frozen tree at all is a residue —
-    /// see `docs/frozen-tree-semtype-residue-plan.md`.
-    let private writeGeneralizedTypars (w: BinaryWriter) (g: GeneralizedTypars) =
-        writeArrayWith w (fun w (s: string) -> w.Write s) (GeneralizedTypars.names g)
+    /// A member's own method typars: each entry is the source name + the typar's
+    /// frozen type (`FTTypar(Method, i)`), position = ABI index. Plain frozen data —
+    /// no union-find cell rides the tree, so this round-trips structurally.
+    let private writeMethodTypeParams (w: BinaryWriter) (mtps: EqArray<string * FrozenType>) =
+        writeEqArrayWith
+            w
+            (fun w (n: string, ty) ->
+                w.Write n
+                writeFrozenType w ty
+            )
+            mtps
 
-    let private readGeneralizedTypars (r: BinaryReader) : GeneralizedTypars =
-        GeneralizedTypars.unsafeOfNames(readArrayWith r (fun r -> r.ReadString()))
+    let private readMethodTypeParams (r: BinaryReader) : EqArray<string * FrozenType> =
+        EqArray.ofArray (readArrayWith r (fun r -> let n = r.ReadString() in n, readFrozenType r))
 
     // ── the printf hole-form cluster (a `HoleSpec` payload) ─────────────────
 
@@ -1027,11 +1031,13 @@ module FrozenCodec =
 
         let fields =
             EqArray.ofArray (
-                readArrayWith r (fun r ->
-                    let nameOpt = readVOptionWith r (fun r -> r.ReadString())
-                    let ty = readFrozenType r
-                    nameOpt, ty
-                )
+                readArrayWith
+                    r
+                    (fun r ->
+                        let nameOpt = readVOptionWith r (fun r -> r.ReadString())
+                        let ty = readFrozenType r
+                        nameOpt, ty
+                    )
             )
 
         { Name = name; Fields = fields }
@@ -1199,13 +1205,29 @@ module FrozenCodec =
             writeSyntaxToken w tok
         | TExprG.RecordCons(fields, ty, tok) ->
             w.Write 19uy
-            writeEqArrayWith w (fun w (name: string, e) -> w.Write name; writeExpr w e) fields
+
+            writeEqArrayWith
+                w
+                (fun w (name: string, e) ->
+                    w.Write name
+                    writeExpr w e
+                )
+                fields
+
             writeFrozenType w ty
             writeSyntaxToken w tok
         | TExprG.RecordClone(source, overrides, ty, tok) ->
             w.Write 20uy
             writeExpr w source
-            writeEqArrayWith w (fun w (name: string, e) -> w.Write name; writeExpr w e) overrides
+
+            writeEqArrayWith
+                w
+                (fun w (name: string, e) ->
+                    w.Write name
+                    writeExpr w e
+                )
+                overrides
+
             writeFrozenType w ty
             writeSyntaxToken w tok
         | TExprG.FieldGet(receiver, fieldName, ty, tok) ->
@@ -1347,7 +1369,15 @@ module FrozenCodec =
             writeSyntaxToken w tok
         | TPatG.Record(fields, ty, tok) ->
             w.Write 4uy
-            writeEqArrayWith w (fun w (name: string, sub) -> w.Write name; writePat w sub) fields
+
+            writeEqArrayWith
+                w
+                (fun w (name: string, sub) ->
+                    w.Write name
+                    writePat w sub
+                )
+                fields
+
             writeFrozenType w ty
             writeSyntaxToken w tok
         | TPatG.Union(caseName, fields, ty, tok) ->
@@ -1542,10 +1572,7 @@ module FrozenCodec =
 
     // Each `interfaces` entry pairs a resolved interface type with its typed member
     // bodies — shared by the class / union / record arms.
-    and private writeInterfaces
-        (w: BinaryWriter)
-        (interfaces: EqArray<FrozenType * EqArray<Frozen.TTypeMember>>)
-        =
+    and private writeInterfaces (w: BinaryWriter) (interfaces: EqArray<FrozenType * EqArray<Frozen.TTypeMember>>) =
         writeEqArrayWith
             w
             (fun w (ty, mems) ->
@@ -1578,10 +1605,18 @@ module FrozenCodec =
         writeVOptionWith w writeNodeKey m.ThisKey
         writeVOptionWith w writeNodeKey m.BaseKey
         writeFrozenType w m.ThisTy
-        writeEqArrayWith w (fun w (k, ty) -> writeNodeKey w k; writeFrozenType w ty) m.Params
+
+        writeEqArrayWith
+            w
+            (fun w (k, ty) ->
+                writeNodeKey w k
+                writeFrozenType w ty
+            )
+            m.Params
+
         writeExpr w m.Body
         writeFrozenType w m.ReturnTy
-        writeGeneralizedTypars w m.MethodTypeParams
+        writeMethodTypeParams w m.MethodTypeParams
 
     and private writeClassLet (w: BinaryWriter) (l: Frozen.TClassLet) =
         w.Write l.Name
@@ -1608,13 +1643,27 @@ module FrozenCodec =
         writeExpr w fi.Init
 
     and private writeSecondaryCtor (w: BinaryWriter) (sc: Frozen.TSecondaryCtor) =
-        writeEqArrayWith w (fun w (k, ty) -> writeNodeKey w k; writeFrozenType w ty) sc.Params
+        writeEqArrayWith
+            w
+            (fun w (k, ty) ->
+                writeNodeKey w k
+                writeFrozenType w ty
+            )
+            sc.Params
+
         writeEqArrayWith w writeCtorLet sc.Lets
         writeEqArrayWith w writeExpr sc.PrimaryArgs
         writeEqArrayWith w writeCtorFieldInit sc.FieldInits
 
     and private writeBaseCtorCall (w: BinaryWriter) (bc: Frozen.TBaseCtorCall) =
-        writeEqArrayWith w (fun w (k, ty) -> writeNodeKey w k; writeFrozenType w ty) bc.CtorParams
+        writeEqArrayWith
+            w
+            (fun w (k, ty) ->
+                writeNodeKey w k
+                writeFrozenType w ty
+            )
+            bc.CtorParams
+
         writeEqArrayWith w writeExpr bc.Args
         writeVOptionWith w writeSymbolKey bc.ChosenCtor
 
@@ -1785,11 +1834,13 @@ module FrozenCodec =
         | 19uy ->
             let fields =
                 EqArray.ofArray (
-                    readArrayWith r (fun r ->
-                        let name = r.ReadString()
-                        let e = readExpr r
-                        name, e
-                    )
+                    readArrayWith
+                        r
+                        (fun r ->
+                            let name = r.ReadString()
+                            let e = readExpr r
+                            name, e
+                        )
                 )
 
             let ty = readFrozenType r
@@ -1800,11 +1851,13 @@ module FrozenCodec =
 
             let overrides =
                 EqArray.ofArray (
-                    readArrayWith r (fun r ->
-                        let name = r.ReadString()
-                        let e = readExpr r
-                        name, e
-                    )
+                    readArrayWith
+                        r
+                        (fun r ->
+                            let name = r.ReadString()
+                            let e = readExpr r
+                            name, e
+                        )
                 )
 
             let ty = readFrozenType r
@@ -1951,11 +2004,13 @@ module FrozenCodec =
         | 4uy ->
             let fields =
                 EqArray.ofArray (
-                    readArrayWith r (fun r ->
-                        let name = r.ReadString()
-                        let sub = readPat r
-                        name, sub
-                    )
+                    readArrayWith
+                        r
+                        (fun r ->
+                            let name = r.ReadString()
+                            let sub = readPat r
+                            name, sub
+                        )
                 )
 
             let ty = readFrozenType r
@@ -2008,7 +2063,12 @@ module FrozenCodec =
         let pat = readPat r
         let guard = readOptionWith r readExpr
         let body = readExpr r
-        { Pat = pat; Guard = guard; Body = body }
+
+        {
+            Pat = pat
+            Guard = guard
+            Body = body
+        }
 
     and private readFormatSink (r: BinaryReader) : Frozen.FormatSink =
         match r.ReadByte() with
@@ -2061,7 +2121,11 @@ module FrozenCodec =
     and private readStaticOptClause (r: BinaryReader) : Frozen.TStaticOptClause =
         let constraints = EqArray.ofArray (readArrayWith r readStaticOptConstraint)
         let body = readExpr r
-        { Constraints = constraints; Body = body }
+
+        {
+            Constraints = constraints
+            Body = body
+        }
 
     and private readForInEnumerator (r: BinaryReader) : Frozen.ForInEnumerator =
         match r.ReadByte() with
@@ -2154,11 +2218,13 @@ module FrozenCodec =
 
     and private readInterfaces (r: BinaryReader) : EqArray<FrozenType * EqArray<Frozen.TTypeMember>> =
         EqArray.ofArray (
-            readArrayWith r (fun r ->
-                let ty = readFrozenType r
-                let mems = EqArray.ofArray (readArrayWith r readTypeMember)
-                ty, mems
-            )
+            readArrayWith
+                r
+                (fun r ->
+                    let ty = readFrozenType r
+                    let mems = EqArray.ofArray (readArrayWith r readTypeMember)
+                    ty, mems
+                )
         )
 
     and private readClass (r: BinaryReader) : Frozen.TClass =
@@ -2204,16 +2270,18 @@ module FrozenCodec =
 
         let parameters =
             EqArray.ofArray (
-                readArrayWith r (fun r ->
-                    let k = readNodeKey r
-                    let ty = readFrozenType r
-                    k, ty
-                )
+                readArrayWith
+                    r
+                    (fun r ->
+                        let k = readNodeKey r
+                        let ty = readFrozenType r
+                        k, ty
+                    )
             )
 
         let body = readExpr r
         let returnTy = readFrozenType r
-        let methodTypeParams = readGeneralizedTypars r
+        let methodTypeParams = readMethodTypeParams r
 
         {
             Name = name
@@ -2268,11 +2336,13 @@ module FrozenCodec =
     and private readSecondaryCtor (r: BinaryReader) : Frozen.TSecondaryCtor =
         let parameters =
             EqArray.ofArray (
-                readArrayWith r (fun r ->
-                    let k = readNodeKey r
-                    let ty = readFrozenType r
-                    k, ty
-                )
+                readArrayWith
+                    r
+                    (fun r ->
+                        let k = readNodeKey r
+                        let ty = readFrozenType r
+                        k, ty
+                    )
             )
 
         let lets = EqArray.ofArray (readArrayWith r readCtorLet)
@@ -2289,11 +2359,13 @@ module FrozenCodec =
     and private readBaseCtorCall (r: BinaryReader) : Frozen.TBaseCtorCall =
         let ctorParams =
             EqArray.ofArray (
-                readArrayWith r (fun r ->
-                    let k = readNodeKey r
-                    let ty = readFrozenType r
-                    k, ty
-                )
+                readArrayWith
+                    r
+                    (fun r ->
+                        let k = readNodeKey r
+                        let ty = readFrozenType r
+                        k, ty
+                    )
             )
 
         let args = EqArray.ofArray (readArrayWith r readExpr)
@@ -2377,7 +2449,10 @@ module FrozenCodec =
         let topLevelNames = readNodeKeyMap r (fun r -> r.ReadString())
         let closureReprs = readNodeKeyMap r readClosureRepr
         let funVerdicts = readNodeKeyMap r readFunVerdict
-        let genericFnSchemes = readNodeKeyMap r (fun r -> readListWith r readFrozenConstraint)
+
+        let genericFnSchemes =
+            readNodeKeyMap r (fun r -> readListWith r readFrozenConstraint)
+
         let inlineBodies = EqArray.ofArray (readArrayWith r readInlineValue)
         let accessibility = readSymbolDict r readAccessibility
         let bindingValReprs = readNodeKeyMap r readValRepr

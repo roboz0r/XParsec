@@ -12,11 +12,12 @@ namespace XParsec.FSharp.SemanticAnalysis
 // TAST grows a case — the same enumeration guarantee `TastWalk` gives.
 //
 // Non-`'ty` payload is copied verbatim: NodeKey / SymbolKey / CallVia / TConstValue
-// / TMemberKind / PrintfSpec.HoleKind / the verdict fields / the
-// side maps, AND one field that is deliberately not `'ty`-typed —
-// `TTypeMemberG.MethodTypeParams : GeneralizedTypars` (its `TypeVar` roots
-// only feed the GenericParam row names + arity post-freeze; the body's open typars
-// already rode `TyTypar`).
+// / TMemberKind / PrintfSpec.HoleKind / the verdict fields / the side maps.
+// `TTypeMemberG.MethodTypeParams : EqArray<string * 'ty>` is NOT such a payload — it
+// rides `'ty` (each entry's typar as its own `TyVar root`), so `f` maps it like every
+// other embedded type, flipping the root to `FTTypar(Method, i)`. It used to be a
+// cell-bearing `GeneralizedTypars` copied verbatim — the one field that smuggled a
+// live `UnionFind` cell across the freeze.
 //
 // `TStaticOptClauseG.Constraints` is NOT in that list: it is
 // `EqArray<TStaticOptConstraintG<'ty>>` and is mapped like any other `'ty` payload.
@@ -195,7 +196,7 @@ module TastConvert =
             Params = EqArray.map (fun (k, ty) -> k, f ty) m.Params
             Body = expr f m.Body
             ReturnTy = f m.ReturnTy
-            MethodTypeParams = m.MethodTypeParams
+            MethodTypeParams = EqArray.map (fun (n, ty) -> n, f ty) m.MethodTypeParams
         }
 
     let classLet (f: 'a -> 'b) (l: TClassLetG<'a, 'tok>) : TClassLetG<'b, 'tok> =

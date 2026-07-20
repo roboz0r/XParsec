@@ -18,7 +18,9 @@ type QueryId =
 /// segment, needing no escaping when it addresses a blob on disk.
 [<Struct>]
 type InputHash =
-    { Hex: string }
+    {
+        Hex: string
+    }
 
     override this.ToString() = this.Hex
 

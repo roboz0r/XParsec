@@ -101,7 +101,7 @@ module internal NominalEmit =
                     MetaName = memberMetaName mem
                     ParamTys = [ for (_, t) in mem.Params -> t ]
                     RetTy = mem.ReturnTy
-                    MethodTyparCount = GeneralizedTypars.count mem.MethodTypeParams
+                    MethodTyparCount = mem.MethodTypeParams.Length
                 }
 
             let prior =
@@ -694,8 +694,8 @@ module internal NominalEmit =
             // typar window is installed; the encoder resolves them by
             // index. `methodTypars` still feeds the `GENERIC` header arity and the
             // `GenericParam` rows.
-            // Canonical ABI order as a `(name, root)[]`; position IS the typar index.
-            let methodTypars = GeneralizedTypars.toArray mem.MethodTypeParams
+            // Canonical ABI order as `(name, ty)[]`; position IS the typar index.
+            let methodTypars = mem.MethodTypeParams
             let isGenericMethod = methodTypars.Length > 0
 
             // A `unit`-returning INSTANCE method (incl. an interface-impl member

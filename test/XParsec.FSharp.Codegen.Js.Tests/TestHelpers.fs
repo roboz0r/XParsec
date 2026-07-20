@@ -132,7 +132,8 @@ let emitFrozenJs (name: string) (src: string) (frozen: Frozen.TastFile) : string
         }
 
     let source =
-        Codegen.compileWith jsProvider.Value jsManifests project frozen |> Codegen.toSource
+        Codegen.compileWith jsProvider.Value jsManifests project frozen
+        |> Codegen.toSource
 
     let idx = source.IndexOf "//# sourceMappingURL"
     if idx >= 0 then source.Substring(0, idx) else source

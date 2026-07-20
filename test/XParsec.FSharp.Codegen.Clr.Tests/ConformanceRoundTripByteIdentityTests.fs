@@ -48,7 +48,5 @@ let tests =
 
             // The gate must exercise a non-trivial corpus, else an empty run would
             // pass vacuously.
-            test "the gated corpus is non-empty" {
-                Expect.isGreaterThan (List.length gated) 0 "CLR-gated programs"
-            }
+            test "the gated corpus is non-empty" { Expect.isGreaterThan (List.length gated) 0 "CLR-gated programs" }
         ]

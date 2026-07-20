@@ -87,19 +87,23 @@ module ClrDriver =
                 Input = Hashing.fileInputHash source inputs.Manifests
             }
 
-        FrozenCache.freezeResult store key (fun () ->
-            match Pipeline.parse "DRV" source with
-            | Error ds -> Error ds
-            | Ok(lexed, file) ->
-                let tast =
-                    Pipeline.analyseFor inputs.Project.AssemblyName provider source lexed file
+        FrozenCache.freezeResult
+            store
+            key
+            (fun () ->
+                match Pipeline.parse "DRV" source with
+                | Error ds -> Error ds
+                | Ok(lexed, file) ->
+                    let tast =
+                        Pipeline.analyseFor inputs.Project.AssemblyName provider source lexed file
 
-                match tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error) with
-                | [] -> Ok tast
-                | errors -> Error errors
-        )
+                    match tast.Diagnostics |> List.filter (fun d -> d.Severity = Severity.Error) with
+                    | [] -> Ok tast
+                    | errors -> Error errors
+            )
         |> Result.map (fun frozen ->
-            Codegen.compileWithBclReferences inputs.BclReferences provider inputs.Project frozen)
+            Codegen.compileWithBclReferences inputs.BclReferences provider inputs.Project frozen
+        )
 
     /// THE shared multi-file glue seam: analyse an ordered `(path, source)` list as one
     /// assembly through `analyse` (the front end — `Pipeline.analyseFor` for a package

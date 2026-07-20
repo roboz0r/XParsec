@@ -519,7 +519,7 @@ let memberTyparOrderTests =
                 // Name preservation: the annotation typar keeps `'a`; the body-
                 // inferred one gets the synthetic `M0`.
                 Expect.equal
-                    (GeneralizedTypars.names m.MethodTypeParams |> List.ofArray)
+                    [ for (n, _) in m.MethodTypeParams -> n ]
                     [ "M0"; "'a" ]
                     "names: synthetic body typar, preserved 'a"
             }
@@ -538,7 +538,7 @@ let memberTyparOrderTests =
                 | other -> failtestf "expected two params, got %A" other
 
                 Expect.equal
-                    (GeneralizedTypars.names m.MethodTypeParams |> List.ofArray)
+                    [ for (n, _) in m.MethodTypeParams -> n ]
                     [ "'a"; "M0" ]
                     "names: declared 'a first, synthetic body typar"
             }

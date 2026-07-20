@@ -22,8 +22,7 @@ let private goldensDir = Path.Combine(__SOURCE_DIRECTORY__, "goldens")
 /// backend compiles through `compileWith jsProvider jsManifests` under the assembly
 /// name `conformance-<program>`, so this mirrors that project and strips the trailing
 /// `//# sourceMappingURL` line (as `emitJs` does).
-let private emitConformanceJs (name: string) (src: string) : string =
-    emitFrozenJs name src (frozenOfJs src)
+let private emitConformanceJs (name: string) (src: string) : string = emitFrozenJs name src (frozenOfJs src)
 
 /// Programs the JS backend compiles (see the header).
 let private gated =
@@ -51,7 +50,11 @@ let tests =
             | p :: _ ->
                 test "JS emission is deterministic for identical input" {
                     let name = "conformance-" + p.Name
-                    Expect.equal (emitConformanceJs name p.Source) (emitConformanceJs name p.Source) "same input, same JS"
+
+                    Expect.equal
+                        (emitConformanceJs name p.Source)
+                        (emitConformanceJs name p.Source)
+                        "same input, same JS"
                 }
             | [] -> ()
         ]

@@ -386,14 +386,17 @@ module Elaborate =
     /// into the decl's freeze env. The signature / body / return types stay
     /// verbatim — the `TyVar → TyTypar` cut is deferred to `freezeTypars`. Shared
     /// by the union / class member surfacers (they differ only in `selfTy`'s
-    /// `TyUnion` vs `TyClass` head). `MethodTypeParams` is untouched (its roots feed
-    /// the `GenericParam` rows and the header arity).
+    /// `TyUnion` vs `TyClass` head). `MethodTypeParams` rides `'ty` and is cut by
+    /// `freezeMember` alongside the body; here we only READ each entry's root
+    /// (`TyVar root`) to key the `env` marker `TyTypar(Method, i)` on it.
     let private elaborateMember (selfTy: SemType) (m: TTypeMember) : TTypeMember * (TyVarId * SemType) list =
         let methodMarkers =
-            if GeneralizedTypars.count m.MethodTypeParams = 0 then
-                []
-            else
-                GeneralizedTypars.methodEnv m.MethodTypeParams
+            [
+                for i in 0 .. m.MethodTypeParams.Length - 1 do
+                    match snd m.MethodTypeParams.[i] with
+                    | TyVar root -> (root, TyTypar(TyparAxis.Method, i))
+                    | _ -> ()
+            ]
 
         { m with ThisTy = selfTy }, methodMarkers
 
@@ -418,14 +421,16 @@ module Elaborate =
 
     /// freezeTypars (member): apply the typar cut `f` (= `remapDeclTypars env`) to
     /// every `SemType` embedded in a member — the deferred half of the old
-    /// `remapMemberTypes`. `MethodTypeParams` (whose `TypeVar` roots feed the
-    /// `GenericParam` rows) is left untouched.
+    /// `remapMemberTypes`. `MethodTypeParams` rides `'ty` like every other field, so
+    /// `f` flips each entry's `TyVar root` to `TyTypar(Method, i)` — the same cut the
+    /// body's occurrences get — keying the `GenericParam` rows on the marker, not a cell.
     let private freezeMember (f: SemType -> SemType) (m: TTypeMember) : TTypeMember =
         { m with
             ThisTy = f m.ThisTy
             Params = m.Params |> EqArray.map (fun (k, ty) -> k, f ty)
             Body = mapExprTypes f m.Body
             ReturnTy = f m.ReturnTy
+            MethodTypeParams = m.MethodTypeParams |> EqArray.map (fun (n, ty) -> n, f ty)
         }
 
     /// freezeTypars (type kind): push `f` through every `SemType` a type
@@ -730,7 +735,7 @@ module Elaborate =
                             ReturnTy = typeOfKey ctx (CstKeys.ofExpr b.expr)
                             // Generic methods on union augmentations are out of
                             // B-12 scope (class-only); always non-generic here.
-                            MethodTypeParams = GeneralizedTypars.empty
+                            MethodTypeParams = EqArray.empty
                         }
                 | ValueNone -> ValueNone
 
@@ -751,7 +756,7 @@ module Elaborate =
                         Params = EqArray.empty
                         Body = translateExpr ctx e
                         ReturnTy = typeOfKey ctx (CstKeys.ofExpr e)
-                        MethodTypeParams = GeneralizedTypars.empty
+                        MethodTypeParams = EqArray.empty
                     }
             | _ -> ValueNone
         | _ -> ValueNone
@@ -926,7 +931,20 @@ module Elaborate =
             // any that pinned to a concrete type since generalise is DROPPED — both
             // ORDER-PRESERVING, so the ABI index is untouched. Codegen installs these
             // roots as ambient method typars so they encode to `!!i`.
-            let methodTypeParams (n: string) (kind: TMemberKind) (declKey: NodeKey voption) : GeneralizedTypars =
+            let methodTypeParams
+                (n: string)
+                (kind: TMemberKind)
+                (declKey: NodeKey voption)
+                : EqArray<string * SemType> =
+                // Materialize the canonical carrier into the tree as the typars' own
+                // types (`TyVar root`), so `freezeMember` / `TastConvert` flip them to
+                // `TyTypar(Method, i)` → `FTTypar(Method, i)` exactly like every other
+                // embedded type — the tree field holds no union-find carrier.
+                let ofRoots (g: GeneralizedTypars) : EqArray<string * SemType> =
+                    GeneralizedTypars.toArray g
+                    |> Array.map (fun (name, root) -> name, TyVar root)
+                    |> EqArray.ofArray
+
                 let kindMatches (mi: TypeMemberInfo) =
                     match mi.Kind, kind with
                     | ClassMemberKind.Method, TMemberKind.Method
@@ -965,7 +983,8 @@ module Elaborate =
                         | TyVar r -> ValueSome r
                         | _ -> ValueNone
                     )
-                | None -> GeneralizedTypars.empty
+                    |> ofRoots
+                | None -> EqArray.empty
 
             let build (kind: TMemberKind) (b: Binding<SyntaxToken>) : TTypeMember voption =
                 match memberNameOfBinding ctx b with
@@ -1005,7 +1024,7 @@ module Elaborate =
                         Body = lowerBody e
                         ReturnTy = typeOfKey ctx (CstKeys.ofExpr e)
                         // Auto-properties never carry their own generic params.
-                        MethodTypeParams = GeneralizedTypars.empty
+                        MethodTypeParams = EqArray.empty
                     }
             | _ -> ValueNone
         | _ -> ValueNone
@@ -1540,7 +1559,7 @@ module Elaborate =
             // mono member, `selfTy = TyClass(key, [])` equals the member's existing
             // `ThisTy`, so leaving it verbatim is byte-identical.
             let needsRemap (m: TTypeMember) =
-                not (List.isEmpty declTypars) || GeneralizedTypars.count m.MethodTypeParams > 0
+                not (List.isEmpty declTypars) || m.MethodTypeParams.Length > 0
 
             let elaborateOne (m: TTypeMember) : TTypeMember =
                 if needsRemap m then

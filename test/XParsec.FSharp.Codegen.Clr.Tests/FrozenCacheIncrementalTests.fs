@@ -41,7 +41,7 @@ let private inputsWith (manifests: string list) (name: string) : ClrCompilation 
     }
 
 let private digestOf (artifact: ClrArtifact) : string =
-    ClrStructuralDigest.ofBytes(Codegen.toBytes artifact)
+    ClrStructuralDigest.ofBytes (Codegen.toBytes artifact)
 
 let private okArtifact (label: string) (result: Result<ClrArtifact, Diagnostic list>) : ClrArtifact =
     match result with
@@ -87,7 +87,11 @@ let tests =
                 Expect.equal (store :?> CountingStore).Stores 1 "the first compile stores once"
 
                 let second = okArtifact "v2" (ClrDriver.compileCached store inputs "let x = 2")
-                Expect.equal (store :?> CountingStore).Stores 2 "the edited source is a new key — a MISS that stores again"
+
+                Expect.equal
+                    (store :?> CountingStore).Stores
+                    2
+                    "the edited source is a new key — a MISS that stores again"
 
                 Expect.notEqual
                     (digestOf second)
@@ -129,7 +133,11 @@ let tests =
                 Expect.equal (store :?> CountingStore).Stores 1 "the first compile stores once"
 
                 okArtifact "unchanged" (ClrDriver.compileCached store inputs src) |> ignore
-                Expect.equal (store :?> CountingStore).Stores 1 "an unchanged recompile hits — dependency bytes unchanged"
+
+                Expect.equal
+                    (store :?> CountingStore).Stores
+                    1
+                    "an unchanged recompile hits — dependency bytes unchanged"
 
                 // Change the referenced contract's bytes: the dependency signature hash changes,
                 // so the SAME source against the SAME manifest path is now a distinct key.

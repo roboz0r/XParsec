@@ -880,16 +880,18 @@ and TTypeMemberG<'ty, 'tok> =
         ReturnTy: 'ty
         /// The member's *own* generic parameters (`member this.Map<'C> …`) — distinct from the declaring
         /// type's `TTypeDecl.TypeParams`. Each entry pairs the source name
-        /// (`"'C"`, for the `GenericParam` row) with the post-unification
-        /// union-find *root* `TypeVar`. `Elaborate.remapMemberTypes` uses these roots to
-        /// flip the method axis in `Params` / `ReturnTy` / `Body` to
-        /// `TyTypar(Method, i)`, exactly as the declaring
-        /// type's typars ride `TyTypar(Declaring, i)`; codegen's encoder resolves
-        /// both axes by index (`!!i` / `!i`) with no ambient window. This list still
-        /// feeds the `GenericParam` rows and the `GENERIC` header arity. Empty for a
-        /// non-generic member. Carries the canonical ABI order correct-by-construction
-        /// (`GeneralizedTypars`), flowed unbroken from the side-table `Generalized`.
-        MethodTypeParams: GeneralizedTypars
+        /// (`"'C"`, for the `GenericParam` row) with the typar's *own* type: a
+        /// `TyVar root` at build time, flipped — like every other embedded type — by
+        /// `freezeMember` / `TastConvert.file` to `TyTypar(Method, i)` then
+        /// `FTTypar(Method, i)`, exactly as the declaring type's typars ride the
+        /// `Declaring` axis; codegen's encoder resolves both axes by index
+        /// (`!!i` / `!i`) with no ambient window. This list feeds the `GenericParam`
+        /// rows and the `GENERIC` header arity (name = `fst`, arity = `.Length`).
+        /// Empty for a non-generic member. Rides `'ty` so the frozen tree carries no
+        /// union-find cell — the canonical ABI order is built once by
+        /// `GeneralizedTypars.canonical` in the side-table `Generalized` and
+        /// materialized here in that order.
+        MethodTypeParams: EqArray<string * 'ty>
     }
 
 /// One `[static] let [mutable] x = <init>` of a class preamble.

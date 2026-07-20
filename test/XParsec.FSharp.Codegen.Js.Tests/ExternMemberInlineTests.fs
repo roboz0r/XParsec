@@ -116,7 +116,7 @@ let private pokeMemberOf (template: string) (paramTy: FrozenType) : Frozen.TType
         Params = EqArray.ofList [ (xKey, paramTy) ]
         Body = body
         ReturnTy = ftInt
-        MethodTypeParams = GeneralizedTypars.empty
+        MethodTypeParams = EqArray.empty
     }
 
 /// `member _.Poke (x: int) : int = (# "$0 + 1" x : int #)`.
@@ -370,12 +370,7 @@ let tests =
                         | TMemberKind.Method -> MemberKind.Method
                         | TMemberKind.Property -> MemberKind.Property
 
-                    SymbolKeyOps.memberKey
-                        declKey
-                        m.Name
-                        (m.Params |> EqArray.map snd)
-                        (GeneralizedTypars.count m.MethodTypeParams)
-                        kind
+                    SymbolKeyOps.memberKey declKey m.Name (m.Params |> EqArray.map snd) m.MethodTypeParams.Length kind
 
                 let kInt = mintKey (pokeMemberOf "$0 + 1" ftInt)
                 let kStr = mintKey (pokeMemberOf "$0.length" ftString)

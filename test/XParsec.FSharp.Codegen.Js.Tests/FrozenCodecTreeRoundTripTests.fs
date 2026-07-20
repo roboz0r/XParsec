@@ -84,4 +84,39 @@ let tests =
                 Expect.isGreaterThan (List.length frozenFiles) 0 "gated programs"
                 Expect.isGreaterThan totalDecls 20 "total top-level decls across the corpus"
             }
+
+            // The whole corpus above declares ZERO generic members, so it never populates a
+            // member's `MethodTypeParams` — the field that used to ride the frozen tree as a
+            // live union-find cell (`GeneralizedTypars`) and could not survive flatten/thaw
+            // structurally. This case forces a non-empty carrier: it must ride `'ty` as
+            // `(name, FTTypar(Method, i))` and round-trip as plain data.
+            test "a generic member's MethodTypeParams rides the frozen tree as FTTypar and round-trips" {
+                let f = frozenOfJs "type C() =\n    member this.Id<'T> (x: 'T) : 'T = x\n"
+
+                let methodTypars =
+                    f.Decls
+                    |> EqArray.toList
+                    |> List.tryPick (fun d ->
+                        match d with
+                        | Frozen.TDecl.Type td ->
+                            TTypeKindG.members td.Kind
+                            |> EqArray.toList
+                            |> List.tryPick (fun (m: Frozen.TTypeMember) ->
+                                if m.Name = "Id" then Some m.MethodTypeParams else None
+                            )
+                        | _ -> None
+                    )
+                    |> Option.defaultWith (fun () -> failtest "no member `Id` in the frozen tree")
+
+                // Genuinely populated (not silently frozen empty), and each entry is the
+                // positional method-axis marker — no `SemType` cell rides the tree.
+                Expect.equal
+                    (EqArray.toList methodTypars)
+                    [ "'T", FTTypar(TyparAxis.Method, 0) ]
+                    "member's own typar rides as (name, FTTypar(Method, 0))"
+
+                let rebuilt = FrozenCodec.thaw (FrozenCodec.flatten f)
+
+                Expect.isTrue (structurallyEqual f rebuilt) "generic-member file survived flatten/thaw structurally"
+            }
         ]
