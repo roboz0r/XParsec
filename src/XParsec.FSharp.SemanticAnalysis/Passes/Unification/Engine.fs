@@ -391,16 +391,10 @@ module UnificationEngine =
                     r1
 
             // Fold the loser's deferred-constraint payload into the surviving
-            // representative — one associative set-union join per family, replacing the
-            // former bespoke `migrateBounds`. Payload lives only under the rep id.
-            // Constraints dedup by `Kind`; SRTP / pending dot-accesses preserve
-            // `loser @ winner`; defaults preserve `winner @ loser` — each the order the
-            // node slot carried.
-            let store = ctx.Store
-            store.Constraints.Join(newRoot.Id, merged.Id, joinConstraints)
-            store.Srtp.Join(newRoot.Id, merged.Id, (fun w l -> l @ w))
-            store.Pda.Join(newRoot.Id, merged.Id, (fun w l -> l @ w))
-            store.Defaults.Join(newRoot.Id, merged.Id, (fun w l -> w @ l))
+            // representative — one associative set-union join per family (each family's
+            // merge order is baked into its store table), replacing the former bespoke
+            // `migrateBounds`. Payload lives only under the rep id.
+            ctx.Store.MergePayloads(newRoot.Id, merged.Id)
             mergeUnits ctx key newRoot unitsA unitsB
             // If both sides carried links, unify them so the carriers agree.
             match linkA, linkB with
@@ -514,17 +508,23 @@ module UnificationEngine =
         let pending = ctx.Store.Pda.Live root.Id
 
         if not (List.isEmpty pending) then
+            // Every resolving branch discharges the whole snapshot up front — so a
+            // reentrant drain (the `unify`s below) sees it gone and the leftover-
+            // unresolved check never re-fires a resolved access. Only NotNominal leaves
+            // the accesses parked for a later `Link`. The single home of that discharge.
+            let solveAll () =
+                for d in pending do
+                    ctx.Store.Pda.Solve d
+
             match resolveDotSource ctx linkTarget with
             | DotSource.NotNominal -> ()
             | DotSource.UnknownType(name, kind) ->
-                for d in pending do
-                    ctx.Store.Pda.Solve d
+                solveAll ()
 
                 for d in pending do
                     ctx.Error(d.UseKey, sprintf "Unknown %s type '%s'" kind name)
             | DotSource.Resolved(name, memberNoun, subst, lookup) ->
-                for d in pending do
-                    ctx.Store.Pda.Solve d
+                solveAll ()
 
                 for d in pending do
                     match lookup d.MemberName with
@@ -534,8 +534,7 @@ module UnificationEngine =
                 // `tryClassChainMember` already returns the type instantiated
                 // against `args` (and any parent typar substitution), so no
                 // further `substituteWith` is needed here.
-                for d in pending do
-                    ctx.Store.Pda.Solve d
+                solveAll ()
 
                 let (DisplayName shown) = SymbolKeyOps.typeSimpleName key
 
@@ -551,8 +550,7 @@ module UnificationEngine =
                 // member, pinned by the interface-conformance unify only *after* the
                 // body — and its dot-accesses — were deferred). Resolve each member
                 // through the provider and record it for Elaborate.
-                for d in pending do
-                    ctx.Store.Pda.Solve d
+                solveAll ()
 
                 let argArr = args.AsSpan().ToArray()
 

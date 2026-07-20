@@ -11,7 +11,12 @@
     <Compile Include="CstKeys.fs" />
     <Compile Include="CstWalk.fs" />
     <Compile Include="Conformance.fs" />
+    <Compile Include="SymbolKeys.fs" />
+    <Compile Include="SemanticScalars.fs" />
     <Compile Include="SemanticInfo.fs" />
+    <Compile Include="SemTypeWalks.fs" />
+    <Compile Include="TypeStore.fs" />
+    <Compile Include="FrozenTypeBridge.fs" />
     <Compile Include="UnionFind.fs" />
     <Compile Include="GeneralizedTypars.fs" />
     <Compile Include="SymbolKeyOps.fs" />

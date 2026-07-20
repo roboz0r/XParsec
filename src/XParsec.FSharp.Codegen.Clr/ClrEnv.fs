@@ -536,7 +536,7 @@ type internal ClrEnv
     /// `Vesper.Ref`1`) is reconciled once inside `lookupTypeByKey`.
     let externalRecordShape (key: SymbolKey) (arity: int) : (ExternalFieldShape[] * SymbolOrigin) voption =
         match lookupTypeByKey key with
-        | ValueSome(ExternalTypeShape.Record(a, fields, origin)) when a = arity && origin.Home.IsStamped ->
+        | ValueSome(ExternalTypeShape.Record(a, fields, origin)) when a = arity && origin.Home <> Origin.Unstamped ->
             ValueSome(fields, origin)
         | _ -> ValueNone
 
@@ -559,7 +559,7 @@ type internal ClrEnv
     /// The bare-vs-arity-suffixed registration split is reconciled once inside `lookupTypeByKey`.
     let externalUnionShape (key: SymbolKey) (arity: int) : (ExternalCaseShape[] * SymbolOrigin) voption =
         match lookupTypeByKey key with
-        | ValueSome(ExternalTypeShape.Union(a, cases, _, origin)) when a = arity && origin.Home.IsStamped ->
+        | ValueSome(ExternalTypeShape.Union(a, cases, _, origin)) when a = arity && origin.Home <> Origin.Unstamped ->
             ValueSome(cases, origin)
         | _ -> ValueNone
 

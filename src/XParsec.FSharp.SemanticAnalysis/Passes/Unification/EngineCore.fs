@@ -102,19 +102,6 @@ module UnificationEngineCore =
         | [ t ] -> t
         | many -> TyTuple(EqArray.ofList many)
 
-    /// The `union` join for the constraint family: fold the loser's constraints into
-    /// the winner's, skipping any whose `Kind` already appears (two same-`Kind`
-    /// constraints discharge to one predicate — keeping both fires the diagnostic
-    /// twice). Mirrors the former `mergeConstraints` fold, so order is unchanged.
-    let joinConstraints (winner: SemanticConstraint list) (loser: SemanticConstraint list) : SemanticConstraint list =
-        let mutable acc = winner
-
-        for c in loser do
-            if not (acc |> List.exists (fun existing -> existing.Kind = c.Kind)) then
-                acc <- c :: acc
-
-        acc
-
     /// Two passes folded into one walk:
     /// (a) **Occurs check** — does `target` (already a union-find root) appear
     ///     anywhere inside `t`? Stops the `let rec f x = f` / `let rec g = g g`

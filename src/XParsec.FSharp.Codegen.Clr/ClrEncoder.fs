@@ -322,10 +322,10 @@ type internal ClrEncoder(env: ClrEnv) =
             failwithf
                 "ClrProvider: cannot encode enum type reference %A — project-local enums only; external (TS-manifest) enums are a JS-target concern, unsupported on CLR"
                 t
-        // A structural literal ERASES to its base primitive on both backends (the
-        // runtime value already IS the literal) — re-encode as that primitive rather
-        // than hit the catch-all. External-vocabulary only (a TS/JS concern), so a
-        // literal rarely reaches the CLR encoder, but erasing keeps it honest.
+        // A structural literal has no IL repr of its own — re-encode as its base
+        // primitive (`LiteralConst.BaseName`) rather than hit the catch-all. External-
+        // vocabulary only (a TS/JS concern), so this arm is rarely reached here, but
+        // erasing keeps it honest.
         | FTLiteral v -> encodeType te (FTConst(RuntimeNames.primitiveKey v.BaseName, EqArray.empty))
         // A carried type-level computation (keyof / indexed-access / conditional) is a
         // JS-seam construct that must be GROUND-EVALUATED by the front end (step 3)

@@ -110,7 +110,7 @@ module CodegenSymbols =
                 | ValueSome sym ->
                     // A project-local symbol (no home assembly) the provider never owns:
                     // mirror the old `emitExternalCall` guard and let the caller fall back.
-                    if not sym.Origin.Home.IsStamped then
+                    if sym.Origin.Home = Origin.Unstamped then
                         ValueNone
                     else
                         let os = Inline.openMethodSignature sym
