@@ -168,3 +168,17 @@ module GeneralizedTypars =
 
     /// The zero-typar value (a non-generic value/member).
     let empty: GeneralizedTypars = GeneralizedTypars [||]
+
+    /// UNSAFE, DESERIALIZATION-ONLY carrier rebuild — do not use in analysis.
+    ///
+    /// It mints a FRESH `TypeVar` per name, so it does NOT preserve union-find identity
+    /// and does NOT establish a canonical order: it merely TRANSPORTS an already-canonical
+    /// name sequence (`names` of a carrier `canonical` produced) back into the type, in the
+    /// given order. Passing a non-canonical `ns` silently breaks the array-position-is-ABI-
+    /// index invariant `canonical` exists to guarantee — hence `unsafe`. The one legitimate
+    /// caller is the frozen serializer (`FrozenCodec`), thawing a `MethodTypeParams` whose
+    /// live roots cannot survive a byte round-trip and whose post-freeze consumers read only
+    /// `names` + `count`. `[||]` reproduces `empty` exactly. See
+    /// `docs/frozen-tree-semtype-residue-plan.md` for the residue this works around.
+    let unsafeOfNames (ns: string[]) : GeneralizedTypars =
+        GeneralizedTypars(Array.map (fun n -> n, TypeVar()) ns)
