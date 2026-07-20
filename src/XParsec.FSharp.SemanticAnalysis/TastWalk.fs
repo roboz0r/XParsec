@@ -179,12 +179,17 @@ module TastWalk =
 
     /// Apply a type map to a `CallVia`'s payload. Only `CallVia.Interface` carries
     /// types (its constraining-interface instantiation args); `Self`/`Base` pass
-    /// through unchanged.
+    /// through unchanged. Sharing-preserving (like `SemType.mapChildren`): returns
+    /// the SAME `v` when `f` leaves every payload type reference-unchanged, so an
+    /// unaffected `MethodCall`/`PropertyGet` node can itself preserve.
     let mapVia (f: SemType -> SemType) (v: CallVia<SemType>) : CallVia<SemType> =
         match v with
-        | CallVia.Interface ifaceArgs -> CallVia.Interface(EqArray.map f ifaceArgs)
-        | CallVia.Self -> CallVia.Self
-        | CallVia.Base -> CallVia.Base
+        | CallVia.Interface ifaceArgs ->
+            match EqArray.mapPreserve f ifaceArgs with
+            | ValueNone -> v
+            | ValueSome ifaceArgs' -> CallVia.Interface ifaceArgs'
+        | CallVia.Self
+        | CallVia.Base -> v
 
     /// Map the `'ty` payloads of a `for … in` enumerator descriptor — the enumerator
     /// type and (rung-3 constrained-typar source) the seq/enumerator interface
@@ -217,18 +222,63 @@ module TastWalk =
         | ValueNone ->
             let f = m.MapType
 
+            // Sharing-preserving, exactly as `SemType.mapChildren`: return the input
+            // `p` when `f` and the child walk leave every field reference-unchanged,
+            // so preservation propagates up through a `Let`/`Match` that carries it.
             match p with
-            | TPat.NamedSimple(k, ty, tok) -> TPat.NamedSimple(k, f ty, tok)
-            | TPat.Wildcard(ty, tok) -> TPat.Wildcard(f ty, tok)
-            | TPat.Const(v, ty, tok) -> TPat.Const(v, f ty, tok)
-            | TPat.Tuple(items, ty, tok) -> TPat.Tuple(EqArray.map (mapPat m) items, f ty, tok)
+            | TPat.NamedSimple(k, ty, tok) ->
+                let ty' = f ty
+                if refEq ty' ty then p else TPat.NamedSimple(k, ty', tok)
+            | TPat.Wildcard(ty, tok) ->
+                let ty' = f ty
+                if refEq ty' ty then p else TPat.Wildcard(ty', tok)
+            | TPat.Const(v, ty, tok) ->
+                let ty' = f ty
+                if refEq ty' ty then p else TPat.Const(v, ty', tok)
+            | TPat.Tuple(items, ty, tok) ->
+                let ty' = f ty
+
+                match EqArray.mapPreserve (mapPat m) items with
+                | ValueNone -> if refEq ty' ty then p else TPat.Tuple(items, ty', tok)
+                | ValueSome items' -> TPat.Tuple(items', ty', tok)
             | TPat.Record(fields, ty, tok) ->
-                TPat.Record(EqArray.map (fun (n, sub) -> n, mapPat m sub) fields, f ty, tok)
-            | TPat.Union(c, fields, ty, tok) -> TPat.Union(c, EqArray.map (mapPat m) fields, f ty, tok)
-            | TPat.TypeTestAs(testTy, inner, ty, tok) -> TPat.TypeTestAs(f testTy, mapPat m inner, f ty, tok)
-            | TPat.Null(ty, tok) -> TPat.Null(f ty, tok)
-            | TPat.EnumCase(k, n, ty, tok) -> TPat.EnumCase(k, n, f ty, tok)
-            | TPat.Or(alts, ty, tok) -> TPat.Or(EqArray.map (mapPat m) alts, f ty, tok)
+                let ty' = f ty
+
+                let mapField pair =
+                    let (n, sub) = pair
+                    let sub' = mapPat m sub
+                    if refEq sub' sub then pair else (n, sub')
+
+                match EqArray.mapPreserve mapField fields with
+                | ValueNone -> if refEq ty' ty then p else TPat.Record(fields, ty', tok)
+                | ValueSome fields' -> TPat.Record(fields', ty', tok)
+            | TPat.Union(c, fields, ty, tok) ->
+                let ty' = f ty
+
+                match EqArray.mapPreserve (mapPat m) fields with
+                | ValueNone -> if refEq ty' ty then p else TPat.Union(c, fields, ty', tok)
+                | ValueSome fields' -> TPat.Union(c, fields', ty', tok)
+            | TPat.TypeTestAs(testTy, inner, ty, tok) ->
+                let testTy' = f testTy
+                let inner' = mapPat m inner
+                let ty' = f ty
+
+                if refEq testTy' testTy && refEq inner' inner && refEq ty' ty then
+                    p
+                else
+                    TPat.TypeTestAs(testTy', inner', ty', tok)
+            | TPat.Null(ty, tok) ->
+                let ty' = f ty
+                if refEq ty' ty then p else TPat.Null(ty', tok)
+            | TPat.EnumCase(k, n, ty, tok) ->
+                let ty' = f ty
+                if refEq ty' ty then p else TPat.EnumCase(k, n, ty', tok)
+            | TPat.Or(alts, ty, tok) ->
+                let ty' = f ty
+
+                match EqArray.mapPreserve (mapPat m) alts with
+                | ValueNone -> if refEq ty' ty then p else TPat.Or(alts, ty', tok)
+                | ValueSome alts' -> TPat.Or(alts', ty', tok)
 
     let rec mapExpr (m: Mapper) (e: TExpr) : TExpr =
         match m.OverrideExpr m e with
@@ -239,27 +289,124 @@ module TastWalk =
             let pp = mapPat m
             let pa = mapArm m
 
+            // Preserve the `(name, value)` field pair when its value is unchanged, so
+            // `mapPreserve` sees a reference-equal element and a record whose fields
+            // are all untouched preserves the whole array.
+            let mapNamedExpr pair =
+                let (n, v) = pair
+                let v' = pe v
+                if refEq v' v then pair else (n, v')
+
+            // Sharing-preserving, exactly as `SemType.mapChildren`: each arm returns
+            // the input `e` when `f` and the child walk leave every field
+            // reference-unchanged, so a subtree the pass does not touch walks
+            // allocation-free and the sharing propagates up. The rare/gnarly arms
+            // (`ForIn`, `Format`, `StaticOptimization`) stay always-rebuilding — their
+            // nested record-update shape rebuilds regardless, so preservation there
+            // would rarely fire and never carries an unaffected common subtree.
             match e with
-            | TExpr.Const(v, ty, tok) -> TExpr.Const(v, f ty, tok)
-            | TExpr.Var(k, ty, tok) -> TExpr.Var(k, f ty, tok)
-            | TExpr.External(n, k, ty, tok) -> TExpr.External(n, k, f ty, tok)
-            | TExpr.Null(ty, tok) -> TExpr.Null(f ty, tok)
+            | TExpr.Const(v, ty, tok) ->
+                let ty' = f ty
+                if refEq ty' ty then e else TExpr.Const(v, ty', tok)
+            | TExpr.Var(k, ty, tok) ->
+                let ty' = f ty
+                if refEq ty' ty then e else TExpr.Var(k, ty', tok)
+            | TExpr.External(n, k, ty, tok) ->
+                let ty' = f ty
+                if refEq ty' ty then e else TExpr.External(n, k, ty', tok)
+            | TExpr.Null(ty, tok) ->
+                let ty' = f ty
+                if refEq ty' ty then e else TExpr.Null(ty', tok)
             // Tuple-constructor arguments evaluate left-to-right, so `pp p`
             // (binder) always runs before `pe b` / `pe v` / `pe body` — the
             // ordering `Inline.freshen` relies on for `Lambda` / `Let` /
             // `Match`-arm binders.
-            | TExpr.Lambda(p, b, ty, tok) -> TExpr.Lambda(pp p, pe b, f ty, tok)
-            | TExpr.App(fn, a, ty, tok) -> TExpr.App(pe fn, pe a, f ty, tok)
-            | TExpr.Let(p, v, body, ty, tok) -> TExpr.Let(pp p, pe v, pe body, f ty, tok)
-            | TExpr.Use(p, v, body, dispose, ty, tok) -> TExpr.Use(pp p, pe v, pe body, dispose, f ty, tok)
-            | TExpr.IfThenElse(c, t, el, ty, tok) -> TExpr.IfThenElse(pe c, pe t, pe el, f ty, tok)
-            | TExpr.Tuple(items, ty, tok) -> TExpr.Tuple(EqArray.map pe items, f ty, tok)
-            | TExpr.Sequential(items, ty, tok) -> TExpr.Sequential(EqArray.map pe items, f ty, tok)
-            | TExpr.While(c, b, ty, tok) -> TExpr.While(pe c, pe b, f ty, tok)
+            | TExpr.Lambda(p, b, ty, tok) ->
+                let p' = pp p
+                let b' = pe b
+                let ty' = f ty
+
+                if refEq p' p && refEq b' b && refEq ty' ty then
+                    e
+                else
+                    TExpr.Lambda(p', b', ty', tok)
+            | TExpr.App(fn, a, ty, tok) ->
+                let fn' = pe fn
+                let a' = pe a
+                let ty' = f ty
+
+                if refEq fn' fn && refEq a' a && refEq ty' ty then
+                    e
+                else
+                    TExpr.App(fn', a', ty', tok)
+            | TExpr.Let(p, v, body, ty, tok) ->
+                let p' = pp p
+                let v' = pe v
+                let body' = pe body
+                let ty' = f ty
+
+                if refEq p' p && refEq v' v && refEq body' body && refEq ty' ty then
+                    e
+                else
+                    TExpr.Let(p', v', body', ty', tok)
+            | TExpr.Use(p, v, body, dispose, ty, tok) ->
+                let p' = pp p
+                let v' = pe v
+                let body' = pe body
+                let ty' = f ty
+
+                if refEq p' p && refEq v' v && refEq body' body && refEq ty' ty then
+                    e
+                else
+                    TExpr.Use(p', v', body', dispose, ty', tok)
+            | TExpr.IfThenElse(c, t, el, ty, tok) ->
+                let c' = pe c
+                let t' = pe t
+                let el' = pe el
+                let ty' = f ty
+
+                if refEq c' c && refEq t' t && refEq el' el && refEq ty' ty then
+                    e
+                else
+                    TExpr.IfThenElse(c', t', el', ty', tok)
+            | TExpr.Tuple(items, ty, tok) ->
+                let ty' = f ty
+
+                match EqArray.mapPreserve pe items with
+                | ValueNone -> if refEq ty' ty then e else TExpr.Tuple(items, ty', tok)
+                | ValueSome items' -> TExpr.Tuple(items', ty', tok)
+            | TExpr.Sequential(items, ty, tok) ->
+                let ty' = f ty
+
+                match EqArray.mapPreserve pe items with
+                | ValueNone ->
+                    if refEq ty' ty then
+                        e
+                    else
+                        TExpr.Sequential(items, ty', tok)
+                | ValueSome items' -> TExpr.Sequential(items', ty', tok)
+            | TExpr.While(c, b, ty, tok) ->
+                let c' = pe c
+                let b' = pe b
+                let ty' = f ty
+
+                if refEq c' c && refEq b' b && refEq ty' ty then
+                    e
+                else
+                    TExpr.While(c', b', ty', tok)
             // `var` is a `NodeKey`, not a `TPat`, so `OverridePat` cannot see
             // it — passes that rename binders (`Inline.freshen`) must override
             // `ForTo` at the expr level.
-            | TExpr.ForTo(k, s, e2, b, ty, tok) -> TExpr.ForTo(k, pe s, pe e2, pe b, f ty, tok)
+            | TExpr.ForTo(k, s, e2, b, ty, tok) ->
+                let s' = pe s
+                let e2' = pe e2
+                let b' = pe b
+                let ty' = f ty
+
+                if refEq s' s && refEq e2' e2 && refEq b' b && refEq ty' ty then
+                    e
+                else
+                    TExpr.ForTo(k, s', e2', b', ty', tok)
             // The enumerator descriptor carries `'ty` payloads — the enumerator type
             // and, for a rung-3 constrained-typar source, the seq/enumerator interface
             // instantiation args. They reference the enclosing function's typars, so a
@@ -267,32 +414,193 @@ module TastWalk =
             // `mapVia` precedent for `CallVia.Interface`), else they leak as un-ground
             // `TyVar`s → `?free-typar` at the freeze cut.
             | TExpr.ForIn(p, src, b, en, ty, tok) -> TExpr.ForIn(pp p, pe src, pe b, mapForInEnumerator f en, f ty, tok)
-            | TExpr.Match(sc, arms, ty, tok) -> TExpr.Match(pe sc, EqArray.map pa arms, f ty, tok)
-            | TExpr.TryWith(b, arms, ty, tok) -> TExpr.TryWith(pe b, EqArray.map pa arms, f ty, tok)
-            | TExpr.TryFinally(b, c, ty, tok) -> TExpr.TryFinally(pe b, pe c, f ty, tok)
-            | TExpr.Assignment(l, r, ty, tok) -> TExpr.Assignment(pe l, pe r, f ty, tok)
-            | TExpr.Range(s, step, e2, ty, tok) -> TExpr.Range(pe s, Option.map pe step, pe e2, f ty, tok)
+            | TExpr.Match(sc, arms, ty, tok) ->
+                let sc' = pe sc
+                let ty' = f ty
+
+                match EqArray.mapPreserve pa arms with
+                | ValueNone ->
+                    if refEq sc' sc && refEq ty' ty then
+                        e
+                    else
+                        TExpr.Match(sc', arms, ty', tok)
+                | ValueSome arms' -> TExpr.Match(sc', arms', ty', tok)
+            | TExpr.TryWith(b, arms, ty, tok) ->
+                let b' = pe b
+                let ty' = f ty
+
+                match EqArray.mapPreserve pa arms with
+                | ValueNone ->
+                    if refEq b' b && refEq ty' ty then
+                        e
+                    else
+                        TExpr.TryWith(b', arms, ty', tok)
+                | ValueSome arms' -> TExpr.TryWith(b', arms', ty', tok)
+            | TExpr.TryFinally(b, c, ty, tok) ->
+                let b' = pe b
+                let c' = pe c
+                let ty' = f ty
+
+                if refEq b' b && refEq c' c && refEq ty' ty then
+                    e
+                else
+                    TExpr.TryFinally(b', c', ty', tok)
+            | TExpr.Assignment(l, r, ty, tok) ->
+                let l' = pe l
+                let r' = pe r
+                let ty' = f ty
+
+                if refEq l' l && refEq r' r && refEq ty' ty then
+                    e
+                else
+                    TExpr.Assignment(l', r', ty', tok)
+            | TExpr.Range(s, step, e2, ty, tok) ->
+                let s' = pe s
+
+                let step' =
+                    match step with
+                    | Some st ->
+                        let st' = pe st
+                        if refEq st' st then step else Some st'
+                    | None -> step
+
+                let e2' = pe e2
+                let ty' = f ty
+
+                if refEq s' s && refEq step' step && refEq e2' e2 && refEq ty' ty then
+                    e
+                else
+                    TExpr.Range(s', step', e2', ty', tok)
             | TExpr.RecordCons(fields, ty, tok) ->
-                TExpr.RecordCons(EqArray.map (fun (n, v) -> n, pe v) fields, f ty, tok)
+                let ty' = f ty
+
+                match EqArray.mapPreserve mapNamedExpr fields with
+                | ValueNone ->
+                    if refEq ty' ty then
+                        e
+                    else
+                        TExpr.RecordCons(fields, ty', tok)
+                | ValueSome fields' -> TExpr.RecordCons(fields', ty', tok)
             | TExpr.RecordClone(src, ov, ty, tok) ->
-                TExpr.RecordClone(pe src, EqArray.map (fun (n, v) -> n, pe v) ov, f ty, tok)
-            | TExpr.FieldGet(r, n, ty, tok) -> TExpr.FieldGet(pe r, n, f ty, tok)
-            | TExpr.FieldSet(r, n, v, ty, tok) -> TExpr.FieldSet(pe r, n, pe v, f ty, tok)
-            | TExpr.UnionCons(c, args, ty, tok) -> TExpr.UnionCons(c, EqArray.map pe args, f ty, tok)
-            | TExpr.New(c, k, args, ty, tok) -> TExpr.New(c, k, EqArray.map pe args, f ty, tok)
+                let src' = pe src
+                let ty' = f ty
+
+                match EqArray.mapPreserve mapNamedExpr ov with
+                | ValueNone ->
+                    if refEq src' src && refEq ty' ty then
+                        e
+                    else
+                        TExpr.RecordClone(src', ov, ty', tok)
+                | ValueSome ov' -> TExpr.RecordClone(src', ov', ty', tok)
+            | TExpr.FieldGet(r, n, ty, tok) ->
+                let r' = pe r
+                let ty' = f ty
+
+                if refEq r' r && refEq ty' ty then
+                    e
+                else
+                    TExpr.FieldGet(r', n, ty', tok)
+            | TExpr.FieldSet(r, n, v, ty, tok) ->
+                let r' = pe r
+                let v' = pe v
+                let ty' = f ty
+
+                if refEq r' r && refEq v' v && refEq ty' ty then
+                    e
+                else
+                    TExpr.FieldSet(r', n, v', ty', tok)
+            | TExpr.UnionCons(c, args, ty, tok) ->
+                let ty' = f ty
+
+                match EqArray.mapPreserve pe args with
+                | ValueNone ->
+                    if refEq ty' ty then
+                        e
+                    else
+                        TExpr.UnionCons(c, args, ty', tok)
+                | ValueSome args' -> TExpr.UnionCons(c, args', ty', tok)
+            | TExpr.New(c, k, args, ty, tok) ->
+                let ty' = f ty
+
+                match EqArray.mapPreserve pe args with
+                | ValueNone -> if refEq ty' ty then e else TExpr.New(c, k, args, ty', tok)
+                | ValueSome args' -> TExpr.New(c, k, args', ty', tok)
             // `CallVia.Interface` carries the constraining interface's instantiation
             // type args (rung-3) — they reference the enclosing type's typars, so a
             // declaring-typar remap (`freezeTypars`) must reach them too, else they
             // leak as un-ground `TyVar`s at the freeze cut.
             | TExpr.MethodCall(r, k, via, args, ty, tok) ->
-                TExpr.MethodCall(pe r, k, mapVia f via, EqArray.map pe args, f ty, tok)
-            | TExpr.PropertyGet(r, k, via, ty, tok) -> TExpr.PropertyGet(pe r, k, mapVia f via, f ty, tok)
-            | TExpr.StaticMethodCall(k, args, ty, tok) -> TExpr.StaticMethodCall(k, EqArray.map pe args, f ty, tok)
-            | TExpr.StaticPropertyGet(k, ty, tok) -> TExpr.StaticPropertyGet(k, f ty, tok)
-            | TExpr.StaticFieldGet(k, n, ty, tok) -> TExpr.StaticFieldGet(k, n, f ty, tok)
-            | TExpr.StaticFieldSet(k, n, v, ty, tok) -> TExpr.StaticFieldSet(k, n, pe v, f ty, tok)
+                let r' = pe r
+                let via' = mapVia f via
+                let ty' = f ty
+
+                match EqArray.mapPreserve pe args with
+                | ValueNone ->
+                    if refEq r' r && refEq via' via && refEq ty' ty then
+                        e
+                    else
+                        TExpr.MethodCall(r', k, via', args, ty', tok)
+                | ValueSome args' -> TExpr.MethodCall(r', k, via', args', ty', tok)
+            | TExpr.PropertyGet(r, k, via, ty, tok) ->
+                let r' = pe r
+                let via' = mapVia f via
+                let ty' = f ty
+
+                if refEq r' r && refEq via' via && refEq ty' ty then
+                    e
+                else
+                    TExpr.PropertyGet(r', k, via', ty', tok)
+            | TExpr.StaticMethodCall(k, args, ty, tok) ->
+                let ty' = f ty
+
+                match EqArray.mapPreserve pe args with
+                | ValueNone ->
+                    if refEq ty' ty then
+                        e
+                    else
+                        TExpr.StaticMethodCall(k, args, ty', tok)
+                | ValueSome args' -> TExpr.StaticMethodCall(k, args', ty', tok)
+            | TExpr.StaticPropertyGet(k, ty, tok) ->
+                let ty' = f ty
+
+                if refEq ty' ty then
+                    e
+                else
+                    TExpr.StaticPropertyGet(k, ty', tok)
+            | TExpr.StaticFieldGet(k, n, ty, tok) ->
+                let ty' = f ty
+
+                if refEq ty' ty then
+                    e
+                else
+                    TExpr.StaticFieldGet(k, n, ty', tok)
+            | TExpr.StaticFieldSet(k, n, v, ty, tok) ->
+                let v' = pe v
+                let ty' = f ty
+
+                if refEq v' v && refEq ty' ty then
+                    e
+                else
+                    TExpr.StaticFieldSet(k, n, v', ty', tok)
             | TExpr.ExternalMember(r, k, n, isProp, ty, tok) ->
-                TExpr.ExternalMember(ValueOption.map pe r, k, n, isProp, f ty, tok)
+                // `r` is a struct `voption`, so the receiver's preservation is
+                // observed through the wrapped `TExpr`, not the wrapper.
+                match r with
+                | ValueNone ->
+                    let ty' = f ty
+
+                    if refEq ty' ty then
+                        e
+                    else
+                        TExpr.ExternalMember(ValueNone, k, n, isProp, ty', tok)
+                | ValueSome x ->
+                    let x' = pe x
+                    let ty' = f ty
+
+                    if refEq x' x && refEq ty' ty then
+                        e
+                    else
+                        TExpr.ExternalMember(ValueSome x', k, n, isProp, ty', tok)
             | TExpr.Format(sink, segs, ty, tok) ->
                 let sink =
                     match sink with
@@ -322,7 +630,24 @@ module TastWalk =
 
                 TExpr.Format(sink, segs, f ty, tok)
             | TExpr.ILIntrinsic(op, operand, args, ty, tok) ->
-                TExpr.ILIntrinsic(op, ValueOption.map f operand, EqArray.map pe args, f ty, tok)
+                let ty' = f ty
+                // `operand` is a struct `SemType voption`; observe its preservation
+                // through the wrapped type. The self-host prim-types lean on `(# … #)`
+                // heavily, so this arm is on the common path and must preserve.
+                let struct (operandUnchanged, operand') =
+                    match operand with
+                    | ValueSome o ->
+                        let o' = f o
+                        struct (refEq o' o, ValueSome o')
+                    | ValueNone -> struct (true, ValueNone)
+
+                match EqArray.mapPreserve pe args with
+                | ValueNone ->
+                    if operandUnchanged && refEq ty' ty then
+                        e
+                    else
+                        TExpr.ILIntrinsic(op, operand', args, ty', tok)
+                | ValueSome args' -> TExpr.ILIntrinsic(op, operand', args', ty', tok)
             // The default rebuild substitutes typars inside constraints too —
             // `Elaborate.mapExprTypes` (used to push a remap through generic
             // member bodies) needs this. Passes that resolve clauses to a
@@ -344,21 +669,66 @@ module TastWalk =
                     )
 
                 TExpr.StaticOptimization(clauses, pe def, f ty, tok)
-            | TExpr.Upcast(src, ty, tok) -> TExpr.Upcast(pe src, f ty, tok)
-            | TExpr.Downcast(src, ty, tok) -> TExpr.Downcast(pe src, f ty, tok)
+            | TExpr.Upcast(src, ty, tok) ->
+                let src' = pe src
+                let ty' = f ty
+
+                if refEq src' src && refEq ty' ty then
+                    e
+                else
+                    TExpr.Upcast(src', ty', tok)
+            | TExpr.Downcast(src, ty, tok) ->
+                let src' = pe src
+                let ty' = f ty
+
+                if refEq src' src && refEq ty' ty then
+                    e
+                else
+                    TExpr.Downcast(src', ty', tok)
             | TExpr.TraitCall(recv, memberName, args, ty, tok) ->
-                TExpr.TraitCall(f recv, memberName, EqArray.map pe args, f ty, tok)
-            | TExpr.TypeTest(src, testTy, ty, tok) -> TExpr.TypeTest(pe src, f testTy, f ty, tok)
+                let recv' = f recv
+                let ty' = f ty
+
+                match EqArray.mapPreserve pe args with
+                | ValueNone ->
+                    if refEq recv' recv && refEq ty' ty then
+                        e
+                    else
+                        TExpr.TraitCall(recv', memberName, args, ty', tok)
+                | ValueSome args' -> TExpr.TraitCall(recv', memberName, args', ty', tok)
+            | TExpr.TypeTest(src, testTy, ty, tok) ->
+                let src' = pe src
+                let testTy' = f testTy
+                let ty' = f ty
+
+                if refEq src' src && refEq testTy' testTy && refEq ty' ty then
+                    e
+                else
+                    TExpr.TypeTest(src', testTy', ty', tok)
 
     and mapArm (m: Mapper) (arm: TMatchArm) : TMatchArm =
         match m.OverrideArm m arm with
         | ValueSome a' -> a'
         | ValueNone ->
-            {
-                Pat = mapPat m arm.Pat
-                Guard = Option.map (mapExpr m) arm.Guard
-                Body = mapExpr m arm.Body
-            }
+            let pat' = mapPat m arm.Pat
+
+            let guard' =
+                match arm.Guard with
+                | Some g ->
+                    let g' = mapExpr m g
+                    if refEq g' g then arm.Guard else Some g'
+                | None -> arm.Guard
+
+            let body' = mapExpr m arm.Body
+
+            if refEq pat' arm.Pat && refEq guard' arm.Guard && refEq body' arm.Body then
+                arm
+            else
+                {
+                    Pat = pat'
+                    Guard = guard'
+                    Body = body'
+                }
 
     /// Visit-only hooks. Returning `false` from a `VisitX` skips default child
     /// recursion (the override walked the children it wanted, or wants to skip
